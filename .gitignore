@@ -1,0 +1,168 @@
+# Dependencies
+node_modules/
+**/node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+pnpm-debug.log
+.pnp/
+.pnp.js
+.pnpm-store/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.nuxt/
+.output/
+lib/
+esm/
+cjs/
+umd/
+
+# Workspace package outputs
+src/web/primitives/dist/
+src/web/interfaces/dist/
+src/web/journey-context/dist/
+src/web/design-system/dist/
+
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+**/*.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+**/__snapshots__/__diff_output__/
+.jest-cache/
+
+# Logs
+logs/
+*.log
+**/*.log
+
+# IDE and editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+!.vscode/launch.json.example
+*.swp
+*.swo
+.DS_Store
+**/.DS_Store
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# React Native / Mobile specific
+android/app/build/
+android/.gradle/
+android/captures/
+android/local.properties
+android/gradlew
+android/gradlew.bat
+android/gradle/
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+ios/*.xcodeproj/**/xcuserdata
+*.keystore
+*.jks
+.expo/
+.expo-shared/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!example.tfvars
+.terraform.lock.hcl
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Generated files
+src/web/shared/graphql/schema.generated.ts
+src/backend/api-gateway/src/graphql/schema.generated.ts
+src/web/interfaces/*/generated/
+src/backend/packages/interfaces/*/generated/
+
+# Journey-specific artifacts
+src/web/design-system/src/health/storybook-static/
+src/web/design-system/src/care/storybook-static/
+src/web/design-system/src/plan/storybook-static/
+src/web/design-system/src/gamification/storybook-static/
+
+# Cache
+.cache/
+.eslintcache
+.stylelintcache
+.turbo/
+.swc/
+
+# Yarn v2
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+
+# Lerna
+lerna-debug.log
+
+# Turborepo
+.turbo
+
+# Storybook
+storybook-static/
+
+# Local development environment files
+.dev-proxy/
+.localdb/
+.local-storage/
+.docker-data/
+
+# Build artifacts
+**/.rollup.cache/
+**/.babel-cache/
+**/.webpack-cache/
+
+# Prisma
+**/.prisma/client/
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+
+# Detox
+.detoxrc.json
+artifacts/
+
+# Misc
+.vercel
+.netlify
