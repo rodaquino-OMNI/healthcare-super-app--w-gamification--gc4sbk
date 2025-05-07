@@ -16,7 +16,7 @@ import {
 import { EventKafkaException } from './event-kafka.exception';
 import { EventProcessingException } from './event-processing.exception';
 import { EventRetryableException, RetryOptions } from './event-retryable.exception';
-import { EventValidationException } from './event-validation.exception';
+import { EventValidationException, ValidationErrorDetail, EventValidationExceptionMetadata } from './event-validation.exception';
 
 // Re-export all exception classes as named exports
 export {
@@ -31,7 +31,10 @@ export {
   ManualInterventionMetadata,
   MonitoringMetadata,
   // Export interfaces from event-retryable.exception.ts
-  RetryOptions
+  RetryOptions,
+  // Export interfaces from event-validation.exception.ts
+  ValidationErrorDetail,
+  EventValidationExceptionMetadata
 };
 
 // Export interfaces for exception types to enable type-safe usage
