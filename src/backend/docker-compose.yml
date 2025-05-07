@@ -1,0 +1,381 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    image: austa-api-gateway:latest
+    container_name: api-gateway
+    build:
+      context: .
+      dockerfile: ./api-gateway/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      API_URL: http://localhost:3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      HEALTH_SERVICE_URL: http://health-service:3002
+      CARE_SERVICE_URL: http://care-service:3003
+      PLAN_SERVICE_URL: http://plan-service:3004
+      GAMIFICATION_ENGINE_URL: http://gamification-engine:3005
+      NOTIFICATION_SERVICE_URL: http://notification-service:3006
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./api-gateway:/app
+      - api_gateway_node_modules:/app/node_modules
+    depends_on:
+      - auth-service
+      - health-service
+      - care-service
+      - plan-service
+      - gamification-engine
+      - notification-service
+      - redis
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh redis:6379 -t 60 && npm run start:dev"
+
+  auth-service:
+    image: austa-auth-service:latest
+    container_name: auth-service
+    build:
+      context: .
+      dockerfile: ./auth-service/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=auth
+      JWT_SECRET: secret
+      JWT_EXPIRATION: 3600
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./auth-service:/app
+      - auth_service_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh redis:6379 -t 60 && npm run start:dev"
+
+  health-service:
+    image: austa-health-service:latest
+    container_name: health-service
+    build:
+      context: .
+      dockerfile: ./health-service/Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=health
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: health-service
+      KAFKA_GROUP_ID: health-service-group
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./health-service:/app
+      - health_service_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh kafka:9092 -t 120 && npm run start:dev"
+
+  care-service:
+    image: austa-care-service:latest
+    container_name: care-service
+    build:
+      context: .
+      dockerfile: ./care-service/Dockerfile
+    ports:
+      - "3003:3003"
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=care
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: care-service
+      KAFKA_GROUP_ID: care-service-group
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./care-service:/app
+      - care_service_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh kafka:9092 -t 120 && npm run start:dev"
+
+  plan-service:
+    image: austa-plan-service:latest
+    container_name: plan-service
+    build:
+      context: .
+      dockerfile: ./plan-service/Dockerfile
+    ports:
+      - "3004:3004"
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=plan
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: plan-service
+      KAFKA_GROUP_ID: plan-service-group
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./plan-service:/app
+      - plan_service_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh kafka:9092 -t 120 && npm run start:dev"
+
+  gamification-engine:
+    image: austa-gamification-engine:latest
+    container_name: gamification-engine
+    build:
+      context: .
+      dockerfile: ./gamification-engine/Dockerfile
+    ports:
+      - "3005:3005"
+    environment:
+      NODE_ENV: development
+      PORT: 3005
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=gamification
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: gamification-engine
+      KAFKA_GROUP_ID: gamification-engine-group
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+    volumes:
+      - ./gamification-engine:/app
+      - gamification_engine_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh kafka:9092 -t 120 && npm run start:dev"
+
+  notification-service:
+    image: austa-notification-service:latest
+    container_name: notification-service
+    build:
+      context: .
+      dockerfile: ./notification-service/Dockerfile
+    ports:
+      - "3006:3006"
+    environment:
+      NODE_ENV: development
+      PORT: 3006
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=notification
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: notification-service
+      KAFKA_GROUP_ID: notification-service-group
+      LOG_LEVEL: debug
+      TRACING_ENABLED: "true"
+      RETRY_MAX_ATTEMPTS: 3
+      RETRY_DELAY_MS: 1000
+      DLQ_ENABLED: "true"
+    volumes:
+      - ./notification-service:/app
+      - notification_service_node_modules:/app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - validate-env
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && ./scripts/wait-for-it.sh kafka:9092 -t 120 && npm run start:dev"
+
+  db-seed:
+    image: austa-db-seed:latest
+    container_name: db-seed
+    build:
+      context: .
+      dockerfile: ./tools/db-seed/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa
+    volumes:
+      - ./tools/db-seed:/app
+      - ./prisma:/app/prisma
+    depends_on:
+      - postgres
+    networks:
+      - austa-network
+    command: sh -c "./scripts/wait-for-it.sh postgres:5432 -t 60 && npm run db:migrate && npm run db:seed"
+
+  dev-proxy:
+    image: nginx:1.21.6
+    container_name: dev-proxy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./infrastructure/docker/dev-proxy/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - api-gateway
+    networks:
+      - austa-network
+
+  validate-env:
+    image: austa-validate-env:latest
+    container_name: validate-env
+    build:
+      context: .
+      dockerfile: ./tools/validate-env/Dockerfile
+    volumes:
+      - ./scripts:/app/scripts
+    command: sh -c "./scripts/validate-env.sh"
+
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: austa
+      POSTGRES_PASSWORD: austa
+      POSTGRES_DB: austa
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/db/init:/docker-entrypoint-initdb.d
+    networks:
+      - austa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U austa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - austa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 100
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - austa-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - austa-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: austa-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - austa-network
+
+networks:
+  austa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_logs:
+  api_gateway_node_modules:
+  auth_service_node_modules:
+  health_service_node_modules:
+  care_service_node_modules:
+  plan_service_node_modules:
+  gamification_engine_node_modules:
+  notification_service_node_modules:
