@@ -1,0 +1,38 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "paths": {
+      "@app/health": ["./src"],
+      "@app/health/*": ["./src/*"],
+      "@app/shared": ["../shared/src"],
+      "@app/shared/*": ["../shared/src/*"],
+      "@austa/interfaces": ["../../web/interfaces"],
+      "@austa/interfaces/*": ["../../web/interfaces/*"]
+    }
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts"
+  ],
+  "references": [
+    { "path": "../shared" },
+    { "path": "../packages/database" },
+    { "path": "../packages/errors" },
+    { "path": "../packages/events" },
+    { "path": "../packages/interfaces" },
+    { "path": "../packages/logging" },
+    { "path": "../packages/tracing" },
+    { "path": "../packages/utils" }
+  ]
+}
