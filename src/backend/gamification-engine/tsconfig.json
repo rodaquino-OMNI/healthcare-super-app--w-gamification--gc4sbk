@@ -1,0 +1,27 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    /* Output Configuration */
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "rootDir": "./",
+    
+    /* Module Resolution */
+    "paths": {
+      /* Local Service Paths */
+      "@app/gamification": ["src"],
+      "@app/gamification/*": ["src/*"]
+    },
+    
+    /* NestJS Specific */
+    "strictPropertyInitialization": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts"
+  ]
+}
