@@ -12,6 +12,7 @@ import { KafkaRetryService } from './kafka/kafka.retry.service';
 import { KafkaDlqService } from './kafka/kafka.dlq.service';
 import { KafkaHealthService } from './kafka/kafka.health.service';
 import { KafkaMonitoringService } from './kafka/kafka.monitoring.service';
+import { RetryStrategy } from './events/kafka/retry.strategy';
 
 /**
  * Options for configuring the KafkaModule
@@ -82,6 +83,7 @@ export interface KafkaModuleOptions {
     KafkaDlqService,
     KafkaHealthService,
     KafkaMonitoringService,
+    RetryStrategy,
   ],
   exports: [
     KafkaService,
@@ -91,6 +93,7 @@ export interface KafkaModuleOptions {
     KafkaDlqService,
     KafkaHealthService,
     KafkaMonitoringService,
+    RetryStrategy,
   ],
 })
 export class KafkaModule {
@@ -114,6 +117,7 @@ export class KafkaModule {
         KafkaDlqService,
         KafkaHealthService,
         KafkaMonitoringService,
+        RetryStrategy,
       ],
       exports: [
         KafkaService,
@@ -123,6 +127,7 @@ export class KafkaModule {
         KafkaDlqService,
         KafkaHealthService,
         KafkaMonitoringService,
+        RetryStrategy,
       ],
     };
   }
@@ -306,6 +311,20 @@ export class KafkaModule {
           },
           inject: [KafkaService, LoggerService, 'KAFKA_MODULE_OPTIONS'],
         },
+        {
+          provide: RetryStrategy,
+          useFactory: (configService: ConfigService, logger: LoggerService) => {
+            return new RetryStrategy(configService, logger);
+          },
+          inject: [ConfigService, LoggerService],
+        },
+        {
+          provide: RetryStrategy,
+          useFactory: (configService: ConfigService, logger: LoggerService) => {
+            return new RetryStrategy(configService, logger);
+          },
+          inject: [ConfigService, LoggerService],
+        },
       ],
       exports: [
         KafkaService,
@@ -315,6 +334,7 @@ export class KafkaModule {
         KafkaDlqService,
         KafkaHealthService,
         KafkaMonitoringService,
+        RetryStrategy,
       ],
     };
   }
