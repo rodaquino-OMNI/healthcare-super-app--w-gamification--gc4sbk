@@ -1,13 +1,14 @@
 import { HttpStatus, Logger } from '@nestjs/common';
-import { Request } from 'express';
-import { ERROR_CODES } from '@austa/errors';
-import {
-  handleApiGatewayError,
-  formatErrorForResponse,
-  ErrorResponse,
-} from './error-handling.util';
+import { JOURNEY_IDS } from '@austa/interfaces/common';
+import * as ErrorCodes from '@austa/errors/constants/error-codes';
+import { LoggingService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { ErrorType } from '@austa/errors/categories';
+import { BaseError } from '@austa/errors/base-error';
 
 const logger = new Logger('ResponseTransformUtil');
+const loggingService = new LoggingService();
+const tracingService = new TracingService();
 
 /**
  * Transforms a successful response from a backend service into a standardized format for the client.
@@ -30,57 +31,112 @@ export function transformResponse(data: any): any {
  * Extracts relevant information from various error types and converts them to a consistent format.
  * 
  * @param error - The error to transform
- * @param request - Optional request object for context enrichment
  * @returns A standardized error response object
  */
-export function transformErrorResponse(error: any, request?: Request): ErrorResponse {
-  logger.debug(`Transforming error response using enhanced error handling`);
-  
-  // Use the new error handling utilities to process the error
-  return handleApiGatewayError(error, request);
-}
-
-/**
- * Legacy error transformation function for backward compatibility
- * 
- * @deprecated Use transformErrorResponse with request parameter instead
- * @param error - The error to transform
- * @returns A standardized error response object
- */
-export function legacyTransformErrorResponse(error: any): { 
+export function transformErrorResponse(error: any): { 
   statusCode: number; 
   errorCode: string; 
   message: string;
   timestamp: string;
   path?: string;
   journey?: string;
+  correlationId?: string;
+  details?: Record<string, any>;
 } {
   let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
   let errorMessage = 'An unexpected error occurred';
-  let errorCode = ERROR_CODES.SYSTEM.INTERNAL_SERVER_ERROR;
+  let errorCode = ErrorCodes.SYS_INTERNAL_SERVER_ERROR;
   let path: string | undefined;
   let journey: string | undefined;
+  let correlationId: string | undefined;
+  let details: Record<string, any> | undefined;
 
-  logger.warn(`Using legacy error transformation. Consider upgrading to the new error handling utilities.`);
-  logger.error(`Transforming error response: ${JSON.stringify(error)}`, error.stack);
+  // Get current trace context for correlation ID
+  const traceContext = tracingService.getCurrentContext();
+  if (traceContext) {
+    correlationId = traceContext.traceId;
+  }
 
-  // Extract status code and message from error response if available
-  if (error.response) {
+  // Create structured log context
+  const logContext = loggingService.createContext({
+    correlationId,
+    error: {
+      name: error?.name || 'Error',
+      message: error?.message || errorMessage,
+      stack: error?.stack
+    }
+  });
+
+  // Log the error with structured context
+  logger.error(
+    `Transforming error response: ${error?.message || 'Unknown error'}`, 
+    error?.stack,
+    logContext
+  );
+
+  // Handle BaseError from @austa/errors package
+  if (error instanceof BaseError) {
+    statusCode = error.statusCode;
+    errorMessage = error.message;
+    errorCode = error.errorCode;
+    journey = error.journey;
+    correlationId = error.correlationId || correlationId;
+    path = error.path;
+    details = error.details;
+
+    // Add journey-specific context if available
+    if (error.journeyContext) {
+      if (!journey && error.journeyContext.journeyType) {
+        journey = error.journeyContext.journeyType;
+      }
+      
+      // Add journey-specific details to the error response
+      if (!details) {
+        details = {};
+      }
+      details.journeyContext = error.journeyContext;
+    }
+
+    // Map error types to appropriate status codes if not explicitly set
+    if (!error.statusCode) {
+      switch (error.type) {
+        case ErrorType.VALIDATION:
+          statusCode = HttpStatus.BAD_REQUEST;
+          break;
+        case ErrorType.BUSINESS:
+          statusCode = HttpStatus.CONFLICT;
+          break;
+        case ErrorType.TECHNICAL:
+          statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+          break;
+        case ErrorType.EXTERNAL:
+          statusCode = HttpStatus.BAD_GATEWAY;
+          break;
+        default:
+          statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+      }
+    }
+  } else if (error.response) {
     // Handle Axios-like error objects
     statusCode = error.response.status || statusCode;
     errorMessage = error.response.data?.message || error.message || errorMessage;
     errorCode = error.response.data?.errorCode || errorCode;
     path = error.response.data?.path || error.config?.url;
+    correlationId = error.response.data?.correlationId || correlationId;
+    details = error.response.data?.details;
     
     // Extract journey from path if available
     if (path) {
-      if (path.includes('/health/')) {
-        journey = 'health';
-      } else if (path.includes('/care/')) {
-        journey = 'care';
-      } else if (path.includes('/plan/')) {
-        journey = 'plan';
-      }
+      Object.values(JOURNEY_IDS).forEach(journeyId => {
+        if (path?.includes(`/${journeyId}/`)) {
+          journey = journeyId;
+        }
+      });
+    }
+
+    // Extract journey from error response if available
+    if (!journey && error.response.data?.journey) {
+      journey = error.response.data.journey;
     }
   } else if (error.status) {
     // Handle NestJS HttpException or similar error objects
@@ -89,30 +145,64 @@ export function legacyTransformErrorResponse(error: any): {
     errorCode = error.errorCode || errorCode;
     path = error.path;
     journey = error.journey;
+    correlationId = error.correlationId || correlationId;
+    details = error.details;
   } else if (error instanceof Error) {
     // Handle standard Error objects
     errorMessage = error.message || errorMessage;
   }
 
   // Map specific error messages to appropriate error codes if not already set
-  if (errorCode === ERROR_CODES.SYSTEM.INTERNAL_SERVER_ERROR) {
+  if (errorCode === ErrorCodes.SYS_INTERNAL_SERVER_ERROR) {
     if (errorMessage.toLowerCase().includes('unauthorized') || 
         errorMessage.toLowerCase().includes('unauthenticated')) {
-      errorCode = ERROR_CODES.AUTH.UNAUTHORIZED;
+      errorCode = ErrorCodes.AUTH_INVALID_CREDENTIALS;
       statusCode = HttpStatus.UNAUTHORIZED;
     } else if (errorMessage.toLowerCase().includes('forbidden')) {
-      errorCode = ERROR_CODES.AUTH.FORBIDDEN;
+      errorCode = ErrorCodes.AUTH_INSUFFICIENT_PERMISSIONS;
       statusCode = HttpStatus.FORBIDDEN;
     } else if (errorMessage.toLowerCase().includes('token expired')) {
-      errorCode = ERROR_CODES.AUTH.TOKEN_EXPIRED;
+      errorCode = ErrorCodes.AUTH_TOKEN_EXPIRED;
       statusCode = HttpStatus.UNAUTHORIZED;
     } else if (errorMessage.toLowerCase().includes('rate limit')) {
-      errorCode = ERROR_CODES.API.RATE_LIMIT_EXCEEDED;
+      errorCode = ErrorCodes.API_RATE_LIMIT_EXCEEDED;
       statusCode = HttpStatus.TOO_MANY_REQUESTS;
     } else if (errorMessage.toLowerCase().includes('invalid input') || 
                errorMessage.toLowerCase().includes('validation failed')) {
-      errorCode = ERROR_CODES.API.INVALID_INPUT;
+      errorCode = ErrorCodes.API_INVALID_INPUT;
       statusCode = HttpStatus.BAD_REQUEST;
+    }
+  }
+
+  // Add journey-specific error codes if journey is identified but error code is generic
+  if (journey && errorCode === ErrorCodes.SYS_INTERNAL_SERVER_ERROR) {
+    switch (journey) {
+      case JOURNEY_IDS.HEALTH:
+        if (errorMessage.toLowerCase().includes('metric')) {
+          errorCode = ErrorCodes.HEALTH_INVALID_METRIC;
+        } else if (errorMessage.toLowerCase().includes('device') || 
+                  errorMessage.toLowerCase().includes('connection')) {
+          errorCode = ErrorCodes.HEALTH_DEVICE_CONNECTION_FAILED;
+        }
+        break;
+      case JOURNEY_IDS.CARE:
+        if (errorMessage.toLowerCase().includes('provider')) {
+          errorCode = ErrorCodes.CARE_PROVIDER_UNAVAILABLE;
+        } else if (errorMessage.toLowerCase().includes('appointment') || 
+                  errorMessage.toLowerCase().includes('slot')) {
+          errorCode = ErrorCodes.CARE_APPOINTMENT_SLOT_TAKEN;
+        } else if (errorMessage.toLowerCase().includes('telemedicine')) {
+          errorCode = ErrorCodes.CARE_TELEMEDICINE_CONNECTION_FAILED;
+        }
+        break;
+      case JOURNEY_IDS.PLAN:
+        if (errorMessage.toLowerCase().includes('claim')) {
+          errorCode = ErrorCodes.PLAN_INVALID_CLAIM_DATA;
+        } else if (errorMessage.toLowerCase().includes('coverage') || 
+                  errorMessage.toLowerCase().includes('verification')) {
+          errorCode = ErrorCodes.PLAN_COVERAGE_VERIFICATION_FAILED;
+        }
+        break;
     }
   }
 
@@ -123,10 +213,19 @@ export function legacyTransformErrorResponse(error: any): {
     message: errorMessage,
     timestamp: new Date().toISOString(),
     ...(path && { path }),
-    ...(journey && { journey })
+    ...(journey && { journey }),
+    ...(correlationId && { correlationId }),
+    ...(details && { details })
   };
 
-  logger.debug(`Transformed error response: ${JSON.stringify(errorResponse)}`);
+  // Log the transformed error with structured context
+  logger.debug(
+    `Transformed error response: ${JSON.stringify(errorResponse)}`,
+    {
+      ...logContext,
+      transformedError: errorResponse
+    }
+  );
   
   return errorResponse;
 }
