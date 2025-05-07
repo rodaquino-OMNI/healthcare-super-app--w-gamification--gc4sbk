@@ -1,385 +1,162 @@
 /**
- * @file event-versioning.interface.ts
- * @description Defines interfaces for event schema versioning and evolution, enabling
- * backward compatibility for events across different versions. Provides utilities for
+ * Interfaces for event schema versioning and evolution.
+ * 
+ * This file defines interfaces for event schema versioning, enabling backward
+ * compatibility for events across different versions. It provides utilities for
  * version detection, schema migration, and handling of deprecated fields or structures.
  */
 
+import { IEvent } from './event.interface';
+
 /**
- * Represents a semantic version number for event schemas.
- * Follows the major.minor.patch format according to Semantic Versioning 2.0.0.
+ * Interface for event version metadata
  */
 export interface IEventVersion {
   /**
-   * Major version number. Incremented for incompatible API changes.
-   * Events with different major versions are considered incompatible.
+   * The major version number
    */
   major: number;
 
   /**
-   * Minor version number. Incremented for added functionality in a backward-compatible manner.
-   * Events with higher minor versions can be downgraded to lower minor versions of the same major.
+   * The minor version number
    */
   minor: number;
 
   /**
-   * Patch version number. Incremented for backward-compatible bug fixes.
-   * Events with different patch versions are fully compatible.
+   * The patch version number
    */
   patch: number;
+
+  /**
+   * The full version string (e.g., "1.2.3")
+   */
+  toString(): string;
 }
 
 /**
- * Represents an event that includes version information.
- * All versioned events must include a version field to enable proper handling
- * across different service versions.
+ * Interface for events with version support
  */
-export interface IVersionedEvent<T = unknown> {
+export interface IVersionedEvent extends IEvent {
   /**
-   * The semantic version of the event schema.
-   * Can be represented as an IEventVersion object or a string in the format "major.minor.patch".
+   * The version of the event schema
    */
-  version: IEventVersion | string;
-
-  /**
-   * The event payload containing the actual event data.
-   * The structure of this payload may vary between versions.
-   */
-  payload: T;
-
-  /**
-   * Optional metadata about the event version.
-   * Can include information about deprecated fields, schema changes, etc.
-   */
-  versionMetadata?: IVersionMetadata;
+  version: string;
 }
 
 /**
- * Metadata about an event version, including information about
- * deprecated fields, breaking changes, and migration paths.
+ * Interface for event schema transformation
  */
-export interface IVersionMetadata {
+export interface IEventTransformer<T extends IEvent = IEvent> {
   /**
-   * List of fields that are deprecated in this version.
-   * These fields may be removed in future versions.
-   */
-  deprecatedFields?: string[];
-
-  /**
-   * List of fields that are required in this version but were optional or non-existent in previous versions.
-   */
-  newRequiredFields?: string[];
-
-  /**
-   * List of fields that have changed their type or structure in this version.
-   */
-  changedFieldTypes?: IFieldTypeChange[];
-
-  /**
-   * The minimum version that is compatible with this version.
-   * Events with versions lower than this cannot be automatically upgraded.
-   */
-  minimumCompatibleVersion?: string;
-
-  /**
-   * Additional notes about this version, such as migration instructions or known issues.
-   */
-  notes?: string;
-}
-
-/**
- * Represents a change in the type or structure of a field between versions.
- */
-export interface IFieldTypeChange {
-  /**
-   * The name of the field that has changed.
-   */
-  fieldName: string;
-
-  /**
-   * The type of the field in the previous version.
-   */
-  previousType: string;
-
-  /**
-   * The type of the field in the current version.
-   */
-  currentType: string;
-
-  /**
-   * Optional transformation function to convert values from the previous type to the current type.
-   */
-  transform?: (value: any) => any;
-}
-
-/**
- * Defines the strategy for handling version compatibility.
- * Different strategies can be used depending on the requirements of the service.
- */
-export enum VersionCompatibilityStrategy {
-  /**
-   * Strict compatibility requires exact version matches.
-   * Events with different versions will be rejected.
-   */
-  STRICT = 'strict',
-
-  /**
-   * Allows backward compatibility within the same major version.
-   * Events with lower minor/patch versions can be processed by handlers expecting higher versions.
-   */
-  BACKWARD = 'backward',
-
-  /**
-   * Allows forward compatibility within the same major version.
-   * Events with higher minor/patch versions can be processed by handlers expecting lower versions.
-   */
-  FORWARD = 'forward',
-
-  /**
-   * Allows both backward and forward compatibility within the same major version.
-   */
-  BOTH = 'both',
-
-  /**
-   * Attempts to transform events between incompatible versions.
-   * Requires transformation functions to be registered.
-   */
-  TRANSFORM = 'transform'
-}
-
-/**
- * Interface for a service that can transform events between different versions.
- */
-export interface IEventTransformer {
-  /**
-   * Transforms an event from its current version to the target version.
+   * Transforms an event from one version to another
    * @param event The event to transform
-   * @param targetVersion The version to transform the event to
-   * @returns The transformed event, or null if transformation is not possible
+   * @param targetVersion The target version to transform to
+   * @returns The transformed event
    */
-  transform<T, U>(event: IVersionedEvent<T>, targetVersion: IEventVersion | string): IVersionedEvent<U> | null;
+  transform(event: T, targetVersion: IEventVersion): T;
 
   /**
-   * Checks if the transformer can transform an event from its current version to the target version.
-   * @param sourceVersion The current version of the event
-   * @param targetVersion The version to transform the event to
-   * @returns True if transformation is possible, false otherwise
+   * Gets the source version of an event
+   * @param event The event to get the version from
+   * @returns The event version
    */
-  canTransform(sourceVersion: IEventVersion | string, targetVersion: IEventVersion | string): boolean;
+  getVersion(event: T): IEventVersion;
 
   /**
-   * Registers a transformation function for a specific version pair.
-   * @param sourceVersion The source version
-   * @param targetVersion The target version
-   * @param transformFn The function to transform events from source to target version
-   */
-  registerTransformation<T, U>(
-    sourceVersion: IEventVersion | string,
-    targetVersion: IEventVersion | string,
-    transformFn: (event: IVersionedEvent<T>) => IVersionedEvent<U>
-  ): void;
-}
-
-/**
- * Interface for a service that can detect the version of an event.
- */
-export interface IVersionDetector {
-  /**
-   * Detects the version of an event.
-   * @param event The event to detect the version of
-   * @returns The detected version, or null if version cannot be detected
-   */
-  detectVersion(event: unknown): IEventVersion | null;
-
-  /**
-   * Checks if the detector can detect the version of an event.
+   * Checks if the transformer can handle the given event
    * @param event The event to check
-   * @returns True if the detector can detect the version, false otherwise
+   * @returns True if the transformer can handle the event
    */
-  canDetect(event: unknown): boolean;
+  canHandle(event: T): boolean;
 }
 
 /**
- * Interface for a service that can check compatibility between event versions.
+ * Interface for event schema migration
  */
-export interface IVersionCompatibilityChecker {
+export interface IEventMigration<T extends IEvent = IEvent> {
   /**
-   * Checks if two versions are compatible according to the specified strategy.
-   * @param version1 The first version
-   * @param version2 The second version
-   * @param strategy The compatibility strategy to use
-   * @returns True if the versions are compatible, false otherwise
+   * The source version of the migration
    */
-  areCompatible(
-    version1: IEventVersion | string,
-    version2: IEventVersion | string,
-    strategy?: VersionCompatibilityStrategy
-  ): boolean;
+  sourceVersion: IEventVersion;
 
   /**
-   * Gets the compatibility level between two versions.
-   * @param version1 The first version
-   * @param version2 The second version
-   * @returns The compatibility level between the versions
+   * The target version of the migration
    */
-  getCompatibilityLevel(version1: IEventVersion | string, version2: IEventVersion | string): VersionCompatibilityLevel;
-}
-
-/**
- * Represents the level of compatibility between two event versions.
- */
-export enum VersionCompatibilityLevel {
-  /**
-   * The versions are fully compatible (same major, minor, and patch).
-   */
-  FULL = 'full',
+  targetVersion: IEventVersion;
 
   /**
-   * The versions are backward compatible (same major, different minor/patch).
-   */
-  BACKWARD = 'backward',
-
-  /**
-   * The versions are forward compatible (same major, different minor/patch).
-   */
-  FORWARD = 'forward',
-
-  /**
-   * The versions are incompatible (different major).
-   */
-  INCOMPATIBLE = 'incompatible'
-}
-
-/**
- * Options for version migration operations.
- */
-export interface IVersionMigrationOptions {
-  /**
-   * The compatibility strategy to use for migration.
-   */
-  strategy?: VersionCompatibilityStrategy;
-
-  /**
-   * Whether to throw an error if migration is not possible.
-   * If false, will return null instead.
-   */
-  throwOnFailure?: boolean;
-
-  /**
-   * Whether to validate the migrated event against the target schema.
-   */
-  validateResult?: boolean;
-
-  /**
-   * Custom transformation options for specific fields.
-   */
-  fieldTransformations?: Record<string, (value: any) => any>;
-}
-
-/**
- * Interface for a service that can migrate events between different versions.
- */
-export interface IEventMigrator {
-  /**
-   * Migrates an event from its current version to the target version.
+   * Migrates an event from the source version to the target version
    * @param event The event to migrate
-   * @param targetVersion The version to migrate the event to
-   * @param options Migration options
-   * @returns The migrated event, or null if migration is not possible
+   * @returns The migrated event
    */
-  migrate<T, U>(
-    event: IVersionedEvent<T>,
-    targetVersion: IEventVersion | string,
-    options?: IVersionMigrationOptions
-  ): IVersionedEvent<U> | null;
-
-  /**
-   * Checks if the migrator can migrate an event from its current version to the target version.
-   * @param sourceVersion The current version of the event
-   * @param targetVersion The version to migrate the event to
-   * @returns True if migration is possible, false otherwise
-   */
-  canMigrate(sourceVersion: IEventVersion | string, targetVersion: IEventVersion | string): boolean;
-
-  /**
-   * Registers a migration path between two versions.
-   * @param sourceVersion The source version
-   * @param targetVersion The target version
-   * @param migrationFn The function to migrate events from source to target version
-   */
-  registerMigrationPath<T, U>(
-    sourceVersion: IEventVersion | string,
-    targetVersion: IEventVersion | string,
-    migrationFn: (event: IVersionedEvent<T>, options?: IVersionMigrationOptions) => IVersionedEvent<U>
-  ): void;
+  migrate(event: T): T;
 }
 
 /**
- * Utility type to extract the payload type from a versioned event.
+ * Interface for event schema registry
  */
-export type ExtractVersionedPayload<T> = T extends IVersionedEvent<infer P> ? P : never;
+export interface IEventSchemaRegistry {
+  /**
+   * Registers a schema for an event type
+   * @param eventType The event type
+   * @param version The schema version
+   * @param schema The schema definition
+   */
+  registerSchema(eventType: string, version: string, schema: any): void;
+
+  /**
+   * Gets a schema for an event type and version
+   * @param eventType The event type
+   * @param version The schema version
+   * @returns The schema definition or undefined if not found
+   */
+  getSchema(eventType: string, version: string): any;
+
+  /**
+   * Gets all versions of a schema for an event type
+   * @param eventType The event type
+   * @returns An array of schema versions
+   */
+  getSchemaVersions(eventType: string): string[];
+
+  /**
+   * Validates an event against its schema
+   * @param event The event to validate
+   * @returns True if the event is valid
+   */
+  validateEvent(event: IVersionedEvent): boolean;
+}
 
 /**
- * Utility type to create a versioned event from a payload type.
- */
-export type CreateVersionedEvent<T> = IVersionedEvent<T>;
-
-/**
- * Utility function to parse a version string into an IEventVersion object.
- * @param versionStr The version string to parse (e.g., "1.2.3")
+ * Parses a version string into an IEventVersion object
+ * @param versionStr The version string to parse
  * @returns The parsed version object
- * @throws Error if the version string is invalid
  */
-export function parseVersionString(versionStr: string): IEventVersion {
+export function parseVersion(versionStr: string): IEventVersion {
   const parts = versionStr.split('.');
-  if (parts.length !== 3) {
-    throw new Error(`Invalid version string: ${versionStr}. Expected format: major.minor.patch`);
-  }
-
-  const [major, minor, patch] = parts.map(part => {
-    const num = parseInt(part, 10);
-    if (isNaN(num) || num < 0) {
-      throw new Error(`Invalid version part: ${part}. Expected a non-negative integer.`);
-    }
-    return num;
-  });
-
-  return { major, minor, patch };
+  return {
+    major: parseInt(parts[0], 10) || 0,
+    minor: parseInt(parts[1], 10) || 0,
+    patch: parseInt(parts[2], 10) || 0,
+    toString: () => versionStr
+  };
 }
 
 /**
- * Utility function to convert an IEventVersion object to a version string.
- * @param version The version object to convert
- * @returns The version string (e.g., "1.2.3")
+ * Compares two version objects
+ * @param v1 The first version
+ * @param v2 The second version
+ * @returns -1 if v1 < v2, 0 if v1 === v2, 1 if v1 > v2
  */
-export function formatVersionString(version: IEventVersion): string {
-  return `${version.major}.${version.minor}.${version.patch}`;
-}
-
-/**
- * Utility function to compare two versions.
- * @param version1 The first version
- * @param version2 The second version
- * @returns -1 if version1 < version2, 0 if version1 === version2, 1 if version1 > version2
- */
-export function compareVersions(
-  version1: IEventVersion | string,
-  version2: IEventVersion | string
-): -1 | 0 | 1 {
-  const v1 = typeof version1 === 'string' ? parseVersionString(version1) : version1;
-  const v2 = typeof version2 === 'string' ? parseVersionString(version2) : version2;
-
+export function compareVersions(v1: IEventVersion, v2: IEventVersion): number {
   if (v1.major !== v2.major) {
     return v1.major < v2.major ? -1 : 1;
   }
-
   if (v1.minor !== v2.minor) {
     return v1.minor < v2.minor ? -1 : 1;
   }
-
   if (v1.patch !== v2.patch) {
     return v1.patch < v2.patch ? -1 : 1;
   }
-
   return 0;
 }
