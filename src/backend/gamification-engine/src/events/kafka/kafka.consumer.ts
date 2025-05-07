@@ -8,6 +8,7 @@ import { KafkaService } from '../../kafka/kafka.service';
 import { KafkaRetryService } from '../../kafka/kafka.retry.service';
 import { ProcessEventDto } from '../dto/process-event.dto';
 import { KafkaModuleOptions } from '../../kafka.module';
+import { RetryStrategy } from './retry.strategy';
 
 // Import journey handlers
 import { 
@@ -47,6 +48,7 @@ export class KafkaConsumerService implements OnModuleInit {
     private readonly planJourneyHandler: PlanJourneyHandler,
     private readonly kafkaService: KafkaService,
     private readonly kafkaRetryService: KafkaRetryService,
+    private readonly retryStrategy: RetryStrategy,
     private readonly logger: LoggerService,
     private readonly telemetryService: TelemetryService,
     private readonly options: KafkaModuleOptions,
@@ -205,7 +207,15 @@ export class KafkaConsumerService implements OnModuleInit {
           'KafkaConsumer',
         );
         
-        this.kafkaRetryService.scheduleRetry(topic, message, error, key, headers);
+        try {
+          // Use the new RetryStrategy for exponential backoff
+          this.retryStrategy.handleFailure(message, error, {
+            context: { topic, key, headers }
+          });
+        } catch (retryError) {
+          // If it's a retryable exception, use the KafkaRetryService
+          this.kafkaRetryService.scheduleRetry(topic, message, error, key, headers);
+        }
       }
     } finally {
       // End telemetry span
