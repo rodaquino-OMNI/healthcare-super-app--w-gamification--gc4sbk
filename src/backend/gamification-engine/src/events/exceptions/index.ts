@@ -15,7 +15,7 @@ import {
 } from './event-dead-letter-queue.exception';
 import { EventKafkaException } from './event-kafka.exception';
 import { EventProcessingException } from './event-processing.exception';
-import { EventRetryableException } from './event-retryable.exception';
+import { EventRetryableException, RetryOptions } from './event-retryable.exception';
 import { EventValidationException } from './event-validation.exception';
 
 // Re-export all exception classes as named exports
@@ -29,7 +29,9 @@ export {
   // Export interfaces from event-dead-letter-queue.exception.ts
   RetryAttempt,
   ManualInterventionMetadata,
-  MonitoringMetadata
+  MonitoringMetadata,
+  // Export interfaces from event-retryable.exception.ts
+  RetryOptions
 };
 
 // Export interfaces for exception types to enable type-safe usage
