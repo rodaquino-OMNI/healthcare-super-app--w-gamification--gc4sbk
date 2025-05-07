@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
-import { KafkaConsumer } from './kafka/kafka.consumer';
+import { KafkaConsumerService } from './kafka/kafka.consumer';
 import { KafkaProducer } from './kafka/kafka.producer';
 import { KafkaModule } from '@austa/events/kafka';
 import { LoggerModule } from '@austa/logging';
@@ -9,6 +9,13 @@ import { TracingModule } from '@austa/tracing';
 import { ErrorsModule } from '@austa/errors';
 import { EventSchemaValidationService } from './validation/event-schema-validation.service';
 import { EventVersioningService } from './versioning/event-versioning.service';
+
+// Import journey handlers
+import { 
+  HealthJourneyHandler, 
+  CareJourneyHandler, 
+  PlanJourneyHandler 
+} from './kafka/journey-handlers';
 
 // Import standardized event schemas from @austa/interfaces
 import { GamificationEvent } from '@austa/interfaces/gamification/events';
@@ -24,6 +31,7 @@ import { EventType } from '@austa/interfaces/gamification/events';
  * - Event production for cross-service communication
  * - Dead-letter queue management for failed events
  * - Versioned event schema validation and compatibility
+ * - Journey-specific event handling with specialized handlers
  * 
  * Key features:
  * - Standardized, versioned event schemas defined in @austa/interfaces package
@@ -31,6 +39,7 @@ import { EventType } from '@austa/interfaces/gamification/events';
  * - Dead-letter queue integration for failed event processing
  * - Distributed tracing for event flow monitoring
  * - Structured logging for event processing observability
+ * - Specialized journey handlers for Health, Care, and Plan events
  * 
  * @module EventsModule
  * @category Gamification
@@ -67,8 +76,12 @@ import { EventType } from '@austa/interfaces/gamification/events';
   controllers: [EventsController],
   providers: [
     EventsService,
-    KafkaConsumer,
+    KafkaConsumerService,
     KafkaProducer,
+    // Journey-specific handlers
+    HealthJourneyHandler,
+    CareJourneyHandler,
+    PlanJourneyHandler,
     EventSchemaValidationService,
     EventVersioningService,
     {
@@ -78,10 +91,19 @@ import { EventType } from '@austa/interfaces/gamification/events';
         schemas: {
           [EventType.HEALTH_METRIC_RECORDED]: GamificationEvent,
           [EventType.HEALTH_GOAL_ACHIEVED]: GamificationEvent,
+          [EventType.DEVICE_CONNECTED]: GamificationEvent,
+          [EventType.DEVICE_SYNCED]: GamificationEvent,
+          [EventType.MEDICAL_EVENT_RECORDED]: GamificationEvent,
           [EventType.CARE_APPOINTMENT_BOOKED]: GamificationEvent,
+          [EventType.CARE_APPOINTMENT_ATTENDED]: GamificationEvent,
           [EventType.CARE_MEDICATION_TAKEN]: GamificationEvent,
+          [EventType.CARE_TELEMEDICINE_COMPLETED]: GamificationEvent,
+          [EventType.CARE_TREATMENT_COMPLETED]: GamificationEvent,
+          [EventType.PLAN_SELECTED]: GamificationEvent,
           [EventType.PLAN_CLAIM_SUBMITTED]: GamificationEvent,
-          [EventType.PLAN_BENEFIT_USED]: GamificationEvent
+          [EventType.PLAN_CLAIM_APPROVED]: GamificationEvent,
+          [EventType.PLAN_BENEFIT_USED]: GamificationEvent,
+          [EventType.PLAN_DOCUMENT_UPLOADED]: GamificationEvent
         }
       }
     }
@@ -89,6 +111,10 @@ import { EventType } from '@austa/interfaces/gamification/events';
   exports: [
     EventsService, 
     KafkaProducer,
+    // Export journey handlers for use in other modules
+    HealthJourneyHandler,
+    CareJourneyHandler,
+    PlanJourneyHandler,
     EventSchemaValidationService,
     EventVersioningService
   ]
