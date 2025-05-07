@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+.github
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# NPM dependencies
+node_modules
+
+# Build artifacts
+dist
+build
+coverage
+
+# Environment variables
+.env
+.env.*
+
+# IDE files
+.idea
+.vscode
+*.sublime-*
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Temporary files
+tmp
+temp
+
+# Test files
+test
+**/*.spec.ts
+**/*.test.ts
+jest.config.js
+
+# Miscellaneous
+.DS_Store
+Thumbs.db
