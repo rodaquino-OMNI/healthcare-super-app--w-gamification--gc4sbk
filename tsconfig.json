@@ -1,0 +1,167 @@
+/**
+ * Root TypeScript Configuration for AUSTA SuperApp Monorepo
+ * 
+ * This configuration serves as the base for all TypeScript projects in the monorepo.
+ * It establishes consistent compiler options, strict type checking, and path aliases
+ * that can be extended by individual packages and services.
+ * 
+ * Usage:
+ * - Backend services should extend this configuration with their own tsconfig.json
+ * - Frontend packages should extend this configuration with appropriate overrides
+ * - Path aliases defined here are available to all packages that extend this config
+ * 
+ * Build Order:
+ * The "references" section defines the dependency graph for TypeScript project references,
+ * ensuring proper build ordering when using --build flag with the TypeScript compiler.
+ */
+{
+  "compilerOptions": {
+    /* Base Options */
+    "target": "es2021",
+    "module": "commonjs",
+    "lib": ["es2021"],
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "composite": true,
+    "removeComments": true,
+    "outDir": "./dist",
+    
+    /* Strict Type-Checking Options */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    
+    /* Module Resolution Options */
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    /* Experimental Options */
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    
+    /* Path Aliases */
+    "paths": {
+      /**
+       * Backend Service Path Aliases
+       * These aliases provide direct access to backend service modules
+       * using shorthand notation instead of relative paths.
+       */
+      "@shared/*": ["src/backend/shared/src/*"],
+      "@gamification/*": ["src/backend/gamification-engine/src/*"],
+      "@prisma/*": ["src/backend/shared/prisma/*"],
+      "@app/auth": ["src/backend/auth-service/src"],
+      "@app/auth/*": ["src/backend/auth-service/src/*"],
+      "@app/shared": ["src/backend/shared/src"],
+      "@app/shared/*": ["src/backend/shared/src/*"],
+      
+      /**
+       * Frontend Internal Packages Path Aliases
+       * These aliases provide access to the new packages required by the mobile app
+       * and other services, implementing the journey-centered architecture.
+       */
+      "@austa/design-system": ["src/web/design-system/src"],
+      "@austa/design-system/*": ["src/web/design-system/src/*"],
+      "@design-system/primitives": ["src/web/primitives/src"],
+      "@design-system/primitives/*": ["src/web/primitives/src/*"],
+      "@austa/interfaces": ["src/web/interfaces"],
+      "@austa/interfaces/*": ["src/web/interfaces/*"],
+      "@austa/journey-context": ["src/web/journey-context/src"],
+      "@austa/journey-context/*": ["src/web/journey-context/src/*"],
+      
+      /**
+       * Backend Package Path Aliases
+       * These aliases provide access to shared backend utilities and libraries
+       * that are used across multiple services.
+       */
+      "@austa/database": ["src/backend/packages/database/src"],
+      "@austa/database/*": ["src/backend/packages/database/src/*"],
+      "@austa/errors": ["src/backend/packages/errors/src"],
+      "@austa/errors/*": ["src/backend/packages/errors/src/*"],
+      "@austa/events": ["src/backend/packages/events/src"],
+      "@austa/events/*": ["src/backend/packages/events/src/*"],
+      "@austa/logging": ["src/backend/packages/logging/src"],
+      "@austa/logging/*": ["src/backend/packages/logging/src/*"],
+      "@austa/tracing": ["src/backend/packages/tracing/src"],
+      "@austa/tracing/*": ["src/backend/packages/tracing/src/*"],
+      "@austa/utils": ["src/backend/packages/utils/src"],
+      "@austa/utils/*": ["src/backend/packages/utils/src/*"]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ],
+  /**
+   * Project References
+   * 
+   * This section defines the dependency graph for TypeScript project references,
+   * ensuring proper build ordering when using the --build flag with the TypeScript compiler.
+   * 
+   * The order is important:
+   * 1. Shared packages and utilities are built first
+   * 2. Service-specific code is built next, depending on the shared packages
+   * 3. API Gateway is built last, as it depends on all other services
+   */
+  "references": [
+    /**
+     * Backend References
+     * The backend monorepo is managed with Lerna and contains all microservices
+     * and shared packages for the server-side components.
+     */
+    { "path": "./src/backend" },
+    { "path": "./src/backend/shared" },
+    { "path": "./src/backend/auth-service" },
+    { "path": "./src/backend/health-service" },
+    { "path": "./src/backend/care-service" },
+    { "path": "./src/backend/plan-service" },
+    { "path": "./src/backend/gamification-engine" },
+    { "path": "./src/backend/notification-service" },
+    { "path": "./src/backend/api-gateway" },
+    
+    /**
+     * Backend Packages References
+     * These are shared utilities and libraries used across multiple backend services,
+     * providing consistent functionality for database access, error handling, etc.
+     */
+    { "path": "./src/backend/packages/utils" },
+    { "path": "./src/backend/packages/interfaces" },
+    { "path": "./src/backend/packages/database" },
+    { "path": "./src/backend/packages/errors" },
+    { "path": "./src/backend/packages/events" },
+    { "path": "./src/backend/packages/logging" },
+    { "path": "./src/backend/packages/tracing" },
+    { "path": "./src/backend/packages/auth" },
+    
+    /**
+     * Frontend References
+     * The frontend monorepo is managed with Turborepo and contains all web and mobile
+     * applications, as well as shared packages for UI components and utilities.
+     */
+    { "path": "./src/web" },
+    { "path": "./src/web/primitives" },
+    { "path": "./src/web/interfaces" },
+    { "path": "./src/web/design-system" },
+    { "path": "./src/web/journey-context" },
+    { "path": "./src/web/shared" },
+    { "path": "./src/web/mobile" },
+    { "path": "./src/web/web" }
+  ]
+}
