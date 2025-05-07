@@ -7,7 +7,12 @@
 
 // Import all exception classes using TypeScript path aliases for consistent code organization
 import { BaseEventException } from './base-event.exception';
-import { EventDeadLetterQueueException } from './event-dead-letter-queue.exception';
+import { 
+  EventDeadLetterQueueException, 
+  RetryAttempt, 
+  ManualInterventionMetadata, 
+  MonitoringMetadata 
+} from './event-dead-letter-queue.exception';
 import { EventKafkaException } from './event-kafka.exception';
 import { EventProcessingException } from './event-processing.exception';
 import { EventRetryableException } from './event-retryable.exception';
@@ -21,6 +26,10 @@ export {
   EventProcessingException,
   EventRetryableException,
   EventValidationException,
+  // Export interfaces from event-dead-letter-queue.exception.ts
+  RetryAttempt,
+  ManualInterventionMetadata,
+  MonitoringMetadata
 };
 
 // Export interfaces for exception types to enable type-safe usage
