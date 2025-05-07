@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'; // v10.0.0+
 import { ConfigModule } from '@nestjs/config'; // v3.1.1
+import { TerminusModule } from '@nestjs/terminus'; // v10.0.0+
 import { AchievementsModule } from './achievements/achievements.module';
 import { EventsModule } from './events/events.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
@@ -12,7 +13,11 @@ import { RedisModule } from 'src/backend/shared/src/redis/redis.module';
 import { LoggerModule } from 'src/backend/shared/src/logging/logger.module';
 import { TracingModule } from 'src/backend/shared/src/tracing/tracing.module';
 import { ExceptionsModule } from 'src/backend/shared/src/exceptions/exceptions.module';
+import { PrometheusModule } from '@app/shared/monitoring/prometheus.module';
 import { gamificationEngine } from './config/configuration';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaService } from './prisma.service';
 
 /**
  * Root module for the Gamification Engine service.
@@ -26,6 +31,7 @@ import { gamificationEngine } from './config/configuration';
       isGlobal: true,
       load: [gamificationEngine],
     }),
+    TerminusModule,
     AchievementsModule,
     EventsModule,
     LeaderboardModule,
@@ -38,9 +44,11 @@ import { gamificationEngine } from './config/configuration';
     LoggerModule,
     TracingModule,
     ExceptionsModule,
+    PrometheusModule,
   ],
-  controllers: [],
-  providers: [],
+  controllers: [AppController],
+  providers: [AppService, PrismaService],
+  exports: [AppService],
 })
 export class AppModule {
   /**
