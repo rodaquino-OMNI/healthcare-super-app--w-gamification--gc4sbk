@@ -1,84 +1,55 @@
-# ============================================================================
-# Multi-stage Dockerfile for the AUSTA SuperApp Gamification Engine
-# ============================================================================
+FROM node:18-alpine AS builder
 
-# ============================================================================
-# Stage 1: Builder - Install dependencies and build the application
-# ============================================================================
-FROM node:18.19.1-alpine AS builder
-
-# Set working directory
 WORKDIR /app
 
-# Install build dependencies and security updates
-RUN apk update && \
-    apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    git \
-    curl \
-    && rm -rf /var/cache/apk/*
+# Install dependencies for building
+RUN apk add --no-cache python3 make g++ curl bash
 
-# Copy package files for dependency installation
-# This is done separately to leverage Docker layer caching
-COPY package.json yarn.lock ./
+# Copy package.json and package-lock.json
+COPY package*.json ./
 
 # Install dependencies
-RUN yarn install --frozen-lockfile
+RUN npm ci
 
-# Copy the rest of the application code
+# Copy source code
 COPY . .
 
 # Generate Prisma client
-RUN yarn prisma generate
+RUN npm run prisma:generate
 
 # Build the application
-RUN yarn build
+RUN npm run build
 
-# ============================================================================
-# Stage 2: Production - Create a minimal production image
-# ============================================================================
-FROM node:18.19.1-alpine AS production
+# Remove development dependencies
+RUN npm prune --production
 
-# Set environment variables
-ENV NODE_ENV=production
+# Second stage: runtime
+FROM node:18-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Install production dependencies only
-RUN apk update && \
-    apk add --no-cache \
-    curl \
-    && rm -rf /var/cache/apk/*
+# Install Kafka tools for topic management
+RUN apk add --no-cache bash curl jq
 
-# Create a non-root user and group
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Copy package files for dependency installation
-COPY package.json yarn.lock ./
-
-# Install production dependencies only
-RUN yarn install --frozen-lockfile --production
+# Install Kafka binaries
+RUN curl -sL https://archive.apache.org/dist/kafka/3.3.1/kafka_2.13-3.3.1.tgz | tar xz -C /tmp && \
+    mv /tmp/kafka_2.13-3.3.1/bin/* /usr/local/bin/ && \
+    rm -rf /tmp/kafka_2.13-3.3.1
 
 # Copy built application from builder stage
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package*.json ./
 
-# Set proper permissions
-RUN chown -R appuser:appgroup /app
+# Copy scripts directory
+COPY scripts ./scripts
 
-# Switch to non-root user
-USER appuser
+# Make scripts executable
+RUN chmod +x ./scripts/*.sh
 
-# Expose the application port
+# Expose port
 EXPOSE 3000
 
-# Configure health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
-
-# Start the application
-CMD ["node", "dist/main.js"]
+# Set entrypoint to our custom script
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
