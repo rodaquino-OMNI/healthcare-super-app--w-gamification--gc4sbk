@@ -1,131 +1,158 @@
-import { Controller, Get, HttpStatus, HttpException, Logger } from '@nestjs/common';
-import { AppService, ServiceInfo, HealthCheckResult } from './app.service';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { TracingService } from '@app/shared/tracing/tracing.service';
+import { Controller, Get, HttpStatus, UseFilters } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { LoggerService } from '@app/shared/logging/logger.service';
+import { AllExceptionsFilter } from '@app/shared/exceptions/exceptions.filter';
+import { AppService, HealthCheckResult, ServiceInfo } from './app.service';
+import { PrometheusService } from '@app/shared/monitoring/prometheus.service';
 
 /**
- * Root controller that handles basic endpoints like health checks and service information
- * for the gamification engine. Provides monitoring endpoints for service health and status.
+ * Root controller for the Gamification Engine service.
+ * Provides health check endpoints and service information.
  */
 @ApiTags('System')
 @Controller()
+@UseFilters(AllExceptionsFilter)
 export class AppController {
-  private readonly logger = new Logger(AppController.name);
-
   constructor(
     private readonly appService: AppService,
-    private readonly tracingService: TracingService,
+    private readonly logger: LoggerService,
+    private readonly prometheusService: PrometheusService,
   ) {}
 
   /**
-   * Health check endpoint for monitoring and observability
-   * @returns Health check result
+   * Health check endpoint for monitoring and observability.
+   * Returns the health status of the service and its dependencies.
    */
   @Get('health')
-  @ApiOperation({ summary: 'Check service health' })
-  @ApiResponse({ status: 200, description: 'Service is healthy' })
-  @ApiResponse({ status: 503, description: 'Service is unhealthy' })
-  async health(): Promise<HealthCheckResult> {
-    const span = this.tracingService.startSpan('health-check');
+  @ApiOperation({ summary: 'Check service health status' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Service is healthy',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', example: 'ok' },
+        details: {
+          type: 'object',
+          properties: {
+            database: {
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'up' },
+              },
+            },
+            kafka: {
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'up' },
+                consumerLag: { type: 'number', example: 0 },
+              },
+            },
+            redis: {
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'up' },
+              },
+            },
+          },
+        },
+        timestamp: { type: 'string', format: 'date-time', example: '2023-04-01T12:00:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    description: 'Service is unhealthy',
+  })
+  async checkHealth(): Promise<HealthCheckResult> {
+    this.logger.log('Health check requested', 'AppController');
     
-    try {
-      const health = await this.appService.checkHealth();
-      
-      if (health.status === 'error') {
-        throw new HttpException(health, HttpStatus.SERVICE_UNAVAILABLE);
-      }
-      
-      return health;
-    } catch (error) {
-      this.logger.error('Health check failed', error);
-      span.setTag('error', true);
-      span.log({ event: 'error', 'error.object': error });
-      throw error;
-    } finally {
-      span.finish();
+    // Increment health check counter for monitoring
+    this.prometheusService.incrementCounter('gamification_health_checks_total');
+    
+    const healthResult = await this.appService.checkHealth();
+    
+    if (healthResult.status === 'error') {
+      this.logger.warn('Service is unhealthy', 'AppController');
+    } else {
+      this.logger.log('Service is healthy', 'AppController');
     }
+    
+    return healthResult;
   }
 
   /**
-   * Liveness probe endpoint for Kubernetes
-   * @returns Simple OK response
-   */
-  @Get('liveness')
-  @ApiOperation({ summary: 'Liveness probe for Kubernetes' })
-  @ApiResponse({ status: 200, description: 'Service is alive' })
-  liveness(): { status: string } {
-    return { status: 'ok' };
-  }
-
-  /**
-   * Readiness probe endpoint for Kubernetes
-   * @returns Health check result
-   */
-  @Get('readiness')
-  @ApiOperation({ summary: 'Readiness probe for Kubernetes' })
-  @ApiResponse({ status: 200, description: 'Service is ready' })
-  @ApiResponse({ status: 503, description: 'Service is not ready' })
-  async readiness(): Promise<HealthCheckResult> {
-    try {
-      // Use the same health check logic as the health endpoint
-      const health = await this.appService.checkHealth();
-      
-      if (health.status === 'error') {
-        throw new HttpException(health, HttpStatus.SERVICE_UNAVAILABLE);
-      }
-      
-      return health;
-    } catch (error) {
-      this.logger.error('Readiness check failed', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Service information endpoint
-   * @returns Service information
+   * Service information endpoint for service discovery.
+   * Returns detailed information about the service, including version,
+   * status, and metrics.
    */
   @Get('info')
   @ApiOperation({ summary: 'Get service information' })
-  @ApiResponse({ status: 200, description: 'Service information retrieved successfully' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Service information',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Gamification Engine' },
+        version: { type: 'string', example: '1.0.0' },
+        description: { type: 'string', example: 'Processes events from all journeys to drive user engagement through achievements, challenges, and rewards' },
+        status: { type: 'string', example: 'available' },
+        uptime: { type: 'number', example: 3600 },
+        startTime: { type: 'string', format: 'date-time', example: '2023-04-01T12:00:00.000Z' },
+        environment: { type: 'string', example: 'production' },
+        dependencies: {
+          type: 'object',
+          properties: {
+            database: { type: 'boolean', example: true },
+            kafka: { type: 'boolean', example: true },
+            redis: { type: 'boolean', example: true },
+          },
+        },
+        metrics: {
+          type: 'object',
+          properties: {
+            eventProcessingRate: { type: 'number', example: 120 },
+            activeUsers: { type: 'number', example: 1500 },
+            achievementsAwarded: { type: 'number', example: 750 },
+            averageProcessingTime: { type: 'number', example: 45 },
+          },
+        },
+      },
+    },
+  })
   async getServiceInfo(): Promise<ServiceInfo> {
-    const span = this.tracingService.startSpan('get-service-info');
-    
-    try {
-      return await this.appService.getServiceInfo();
-    } catch (error) {
-      this.logger.error('Failed to get service information', error);
-      span.setTag('error', true);
-      span.log({ event: 'error', 'error.object': error });
-      throw error;
-    } finally {
-      span.finish();
-    }
+    this.logger.log('Service info requested', 'AppController');
+    return this.appService.getServiceInfo();
   }
 
   /**
-   * Simple status endpoint
-   * @returns Service status
+   * Root endpoint that confirms the service is running.
+   * Used for basic availability checks.
    */
-  @Get('status')
-  @ApiOperation({ summary: 'Get service status' })
-  @ApiResponse({ status: 200, description: 'Service status retrieved successfully' })
-  getStatus(): { status: string; uptime: number } {
-    return {
-      status: this.appService.getStatus(),
-      uptime: this.appService.getUptime(),
-    };
-  }
-
-  /**
-   * Version endpoint
-   * @returns Service version
-   */
-  @Get('version')
-  @ApiOperation({ summary: 'Get service version' })
-  @ApiResponse({ status: 200, description: 'Service version retrieved successfully' })
-  async getVersion(): Promise<{ version: string }> {
+  @Get()
+  @ApiOperation({ summary: 'Root endpoint' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Service is running',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Gamification Engine API is running' },
+        status: { type: 'string', example: 'available' },
+        timestamp: { type: 'string', format: 'date-time', example: '2023-04-01T12:00:00.000Z' },
+        version: { type: 'string', example: '1.0.0' },
+      },
+    },
+  })
+  async getRoot() {
     const info = await this.appService.getServiceInfo();
-    return { version: info.version };
+    
+    return {
+      message: 'Gamification Engine API is running',
+      status: this.appService.getStatus(),
+      timestamp: new Date().toISOString(),
+      version: info.version,
+    };
   }
 }
