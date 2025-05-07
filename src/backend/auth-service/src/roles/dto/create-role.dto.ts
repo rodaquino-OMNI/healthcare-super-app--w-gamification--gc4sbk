@@ -1,49 +1,47 @@
-import { IsString, IsBoolean, IsOptional, IsNotEmpty, MaxLength, Matches } from 'class-validator';
+import { IsString, IsBoolean, MaxLength, IsOptional, IsIn, IsNotEmpty } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { IJourneyType } from '@austa/interfaces/journey';
 
 /**
- * Data Transfer Object for creating a new role.
- * Validates role creation data including name, description, journey, and isDefault flag.
+ * Data transfer object for creating a new role in the AUSTA SuperApp.
+ * Contains all necessary information required for role creation.
  */
 export class CreateRoleDto {
   /**
-   * Unique name of the role (e.g., 'User', 'Caregiver', 'Provider', 'Administrator')
-   * Must be alphanumeric with optional hyphens and underscores
+   * Unique name of the role (e.g., 'User', 'Caregiver', 'Provider', 'Administrator').
+   * Must be unique across the system.
    */
   @IsString()
-  @IsNotEmpty({ message: 'Role name is required' })
-  @MaxLength(50, { message: 'Role name cannot exceed 50 characters' })
-  @Matches(/^[a-zA-Z0-9\-_]+$/, {
-    message: 'Role name can only contain letters, numbers, hyphens, and underscores',
-  })
+  @IsNotEmpty()
+  @MaxLength(255)
   @Transform(({ value }) => value?.trim())
   name: string;
 
   /**
-   * Description of the role and its purpose
+   * Description of the role and its purpose.
+   * Provides context about the role's intended use and permissions.
    */
   @IsString()
-  @IsNotEmpty({ message: 'Role description is required' })
-  @MaxLength(200, { message: 'Role description cannot exceed 200 characters' })
+  @IsNotEmpty()
+  @MaxLength(1000)
   @Transform(({ value }) => value?.trim())
   description: string;
 
   /**
-   * The journey this role is associated with (health, care, plan, or null for global roles)
+   * The journey this role is associated with (health, care, plan, or null for global roles).
+   * Determines which journey-specific features and data this role can access.
+   * Must be one of the three core journeys: 'health', 'care', 'plan', or null for global roles.
    */
   @IsOptional()
   @IsString()
-  @Matches(/^(health|care|plan)$/, {
-    message: 'Journey must be one of: health, care, plan',
-  })
-  journey?: IJourneyType;
+  @IsIn(['health', 'care', 'plan', null])
+  journey?: string;
 
   /**
-   * Indicates if this is a default role assigned to new users
+   * Indicates if this is a default role assigned to new users.
+   * Default roles are automatically assigned during user registration.
    */
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === true || value === 'true')
-  isDefault?: boolean = false;
+  @Transform(({ value }) => value === true)
+  isDefault?: boolean;
 }
