@@ -3,15 +3,23 @@ import { EventsService } from '../../events/events.service';
 import { RulesService } from '../../rules/rules.service';
 import { ProfilesService } from '../../profiles/profiles.service';
 import { LoggerService } from '@app/shared/logging/logger.service';
+import { TelemetryService } from '@app/shared/telemetry/telemetry.service';
 import { KafkaService } from '../../kafka/kafka.service';
 import { KafkaRetryService } from '../../kafka/kafka.retry.service';
 import { ProcessEventDto } from '../dto/process-event.dto';
 import { KafkaModuleOptions } from '../../kafka.module';
 
+// Import journey handlers
+import { 
+  HealthJourneyHandler, 
+  CareJourneyHandler, 
+  PlanJourneyHandler 
+} from './journey-handlers';
+
 /**
  * Consumes events from Kafka topics and processes them.
  * This consumer is responsible for handling events from all journeys (Health, Care, Plan)
- * and forwarding them to the EventsService for gamification processing.
+ * and routing them to the appropriate journey-specific handler.
  */
 @Injectable()
 export class KafkaConsumerService implements OnModuleInit {
@@ -21,21 +29,29 @@ export class KafkaConsumerService implements OnModuleInit {
    * @param eventsService Service for processing gamification events
    * @param rulesService Service for evaluating gamification rules
    * @param profilesService Service for managing user game profiles
+   * @param healthJourneyHandler Handler for health journey events
+   * @param careJourneyHandler Handler for care journey events
+   * @param planJourneyHandler Handler for plan journey events
    * @param kafkaService Service for Kafka interaction
    * @param kafkaRetryService Service for handling retry logic
    * @param logger Service for logging
+   * @param telemetryService Service for telemetry
    * @param options Kafka module options
    */
   constructor(
     private readonly eventsService: EventsService,
     private readonly rulesService: RulesService,
     private readonly profilesService: ProfilesService,
+    private readonly healthJourneyHandler: HealthJourneyHandler,
+    private readonly careJourneyHandler: CareJourneyHandler,
+    private readonly planJourneyHandler: PlanJourneyHandler,
     private readonly kafkaService: KafkaService,
     private readonly kafkaRetryService: KafkaRetryService,
     private readonly logger: LoggerService,
+    private readonly telemetryService: TelemetryService,
     private readonly options: KafkaModuleOptions,
   ) {
-    this.logger.log('KafkaConsumer initialized', 'KafkaConsumer');
+    this.logger.log('KafkaConsumer initialized with journey handlers', 'KafkaConsumer');
   }
 
   /**
@@ -81,7 +97,7 @@ export class KafkaConsumerService implements OnModuleInit {
 
   /**
    * Processes a message from a Kafka topic.
-   * Validates the message format and forwards it to the EventsService for processing.
+   * Validates the message format and routes it to the appropriate journey handler.
    * 
    * @param message The message to process
    * @param topic The topic the message was received from
@@ -95,10 +111,11 @@ export class KafkaConsumerService implements OnModuleInit {
     headers?: Record<string, string>,
   ): Promise<void> {
     const startTime = Date.now();
+    const span = this.telemetryService.startSpan('kafka.message.process', { topic });
     
     try {
       // Emit metric for monitoring
-      process.emit('kafka:message:received', { topic, startTime });
+      this.telemetryService.recordMetric('kafka.message.received', 1, { topic });
       
       // Validate the message has the required ProcessEventDto structure
       if (!this.isValidEvent(message)) {
@@ -107,6 +124,7 @@ export class KafkaConsumerService implements OnModuleInit {
           '',
           'KafkaConsumer',
         );
+        this.telemetryService.recordMetric('kafka.message.invalid', 1, { topic });
         return;
       }
 
@@ -129,21 +147,50 @@ export class KafkaConsumerService implements OnModuleInit {
         'KafkaConsumer',
       );
       
-      const result = await this.eventsService.processEvent(eventData);
+      // Route the event to the appropriate journey handler
+      let result;
+      switch (eventData.journey) {
+        case 'health':
+          result = await this.healthJourneyHandler.processEvent(eventData);
+          break;
+          
+        case 'care':
+          result = await this.careJourneyHandler.processEvent(eventData);
+          break;
+          
+        case 'plan':
+          result = await this.planJourneyHandler.processEvent(eventData);
+          break;
+          
+        default:
+          // For unknown journeys, use the generic events service
+          this.logger.warn(
+            `Unknown journey: ${eventData.journey}, using generic event processing`,
+            'KafkaConsumer',
+          );
+          result = await this.eventsService.processEvent(eventData);
+      }
       
       // Record processing time for metrics
       const processingTime = Date.now() - startTime;
-      process.emit('kafka:message:processed', { topic, processingTimeMs: processingTime });
+      this.telemetryService.recordMetric('kafka.message.processingTime', processingTime, { 
+        topic, 
+        journey: eventData.journey,
+        eventType: eventData.type 
+      });
       
       this.logger.log(
-        `Event processed successfully: ${eventData.type}, points earned: ${result.points || 0}`,
+        `Event processed successfully: ${eventData.type}, result: ${JSON.stringify(result)}`,
         'KafkaConsumer',
       );
     } catch (error) {
       const processingTime = Date.now() - startTime;
       
-      // Emit metric for monitoring
-      process.emit('kafka:message:failed', { topic, error });
+      // Record error in telemetry
+      this.telemetryService.recordError('kafka.message.error', error, { 
+        topic,
+        processingTimeMs: processingTime 
+      });
       
       this.logger.error(
         `Error processing Kafka message from topic ${topic}: ${error.message}`,
@@ -160,6 +207,9 @@ export class KafkaConsumerService implements OnModuleInit {
         
         this.kafkaRetryService.scheduleRetry(topic, message, error, key, headers);
       }
+    } finally {
+      // End telemetry span
+      span.end();
     }
   }
 
