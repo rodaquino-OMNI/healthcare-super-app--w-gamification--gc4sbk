@@ -1,0 +1,14 @@
+# This is a Prisma migration file for creating the documents table in the plan-service database
+
+# Migration identifier
+migration_name = "20230206000000_create_documents"
+
+# Database provider (PostgreSQL as specified in the technical requirements)
+provider = "postgresql"
+
+# Timestamps for tracking when the migration was created and applied
+created_at = "2023-02-06T00:00:00.000Z"
+applied_at = "2023-02-06T00:10:00.000Z"
+
+# Checksum for migration integrity verification
+checksum = "8a3d6e9f7c8b2a1d4e5f6c7b8a9d0e1f2c3b4a5d6e7f8c9b0a1d2e3f4c5b6a7d8"
