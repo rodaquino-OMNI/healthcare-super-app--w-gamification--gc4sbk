@@ -1,0 +1,92 @@
+/**
+ * AUSTA SuperApp Prettier Configuration
+ * 
+ * This configuration ensures consistent code formatting across all packages in the web monorepo,
+ * including shared libraries, web application, and mobile application.
+ * 
+ * Compatible with:
+ * - Prettier 3.2.5
+ * - ESLint 8.57.0 (via eslint-plugin-prettier and eslint-config-prettier)
+ * - TypeScript 5.3.3
+ * - React/React Native/Next.js components
+ * 
+ * Note: This configuration is designed to work with the project's ESLint configuration.
+ * The printWidth setting (100) matches the ESLint max-len rule to ensure consistency.
+ * ESLint will use these Prettier rules via the 'prettier/prettier' rule in .eslintrc.js.
+ * 
+ * Prettier respects .editorconfig files by default when present in the project.
+ * This allows for additional editor-specific configuration when needed.
+ */
+{
+    // Use semicolons at the end of statements
+    // Maintains consistency with TypeScript's default behavior
+    "semi": true,
+    
+    // Add trailing commas where valid in ES5 (objects, arrays, etc.)
+    // Makes version control diffs cleaner and enables easier code additions
+    "trailingComma": "es5",
+    
+    // Use single quotes for string literals
+    // Reduces the need for escaping double quotes in JSX and HTML attributes
+    "singleQuote": true,
+    
+    // Wrap lines at 100 characters
+    // Matches ESLint max-len rule and balances readability with efficient screen space usage
+    "printWidth": 100,
+    
+    // Use 4 spaces for indentation
+    // Provides clear visual hierarchy while maintaining reasonable line length
+    "tabWidth": 4,
+    
+    // Use spaces instead of tabs for indentation
+    // Ensures consistent rendering across different editors and platforms
+    "useTabs": false,
+    
+    // Add spaces between brackets in object literals
+    // Improves readability of object definitions
+    "bracketSpacing": true,
+    
+    // Always add parentheses around arrow function parameters
+    // Improves consistency and makes adding parameters easier
+    "arrowParens": "always",
+    
+    // Use LF (\n) line endings
+    // Ensures consistency across different operating systems
+    "endOfLine": "lf",
+    
+    // Maintain consistent quotes in JSX
+    // Use double quotes for JSX attributes, single quotes elsewhere
+    "jsxSingleQuote": false,
+    
+    // Add brackets for JSX elements that span multiple lines
+    // Improves readability and consistency in component structure
+    "bracketSameLine": false,
+    
+    // Format embedded code in markdown, HTML, etc.
+    // Ensures consistent formatting in documentation and templates
+    "embeddedLanguageFormatting": "auto",
+    
+    // Preserve prose wrapping in markdown files
+    // Improves readability of documentation
+    "proseWrap": "preserve",
+    
+    // Override settings for specific file patterns
+    // Package-specific overrides should be added here if needed
+    "overrides": [
+        {
+            // Use 2-space indentation for package.json and other config files
+            "files": ["*.json", "*.yml", "*.yaml", ".babelrc", ".eslintrc"],
+            "options": {
+                "tabWidth": 2
+            }
+        },
+        {
+            // Ensure consistent formatting in markdown documentation
+            "files": ["*.md"],
+            "options": {
+                "tabWidth": 2,
+                "proseWrap": "always"
+            }
+        }
+    ]
+}
