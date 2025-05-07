@@ -1,27 +1,14 @@
 import { Service } from '@app/shared/interfaces/service.interface';
 import { PaginatedResponse, PaginationDto } from '@app/shared/dto/pagination.dto';
 import { FilterDto } from '@app/shared/dto/filter.dto';
-import { Achievement } from '../entities/achievement.entity';
-
-// Import from @austa/interfaces for type-safe data models
-import { 
-  IAchievement, 
-  IAchievementCriteria, 
-  IAchievementUnlockResult,
-  IAchievementEvent
-} from '@austa/interfaces/gamification';
-import { IRetryOptions } from '@austa/interfaces/common';
-import { IJourneyType } from '@austa/interfaces/journey';
+import { IAchievement } from './i-achievement.interface';
+import { IUserAchievement } from './i-user-achievement.interface';
 
 /**
  * Interface defining the contract for the AchievementsService.
  * Extends the generic Service interface with achievement-specific operations.
- * Ensures consistent implementation of achievement-related business logic.
- * 
- * This interface integrates with @austa/interfaces for type-safe data models
- * and implements standardized error handling with centralized retry policies.
  */
-export interface IAchievementService extends Service<Achievement> {
+export interface IAchievementService extends Service<IAchievement> {
   /**
    * Retrieves all achievements with optional filtering and pagination.
    * 
@@ -29,10 +16,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param filter - Optional filtering criteria
    * @returns A promise resolving to a paginated response containing achievements
    */
-  findAll(
-    pagination?: PaginationDto,
-    filter?: FilterDto
-  ): Promise<PaginatedResponse<Achievement>>;
+  findAll(pagination?: PaginationDto, filter?: FilterDto): Promise<PaginatedResponse<IAchievement>>;
 
   /**
    * Retrieves a single achievement by its ID.
@@ -40,7 +24,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param id - The unique identifier of the achievement
    * @returns A promise resolving to the found achievement
    */
-  findById(id: string): Promise<Achievement>;
+  findById(id: string): Promise<IAchievement>;
 
   /**
    * Creates a new achievement.
@@ -48,7 +32,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param achievementData - The data for the new achievement
    * @returns A promise resolving to the created achievement
    */
-  create(achievementData: Partial<Achievement>): Promise<Achievement>;
+  create(achievementData: Partial<IAchievement>): Promise<IAchievement>;
 
   /**
    * Updates an existing achievement by its ID.
@@ -57,7 +41,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param achievementData - The data to update the achievement with
    * @returns A promise resolving to the updated achievement
    */
-  update(id: string, achievementData: Partial<Achievement>): Promise<Achievement>;
+  update(id: string, achievementData: Partial<IAchievement>): Promise<IAchievement>;
 
   /**
    * Deletes an achievement by its ID.
@@ -82,10 +66,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param pagination - Optional pagination parameters
    * @returns A promise resolving to a paginated response of achievements
    */
-  findByJourney(
-    journey: IJourneyType,
-    pagination?: PaginationDto
-  ): Promise<PaginatedResponse<Achievement>>;
+  findByJourney(journey: string, pagination?: PaginationDto): Promise<PaginatedResponse<IAchievement>>;
 
   /**
    * Finds achievements by their XP reward value.
@@ -94,10 +75,7 @@ export interface IAchievementService extends Service<Achievement> {
    * @param pagination - Optional pagination parameters
    * @returns A promise resolving to a paginated response of achievements
    */
-  findByXpReward(
-    xpReward: number,
-    pagination?: PaginationDto
-  ): Promise<PaginatedResponse<Achievement>>;
+  findByXpReward(xpReward: number, pagination?: PaginationDto): Promise<PaginatedResponse<IAchievement>>;
 
   /**
    * Searches achievements by title or description.
@@ -106,62 +84,42 @@ export interface IAchievementService extends Service<Achievement> {
    * @param pagination - Optional pagination parameters
    * @returns A promise resolving to a paginated response of matching achievements
    */
-  search(
-    searchTerm: string,
-    pagination?: PaginationDto
-  ): Promise<PaginatedResponse<Achievement>>;
+  search(searchTerm: string, pagination?: PaginationDto): Promise<PaginatedResponse<IAchievement>>;
 
   /**
-   * Processes an achievement event and determines if any achievements are unlocked.
-   * Implements standardized error handling with retry policies.
+   * Retrieves a user's progress for a specific achievement.
    * 
-   * @param event - The achievement event to process
-   * @param retryOptions - Optional retry configuration for error handling
-   * @returns A promise resolving to the achievement unlock result
+   * @param profileId - The ID of the user's game profile
+   * @param achievementId - The ID of the achievement
+   * @returns A promise resolving to the user achievement data
    */
-  processAchievementEvent(
-    event: IAchievementEvent,
-    retryOptions?: IRetryOptions
-  ): Promise<IAchievementUnlockResult>;
+  getUserAchievement(profileId: string, achievementId: string): Promise<IUserAchievement>;
 
   /**
-   * Checks if a user has met the criteria for a specific achievement.
+   * Updates a user's progress for a specific achievement.
    * 
-   * @param userId - The ID of the user to check
-   * @param achievementId - The ID of the achievement to check
-   * @param criteria - Optional additional criteria to evaluate
-   * @returns A promise resolving to true if criteria are met, false otherwise
+   * @param profileId - The ID of the user's game profile
+   * @param achievementId - The ID of the achievement
+   * @param progress - The new progress value
+   * @returns A promise resolving to the updated user achievement data
    */
-  checkAchievementCriteria(
-    userId: string,
-    achievementId: string,
-    criteria?: IAchievementCriteria
-  ): Promise<boolean>;
+  updateUserProgress(profileId: string, achievementId: string, progress: number): Promise<IUserAchievement>;
 
   /**
-   * Unlocks an achievement for a user if they meet the criteria.
-   * Implements standardized error handling with retry policies.
+   * Unlocks an achievement for a user.
    * 
-   * @param userId - The ID of the user
-   * @param achievementId - The ID of the achievement to unlock
-   * @param retryOptions - Optional retry configuration for error handling
-   * @returns A promise resolving to the unlocked achievement or null if criteria not met
+   * @param profileId - The ID of the user's game profile
+   * @param achievementId - The ID of the achievement
+   * @returns A promise resolving to the updated user achievement data
    */
-  unlockAchievement(
-    userId: string,
-    achievementId: string,
-    retryOptions?: IRetryOptions
-  ): Promise<Achievement | null>;
+  unlockAchievement(profileId: string, achievementId: string): Promise<IUserAchievement>;
 
   /**
-   * Retrieves all achievements unlocked by a specific user.
+   * Resets a user's progress for a specific achievement.
    * 
-   * @param userId - The ID of the user
-   * @param pagination - Optional pagination parameters
-   * @returns A promise resolving to a paginated response of unlocked achievements
+   * @param profileId - The ID of the user's game profile
+   * @param achievementId - The ID of the achievement
+   * @returns A promise resolving to the updated user achievement data
    */
-  getUserAchievements(
-    userId: string,
-    pagination?: PaginationDto
-  ): Promise<PaginatedResponse<Achievement>>;
+  resetUserProgress(profileId: string, achievementId: string): Promise<IUserAchievement>;
 }
