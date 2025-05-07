@@ -23,7 +23,10 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "db:seed": "npm run prisma:seed"
+    "db:seed": "npm run prisma:seed",
+    "kafka:setup": "chmod +x ./scripts/kafka-setup.sh && ./scripts/kafka-setup.sh",
+    "postinstall": "chmod +x ./scripts/*.sh",
+    "docker:entrypoint": "chmod +x ./scripts/entrypoint.sh && ./scripts/entrypoint.sh"
   },
   "dependencies": {
     "@nestjs/common": "10.3.0",
