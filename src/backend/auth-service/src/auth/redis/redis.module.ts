@@ -2,6 +2,7 @@ import { Module, Global, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 import { TokenStorageService } from './token-storage.service';
+import { RedisService } from './redis.service';
 import { TokenRedisClientConfig } from './redis.interfaces';
 
 /**
@@ -110,7 +111,7 @@ export const createRedisClient = (configService: ConfigService): Redis => {
  * Configures and provides Redis connection and token storage services.
  * Implements connection pooling, error handling, and proper cleanup.
  */
-@Global() // Make the module global so TokenStorageService is available everywhere
+@Global() // Make the module global so Redis services are available everywhere
 @Module({
   imports: [ConfigModule],
   providers: [
@@ -121,9 +122,10 @@ export const createRedisClient = (configService: ConfigService): Redis => {
       },
       inject: [ConfigService],
     },
+    RedisService,
     TokenStorageService,
   ],
-  exports: [TokenStorageService, 'REDIS_CLIENT'],
+  exports: [RedisService, TokenStorageService, 'REDIS_CLIENT'],
 })
 export class RedisModule implements OnModuleDestroy {
   private readonly logger = new Logger(RedisModule.name);
