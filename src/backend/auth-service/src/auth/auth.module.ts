@@ -18,6 +18,9 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { FacebookStrategy } from './strategies/facebook.strategy';
 import { AppleStrategy } from './strategies/apple.strategy';
 
+// Import rate limiter
+import { RateLimiterService } from './rate-limiter/rate-limiter.service';
+
 // Import Redis module for token blacklisting
 import { RedisModule } from './redis/redis.module';
 import { TokenStorageService } from './redis/token-storage.service';
@@ -81,11 +84,15 @@ import { TokenStorageService } from './redis/token-storage.service';
     
     // Token storage service for Redis-backed token blacklisting
     TokenStorageService,
+    
+    // Rate limiting service for brute force protection
+    RateLimiterService,
   ],
   exports: [
     // Export services for use by other modules
     AuthService,
     TokenStorageService,
+    RateLimiterService,
     JwtModule,
   ],
 })
