@@ -1,35 +1,50 @@
 import { PipeTransform, Type } from '@nestjs/common';
-import { AuthenticatedUser } from '@austa/interfaces/auth';
+import { IUser } from '@austa/interfaces/auth';
 
 /**
- * Parameter decorator that extracts the authenticated user from the request object.
- * Can optionally extract a specific property from the user object when provided with a property name.
+ * Parameter decorator that extracts the authenticated user from the request.
  * 
- * @param dataOrPipes - Optional property name to extract from the user object or pipes to transform the result
- * @returns The authenticated user object or a specific property from it
+ * @param dataOrPipes - Optional property key to extract from the user object or pipes to transform the user
+ * @returns A parameter decorator that provides the authenticated user or a specific property
+ * 
+ * @example
+ * // Get the entire user object
+ * @Get('profile')
+ * @UseGuards(JwtAuthGuard)
+ * getProfile(@CurrentUser() user: IUser) {
+ *   return user;
+ * }
+ *
+ * @example
+ * // Get a specific property from the user object
+ * @Get('user-id')
+ * @UseGuards(JwtAuthGuard)
+ * getUserId(@CurrentUser('id') userId: string) {
+ *   return { userId };
+ * }
  */
 export declare const CurrentUser: {
   /**
-   * Extract the authenticated user from the request
+   * Extract the entire user object from the request
    */
   (): ParameterDecorator;
   
   /**
-   * Extract a specific property from the authenticated user
-   * @param property - The property name to extract from the user object
+   * Extract a specific property from the user object
+   * @param property - The property key to extract from the user object
    */
-  (property: keyof AuthenticatedUser): ParameterDecorator;
+  (property: string): ParameterDecorator;
   
   /**
-   * Extract the authenticated user and transform it with pipes
+   * Extract the user object and transform it using the provided pipes
    * @param pipes - Transformation pipes to apply to the user object
    */
   (...pipes: (PipeTransform<any, any> | Type<PipeTransform<any, any>>)[]): ParameterDecorator;
   
   /**
-   * Extract a specific property from the authenticated user and transform it with pipes
-   * @param property - The property name to extract from the user object
+   * Extract a specific property from the user object and transform it using the provided pipes
+   * @param property - The property key to extract from the user object
    * @param pipes - Transformation pipes to apply to the extracted property
    */
-  (property: keyof AuthenticatedUser, ...pipes: (PipeTransform<any, any> | Type<PipeTransform<any, any>>)[]): ParameterDecorator;
+  (property: string, ...pipes: (PipeTransform<any, any> | Type<PipeTransform<any, any>>)[]): ParameterDecorator;
 };
