@@ -1,10 +1,16 @@
 import { Module } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+
+// Use standardized imports with path aliases
 import { PermissionsService } from '@app/auth/permissions/permissions.service';
 import { PermissionsController } from '@app/auth/permissions/permissions.controller';
-import { PrismaService } from '@austa/database';
+import { PermissionsGuard } from '@app/auth/permissions/permissions.guard';
+import { PrismaService } from '@app/shared/database/prisma.service';
+import { LoggerService } from '@app/shared/logging/logger.service';
+import { CacheService } from '@app/shared/cache/cache.service';
 
 /**
- * Module that provides the PermissionsService and PermissionsController for managing permissions in the auth service.
+ * Module that provides the PermissionsService for managing permissions in the auth service.
  * This module enables fine-grained access control for the three user journeys: Health, Care, and Plan.
  * 
  * The permissions system is built around a hierarchical format (journey:resource:action)
@@ -17,7 +23,14 @@ import { PrismaService } from '@austa/database';
  */
 @Module({
   controllers: [PermissionsController],
-  providers: [PermissionsService, PrismaService],
-  exports: [PermissionsService],
+  providers: [
+    PermissionsService,
+    PermissionsGuard,
+    PrismaService,
+    LoggerService,
+    CacheService,
+    Reflector
+  ],
+  exports: [PermissionsService, PermissionsGuard],
 })
 export class PermissionsModule {}
