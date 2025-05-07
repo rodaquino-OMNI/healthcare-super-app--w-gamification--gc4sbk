@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "TECH_ENOLOCK",
+    "summary": "Missing NPM lockfile required for dependency resolution",
+    "detail": "This command requires an existing lockfile to properly resolve dependencies. The lockfile is essential for consistent builds across environments.",
+    "remediation": "Create a lockfile first with: npm i --package-lock-only",
+    "context": {
+      "originalError": "loadVirtual requires existing shrinkwrap file",
+      "errorType": "TECHNICAL",
+      "component": "dependency-management",
+      "severity": "ERROR",
+      "affectedJourneys": ["all"],
+      "documentation": "https://docs.austa.health/errors/TECH_ENOLOCK"
+    }
+  }
+}
