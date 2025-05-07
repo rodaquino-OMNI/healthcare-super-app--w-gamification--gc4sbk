@@ -16,6 +16,7 @@ export {
 } from './redis.interfaces';
 
 // Export services
+export { RedisService } from './redis.service';
 export { TokenStorageService } from './token-storage.service';
 
 // Export module and utilities
