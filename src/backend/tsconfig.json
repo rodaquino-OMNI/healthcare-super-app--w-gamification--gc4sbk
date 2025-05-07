@@ -1,0 +1,108 @@
+{
+  "compilerOptions": {
+    /* Basic Options */
+    "target": "es2021",                       /* Specify ECMAScript target version */
+    "module": "commonjs",                    /* Specify module code generation */
+    "lib": ["es2021"],                       /* Specify library files to be included in the compilation */
+    "declaration": true,                      /* Generates corresponding '.d.ts' file */
+    "sourceMap": true,                        /* Generates corresponding '.map' file */
+    "outDir": "./dist",                      /* Redirect output structure to the directory */
+    "rootDir": ".",                          /* Specify the root directory of input files */
+    "removeComments": true,                   /* Do not emit comments to output */
+    "incremental": true,                      /* Enable incremental compilation */
+    "importHelpers": true,                    /* Import emit helpers from 'tslib' */
+
+    /* Strict Type-Checking Options */
+    "strict": true,                           /* Enable all strict type-checking options */
+    "noImplicitAny": true,                    /* Raise error on expressions and declarations with an implied 'any' type */
+    "strictNullChecks": true,                 /* Enable strict null checks */
+    "strictFunctionTypes": true,              /* Enable strict checking of function types */
+    "strictBindCallApply": true,              /* Enable strict 'bind', 'call', and 'apply' methods on functions */
+    "strictPropertyInitialization": false,    /* Enable strict checking of property initialization in classes */
+    "noImplicitThis": true,                   /* Raise error on 'this' expressions with an implied 'any' type */
+    "alwaysStrict": true,                     /* Parse in strict mode and emit "use strict" for each source file */
+
+    /* Additional Checks */
+    "noUnusedLocals": true,                   /* Report errors on unused locals */
+    "noUnusedParameters": true,               /* Report errors on unused parameters */
+    "noImplicitReturns": true,                /* Report error when not all code paths in function return a value */
+    "noFallthroughCasesInSwitch": true,       /* Report errors for fallthrough cases in switch statement */
+    "forceConsistentCasingInFileNames": true, /* Ensure file names are consistent in casing */
+
+    /* Module Resolution Options */
+    "moduleResolution": "node",               /* Specify module resolution strategy */
+    "baseUrl": ".",                          /* Base directory to resolve non-absolute module names */
+    "esModuleInterop": true,                  /* Enables emit interoperability between CommonJS and ES Modules */
+    "resolveJsonModule": true,                /* Include modules imported with .json extension */
+    "allowSyntheticDefaultImports": true,     /* Allow default imports from modules with no default export */
+
+    /* Experimental Options */
+    "experimentalDecorators": true,           /* Enables experimental support for ES7 decorators */
+    "emitDecoratorMetadata": true,            /* Enables experimental support for emitting type metadata for decorators */
+
+    /* Advanced Options */
+    "skipLibCheck": true,                     /* Skip type checking of declaration files */
+
+    /* Path Aliases */
+    "paths": {
+      /* Internal Services */
+      "@app/shared": ["shared/src"],
+      "@app/shared/*": ["shared/src/*"],
+      "@app/auth": ["auth-service/src"],
+      "@app/auth/*": ["auth-service/src/*"],
+      "@app/health": ["health-service/src"],
+      "@app/health/*": ["health-service/src/*"],
+      "@app/care": ["care-service/src"],
+      "@app/care/*": ["care-service/src/*"],
+      "@app/plan": ["plan-service/src"],
+      "@app/plan/*": ["plan-service/src/*"],
+      "@app/gamification": ["gamification-engine/src"],
+      "@app/gamification/*": ["gamification-engine/src/*"],
+      "@app/notifications": ["notification-service/src"],
+      "@app/notifications/*": ["notification-service/src/*"],
+      "@app/api-gateway": ["api-gateway/src"],
+      "@app/api-gateway/*": ["api-gateway/src/*"],
+      
+      /* Database */
+      "@prisma/*": ["shared/prisma/*"],
+      
+      /* Internal Packages */
+      "@austa/*": ["packages/*"],
+      
+      /* New Shared Packages */
+      "@austa/interfaces": ["../web/interfaces"],
+      "@austa/interfaces/*": ["../web/interfaces/*"],
+      "@austa/journey-context": ["../web/journey-context"],
+      "@austa/journey-context/*": ["../web/journey-context/*"],
+      "@austa/design-system": ["../web/design-system"],
+      "@austa/design-system/*": ["../web/design-system/*"],
+      "@design-system/primitives": ["../web/primitives"],
+      "@design-system/primitives/*": ["../web/primitives/*"]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts"
+  ],
+  "references": [
+    { "path": "./shared" },
+    { "path": "./packages/auth" },
+    { "path": "./packages/database" },
+    { "path": "./packages/errors" },
+    { "path": "./packages/events" },
+    { "path": "./packages/interfaces" },
+    { "path": "./packages/logging" },
+    { "path": "./packages/tracing" },
+    { "path": "./packages/utils" },
+    { "path": "./api-gateway" },
+    { "path": "./auth-service" },
+    { "path": "./health-service" },
+    { "path": "./care-service" },
+    { "path": "./plan-service" },
+    { "path": "./gamification-engine" },
+    { "path": "./notification-service" }
+  ]
+}
