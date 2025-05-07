@@ -1,0 +1,178 @@
+/**
+ * Lerna configuration for the AUSTA SuperApp backend monorepo
+ * 
+ * This configuration manages the backend microservices monorepo, defining workspace packages,
+ * versioning strategy, and publishing configuration. It ensures consistent package management
+ * and dependency resolution across all services.
+ *
+ * Key features:
+ * - Independent versioning for each package
+ * - Yarn workspace integration
+ * - Standardized script definitions
+ * - Proper workspace resolution paths
+ * - Dependency hoisting with specific exceptions
+ * - Conventional commit support for versioning
+ */
+{
+  "$schema": "node_modules/lerna/schemas/lerna-schema.json",
+  "version": "independent",
+  "npmClient": "yarn",
+  "useWorkspaces": true,
+  "packages": [
+    "api-gateway",
+    "auth-service",
+    "gamification-engine",
+    "health-service",
+    "care-service",
+    "plan-service",
+    "notification-service",
+    "shared",
+    "packages/*"
+  ],
+  "command": {
+    "version": {
+      "allowBranch": ["main", "develop", "feature/*"],
+      "conventionalCommits": true,
+      "createRelease": "github",
+      "message": "chore(release): publish %s",
+      "ignoreChanges": [
+        "**/*.md",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/__tests__/**",
+        "**/test/**"
+      ]
+    },
+    "publish": {
+      "registry": "https://registry.npmjs.org/",
+      "access": "restricted",
+      "conventionalCommits": true,
+      "message": "chore(release): publish %s"
+    },
+    "bootstrap": {
+      "hoist": true,
+      "npmClientArgs": ["--no-package-lock", "--no-ci"],
+      "nohoist": [
+        "**/react-native",
+        "**/react-native/**",
+        "**/@nestjs/**"
+      ],
+      "forceLocal": true,
+      "strict": true,
+      "ci": false,
+      "ignore": []
+    },
+    "exec": {
+      "concurrency": 8,
+      "stream": true,
+      "bail": true,
+      "sort": true
+    },
+    "import": {
+      "flatten": true
+    },
+    "link": {
+      "force": true
+    },
+    "create": {
+      "license": "MIT",
+      "repository": "https://github.com/austa/superapp",
+      "access": "restricted"
+    },
+    "run": {
+      "stream": true,
+      "concurrency": 8,
+      "sort": true
+    },
+    "clean": {
+      "yes": true
+    },
+    "add": {
+      "exact": true
+    }
+  },
+  "ignoreChanges": [
+    "**/.gitignore",
+    "**/.eslintrc.js",
+    "**/.prettierrc",
+    "**/CHANGELOG.md",
+    "**/node_modules/**",
+    "**/package.json",
+    "**/*.md"
+  ],
+  "changelog": {
+    "repo": "austa/superapp",
+    "labels": {
+      "enhancement": "New Feature",
+      "bug": "Bug Fix",
+      "documentation": "Documentation",
+      "dependency": "Dependency Update"
+    },
+    "cacheDir": ".changelog"
+  },
+  "stream": true,
+  "concurrency": 8,
+  "sort": true,
+  "loglevel": "info",
+  "granularPathspec": false,
+  "reject-cycles": true,
+  "exact": true,
+  "conventionalGraduate": false,
+  "conventionalPrerelease": false,
+  "includeMergedTags": true,
+  "workspaceConfig": {
+    "nohoist": [
+      "**/react-native",
+      "**/react-native/**",
+      "**/@nestjs/**"
+    ],
+    "packages": [
+      "api-gateway",
+      "auth-service",
+      "gamification-engine",
+      "health-service",
+      "care-service",
+      "plan-service",
+      "notification-service",
+      "shared",
+      "packages/*"
+    ]
+  },
+  "packageRegistry": {
+    "@austa:registry": "https://registry.npmjs.org/"
+  },
+  "uniquePackageNames": true,
+  "resolvePaths": {
+    "api-gateway": "api-gateway",
+    "auth-service": "auth-service",
+    "gamification-engine": "gamification-engine",
+    "health-service": "health-service",
+    "care-service": "care-service",
+    "plan-service": "plan-service",
+    "notification-service": "notification-service",
+    "shared": "shared",
+    "@austa/auth": "packages/auth",
+    "@austa/utils": "packages/utils",
+    "@austa/tracing": "packages/tracing",
+    "@austa/logging": "packages/logging",
+    "@austa/events": "packages/events",
+    "@austa/errors": "packages/errors",
+    "@austa/database": "packages/database",
+    "@austa/interfaces": "packages/interfaces"
+  },
+  "standardScripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "clean": "rimraf dist"
+  }
+}
