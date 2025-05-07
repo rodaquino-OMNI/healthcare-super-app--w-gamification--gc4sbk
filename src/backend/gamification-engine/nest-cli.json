@@ -1,0 +1,95 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "entryFile": "main",
+  "compilerOptions": {
+    "tsConfigPath": "tsconfig.json",
+    "webpack": true,
+    "webpackConfigPath": "webpack.config.js",
+    "plugins": [
+      {
+        "name": "@nestjs/swagger",
+        "options": {
+          "classValidatorShim": true,
+          "introspectComments": true,
+          "dtoFileNameSuffix": [".dto.ts", ".entity.ts", ".interface.ts"]
+        }
+      }
+    ],
+    "typeCheck": true,
+    "optimization": true,
+    "preserveWatchOutput": true,
+    "assets": [
+      {
+        "include": "**/*.json",
+        "outDir": "dist",
+        "watchAssets": true
+      },
+      {
+        "include": "**/*.graphql",
+        "outDir": "dist",
+        "watchAssets": true
+      },
+      {
+        "include": "**/*.proto",
+        "outDir": "dist",
+        "watchAssets": true
+      },
+      {
+        "include": "**/*.html",
+        "outDir": "dist",
+        "watchAssets": true
+      },
+      {
+        "include": "**/*.template",
+        "outDir": "dist",
+        "watchAssets": true
+      }
+    ],
+    "deleteOutDir": true,
+    "watchAssets": true
+  },
+  "generateOptions": {
+    "spec": true,
+    "flat": false,
+    "baseDir": "src"
+  },
+  "projects": {
+    "gamification-engine": {
+      "type": "application",
+      "root": ".",
+      "entryFile": "main",
+      "sourceRoot": "src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.json",
+        "incremental": true,
+        "builder": "webpack",
+        "webpackConfigPath": "webpack.config.js",
+        "pathMappings": {
+          "@app/auth": ["../auth-service/src"],
+          "@app/auth/*": ["../auth-service/src/*"],
+          "@app/health": ["../health-service/src"],
+          "@app/health/*": ["../health-service/src/*"],
+          "@app/care": ["../care-service/src"],
+          "@app/care/*": ["../care-service/src/*"],
+          "@app/plan": ["../plan-service/src"],
+          "@app/plan/*": ["../plan-service/src/*"],
+          "@app/gamification": ["./src"],
+          "@app/gamification/*": ["./src/*"],
+          "@app/notifications": ["../notification-service/src"],
+          "@app/notifications/*": ["../notification-service/src/*"],
+          "@app/shared": ["../shared/src"],
+          "@app/shared/*": ["../shared/src/*"]
+        },
+        "assets": [
+          "**/*.json",
+          "**/*.graphql",
+          "**/*.proto",
+          "**/*.html",
+          "**/*.template"
+        ],
+        "watchAssets": true
+      }
+    }
+  }
+}
