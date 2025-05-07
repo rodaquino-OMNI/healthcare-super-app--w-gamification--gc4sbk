@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gamification-kafka-setup
+  labels:
+    app: gamification-engine
+    component: kafka-setup
+spec:
+  ttlSecondsAfterFinished: 600  # Clean up job 10 minutes after completion
+  backoffLimit: 3  # Retry up to 3 times
+  template:
+    metadata:
+      labels:
+        app: gamification-engine
+        component: kafka-setup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: kafka-setup
+        image: ${GAMIFICATION_ENGINE_IMAGE}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          chmod +x /app/scripts/kafka-setup.sh
+          /app/scripts/kafka-setup.sh
+        env:
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.brokers
+        - name: KAFKA_PARTITIONS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.partitions
+              optional: true
+        - name: KAFKA_REPLICATION_FACTOR
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.replication.factor
+              optional: true
+        - name: KAFKA_RETENTION_MS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.retention.ms
+              optional: true
+        - name: KAFKA_TOPIC_HEALTH_EVENTS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.topics.health.events
+              optional: true
+        - name: KAFKA_TOPIC_CARE_EVENTS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.topics.care.events
+              optional: true
+        - name: KAFKA_TOPIC_PLAN_EVENTS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.topics.plan.events
+              optional: true
+        - name: KAFKA_TOPIC_USER_EVENTS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.topics.user.events
+              optional: true
+        - name: KAFKA_TOPIC_GAME_EVENTS
+          valueFrom:
+            configMapKeyRef:
+              name: gamification-engine-config
+              key: kafka.topics.game.events
+              optional: true
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gamification-engine-config
+  labels:
+    app: gamification-engine
+data:
+  kafka.brokers: "kafka-service:9092"
+  kafka.partitions: "3"
+  kafka.replication.factor: "3"
+  kafka.retention.ms: "604800000"
+  kafka.topics.health.events: "health.events"
+  kafka.topics.care.events: "care.events"
+  kafka.topics.plan.events: "plan.events"
+  kafka.topics.user.events: "user.events"
+  kafka.topics.game.events: "game.events"
