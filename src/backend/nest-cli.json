@@ -1,0 +1,189 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "monorepo": true,
+  "compilerOptions": {
+    "webpack": true,
+    "tsConfigPath": "tsconfig.build.json",
+    "deleteOutDir": true,
+    "assets": [
+      { "include": "**/*.graphql", "watchAssets": true },
+      { "include": "**/*.proto", "watchAssets": true },
+      { "include": "**/*.json", "watchAssets": true },
+      { "include": "**/*.yaml", "watchAssets": true },
+      { "include": "**/*.template", "watchAssets": true }
+    ],
+    "plugins": [
+      {
+        "name": "@nestjs/swagger",
+        "options": {
+          "classValidatorShim": true,
+          "introspectComments": true
+        }
+      }
+    ]
+  },
+  "projects": {
+    "shared": {
+      "type": "library",
+      "root": "shared",
+      "entryFile": "index",
+      "sourceRoot": "shared/src",
+      "compilerOptions": {
+        "tsConfigPath": "shared/tsconfig.json"
+      }
+    },
+    "packages/auth": {
+      "type": "library",
+      "root": "packages/auth",
+      "entryFile": "index",
+      "sourceRoot": "packages/auth/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/auth/tsconfig.json"
+      }
+    },
+    "packages/database": {
+      "type": "library",
+      "root": "packages/database",
+      "entryFile": "index",
+      "sourceRoot": "packages/database/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/database/tsconfig.json"
+      }
+    },
+    "packages/errors": {
+      "type": "library",
+      "root": "packages/errors",
+      "entryFile": "index",
+      "sourceRoot": "packages/errors/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/errors/tsconfig.json"
+      }
+    },
+    "packages/events": {
+      "type": "library",
+      "root": "packages/events",
+      "entryFile": "index",
+      "sourceRoot": "packages/events/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/events/tsconfig.json"
+      }
+    },
+    "packages/interfaces": {
+      "type": "library",
+      "root": "packages/interfaces",
+      "entryFile": "index",
+      "sourceRoot": "packages/interfaces",
+      "compilerOptions": {
+        "tsConfigPath": "packages/interfaces/tsconfig.json"
+      }
+    },
+    "packages/logging": {
+      "type": "library",
+      "root": "packages/logging",
+      "entryFile": "index",
+      "sourceRoot": "packages/logging/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/logging/tsconfig.json"
+      }
+    },
+    "packages/tracing": {
+      "type": "library",
+      "root": "packages/tracing",
+      "entryFile": "index",
+      "sourceRoot": "packages/tracing/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/tracing/tsconfig.json"
+      }
+    },
+    "packages/utils": {
+      "type": "library",
+      "root": "packages/utils",
+      "entryFile": "index",
+      "sourceRoot": "packages/utils/src",
+      "compilerOptions": {
+        "tsConfigPath": "packages/utils/tsconfig.json"
+      }
+    },
+    "api-gateway": {
+      "type": "application",
+      "root": "api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "api-gateway/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "api-gateway/webpack.config.js"
+      }
+    },
+    "auth-service": {
+      "type": "application",
+      "root": "auth-service",
+      "entryFile": "main",
+      "sourceRoot": "auth-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "auth-service/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "auth-service/webpack.config.js"
+      }
+    },
+    "health-service": {
+      "type": "application",
+      "root": "health-service",
+      "entryFile": "main",
+      "sourceRoot": "health-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "health-service/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "health-service/webpack.config.js"
+      }
+    },
+    "care-service": {
+      "type": "application",
+      "root": "care-service",
+      "entryFile": "main",
+      "sourceRoot": "care-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "care-service/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "care-service/webpack.config.js"
+      }
+    },
+    "plan-service": {
+      "type": "application",
+      "root": "plan-service",
+      "entryFile": "main",
+      "sourceRoot": "plan-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "plan-service/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "plan-service/webpack.config.js"
+      }
+    },
+    "gamification-engine": {
+      "type": "application",
+      "root": "gamification-engine",
+      "entryFile": "main",
+      "sourceRoot": "gamification-engine/src",
+      "compilerOptions": {
+        "tsConfigPath": "gamification-engine/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "gamification-engine/webpack.config.js"
+      }
+    },
+    "notification-service": {
+      "type": "application",
+      "root": "notification-service",
+      "entryFile": "main",
+      "sourceRoot": "notification-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "notification-service/tsconfig.json",
+        "webpack": true,
+        "webpackConfigPath": "notification-service/webpack.config.js"
+      }
+    }
+  },
+  "generateOptions": {
+    "spec": true
+  }
+}
