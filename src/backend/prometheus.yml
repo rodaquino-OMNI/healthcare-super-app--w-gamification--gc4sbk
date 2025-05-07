@@ -1,0 +1,250 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+rule_files:
+  - "/etc/prometheus/rules/service_alerts.yml"
+  - "/etc/prometheus/rules/infrastructure_alerts.yml"
+  - "/etc/prometheus/rules/cicd_alerts.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Backend services with standardized metric paths
+  - job_name: "api-gateway"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["api-gateway:3000"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "api-gateway"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "shared"
+
+  - job_name: "auth-service"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["auth-service:3001"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "auth-service"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "shared"
+
+  - job_name: "health-service"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["health-service:3002"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "health-service"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "health"
+
+  - job_name: "care-service"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["care-service:3003"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "care-service"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "care"
+
+  - job_name: "plan-service"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["plan-service:3004"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "plan-service"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "plan"
+
+  - job_name: "gamification-engine"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["gamification-engine:3005"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "gamification-engine"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "shared"
+
+  - job_name: "notification-service"
+    scrape_interval: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["notification-service:3006"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: "notification-service"
+      - source_labels: [__address__]
+        target_label: journey
+        replacement: "shared"
+
+  # Database and infrastructure monitoring
+  - job_name: "postgres"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "database"
+
+  - job_name: "redis"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "cache"
+
+  - job_name: "node"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "system"
+
+  # Kafka monitoring
+  - job_name: "kafka"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "messaging"
+
+  # CI/CD metrics monitoring
+  - job_name: "github-actions-metrics"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["ci-exporter:9090"]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_workflow]
+        target_label: workflow
+      - source_labels: [__meta_kubernetes_pod_label_repository]
+        target_label: repository
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "ci-cd"
+
+  # Dependency validation monitoring
+  - job_name: "dependency-validation"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["dependency-exporter:9091"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "dependencies"
+
+  # Performance baseline monitoring
+  - job_name: "performance-baseline"
+    scrape_interval: 30s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["performance-exporter:9092"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "performance"
+
+  # Kubernetes monitoring
+  - job_name: "kubernetes-apiservers"
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: endpoints
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "kubernetes"
+
+  - job_name: "kubernetes-nodes"
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "kubernetes"
+
+  - job_name: "kubernetes-pods"
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+      - source_labels: [__address__]
+        target_label: component
+        replacement: "kubernetes"
