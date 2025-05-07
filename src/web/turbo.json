@@ -1,0 +1,117 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["**/.env.*local"],
+  "globalEnv": ["NODE_ENV", "NEXT_PUBLIC_*", "AUSTA_*"],
+  "pipeline": {
+    // Default task configurations
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "dist/**", "lib/**"],
+      "cache": true
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"]
+    },
+    "storybook": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "outputs": [],
+      "cache": true
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "cache": true
+    },
+    "type-check": {
+      "dependsOn": ["^build"],
+      "outputs": [".turbo/typecheck-*.log"],
+      "cache": true
+    },
+    "validate": {
+      "dependsOn": ["^build", "lint", "test", "type-check"],
+      "cache": true
+    },
+    "clean": {
+      "cache": false
+    },
+    
+    // Package-specific configurations for proper dependency graph
+    "primitives#build": {
+      "outputs": ["dist/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "tsconfig.json", "package.json"]
+    },
+    "interfaces#build": {
+      "dependsOn": ["primitives#build"],
+      "outputs": ["dist/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "tsconfig.json", "package.json"]
+    },
+    "design-system#build": {
+      "dependsOn": ["primitives#build", "interfaces#build"],
+      "outputs": ["dist/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "tsconfig.json", "package.json"]
+    },
+    "journey-context#build": {
+      "dependsOn": ["primitives#build", "interfaces#build", "design-system#build"],
+      "outputs": ["dist/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "tsconfig.json", "package.json"]
+    },
+    "mobile#build": {
+      "dependsOn": ["primitives#build", "interfaces#build", "design-system#build", "journey-context#build"],
+      "outputs": ["dist/**", "android/app/build/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "android/**/*", "ios/**/*", "*.json"]
+    },
+    "web#build": {
+      "dependsOn": ["primitives#build", "interfaces#build", "design-system#build", "journey-context#build"],
+      "outputs": [".next/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "public/**/*", "*.json"]
+    },
+    
+    // Optimized test configurations for each package
+    "primitives#test": {
+      "outputs": ["coverage/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"]
+    },
+    "interfaces#test": {
+      "dependsOn": ["primitives#build"],
+      "outputs": ["coverage/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"]
+    },
+    "design-system#test": {
+      "dependsOn": ["primitives#build", "interfaces#build"],
+      "outputs": ["coverage/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"]
+    },
+    "journey-context#test": {
+      "dependsOn": ["primitives#build", "interfaces#build", "design-system#build"],
+      "outputs": ["coverage/**"],
+      "cache": true,
+      "inputs": ["src/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"]
+    },
+    
+    // Storybook configurations for design system packages
+    "design-system#storybook": {
+      "dependsOn": ["primitives#build", "interfaces#build"],
+      "cache": false,
+      "persistent": true
+    },
+    "primitives#storybook": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
