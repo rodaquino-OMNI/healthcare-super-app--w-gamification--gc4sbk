@@ -5,6 +5,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 // Import from local DTOs
 import { FilterDto } from './filter.dto';
 import { SortDto, MultiSortDto } from './sort.dto';
+import { PaginationRequestDto } from './pagination.dto';
 
 // Import from @austa/interfaces package
 import { JourneyType } from '@austa/interfaces/common';
@@ -24,36 +25,16 @@ export enum PaginationStrategy {
  */
 export class ApiQueryDto {
   /**
-   * Current page number (1-based indexing)
-   * @example 1
+   * Pagination parameters (page number and size)
    */
   @ApiProperty({
-    description: 'Page number (1-based indexing)',
-    default: 1,
-    minimum: 1,
-    type: Number,
+    description: 'Pagination parameters',
+    type: PaginationRequestDto,
   })
-  @IsInt()
-  @Min(1)
+  @ValidateNested()
+  @Type(() => PaginationRequestDto)
   @IsOptional()
-  page?: number = 1;
-
-  /**
-   * Number of items per page
-   * @example 10
-   */
-  @ApiProperty({
-    description: 'Number of items per page',
-    default: 10,
-    minimum: 1,
-    maximum: 100,
-    type: Number,
-  })
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  @IsOptional()
-  limit?: number = 10;
+  pagination?: PaginationRequestDto = new PaginationRequestDto();
 
   /**
    * Cursor for cursor-based pagination
@@ -157,6 +138,21 @@ export class ApiQueryDto {
   })
   @IsOptional()
   includeRelations?: boolean = false;
+  
+  /**
+   * Get pagination parameters for database queries
+   * @returns Object with skip and take properties for pagination
+   */
+  getPaginationParams(): { skip: number; take: number } {
+    if (this.paginationStrategy === PaginationStrategy.CURSOR_BASED) {
+      // For cursor-based pagination, we use a default take value
+      // The cursor itself is handled separately by the repository
+      return { skip: 0, take: this.pagination?.size || 10 };
+    }
+    
+    // For page-based pagination, use the PaginationRequestDto
+    return this.pagination?.toPrismaParams() || { skip: 0, take: 10 };
+  }
 }
 
 /**
