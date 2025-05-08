@@ -63,10 +63,8 @@ export {
  * @description Utilities for serializing and deserializing Kafka messages with type safety.
  */
 export {
-  serializeMessage,
-  deserializeMessage,
-  validateMessageSchema,
   MessageSerializer,
+  SerializationOptions,
 } from './message-serializer';
 
 /**
