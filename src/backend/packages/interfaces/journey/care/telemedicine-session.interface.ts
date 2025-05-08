@@ -1,10 +1,9 @@
-import { IUser } from '../../../auth/interfaces';
 import { IAppointment } from './appointment.interface';
+import { IUser } from '../../../auth/user.interface';
 
 /**
- * Interface representing a telemedicine session in the Care Journey.
- * This interface defines the structure for virtual healthcare consultations
- * between patients and providers within the AUSTA SuperApp.
+ * Represents a telemedicine session in the Care Journey.
+ * This interface defines the structure for virtual healthcare consultations between patients and providers.
  */
 export interface ITelemedicineSession {
   /**
@@ -48,7 +47,7 @@ export interface ITelemedicineSession {
   startTime: Date;
 
   /**
-   * End time of the telemedicine session (nullable if the session is ongoing).
+   * End time of the telemedicine session (optional if the session is ongoing).
    */
   endTime?: Date;
 
