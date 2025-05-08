@@ -139,6 +139,13 @@ export interface TransformationRule {
   priority: number;
   
   /**
+   * Journey contexts this rule applies to (optional)
+   * Use 'health', 'care', or 'plan' to target specific journeys,
+   * or '*' to apply to all journeys
+   */
+  journeyContexts?: string[];
+  
+  /**
    * Transformation function for parameters
    */
   transform<T>(params: T, context: MiddlewareContext): Promise<T> | T;
