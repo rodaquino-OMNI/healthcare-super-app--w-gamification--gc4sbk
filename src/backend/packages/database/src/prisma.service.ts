@@ -498,44 +498,71 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    */
   private registerMiddleware(): void {
     // Initialize middleware registry and factory
-    this.middlewareRegistry = new MiddlewareRegistry();
-    this.middlewareFactory = new MiddlewareFactory(this.middlewareRegistry);
+    this.middlewareRegistry = new MiddlewareRegistry(new ConfigService());
+    this.middlewareFactory = new MiddlewareFactory(this.middlewareRegistry, new ConfigService());
     
     // Register middleware based on configuration
     if (this.options.enableLogging) {
-      const loggingMiddleware = new LoggingMiddleware({
-        logLevel: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
-        includeParameters: process.env.NODE_ENV !== 'production',
-        redactSensitiveData: process.env.NODE_ENV === 'production',
+      this.middlewareFactory.createLoggingMiddleware({
+        id: 'prisma-logging-middleware',
+        enabled: true,
+        priority: 100, // High priority for logging
+        journeyContexts: ['global'],
+        environmentProfiles: ['development', 'test', 'production'],
+        options: {
+          logLevel: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
+          includeParameters: process.env.NODE_ENV !== 'production',
+          redactSensitiveData: process.env.NODE_ENV === 'production',
+        },
       });
-      
-      this.middlewareRegistry.register('logging', loggingMiddleware);
     }
     
     if (this.options.enablePerformanceTracking) {
-      const performanceMiddleware = new PerformanceMiddleware({
-        slowQueryThreshold: 1000, // 1 second
-        enableMetrics: true,
-        trackStackTrace: process.env.NODE_ENV !== 'production',
+      this.middlewareFactory.createPerformanceMiddleware({
+        id: 'prisma-performance-middleware',
+        enabled: true,
+        priority: 90, // High priority but after logging
+        journeyContexts: ['global'],
+        environmentProfiles: ['development', 'test', 'production'],
+        options: {
+          slowQueryThreshold: 1000, // 1 second
+          enableMetrics: true,
+          trackStackTrace: process.env.NODE_ENV !== 'production',
+        },
       });
-      
-      this.middlewareRegistry.register('performance', performanceMiddleware);
     }
     
     if (this.options.enableCircuitBreaker) {
-      const circuitBreakerMiddleware = new CircuitBreakerMiddleware({
-        failureThreshold: 5,
-        resetTimeout: 30000, // 30 seconds
-        halfOpenMaxCalls: 3,
+      this.middlewareFactory.createCircuitBreakerMiddleware({
+        id: 'prisma-circuit-breaker-middleware',
+        enabled: true,
+        priority: 80, // Medium-high priority
+        journeyContexts: ['global'],
+        environmentProfiles: ['development', 'test', 'production'],
+        options: {
+          failureThreshold: 5,
+          resetTimeout: 30000, // 30 seconds
+          halfOpenMaxCalls: 3,
+        },
       });
-      
-      this.middlewareRegistry.register('circuitBreaker', circuitBreakerMiddleware);
     }
     
     if (this.options.enableTransformation) {
-      const transformationMiddleware = new TransformationMiddleware();
-      
-      this.middlewareRegistry.register('transformation', transformationMiddleware);
+      this.middlewareFactory.createTransformationMiddleware({
+        id: 'prisma-transformation-middleware',
+        enabled: true,
+        priority: 70, // Medium priority
+        journeyContexts: ['global'],
+        environmentProfiles: ['development', 'test', 'production'],
+      });
+    }
+    
+    // If a journey type is specified, create journey-specific middleware
+    if (this.options.journeyType) {
+      const journeyContext = this.getJourneyContextFromType(this.options.journeyType);
+      if (journeyContext) {
+        this.middlewareFactory.createStandardMiddlewareChain(journeyContext);
+      }
     }
     
     // Register middleware with Prisma
@@ -545,65 +572,116 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         return next(params);
       }
       
+      // Determine the journey context from the model name or the service's journey type
+      const journeyContext = this.getJourneyContextFromParams(params) || 
+        this.getJourneyContextFromType(this.options.journeyType) || 
+        'global';
+      
       // Create middleware context
       const context = {
-        params,
-        journeyType: this.options.journeyType,
-        startTime: Date.now(),
-        metadata: {},
+        operationType: params.action,
+        entityName: params.model,
+        journeyContext,
+        metadata: {
+          startTime: Date.now(),
+          params,
+        },
       };
       
+      // Execute the operation with middleware
       try {
-        // Apply middleware before execution
-        if (this.middlewareFactory) {
-          const middlewareChain = this.middlewareFactory.createMiddlewareChain(params);
-          
-          for (const middleware of middlewareChain) {
-            if (middleware.beforeExecute) {
-              await middleware.beforeExecute(context);
-            }
-          }
+        if (this.middlewareRegistry) {
+          return await this.middlewareRegistry.executeWithMiddleware(
+            journeyContext,
+            params,
+            context,
+            async (modifiedParams) => {
+              // Execute the query with potentially modified params
+              return await next(modifiedParams);
+            },
+          );
+        } else {
+          // If no middleware registry, just execute the query
+          return await next(params);
         }
-        
-        // Execute the query
-        const result = await next(params);
-        
-        // Apply middleware after execution
-        if (this.middlewareFactory) {
-          const middlewareChain = this.middlewareFactory.createMiddlewareChain(params);
-          
-          for (const middleware of middlewareChain.reverse()) {
-            if (middleware.afterExecute) {
-              await middleware.afterExecute(context, result);
-            }
-          }
-        }
-        
-        return result;
       } catch (error) {
-        // Apply middleware on error
-        if (this.middlewareFactory) {
-          const middlewareChain = this.middlewareFactory.createMiddlewareChain(params);
-          
-          for (const middleware of middlewareChain.reverse()) {
-            if (middleware.onError) {
-              try {
-                await middleware.onError(context, error);
-              } catch (middlewareError) {
-                this.logger.error('Error in middleware error handler', middlewareError);
-              }
-            }
-          }
-        }
-        
         // Transform the error if needed
         if (this.errorTransformer) {
           throw this.errorTransformer.transformPrismaError(error);
         }
-        
         throw error;
       }
     });
+  }
+  
+  /**
+   * Gets the journey context from the journey type
+   * @param journeyType The journey type
+   * @returns The journey context or undefined if not found
+   */
+  private getJourneyContextFromType(journeyType?: JourneyType): string | undefined {
+    if (!journeyType) {
+      return undefined;
+    }
+    
+    switch (journeyType) {
+      case JourneyType.HEALTH:
+        return 'health';
+      case JourneyType.CARE:
+        return 'care';
+      case JourneyType.PLAN:
+        return 'plan';
+      default:
+        return 'global';
+    }
+  }
+  
+  /**
+   * Gets the journey context from the Prisma params
+   * @param params The Prisma params
+   * @returns The journey context or undefined if not found
+   */
+  private getJourneyContextFromParams(params: any): string | undefined {
+    // Determine the journey context from the model name
+    if (!params.model) {
+      return undefined;
+    }
+    
+    // Health journey models
+    const healthModels = [
+      'HealthMetric',
+      'HealthGoal',
+      'DeviceConnection',
+      'MedicalEvent',
+    ];
+    
+    // Care journey models
+    const careModels = [
+      'Appointment',
+      'Provider',
+      'Medication',
+      'Treatment',
+      'TelemedicineSession',
+    ];
+    
+    // Plan journey models
+    const planModels = [
+      'Plan',
+      'Benefit',
+      'Coverage',
+      'Claim',
+      'Document',
+    ];
+    
+    if (healthModels.includes(params.model)) {
+      return 'health';
+    } else if (careModels.includes(params.model)) {
+      return 'care';
+    } else if (planModels.includes(params.model)) {
+      return 'plan';
+    }
+    
+    return undefined;
   }
 
   /**
