@@ -23,10 +23,27 @@ export { QuestStatus } from '@austa/interfaces/gamification';
 
 // Re-export quest event interfaces
 export { 
-  QuestEventInterface,
+  IQuestEvent,
+  IQuestEventData,
+  IQuestStartedEventData,
+  IQuestProgressedEventData,
+  IQuestCompletedEventData,
+  IQuestExpiredEventData,
+  IQuestResetEventData,
+  QuestEventType,
   QuestStartedEvent,
+  QuestProgressedEvent,
   QuestCompletedEvent,
-  QuestProgressUpdatedEvent
+  QuestExpiredEvent,
+  QuestResetEvent,
+  QuestEvent,
+  isQuestStartedEvent,
+  isQuestProgressedEvent,
+  isQuestCompletedEvent,
+  isQuestExpiredEvent,
+  isQuestResetEvent,
+  createQuestStartedEvent,
+  createQuestCompletedEvent
 } from './quest-event.interface';
 
 // Re-export quest filter interfaces
