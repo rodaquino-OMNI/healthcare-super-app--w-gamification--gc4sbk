@@ -136,9 +136,34 @@ export {
 // Utilities
 export {
   // Entity mappers
-  mapToEntity,
-  mapFromEntity,
+  createEntityMapper,
+  createModelMapper,
   mapEntities,
+  createSelectiveMapper,
+  getMapperForEntityType,
+  // Journey-specific entity mappers
+  mapHealthMetricEntity,
+  mapHealthGoalEntity,
+  mapMedicalEventEntity,
+  mapDeviceConnectionEntity,
+  mapAppointmentEntity,
+  mapProviderEntity,
+  mapMedicationEntity,
+  mapTelemedicineSessionEntity,
+  mapTreatmentPlanEntity,
+  mapPlanEntity,
+  mapBenefitEntity,
+  mapCoverageEntity,
+  mapClaimEntity,
+  mapDocumentEntity,
+  // Entity mapper types
+  EntityMapper,
+  ModelMapper,
+  SelectiveMapOptions,
+  ComputedPropertyFn,
+  ComputedProperty,
+  EntityMapOptions,
+  BatchMapOptions,
   // Validation
   validateInput,
   validateOutput,
