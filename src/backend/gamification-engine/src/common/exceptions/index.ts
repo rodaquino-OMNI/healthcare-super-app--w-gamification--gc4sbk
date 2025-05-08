@@ -136,9 +136,9 @@ export * as RetryUtils from './retry.utils';
 
 /**
  * NestJS exception filter for global exception handling
- * @description Transforms exceptions into standardized HTTP responses
+ * @description Transforms exceptions into standardized HTTP responses with proper logging and monitoring
  */
-export { default as ExceptionFilter } from './exception.filter';
+export { GamificationExceptionFilter } from './exception.filter';
 
 /**
  * Domain-Specific Exceptions
