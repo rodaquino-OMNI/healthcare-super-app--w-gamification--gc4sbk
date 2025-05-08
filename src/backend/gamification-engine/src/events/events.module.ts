@@ -9,6 +9,12 @@ import { TracingModule } from '@austa/tracing';
 import { ErrorsModule } from '@austa/errors';
 import { EventSchemaValidationService } from './validation/event-schema-validation.service';
 import { EventVersioningService } from './versioning/event-versioning.service';
+import { EventProcessingUtil } from '../common/utils/event-processing.util';
+import { RetryService } from '@austa/events/utils/retry-utils';
+import { CorrelationIdService } from '@austa/events/utils/correlation-id';
+import { EventValidator } from '@austa/events/utils/event-validator';
+import { EventSerializer } from '@austa/events/utils/event-serializer';
+import { JourneyContext } from '@austa/events/utils/journey-context';
 
 // Import journey handlers
 import { 
@@ -84,6 +90,13 @@ import { EventType } from '@austa/interfaces/gamification/events';
     PlanJourneyHandler,
     EventSchemaValidationService,
     EventVersioningService,
+    // Event processing utilities
+    EventProcessingUtil,
+    RetryService,
+    CorrelationIdService,
+    EventValidator,
+    EventSerializer,
+    JourneyContext,
     {
       provide: 'EVENT_SCHEMA_REGISTRY',
       useValue: {
@@ -116,7 +129,9 @@ import { EventType } from '@austa/interfaces/gamification/events';
     CareJourneyHandler,
     PlanJourneyHandler,
     EventSchemaValidationService,
-    EventVersioningService
+    EventVersioningService,
+    // Export event processing utilities
+    EventProcessingUtil
   ]
 })
 export class EventsModule {}
