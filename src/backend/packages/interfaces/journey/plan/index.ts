@@ -6,9 +6,11 @@
 // Export document-related interfaces and enums
 export * from './document.interface';
 
+// Export coverage-related interfaces
+export * from './coverage.interface';
+
 // Export other Plan Journey interfaces
 // These will be uncommented as they are implemented
 // export * from './claim.interface';
 // export * from './plan.interface';
 // export * from './benefit.interface';
-// export * from './coverage.interface';
