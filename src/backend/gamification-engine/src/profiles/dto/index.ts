@@ -1,16 +1,8 @@
 /**
- * @file Barrel file for profile-related DTOs in the gamification engine
+ * Barrel file for profile DTOs
  * 
- * This file centralizes exports for all profile-related DTOs, enabling cleaner imports
- * through a single entry point. It simplifies imports in controllers and services by
- * allowing destructured imports from a single path instead of requiring separate
- * import statements for each DTO.
- * 
- * @module profiles/dto
+ * This file exports all DTOs from the profiles module to provide a single import point
+ * for consumers, eliminating the need to import from individual files.
  */
 
-// Export all profile-related DTOs
-export { CreateProfileDto } from './create-profile.dto';
-export { UpdateProfileDto } from './update-profile.dto';
-export { ProfileResponseDto } from './profile-response.dto';
-export { FilterProfilesDto } from './filter-profiles.dto';
+export * from './filter-profiles.dto';
