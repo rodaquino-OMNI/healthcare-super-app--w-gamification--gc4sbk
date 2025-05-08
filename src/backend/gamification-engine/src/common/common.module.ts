@@ -1,5 +1,7 @@
 import { DynamicModule, Global, Module, Provider, Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from '@austa/logging';
+import { TracingModule } from '@austa/tracing';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 
 // Import interfaces from @austa/interfaces package for standardized schemas
@@ -110,6 +112,33 @@ import * as journeyConstants from './constants/journey';
         abortEarly: false,
       },
     }),
+    // Import logging module with structured JSON logging
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        level: configService.get<string>('app.logLevel', 'info'),
+        format: configService.get<string>('app.environment') === 'production' ? 'json' : 'text',
+        serviceName: 'gamification-engine',
+        defaultContext: {
+          service: 'gamification-engine',
+          version: configService.get<string>('app.version', '1.0.0'),
+        },
+      }),
+    }),
+    // Import tracing module for distributed tracing
+    TracingModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        serviceName: 'gamification-engine',
+        enabled: configService.get<boolean>('app.tracing.enabled', true),
+        samplingRate: configService.get<number>('app.tracing.samplingRate', 1.0),
+        exporterOptions: {
+          url: configService.get<string>('app.tracing.exporterUrl'),
+        },
+      }),
+    }),
     // Import database module with connection pooling and journey-specific contexts
     DatabaseModule,
     // Import Kafka module with dead-letter queues and retry strategies
@@ -180,6 +209,8 @@ import * as journeyConstants from './constants/journey';
       provide: 'LOGGING_UTILS',
       useValue: loggingUtil,
     },
+    // Register GamificationLogger as a provider
+    loggingUtil.GamificationLogger,
     {
       provide: 'EVENT_PROCESSING_UTILS',
       useValue: eventProcessingUtil,
@@ -234,6 +265,9 @@ import * as journeyConstants from './constants/journey';
   exports: [
     // Re-export ConfigModule for access to configuration
     ConfigModule,
+    // Re-export LoggerModule and TracingModule
+    LoggerModule,
+    TracingModule,
     
     // Database services
     DatabaseModule,
@@ -275,6 +309,7 @@ import * as journeyConstants from './constants/journey';
     'FORMAT_UTILS',
     'CIRCUIT_BREAKER_UTILS',
     'LOGGING_UTILS',
+    loggingUtil.GamificationLogger,
     'EVENT_PROCESSING_UTILS',
     'VALIDATION_UTILS',
     'RETRY_UTILS',
