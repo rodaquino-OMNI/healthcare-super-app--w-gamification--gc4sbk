@@ -18,6 +18,21 @@ export * from './secure-axios';
  * Re-export all http-client utilities
  * @description Higher-level HTTP client that builds on top of secure-axios and implements advanced resilience patterns.
  * Provides circuit breaking, retry mechanisms with exponential backoff, request timeouts, and standardized error handling.
+ * 
+ * @example
+ * // Create a basic HTTP client
+ * const client = createHttpClient({
+ *   baseURL: 'https://api.example.com',
+ *   timeout: 5000
+ * });
+ * 
+ * // Create a journey-specific HTTP client
+ * const healthClient = createJourneyHttpClient('health', {
+ *   baseURL: 'https://health-api.example.com'
+ * });
+ * 
+ * // Make requests with automatic retry and circuit breaking
+ * const data = await client.get('/users/123');
  */
 export * from './http-client';
 
@@ -39,10 +54,12 @@ export { createSecureAxiosInstance, validateUrl } from './secure-axios';
 
 // HTTP Client exports
 export { 
-  createHttpClient, 
-  withRetry, 
-  withCircuitBreaker, 
-  withTimeout 
+  createHttpClient,
+  createJourneyHttpClient,
+  HttpClient,
+  HttpClientOptions,
+  CircuitBreakerOptions,
+  JourneyType
 } from './http-client';
 
 // Error Handling exports
@@ -67,9 +84,7 @@ export default {
   
   // HTTP Client
   createHttpClient,
-  withRetry,
-  withCircuitBreaker,
-  withTimeout,
+  createJourneyHttpClient,
   
   // Error Handling
   classifyError,
