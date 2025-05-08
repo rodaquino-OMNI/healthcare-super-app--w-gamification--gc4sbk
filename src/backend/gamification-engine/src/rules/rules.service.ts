@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'; // @nestjs/common ^10.3.0
+import { Injectable } from '@nestjs/common'; // @nestjs/common ^10.3.0
 import { InjectRepository } from '@nestjs/typeorm'; // @nestjs/typeorm 10.0.0
 import { Repository } from 'typeorm'; // typeorm 0.3.20
 import { VM } from 'vm2'; // vm2 ^3.9.19
@@ -16,6 +16,7 @@ import { TelemetryService } from '@app/shared/telemetry/telemetry.service';
 import { GamificationEvent, RuleEvaluationResult } from '@austa/interfaces/gamification';
 import { ProcessEventDto } from '../events/dto/process-event.dto';
 import { RuleExecutionException, RuleActionType } from './exceptions/rule-execution.exception';
+import { RuleNotFoundException } from './exceptions/rule-not-found.exception';
 
 /**
  * Service for managing and evaluating gamification rules.
@@ -77,16 +78,23 @@ export class RulesService {
       const rule = await this.ruleRepository.findOneBy({ id });
       
       if (!rule) {
-        throw new NotFoundException(`Rule with ID ${id} not found`);
+        throw new RuleNotFoundException(id);
       }
       
       return rule;
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof RuleNotFoundException) {
+        // Log the not found error at debug level and rethrow
+        this.logger.debug(`Rule with ID ${id} not found`, 'RulesService');
         throw error;
       }
       
+      // Log other errors as actual errors
       this.logger.error(`Failed to retrieve rule with ID ${id}`, error.stack, 'RulesService');
+      
+      // Record error in telemetry
+      this.telemetryService.recordError('rule.findOne.error', error, { ruleId: id });
+      
       throw new AppException(
         `Failed to retrieve rule with ID ${id}`,
         ErrorType.TECHNICAL,
@@ -233,7 +241,14 @@ export class RulesService {
       // Get user profile
       const userProfile = await this.profilesService.findOne(event.userId);
       if (!userProfile) {
-        throw new NotFoundException(`User profile with ID ${event.userId} not found`);
+        // Use appropriate exception from profiles service
+        // This would ideally be a ProfileNotFoundException, but we'll use a generic one here
+        throw new AppException(
+          `User profile with ID ${event.userId} not found`,
+          ErrorType.VALIDATION,
+          'GAME_USER_001',
+          { userId: event.userId }
+        );
       }
 
       // Find all rules that match this event type
