@@ -125,7 +125,7 @@ export { default as RedisErrorHandler } from './redis-error.handler';
  * identifies common patterns like timeouts, authentication failures, and resource exhaustion
  * across different database systems.
  */
-export { default as CommonErrorHandler } from './common-error.handler';
+export { CommonErrorHandler } from './common-error.handler';
 
 // ===================================================================
 // Utility Functions - Helper functions for handler selection and usage
