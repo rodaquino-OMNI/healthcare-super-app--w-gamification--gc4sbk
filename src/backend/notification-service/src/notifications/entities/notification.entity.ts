@@ -1,83 +1,228 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { NotificationChannel, NotificationStatus } from '@austa/interfaces/notification/types';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm'; // typeorm v0.3.0+
+import { NotificationAttempt } from './notification-attempt.entity';
 
 /**
- * Entity representing a notification in the AUSTA SuperApp.
- * Maps to the 'notifications' table in the database.
+ * Enum representing the possible notification channels
  */
-@Entity('notifications')
+export enum NotificationChannel {
+  /**
+   * Push notification to mobile device
+   */
+  PUSH = 'push',
+  
+  /**
+   * Email notification
+   */
+  EMAIL = 'email',
+  
+  /**
+   * SMS text message
+   */
+  SMS = 'sms',
+  
+  /**
+   * In-app notification displayed within the application
+   */
+  IN_APP = 'in-app'
+}
+
+/**
+ * Enum representing the possible statuses of a notification
+ */
+export enum NotificationStatus {
+  /**
+   * Notification is created but not yet processed
+   */
+  PENDING = 'pending',
+  
+  /**
+   * Notification is currently being processed for delivery
+   */
+  PROCESSING = 'processing',
+  
+  /**
+   * Notification has been sent but delivery confirmation is pending
+   */
+  SENT = 'sent',
+  
+  /**
+   * Notification has been successfully delivered to the recipient
+   */
+  DELIVERED = 'delivered',
+  
+  /**
+   * Notification delivery has failed after all retry attempts
+   */
+  FAILED = 'failed',
+  
+  /**
+   * Notification has been cancelled before delivery
+   */
+  CANCELLED = 'cancelled',
+  
+  /**
+   * Notification is scheduled for future delivery
+   */
+  SCHEDULED = 'scheduled'
+}
+
+/**
+ * Notification entity - represents a notification record stored in the database
+ * 
+ * Stores information about notifications sent to users including:
+ * - The recipient user ID
+ * - Notification type and content
+ * - Delivery channel and status
+ * - Retry and fallback configuration
+ * - Delivery tracking and confirmation
+ * - Timestamps for creation, updates, and delivery
+ */
+@Entity()
 export class Notification {
   /**
-   * Unique identifier for the notification.
+   * Unique identifier for the notification
    */
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
   /**
-   * ID of the user who should receive the notification.
+   * ID of the user who will receive this notification
    */
-  @Column({ name: 'user_id' })
+  @Column()
   userId: string;
 
   /**
-   * Type of notification (e.g., 'appointment_reminder', 'achievement_unlocked').
+   * Type of notification (e.g., 'achievement', 'appointment-reminder', 'claim-status')
    */
   @Column()
   type: string;
 
   /**
-   * Title of the notification.
+   * Notification title/headline
    */
   @Column()
   title: string;
 
   /**
-   * Body content of the notification.
+   * Notification body content
    */
-  @Column()
+  @Column('text')
   body: string;
 
   /**
-   * Channel through which the notification was delivered.
+   * Primary delivery channel for this notification
    */
   @Column({
     type: 'enum',
     enum: NotificationChannel,
-    default: NotificationChannel.IN_APP,
+    default: NotificationChannel.PUSH
   })
   channel: NotificationChannel;
 
   /**
-   * Current status of the notification.
+   * Current status of the notification
    */
   @Column({
     type: 'enum',
     enum: NotificationStatus,
-    default: NotificationStatus.SENT,
+    default: NotificationStatus.PENDING
   })
   status: NotificationStatus;
 
   /**
-   * Optional data associated with the notification, stored as JSON.
+   * Number of delivery attempts made so far
+   * Incremented after each attempt, regardless of success or failure
    */
-  @Column({ type: 'jsonb', nullable: true })
-  data?: Record<string, any>;
+  @Column({ default: 0 })
+  retryCount: number;
 
   /**
-   * Timestamp when the notification was read by the user.
+   * Maximum number of delivery attempts allowed
+   * After this many failures, the notification will be marked as FAILED
+   * and moved to the dead-letter queue
    */
-  @Column({ name: 'read_at', nullable: true })
-  readAt?: Date;
+  @Column({ default: 3 })
+  maxRetries: number;
 
   /**
-   * Timestamp when the notification was created.
+   * Detailed reason for failure if delivery was unsuccessful
+   * Stores the most recent error message
    */
-  @CreateDateColumn({ name: 'created_at' })
+  @Column({ type: 'text', nullable: true })
+  failureReason: string | null;
+
+  /**
+   * Array of fallback channels to try if the primary channel fails
+   * Stored as a JSON array of NotificationChannel enum values
+   */
+  @Column({ type: 'simple-array', nullable: true })
+  fallbackChannels: NotificationChannel[] | null;
+
+  /**
+   * Flag indicating whether delivery has been confirmed
+   * Set to true when a delivery receipt is received
+   */
+  @Column({ default: false })
+  deliveryConfirmed: boolean;
+
+  /**
+   * Timestamp when the notification was successfully delivered
+   * Only set when delivery is confirmed
+   */
+  @Column({ nullable: true })
+  deliveredAt: Date | null;
+
+  /**
+   * Timestamp when the notification is scheduled to be sent
+   * Only used for SCHEDULED notifications
+   */
+  @Column({ nullable: true })
+  scheduledFor: Date | null;
+
+  /**
+   * Priority level of the notification (higher values indicate higher priority)
+   * Used for ordering notification processing
+   */
+  @Column({ default: 1 })
+  priority: number;
+
+  /**
+   * Additional data related to the notification as a JSON string
+   * Can include journey-specific context, deep links, or other metadata
+   */
+  @Column({ type: 'text', nullable: true })
+  metadata: string | null;
+
+  /**
+   * ID of the event that triggered this notification
+   * Used for tracing and correlation with event sources
+   */
+  @Column({ nullable: true })
+  eventId: string | null;
+
+  /**
+   * Source journey or service that generated this notification
+   * (e.g., 'health', 'care', 'plan', 'gamification')
+   */
+  @Column({ nullable: true })
+  source: string | null;
+
+  /**
+   * One-to-many relationship with NotificationAttempt entities
+   * Tracks all delivery attempts for this notification
+   */
+  @OneToMany(() => NotificationAttempt, attempt => attempt.notification)
+  attempts: NotificationAttempt[];
+
+  /**
+   * Timestamp when the notification was created
+   */
+  @CreateDateColumn()
   createdAt: Date;
 
   /**
-   * Timestamp when the notification was last updated.
+   * Timestamp when the notification was last updated
    */
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn()
   updatedAt: Date;
 }
