@@ -9,6 +9,8 @@ import { JourneyContext } from '@austa/events/utils/journey-context';
 import { EventType } from '@austa/events/dto/event-types.enum';
 import { GamificationEvent, EventPayload } from '@austa/interfaces/gamification/events';
 import { HealthEventPayload, CareEventPayload, PlanEventPayload } from '@austa/interfaces/gamification/events';
+import { ValidationUtil, isValidGamificationEvent } from './validation.util';
+import { z } from 'zod';
 
 /**
  * Utility service for standardized event processing within the gamification engine.
@@ -23,7 +25,8 @@ export class EventProcessingUtil {
     private readonly correlationService: CorrelationIdService,
     private readonly eventValidator: EventValidator,
     private readonly eventSerializer: EventSerializer,
-    private readonly journeyContext: JourneyContext
+    private readonly journeyContext: JourneyContext,
+    private readonly validationUtil: ValidationUtil
   ) {}
 
   /**
@@ -34,7 +37,16 @@ export class EventProcessingUtil {
   public validateEvent<T extends EventPayload>(event: GamificationEvent<T>): boolean {
     try {
       this.logger.debug(`Validating event: ${event.type}`, { eventId: event.eventId });
-      return this.eventValidator.validate(event);
+      
+      // First validate with the generic event validator
+      const isValidGeneric = this.eventValidator.validate(event);
+      if (!isValidGeneric) {
+        this.logger.warn('Event failed generic validation', { eventId: event.eventId });
+        return false;
+      }
+      
+      // Then validate with our gamification-specific validator
+      return this.validationUtil.validateEvent(event);
     } catch (error) {
       this.logger.error(`Event validation failed: ${error.message}`, {
         eventId: event.eventId,
@@ -230,7 +242,48 @@ export class EventProcessingUtil {
    * @returns The journey context object
    */
   public extractJourneyContext<T extends EventPayload>(event: GamificationEvent<T>): Record<string, any> {
-    return this.journeyContext.extract(event);
+    // Validate the event before extracting context
+    if (!this.validateEvent(event)) {
+      this.logger.warn('Extracting context from invalid event', { eventId: event.eventId });
+    }
+    
+    const context = this.journeyContext.extract(event);
+    
+    // Validate the extracted context
+    this.validateJourneyContext(context, event.journey);
+    
+    return context;
+  }
+  
+  /**
+   * Validates journey context data
+   * @param context The journey context to validate
+   * @param journey The journey the context belongs to
+   * @returns True if the context is valid for the journey
+   */
+  private validateJourneyContext(context: Record<string, any>, journey: string): boolean {
+    if (!context || typeof context !== 'object') {
+      this.logger.warn('Journey context is not an object', { journey });
+      return false;
+    }
+    
+    // Basic validation based on journey type
+    if (journey === 'health' && !context.healthProfile) {
+      this.logger.warn('Health journey context missing healthProfile', { journey });
+      return false;
+    }
+    
+    if (journey === 'care' && !context.careProfile) {
+      this.logger.warn('Care journey context missing careProfile', { journey });
+      return false;
+    }
+    
+    if (journey === 'plan' && !context.planProfile) {
+      this.logger.warn('Plan journey context missing planProfile', { journey });
+      return false;
+    }
+    
+    return true;
   }
 
   /**
@@ -250,6 +303,9 @@ export class EventProcessingUtil {
     // Determine the journey if not explicitly provided
     const journey = legacyEvent.journey || this.determineJourneyFromEventType(legacyEvent.type);
     
+    // Validate the payload data based on journey type
+    this.validateLegacyEventData(legacyEvent.data, legacyEvent.type, journey);
+    
     // Create a standardized event object
     return {
       eventId,
@@ -266,6 +322,49 @@ export class EventProcessingUtil {
         originalType: legacyEvent.type
       }
     };
+  }
+  
+  /**
+   * Validates legacy event data based on journey type and event type
+   * @param data The event data to validate
+   * @param eventType The type of the event
+   * @param journey The journey the event belongs to
+   * @returns True if the data is valid for the event type and journey
+   */
+  private validateLegacyEventData(data: any, eventType: string, journey: string): boolean {
+    if (!data || typeof data !== 'object') {
+      this.logger.warn('Legacy event data is not an object', { eventType, journey });
+      return false;
+    }
+    
+    // Create a mock event to validate with our journey-specific validators
+    const mockEvent: GamificationEvent<EventPayload> = {
+      eventId: 'validation-check',
+      type: eventType,
+      userId: 'validation-user',
+      journey,
+      timestamp: new Date().toISOString(),
+      version: '1.0',
+      payload: data,
+      metadata: {}
+    };
+    
+    // Use our validation utility to validate the event
+    let isValid = false;
+    
+    if (journey === 'health') {
+      isValid = this.validationUtil.isValidHealthEventPayload(data, eventType);
+    } else if (journey === 'care') {
+      isValid = this.validationUtil.isValidCareEventPayload(data, eventType);
+    } else if (journey === 'plan') {
+      isValid = this.validationUtil.isValidPlanEventPayload(data, eventType);
+    }
+    
+    if (!isValid) {
+      this.logger.warn('Legacy event data failed validation', { eventType, journey });
+    }
+    
+    return isValid;
   }
 
   /**
@@ -297,15 +396,7 @@ export class EventProcessingUtil {
  * @returns True if the object is a GamificationEvent
  */
 export function isGamificationEvent(obj: any): obj is GamificationEvent<EventPayload> {
-  return (
-    obj &&
-    typeof obj === 'object' &&
-    'eventId' in obj &&
-    'type' in obj &&
-    'userId' in obj &&
-    'timestamp' in obj &&
-    'payload' in obj
-  );
+  return isValidGamificationEvent(obj);
 }
 
 /**
@@ -342,12 +433,14 @@ export function createGamificationEvent<T extends EventPayload>(
  * @param event The event containing the payload
  * @param path The dot-notation path to the value in the payload
  * @param defaultValue The default value to return if the path doesn't exist
+ * @param schema Optional Zod schema to validate the extracted value
  * @returns The value at the specified path or the default value
  */
 export function getPayloadValue<T, D = undefined>(
   event: GamificationEvent<EventPayload>,
   path: string,
-  defaultValue?: D
+  defaultValue?: D,
+  schema?: z.ZodType<T>
 ): T | D {
   try {
     const parts = path.split('.');
@@ -358,6 +451,16 @@ export function getPayloadValue<T, D = undefined>(
         return defaultValue as D;
       }
       current = current[part];
+    }
+    
+    // If a schema is provided, validate the value
+    if (schema && current !== undefined) {
+      try {
+        return schema.parse(current);
+      } catch (validationError) {
+        console.warn(`Validation failed for path ${path}:`, validationError);
+        return defaultValue as D;
+      }
     }
     
     return current !== undefined ? current : defaultValue as D;
