@@ -5,23 +5,71 @@
  * without needing to know the internal file structure.
  */
 
-// Export transaction decorators
+/**
+ * Core interfaces and types for transaction management
+ */
 export {
+  // Transaction interfaces
+  TransactionClient,
+  TransactionClientFactory,
+  TransactionExecutor,
+  TransactionContext,
+  DistributedTransactionParticipant,
+  DistributedTransactionCoordinator,
+  RetryStrategy,
+  RetryStrategyFactory,
+  RetryableErrorDetector,
+  
+  // Transaction types
+  TransactionIsolationLevel,
+  TransactionOptions,
+  TransactionCallback,
+  Transaction,
+  TransactionState,
+  TransactionType,
+  TransactionMetadata,
+  TransactionManager
+} from './transaction.interface';
+
+/**
+ * Transaction service implementation
+ */
+export { TransactionService } from './transaction.service';
+
+/**
+ * Decorators for declarative transaction management
+ */
+export {
+  // Main transaction decorators
   Transactional,
   ReadOnly,
   ReadWrite,
   WriteOnly,
   CriticalWrite,
   RequiresNewTransaction,
+  
+  // Transaction decorator options
   TransactionalOptions,
+  
+  // Utility functions
   isInTransaction,
   getCurrentTransactionClient,
   getCurrentTransactionMetadata,
   executeWithTransaction
 } from './transaction.decorators';
 
-// Export transaction utilities
+/**
+ * Utility functions for transaction management
+ */
 export {
+  // Enums
+  OperationType,
+  
+  // Interfaces
+  TransactionPerformanceMetrics,
+  TransactionDebugInfo,
+  
+  // Core transaction execution functions
   executeInTransaction,
   executeReadOperation,
   executeWriteOperation,
@@ -29,21 +77,29 @@ export {
   executeCriticalWriteOperation,
   executeBatchOperations,
   executeWithTransactionRetry,
-  executeWithTimeout,
-  executeWithPerformanceTracking,
-  executeDatabaseOperation,
-  OperationType,
+  
+  // Helper functions
   getIsolationLevelForOperation,
+  logTransactionPerformance,
+  createTransactionDebugInfo,
+  transformTransactionError,
   isTransientDatabaseError,
   shouldRetryTransaction,
   calculateRetryDelay,
-  TransactionPerformanceMetrics,
-  TransactionDebugInfo
+  executeTransactionWithRetry,
+  executeWithTimeout,
+  executeWithPerformanceTracking,
+  executeDatabaseOperation
 } from './transaction.utils';
 
-// Export transaction errors
+/**
+ * Error classes for transaction failures
+ */
 export {
+  // Base transaction error
   TransactionError,
+  
+  // Specific transaction error types
   TransactionTimeoutError,
   DeadlockError,
   DistributedTransactionError,
@@ -53,25 +109,3 @@ export {
   TransactionCommitError,
   ConcurrencyControlError
 } from './transaction.errors';
-
-// Re-export transaction types from types directory
-export {
-  TransactionIsolationLevel,
-  TransactionState,
-  TransactionType,
-  TransactionOptions,
-  TransactionTimeoutOptions,
-  TransactionRetryOptions,
-  TransactionLoggingOptions,
-  SavepointOptions,
-  DistributedTransactionOptions,
-  TransactionMetadata,
-  TransactionCallback,
-  Transaction,
-  TransactionManager,
-  DEFAULT_TRANSACTION_OPTIONS,
-  PRISMA_ISOLATION_LEVEL_MAP
-} from '../types/transaction.types';
-
-// Export transaction service
-export { TransactionService } from './transaction.service';
