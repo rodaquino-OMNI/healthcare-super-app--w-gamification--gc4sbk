@@ -15,6 +15,7 @@ import { KafkaService } from '@app/shared/kafka/kafka.service';
 import { TelemetryService } from '@app/shared/telemetry/telemetry.service';
 import { GamificationEvent, RuleEvaluationResult } from '@austa/interfaces/gamification';
 import { ProcessEventDto } from '../events/dto/process-event.dto';
+import { RuleExecutionException, RuleActionType } from './exceptions/rule-execution.exception';
 
 /**
  * Service for managing and evaluating gamification rules.
@@ -307,6 +308,25 @@ export class RulesService {
       userId: event.userId
     });
 
+    // Map the action type to RuleActionType enum
+    let ruleActionType: RuleActionType;
+    switch (action.type) {
+      case 'AWARD_XP':
+        ruleActionType = RuleActionType.AWARD_POINTS;
+        break;
+      case 'PROGRESS_ACHIEVEMENT':
+        ruleActionType = RuleActionType.UNLOCK_ACHIEVEMENT;
+        break;
+      case 'PROGRESS_QUEST':
+        ruleActionType = RuleActionType.PROGRESS_QUEST;
+        break;
+      case 'GRANT_REWARD':
+        ruleActionType = RuleActionType.GRANT_REWARD;
+        break;
+      default:
+        ruleActionType = RuleActionType.CUSTOM;
+    }
+
     try {
       switch (action.type) {
         case 'AWARD_XP':
@@ -363,11 +383,19 @@ export class RulesService {
         userId: event.userId,
       });
 
-      throw new AppException(
+      // Create detailed context for the rule execution error
+      const errorContext = {
+        ruleId: action.ruleId,
+        userId: event.userId,
+        actionType: ruleActionType,
+        actionParams: action,
+        triggeringEvent: event
+      };
+
+      // Throw specialized exception with detailed context
+      throw new RuleExecutionException(
         `Failed to execute action ${action.type}`,
-        ErrorType.TECHNICAL,
-        'GAME_016',
-        { actionType: action.type },
+        errorContext,
         error
       );
     } finally {
