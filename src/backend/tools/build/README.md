@@ -1,306 +1,103 @@
-# AUSTA SuperApp Build Tools Suite
+# Build Order Tool
 
-## Introduction
+A critical utility for determining the optimal build order of packages and services across the AUSTA SuperApp monorepo based on their interdependencies. It analyzes package.json files and TypeScript project references to generate a directed acyclic graph (DAG) of dependencies, validates the graph for cycles, and outputs a topologically sorted build sequence.
 
-The AUSTA SuperApp Build Tools Suite is a collection of utilities designed to standardize, optimize, and troubleshoot the build process across the monorepo. These tools address critical build failures and architectural issues while ensuring consistent build processes across all services and packages.
+## Features
 
-### Key Features
-
-- **Standardized TypeScript Configuration**: Ensures consistent compiler options and module resolution
-- **Path Resolution**: Normalizes import paths and alias usage across the monorepo
-- **Dependency Validation**: Identifies and resolves version conflicts and circular dependencies
-- **Build Order Optimization**: Determines the correct build sequence based on package dependencies
-- **Cache Optimization**: Configures caching strategies for faster builds in CI/CD pipelines
-- **Unified CLI Interface**: Provides a consistent developer experience across all build tools
+- **Dependency Analysis**: Scans package.json files and TypeScript project references to identify dependencies between packages
+- **Cycle Detection**: Identifies circular dependencies that would cause build failures
+- **Topological Sorting**: Determines the optimal build order based on dependencies
+- **GitHub Actions Integration**: Generates build matrices for parallel CI/CD workflows
+- **Visualization**: Creates graphical representations of the dependency graph (requires Graphviz)
+- **Multiple Output Formats**: Supports text, JSON, and GitHub Actions matrix formats
 
 ## Installation
 
-The build tools are included in the monorepo and don't require separate installation. However, ensure you have the following prerequisites:
+The tool is included in the AUSTA SuperApp monorepo and doesn't require separate installation. Just ensure you have Node.js ≥18.0.0 installed.
 
-- Node.js 18.15.0 (exact version required)
-- pnpm (for package management)
-- TypeScript 5.3.3
+## Usage
 
-## Tools Overview
-
-### 1. TypeScript Configuration Manager (`typescript-config.js`)
-
-Standardizes and validates tsconfig.json files across the monorepo to ensure consistent compiler options, proper project references, and compatible module resolution settings.
-
-**Key Capabilities:**
-- Generate or update tsconfig.json files based on project needs
-- Validate existing configurations against best practices
-- Fix common TypeScript configuration issues
-- Implement proper project references for build ordering
-
-### 2. Path Resolution Tool (`fix-paths.js`)
-
-Ensures consistent import paths and alias usage across the monorepo by normalizing import statements according to the project's path alias conventions.
-
-**Key Capabilities:**
-- Standardize import paths using project aliases (@app/auth, @app/shared, @austa/*)
-- Update tsconfig.json path mappings for proper resolution
-- Validate import statements against defined path aliases
-- Fix non-standard import paths automatically
-
-### 3. Dependency Validator (`validate-deps.js`)
-
-Analyzes dependency issues across the monorepo by scanning package.json files to identify version conflicts, missing dependencies, and circular references.
-
-**Key Capabilities:**
-- Detect version conflicts in core packages (minimatch, semver, ws)
-- Identify circular dependencies that cause build failures
-- Validate peer dependencies across packages
-- Generate detailed reports with suggested fixes
-
-### 4. Build Order Optimizer (`build-order.js`)
-
-Determines the optimal build order of packages and services based on their interdependencies to prevent dependency-related build failures.
-
-**Key Capabilities:**
-- Analyze package.json files and TypeScript project references
-- Generate a directed acyclic graph (DAG) of dependencies
-- Validate the graph for cycles and suggest fixes
-- Output a topologically sorted build sequence
-
-### 5. Cache Optimizer (`optimize-cache.js`)
-
-Configures and manages caching strategies for the CI/CD pipeline to reduce build times and ensure consistent, deterministic builds.
-
-**Key Capabilities:**
-- Generate cache keys based on lockfile hashes
-- Set up workspace-specific dependency caching
-- Configure Docker layer caching for container builds
-- Implement cache invalidation rules based on dependency changes
-
-### 6. Main CLI Interface (`index.js`)
-
-Provides a unified interface for executing all build tools with consistent command-line arguments and output formatting.
-
-**Key Capabilities:**
-- Execute individual tools or complete build preparation workflow
-- Parse command-line arguments for flexible tool usage
-- Provide comprehensive logging and reporting
-- Integrate with GitHub Actions workflows
-
-## Usage Examples
-
-### Running the Complete Build Preparation
-
-To execute all build tools in the optimal sequence:
+### Command Line
 
 ```bash
-node tools/build/index.js --prepare-all
+node src/backend/tools/build/build-order.js [options]
 ```
 
-This command will:
-1. Validate dependencies across all workspaces
-2. Fix TypeScript configurations
-3. Normalize import paths
-4. Determine optimal build order
-5. Configure caching for the current environment
+### Options
 
-### Running Individual Tools
+- `--format, -f`: Output format: text, json, github-actions (default: text)
+- `--root, -r`: Root directory to scan (default: process.cwd())
+- `--output, -o`: Output file (default: stdout)
+- `--include, -i`: Comma-separated list of directories to include (default: all)
+- `--exclude, -e`: Comma-separated list of directories to exclude (default: none)
+- `--visualize, -v`: Generate a visualization of the dependency graph (default: false)
+  - Optionally specify output path: `--visualize path/to/output.png`
+- `--help, -h`: Show help message
 
-#### TypeScript Configuration Manager
+### Examples
+
+#### Generate a text-based build order
 
 ```bash
-# Validate all tsconfig.json files
-node tools/build/typescript-config.js --validate
-
-# Fix TypeScript configurations
-node tools/build/typescript-config.js --fix
-
-# Generate a new tsconfig.json for a specific service
-node tools/build/typescript-config.js --generate --service=auth-service
+node src/backend/tools/build/build-order.js
 ```
 
-#### Path Resolution Tool
+#### Generate a GitHub Actions matrix for CI/CD
 
 ```bash
-# Analyze import paths across the monorepo
-node tools/build/fix-paths.js --analyze
-
-# Fix import paths in a specific service
-node tools/build/fix-paths.js --fix --service=health-service
-
-# Update tsconfig.json path mappings
-node tools/build/fix-paths.js --update-paths
+node src/backend/tools/build/build-order.js --format github-actions --output .github/build-matrix.json
 ```
 
-#### Dependency Validator
+#### Generate a visualization of the dependency graph
 
 ```bash
-# Validate dependencies across all workspaces
-node tools/build/validate-deps.js --all
-
-# Check for version conflicts in a specific service
-node tools/build/validate-deps.js --service=gamification-engine
-
-# Generate a dependency report
-node tools/build/validate-deps.js --report --output=dependency-report.json
+node src/backend/tools/build/build-order.js --visualize docs/dependency-graph.png
 ```
 
-#### Build Order Optimizer
+#### Focus on specific packages
 
 ```bash
-# Generate optimal build order for all packages
-node tools/build/build-order.js --generate
-
-# Check for circular dependencies
-node tools/build/build-order.js --check-cycles
-
-# Generate a build matrix for GitHub Actions
-node tools/build/build-order.js --github-matrix --output=matrix.json
+node src/backend/tools/build/build-order.js --include src/backend/packages,src/backend/shared
 ```
 
-#### Cache Optimizer
+### Programmatic Usage
 
-```bash
-# Configure caching for local development
-node tools/build/optimize-cache.js --env=development
+You can also use the tool programmatically in your Node.js scripts:
 
-# Generate cache keys for CI/CD
-node tools/build/optimize-cache.js --ci --generate-keys
+```javascript
+const { 
+  buildDependencyGraph, 
+  detectCycles, 
+  topologicalSort,
+  generateGitHubActionsMatrix
+} = require('./src/backend/tools/build/build-order');
 
-# Configure Docker layer caching
-node tools/build/optimize-cache.js --docker --service=api-gateway
+// Build the dependency graph
+const graph = buildDependencyGraph(process.cwd());
+
+// Detect cycles
+const cycles = detectCycles(graph);
+if (cycles.length > 0) {
+  console.error('Circular dependencies detected!');
+  process.exit(1);
+}
+
+// Get the build order
+const buildOrder = topologicalSort(graph);
+
+// Generate a GitHub Actions matrix
+const matrix = generateGitHubActionsMatrix(buildOrder, graph);
 ```
 
-## Troubleshooting Guide
+## Integration with CI/CD
 
-### Common Build Issues
+### GitHub Actions
 
-#### TypeScript Project Reference Errors
-
-**Symptoms:**
-- Error: "Project reference cycle detected"
-- Error: "Cannot find referenced project"
-- Error: "File is not listed within the 'include' patterns"
-
-**Solution:**
-```bash
-# Reset TypeScript configurations to a clean state
-node tools/build/typescript-config.js --reset
-
-# Regenerate proper configurations
-node tools/build/typescript-config.js --fix --all
-```
-
-#### Module Resolution Failures
-
-**Symptoms:**
-- Error: "Cannot find module '@app/auth'"
-- Error: "Cannot find module '@austa/interfaces'"
-- Import paths not resolving correctly
-
-**Solution:**
-```bash
-# Fix path aliases in tsconfig.json
-node tools/build/fix-paths.js --update-paths
-
-# Normalize import statements
-node tools/build/fix-paths.js --fix --all
-```
-
-#### Dependency Version Conflicts
-
-**Symptoms:**
-- Error: "Conflicting versions of 'minimatch' found"
-- Error: "Peer dependency not satisfied"
-- Multiple versions of the same package installed
-
-**Solution:**
-```bash
-# Identify version conflicts
-node tools/build/validate-deps.js --conflicts
-
-# Apply resolutions to package.json
-node tools/build/validate-deps.js --fix-conflicts
-```
-
-#### Circular Dependencies
-
-**Symptoms:**
-- Error: "Circular dependency detected"
-- Build fails with cryptic import errors
-- TypeScript compilation hangs
-
-**Solution:**
-```bash
-# Identify circular dependencies
-node tools/build/build-order.js --check-cycles
-
-# Generate a dependency graph visualization
-node tools/build/build-order.js --visualize --output=deps-graph.html
-```
-
-#### Build Cache Issues
-
-**Symptoms:**
-- Slow builds despite caching
-- Cache not being used effectively
-- Cache invalidation too frequent
-
-**Solution:**
-```bash
-# Optimize cache configuration
-node tools/build/optimize-cache.js --analyze
-
-# Clear problematic caches
-node tools/build/optimize-cache.js --clear-cache
-```
-
-### Specific Error Messages and Solutions
-
-#### Error: "may not disable emit on a composite project"
-
-**Solution:**
-This occurs when a TypeScript project with references has `"noEmit": true` in its tsconfig.json.
-
-```bash
-node tools/build/typescript-config.js --fix-emit
-```
-
-#### Error: "File 'X' is not under 'rootDir'"
-
-**Solution:**
-This happens when files are outside the configured rootDir in tsconfig.json.
-
-```bash
-node tools/build/typescript-config.js --fix-rootdir
-```
-
-#### Error: "Cannot find name 'React'"
-
-**Solution:**
-This occurs when TypeScript cannot find React types.
-
-```bash
-# Ensure React types are installed
-pnpm add -D @types/react
-
-# Fix tsconfig.json to include types
-node tools/build/typescript-config.js --fix-types
-```
-
-## CI/CD Integration
-
-### GitHub Actions Integration
-
-The build tools are designed to integrate seamlessly with GitHub Actions workflows. Here's an example configuration:
+To use the build order tool in GitHub Actions workflows, add a step to generate the build matrix:
 
 ```yaml
-name: Build and Test
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
 jobs:
-  prepare-build:
+  determine-build-order:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -308,214 +105,68 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: '18.15.0'
-      - uses: pnpm/action-setup@v2
-        with:
-          version: latest
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Validate dependencies
-        run: node tools/build/validate-deps.js --all
-      - name: Fix TypeScript configurations
-        run: node tools/build/typescript-config.js --fix --all
-      - name: Generate build matrix
-        id: set-matrix
-        run: node tools/build/build-order.js --github-matrix --output=matrix.json
-      - name: Set matrix output
-        run: echo "matrix=$(cat matrix.json)" >> $GITHUB_OUTPUT
+          node-version: '18'
+      - id: set-matrix
+        run: |
+          MATRIX=$(node src/backend/tools/build/build-order.js --format github-actions)
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
   build:
-    needs: prepare-build
+    needs: determine-build-order
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.prepare-build.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.determine-build-order.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: '18.15.0'
-      - uses: pnpm/action-setup@v2
-        with:
-          version: latest
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            **/node_modules
-          key: ${{ runner.os }}-${{ matrix.workspace }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', matrix.workspace)) }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.workspace }}-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build
-        run: pnpm --filter=${{ matrix.workspace }} build
+          node-version: '18'
+      - name: Build ${{ matrix.package }}
+        run: |
+          cd ${{ matrix.path }}
+          npm install
+          npm run build
 ```
 
-### Optimizing CI/CD Performance
+## Troubleshooting
 
-To optimize CI/CD performance with the build tools:
+### Circular Dependencies
 
-1. **Use the build matrix generator:**
-   ```bash
-   node tools/build/build-order.js --github-matrix --output=matrix.json
-   ```
+If the tool detects circular dependencies, it will output the cycles and exit with a non-zero status code. To resolve circular dependencies:
 
-2. **Configure workspace-specific caching:**
-   ```bash
-   node tools/build/optimize-cache.js --ci --generate-keys > cache-keys.json
-   ```
+1. Identify the packages involved in the cycle
+2. Refactor the code to break the cycle:
+   - Extract shared code into a common dependency
+   - Use dependency injection or other design patterns to invert dependencies
+   - Consider if the circular dependency indicates a design issue
 
-3. **Implement Docker layer caching:**
-   ```bash
-   node tools/build/optimize-cache.js --docker --all
-   ```
+### Visualization Issues
 
-4. **Set up incremental builds:**
-   ```bash
-   node tools/build/typescript-config.js --enable-incremental --all
-   ```
+To generate visualizations, you need Graphviz installed:
 
-## Configuration Reference
+- **Ubuntu/Debian**: `apt-get install graphviz`
+- **macOS**: `brew install graphviz`
+- **Windows**: Install from [Graphviz website](https://graphviz.org/download/)
 
-### TypeScript Configuration Options
+If visualization fails, the tool will save a .dot file that you can manually convert using the Graphviz `dot` command.
 
-The TypeScript configuration tool supports the following options in `tsconfig.json`:
+## How It Works
 
-```json
-{
-  "compilerOptions": {
-    "target": "es2020",
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "declaration": true,
-    "sourceMap": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "composite": true,
-    "incremental": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.spec.ts"],
-  "references": [
-    { "path": "../shared" }
-  ]
-}
-```
+1. **Dependency Discovery**: The tool scans package.json files to find direct dependencies between packages and analyzes TypeScript project references and path aliases to identify implicit dependencies.
 
-### Path Alias Configuration
+2. **Graph Construction**: It builds a directed graph where nodes are packages and edges represent dependencies.
 
-Standard path aliases used across the monorepo:
+3. **Cycle Detection**: Using depth-first search, it identifies any circular dependencies in the graph.
 
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@app/auth": ["src/backend/auth-service/src"],
-      "@app/shared": ["src/backend/shared/src"],
-      "@austa/interfaces": ["src/web/interfaces/src"],
-      "@austa/design-system": ["src/web/design-system/src"],
-      "@design-system/primitives": ["src/web/primitives/src"],
-      "@austa/journey-context": ["src/web/journey-context/src"]
-    }
-  }
-}
-```
+4. **Topological Sorting**: For a valid (acyclic) graph, it performs a topological sort to determine the build order.
 
-### Dependency Resolution Configuration
+5. **Output Generation**: The sorted list is formatted according to the specified output format.
 
-Example package.json configuration for dependency resolution:
+## Contributing
 
-```json
-{
-  "resolutions": {
-    "minimatch": "3.0.5",
-    "semver": "7.5.4",
-    "ws": "8.14.2"
-  },
-  "overrides": {
-    "minimatch": "3.0.5",
-    "semver": "7.5.4",
-    "ws": "8.14.2"
-  }
-}
-```
+To contribute to the build order tool:
 
-## Development Workflow Examples
-
-### New Developer Onboarding
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-3. Prepare the build environment:
-   ```bash
-   node tools/build/index.js --prepare-all
-   ```
-4. Start development:
-   ```bash
-   pnpm dev
-   ```
-
-### Adding a New Package
-
-1. Create the package structure
-2. Initialize TypeScript configuration:
-   ```bash
-   node tools/build/typescript-config.js --generate --service=new-package
-   ```
-3. Update path aliases:
-   ```bash
-   node tools/build/fix-paths.js --update-paths
-   ```
-4. Validate dependencies:
-   ```bash
-   node tools/build/validate-deps.js --service=new-package
-   ```
-5. Update build order:
-   ```bash
-   node tools/build/build-order.js --update
-   ```
-
-### Resolving Build Failures
-
-1. Identify the issue type:
-   ```bash
-   node tools/build/index.js --diagnose
-   ```
-2. Fix TypeScript configuration issues:
-   ```bash
-   node tools/build/typescript-config.js --fix --service=failing-service
-   ```
-3. Resolve path resolution problems:
-   ```bash
-   node tools/build/fix-paths.js --fix --service=failing-service
-   ```
-4. Address dependency conflicts:
-   ```bash
-   node tools/build/validate-deps.js --fix-conflicts --service=failing-service
-   ```
-5. Verify the build:
-   ```bash
-   pnpm --filter=failing-service build
-   ```
-
-## Contributing to the Build Tools
-
-When contributing to the build tools, please follow these guidelines:
-
-1. Add comprehensive documentation for any new features
-2. Include usage examples in this README
-3. Write tests for new functionality
-4. Ensure backward compatibility with existing configurations
-5. Update the troubleshooting guide with any new error scenarios
-
-## License
-
-This project is licensed under the proprietary license - see the LICENSE file for details.
+1. Make your changes to `src/backend/tools/build/build-order.js`
+2. Test thoroughly with various package configurations
+3. Update this README if you add new features or change existing behavior
+4. Submit a pull request with a clear description of your changes
