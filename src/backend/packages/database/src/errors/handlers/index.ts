@@ -101,7 +101,7 @@ export { default as PrismaErrorHandler } from './prisma-error.handler';
  * It enriches errors with temporal context including time range, aggregation level, and
  * partitioning information for effective troubleshooting.
  */
-export { default as TimescaleErrorHandler } from './timescale-error.handler';
+export { TimescaleErrorHandler } from './timescale-error.handler';
 
 /**
  * Redis Error Handler
@@ -148,7 +148,7 @@ export function getErrorHandlerForTechnology(technology: SupportedDatabaseTechno
     case 'prisma':
       return new (require('./prisma-error.handler').default)();
     case 'timescale':
-      return new (require('./timescale-error.handler').default)();
+      return new (require('./timescale-error.handler').TimescaleErrorHandler)();
     case 'redis':
       return new (require('./redis-error.handler').default)();
     case 'common':
@@ -177,7 +177,7 @@ export function getErrorHandlerForError(error: Error): IDatabaseErrorHandler {
     return redisHandler;
   }
   
-  const timescaleHandler = new (require('./timescale-error.handler').default)();
+  const timescaleHandler = new (require('./timescale-error.handler').TimescaleErrorHandler)();
   if (timescaleHandler.canHandle(error)) {
     return timescaleHandler;
   }
@@ -280,7 +280,7 @@ export function isDatabaseError(error: Error): boolean {
   return [
     new (require('./prisma-error.handler').default)(),
     new (require('./redis-error.handler').default)(),
-    new (require('./timescale-error.handler').default)(),
+    new (require('./timescale-error.handler').TimescaleErrorHandler)(),
     new (require('./common-error.handler').default)()
   ].some(handler => handler.canHandle(error));
 }
