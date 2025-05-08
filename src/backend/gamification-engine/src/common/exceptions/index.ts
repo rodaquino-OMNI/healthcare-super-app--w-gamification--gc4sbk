@@ -126,7 +126,8 @@ export { default as TransientException } from './transient.exception';
  * Circuit breaker implementation for external service calls
  * @description Prevents cascading failures when external dependencies experience issues
  */
-export { default as CircuitBreaker } from './circuit-breaker';
+export { default as CircuitBreaker, CircuitState, CircuitOpenException, withCircuitBreaker, withCircuitBreakerAndFallback, CircuitBreakerRegistry } from './circuit-breaker';
+export type { CircuitBreakerOptions } from './circuit-breaker';
 
 /**
  * Utility functions for implementing retry logic
