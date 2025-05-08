@@ -8,7 +8,7 @@ import { TemplatesModule } from './templates/templates.module';
 import { WebsocketsModule } from './websockets/websockets.module';
 import { RetryModule } from './retry/retry.module';
 import { EventsModule } from './events/events.module';
-import { notification } from './config/configuration';
+import configuration, { notification } from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { KafkaModule } from '@app/shared/kafka/kafka.module';
 import { LoggerModule } from '@app/shared/logging/logger.module';
@@ -26,7 +26,7 @@ import { DlqEntry } from './retry/dlq/dlq-entry.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      load: [notification],
+      load: [configuration],
       validationSchema,
       isGlobal: true,
     }),
