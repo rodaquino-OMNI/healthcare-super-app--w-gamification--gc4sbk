@@ -1,25 +1,32 @@
 import { HttpStatus } from '@nestjs/common';
-import { ErrorType, ErrorMetadata, ErrorContext } from './error-types.enum';
-import { SystemException } from './system.exception';
+import { AppExceptionBase } from './app-exception.base';
+import { ErrorType, ErrorMetadata, ErrorContext, isTransientError } from './error-types.enum';
 
 /**
- * Configuration for retry behavior
+ * Configuration options for transient error handling
  */
-export interface RetryConfig {
-  maxAttempts: number;  // Maximum number of retry attempts
-  currentAttempt: number; // Current attempt number (1-based)
-  baseDelayMs: number;  // Base delay in milliseconds
-  maxDelayMs: number;   // Maximum delay in milliseconds
+export interface TransientErrorOptions {
+  /** Maximum number of retry attempts */
+  maxRetries?: number;
+  /** Base delay in milliseconds for exponential backoff */
+  baseDelayMs?: number;
+  /** Maximum delay in milliseconds */
+  maxDelayMs?: number;
+  /** Jitter factor (0-1) to add randomness to retry delays */
+  jitterFactor?: number;
+  /** Current retry attempt (0-based) */
+  currentAttempt?: number;
 }
 
 /**
- * Default retry configuration
+ * Default configuration for transient errors
  */
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxAttempts: 3,
-  currentAttempt: 1,
+const DEFAULT_TRANSIENT_OPTIONS: Required<TransientErrorOptions> = {
+  maxRetries: 3,
   baseDelayMs: 100,
   maxDelayMs: 30000,
+  jitterFactor: 0.5,
+  currentAttempt: 0,
 };
 
 /**
@@ -27,68 +34,74 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
  * Implements retry count tracking, exponential backoff calculation, and threshold determination
  * to manage retry attempts across services.
  */
-export class TransientException extends SystemException {
-  public readonly retryConfig: RetryConfig;
+export class TransientException extends AppExceptionBase {
+  private readonly retryOptions: Required<TransientErrorOptions>;
   
   /**
    * Creates a new TransientException instance
    * 
    * @param message Human-readable error message
-   * @param errorType Error type classification
-   * @param statusCode HTTP status code
+   * @param errorType Error type classification (must be a transient error type)
    * @param cause Original error that caused this exception
-   * @param retryConfig Configuration for retry behavior
+   * @param options Retry configuration options
    * @param metadata Additional error metadata
    * @param context Error context information
    */
   constructor(
     message: string,
-    errorType: ErrorType = ErrorType.TIMEOUT_ERROR,
-    statusCode: HttpStatus = HttpStatus.SERVICE_UNAVAILABLE,
+    errorType: ErrorType,
     cause?: Error,
-    retryConfig: Partial<RetryConfig> = {},
+    options: TransientErrorOptions = {},
     metadata: ErrorMetadata = {},
     context: ErrorContext = {},
   ) {
+    // Validate that the error type is actually transient
+    if (!isTransientError(errorType)) {
+      throw new Error(`Error type ${errorType} is not a transient error type`);
+    }
+    
+    // Determine appropriate HTTP status code based on the error type
+    // Most transient errors should be 503 Service Unavailable
+    const statusCode = HttpStatus.SERVICE_UNAVAILABLE;
+    
+    // Call parent constructor
     super(message, errorType, statusCode, cause, metadata, context);
     
-    // Merge provided retry config with defaults
-    this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
+    // Initialize retry options with defaults
+    this.retryOptions = { ...DEFAULT_TRANSIENT_OPTIONS, ...options };
     
-    // Add retry information to metadata
-    this.addMetadata('isTransient', true);
-    this.addMetadata('retryAttempt', this.retryConfig.currentAttempt);
-    this.addMetadata('maxRetryAttempts', this.retryConfig.maxAttempts);
-    this.addMetadata('retryExhausted', this.isRetryExhausted());
+    // Add retry-specific metadata
+    this.addMetadata('retryable', true);
+    this.addMetadata('currentAttempt', this.retryOptions.currentAttempt);
+    this.addMetadata('maxRetries', this.retryOptions.maxRetries);
+    this.addMetadata('nextRetryDelayMs', this.calculateRetryDelay());
   }
   
   /**
-   * Creates a new instance for the next retry attempt
+   * Determines if this error can be retried again
    * 
-   * @returns New TransientException with incremented attempt count
+   * @returns True if retry attempts are not exhausted
    */
-  nextAttempt(): TransientException {
-    return new TransientException(
-      this.message,
-      this.errorType,
-      this.getStatus(),
-      this.cause,
-      {
-        ...this.retryConfig,
-        currentAttempt: this.retryConfig.currentAttempt + 1,
-      },
-      this.metadata,
-      this.context,
-    );
+  canRetry(): boolean {
+    return this.retryOptions.currentAttempt < this.retryOptions.maxRetries;
   }
   
   /**
-   * Checks if retry attempts have been exhausted
+   * Gets the current retry attempt (0-based)
    * 
-   * @returns True if maximum retry attempts have been reached
+   * @returns Current retry attempt
    */
-  isRetryExhausted(): boolean {
-    return this.retryConfig.currentAttempt >= this.retryConfig.maxAttempts;
+  getCurrentAttempt(): number {
+    return this.retryOptions.currentAttempt;
+  }
+  
+  /**
+   * Gets the maximum number of retry attempts
+   * 
+   * @returns Maximum retry attempts
+   */
+  getMaxRetries(): number {
+    return this.retryOptions.maxRetries;
   }
   
   /**
@@ -96,46 +109,259 @@ export class TransientException extends SystemException {
    * 
    * @returns Delay in milliseconds
    */
-  getRetryDelay(): number {
-    if (this.isRetryExhausted()) {
-      return 0; // No more retries
+  calculateRetryDelay(): number {
+    // If we can't retry, return 0
+    if (!this.canRetry()) {
+      return 0;
     }
     
-    // Exponential backoff: baseDelay * 2^(attempt-1)
-    const exponentialDelay = this.retryConfig.baseDelayMs * 
-      Math.pow(2, this.retryConfig.currentAttempt - 1);
+    // Calculate exponential backoff: baseDelay * 2^attempt
+    const nextAttempt = this.retryOptions.currentAttempt + 1;
+    const exponentialDelay = this.retryOptions.baseDelayMs * Math.pow(2, nextAttempt);
     
-    // Add jitter: random factor between 0.5 and 1.5
-    const jitter = 0.5 + Math.random();
+    // Add jitter to prevent thundering herd problem
+    // Random factor between (1-jitterFactor) and (1+jitterFactor)
+    const jitter = 1 + (Math.random() * 2 - 1) * this.retryOptions.jitterFactor;
     
-    // Calculate final delay with jitter
-    const delay = exponentialDelay * jitter;
-    
-    // Cap at maximum delay
-    return Math.min(delay, this.retryConfig.maxDelayMs);
+    // Apply jitter and cap at maximum delay
+    return Math.min(exponentialDelay * jitter, this.retryOptions.maxDelayMs);
   }
   
   /**
-   * Gets client-safe metadata for responses
-   * For transient errors, we can include retry information
+   * Creates a new instance of this exception for the next retry attempt
    * 
-   * @returns Safe metadata for client responses
+   * @returns New TransientException with incremented attempt counter
    */
-  getSafeMetadataForResponse(): Record<string, any> | null {
-    return {
-      retryable: !this.isRetryExhausted(),
-      retryAfter: this.getRetryDelay(),
+  incrementRetry(): TransientException {
+    if (!this.canRetry()) {
+      throw new Error('Cannot increment retry: maximum retries exceeded');
+    }
+    
+    // Create new options with incremented attempt counter
+    const newOptions: TransientErrorOptions = {
+      ...this.retryOptions,
+      currentAttempt: this.retryOptions.currentAttempt + 1,
     };
+    
+    // Create new exception with incremented counter
+    return new TransientException(
+      this.message,
+      this.errorType,
+      this.cause,
+      newOptions,
+      this.metadata,
+      this.context,
+    );
   }
   
   /**
-   * Gets client-friendly message
+   * Determines if this exception represents a transient error that can be retried
+   * 
+   * @returns Always true for TransientException
+   */
+  override isTransientError(): boolean {
+    return true;
+  }
+  
+  /**
+   * Gets a client-safe error message
    * 
    * @returns Client-safe error message
    */
-  getClientMessage(): string {
-    return this.isRetryExhausted()
-      ? `Service temporarily unavailable. Please try again later.`
-      : `Service temporarily unavailable. Please retry in ${Math.ceil(this.getRetryDelay() / 1000)} seconds.`;
+  override getClientMessage(): string {
+    return 'The service is temporarily unavailable. Please try again later.';
+  }
+  
+  /**
+   * Gets safe metadata that can be included in client responses
+   * 
+   * @returns Safe metadata for client responses
+   */
+  override getSafeMetadataForResponse(): Record<string, any> | null {
+    // Only include retry-related information that's safe for clients
+    if (this.canRetry()) {
+      return {
+        retryAfterMs: this.calculateRetryDelay(),
+      };
+    }
+    return null;
+  }
+  
+  /**
+   * Creates a TransientException for network-related errors
+   * 
+   * @param message Error message
+   * @param cause Original error
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static createNetworkError(
+    message: string,
+    cause?: Error,
+    options?: TransientErrorOptions,
+  ): TransientException {
+    return new TransientException(
+      message,
+      ErrorType.NETWORK_ERROR,
+      cause,
+      options,
+      { errorSubtype: 'network' },
+    );
+  }
+  
+  /**
+   * Creates a TransientException for timeout-related errors
+   * 
+   * @param message Error message
+   * @param cause Original error
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static createTimeoutError(
+    message: string,
+    cause?: Error,
+    options?: TransientErrorOptions,
+  ): TransientException {
+    return new TransientException(
+      message,
+      ErrorType.TIMEOUT_ERROR,
+      cause,
+      options,
+      { errorSubtype: 'timeout' },
+    );
+  }
+  
+  /**
+   * Creates a TransientException for connection-related errors
+   * 
+   * @param message Error message
+   * @param cause Original error
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static createConnectionError(
+    message: string,
+    cause?: Error,
+    options?: TransientErrorOptions,
+  ): TransientException {
+    return new TransientException(
+      message,
+      ErrorType.CONNECTION_ERROR,
+      cause,
+      options,
+      { errorSubtype: 'connection' },
+    );
+  }
+  
+  /**
+   * Creates a TransientException for event publishing errors
+   * 
+   * @param message Error message
+   * @param cause Original error
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static createEventPublishingError(
+    message: string,
+    cause?: Error,
+    options?: TransientErrorOptions,
+  ): TransientException {
+    return new TransientException(
+      message,
+      ErrorType.EVENT_PUBLISHING_ERROR,
+      cause,
+      options,
+      { errorSubtype: 'event_publishing' },
+    );
+  }
+  
+  /**
+   * Creates a TransientException for event consumption errors
+   * 
+   * @param message Error message
+   * @param cause Original error
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static createEventConsumptionError(
+    message: string,
+    cause?: Error,
+    options?: TransientErrorOptions,
+  ): TransientException {
+    return new TransientException(
+      message,
+      ErrorType.EVENT_CONSUMPTION_ERROR,
+      cause,
+      options,
+      { errorSubtype: 'event_consumption' },
+    );
+  }
+  
+  /**
+   * Determines if an error is a transient error that can be retried
+   * 
+   * @param error Error to check
+   * @returns True if the error is a TransientException or has transient characteristics
+   */
+  static isTransient(error: Error): boolean {
+    // Check if it's already a TransientException
+    if (error instanceof TransientException) {
+      return true;
+    }
+    
+    // Check error message for common transient error patterns
+    const errorMessage = error.message.toLowerCase();
+    return (
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('temporary') ||
+      errorMessage.includes('transient') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('network') ||
+      errorMessage.includes('unavailable') ||
+      errorMessage.includes('too many requests') ||
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('overloaded')
+    );
+  }
+  
+  /**
+   * Wraps an error in a TransientException if it's not already one
+   * 
+   * @param error Error to wrap
+   * @param defaultMessage Default message if the error doesn't have one
+   * @param options Retry options
+   * @returns TransientException instance
+   */
+  static from(
+    error: Error,
+    defaultMessage = 'A transient error occurred',
+    options?: TransientErrorOptions,
+  ): TransientException {
+    // If it's already a TransientException, return it
+    if (error instanceof TransientException) {
+      return error;
+    }
+    
+    // Determine the most likely error type based on the error message
+    const errorMessage = error.message.toLowerCase();
+    let errorType = ErrorType.NETWORK_ERROR; // Default
+    
+    if (errorMessage.includes('timeout')) {
+      errorType = ErrorType.TIMEOUT_ERROR;
+    } else if (errorMessage.includes('connection')) {
+      errorType = ErrorType.CONNECTION_ERROR;
+    } else if (errorMessage.includes('event') && errorMessage.includes('publish')) {
+      errorType = ErrorType.EVENT_PUBLISHING_ERROR;
+    } else if (errorMessage.includes('event') && errorMessage.includes('consum')) {
+      errorType = ErrorType.EVENT_CONSUMPTION_ERROR;
+    }
+    
+    // Create a new TransientException
+    return new TransientException(
+      error.message || defaultMessage,
+      errorType,
+      error,
+      options,
+    );
   }
 }
