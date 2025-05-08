@@ -9,7 +9,15 @@ import { ProfilesService } from '../profiles/profiles.service';
 import { AchievementsService } from '../achievements/achievements.service';
 
 // Import standardized interfaces from @austa/interfaces
-import { QuestStartedEvent, QuestCompletedEvent, QuestStatus } from '@austa/interfaces/gamification';
+import { QuestStatus } from '@austa/interfaces/gamification';
+
+// Import quest event interfaces
+import { 
+  QuestStartedEvent, 
+  QuestCompletedEvent,
+  createQuestStartedEvent,
+  createQuestCompletedEvent
+} from './interfaces/quest-event.interface';
 
 // Import error handling from @austa/errors
 import { 
@@ -207,24 +215,17 @@ export class QuestsService {
       // Save to database
       const savedUserQuest = await this.userQuestRepository.save(userQuest);
       
-      // Create standardized event payload
-      const questStartedEvent: QuestStartedEvent = {
-        eventId: correlationId,
-        eventType: 'quest.started',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        source: 'gamification-engine',
-        payload: {
-          userId,
-          questId,
-          questTitle: quest.title,
-          journey: quest.journey,
+      // Create standardized event payload using the helper function
+      const questStartedEvent = createQuestStartedEvent(
+        userId,
+        questId,
+        quest.title,
+        quest.journey as 'health' | 'care' | 'plan' | 'cross-journey',
+        {
+          correlationId,
           userQuestId: savedUserQuest.id
-        },
-        metadata: {
-          correlationId
         }
-      };
+      );
       
       // Publish event with retry and dead-letter queue support
       await this.kafkaProducer.send({
@@ -354,29 +355,22 @@ export class QuestsService {
       
       const unlockedAchievements = await findAchievementsOperation.execute();
       
-      // Create standardized event payload
-      const questCompletedEvent: QuestCompletedEvent = {
-        eventId: correlationId,
-        eventType: 'quest.completed',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        source: 'gamification-engine',
-        payload: {
-          userId,
-          questId,
-          questTitle: userQuest.quest.title,
-          journey: userQuest.quest.journey,
+      // Create standardized event payload using the helper function
+      const questCompletedEvent = createQuestCompletedEvent(
+        userId,
+        questId,
+        userQuest.quest.xpReward,
+        userQuest.quest.title,
+        userQuest.quest.journey as 'health' | 'care' | 'plan' | 'cross-journey',
+        {
+          correlationId,
           userQuestId: updatedUserQuest.id,
-          xpAwarded: userQuest.quest.xpReward,
           unlockedAchievements: unlockedAchievements.map(a => ({
             achievementId: a.id,
             achievementTitle: a.title
           }))
-        },
-        metadata: {
-          correlationId
         }
-      };
+      );
       
       // Publish event with retry and dead-letter queue support
       await this.kafkaProducer.send({
