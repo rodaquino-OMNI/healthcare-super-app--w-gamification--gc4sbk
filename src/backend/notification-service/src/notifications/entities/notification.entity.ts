@@ -1,114 +1,83 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm'; // typeorm v0.3.0+
-import { NotificationStatus, NotificationPriority } from '@austa/interfaces/notification/types';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { NotificationChannel, NotificationStatus } from '@austa/interfaces/notification/types';
 
 /**
- * Notification entity - represents a notification record stored in the database
- * 
- * Stores information about notifications sent to users including:
- * - The recipient user ID
- * - Notification type and content
- * - Delivery channel and status
- * - Timestamps for creation and updates
- * - Retry tracking and failure information
+ * Entity representing a notification in the AUSTA SuperApp.
+ * Maps to the 'notifications' table in the database.
  */
-@Entity()
-@Index(['userId', 'status']) // Index for faster queries by user and status
-@Index(['status', 'updatedAt']) // Index for retry processing
+@Entity('notifications')
 export class Notification {
   /**
-   * Unique identifier for the notification
+   * Unique identifier for the notification.
    */
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   /**
-   * ID of the user who will receive this notification
+   * ID of the user who should receive the notification.
    */
-  @Column()
-  @Index()
+  @Column({ name: 'user_id' })
   userId: string;
 
   /**
-   * Type of notification (e.g., 'achievement', 'appointment-reminder', 'claim-status')
+   * Type of notification (e.g., 'appointment_reminder', 'achievement_unlocked').
    */
   @Column()
-  @Index()
   type: string;
 
   /**
-   * Notification title/headline
+   * Title of the notification.
    */
   @Column()
   title: string;
 
   /**
-   * Notification body content
+   * Body content of the notification.
    */
-  @Column('text')
+  @Column()
   body: string;
 
   /**
-   * Delivery channel (e.g., 'push', 'email', 'sms', 'in-app')
-   */
-  @Column()
-  @Index()
-  channel: string;
-
-  /**
-   * Current status of the notification
-   * (e.g., 'pending', 'sent', 'delivered', 'read', 'failed', 'retry-scheduled', 'retry-in-progress')
+   * Channel through which the notification was delivered.
    */
   @Column({
-    type: 'varchar',
-    default: NotificationStatus.PENDING
+    type: 'enum',
+    enum: NotificationChannel,
+    default: NotificationChannel.IN_APP,
   })
-  @Index()
-  status: string;
+  channel: NotificationChannel;
 
   /**
-   * Priority level of the notification
-   * Affects retry policies and delivery strategies
+   * Current status of the notification.
    */
   @Column({
-    type: 'varchar',
-    default: NotificationPriority.MEDIUM
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.SENT,
   })
-  priority: string;
+  status: NotificationStatus;
 
   /**
-   * Number of retry attempts made for this notification
+   * Optional data associated with the notification, stored as JSON.
    */
-  @Column({ default: 0 })
-  retryCount: number;
+  @Column({ type: 'jsonb', nullable: true })
+  data?: Record<string, any>;
 
   /**
-   * Last error message if notification delivery failed
+   * Timestamp when the notification was read by the user.
    */
-  @Column({ type: 'text', nullable: true })
-  lastError: string;
+  @Column({ name: 'read_at', nullable: true })
+  readAt?: Date;
 
   /**
-   * Scheduled time for the next retry attempt
+   * Timestamp when the notification was created.
    */
-  @Column({ type: 'timestamp', nullable: true })
-  nextRetryTime: Date;
-
-  /**
-   * JSON string containing additional metadata for the notification
-   * Can include journey context, retry information, and delivery tracking
-   */
-  @Column({ type: 'text', nullable: true })
-  metadata: string;
-
-  /**
-   * Timestamp when the notification was created
-   */
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
   /**
-   * Timestamp when the notification was last updated
+   * Timestamp when the notification was last updated.
    */
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
