@@ -65,11 +65,16 @@ export {
   // Interfaces
   DatabaseMiddleware,
   MiddlewareContext,
+  LoggingMiddleware,
+  PerformanceMiddleware,
+  TransformationMiddleware,
+  CircuitBreakerMiddleware as CircuitBreakerMiddlewareInterface,
+  TransformationRule,
   // Implementations
   CircuitBreakerMiddleware,
-  TransformationMiddleware,
-  PerformanceMiddleware,
-  LoggingMiddleware,
+  TransformationMiddleware as TransformationMiddlewareImpl,
+  PerformanceMiddleware as PerformanceMiddlewareImpl,
+  LoggingMiddleware as LoggingMiddlewareImpl,
   // Registry and factory
   MiddlewareRegistry,
   MiddlewareFactory,
@@ -120,6 +125,12 @@ export {
   DatabaseConnectionConfig,
   SSLConfig,
   PoolConfig,
+  // Circuit breaker types
+  CircuitState,
+  OperationType,
+  CircuitBreakerOptions,
+  CircuitBreakerStats,
+  JourneyThresholds,
 } from './types';
 
 // Utilities
