@@ -9,6 +9,9 @@ import { LoggerService } from '@app/shared/logging/logger.service';
 import { CircuitBreakerService } from '@app/shared/circuit-breaker/circuit-breaker.service';
 import { RetryService } from '@app/shared/retry/retry.service';
 
+// Import event processing utilities
+import { EventProcessingUtil, isGamificationEvent, createGamificationEvent } from '@app/gamification/common/utils/event-processing.util';
+
 // Import standardized interfaces from @austa/interfaces
 import { 
   GamificationEvent, 
@@ -51,7 +54,8 @@ export class EventsService implements OnModuleInit {
     private readonly rewardsService: RewardsService,
     private readonly questsService: QuestsService,
     private readonly circuitBreaker: CircuitBreakerService,
-    private readonly retryService: RetryService
+    private readonly retryService: RetryService,
+    private readonly eventProcessingUtil: EventProcessingUtil
   ) {}
 
   /**
@@ -87,26 +91,50 @@ export class EventsService implements OnModuleInit {
     const correlationId = message.headers?.correlationId || `event-${Date.now()}`;
     
     try {
-      const event = message.value as GamificationEvent;
+      let event;
+      
+      // Check if the message is already a GamificationEvent or needs transformation
+      if (isGamificationEvent(message.value)) {
+        event = message.value as GamificationEvent<EventPayload>;
+      } else {
+        // Transform legacy event format to standardized GamificationEvent
+        event = this.eventProcessingUtil.transformLegacyEvent(message.value);
+      }
+      
+      // Validate the event against its schema
+      if (!this.eventProcessingUtil.validateEvent(event)) {
+        throw new NonRetryableError('Invalid event schema', {
+          eventType: event.type,
+          userId: event.userId,
+          correlationId
+        });
+      }
+      
+      // Enrich the event with metadata and tracking information
+      const enrichedEvent = this.eventProcessingUtil.enrichEvent(event);
       
       this.logger.log('Processing gamification event', {
-        eventType: event.type,
-        userId: event.userId,
-        journey: event.journey,
-        correlationId,
+        eventType: enrichedEvent.type,
+        userId: enrichedEvent.userId,
+        journey: enrichedEvent.journey,
+        correlationId: enrichedEvent.metadata?.correlationId || correlationId,
         context: 'EventsService'
       });
       
-      const result = await this.processEvent(event, correlationId);
+      // Process the event with retry capabilities
+      const result = await this.eventProcessingUtil.processWithRetry(
+        enrichedEvent,
+        (e) => this.processEvent(e, correlationId)
+      );
       
       const processingTime = Date.now() - startTime;
       this.logger.log('Event processing completed successfully', {
-        eventType: event.type,
-        userId: event.userId,
-        journey: event.journey,
+        eventType: enrichedEvent.type,
+        userId: enrichedEvent.userId,
+        journey: enrichedEvent.journey,
         processingTimeMs: processingTime,
         pointsAwarded: result.points,
-        correlationId,
+        correlationId: enrichedEvent.metadata?.correlationId || correlationId,
         context: 'EventsService'
       });
       
@@ -187,11 +215,11 @@ export class EventsService implements OnModuleInit {
    * This is the main entry point for handling all gamification events across all journeys.
    * Implements retry mechanisms and circuit breaker patterns for resilience.
    * 
-   * @param event The event to process containing type, userId, data, and optional journey
+   * @param event The event to process containing type, userId, payload, and journey
    * @param correlationId Correlation ID for tracing and logging
    * @returns A promise that resolves with the result of the event processing
    */
-  async processEvent(event: GamificationEvent, correlationId?: string): Promise<EventProcessingResult> {
+  async processEvent<T extends EventPayload>(event: GamificationEvent<T>, correlationId?: string): Promise<EventProcessingResult> {
     const traceId = correlationId || `event-${Date.now()}`;
     
     this.logger.log('Processing event', {
@@ -203,6 +231,33 @@ export class EventsService implements OnModuleInit {
     });
     
     try {
+      // Extract journey-specific context from the event
+      const journeyContext = this.eventProcessingUtil.extractJourneyContext(event);
+      
+      // Apply journey-specific handling based on event type
+      if (this.eventProcessingUtil.isHealthEvent(event)) {
+        this.logger.debug('Processing health journey event', {
+          eventType: event.type,
+          userId: event.userId,
+          correlationId: traceId,
+          context: 'EventsService.processEvent'
+        });
+      } else if (this.eventProcessingUtil.isCareEvent(event)) {
+        this.logger.debug('Processing care journey event', {
+          eventType: event.type,
+          userId: event.userId,
+          correlationId: traceId,
+          context: 'EventsService.processEvent'
+        });
+      } else if (this.eventProcessingUtil.isPlanEvent(event)) {
+        this.logger.debug('Processing plan journey event', {
+          eventType: event.type,
+          userId: event.userId,
+          correlationId: traceId,
+          context: 'EventsService.processEvent'
+        });
+      }
+      
       // Get the user's game profile with circuit breaker pattern
       let gameProfile = await this.circuitBreaker.execute(
         'profilesService.findById',
