@@ -1,5 +1,6 @@
 import { registerAs } from '@nestjs/config';
 import channelsConfig from './channels.config';
+import { kafkaConfig } from './kafka.config';
 
 /**
  * Notification service configuration factory
@@ -62,4 +63,5 @@ export default () => ({
   // Include all configuration modules
   notification: notification(),
   channels: channelsConfig(),
+  kafka: kafkaConfig(),
 });
