@@ -1,0 +1,102 @@
+name: Build Optimization
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/build-optimization.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/build-optimization.yml'
+  workflow_dispatch:
+
+jobs:
+  optimize-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+
+      - name: Setup build cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .build-cache
+            .turbo
+            **/node_modules/.cache
+            **/.tsbuildinfo
+          key: ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package.json', '**/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-
+
+      - name: Run build optimization
+        run: node src/backend/tools/scripts/optimize-build.js --validate --verbose
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: |
+            src/backend/**/dist
+            src/web/**/dist
+            src/web/.next
+            !**/node_modules
+          retention-days: 7
+
+  validate-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+
+      - name: Validate dependency resolution
+        run: |
+          echo "Validating backend dependencies..."
+          cd src/backend
+          npx tsc --build --all --verbose
+          
+          echo "Validating web dependencies..."
+          cd ../web
+          npx tsc --noEmit
+
+      - name: Check for circular dependencies
+        run: |
+          npm install -g madge
+          echo "Checking for circular dependencies in backend..."
+          madge --circular --extensions ts,tsx src/backend || true
+          
+          echo "Checking for circular dependencies in web..."
+          madge --circular --extensions ts,tsx src/web || true
