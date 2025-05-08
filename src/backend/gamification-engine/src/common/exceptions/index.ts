@@ -132,6 +132,12 @@ export { default as CircuitBreaker } from './circuit-breaker';
  * Utility functions for implementing retry logic
  * @description Provides configurable retry strategies with exponential backoff
  */
+export * from './retry.utils';
+
+/**
+ * Retry utilities as a namespace for backward compatibility
+ * @description Allows importing as RetryUtils.retryAsync() if preferred
+ */
 export * as RetryUtils from './retry.utils';
 
 /**
