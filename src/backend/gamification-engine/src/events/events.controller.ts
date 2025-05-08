@@ -1,5 +1,6 @@
 import { Controller, Post, Body, UseGuards, UseFilters, UseInterceptors, ValidationPipe } from '@nestjs/common';
 import { EventsService } from './events.service';
+import { EventProcessingUtil, createGamificationEvent } from '../common/utils/event-processing.util';
 import { AllExceptionsFilter } from '@app/shared/exceptions/exceptions.filter';
 import { JwtAuthGuard } from '@app/auth/guards/jwt-auth.guard';
 import { RetryInterceptor } from '@app/shared/interceptors/retry.interceptor';
@@ -32,16 +33,19 @@ import {
 @ErrorClassifier()
 export class EventsController {
   /**
-   * Injects the EventsService.
+   * Injects the EventsService and EventProcessingUtil.
    */
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly eventProcessingUtil: EventProcessingUtil
+  ) {}
 
   /**
    * Handles incoming POST requests to process events from any journey.
    * Validates the event payload, processes it through the gamification engine,
    * and returns the result with proper error handling and retry mechanisms.
    * 
-   * @param event The gamification event to process containing type, userId, data, and journey
+   * @param event The gamification event to process containing type, userId, payload, and journey
    * @returns A promise that resolves with the result of the event processing
    */
   @Post()
@@ -53,8 +57,20 @@ export class EventsController {
       forbidNonWhitelisted: true,
       validateCustomDecorators: true,
       validationError: { target: false, value: false },
-    })) event: GamificationEvent
+    })) event: GamificationEvent<any>
   ): Promise<EventProcessingResult> {
-    return this.eventsService.processEvent(event);
+    // Validate the event against its schema
+    if (!this.eventProcessingUtil.validateEvent(event)) {
+      throw new Error('Invalid event schema');
+    }
+    
+    // Enrich the event with metadata and tracking information
+    const enrichedEvent = this.eventProcessingUtil.enrichEvent(event);
+    
+    // Process the event with retry capabilities
+    return this.eventProcessingUtil.processWithRetry(
+      enrichedEvent,
+      (e) => this.eventsService.processEvent(e)
+    );
   }
 }
