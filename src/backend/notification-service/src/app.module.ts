@@ -16,6 +16,7 @@ import { RedisModule } from '@app/shared/redis/redis.module';
 import { TracingModule } from '@app/shared/tracing/tracing.module';
 import { InterfacesModule } from '@austa/interfaces';
 import { Notification } from './notifications/entities/notification.entity';
+import { DlqEntry } from './retry/dlq/dlq-entry.entity';
 
 /**
  * Main module for the Notification Service that configures all required components.
@@ -36,7 +37,7 @@ import { Notification } from './notifications/entities/notification.entity';
       username: process.env.DATABASE_USERNAME,
       password: process.env.DATABASE_PASSWORD,
       database: process.env.DATABASE_NAME,
-      entities: [Notification],
+      entities: [Notification, DlqEntry],
       synchronize: process.env.NODE_ENV !== 'production',
       logging: process.env.NODE_ENV !== 'production',
       // Enhanced connection pooling configuration
