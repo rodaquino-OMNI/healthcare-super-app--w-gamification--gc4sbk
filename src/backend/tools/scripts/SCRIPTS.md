@@ -4,6 +4,22 @@ This document provides an overview of the utility scripts available in the backe
 
 ## Active Scripts
 
+### validate-dependencies.js
+
+- **Purpose**: Performs comprehensive dependency validation across the monorepo to identify and resolve version conflicts, missing dependencies, and improper workspace references
+
+- **When to use**: After dependency changes, before commits, and in CI/CD pipelines to ensure consistent dependencies
+
+- **Usage**: 
+  ```
+  node tools/scripts/validate-dependencies.js [options]
+  
+  Options:
+    --fix            Attempt to fix common issues automatically
+    --verbose        Show detailed validation output
+    --help           Show this help message
+  ```
+
 ### optimize-build.js
 
 - **Purpose**: Optimizes the build process for the AUSTA SuperApp monorepo by configuring proper caching strategies, determining efficient build order based on dependencies, and setting up incremental builds for better performance
