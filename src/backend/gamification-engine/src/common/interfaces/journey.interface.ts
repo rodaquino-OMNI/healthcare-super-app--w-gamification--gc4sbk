@@ -1,270 +1,205 @@
 /**
- * @file Journey Interface
- * @description Defines journey-related interfaces and types used throughout the gamification engine.
- * Contains the JourneyType enum, IJourneyContext interface, and utility types for journey-specific data structures.
+ * Journey-related interfaces and types used throughout the gamification engine.
+ * These types ensure consistent handling of journey-specific logic across
+ * achievements, events, quests, and rewards.
+ *
+ * @module common/interfaces/journey
  */
 
-import { IJourneyType } from '@austa/interfaces/journey';
+import { IHealthMetric } from '@austa/interfaces/journey/health';
+import { IAppointment } from '@austa/interfaces/journey/care';
+import { IClaim } from '@austa/interfaces/journey/plan';
 
 /**
- * Enum representing the available journey types in the application.
- * Used for categorizing achievements, events, quests, and other entities by journey.
+ * Enum representing the three distinct user journeys in the AUSTA SuperApp.
  */
 export enum JourneyType {
   /**
-   * Health journey - focused on health metrics, goals, and wellness activities.
+   * Health journey ("Minha Saúde") - Focused on health metrics, goals, and medical history.
    */
   HEALTH = 'health',
-
+  
   /**
-   * Care journey - focused on appointments, treatments, and medical care activities.
+   * Care journey ("Cuidar-me Agora") - Focused on appointments, medications, and treatments.
    */
   CARE = 'care',
-
+  
   /**
-   * Plan journey - focused on insurance plans, benefits, and claims.
+   * Plan journey ("Meu Plano & Benefícios") - Focused on insurance plans, claims, and benefits.
    */
   PLAN = 'plan',
-
-  /**
-   * Cross-journey - applies to multiple or all journeys.
-   */
-  CROSS_JOURNEY = 'cross_journey'
 }
 
 /**
- * Interface for journey context data.
- * Provides journey-specific information for events, achievements, and other entities.
+ * Base interface for journey-specific context data.
+ * This interface provides common properties shared across all journey contexts.
  */
-export interface IJourneyContext {
+export interface IJourneyBaseContext {
   /**
    * The type of journey this context belongs to.
    */
   journeyType: JourneyType;
-
+  
   /**
-   * Additional journey-specific metadata.
-   * Can contain any journey-specific data needed for processing.
+   * Unique identifier for the user associated with this journey context.
+   */
+  userId: string;
+  
+  /**
+   * Timestamp when this journey context was created or last updated.
+   */
+  timestamp: Date;
+  
+  /**
+   * Optional metadata associated with this journey context.
    */
   metadata?: Record<string, any>;
-
-  /**
-   * Optional reference to a specific journey entity or resource.
-   * For example, a health metric ID, appointment ID, or claim ID.
-   */
-  referenceId?: string;
-
-  /**
-   * Optional reference type to clarify what the referenceId points to.
-   * For example, 'health_metric', 'appointment', or 'claim'.
-   */
-  referenceType?: string;
 }
 
 /**
- * Interface for health journey-specific context.
- * Extends the base IJourneyContext with health-specific properties.
+ * Interface for Health journey-specific context data.
  */
-export interface IHealthJourneyContext extends IJourneyContext {
-  /**
-   * The type of journey is always HEALTH for this context.
-   */
+export interface IHealthJourneyContext extends IJourneyBaseContext {
   journeyType: JourneyType.HEALTH;
-
+  
   /**
-   * Optional health metric type associated with this context.
-   * For example, 'steps', 'weight', 'heart_rate', etc.
+   * Health metrics associated with this context.
    */
-  metricType?: string;
-
+  metrics?: IHealthMetric[];
+  
   /**
-   * Optional health goal ID associated with this context.
+   * Goal identifiers related to this context.
    */
-  goalId?: string;
-
+  goalIds?: string[];
+  
   /**
-   * Optional device ID that generated the health data.
+   * Device connection identifiers related to this context.
    */
-  deviceId?: string;
+  deviceConnectionIds?: string[];
 }
 
 /**
- * Interface for care journey-specific context.
- * Extends the base IJourneyContext with care-specific properties.
+ * Interface for Care journey-specific context data.
  */
-export interface ICareJourneyContext extends IJourneyContext {
-  /**
-   * The type of journey is always CARE for this context.
-   */
+export interface ICareJourneyContext extends IJourneyBaseContext {
   journeyType: JourneyType.CARE;
-
+  
   /**
-   * Optional appointment ID associated with this context.
+   * Appointment associated with this context.
    */
-  appointmentId?: string;
-
+  appointment?: IAppointment;
+  
   /**
-   * Optional provider ID associated with this context.
+   * Provider identifier related to this context.
    */
   providerId?: string;
-
+  
   /**
-   * Optional treatment ID associated with this context.
+   * Medication identifiers related to this context.
    */
-  treatmentId?: string;
-
-  /**
-   * Optional medication ID associated with this context.
-   */
-  medicationId?: string;
+  medicationIds?: string[];
 }
 
 /**
- * Interface for plan journey-specific context.
- * Extends the base IJourneyContext with plan-specific properties.
+ * Interface for Plan journey-specific context data.
  */
-export interface IPlanJourneyContext extends IJourneyContext {
-  /**
-   * The type of journey is always PLAN for this context.
-   */
+export interface IPlanJourneyContext extends IJourneyBaseContext {
   journeyType: JourneyType.PLAN;
-
+  
   /**
-   * Optional plan ID associated with this context.
+   * Claim associated with this context.
+   */
+  claim?: IClaim;
+  
+  /**
+   * Plan identifier related to this context.
    */
   planId?: string;
-
+  
   /**
-   * Optional claim ID associated with this context.
+   * Benefit identifiers related to this context.
    */
-  claimId?: string;
-
-  /**
-   * Optional benefit ID associated with this context.
-   */
-  benefitId?: string;
-
-  /**
-   * Optional coverage ID associated with this context.
-   */
-  coverageId?: string;
+  benefitIds?: string[];
 }
 
 /**
- * Interface for cross-journey context.
- * Extends the base IJourneyContext with properties that span multiple journeys.
+ * Union type representing all possible journey contexts.
  */
-export interface ICrossJourneyContext extends IJourneyContext {
-  /**
-   * The type of journey is always CROSS_JOURNEY for this context.
-   */
-  journeyType: JourneyType.CROSS_JOURNEY;
-
-  /**
-   * Array of journey types that this context applies to.
-   */
-  applicableJourneys: JourneyType[];
-
-  /**
-   * Optional map of journey-specific context data.
-   */
-  journeyContexts?: {
-    [JourneyType.HEALTH]?: Omit<IHealthJourneyContext, 'journeyType'>;
-    [JourneyType.CARE]?: Omit<ICareJourneyContext, 'journeyType'>;
-    [JourneyType.PLAN]?: Omit<IPlanJourneyContext, 'journeyType'>;
-  };
-}
-
-/**
- * Type representing any journey context.
- * Can be a health, care, plan, or cross-journey context.
- */
-export type AnyJourneyContext = 
+export type IJourneyContext = 
   | IHealthJourneyContext 
   | ICareJourneyContext 
-  | IPlanJourneyContext 
-  | ICrossJourneyContext;
+  | IPlanJourneyContext;
 
 /**
- * Type guard to check if a journey context is a health journey context.
+ * Type guard to check if a journey context is a Health journey context.
  * 
- * @param context - The journey context to check
- * @returns True if the context is a health journey context, false otherwise
+ * @param context The journey context to check
+ * @returns True if the context is a Health journey context
  */
-export function isHealthJourneyContext(context: AnyJourneyContext): context is IHealthJourneyContext {
+export function isHealthJourneyContext(context: IJourneyContext): context is IHealthJourneyContext {
   return context.journeyType === JourneyType.HEALTH;
 }
 
 /**
- * Type guard to check if a journey context is a care journey context.
+ * Type guard to check if a journey context is a Care journey context.
  * 
- * @param context - The journey context to check
- * @returns True if the context is a care journey context, false otherwise
+ * @param context The journey context to check
+ * @returns True if the context is a Care journey context
  */
-export function isCareJourneyContext(context: AnyJourneyContext): context is ICareJourneyContext {
+export function isCareJourneyContext(context: IJourneyContext): context is ICareJourneyContext {
   return context.journeyType === JourneyType.CARE;
 }
 
 /**
- * Type guard to check if a journey context is a plan journey context.
+ * Type guard to check if a journey context is a Plan journey context.
  * 
- * @param context - The journey context to check
- * @returns True if the context is a plan journey context, false otherwise
+ * @param context The journey context to check
+ * @returns True if the context is a Plan journey context
  */
-export function isPlanJourneyContext(context: AnyJourneyContext): context is IPlanJourneyContext {
+export function isPlanJourneyContext(context: IJourneyContext): context is IPlanJourneyContext {
   return context.journeyType === JourneyType.PLAN;
 }
 
 /**
- * Type guard to check if a journey context is a cross-journey context.
- * 
- * @param context - The journey context to check
- * @returns True if the context is a cross-journey context, false otherwise
+ * Interface for entities that are associated with a specific journey.
  */
-export function isCrossJourneyContext(context: AnyJourneyContext): context is ICrossJourneyContext {
-  return context.journeyType === JourneyType.CROSS_JOURNEY;
+export interface IJourneyAssociated {
+  /**
+   * The type of journey this entity is associated with.
+   */
+  journeyType: JourneyType;
 }
 
 /**
- * Maps a JourneyType to the corresponding IJourneyType from @austa/interfaces.
- * Ensures compatibility between local and shared journey type enums.
- * 
- * @param journeyType - The local JourneyType enum value
- * @returns The corresponding IJourneyType from @austa/interfaces
+ * Interface for entities that can be filtered by journey type.
  */
-export function mapToSharedJourneyType(journeyType: JourneyType): IJourneyType {
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      return 'health' as IJourneyType;
-    case JourneyType.CARE:
-      return 'care' as IJourneyType;
-    case JourneyType.PLAN:
-      return 'plan' as IJourneyType;
-    case JourneyType.CROSS_JOURNEY:
-      return 'cross_journey' as IJourneyType;
-    default:
-      throw new Error(`Unknown journey type: ${journeyType}`);
-  }
+export interface IJourneyFilterable {
+  /**
+   * Filter criteria for journey type.
+   */
+  journeyType?: JourneyType | JourneyType[];
 }
 
 /**
- * Maps an IJourneyType from @austa/interfaces to the corresponding local JourneyType.
- * Ensures compatibility between shared and local journey type enums.
- * 
- * @param journeyType - The IJourneyType from @austa/interfaces
- * @returns The corresponding local JourneyType enum value
+ * Type for mapping a generic type to journey-specific variants.
+ * Useful for creating journey-specific implementations of a common interface.
  */
-export function mapFromSharedJourneyType(journeyType: IJourneyType): JourneyType {
-  switch (journeyType) {
-    case 'health':
-      return JourneyType.HEALTH;
-    case 'care':
-      return JourneyType.CARE;
-    case 'plan':
-      return JourneyType.PLAN;
-    case 'cross_journey':
-      return JourneyType.CROSS_JOURNEY;
-    default:
-      throw new Error(`Unknown journey type: ${journeyType}`);
-  }
-}
+export type JourneyTypeMap<T> = {
+  [JourneyType.HEALTH]: T;
+  [JourneyType.CARE]: T;
+  [JourneyType.PLAN]: T;
+};
+
+/**
+ * Type for creating a partial journey type map, where some journey types may not have implementations.
+ */
+export type PartialJourneyTypeMap<T> = Partial<JourneyTypeMap<T>>;
+
+/**
+ * Type for extracting journey-specific data from a union type based on journey type.
+ * 
+ * @template T The union type containing journey-specific data
+ * @template J The journey type to extract
+ */
+export type ExtractJourneyData<T extends { journeyType: JourneyType }, J extends JourneyType> = 
+  Extract<T, { journeyType: J }>;
