@@ -49,10 +49,12 @@ export { EventHandler } from './event-handler.interface';
  * @description Utilities for standardized error handling in Kafka operations.
  */
 export {
-  handleKafkaError,
-  isRetriableError,
-  formatKafkaError,
   KafkaErrorHandler,
+  createKafkaErrorHandler,
+  createDefaultRetryStrategy,
+  createDefaultErrorHandler,
+  KafkaErrorHandlerOptions,
+  KafkaErrorContext,
 } from './error-handler';
 
 /**
