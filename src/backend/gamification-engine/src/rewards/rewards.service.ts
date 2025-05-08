@@ -8,7 +8,13 @@ import { LoggerService } from '@app/shared/logging/logger.service';
 import { PrismaService } from '@app/shared/database/prisma.service';
 import { TransactionService } from '@app/shared/database/transactions/transaction.service';
 import { FilterRewardDto } from '@app/gamification/rewards/dto/filter-reward.dto';
-import { RewardEventPayload } from '@app/gamification/rewards/interfaces/reward-event.interface';
+import { 
+  createRewardGrantedEvent,
+  createRewardRedeemedEvent,
+  createRewardExpiredEvent,
+  IRewardGrantedEvent,
+  RewardEventType
+} from '@app/gamification/rewards/interfaces/reward-event.interface';
 import { AchievementsService } from '@app/gamification/achievements/achievements.service';
 import { AppException, ErrorType } from '@app/shared/errors/exceptions.types';
 import { Prisma } from '@prisma/client';
@@ -256,27 +262,29 @@ export class RewardsService {
               data: { xp: { increment: reward.xpReward } }
             });
             
-            // Prepare event payload with standardized schema
-            const eventPayload: RewardEventPayload = {
-              type: 'REWARD_GRANTED',
-              version: '1.0',
+            // Create standardized event with versioning support
+            const rewardEvent = createRewardGrantedEvent(
               userId,
               rewardId,
-              rewardTitle: reward.title,
-              xpReward: reward.xpReward,
-              journey: reward.journey as JourneyType,
-              timestamp: new Date().toISOString(),
-              metadata: {
-                icon: reward.icon,
-                description: reward.description
+              reward.title,
+              {
+                xpReward: reward.xpReward,
+                journey: reward.journey as JourneyType,
+                // Set expiration date if applicable (30 days from now as an example)
+                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                // Add additional context for the event
+                context: {
+                  icon: reward.icon,
+                  description: reward.description
+                }
               }
-            };
+            );
             
             // Publish event to Kafka for notification and other systems
             // This is outside the transaction as it's an external system
             await this.kafkaService.produce(
               'reward-events',
-              eventPayload,
+              rewardEvent,
               userId
             );
             
@@ -473,6 +481,220 @@ export class RewardsService {
         ErrorType.TECHNICAL,
         'REWARD_008',
         { id, updateData },
+        error
+      );
+    }
+  }
+
+  /**
+   * Redeems a reward for a user.
+   * @param userId The ID of the user redeeming the reward
+   * @param userRewardId The ID of the user reward to redeem
+   * @param redemptionCode Optional redemption code or identifier
+   * @returns A promise that resolves to the redeemed user reward.
+   */
+  async redeemReward(userId: string, userRewardId: string, redemptionCode?: string): Promise<UserReward> {
+    return this.retryService.executeWithRetry(
+      async () => {
+        try {
+          this.logger.log(`Redeeming reward ${userRewardId} for user ${userId}`, 'RewardsService');
+          
+          // Execute everything in a transaction for atomicity
+          return await this.transactionService.executeInTransaction(async (tx) => {
+            // Get user reward
+            const userReward = await tx.userReward.findUnique({
+              where: { id: userRewardId },
+              include: {
+                profile: true,
+                reward: true
+              }
+            });
+            
+            if (!userReward) {
+              throw new AppException(
+                `User reward with ID ${userRewardId} not found`,
+                ErrorType.BUSINESS,
+                'REWARD_010',
+                { userId, userRewardId }
+              );
+            }
+            
+            // Verify the reward belongs to the user
+            if (userReward.profile.userId !== userId) {
+              throw new AppException(
+                'This reward does not belong to the user',
+                ErrorType.BUSINESS,
+                'REWARD_011',
+                { userId, userRewardId }
+              );
+            }
+            
+            // Check if already redeemed
+            if (userReward.redeemedAt) {
+              throw new AppException(
+                'This reward has already been redeemed',
+                ErrorType.BUSINESS,
+                'REWARD_012',
+                { userId, userRewardId, redeemedAt: userReward.redeemedAt }
+              );
+            }
+            
+            // Update user reward as redeemed
+            const redeemedUserReward = await tx.userReward.update({
+              where: { id: userRewardId },
+              data: {
+                redeemedAt: new Date()
+              },
+              include: {
+                profile: true,
+                reward: true
+              }
+            });
+            
+            // Create standardized event with versioning support
+            const rewardEvent = createRewardRedeemedEvent(
+              userId,
+              userReward.reward.id,
+              userReward.reward.title,
+              {
+                journey: userReward.reward.journey as JourneyType,
+                redemptionCode,
+                context: {
+                  userRewardId: userReward.id,
+                  icon: userReward.reward.icon,
+                  description: userReward.reward.description
+                }
+              }
+            );
+            
+            // Publish event to Kafka
+            await this.kafkaService.produce(
+              'reward-events',
+              rewardEvent,
+              userId
+            );
+            
+            this.logger.log(
+              `Successfully redeemed reward ${userReward.reward.title} for user ${userId}`,
+              'RewardsService'
+            );
+            
+            return redeemedUserReward as UserReward;
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to redeem reward ${userRewardId} for user ${userId}: ${error.message}`,
+            error.stack,
+            'RewardsService'
+          );
+          
+          if (error instanceof AppException) {
+            throw error;
+          }
+          
+          throw new AppException(
+            'Failed to redeem reward',
+            ErrorType.TECHNICAL,
+            'REWARD_013',
+            { userId, userRewardId },
+            error
+          );
+        }
+      },
+      {
+        maxRetries: 3,
+        retryDelayMs: 500,
+        exponentialBackoff: true,
+        retryCondition: (error) => {
+          // Only retry on transient errors, not business logic errors
+          if (error instanceof AppException) {
+            return error.type === ErrorType.TECHNICAL;
+          }
+          return true;
+        }
+      }
+    );
+  }
+
+  /**
+   * Handles expired rewards and sends notifications.
+   * This method is typically called by a scheduled job.
+   * @returns A promise that resolves to the number of expired rewards processed.
+   */
+  async processExpiredRewards(): Promise<number> {
+    try {
+      this.logger.log('Processing expired rewards', 'RewardsService');
+      
+      const now = new Date();
+      let processedCount = 0;
+      
+      // Find rewards that have expired but haven't been marked as expired
+      const expiredRewards = await this.prisma.userReward.findMany({
+        where: {
+          redeemedAt: null,
+          expiresAt: {
+            lt: now
+          },
+          expiredProcessed: false
+        },
+        include: {
+          profile: true,
+          reward: true
+        },
+        take: 100 // Process in batches
+      });
+      
+      if (expiredRewards.length === 0) {
+        this.logger.log('No expired rewards to process', 'RewardsService');
+        return 0;
+      }
+      
+      // Process each expired reward
+      for (const userReward of expiredRewards) {
+        await this.transactionService.executeInTransaction(async (tx) => {
+          // Mark as processed
+          await tx.userReward.update({
+            where: { id: userReward.id },
+            data: { expiredProcessed: true }
+          });
+          
+          // Create standardized event with versioning support
+          const rewardEvent = createRewardExpiredEvent(
+            userReward.profile.userId,
+            userReward.reward.id,
+            userReward.reward.title,
+            userReward.earnedAt.toISOString(),
+            {
+              journey: userReward.reward.journey as JourneyType,
+              value: userReward.reward.value
+            }
+          );
+          
+          // Publish event to Kafka
+          await this.kafkaService.produce(
+            'reward-events',
+            rewardEvent,
+            userReward.profile.userId
+          );
+          
+          processedCount++;
+        });
+      }
+      
+      this.logger.log(`Processed ${processedCount} expired rewards`, 'RewardsService');
+      return processedCount;
+    } catch (error) {
+      this.logger.error(
+        `Failed to process expired rewards: ${error.message}`,
+        error.stack,
+        'RewardsService'
+      );
+      
+      throw new AppException(
+        'Failed to process expired rewards',
+        ErrorType.TECHNICAL,
+        'REWARD_014',
+        {},
         error
       );
     }
