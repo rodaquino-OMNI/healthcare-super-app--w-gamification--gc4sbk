@@ -14,4 +14,4 @@ export * from './sort.dto';
 export * from './api-query.dto';
 
 // Re-export from @austa/interfaces for consistent type definitions
-export { FilterOperator, SortDirection } from '@austa/interfaces/common';
+export { SortDirection } from '@austa/interfaces/common';
