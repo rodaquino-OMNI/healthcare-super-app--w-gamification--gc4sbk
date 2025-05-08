@@ -74,10 +74,17 @@ export {
  * exponential backoff with jitter.
  */
 export {
-  createRetryStrategy,
-  exponentialBackoffWithJitter,
-  RetryStrategy,
-  RetryOptions,
+  RetryStrategyService,
+  createRetryStrategyService,
+  createExponentialBackoffStrategy,
+  createLinearBackoffStrategy,
+  createFixedDelayStrategy,
+  createJourneyAwareRetryStrategy,
+  createErrorTypeAwareRetryStrategy,
+  defaultRetryStrategy,
+  RetryStrategyOptions,
+  RetryContext,
+  RetryResult
 } from './retry.strategy';
 
 /**
