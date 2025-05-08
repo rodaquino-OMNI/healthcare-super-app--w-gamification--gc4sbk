@@ -1,183 +1,191 @@
 /**
  * @file Pagination Interface
  * @description Defines standardized pagination interfaces used across all modules in the gamification engine.
- * Provides request and response interfaces for paginated queries, including page number, page size,
- * total count, and result collections.
+ * These interfaces provide consistent pagination behavior for API endpoints and database queries.
+ * Integration with @austa/interfaces ensures type safety and consistent pagination patterns across the platform.
  */
 
-import { PaginationDto, PaginatedResponse } from '@austa/interfaces/common/dto/pagination.dto';
+// Import shared interfaces from @austa/interfaces
+import { common } from '@austa/interfaces';
 
 /**
- * Interface for pagination request parameters.
- * Used for requesting paginated data from services and repositories.
+ * @interface ISortDirection
+ * @description Enum defining the possible sort directions for paginated queries
+ */
+export enum SortDirection {
+  ASC = 'asc',
+  DESC = 'desc',
+}
+
+/**
+ * @interface ISortOption
+ * @description Interface for defining sort options in paginated requests
+ * @property {string} field - The field to sort by
+ * @property {SortDirection} direction - The direction to sort (ascending or descending)
+ */
+export interface ISortOption {
+  field: string;
+  direction: SortDirection;
+}
+
+/**
+ * @interface IPaginationRequest
+ * @description Interface for pagination request parameters used in API endpoints and service methods
+ * @property {number} page - The page number to retrieve (1-based indexing)
+ * @property {number} size - The number of items per page
+ * @property {ISortOption[]} [sort] - Optional sorting criteria
  */
 export interface IPaginationRequest {
-  /**
-   * The page number to retrieve (1-based indexing).
-   * @default 1
-   */
   page: number;
-
-  /**
-   * The number of items per page.
-   * @default 10
-   */
   size: number;
-
-  /**
-   * Optional cursor for cursor-based pagination.
-   * Used as an alternative to page-based pagination for better performance with large datasets.
-   */
-  cursor?: string;
-
-  /**
-   * Optional flag to include total count in the response.
-   * May be disabled for performance reasons with large datasets.
-   * @default true
-   */
-  includeTotal?: boolean;
+  sort?: ISortOption[];
 }
 
 /**
- * Interface for pagination response metadata.
- * Contains information about the current page, total items, and navigation links.
+ * @interface IPaginationMeta
+ * @description Interface for pagination metadata included in paginated responses
+ * @property {number} page - The current page number
+ * @property {number} size - The number of items per page
+ * @property {number} total - The total number of items across all pages
+ * @property {number} pages - The total number of pages
+ * @property {boolean} hasNext - Whether there is a next page available
+ * @property {boolean} hasPrevious - Whether there is a previous page available
  */
 export interface IPaginationMeta {
-  /**
-   * The current page number (1-based indexing).
-   */
-  currentPage: number;
-
-  /**
-   * The number of items per page.
-   */
-  itemsPerPage: number;
-
-  /**
-   * The total number of items across all pages.
-   * May be omitted if includeTotal was false in the request.
-   */
-  totalItems?: number;
-
-  /**
-   * The total number of pages.
-   * May be omitted if includeTotal was false in the request.
-   */
-  totalPages?: number;
-
-  /**
-   * Optional cursor for the next page.
-   * Used for cursor-based pagination.
-   */
-  nextCursor?: string;
-
-  /**
-   * Optional cursor for the previous page.
-   * Used for cursor-based pagination.
-   */
-  prevCursor?: string;
-
-  /**
-   * Flag indicating if there is a next page available.
-   */
-  hasNextPage: boolean;
-
-  /**
-   * Flag indicating if there is a previous page available.
-   */
-  hasPrevPage: boolean;
+  page: number;
+  size: number;
+  total: number;
+  pages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
 }
 
 /**
- * Interface for paginated response data.
- * Contains the paginated data items and pagination metadata.
- * 
+ * @interface IPaginationResponse
+ * @description Generic interface for paginated responses returned by API endpoints and service methods
  * @template T - The type of items in the paginated response
+ * @property {T[]} items - The array of items for the current page
+ * @property {IPaginationMeta} meta - Metadata about the pagination state
  */
-export interface IPaginatedResponse<T> {
-  /**
-   * The array of data items for the current page.
-   */
-  data: T[];
-
-  /**
-   * Metadata about the pagination state.
-   */
+export interface IPaginationResponse<T> {
+  items: T[];
   meta: IPaginationMeta;
 }
 
 /**
- * Type for converting a PaginationDto from @austa/interfaces to an IPaginationRequest.
- * Ensures compatibility between the shared PaginationDto and the local IPaginationRequest interface.
+ * @interface IPaginationOptions
+ * @description Extended pagination options for internal service methods
+ * @extends IPaginationRequest
+ * @property {Record<string, unknown>} [filter] - Optional filter criteria
+ * @property {boolean} [includeDeleted] - Whether to include soft-deleted items
  */
-export type PaginationDtoToRequest = PaginationDto & Partial<Omit<IPaginationRequest, 'page' | 'size'>>;
+export interface IPaginationOptions extends IPaginationRequest {
+  filter?: Record<string, unknown>;
+  includeDeleted?: boolean;
+}
 
 /**
- * Type for converting an IPaginatedResponse to a PaginatedResponse from @austa/interfaces.
- * Ensures compatibility between the local IPaginatedResponse and the shared PaginatedResponse interface.
+ * Type utility for creating a paginated response from an array of items and pagination metadata
+ * @param items - Array of items to include in the response
+ * @param total - Total number of items across all pages
+ * @param options - Pagination options used for the request
+ * @returns A properly formatted IPaginationResponse object
  * 
- * @template T - The type of items in the paginated response
+ * @example
+ * // Create a paginated response for achievements
+ * const achievements = await this.repository.findMany({ skip, take, where });
+ * const total = await this.repository.count({ where });
+ * return createPaginatedResponse(achievements, total, paginationOptions);
  */
-export type PaginatedResponseToDto<T> = PaginatedResponse<T>;
-
-/**
- * Converts a PaginationDto from @austa/interfaces to an IPaginationRequest.
- * 
- * @param dto - The PaginationDto to convert
- * @returns An IPaginationRequest with the same pagination parameters
- */
-export function convertPaginationDtoToRequest(dto: PaginationDto): IPaginationRequest {
+export function createPaginatedResponse<T>(
+  items: T[],
+  total: number,
+  options: IPaginationRequest
+): IPaginationResponse<T> {
+  const { page, size } = options;
+  const pages = Math.ceil(total / size);
+  
   return {
-    page: dto.page || 1,
-    size: dto.limit || 10,
-    cursor: dto.cursor,
-    includeTotal: dto.includeTotal !== false
+    items,
+    meta: {
+      page,
+      size,
+      total,
+      pages,
+      hasNext: page < pages,
+      hasPrevious: page > 1,
+    },
   };
 }
 
 /**
- * Converts an IPaginatedResponse to a PaginatedResponse from @austa/interfaces.
- * 
- * @template T - The type of items in the paginated response
- * @param response - The IPaginatedResponse to convert
- * @returns A PaginatedResponse with the same data and metadata
+ * Type utility for converting a database query result to a paginated response
+ * @template T - The entity type
+ * @template R - The response DTO type
  */
-export function convertPaginatedResponseToDto<T>(
-  response: IPaginatedResponse<T>
-): PaginatedResponse<T> {
+export type PaginatedResponse<T> = IPaginationResponse<T>;
+
+/**
+ * Type utility for extracting pagination parameters from a request object
+ * @param request - The request object containing pagination parameters
+ * @param defaultSize - The default page size if not specified
+ * @returns Standardized pagination parameters
+ * 
+ * @example
+ * // Extract pagination parameters from a request
+ * const { page, size, sort } = extractPaginationParams(request, 20);
+ */
+export function extractPaginationParams(
+  request: Partial<IPaginationRequest>,
+  defaultSize = 10
+): IPaginationRequest {
+  const page = Math.max(1, request.page || 1);
+  const size = Math.max(1, Math.min(100, request.size || defaultSize));
+  
   return {
-    data: response.data,
-    meta: {
-      currentPage: response.meta.currentPage,
-      itemsPerPage: response.meta.itemsPerPage,
-      totalItems: response.meta.totalItems,
-      totalPages: response.meta.totalPages,
-      hasNextPage: response.meta.hasNextPage,
-      hasPrevPage: response.meta.hasPrevPage
-    }
+    page,
+    size,
+    sort: request.sort,
   };
 }
 
 /**
- * Creates an empty paginated response with no data items.
- * Useful for returning an empty result set with proper pagination metadata.
+ * Type utility for calculating database query skip/take parameters from pagination request
+ * @param pagination - The pagination request parameters
+ * @returns Object with skip and take properties for database queries
  * 
- * @template T - The type of items in the paginated response
- * @param request - The pagination request parameters
- * @returns An empty IPaginatedResponse with appropriate metadata
+ * @example
+ * // Calculate skip/take for a database query
+ * const { skip, take } = getPaginationSkipTake(paginationRequest);
+ * const results = await prisma.achievement.findMany({ skip, take });
  */
-export function createEmptyPaginatedResponse<T>(
-  request: IPaginationRequest
-): IPaginatedResponse<T> {
+export function getPaginationSkipTake(pagination: IPaginationRequest): { skip: number; take: number } {
+  const { page, size } = extractPaginationParams(pagination);
+  
   return {
-    data: [],
-    meta: {
-      currentPage: request.page,
-      itemsPerPage: request.size,
-      totalItems: 0,
-      totalPages: 0,
-      hasNextPage: false,
-      hasPrevPage: request.page > 1
-    }
+    skip: (page - 1) * size,
+    take: size,
   };
+}
+
+/**
+ * Type utility for converting sort options to database-specific sort parameters
+ * @param sort - Array of sort options
+ * @returns Database-specific sort parameters (e.g., for Prisma)
+ * 
+ * @example
+ * // Convert sort options to Prisma orderBy
+ * const orderBy = convertSortToDatabaseParams(paginationRequest.sort);
+ * const results = await prisma.achievement.findMany({ orderBy });
+ */
+export function convertSortToDatabaseParams<T extends Record<string, unknown>>(
+  sort?: ISortOption[]
+): Record<string, string>[] | undefined {
+  if (!sort || sort.length === 0) {
+    return undefined;
+  }
+  
+  return sort.map(({ field, direction }) => ({
+    [field]: direction.toLowerCase(),
+  }));
 }
