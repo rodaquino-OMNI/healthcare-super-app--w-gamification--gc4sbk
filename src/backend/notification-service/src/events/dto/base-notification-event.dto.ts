@@ -1,92 +1,215 @@
+import { IsString, IsNotEmpty, IsUUID, IsDate, IsOptional, IsObject, IsEnum, ValidateNested, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  IsDate,
-  IsNotEmpty,
-  IsNumber,
-  IsObject,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Min,
-  ValidateNested,
-} from 'class-validator';
+import { IBaseEvent } from '@austa/interfaces/events/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/journey.types';
+import { NotificationType } from '@austa/interfaces/notification/types';
 
 /**
- * Base Data Transfer Object for all notification events
- * Contains common properties that all notification events must have
+ * Base Data Transfer Object for notification events consumed from Kafka.
+ * This DTO ensures that all notification events have a consistent structure
+ * with required fields and validation rules.
+ *
+ * It integrates with @austa/interfaces for cross-platform type safety and
+ * implements the event versioning strategy for backward compatibility.
  */
-export class BaseNotificationEventDto {
+export class BaseNotificationEventDto implements IBaseEvent {
   /**
-   * Unique identifier for the notification event
+   * Unique identifier for the event
    */
   @IsUUID(4)
   @IsNotEmpty()
   id: string;
 
   /**
-   * User ID of the recipient for this notification
-   */
-  @IsUUID(4)
-  @IsNotEmpty()
-  userId: string;
-
-  /**
-   * Type of notification (e.g., 'achievement', 'appointment', 'reminder')
+   * Type of the event
+   * Used for routing and processing logic
    */
   @IsString()
   @IsNotEmpty()
   type: string;
 
   /**
-   * Title displayed in the notification
+   * User ID of the recipient
+   */
+  @IsUUID(4)
+  @IsNotEmpty()
+  userId: string;
+
+  /**
+   * Timestamp when the event was created
+   */
+  @IsDate()
+  @IsNotEmpty()
+  @Type(() => Date)
+  timestamp: Date;
+
+  /**
+   * Schema version for backward compatibility
+   * Format: "major.minor.patch" (e.g., "1.0.0")
+   */
+  @IsString()
+  @IsNotEmpty()
+  version: string;
+
+  /**
+   * Optional correlation ID for event tracking
+   * Used to correlate related events across services
+   */
+  @IsString()
+  @IsOptional()
+  correlationId?: string;
+
+  /**
+   * Optional trace ID for distributed tracing
+   */
+  @IsString()
+  @IsOptional()
+  traceId?: string;
+
+  /**
+   * Retry count for failed events
+   * Incremented each time the event is retried
+   */
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  retryCount?: number;
+
+  /**
+   * Maximum number of retries allowed
+   */
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  maxRetries?: number;
+}
+
+/**
+ * DTO for notification events with journey context
+ * Extends the base notification event with journey-specific information
+ */
+export class JourneyNotificationEventDto extends BaseNotificationEventDto {
+  /**
+   * Type of journey that generated the notification
+   */
+  @IsEnum(JourneyType)
+  @IsNotEmpty()
+  journeyType: JourneyType;
+
+  /**
+   * Journey-specific context data
+   * Contains additional information relevant to the journey
+   */
+  @IsObject()
+  @IsOptional()
+  journeyContext?: Record<string, any>;
+}
+
+/**
+ * DTO for notification events with payload
+ * Extends the base notification event with notification payload
+ */
+export class NotificationEventWithPayloadDto extends BaseNotificationEventDto {
+  /**
+   * Notification type
+   */
+  @IsEnum(NotificationType)
+  @IsNotEmpty()
+  notificationType: NotificationType;
+
+  /**
+   * Notification payload
+   * Contains the content and configuration for the notification
+   */
+  @IsObject()
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => NotificationPayloadDto)
+  payload: NotificationPayloadDto;
+}
+
+/**
+ * DTO for notification payload
+ * Contains the content and configuration for a notification
+ */
+export class NotificationPayloadDto {
+  /**
+   * Title of the notification
    */
   @IsString()
   @IsNotEmpty()
   title: string;
 
   /**
-   * Main content of the notification
+   * Body content of the notification
    */
   @IsString()
   @IsNotEmpty()
   body: string;
 
   /**
-   * Timestamp when the notification event was created
+   * Optional data specific to the notification type
    */
-  @IsDate()
-  @Type(() => Date)
-  timestamp: Date;
+  @IsObject()
+  @IsOptional()
+  data?: Record<string, any>;
 
   /**
-   * Schema version for the notification event
-   * Used for backward compatibility during schema evolution
-   */
-  @IsNumber()
-  @Min(1)
-  @IsNotEmpty()
-  version: number = 1;
-
-  /**
-   * ID of the notification template to use (if applicable)
+   * Optional template ID to use for formatting
    */
   @IsString()
   @IsOptional()
   templateId?: string;
 
   /**
-   * Language code for the notification content
-   * Defaults to user's preferred language if not specified
+   * Optional template variables for substitution
+   */
+  @IsObject()
+  @IsOptional()
+  templateVariables?: Record<string, any>;
+
+  /**
+   * Optional deep link URL for the notification
    */
   @IsString()
   @IsOptional()
-  language?: string;
+  deepLink?: string;
 
   /**
-   * Additional metadata for the notification
-   * Can include tracking information, source details, etc.
+   * Optional expiration date for the notification
+   */
+  @IsDate()
+  @IsOptional()
+  @Type(() => Date)
+  expiresAt?: Date;
+
+  /**
+   * Optional metadata for tracking and analytics
    */
   @IsObject()
   @IsOptional()
   metadata?: Record<string, any>;
+}
+
+/**
+ * DTO for journey notification events with payload
+ * Combines journey context and notification payload
+ */
+export class JourneyNotificationEventWithPayloadDto extends JourneyNotificationEventDto {
+  /**
+   * Notification type
+   */
+  @IsEnum(NotificationType)
+  @IsNotEmpty()
+  notificationType: NotificationType;
+
+  /**
+   * Notification payload
+   * Contains the content and configuration for the notification
+   */
+  @IsObject()
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => NotificationPayloadDto)
+  payload: NotificationPayloadDto;
 }
