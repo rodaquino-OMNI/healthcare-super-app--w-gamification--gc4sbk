@@ -1,30 +1,26 @@
 /**
  * @file Care Journey Interfaces
+ * @description This file exports all interfaces and types related to the Care Journey in the AUSTA SuperApp.
+ * It provides a centralized export pattern for all care interfaces to simplify imports across the application.
  * 
- * This file exports all interfaces and types related to the Care journey.
- * These interfaces are used across the application to ensure type safety
- * and consistent data structures between frontend and backend.
+ * The Care Journey focuses on providing users with tools to manage their healthcare appointments,
+ * medications, telemedicine sessions, and treatment plans. These interfaces define the data structures
+ * used throughout this journey.
  */
 
-// Appointment interfaces
-export { AppointmentType, AppointmentStatus, IAppointment } from './appointment.interface';
+// ===== Appointments =====
+export { AppointmentType, AppointmentStatus } from './appointment.interface';
+export type { IAppointment } from './appointment.interface';
 
-// Provider interfaces
-export { IProvider } from './provider.interface';
+// ===== Providers =====
+export type { IProvider } from './provider.interface';
 
-// Medication interfaces
-export { IMedication } from './medication.interface';
+// ===== Medications =====
+export type { IMedication } from './medication.interface';
 
-// Telemedicine interfaces
-export { ITelemedicineSession } from './telemedicine-session.interface';
+// ===== Telemedicine =====
+export type { ITelemedicineSession } from './telemedicine-session.interface';
 
-// Treatment plan interfaces
-export { ITreatmentPlan } from './treatment-plan.interface';
-
-// Symptom checker interfaces
-export {
-  SymptomSeverity,
-  CareOptions,
-  PossibleCondition,
-  SymptomCheckerResponse
-} from './symptom-checker.interface';
+// ===== Treatments =====
+export type { ITreatmentPlan } from './treatment-plan.interface';
+export type { ICareActivity } from './care-activity.interface';
