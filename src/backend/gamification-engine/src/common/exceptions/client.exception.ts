@@ -1,6 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
-import { ErrorType, ErrorMetadata, ErrorContext } from './error-types.enum';
-import { AppExceptionBase } from './app-exception.base';
+import { AppException, ErrorType, ErrorContext } from './app-exception.base';
 
 /**
  * Base class for all client error exceptions (HTTP 4xx) in the application.
@@ -8,29 +7,26 @@ import { AppExceptionBase } from './app-exception.base';
  * appropriate HTTP status codes and response formats for invalid requests,
  * not found resources, and authorization issues.
  */
-export class ClientException extends AppExceptionBase {
+export class ClientException extends AppException {
   /**
    * Creates a new ClientException instance
    * 
    * @param message Human-readable error message
+   * @param errorCode Application error code
    * @param errorType Error type classification
    * @param statusCode HTTP status code (defaults to 400 Bad Request)
-   * @param cause Original error that caused this exception
-   * @param metadata Additional error metadata
    * @param context Error context information
+   * @param isRetryable Whether this error can be retried
    */
   constructor(
     message: string,
-    errorType: ErrorType = ErrorType.BAD_REQUEST_ERROR,
+    errorCode: string,
+    errorType: ErrorType = ErrorType.BAD_REQUEST,
     statusCode: HttpStatus = HttpStatus.BAD_REQUEST,
-    cause?: Error,
-    metadata: ErrorMetadata = {},
     context: ErrorContext = {},
+    isRetryable: boolean = false,
   ) {
-    super(message, errorType, statusCode, cause, metadata, context);
-    
-    // Add client error flag for filtering in logs and monitoring
-    this.addMetadata('isClientError', true);
+    super(message, errorCode, errorType, statusCode, context, isRetryable);
     
     // Capture stack trace if not already captured
     if (!this.stack) {
@@ -39,85 +35,83 @@ export class ClientException extends AppExceptionBase {
   }
   
   /**
-   * Gets client-safe metadata that can be included in responses
+   * Gets client-safe details that can be included in responses
    * For client errors, we can include more details to help the client correct the issue
    * 
-   * @returns Safe metadata for client responses
+   * @returns Safe details for client responses
    */
-  getSafeMetadataForResponse(): Record<string, any> | null {
-    const safeMetadata: Record<string, any> = {};
+  getSafeDetailsForResponse(): Record<string, any> | null {
+    const safeDetails: Record<string, any> = {};
     
     // Include validation errors if present
-    if (this.metadata.validationErrors) {
-      safeMetadata.validationErrors = this.metadata.validationErrors;
+    if (this.context.validationErrors) {
+      safeDetails.validationErrors = this.context.validationErrors;
     }
     
     // Include field errors if present
-    if (this.metadata.fieldErrors) {
-      safeMetadata.fieldErrors = this.metadata.fieldErrors;
+    if (this.context.fieldErrors) {
+      safeDetails.fieldErrors = this.context.fieldErrors;
     }
     
     // Include resource information for not found errors
-    if (this.errorType === ErrorType.NOT_FOUND_ERROR || this.errorType === ErrorType.RESOURCE_NOT_FOUND) {
-      if (this.metadata.resourceType) {
-        safeMetadata.resourceType = this.metadata.resourceType;
+    if (this.errorType === ErrorType.NOT_FOUND) {
+      if (this.context.resourceType) {
+        safeDetails.resourceType = this.context.resourceType;
       }
-      if (this.metadata.resourceId) {
-        safeMetadata.resourceId = this.metadata.resourceId;
+      if (this.context.resourceId) {
+        safeDetails.resourceId = this.context.resourceId;
       }
     }
     
     // Include conflict information
-    if (this.errorType === ErrorType.CONFLICT_ERROR) {
-      if (this.metadata.conflictReason) {
-        safeMetadata.conflictReason = this.metadata.conflictReason;
+    if (this.errorType === ErrorType.CONFLICT) {
+      if (this.context.conflictReason) {
+        safeDetails.conflictReason = this.context.conflictReason;
       }
     }
     
     // Include journey context if available
-    if (this.context.journeyType) {
-      safeMetadata.journeyType = this.context.journeyType;
+    if (this.context.journey) {
+      safeDetails.journey = this.context.journey;
     }
     
-    return Object.keys(safeMetadata).length > 0 ? safeMetadata : null;
+    return Object.keys(safeDetails).length > 0 ? safeDetails : null;
   }
   
   /**
-   * Gets the client message
-   * For client errors, we provide detailed messages to help the client correct the issue
-   * 
-   * @returns Client-safe error message
+   * Override toResponse to include safe details for client errors
    */
-  getClientMessage(): string {
-    // If a specific client message is provided in metadata, use it
-    if (this.metadata.clientMessage) {
-      return this.metadata.clientMessage as string;
+  toResponse(includeDetails: boolean = true): any {
+    const response = super.toResponse(false);
+    
+    if (includeDetails) {
+      const safeDetails = this.getSafeDetailsForResponse();
+      if (safeDetails) {
+        response.details = safeDetails;
+      }
     }
     
-    // Otherwise, use the original message as it should be client-safe for client errors
-    return this.message;
+    return response;
   }
   
   /**
-   * Adds validation errors to the exception metadata
+   * Adds validation errors to the exception context
    * 
    * @param validationErrors Object containing validation errors
    * @returns This exception instance for chaining
    */
   addValidationErrors(validationErrors: Record<string, string[]>): ClientException {
-    this.addMetadata('validationErrors', validationErrors);
-    return this;
+    return this.withContext({ validationErrors }) as ClientException;
   }
   
   /**
-   * Adds field errors to the exception metadata
+   * Adds field errors to the exception context
    * 
    * @param fieldErrors Object containing field-specific errors
    * @returns This exception instance for chaining
    */
   addFieldErrors(fieldErrors: Record<string, string>): ClientException {
-    this.addMetadata('fieldErrors', fieldErrors);
-    return this;
+    return this.withContext({ fieldErrors }) as ClientException;
   }
   
   /**
@@ -136,17 +130,18 @@ export class ClientException extends AppExceptionBase {
     context: ErrorContext = {},
   ): ClientException {
     const errorMessage = message || `${resourceType} with ID ${resourceId} not found`;
+    const errorCode = `GAMIFICATION_NOT_FOUND_${resourceType.toUpperCase()}`;
     
     return new ClientException(
       errorMessage,
-      ErrorType.NOT_FOUND_ERROR,
+      errorCode,
+      ErrorType.NOT_FOUND,
       HttpStatus.NOT_FOUND,
-      undefined,
       {
+        ...context,
         resourceType,
         resourceId,
-      },
-      context
+      }
     );
   }
   
@@ -164,14 +159,17 @@ export class ClientException extends AppExceptionBase {
     context: ErrorContext = {},
   ): ClientException {
     const errorMessage = message || 'Validation failed';
+    const errorCode = 'GAMIFICATION_VALIDATION_ERROR';
     
     return new ClientException(
       errorMessage,
-      ErrorType.VALIDATION_ERROR,
+      errorCode,
+      ErrorType.VALIDATION,
       HttpStatus.BAD_REQUEST,
-      undefined,
-      { validationErrors },
-      context
+      {
+        ...context,
+        validationErrors,
+      }
     );
   }
   
@@ -187,13 +185,13 @@ export class ClientException extends AppExceptionBase {
     context: ErrorContext = {},
   ): ClientException {
     const errorMessage = message || 'Unauthorized access';
+    const errorCode = 'GAMIFICATION_UNAUTHORIZED';
     
     return new ClientException(
       errorMessage,
-      ErrorType.AUTHENTICATION_ERROR,
+      errorCode,
+      ErrorType.AUTHENTICATION,
       HttpStatus.UNAUTHORIZED,
-      undefined,
-      {},
       context
     );
   }
@@ -210,13 +208,13 @@ export class ClientException extends AppExceptionBase {
     context: ErrorContext = {},
   ): ClientException {
     const errorMessage = message || 'Forbidden access';
+    const errorCode = 'GAMIFICATION_FORBIDDEN';
     
     return new ClientException(
       errorMessage,
-      ErrorType.AUTHORIZATION_ERROR,
+      errorCode,
+      ErrorType.AUTHORIZATION,
       HttpStatus.FORBIDDEN,
-      undefined,
-      {},
       context
     );
   }
@@ -235,14 +233,17 @@ export class ClientException extends AppExceptionBase {
     context: ErrorContext = {},
   ): ClientException {
     const errorMessage = message || 'Resource conflict';
+    const errorCode = 'GAMIFICATION_CONFLICT';
     
     return new ClientException(
       errorMessage,
-      ErrorType.CONFLICT_ERROR,
+      errorCode,
+      ErrorType.CONFLICT,
       HttpStatus.CONFLICT,
-      undefined,
-      { conflictReason },
-      context
+      {
+        ...context,
+        conflictReason,
+      }
     );
   }
   
@@ -256,19 +257,14 @@ export class ClientException extends AppExceptionBase {
   static fromError(error: unknown, context: ErrorContext = {}): ClientException {
     if (error instanceof ClientException) {
       // If it's already a ClientException, just add the context
-      Object.entries(context).forEach(([key, value]) => {
-        error.addContext(key, value);
-      });
-      return error;
+      return error.withContext(context) as ClientException;
     }
     
     // Determine error message
     let message = 'An error occurred with your request';
-    let cause: Error | undefined;
     
     if (error instanceof Error) {
       message = error.message;
-      cause = error;
     } else if (typeof error === 'string') {
       message = error;
     } else if (error !== null && typeof error === 'object' && 'message' in error) {
@@ -278,11 +274,13 @@ export class ClientException extends AppExceptionBase {
     // Create a new ClientException
     return new ClientException(
       message,
-      ErrorType.BAD_REQUEST_ERROR,
+      'GAMIFICATION_BAD_REQUEST',
+      ErrorType.BAD_REQUEST,
       HttpStatus.BAD_REQUEST,
-      cause,
-      {},
-      context
+      {
+        ...context,
+        originalError: error instanceof Error ? error.message : String(error),
+      }
     );
   }
 }
