@@ -1,263 +1,422 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventsService } from '../../events/events.service';
 import { RulesService } from '../../rules/rules.service';
 import { ProfilesService } from '../../profiles/profiles.service';
+import { KafkaService } from '@app/shared/kafka/kafka.service';
 import { LoggerService } from '@app/shared/logging/logger.service';
-import { TelemetryService } from '@app/shared/telemetry/telemetry.service';
-import { KafkaService } from '../../kafka/kafka.service';
-import { KafkaRetryService } from '../../kafka/kafka.retry.service';
 import { ProcessEventDto } from '../dto/process-event.dto';
-import { KafkaModuleOptions } from '../../kafka.module';
-import { RetryStrategy } from './retry.strategy';
-
-// Import journey handlers
-import { 
-  HealthJourneyHandler, 
-  CareJourneyHandler, 
-  PlanJourneyHandler 
-} from './journey-handlers';
+import { v4 as uuidv4 } from 'uuid';
+import { ExternalDependencyUnavailableError, ExternalResponseFormatError } from '@austa/errors/categories';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 
 /**
- * Consumes events from Kafka topics and processes them.
- * This consumer is responsible for handling events from all journeys (Health, Care, Plan)
- * and routing them to the appropriate journey-specific handler.
+ * Configuration interface for retry policies
+ */
+interface RetryPolicy {
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Initial delay in milliseconds */
+  initialDelay: number;
+  /** Backoff factor for exponential delay calculation */
+  backoffFactor: number;
+  /** Maximum delay in milliseconds */
+  maxDelay: number;
+}
+
+/**
+ * Enhanced Kafka consumer for the gamification engine that processes events from all journey services.
+ * Features:
+ * - Dead-letter queue routing for persistently failed events
+ * - Exponential backoff retry strategy with configurable parameters
+ * - Enhanced error classification and proper error propagation
+ * - Structured logging with correlation IDs for traceability
+ * - Consumer groups by journey type for proper message distribution
  */
 @Injectable()
 export class KafkaConsumerService implements OnModuleInit {
+  private readonly retryPolicy: RetryPolicy;
+  private readonly dlqEnabled: boolean;
+  private readonly journeyConsumerGroups: Record<string, string>;
+
   /**
-   * Injects the necessary services.
+   * Injects the necessary services and initializes configuration.
    * 
    * @param eventsService Service for processing gamification events
    * @param rulesService Service for evaluating gamification rules
    * @param profilesService Service for managing user game profiles
-   * @param healthJourneyHandler Handler for health journey events
-   * @param careJourneyHandler Handler for care journey events
-   * @param planJourneyHandler Handler for plan journey events
    * @param kafkaService Service for Kafka interaction
-   * @param kafkaRetryService Service for handling retry logic
+   * @param configService Service for accessing configuration
    * @param logger Service for logging
-   * @param telemetryService Service for telemetry
-   * @param options Kafka module options
    */
   constructor(
     private readonly eventsService: EventsService,
     private readonly rulesService: RulesService,
     private readonly profilesService: ProfilesService,
-    private readonly healthJourneyHandler: HealthJourneyHandler,
-    private readonly careJourneyHandler: CareJourneyHandler,
-    private readonly planJourneyHandler: PlanJourneyHandler,
     private readonly kafkaService: KafkaService,
-    private readonly kafkaRetryService: KafkaRetryService,
-    private readonly retryStrategy: RetryStrategy,
-    private readonly logger: LoggerService,
-    private readonly telemetryService: TelemetryService,
-    private readonly options: KafkaModuleOptions,
+    private readonly configService: ConfigService,
+    private readonly logger: LoggerService
   ) {
-    this.logger.log('KafkaConsumer initialized with journey handlers', 'KafkaConsumer');
+    // Initialize retry policy from configuration
+    const kafkaConfig = this.configService.get('gamificationEngine.kafka');
+    
+    this.retryPolicy = {
+      maxRetries: kafkaConfig?.maxRetries || 3,
+      initialDelay: kafkaConfig?.retryInterval || 1000,
+      backoffFactor: kafkaConfig?.backoffFactor || 2,
+      maxDelay: kafkaConfig?.maxRetryDelay || 30000
+    };
+    
+    // Initialize DLQ configuration
+    this.dlqEnabled = kafkaConfig?.dlqEnabled !== false; // Enabled by default
+    
+    // Initialize journey-specific consumer groups
+    this.journeyConsumerGroups = {
+      health: kafkaConfig?.consumerGroups?.health || `${kafkaConfig?.groupId || 'gamification-consumer-group'}-health`,
+      care: kafkaConfig?.consumerGroups?.care || `${kafkaConfig?.groupId || 'gamification-consumer-group'}-care`,
+      plan: kafkaConfig?.consumerGroups?.plan || `${kafkaConfig?.groupId || 'gamification-consumer-group'}-plan`,
+      default: kafkaConfig?.groupId || 'gamification-consumer-group'
+    };
+    
+    this.logger.log('KafkaConsumer initialized with retry policy and DLQ configuration', {
+      retryPolicy: this.retryPolicy,
+      dlqEnabled: this.dlqEnabled,
+      journeyConsumerGroups: this.journeyConsumerGroups
+    }, 'KafkaConsumer');
   }
 
   /**
    * Subscribes to Kafka topics on module initialization.
-   * This sets up consumers for all journey event topics defined in the configuration.
+   * Sets up consumers for all journey event topics with journey-specific consumer groups.
    */
   async onModuleInit(): Promise<void> {
-    const topics = this.options.topics || {
-      healthEvents: 'health.events',
-      careEvents: 'care.events',
-      planEvents: 'plan.events',
-      userEvents: 'user.events',
-      gameEvents: 'game.events',
-    };
+    const kafkaConfig = this.configService.get('gamificationEngine.kafka');
     
-    const groupId = this.options.groupId || 'gamification-consumer-group';
+    if (!kafkaConfig) {
+      this.logger.warn('Kafka configuration not found, using default values', 'KafkaConsumer');
+    }
     
-    for (const [key, topic] of Object.entries(topics)) {
-      if (!topic) {
-        this.logger.warn(`Topic for ${key} is not defined, skipping subscription`, 'KafkaConsumer');
-        continue;
-      }
+    const topics = kafkaConfig?.topics || {};
+    
+    // Filter out undefined or empty topics
+    const validTopics = Object.entries(topics)
+      .filter(([_, value]) => value)
+      .map(([key, value]) => ({ key, value: value as string }));
+    
+    if (validTopics.length === 0) {
+      this.logger.warn('No Kafka topics configured, skipping consumer initialization', 'KafkaConsumer');
+      return;
+    }
+    
+    for (const { key, value: topic } of validTopics) {
+      // Determine the appropriate consumer group based on the topic key
+      const journeyType = this.getJourneyTypeFromTopicKey(key);
+      const consumerGroup = this.journeyConsumerGroups[journeyType] || this.journeyConsumerGroups.default;
       
       try {
         await this.kafkaService.consume(
           topic,
-          groupId,
+          consumerGroup,
           async (message: any, key?: string, headers?: Record<string, string>) => {
-            await this.processMessage(message, topic, key, headers);
-          },
+            // Generate or extract correlation ID for tracing
+            const correlationId = headers?.correlationId || uuidv4();
+            
+            await this.processMessage(message, {
+              correlationId,
+              topic,
+              journeyType,
+              messageKey: key
+            });
+          }
         );
         
-        this.logger.log(`Subscribed to Kafka topic: ${topic}`, 'KafkaConsumer');
+        this.logger.log(`Subscribed to Kafka topic: ${topic} with consumer group: ${consumerGroup}`, {
+          topic,
+          consumerGroup,
+          journeyType
+        }, 'KafkaConsumer');
       } catch (error) {
         this.logger.error(
-          `Failed to subscribe to Kafka topic ${topic}: ${error.message}`,
-          error.stack,
+          `Failed to subscribe to Kafka topic: ${topic}`,
+          error instanceof Error ? error.stack : String(error),
           'KafkaConsumer',
+          { topic, consumerGroup, journeyType }
         );
       }
     }
   }
 
   /**
-   * Processes a message from a Kafka topic.
-   * Validates the message format and routes it to the appropriate journey handler.
+   * Determines the journey type from the topic key.
+   * 
+   * @param topicKey The configuration key for the topic
+   * @returns The journey type (health, care, plan) or 'default'
+   */
+  private getJourneyTypeFromTopicKey(topicKey: string): string {
+    if (topicKey.toLowerCase().includes('health')) return 'health';
+    if (topicKey.toLowerCase().includes('care')) return 'care';
+    if (topicKey.toLowerCase().includes('plan')) return 'plan';
+    return 'default';
+  }
+
+  /**
+   * Processes a message from a Kafka topic with retry logic and dead-letter queue handling.
    * 
    * @param message The message to process
-   * @param topic The topic the message was received from
-   * @param key The message key
-   * @param headers The message headers
+   * @param context Additional context for processing and logging
    */
   private async processMessage(
     message: any,
-    topic: string,
-    key?: string,
-    headers?: Record<string, string>,
+    context: { correlationId: string; topic: string; journeyType: string; messageKey?: string }
   ): Promise<void> {
-    const startTime = Date.now();
-    const span = this.telemetryService.startSpan('kafka.message.process', { topic });
+    const { correlationId, topic, journeyType, messageKey } = context;
+    let retryCount = 0;
+    let lastError: Error | null = null;
     
+    // Validate message format before processing
     try {
-      // Emit metric for monitoring
-      this.telemetryService.recordMetric('kafka.message.received', 1, { topic });
-      
-      // Validate the message has the required ProcessEventDto structure
-      if (!this.isValidEvent(message)) {
-        this.logger.error(
-          `Invalid event format from topic ${topic}: ${JSON.stringify(message)}`,
-          '',
-          'KafkaConsumer',
-        );
-        this.telemetryService.recordMetric('kafka.message.invalid', 1, { topic });
-        return;
-      }
-
-      const eventData = message as ProcessEventDto;
-      
-      // Add timestamp if not present
-      if (!eventData.timestamp) {
-        eventData.timestamp = new Date();
-      }
-      
-      // Add journey if not present
-      if (!eventData.journey) {
-        // Extract journey from topic name (e.g., 'health.events' -> 'health')
-        const journeyMatch = topic.match(/^([^.]+)\..+$/);
-        eventData.journey = journeyMatch ? journeyMatch[1] : 'unknown';
-      }
-      
-      this.logger.log(
-        `Processing event: ${eventData.type} for user: ${eventData.userId} from journey: ${eventData.journey}`,
-        'KafkaConsumer',
-      );
-      
-      // Route the event to the appropriate journey handler
-      let result;
-      switch (eventData.journey) {
-        case 'health':
-          result = await this.healthJourneyHandler.processEvent(eventData);
-          break;
-          
-        case 'care':
-          result = await this.careJourneyHandler.processEvent(eventData);
-          break;
-          
-        case 'plan':
-          result = await this.planJourneyHandler.processEvent(eventData);
-          break;
-          
-        default:
-          // For unknown journeys, use the generic events service
-          this.logger.warn(
-            `Unknown journey: ${eventData.journey}, using generic event processing`,
-            'KafkaConsumer',
-          );
-          result = await this.eventsService.processEvent(eventData);
-      }
-      
-      // Record processing time for metrics
-      const processingTime = Date.now() - startTime;
-      this.telemetryService.recordMetric('kafka.message.processingTime', processingTime, { 
-        topic, 
-        journey: eventData.journey,
-        eventType: eventData.type 
-      });
-      
-      this.logger.log(
-        `Event processed successfully: ${eventData.type}, result: ${JSON.stringify(result)}`,
-        'KafkaConsumer',
-      );
+      this.validateMessage(message);
     } catch (error) {
-      const processingTime = Date.now() - startTime;
-      
-      // Record error in telemetry
-      this.telemetryService.recordError('kafka.message.error', error, { 
-        topic,
-        processingTimeMs: processingTime 
-      });
-      
+      // Log invalid message format and send to DLQ if enabled
       this.logger.error(
-        `Error processing Kafka message from topic ${topic}: ${error.message}`,
-        error.stack,
+        `Invalid event format: ${JSON.stringify(message)}`,
+        error instanceof Error ? error.stack : String(error),
         'KafkaConsumer',
+        { correlationId, topic, journeyType, messageKey }
       );
       
-      // Schedule retry if appropriate
-      if (this.shouldRetry(error)) {
+      if (this.dlqEnabled) {
+        await this.sendToDLQ(message, context, error as Error);
+      }
+      
+      return;
+    }
+    
+    // Convert plain object to class instance for type safety
+    const eventData = plainToInstance(ProcessEventDto, message);
+    
+    // Add journey type if not present
+    if (!eventData.journey && journeyType !== 'default') {
+      eventData.journey = journeyType;
+    }
+    
+    // Log the start of processing with correlation ID
+    this.logger.log(
+      `Processing event: ${eventData.type} for user: ${eventData.userId} from journey: ${eventData.journey || journeyType || 'unknown'}`,
+      { correlationId, eventType: eventData.type, userId: eventData.userId, journey: eventData.journey || journeyType },
+      'KafkaConsumer'
+    );
+    
+    // Implement retry with exponential backoff
+    while (retryCount <= this.retryPolicy.maxRetries) {
+      try {
+        // Process the event
+        const result = await this.eventsService.processEvent(eventData);
+        
+        // Log successful processing
         this.logger.log(
-          `Scheduling retry for message from topic ${topic}`,
-          'KafkaConsumer',
+          `Event processed successfully: ${eventData.type}, points earned: ${result.points || 0}`,
+          { 
+            correlationId, 
+            eventType: eventData.type, 
+            userId: eventData.userId, 
+            journey: eventData.journey || journeyType,
+            points: result.points || 0,
+            achievements: result.achievements?.length || 0
+          },
+          'KafkaConsumer'
         );
         
-        try {
-          // Use the new RetryStrategy for exponential backoff
-          this.retryStrategy.handleFailure(message, error, {
-            context: { topic, key, headers }
-          });
-        } catch (retryError) {
-          // If it's a retryable exception, use the KafkaRetryService
-          this.kafkaRetryService.scheduleRetry(topic, message, error, key, headers);
+        return; // Success, exit the retry loop
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Determine if the error is retryable
+        const isRetryable = this.isRetryableError(error);
+        
+        if (!isRetryable || retryCount >= this.retryPolicy.maxRetries) {
+          // Log final failure
+          this.logger.error(
+            `Failed to process event after ${retryCount} retries: ${eventData.type}`,
+            error instanceof Error ? error.stack : String(error),
+            'KafkaConsumer',
+            { 
+              correlationId, 
+              eventType: eventData.type, 
+              userId: eventData.userId, 
+              journey: eventData.journey || journeyType,
+              retryCount,
+              isRetryable
+            }
+          );
+          
+          // Send to DLQ if enabled
+          if (this.dlqEnabled) {
+            await this.sendToDLQ(message, context, error as Error);
+          }
+          
+          break; // Exit the retry loop
         }
+        
+        // Calculate backoff delay with exponential strategy
+        const delay = Math.min(
+          this.retryPolicy.initialDelay * Math.pow(this.retryPolicy.backoffFactor, retryCount),
+          this.retryPolicy.maxDelay
+        );
+        
+        // Log retry attempt
+        this.logger.warn(
+          `Retrying event processing (${retryCount + 1}/${this.retryPolicy.maxRetries + 1}): ${eventData.type} after ${delay}ms`,
+          { 
+            correlationId, 
+            eventType: eventData.type, 
+            userId: eventData.userId, 
+            journey: eventData.journey || journeyType,
+            retryCount: retryCount + 1,
+            delay,
+            error: error instanceof Error ? error.message : String(error)
+          },
+          'KafkaConsumer'
+        );
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delay));
+        retryCount++;
       }
-    } finally {
-      // End telemetry span
-      span.end();
+    }
+    
+    // If we reach here, all retries have failed
+    if (lastError) {
+      // Final error logging is already done in the loop
     }
   }
 
   /**
-   * Validates that a message has the required structure for a ProcessEventDto
+   * Validates that the message has the required structure.
    * 
    * @param message The message to validate
-   * @returns Whether the message is valid
+   * @throws Error if the message is invalid
    */
-  private isValidEvent(message: any): boolean {
-    return (
-      message &&
-      typeof message === 'object' &&
-      typeof message.type === 'string' &&
-      typeof message.userId === 'string' &&
-      typeof message.data === 'object' &&
-      message.data !== null
-    );
+  private validateMessage(message: any): void {
+    // Basic structure validation
+    if (!message || typeof message !== 'object') {
+      throw new ExternalResponseFormatError('Message is not an object');
+    }
+    
+    // Required fields validation
+    if (!message.type || !message.userId || !message.data) {
+      throw new ExternalResponseFormatError(
+        `Message missing required fields: ${!message.type ? 'type' : ''} ${!message.userId ? 'userId' : ''} ${!message.data ? 'data' : ''}`.trim()
+      );
+    }
+    
+    // Use class-validator for more detailed validation
+    const eventData = plainToInstance(ProcessEventDto, message);
+    const errors = validateSync(eventData);
+    
+    if (errors.length > 0) {
+      const validationErrors = errors.map(error => {
+        return `${error.property}: ${Object.values(error.constraints || {}).join(', ')}`;
+      }).join('; ');
+      
+      throw new ExternalResponseFormatError(`Validation failed: ${validationErrors}`);
+    }
   }
 
   /**
-   * Determines whether an error should trigger a retry
+   * Determines if an error is retryable based on its type and characteristics.
    * 
    * @param error The error to check
-   * @returns Whether the error should trigger a retry
+   * @returns True if the error is retryable, false otherwise
    */
-  private shouldRetry(error: Error): boolean {
-    // Don't retry client errors (4xx)
-    if (error.name === 'BadRequestException' || error.name === 'ValidationException') {
+  private isRetryableError(error: unknown): boolean {
+    // Network and external dependency errors are typically retryable
+    if (error instanceof ExternalDependencyUnavailableError) {
+      return true;
+    }
+    
+    // Format errors are not retryable as they indicate a structural problem
+    if (error instanceof ExternalResponseFormatError) {
       return false;
     }
     
-    // Don't retry if the error explicitly says not to
-    if (error['noRetry'] === true) {
-      return false;
+    // For other errors, check if they have a retryable property or are transient
+    if (error instanceof Error) {
+      // @ts-ignore - Check for custom retryable property
+      if (typeof error.retryable === 'boolean') {
+        // @ts-ignore
+        return error.retryable;
+      }
+      
+      // Check for common transient error messages
+      const errorMessage = error.message.toLowerCase();
+      return (
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('temporarily unavailable')
+      );
     }
     
-    // Retry server errors (5xx) and network errors
-    return true;
+    // By default, don't retry unknown error types
+    return false;
+  }
+
+  /**
+   * Sends a failed message to the dead-letter queue.
+   * 
+   * @param message The original message
+   * @param context The processing context
+   * @param error The error that caused the failure
+   */
+  private async sendToDLQ(
+    message: any,
+    context: { correlationId: string; topic: string; journeyType: string; messageKey?: string },
+    error: Error
+  ): Promise<void> {
+    try {
+      const { correlationId, topic, journeyType, messageKey } = context;
+      const dlqTopic = `${topic}.dlq`;
+      
+      // Prepare the DLQ message with error context
+      const dlqMessage = {
+        originalMessage: message,
+        error: {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        },
+        metadata: {
+          correlationId,
+          originalTopic: topic,
+          journeyType,
+          timestamp: new Date().toISOString(),
+          processingAttempts: this.retryPolicy.maxRetries + 1
+        }
+      };
+      
+      // Send to DLQ topic
+      await this.kafkaService.produce(
+        dlqTopic,
+        dlqMessage,
+        messageKey || `dlq-${uuidv4()}`,
+        { correlationId }
+      );
+      
+      this.logger.log(
+        `Message sent to DLQ: ${dlqTopic}`,
+        { correlationId, originalTopic: topic, dlqTopic, journeyType },
+        'KafkaConsumer'
+      );
+    } catch (dlqError) {
+      // Log DLQ failure but don't throw to prevent cascading failures
+      this.logger.error(
+        `Failed to send message to DLQ: ${dlqError instanceof Error ? dlqError.message : String(dlqError)}`,
+        dlqError instanceof Error ? dlqError.stack : undefined,
+        'KafkaConsumer',
+        { correlationId: context.correlationId, topic: context.topic }
+      );
+    }
   }
 }
