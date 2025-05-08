@@ -9,7 +9,7 @@ import { ProfilesService } from '../profiles/profiles.service';
 import { AchievementsService } from '../achievements/achievements.service';
 
 // Import standardized interfaces from @austa/interfaces
-import { QuestStartedEvent, QuestCompletedEvent } from '@austa/interfaces/gamification';
+import { QuestStartedEvent, QuestCompletedEvent, QuestStatus } from '@austa/interfaces/gamification';
 
 // Import error handling from @austa/errors
 import { 
@@ -18,6 +18,9 @@ import {
   ResourceNotFoundError,
   ErrorContext 
 } from '@austa/errors';
+
+// Import quest-specific exceptions
+import { QuestAlreadyCompletedException } from './exceptions/quest-already-completed.exception';
 
 // Import transaction management from @austa/database
 import { TransactionService, Transactional, TransactionIsolationLevel } from '@austa/database/transactions';
@@ -309,7 +312,7 @@ export class QuestsService {
         );
       }
       
-      if (userQuest.completed) {
+      if (userQuest.status === QuestStatus.COMPLETED) {
         this.logger.debug('Quest already completed', { 
           userId, 
           questId,
@@ -317,12 +320,16 @@ export class QuestsService {
           correlationId
         });
         
-        return userQuest; // Already completed
+        // Throw specialized exception for already completed quests
+        throw new QuestAlreadyCompletedException(
+          userId,
+          questId,
+          userQuest.completedAt || new Date() // Use the recorded completion time or current time as fallback
+        );
       }
       
       // Update the UserQuest to mark it as completed
-      userQuest.progress = 100;
-      userQuest.completed = true;
+      userQuest.complete(); // This will set progress to 100, status to COMPLETED, and completedAt to current date
       
       // Save the updated UserQuest
       const updatedUserQuest = await this.userQuestRepository.save(userQuest);
@@ -472,7 +479,7 @@ export class QuestsService {
         );
       }
       
-      if (userQuest.completed) {
+      if (userQuest.status === QuestStatus.COMPLETED) {
         this.logger.debug('Cannot update progress for completed quest', { 
           userId, 
           questId,
@@ -480,7 +487,12 @@ export class QuestsService {
           correlationId
         });
         
-        return userQuest; // Already completed
+        // Throw specialized exception for already completed quests
+        throw new QuestAlreadyCompletedException(
+          userId,
+          questId,
+          userQuest.completedAt || new Date() // Use the recorded completion time or current time as fallback
+        );
       }
       
       // Update the UserQuest progress
