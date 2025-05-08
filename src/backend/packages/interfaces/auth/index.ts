@@ -1,20 +1,7 @@
 /**
- * @file Central export file for all authentication interfaces
- * @module @austa/interfaces/auth
+ * @file index.ts
+ * @description Barrel export file for authentication interfaces.
+ * Provides a single import point for all auth-related interfaces.
  */
 
-// User interfaces
-export * from './user.interface';
-
-// Permission interfaces
-export * from './permission.interface';
-
-// Role interfaces
-export * from './role.interface';
-
-// Authentication interfaces
 export * from './auth.interface';
-
-// Request/Response interfaces
-export * from './request.interface';
-export * from './response.interface';
