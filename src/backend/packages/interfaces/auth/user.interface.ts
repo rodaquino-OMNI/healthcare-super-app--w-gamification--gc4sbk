@@ -1,26 +1,22 @@
 /**
- * @file Base user interface for the AUSTA SuperApp
- * @module @austa/interfaces/auth/user
- * 
- * This file defines the base user interface that is shared across all services
- * in the AUSTA SuperApp. It provides a standardized structure for user data
- * that can be extended by service-specific user interfaces.
+ * @file User interfaces for authentication and user management
+ * @description Defines TypeScript interfaces for User entities and related data transfer objects (DTOs)
+ * used across the AUSTA SuperApp backend. Standardizes the shape of user data for authentication,
+ * user management, and profile operations.
+ *
+ * These interfaces ensure consistent user representation across all services that consume user data,
+ * and are compatible with Prisma schema definitions.
  */
 
 /**
- * Represents the base user data structure shared across all services.
- * Contains only essential user properties that are common to all contexts.
- * 
- * This interface supports the journey-centered architecture by providing
- * a consistent user data structure that can be used across all three user journeys
- * ("Minha Sau00fade", "Cuidar-me Agora", and "Meu Plano & Benefu00edcios").
+ * Represents a user entity in the system.
+ * Stores core user information required for authentication and profile management.
  */
-export interface IBaseUser {
+export interface IUser {
   /**
    * Unique identifier for the user.
-   * This property is immutable after creation.
    */
-  readonly id: string;
+  id: string;
 
   /**
    * Full name of the user.
@@ -46,55 +42,236 @@ export interface IBaseUser {
   cpf?: string;
 
   /**
-   * Timestamp of when the user was created.
-   * This property is immutable after creation.
+   * Hashed password of the user.
+   * Never stored in plain text.
    */
-  readonly createdAt: Date;
+  password: string;
+
+  /**
+   * Timestamp of when the user was created.
+   */
+  createdAt: Date;
 
   /**
    * Timestamp of when the user was last updated.
    */
   updatedAt: Date;
+}
+
+/**
+ * Data transfer object for creating a new user.
+ * Contains all required fields to register a user in the AUSTA SuperApp.
+ */
+export interface ICreateUserDto {
+  /**
+   * Full name of the user.
+   */
+  name: string;
 
   /**
-   * Indicates if the user's email has been verified.
-   * Used for security and access control purposes.
+   * Email address of the user (must be unique).
+   * Used as the primary identifier for authentication.
    */
-  isEmailVerified?: boolean;
+  email: string;
 
   /**
-   * Indicates if the user account is currently active.
-   * Inactive accounts cannot authenticate or access the system.
+   * Phone number of the user (optional).
+   * Can be used for MFA and notifications.
    */
-  isActive?: boolean;
+  phone?: string;
 
   /**
-   * Last successful login timestamp.
-   * Used for security monitoring and session management.
+   * CPF (Brazilian national ID) of the user (optional).
+   * Used for identity verification in Brazilian healthcare context.
    */
-  lastLoginAt?: Date;
-  
+  cpf?: string;
+
+  /**
+   * Password for the user account.
+   * Should meet minimum security requirements.
+   */
+  password: string;
+}
+
+/**
+ * Data transfer object for updating user information.
+ * Used for partial updates of user profile data in the AUSTA SuperApp.
+ * All fields are optional as this DTO is used for PATCH operations.
+ */
+export interface IUpdateUserDto {
+  /**
+   * The updated name of the user.
+   */
+  name?: string;
+
+  /**
+   * The updated email address of the user.
+   */
+  email?: string;
+
+  /**
+   * The updated phone number of the user.
+   */
+  phone?: string;
+
+  /**
+   * The updated CPF (Brazilian national ID) of the user.
+   * Must be exactly 11 characters.
+   */
+  cpf?: string;
+
+  /**
+   * The updated password for the user account.
+   * Should meet minimum security requirements.
+   */
+  password?: string;
+}
+
+/**
+ * Data transfer object for user responses.
+ * Contains user information that is safe to return to clients.
+ * Excludes sensitive information like passwords.
+ */
+export interface IUserResponseDto {
+  /**
+   * Unique identifier for the user.
+   */
+  id: string;
+
+  /**
+   * Full name of the user.
+   */
+  name: string;
+
+  /**
+   * Email address of the user.
+   */
+  email: string;
+
+  /**
+   * Phone number of the user (if provided).
+   */
+  phone?: string;
+
+  /**
+   * CPF (Brazilian national ID) of the user (if provided).
+   */
+  cpf?: string;
+
+  /**
+   * Timestamp of when the user was created.
+   */
+  createdAt: Date;
+
+  /**
+   * Timestamp of when the user was last updated.
+   */
+  updatedAt: Date;
+}
+
+/**
+ * Data transfer object for user login requests.
+ * Contains credentials required for authentication.
+ */
+export interface ILoginDto {
+  /**
+   * Email address of the user.
+   * Used as the primary identifier for authentication.
+   */
+  email: string;
+
+  /**
+   * Password for the user account.
+   */
+  password: string;
+
+  /**
+   * Optional remember me flag for extended session duration.
+   */
+  rememberMe?: boolean;
+}
+
+/**
+ * Data transfer object for authentication token responses.
+ * Contains tokens and related information returned after successful authentication.
+ */
+export interface ITokenResponseDto {
+  /**
+   * JWT access token for API authorization.
+   */
+  accessToken: string;
+
+  /**
+   * JWT refresh token for obtaining new access tokens.
+   */
+  refreshToken: string;
+
+  /**
+   * Type of token (typically "Bearer").
+   */
+  tokenType: string;
+
+  /**
+   * Expiration time of the access token in seconds.
+   */
+  expiresIn: number;
+
+  /**
+   * Basic user information included with the token response.
+   */
+  user: IUserResponseDto;
+}
+
+/**
+ * Extended user profile information that may be used across different journeys.
+ * Contains additional user details beyond the basic authentication information.
+ */
+export interface IUserProfile extends IUserResponseDto {
   /**
    * User's preferred language for the application.
-   * Used for localization and content personalization.
    */
   preferredLanguage?: string;
   
   /**
-   * User's profile picture URL (optional).
-   * Used for UI personalization.
+   * User's date of birth, important for health-related features.
    */
-  profilePictureUrl?: string;
+  dateOfBirth?: Date;
   
   /**
-   * List of role names assigned to the user.
-   * Used for role-based access control.
+   * User's gender, important for health-related features.
    */
-  roles?: string[];
+  gender?: string;
   
   /**
-   * Journey-specific preferences for each user journey.
-   * Keyed by journey identifier with journey-specific settings as values.
+   * User's address information.
    */
-  journeyPreferences?: Record<string, unknown>;
+  address?: {
+    street?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  };
+  
+  /**
+   * User's emergency contact information.
+   */
+  emergencyContact?: {
+    name: string;
+    phone: string;
+    relationship: string;
+  };
+  
+  /**
+   * User's notification preferences.
+   */
+  notificationPreferences?: {
+    email: boolean;
+    push: boolean;
+    sms: boolean;
+    inApp: boolean;
+  };
 }
