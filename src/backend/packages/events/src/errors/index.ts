@@ -304,8 +304,8 @@ export { EventValidationError } from './event-errors';
 export { EventProcessingError } from './event-errors';
 
 /**
- * Specialized error for event schema mismatches
- * @class EventSchemaMismatchError
+ * Specialized error for event schema-related failures
+ * @class EventSchemaError
  * @extends Error
  * 
  * @description
@@ -313,7 +313,7 @@ export { EventProcessingError } from './event-errors';
  * This typically occurs during event versioning transitions or when receiving events
  * from external systems with incompatible schemas.
  * 
- * @property {string} name - Always set to 'EventSchemaMismatchError'
+ * @property {string} name - Always set to 'EventSchemaError'
  * @property {string} message - Descriptive error message
  * @property {EventErrorContext} context - Additional context about the event and schema mismatch
  * @property {boolean} retryable - Whether this error type is retryable (typically false)
@@ -321,8 +321,8 @@ export { EventProcessingError } from './event-errors';
  * @property {Object} actualSchema - The actual schema of the received event
  * 
  * @example
- * // Creating a schema mismatch error
- * throw new EventSchemaMismatchError('Event schema version mismatch: expected v2, received v1', {
+ * // Creating a schema error
+ * throw new EventSchemaError('Event schema version mismatch: expected v2, received v1', {
  *   eventId: event.id,
  *   eventType: event.type,
  *   source: 'external-system',
@@ -333,95 +333,159 @@ export { EventProcessingError } from './event-errors';
  *   }
  * });
  */
-export { EventSchemaMismatchError } from './event-errors';
+export { EventSchemaError } from './event-errors';
 
 /**
- * Specialized error for Kafka-related failures
- * @class KafkaEventError
+ * Specialized error for event delivery failures
+ * @class EventDeliveryError
  * @extends Error
  * 
  * @description
- * Thrown when errors occur during Kafka operations such as producing, consuming,
- * or committing offsets. This error type helps distinguish infrastructure-related
- * issues from application-level processing errors.
+ * Thrown when errors occur during event delivery operations such as producing to Kafka,
+ * sending to message queues, or publishing to subscribers. This error type helps distinguish
+ * infrastructure-related issues from application-level processing errors.
  * 
- * @property {string} name - Always set to 'KafkaEventError'
+ * @property {string} name - Always set to 'EventDeliveryError'
  * @property {string} message - Descriptive error message
- * @property {EventErrorContext} context - Additional context about the Kafka operation
- * @property {boolean} retryable - Whether this error type is retryable (varies by specific error)
- * @property {string} operation - The Kafka operation that failed (produce, consume, commit, etc.)
- * @property {Object} kafkaDetails - Additional Kafka-specific details about the error
+ * @property {EventErrorContext} context - Additional context about the delivery operation
+ * @property {boolean} retryable - Whether this error type is retryable (typically true)
  * 
  * @example
- * // Creating a Kafka error
- * throw new KafkaEventError('Failed to produce event to Kafka topic', {
+ * // Creating a delivery error
+ * throw new EventDeliveryError('Failed to deliver event to destination', {
  *   eventId: event.id,
  *   eventType: event.type,
  *   source: 'health-service',
- *   processingStage: 'publication'
- * }, {
- *   operation: 'produce',
- *   topic: 'health.metrics',
- *   partition: 3,
- *   kafkaErrorCode: 'NETWORK_EXCEPTION'
+ *   processingStage: 'delivery',
+ *   destination: 'kafka-topic-health-metrics'
  * });
  */
-export { KafkaEventError } from './event-errors';
+export { EventDeliveryError } from './event-errors';
 
 /**
- * Specialized error for journey-specific event processing failures
- * @class JourneyEventError
- * @extends Error
+ * Specialized error for event persistence failures
+ * @class EventPersistenceError
+ * @extends EventError
  * 
  * @description
- * Base class for journey-specific event processing errors. This class is extended
- * by more specific journey error types like HealthJourneyEventError, CareJourneyEventError,
- * and PlanJourneyEventError to provide journey-specific error handling.
+ * Thrown when an event fails to be saved to storage, such as database errors,
+ * connection issues, or other persistence-related problems.
  * 
- * @property {string} name - Set to the specific journey error type name
+ * @property {string} name - Always set to 'EventPersistenceError'
  * @property {string} message - Descriptive error message
- * @property {EventErrorContext} context - Additional context about the event and journey
- * @property {boolean} retryable - Whether this error type is retryable
- * @property {string} journeyType - The specific journey type (health, care, plan)
+ * @property {EventErrorContext} context - Additional context about the event and persistence failure
+ * @property {boolean} retryable - Whether this error type is retryable (typically true)
  * 
  * @example
- * // Creating a journey-specific error
- * throw new HealthJourneyEventError('Failed to process health metric: invalid value range', {
+ * // Creating a persistence error
+ * throw new EventPersistenceError('Failed to save event to database', {
  *   eventId: event.id,
- *   eventType: 'health.metric.recorded',
+ *   eventType: event.type,
  *   source: 'health-service',
- *   processingStage: 'validation',
- *   journeyContext: 'health',
- *   metricType: 'blood_pressure',
- *   validationDetails: {
- *     field: 'systolic',
- *     value: 300,
- *     allowedRange: [60, 220]
- *   }
+ *   processingStage: 'persistence'
  * });
  */
-export { JourneyEventError } from './event-errors';
+export { EventPersistenceError } from './event-errors';
 
 /**
- * Specialized error for health journey event processing failures
- * @class HealthJourneyEventError
- * @extends JourneyEventError
+ * Specialized error for retryable event failures
+ * @class EventRetryableError
+ * @extends EventError
+ * 
+ * @description
+ * Base class for errors that can be retried. This is used to explicitly mark
+ * errors as retryable regardless of their specific type.
+ * 
+ * @property {string} name - Always set to 'EventRetryableError'
+ * @property {string} message - Descriptive error message
+ * @property {EventErrorContext} context - Additional context about the event
+ * @property {boolean} retryable - Always true
+ * 
+ * @example
+ * // Creating a retryable error
+ * throw new EventRetryableError('Temporary failure, can be retried', {
+ *   eventId: event.id,
+ *   eventType: event.type,
+ *   source: 'health-service',
+ *   processingStage: 'processing',
+ *   retryAttempts: 1,
+ *   maxRetryAttempts: 3
+ * });
  */
-export { HealthJourneyEventError } from './event-errors';
+export { EventRetryableError } from './event-errors';
 
 /**
- * Specialized error for care journey event processing failures
- * @class CareJourneyEventError
- * @extends JourneyEventError
+ * Specialized error for non-retryable event failures
+ * @class EventNonRetryableError
+ * @extends EventError
+ * 
+ * @description
+ * Base class for errors that cannot be retried. This is used to explicitly mark
+ * errors as non-retryable regardless of their specific type.
+ * 
+ * @property {string} name - Always set to 'EventNonRetryableError'
+ * @property {string} message - Descriptive error message
+ * @property {EventErrorContext} context - Additional context about the event
+ * @property {boolean} retryable - Always false
+ * 
+ * @example
+ * // Creating a non-retryable error
+ * throw new EventNonRetryableError('Permanent failure, cannot be retried', {
+ *   eventId: event.id,
+ *   eventType: event.type,
+ *   source: 'health-service',
+ *   processingStage: 'processing'
+ * });
  */
-export { CareJourneyEventError } from './event-errors';
+export { EventNonRetryableError } from './event-errors';
 
 /**
- * Specialized error for plan journey event processing failures
- * @class PlanJourneyEventError
- * @extends JourneyEventError
+ * Specialized error for health journey event failures
+ * @class HealthEventError
+ * @extends EventError
+ * 
+ * @description
+ * Used for errors specific to health journey events, providing context
+ * relevant to health-related processing.
+ * 
+ * @property {string} name - Always set to 'HealthEventError'
+ * @property {string} message - Descriptive error message
+ * @property {EventErrorContext} context - Additional context about the event
+ * @property {string} journey - Always 'health'
+ * 
+ * @example
+ * // Creating a health journey error
+ * throw new HealthEventError('Failed to process health metric: invalid value range', 
+ *   ErrorType.VALIDATION,
+ *   'HEALTH_METRIC_VALIDATION_ERROR',
+ *   {
+ *     eventId: event.id,
+ *     eventType: 'HEALTH_METRIC_RECORDED',
+ *     source: 'health-service',
+ *     processingStage: EventProcessingStage.VALIDATION,
+ *     details: {
+ *       metricType: 'blood_pressure',
+ *       value: 300,
+ *       allowedRange: [60, 220]
+ *     }
+ *   }
+ * );
  */
-export { PlanJourneyEventError } from './event-errors';
+export { HealthEventError } from './event-errors';
+
+/**
+ * Specialized error for care journey event failures
+ * @class CareEventError
+ * @extends EventError
+ */
+export { CareEventError } from './event-errors';
+
+/**
+ * Specialized error for plan journey event failures
+ * @class PlanEventError
+ * @extends EventError
+ */
+export { PlanEventError } from './event-errors';
 
 /**
  * Exponential backoff retry policy with jitter
@@ -607,18 +671,68 @@ export type { CircuitBreakerOptions } from './handling';
 
 /**
  * Interface for event error context
- * @interface EventErrorContext
+ * @interface IEventErrorContext
  * 
  * @property {string} eventId - ID of the event being processed
  * @property {string} eventType - Type of the event being processed
- * @property {string} source - Source service that published the event
- * @property {string} processingStage - Stage of processing where the error occurred
- * @property {string} [journeyContext] - Optional journey context for the event
+ * @property {string} journey - Journey associated with the event
+ * @property {string} sourceService - Source service that published the event
+ * @property {EventProcessingStage} processingStage - Stage of processing where the error occurred
  * @property {boolean} [retryable] - Whether the error is retryable
- * @property {number} [retryCount] - Current retry count if applicable
- * @property {Object} [additionalContext] - Any additional context about the error
+ * @property {number} [retryAttempts] - Current retry count if applicable
+ * @property {number} [maxRetryAttempts] - Maximum number of retry attempts allowed
+ * @property {Object} [details] - Additional context-specific details
  */
-export type { EventErrorContext } from './event-errors';
+export type { IEventErrorContext } from './event-errors';
+
+/**
+ * Enum representing different stages of event processing where errors can occur
+ * @enum {string}
+ */
+export { EventProcessingStage } from './event-errors';
+
+/**
+ * Error codes for event processing errors
+ * @enum {string}
+ */
+export { EventErrorCode } from './event-errors';
+
+/**
+ * Base class for all event-related errors
+ * @class EventError
+ * @extends AppException
+ */
+export { EventError } from './event-errors';
+
+/**
+ * Utility function to determine if an error is an EventError
+ * @function
+ */
+export { isEventError } from './event-errors';
+
+/**
+ * Utility function to create an event error from a generic error
+ * @function
+ */
+export { createEventErrorFromError } from './event-errors';
+
+/**
+ * Utility function to create a journey-specific event error
+ * @function
+ */
+export { createJourneyEventError } from './event-errors';
+
+/**
+ * Utility function to determine if an error has exceeded the maximum number of retry attempts
+ * @function
+ */
+export { hasExceededMaxRetries } from './event-errors';
+
+/**
+ * Utility function to create a new error with an incremented retry count
+ * @function
+ */
+export { incrementRetryCount } from './event-errors';
 
 /**
  * Interface for DLQ consumer options
