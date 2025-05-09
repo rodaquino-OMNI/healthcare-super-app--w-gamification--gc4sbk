@@ -39,7 +39,8 @@ export * from './kafka';
  * These utilities support event schema evolution with backward compatibility,
  * enabling services to process events from different versions.
  */
-export * from './versioning';
+export * from './versioning/types';
+export * from './versioning/errors';
 
 /**
  * Re-export all error handling utilities
@@ -65,7 +66,27 @@ export * from './constants';
  * These utilities provide validation for event payloads against defined schemas,
  * ensuring data integrity and preventing invalid events from being processed.
  */
-export { default as validateEvent } from './utils/event-validator';
+export { 
+  default as validateEvent,
+  validateJourneyEvent,
+  validateHealthEvent,
+  validateCareEvent,
+  validatePlanEvent,
+  createEventValidator,
+  createJourneyValidator,
+  validateEventBatch,
+  isValidEvent,
+  getValidationErrors,
+  formatValidationErrors,
+  formatZodError,
+  clearValidationCache,
+  getValidationCacheStats,
+  applyJourneyValidation,
+  ValidationResult,
+  ValidationError,
+  ValidationOptions,
+  JourneyValidationContext
+} from './utils/event-validator';
 
 /**
  * Event serialization utilities
