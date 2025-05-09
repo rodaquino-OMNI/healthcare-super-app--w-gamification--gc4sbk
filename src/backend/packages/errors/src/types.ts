@@ -9,6 +9,66 @@ export enum ErrorType {
 }
 
 /**
+ * Recovery strategies for different types of errors
+ */
+export enum ErrorRecoveryStrategy {
+  /**
+   * Retry the operation after a delay
+   */
+  RETRY = 'retry',
+  
+  /**
+   * Use a fallback value or operation
+   */
+  FALLBACK = 'fallback',
+  
+  /**
+   * Apply circuit breaker pattern to prevent cascading failures
+   */
+  CIRCUIT_BREAKER = 'circuit_breaker',
+  
+  /**
+   * Degrade gracefully by disabling non-critical functionality
+   */
+  GRACEFUL_DEGRADATION = 'graceful_degradation',
+  
+  /**
+   * No recovery possible, error must be handled manually
+   */
+  NONE = 'none'
+}
+
+/**
+ * Interface for error classification information
+ */
+export interface ErrorClassification {
+  /**
+   * The type of error
+   */
+  type: ErrorType;
+  
+  /**
+   * The recommended recovery strategy for this error
+   */
+  recoveryStrategy?: ErrorRecoveryStrategy;
+  
+  /**
+   * Whether the error is retryable
+   */
+  retryable?: boolean;
+  
+  /**
+   * Maximum number of retry attempts recommended
+   */
+  maxRetries?: number;
+  
+  /**
+   * Recommended delay between retries in milliseconds
+   */
+  retryDelay?: number;
+}
+
+/**
  * Base error class that all application errors extend
  */
 export abstract class BaseError extends Error {
