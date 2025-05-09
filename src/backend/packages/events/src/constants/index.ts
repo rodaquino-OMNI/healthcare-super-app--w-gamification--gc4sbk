@@ -35,6 +35,24 @@ import * as EventHeaders from './headers.constants';
 import * as EventTypes from './types.constants';
 import * as EventTopics from './topics.constants';
 
+// Re-export specific types from types.constants for convenience
+export {
+  EventType,
+  HealthEventType,
+  CareEventType,
+  PlanEventType,
+  CommonEventType,
+  AllEventTypes,
+  isHealthEventType,
+  isCareEventType,
+  isPlanEventType,
+  isCommonEventType,
+  isGamificationEventType,
+  isUserEventType,
+  getJourneyForEventType,
+  getEventCategory
+} from './types.constants';
+
 // Export all constants as namespaced objects to avoid naming collisions
 export {
   EventErrors,
