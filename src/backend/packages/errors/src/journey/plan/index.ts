@@ -6,3 +6,7 @@
 export * from './types';
 export * from './error-codes';
 export * from './documents-errors';
+export * from './plans-errors';
+export * from './benefits-errors';
+export * from './coverage-errors';
+export * from './claims-errors';
