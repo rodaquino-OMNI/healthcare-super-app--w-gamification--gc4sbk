@@ -15,10 +15,21 @@
  * to handle transient errors across the application.
  */
 export {
-  retry,
-  retryWithFallback,
-  RetryOptions,
-  DEFAULT_RETRY_OPTIONS
+  retryWithBackoff,
+  retryWithBackoffSync,
+  createRetryableFunction,
+  createRetryableFunctionSync,
+  retryDatabaseOperation,
+  retryExternalApiCall,
+  retryKafkaOperation,
+  retryHealthIntegration,
+  retryDeviceSync,
+  retryNotificationDelivery,
+  calculateBackoff,
+  isRetryableError,
+  delay,
+  RetryConfig,
+  RetryConfigs
 } from './retry';
 
 /**
@@ -96,7 +107,6 @@ export {
  * with existing code that may use different function names.
  */
 export {
-  retry as retryWithBackoff,
   serializeError as stringifyError,
   deserializeError as parseError,
   formatErrorMessage as formatError,
