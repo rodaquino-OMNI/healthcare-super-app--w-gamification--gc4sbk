@@ -1,12 +1,74 @@
+import { BusinessError } from '../../categories/business.errors';
+import { ErrorType } from '../../types';
+
 /**
- * Exports all Plan journey error types and utilities.
- * This file serves as the entry point for the Plan journey error module.
+ * Error thrown when there's an issue with plan benefits
  */
+export class PlanBenefitError extends BusinessError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(
+      message,
+      'PLAN_BENEFIT_ERROR',
+      details
+    );
+    this.name = 'PlanBenefitError';
+  }
+}
+
+/**
+ * Error thrown when there's an issue with claims
+ */
+export class ClaimError extends BusinessError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(
+      message,
+      'CLAIM_ERROR',
+      details
+    );
+    this.name = 'ClaimError';
+  }
+}
+
+/**
+ * Error thrown when there's an issue with coverage
+ */
+export class CoverageError extends BusinessError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(
+      message,
+      'COVERAGE_ERROR',
+      details
+    );
+    this.name = 'CoverageError';
+  }
+}
+
+/**
+ * Error thrown when there's an issue with documents
+ */
+export class DocumentError extends BusinessError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(
+      message,
+      'DOCUMENT_ERROR',
+      details
+    );
+    this.name = 'DocumentError';
+  }
+}
+
+/**
+ * Error thrown when there's an issue with plan selection
+ */
+export class PlanSelectionError extends BusinessError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(
+      message,
+      'PLAN_SELECTION_ERROR',
+      details
+    );
+    this.name = 'PlanSelectionError';
+  }
+}
 
 export * from './types';
-export * from './error-codes';
-export * from './documents-errors';
-export * from './plans-errors';
-export * from './benefits-errors';
-export * from './coverage-errors';
-export * from './claims-errors';
