@@ -82,7 +82,7 @@ export type { MockTransactionService, MockTransactionClient } from './transactio
 export type { MockJourneyContext } from './journey-context.mock';
 export type { MockHealthContext } from './health-context.mock';
 export type { MockCareContext } from './care-context.mock';
-export type { MockPlanContext } from './plan-context.mock';
+export type { PlanContextMock as MockPlanContext } from './plan-context.mock';
 
 /**
  * Factory Functions
@@ -125,11 +125,11 @@ export const createMockJourneyContexts = (options = {}) => {
   // Import from context mocks to avoid circular dependencies
   const { createMockHealthContext } = require('./health-context.mock');
   const { createMockCareContext } = require('./care-context.mock');
-  const { createMockPlanContext } = require('./plan-context.mock');
+  const { createPlanContextMock } = require('./plan-context.mock');
   
   return {
     healthContext: createMockHealthContext(options.health),
     careContext: createMockCareContext(options.care),
-    planContext: createMockPlanContext(options.plan),
+    planContext: createPlanContextMock(options.plan),
   };
 };
