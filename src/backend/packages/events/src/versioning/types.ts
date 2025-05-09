@@ -1,147 +1,253 @@
 /**
- * @file types.ts
- * @description Type definitions for event versioning in the AUSTA SuperApp.
- * This module provides the core types used for semantic versioning of event schemas,
- * enabling backward compatibility and graceful schema evolution.
+ * @file Types for event versioning
+ * @description Provides TypeScript types for event versioning operations, complementing the interfaces
+ * defined in the event-versioning.interface.ts file. These types ensure strong typing throughout
+ * the versioning module, improving developer experience and preventing type-related bugs.
  */
 
+import { IVersionedEvent } from '../interfaces/event-versioning.interface';
+
 /**
- * Represents a semantic version for event schemas
+ * Represents a parsed semantic version with major, minor, and patch components
  */
-export interface EventVersion {
-  /** Major version - incremented for breaking changes */
+export type ParsedVersion = {
   major: number;
-  /** Minor version - incremented for backward-compatible feature additions */
   minor: number;
-  /** Patch version - incremented for backward-compatible bug fixes */
   patch: number;
-}
+};
 
 /**
- * Represents a versioned event with explicit version information
+ * Represents a version range with minimum and maximum versions
  */
-export interface VersionedEvent<T = any> {
-  /** The event type identifier */
-  type: string;
-  /** The schema version in semantic versioning format */
-  version: EventVersion;
-  /** The event payload */
-  payload: T;
-  /** Optional metadata for the event */
-  metadata?: Record<string, any>;
-}
+export type VersionRange = {
+  min: string;
+  max?: string;
+};
 
 /**
- * Represents a strategy for handling version compatibility
+ * Represents a version comparison result
  */
-export interface VersionCompatibilityStrategy {
-  /** Check if two versions are compatible */
-  isCompatible(version1: EventVersion, version2: EventVersion): boolean;
-  /** Find the best compatible version from a list of available versions */
-  findBestCompatibleVersion(targetVersion: EventVersion, availableVersions: EventVersion[]): EventVersion | undefined;
-  /** Get compatibility level between two versions */
-  getCompatibilityLevel(version1: EventVersion, version2: EventVersion): VersionCompatibilityLevel;
-}
+export type VersionComparisonResult = {
+  isCompatible: boolean;
+  reason?: string;
+  breakingChanges?: string[];
+};
 
 /**
- * Compatibility level between two event versions
+ * Represents a migration path between two versions
  */
-export enum VersionCompatibilityLevel {
-  /** Versions are incompatible */
-  INCOMPATIBLE = 'INCOMPATIBLE',
-  /** Versions are backward compatible (new schema can read old data) */
-  BACKWARD = 'BACKWARD',
-  /** Versions are forward compatible (old schema can read new data) */
-  FORWARD = 'FORWARD',
-  /** Versions are fully compatible (both backward and forward) */
-  FULL = 'FULL',
-  /** Versions are identical */
-  IDENTICAL = 'IDENTICAL'
-}
+export type MigrationPath = {
+  sourceVersion: string;
+  targetVersion: string;
+  migrationFn: MigrationFunction;
+  isUpgrade: boolean;
+};
 
 /**
- * Options for version migration
+ * Function type for migrating an event from one version to another
  */
-export interface VersionMigrationOptions {
+export type MigrationFunction = <T extends IVersionedEvent>(event: T) => T;
+
+/**
+ * Options for event transformation operations
+ */
+export type TransformationOptions = {
+  /** Whether to validate the transformed event against the target schema */
+  validateResult?: boolean;
+  /** Whether to throw an error if validation fails */
+  throwOnValidationError?: boolean;
+  /** Whether to preserve original fields not defined in the target schema */
+  preserveExtraFields?: boolean;
+  /** Custom field mappings for the transformation */
+  fieldMappings?: Record<string, string>;
+  /** Custom field transformers */
+  fieldTransformers?: Record<string, FieldTransformer>;
+};
+
+/**
+ * Function type for transforming a field value during event transformation
+ */
+export type FieldTransformer = (value: any, event: IVersionedEvent) => any;
+
+/**
+ * Discriminated union for version detection strategies
+ */
+export type VersionDetectionStrategy =
+  | FieldBasedVersionDetection
+  | HeaderBasedVersionDetection
+  | SchemaBasedVersionDetection;
+
+/**
+ * Base type for all version detection strategies
+ */
+export type BaseVersionDetection = {
+  priority: number;
+};
+
+/**
+ * Strategy for detecting version from a specific field in the event
+ */
+export type FieldBasedVersionDetection = BaseVersionDetection & {
+  type: 'field';
+  /** The field name containing the version */
+  field: string;
+  /** Optional path to nested field (dot notation) */
+  path?: string;
+};
+
+/**
+ * Strategy for detecting version from event headers (e.g., Kafka message headers)
+ */
+export type HeaderBasedVersionDetection = BaseVersionDetection & {
+  type: 'header';
+  /** The header name containing the version */
+  headerName: string;
+};
+
+/**
+ * Strategy for detecting version based on event schema structure
+ */
+export type SchemaBasedVersionDetection = BaseVersionDetection & {
+  type: 'schema';
+  /** Schema fingerprints mapped to versions */
+  schemaFingerprints: Record<string, string>;
+};
+
+/**
+ * Options for version detection
+ */
+export type VersionDetectionOptions = {
+  /** Strategies to use for detection, in priority order */
+  strategies?: VersionDetectionStrategy[];
+  /** Default version to use if detection fails */
+  defaultVersion?: string;
+  /** Whether to throw an error if version detection fails */
+  throwOnFailure?: boolean;
+};
+
+/**
+ * Result of version detection
+ */
+export type VersionDetectionResult = {
+  /** The detected version */
+  version: string;
+  /** The strategy used to detect the version */
+  detectionStrategy?: string;
+  /** Whether the version was explicitly defined or inferred */
+  isExplicit: boolean;
+  /** The parsed version components */
+  parsed?: ParsedVersion;
+};
+
+/**
+ * Options for compatibility checking between versions
+ */
+export type CompatibilityCheckOptions = {
+  /** Whether to use strict semantic versioning rules */
+  strictSemver?: boolean;
+  /** Whether to allow newer patch versions */
+  allowNewerPatch?: boolean;
+  /** Whether to allow newer minor versions */
+  allowNewerMinor?: boolean;
+  /** Custom compatibility rules */
+  customRules?: CompatibilityRule[];
+};
+
+/**
+ * Custom rule for determining compatibility between versions
+ */
+export type CompatibilityRule = {
+  /** Name of the rule */
+  name: string;
+  /** Function to check compatibility */
+  check: (source: ParsedVersion, target: ParsedVersion) => boolean;
+  /** Message to include when rule fails */
+  message: string;
+};
+
+/**
+ * Options for schema migration
+ */
+export type MigrationOptions = {
   /** Whether to validate the migrated event */
-  validate?: boolean;
-  /** Whether to throw an error if migration fails */
-  throwOnError?: boolean;
-  /** Custom error handler for migration errors */
-  errorHandler?: (error: Error, event: any, sourceVersion: EventVersion, targetVersion: EventVersion) => any;
-}
+  validateResult?: boolean;
+  /** Whether to throw an error if validation fails */
+  throwOnValidationError?: boolean;
+  /** Whether to automatically find migration path */
+  autoFindPath?: boolean;
+  /** Maximum number of migration steps allowed */
+  maxSteps?: number;
+};
 
 /**
- * Result of a version migration operation
+ * Result of a migration operation
  */
-export interface VersionMigrationResult<T = any> {
+export type MigrationResult<T extends IVersionedEvent> = {
+  /** The migrated event */
+  event: T;
+  /** The original version */
+  originalVersion: string;
+  /** The new version */
+  newVersion: string;
+  /** The migration path that was used */
+  path?: MigrationPath[];
   /** Whether the migration was successful */
   success: boolean;
-  /** The migrated event (only present if migration was successful) */
-  event?: T;
-  /** Migration errors (only present if migration failed) */
-  errors?: string[];
-  /** The source version */
-  sourceVersion: EventVersion;
-  /** The target version */
-  targetVersion: EventVersion;
-  /** Whether the event was already compatible and didn't need migration */
-  alreadyCompatible?: boolean;
+  /** Error message if migration failed */
+  error?: string;
+};
+
+/**
+ * Registry of migration paths
+ */
+export type MigrationRegistry = {
+  /** All registered migration paths */
+  paths: MigrationPath[];
+  /** Get all paths for a specific source version */
+  getPathsForSource: (version: string) => MigrationPath[];
+  /** Get all paths for a specific target version */
+  getPathsForTarget: (version: string) => MigrationPath[];
+  /** Find a direct path between two versions */
+  findDirectPath: (source: string, target: string) => MigrationPath | undefined;
+  /** Find a multi-step path between two versions */
+  findPath: (source: string, target: string, maxSteps?: number) => MigrationPath[] | undefined;
+};
+
+/**
+ * Type guard to check if an object is a versioned event
+ */
+export function isVersionedEvent(obj: any): obj is IVersionedEvent {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    'version' in obj &&
+    typeof obj.version === 'string'
+  );
 }
 
 /**
- * Function signature for event migration between versions
+ * Type guard to check if a version detection strategy is field-based
  */
-export type VersionMigrationFn<T = any, U = any> = (
-  event: T,
-  sourceVersion: EventVersion,
-  targetVersion: EventVersion
-) => U;
-
-/**
- * Registry entry for a version migration function
- */
-export interface VersionMigrationEntry<T = any, U = any> {
-  /** The source version range */
-  sourceVersionRange: VersionRange;
-  /** The target version range */
-  targetVersionRange: VersionRange;
-  /** The migration function */
-  migrationFn: VersionMigrationFn<T, U>;
-  /** Optional description of the migration */
-  description?: string;
+export function isFieldBasedStrategy(
+  strategy: VersionDetectionStrategy
+): strategy is FieldBasedVersionDetection {
+  return strategy.type === 'field';
 }
 
 /**
- * Represents a version range for compatibility checking
+ * Type guard to check if a version detection strategy is header-based
  */
-export interface VersionRange {
-  /** Minimum version (inclusive) */
-  min: EventVersion;
-  /** Maximum version (inclusive) */
-  max: EventVersion;
+export function isHeaderBasedStrategy(
+  strategy: VersionDetectionStrategy
+): strategy is HeaderBasedVersionDetection {
+  return strategy.type === 'header';
 }
 
 /**
- * Options for creating a versioned event
+ * Type guard to check if a version detection strategy is schema-based
  */
-export interface CreateVersionedEventOptions {
-  /** Whether to include metadata in the event */
-  includeMetadata?: boolean;
-  /** Additional metadata to include */
-  metadata?: Record<string, any>;
-  /** Whether to validate the event against its schema */
-  validate?: boolean;
-}
-
-/**
- * Options for extracting a payload from a versioned event
- */
-export interface ExtractPayloadOptions {
-  /** Whether to validate the payload against its schema */
-  validate?: boolean;
-  /** Whether to migrate the payload to the latest version */
-  migrateToLatest?: boolean;
-  /** Target version to migrate to (if not latest) */
-  targetVersion?: EventVersion;
+export function isSchemaBasedStrategy(
+  strategy: VersionDetectionStrategy
+): strategy is SchemaBasedVersionDetection {
+  return strategy.type === 'schema';
 }
