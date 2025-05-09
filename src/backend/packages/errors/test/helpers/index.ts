@@ -123,9 +123,9 @@ export * from './network-error-simulator';
 
 // Types for network simulators
 export type {
-  NetworkErrorOptions,
-  SimulatedResponseOptions,
-  RetrySimulationOptions
+  NetworkErrorSimulatorOptions,
+  NetworkErrorType,
+  CircuitBreakerTestConfig
 } from './network-error-simulator';
 
 // ===================================================================
