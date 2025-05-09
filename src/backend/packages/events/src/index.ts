@@ -85,9 +85,26 @@ export {
  * routing and processing based on the journey (health, care, plan).
  */
 export {
-  extractJourneyContext,
+  JourneyType,
+  isValidJourney,
+  JourneyContext,
+  JourneyContextError,
   createJourneyContext,
   validateJourneyContext,
+  extractJourneyContext,
+  addJourneyContext,
+  isJourneyEvent,
+  isHealthJourneyEvent,
+  isCareJourneyEvent,
+  isPlanJourneyEvent,
+  createHealthJourneyContext,
+  createCareJourneyContext,
+  createPlanJourneyContext,
+  ensureJourneyContext,
+  routeEventByJourney,
+  createCrossJourneyEvent,
+  isCrossJourneyEvent,
+  getCrossJourneyContexts
 } from './utils/journey-context';
 
 /**
