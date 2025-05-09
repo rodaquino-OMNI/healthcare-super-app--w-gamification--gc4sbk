@@ -39,8 +39,7 @@ export * from './kafka';
  * These utilities support event schema evolution with backward compatibility,
  * enabling services to process events from different versions.
  */
-export * from './versioning/types';
-export * from './versioning/errors';
+export * from './versioning';
 
 /**
  * Re-export all error handling utilities
