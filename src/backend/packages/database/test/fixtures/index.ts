@@ -106,7 +106,7 @@ export namespace FixtureTypes {
   export type SymptomCheckerQuery = CareFixtures.SymptomCheckerQueryFixture;
   
   // Plan journey fixture types
-  export type InsurancePlan = PlanFixtures.InsurancePlanFixture;
+  export type InsurancePlan = PlanFixtures.IPlanFixture;
   export type Benefit = PlanFixtures.BenefitFixture;
   export type Coverage = PlanFixtures.CoverageFixture;
   export type Claim = PlanFixtures.ClaimFixture;
