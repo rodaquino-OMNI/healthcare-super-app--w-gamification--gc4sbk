@@ -68,7 +68,17 @@ export { RetryWithBackoff } from './retry.decorator';
  * }
  * ```
  */
-export { CircuitBreaker } from './circuit-breaker.decorator';
+export { 
+  CircuitBreaker, 
+  WithCircuitBreaker, 
+  ExternalServiceCircuitBreaker, 
+  DatabaseCircuitBreaker,
+  CircuitOpenError,
+  getCircuitBreakerState,
+  resetCircuitBreaker,
+  openCircuitBreaker,
+  getAllCircuitBreakerStates
+} from './circuit-breaker.decorator';
 
 /**
  * Fallback Pattern Decorators
