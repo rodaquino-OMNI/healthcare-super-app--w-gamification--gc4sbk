@@ -41,7 +41,7 @@ export function getCompletePlanTestFixtures(planType: 'basic' | 'standard' | 'pr
   const planTypeName = planTypeMap[planType];
   
   // Get the insurance plan fixture
-  const plan = insurancePlansFixtures.getInsurancePlanByType(planTypeName);
+  const plan = insurancePlansFixtures.getPlanFixtureByType(planTypeName);
   
   // Get the benefits for this plan
   const benefits = benefitsFixtures.getBenefitsByPlanType(planTypeName);
