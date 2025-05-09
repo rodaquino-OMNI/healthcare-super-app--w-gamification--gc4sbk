@@ -1,287 +1,342 @@
 /**
  * @file errors.ts
- * @description Error classes for event versioning in the AUSTA SuperApp.
- * This module provides specialized error classes for handling versioning-related errors,
- * enabling better error handling and reporting throughout the event processing pipeline.
+ * @description Custom error classes for versioning-related failures in the AUSTA SuperApp.
+ * This module provides structured error information for improved debugging and error handling
+ * of versioning issues across all journeys.
  */
 
-import { EventVersion } from './types';
+import { BaseError, ErrorType, ErrorRecoveryStrategy } from '@austa/errors';
+import { EventVersion, VersionCompatibilityLevel } from './types';
 
 /**
- * Base error class for event schema errors
+ * Error codes for versioning-related errors
  */
-export class EventSchemaError extends Error {
-  /** Error code for categorization */
-  code: string;
-  /** Additional context for the error */
-  context: Record<string, any>;
-
-  /**
-   * Create a new event schema error
-   * @param message Error message
-   * @param context Additional context
-   * @param code Error code
-   */
-  constructor(message: string, context: Record<string, any> = {}, code: string = 'EVENT_SCHEMA_ERROR') {
-    super(message);
-    this.name = this.constructor.name;
-    this.code = code;
-    this.context = context;
-    
-    // Ensure proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, EventSchemaError.prototype);
-  }
-
-  /**
-   * Convert the error to a plain object for serialization
-   * @returns Plain object representation of the error
-   */
-  toJSON(): Record<string, any> {
-    return {
-      name: this.name,
-      message: this.message,
-      code: this.code,
-      context: this.context,
-      stack: this.stack
-    };
-  }
+export enum VersioningErrorCode {
+  // Version detection errors
+  VERSION_DETECTION_FAILED = 'EVENTS-VERSION-001',
+  MISSING_VERSION_FIELD = 'EVENTS-VERSION-002',
+  INVALID_VERSION_FORMAT = 'EVENTS-VERSION-003',
+  UNSUPPORTED_VERSION = 'EVENTS-VERSION-004',
+  
+  // Version compatibility errors
+  INCOMPATIBLE_VERSIONS = 'EVENTS-VERSION-101',
+  VERSION_MISMATCH = 'EVENTS-VERSION-102',
+  VERSION_TOO_OLD = 'EVENTS-VERSION-103',
+  VERSION_TOO_NEW = 'EVENTS-VERSION-104',
+  
+  // Migration errors
+  MIGRATION_FAILED = 'EVENTS-VERSION-201',
+  MIGRATION_PATH_NOT_FOUND = 'EVENTS-VERSION-202',
+  MIGRATION_VALIDATION_FAILED = 'EVENTS-VERSION-203',
+  MIGRATION_ROLLBACK_FAILED = 'EVENTS-VERSION-204',
+  
+  // Transformation errors
+  TRANSFORMATION_FAILED = 'EVENTS-VERSION-301',
+  FIELD_TRANSFORMATION_FAILED = 'EVENTS-VERSION-302',
+  SCHEMA_VALIDATION_FAILED = 'EVENTS-VERSION-303',
+  TRANSFORMATION_NOT_IMPLEMENTED = 'EVENTS-VERSION-304'
 }
 
 /**
- * Error thrown when schema registration fails
+ * Base class for all versioning-related errors
  */
-export class EventSchemaRegistrationError extends EventSchemaError {
-  /**
-   * Create a new schema registration error
-   * @param message Error message
-   * @param context Additional context
-   */
-  constructor(message: string, context: Record<string, any> = {}) {
-    super(message, context, 'EVENT_SCHEMA_REGISTRATION_ERROR');
-    Object.setPrototypeOf(this, EventSchemaRegistrationError.prototype);
-  }
-}
-
-/**
- * Error thrown when a schema is not found
- */
-export class EventSchemaNotFoundError extends EventSchemaError {
-  /**
-   * Create a new schema not found error
-   * @param message Error message
-   * @param context Additional context
-   */
-  constructor(message: string, context: Record<string, any> = {}) {
-    super(message, context, 'EVENT_SCHEMA_NOT_FOUND_ERROR');
-    Object.setPrototypeOf(this, EventSchemaNotFoundError.prototype);
-  }
-}
-
-/**
- * Error thrown when schema validation fails
- */
-export class EventSchemaValidationError extends EventSchemaError {
-  /** Validation errors */
-  errors: any[];
-
-  /**
-   * Create a new schema validation error
-   * @param message Error message
-   * @param errors Validation errors
-   * @param context Additional context
-   */
-  constructor(message: string, errors: any[] = [], context: Record<string, any> = {}) {
-    super(message, { ...context, errors }, 'EVENT_SCHEMA_VALIDATION_ERROR');
-    this.errors = errors;
-    Object.setPrototypeOf(this, EventSchemaValidationError.prototype);
-  }
-
-  /**
-   * Convert the error to a plain object for serialization
-   * @returns Plain object representation of the error
-   */
-  toJSON(): Record<string, any> {
-    return {
-      ...super.toJSON(),
-      errors: this.errors
-    };
-  }
-}
-
-/**
- * Error thrown when schema version is invalid
- */
-export class EventSchemaVersionError extends EventSchemaError {
-  /**
-   * Create a new schema version error
-   * @param message Error message
-   * @param context Additional context
-   */
-  constructor(message: string, context: Record<string, any> = {}) {
-    super(message, context, 'EVENT_SCHEMA_VERSION_ERROR');
-    Object.setPrototypeOf(this, EventSchemaVersionError.prototype);
-  }
-}
-
-/**
- * Error thrown when schema compatibility check fails
- */
-export class EventSchemaCompatibilityError extends EventSchemaError {
-  /** Source version */
-  sourceVersion: EventVersion;
-  /** Target version */
-  targetVersion: EventVersion;
-  /** Incompatibilities found */
-  incompatibilities: string[];
-
-  /**
-   * Create a new schema compatibility error
-   * @param message Error message
-   * @param sourceVersion Source version
-   * @param targetVersion Target version
-   * @param incompatibilities Incompatibilities found
-   * @param context Additional context
-   */
+export abstract class VersioningError extends BaseError {
   constructor(
     message: string,
-    sourceVersion: EventVersion,
-    targetVersion: EventVersion,
-    incompatibilities: string[] = [],
-    context: Record<string, any> = {}
+    code: VersioningErrorCode,
+    details?: Record<string, any>
   ) {
-    super(
-      message,
-      { ...context, sourceVersion, targetVersion, incompatibilities },
-      'EVENT_SCHEMA_COMPATIBILITY_ERROR'
-    );
-    this.sourceVersion = sourceVersion;
-    this.targetVersion = targetVersion;
-    this.incompatibilities = incompatibilities;
-    Object.setPrototypeOf(this, EventSchemaCompatibilityError.prototype);
+    super(message, ErrorType.TECHNICAL, code, details);
+  }
+}
+
+/**
+ * Error thrown when version detection fails
+ */
+export class VersionDetectionError extends VersioningError {
+  constructor(
+    message: string = 'Failed to detect event version',
+    code: VersioningErrorCode = VersioningErrorCode.VERSION_DETECTION_FAILED,
+    details?: Record<string, any>
+  ) {
+    super(message, code, details);
   }
 
   /**
-   * Convert the error to a plain object for serialization
-   * @returns Plain object representation of the error
+   * Create an error for missing version field
    */
-  toJSON(): Record<string, any> {
-    return {
-      ...super.toJSON(),
-      sourceVersion: this.sourceVersion,
-      targetVersion: this.targetVersion,
-      incompatibilities: this.incompatibilities
-    };
+  static missingVersionField(fieldName: string, eventType?: string): VersionDetectionError {
+    return new VersionDetectionError(
+      `Missing required version field '${fieldName}'${eventType ? ` for event type '${eventType}'` : ''}`,
+      VersioningErrorCode.MISSING_VERSION_FIELD,
+      { fieldName, eventType }
+    );
+  }
+
+  /**
+   * Create an error for invalid version format
+   */
+  static invalidVersionFormat(version: string, expectedFormat: string): VersionDetectionError {
+    return new VersionDetectionError(
+      `Invalid version format '${version}', expected format: ${expectedFormat}`,
+      VersioningErrorCode.INVALID_VERSION_FORMAT,
+      { version, expectedFormat }
+    );
+  }
+
+  /**
+   * Create an error for unsupported version
+   */
+  static unsupportedVersion(version: EventVersion, supportedVersions: EventVersion[]): VersionDetectionError {
+    const versionStr = `${version.major}.${version.minor}.${version.patch}`;
+    const supportedVersionsStr = supportedVersions.map(v => `${v.major}.${v.minor}.${v.patch}`).join(', ');
+    
+    return new VersionDetectionError(
+      `Unsupported version ${versionStr}. Supported versions: ${supportedVersionsStr}`,
+      VersioningErrorCode.UNSUPPORTED_VERSION,
+      { version, supportedVersions }
+    );
+  }
+}
+
+/**
+ * Error thrown when versions are incompatible
+ */
+export class VersionCompatibilityError extends VersioningError {
+  constructor(
+    message: string = 'Incompatible event versions',
+    code: VersioningErrorCode = VersioningErrorCode.INCOMPATIBLE_VERSIONS,
+    details?: Record<string, any>
+  ) {
+    super(message, code, details);
+  }
+
+  /**
+   * Create an error for version mismatch
+   */
+  static versionMismatch(
+    sourceVersion: EventVersion,
+    targetVersion: EventVersion,
+    compatibilityLevel: VersionCompatibilityLevel
+  ): VersionCompatibilityError {
+    const sourceVersionStr = `${sourceVersion.major}.${sourceVersion.minor}.${sourceVersion.patch}`;
+    const targetVersionStr = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+    
+    return new VersionCompatibilityError(
+      `Version mismatch: source version ${sourceVersionStr} is ${compatibilityLevel.toLowerCase()} with target version ${targetVersionStr}`,
+      VersioningErrorCode.VERSION_MISMATCH,
+      { sourceVersion, targetVersion, compatibilityLevel }
+    );
+  }
+
+  /**
+   * Create an error for version too old
+   */
+  static versionTooOld(
+    version: EventVersion,
+    minimumVersion: EventVersion
+  ): VersionCompatibilityError {
+    const versionStr = `${version.major}.${version.minor}.${version.patch}`;
+    const minimumVersionStr = `${minimumVersion.major}.${minimumVersion.minor}.${minimumVersion.patch}`;
+    
+    return new VersionCompatibilityError(
+      `Version ${versionStr} is too old. Minimum supported version is ${minimumVersionStr}`,
+      VersioningErrorCode.VERSION_TOO_OLD,
+      { version, minimumVersion }
+    );
+  }
+
+  /**
+   * Create an error for version too new
+   */
+  static versionTooNew(
+    version: EventVersion,
+    maximumVersion: EventVersion
+  ): VersionCompatibilityError {
+    const versionStr = `${version.major}.${version.minor}.${version.patch}`;
+    const maximumVersionStr = `${maximumVersion.major}.${maximumVersion.minor}.${maximumVersion.patch}`;
+    
+    return new VersionCompatibilityError(
+      `Version ${versionStr} is too new. Maximum supported version is ${maximumVersionStr}`,
+      VersioningErrorCode.VERSION_TOO_NEW,
+      { version, maximumVersion }
+    );
   }
 }
 
 /**
  * Error thrown when event migration fails
  */
-export class EventMigrationError extends EventSchemaError {
-  /** Source version */
-  sourceVersion: EventVersion;
-  /** Target version */
-  targetVersion: EventVersion;
-  /** Original event */
-  originalEvent: any;
+export class MigrationError extends VersioningError {
+  constructor(
+    message: string = 'Event migration failed',
+    code: VersioningErrorCode = VersioningErrorCode.MIGRATION_FAILED,
+    details?: Record<string, any>
+  ) {
+    super(message, code, details);
+  }
 
   /**
-   * Create a new event migration error
-   * @param message Error message
-   * @param sourceVersion Source version
-   * @param targetVersion Target version
-   * @param originalEvent Original event
-   * @param context Additional context
+   * Create an error for migration path not found
    */
-  constructor(
-    message: string,
+  static migrationPathNotFound(
     sourceVersion: EventVersion,
     targetVersion: EventVersion,
-    originalEvent: any,
-    context: Record<string, any> = {}
-  ) {
-    super(
-      message,
-      { ...context, sourceVersion, targetVersion },
-      'EVENT_MIGRATION_ERROR'
+    eventType?: string
+  ): MigrationError {
+    const sourceVersionStr = `${sourceVersion.major}.${sourceVersion.minor}.${sourceVersion.patch}`;
+    const targetVersionStr = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+    
+    return new MigrationError(
+      `No migration path found from version ${sourceVersionStr} to ${targetVersionStr}${eventType ? ` for event type '${eventType}'` : ''}`,
+      VersioningErrorCode.MIGRATION_PATH_NOT_FOUND,
+      { sourceVersion, targetVersion, eventType }
     );
-    this.sourceVersion = sourceVersion;
-    this.targetVersion = targetVersion;
-    this.originalEvent = originalEvent;
-    Object.setPrototypeOf(this, EventMigrationError.prototype);
   }
 
   /**
-   * Convert the error to a plain object for serialization
-   * @returns Plain object representation of the error
+   * Create an error for migration validation failure
    */
-  toJSON(): Record<string, any> {
-    return {
-      ...super.toJSON(),
-      sourceVersion: this.sourceVersion,
-      targetVersion: this.targetVersion,
-      // Don't include the original event in JSON to avoid potentially large payloads
-      hasOriginalEvent: !!this.originalEvent
-    };
+  static validationFailed(
+    sourceVersion: EventVersion,
+    targetVersion: EventVersion,
+    validationErrors: string[],
+    eventType?: string
+  ): MigrationError {
+    const sourceVersionStr = `${sourceVersion.major}.${sourceVersion.minor}.${sourceVersion.patch}`;
+    const targetVersionStr = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+    
+    return new MigrationError(
+      `Migration validation failed from version ${sourceVersionStr} to ${targetVersionStr}${eventType ? ` for event type '${eventType}'` : ''}`,
+      VersioningErrorCode.MIGRATION_VALIDATION_FAILED,
+      { sourceVersion, targetVersion, validationErrors, eventType }
+    );
+  }
+
+  /**
+   * Create an error for migration rollback failure
+   */
+  static rollbackFailed(
+    sourceVersion: EventVersion,
+    targetVersion: EventVersion,
+    originalError: Error,
+    rollbackError: Error
+  ): MigrationError {
+    const sourceVersionStr = `${sourceVersion.major}.${sourceVersion.minor}.${sourceVersion.patch}`;
+    const targetVersionStr = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+    
+    return new MigrationError(
+      `Migration rollback failed from version ${sourceVersionStr} to ${targetVersionStr}. Original error: ${originalError.message}. Rollback error: ${rollbackError.message}`,
+      VersioningErrorCode.MIGRATION_ROLLBACK_FAILED,
+      { sourceVersion, targetVersion, originalError, rollbackError }
+    );
   }
 }
 
 /**
- * Error thrown when event type is invalid or missing
+ * Error thrown when event transformation fails
  */
-export class EventTypeError extends EventSchemaError {
-  /**
-   * Create a new event type error
-   * @param message Error message
-   * @param context Additional context
-   */
-  constructor(message: string, context: Record<string, any> = {}) {
-    super(message, context, 'EVENT_TYPE_ERROR');
-    Object.setPrototypeOf(this, EventTypeError.prototype);
-  }
-}
-
-/**
- * Error thrown when journey validation fails
- */
-export class JourneyValidationError extends EventSchemaError {
-  /** Journey identifier */
-  journey: string;
-  /** Validation errors */
-  errors: any[];
-
-  /**
-   * Create a new journey validation error
-   * @param message Error message
-   * @param journey Journey identifier
-   * @param errors Validation errors
-   * @param context Additional context
-   */
+export class TransformationError extends VersioningError {
   constructor(
-    message: string,
-    journey: string,
-    errors: any[] = [],
-    context: Record<string, any> = {}
+    message: string = 'Event transformation failed',
+    code: VersioningErrorCode = VersioningErrorCode.TRANSFORMATION_FAILED,
+    details?: Record<string, any>
   ) {
-    super(
-      message,
-      { ...context, journey, errors },
-      'JOURNEY_VALIDATION_ERROR'
-    );
-    this.journey = journey;
-    this.errors = errors;
-    Object.setPrototypeOf(this, JourneyValidationError.prototype);
+    super(message, code, details);
   }
 
   /**
-   * Convert the error to a plain object for serialization
-   * @returns Plain object representation of the error
+   * Create an error for field transformation failure
    */
-  toJSON(): Record<string, any> {
-    return {
-      ...super.toJSON(),
-      journey: this.journey,
-      errors: this.errors
-    };
+  static fieldTransformationFailed(
+    fieldName: string,
+    sourceValue: any,
+    targetType: string,
+    error: Error
+  ): TransformationError {
+    return new TransformationError(
+      `Failed to transform field '${fieldName}' from ${typeof sourceValue} to ${targetType}: ${error.message}`,
+      VersioningErrorCode.FIELD_TRANSFORMATION_FAILED,
+      { fieldName, sourceValue, targetType, error }
+    );
+  }
+
+  /**
+   * Create an error for schema validation failure
+   */
+  static schemaValidationFailed(
+    validationErrors: string[],
+    eventType?: string,
+    version?: EventVersion
+  ): TransformationError {
+    const versionStr = version ? `${version.major}.${version.minor}.${version.patch}` : 'unknown';
+    
+    return new TransformationError(
+      `Schema validation failed${eventType ? ` for event type '${eventType}'` : ''} (version ${versionStr})`,
+      VersioningErrorCode.SCHEMA_VALIDATION_FAILED,
+      { validationErrors, eventType, version }
+    );
+  }
+
+  /**
+   * Create an error for transformation not implemented
+   */
+  static transformationNotImplemented(
+    sourceVersion: EventVersion,
+    targetVersion: EventVersion,
+    eventType: string
+  ): TransformationError {
+    const sourceVersionStr = `${sourceVersion.major}.${sourceVersion.minor}.${sourceVersion.patch}`;
+    const targetVersionStr = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+    
+    return new TransformationError(
+      `Transformation not implemented from version ${sourceVersionStr} to ${targetVersionStr} for event type '${eventType}'`,
+      VersioningErrorCode.TRANSFORMATION_NOT_IMPLEMENTED,
+      { sourceVersion, targetVersion, eventType }
+    );
+  }
+}
+
+/**
+ * Helper function to format a version object as a string
+ */
+export function formatVersion(version: EventVersion): string {
+  return `${version.major}.${version.minor}.${version.patch}`;
+}
+
+/**
+ * Helper function to get error recovery strategy for versioning errors
+ */
+export function getVersioningErrorRecoveryStrategy(error: VersioningError): ErrorRecoveryStrategy {
+  // Determine recovery strategy based on error code
+  switch (error.code) {
+    // Retryable errors
+    case VersioningErrorCode.TRANSFORMATION_FAILED:
+    case VersioningErrorCode.FIELD_TRANSFORMATION_FAILED:
+      return ErrorRecoveryStrategy.RETRY;
+    
+    // Fallback errors (can use default or previous version)
+    case VersioningErrorCode.VERSION_TOO_NEW:
+    case VersioningErrorCode.UNSUPPORTED_VERSION:
+      return ErrorRecoveryStrategy.FALLBACK;
+    
+    // Circuit breaker errors (prevent cascading failures)
+    case VersioningErrorCode.MIGRATION_FAILED:
+    case VersioningErrorCode.MIGRATION_VALIDATION_FAILED:
+      return ErrorRecoveryStrategy.CIRCUIT_BREAKER;
+    
+    // Non-recoverable errors
+    case VersioningErrorCode.VERSION_DETECTION_FAILED:
+    case VersioningErrorCode.MISSING_VERSION_FIELD:
+    case VersioningErrorCode.INVALID_VERSION_FORMAT:
+    case VersioningErrorCode.INCOMPATIBLE_VERSIONS:
+    case VersioningErrorCode.VERSION_MISMATCH:
+    case VersioningErrorCode.VERSION_TOO_OLD:
+    case VersioningErrorCode.MIGRATION_PATH_NOT_FOUND:
+    case VersioningErrorCode.MIGRATION_ROLLBACK_FAILED:
+    case VersioningErrorCode.SCHEMA_VALIDATION_FAILED:
+    case VersioningErrorCode.TRANSFORMATION_NOT_IMPLEMENTED:
+    default:
+      return ErrorRecoveryStrategy.NONE;
   }
 }
