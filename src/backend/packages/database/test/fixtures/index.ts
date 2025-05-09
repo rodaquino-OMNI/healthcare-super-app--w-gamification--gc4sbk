@@ -13,8 +13,9 @@ import * as CareFixtures from './care';
 import * as PlanFixtures from './plan';
 import * as GamificationFixtures from './gamification';
 
-// Import gamification scenarios separately for better organization
+// Import scenarios
 import * as GamificationScenarios from './gamification/scenarios';
+import * as DatabaseScenarios from './scenarios';
 
 /**
  * Common fixtures used across all journeys
@@ -61,7 +62,23 @@ export const gamification = GamificationFixtures;
  * Includes scenarios that span multiple journeys, test achievement progression,
  * quest completion, leaderboard functionality, and journey-specific gamification flows
  */
-export const scenarios = GamificationScenarios;
+export const gamificationScenarios = GamificationScenarios;
+
+/**
+ * Database test scenarios for transaction management, error handling, and connection pooling
+ * 
+ * Includes scenarios for testing transaction commits, rollbacks, nested transactions,
+ * cross-journey transactions, error handling, connection pooling, and data validation
+ */
+export const databaseScenarios = DatabaseScenarios;
+
+/**
+ * All test scenarios grouped by category
+ */
+export const scenarios = {
+  gamification: gamificationScenarios,
+  database: databaseScenarios
+};
 
 /**
  * Namespace for all fixture types
@@ -103,7 +120,7 @@ export namespace FixtureTypes {
   export type Profile = GamificationFixtures.ProfileFixture;
   export type Rule = GamificationFixtures.RuleFixture;
   
-  // Scenario fixture types
+  // Gamification scenario fixture types
   export type CrossJourneyScenario = GamificationScenarios.CrossJourneyScenario;
   export type HealthJourneyScenario = GamificationScenarios.HealthJourneyScenario;
   export type CareJourneyScenario = GamificationScenarios.CareJourneyScenario;
@@ -111,6 +128,13 @@ export namespace FixtureTypes {
   export type AchievementProgressionScenario = GamificationScenarios.AchievementProgressionScenario;
   export type QuestCompletionScenario = GamificationScenarios.QuestCompletionScenario;
   export type LeaderboardScenario = GamificationScenarios.LeaderboardScenario;
+  
+  // Database scenario fixture types
+  export type TransactionScenario = DatabaseScenarios.TransactionScenario;
+  export type ErrorHandlingScenario = DatabaseScenarios.ErrorHandlingScenario;
+  export type ConnectionPoolScenario = DatabaseScenarios.ConnectionPoolScenario;
+  export type JourneyContextScenario = DatabaseScenarios.JourneyContextScenario;
+  export type DataValidationScenario = DatabaseScenarios.DataValidationScenario;
 }
 
 /**
@@ -127,6 +151,19 @@ export function getAllFixtures() {
     gamification,
     scenarios,
   };
+}
+
+/**
+ * Convenience function to get database test scenarios
+ * 
+ * @param category Optional category of database scenarios to retrieve
+ * @returns Database scenarios, optionally filtered by category
+ */
+export function getDatabaseScenarios(category?: 'transactions' | 'errors' | 'connections' | 'journeys' | 'validation') {
+  if (category) {
+    return databaseScenarios[category];
+  }
+  return databaseScenarios;
 }
 
 /**
@@ -157,6 +194,8 @@ export default {
   plan,
   gamification,
   scenarios,
+  databaseScenarios,
   getAllFixtures,
   getJourneyFixtures,
+  getDatabaseScenarios,
 };
