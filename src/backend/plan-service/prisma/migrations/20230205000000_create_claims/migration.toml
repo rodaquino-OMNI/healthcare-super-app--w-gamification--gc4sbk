@@ -1,14 +1,1 @@
-# This is a Prisma migration file for tracking the creation of the claims table
-# https://www.prisma.io/docs/concepts/components/prisma-migrate
-
-migration_name = "20230205000000_create_claims"
-provider = "postgresql"
-
-# The timestamp when this migration was first created
-created_at = "2023-02-05T00:00:00Z"
-
-# The timestamp when this migration was last applied (null if not applied)
-applied_at = "2023-02-05T00:00:00Z"
-
-# Checksum to verify migration integrity
-checksum = "d8e8fca2dc0f896fd7cb4cb0031ba249"
+Failed to process file
