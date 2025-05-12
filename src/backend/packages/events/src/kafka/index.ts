@@ -1,18 +1,50 @@
 /**
- * Exports all components from the Kafka module.
+ * @file Kafka Module Barrel Export
+ * @description Centralized export point for all Kafka-related components in the events package.
+ * This file enables simplified imports via @austa/events/kafka and provides a clean,
+ * consistent API for consumers across the application.
  */
 
-// Service
-export * from './kafka.service';
+/**
+ * Module exports
+ * @module Kafka/Module
+ */
+export { KafkaModule } from './kafka.module';
 
-// Interfaces
+/**
+ * Service exports
+ * @module Kafka/Services
+ */
+export { KafkaService } from './kafka.service';
+export { KafkaConsumer } from './kafka.consumer';
+export { KafkaProducer } from './kafka.producer';
+
+/**
+ * Interface exports
+ * @module Kafka/Interfaces
+ */
 export * from './kafka.interfaces';
 
-// Constants
+/**
+ * Type exports
+ * @module Kafka/Types
+ */
+export * from './kafka.types';
+
+/**
+ * Constant exports
+ * @module Kafka/Constants
+ */
 export * from './kafka.constants';
 
-// Errors
-export * from './kafka.errors';
+/**
+ * Configuration exports
+ * @module Kafka/Config
+ */
+export * from './kafka.config';
 
-// Module
-export * from './kafka.module';
+/**
+ * Error exports
+ * @module Kafka/Errors
+ */
+export * from './kafka.errors';
