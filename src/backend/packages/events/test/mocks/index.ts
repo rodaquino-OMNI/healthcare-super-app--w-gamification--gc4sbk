@@ -43,14 +43,24 @@ export const EventBroker = {
  * ```typescript
  * import { EventProcessor } from '@austa/events/test/mocks';
  * 
- * const processor = EventProcessor.createMockProcessor({
+ * const processor = new EventProcessor.MockEventProcessor({
  *   validateEvents: true,
- *   simulateDelay: 100,
+ *   asyncProcessing: true,
+ *   processingDelayRange: [10, 50],
  * });
  * ```
  */
 export const EventProcessor = {
   ...MockEventProcessor,
+  /**
+   * Creates a new MockEventProcessor with the specified options
+   * 
+   * @param options Configuration options for the processor
+   * @returns A configured MockEventProcessor instance
+   */
+  createMockProcessor: (options?: MockEventProcessor.MockEventProcessorOptions) => {
+    return new MockEventProcessor.MockEventProcessor(options);
+  }
 };
 
 /**
@@ -228,9 +238,16 @@ export function createMockBrokerWithTopics(topics: string[]) {
  * ```
  */
 export function createMockProcessorWithHandlers(handlers: Record<string, (event: any) => any>) {
-  // This will be implemented when the actual mock files are created
-  // For now, we're just defining the interface
-  return EventProcessor.createMockProcessor({ handlers });
+  // Convert the handlers record to an array of IEventHandler implementations
+  const handlerImplementations = Object.entries(handlers).map(([eventType, handlerFn]) => {
+    return {
+      handle: handlerFn,
+      canHandle: (event: any) => event.type === eventType,
+      getEventType: () => eventType
+    };
+  });
+  
+  return EventProcessor.createMockProcessor({ handlers: handlerImplementations });
 }
 
 // Type definitions
@@ -247,7 +264,7 @@ export interface TestEnvironmentOptions {
   /**
    * Options for configuring the mock event processor
    */
-  processorOptions?: any;
+  processorOptions?: MockEventProcessor.MockEventProcessorOptions;
   
   /**
    * Options for configuring the mock event store
