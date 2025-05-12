@@ -19,7 +19,13 @@ export {
   IVersionedEvent,
   EventVersion,
   EventVersioningStrategy,
-  IVersionCompatibility
+  EventVersioningRegistry,
+  EventTransformer,
+  VersionCompatibility,
+  VersionString,
+  versionToString,
+  parseVersion,
+  compareVersions
 } from './event-versioning.interface';
 
 // Event Validation Interfaces
