@@ -48,3 +48,9 @@ export * from './kafka.config';
  * @module Kafka/Errors
  */
 export * from './kafka.errors';
+
+/**
+ * Retry Strategy exports
+ * @module Kafka/RetryStrategies
+ */
+export * from './retry-strategies';
