@@ -1,435 +1,365 @@
 /**
  * @file topics.constants.ts
- * @description Centralized Kafka topic name constants for the AUSTA SuperApp.
+ * @description Centralizes all Kafka topic name constants used across the healthcare super app,
+ * creating a single source of truth for event stream topics. This file ensures consistent topic
+ * naming between producers and consumers, preventing misconfiguration and message routing issues.
+ */
+
+import { JOURNEY_IDS } from './journey.constants';
+
+/**
+ * Base topic names for each journey and cross-cutting concern.
+ * These are the core topic names without any versioning or environment prefixes.
+ */
+export const BASE_TOPICS = {
+  /**
+   * Topic for health journey events (metrics, goals, devices, insights)
+   * Consumed by: Gamification Engine, Notification Service
+   * Produced by: Health Service
+   */
+  HEALTH_EVENTS: 'health.events',
+
+  /**
+   * Topic for care journey events (appointments, medications, telemedicine)
+   * Consumed by: Gamification Engine, Notification Service
+   * Produced by: Care Service
+   */
+  CARE_EVENTS: 'care.events',
+
+  /**
+   * Topic for plan journey events (claims, benefits, coverage)
+   * Consumed by: Gamification Engine, Notification Service
+   * Produced by: Plan Service
+   */
+  PLAN_EVENTS: 'plan.events',
+
+  /**
+   * Topic for user-related events (profile updates, logins, preferences)
+   * Consumed by: All Services, Gamification Engine, Notification Service
+   * Produced by: Auth Service, API Gateway
+   */
+  USER_EVENTS: 'user.events',
+
+  /**
+   * Topic for gamification events (achievements, rewards, levels)
+   * Consumed by: Notification Service, Journey Services
+   * Produced by: Gamification Engine
+   */
+  GAME_EVENTS: 'game.events',
+
+  /**
+   * Topic for notification events (delivery status, user interactions)
+   * Consumed by: Journey Services
+   * Produced by: Notification Service
+   */
+  NOTIFICATION_EVENTS: 'notification.events',
+} as const;
+
+/**
+ * Versioned topic names with the format: {base_topic}.v{version}
+ * This allows for backward compatibility when event schemas evolve.
  * 
- * This file serves as the single source of truth for all Kafka topic names used
- * across the application. It ensures consistent topic naming between producers
- * and consumers, preventing misconfiguration and message routing issues.
+ * Current version is v1 for all topics.
+ */
+export const VERSIONED_TOPICS = {
+  /**
+   * Versioned topic for health journey events
+   */
+  HEALTH_EVENTS_V1: `${BASE_TOPICS.HEALTH_EVENTS}.v1`,
+
+  /**
+   * Versioned topic for care journey events
+   */
+  CARE_EVENTS_V1: `${BASE_TOPICS.CARE_EVENTS}.v1`,
+
+  /**
+   * Versioned topic for plan journey events
+   */
+  PLAN_EVENTS_V1: `${BASE_TOPICS.PLAN_EVENTS}.v1`,
+
+  /**
+   * Versioned topic for user-related events
+   */
+  USER_EVENTS_V1: `${BASE_TOPICS.USER_EVENTS}.v1`,
+
+  /**
+   * Versioned topic for gamification events
+   */
+  GAME_EVENTS_V1: `${BASE_TOPICS.GAME_EVENTS}.v1`,
+
+  /**
+   * Versioned topic for notification events
+   */
+  NOTIFICATION_EVENTS_V1: `${BASE_TOPICS.NOTIFICATION_EVENTS}.v1`,
+} as const;
+
+/**
+ * Dead Letter Queue (DLQ) topics for failed event processing.
+ * These topics store events that could not be processed after multiple retries.
+ */
+export const DLQ_TOPICS = {
+  /**
+   * DLQ for health journey events
+   */
+  HEALTH_EVENTS_DLQ: `${BASE_TOPICS.HEALTH_EVENTS}.dlq`,
+
+  /**
+   * DLQ for care journey events
+   */
+  CARE_EVENTS_DLQ: `${BASE_TOPICS.CARE_EVENTS}.dlq`,
+
+  /**
+   * DLQ for plan journey events
+   */
+  PLAN_EVENTS_DLQ: `${BASE_TOPICS.PLAN_EVENTS}.dlq`,
+
+  /**
+   * DLQ for user-related events
+   */
+  USER_EVENTS_DLQ: `${BASE_TOPICS.USER_EVENTS}.dlq`,
+
+  /**
+   * DLQ for gamification events
+   */
+  GAME_EVENTS_DLQ: `${BASE_TOPICS.GAME_EVENTS}.dlq`,
+
+  /**
+   * DLQ for notification events
+   */
+  NOTIFICATION_EVENTS_DLQ: `${BASE_TOPICS.NOTIFICATION_EVENTS}.dlq`,
+} as const;
+
+/**
+ * Retry topics for events that failed processing but can be retried.
+ * These topics use a delay mechanism to implement exponential backoff.
+ */
+export const RETRY_TOPICS = {
+  /**
+   * Retry topic for health journey events
+   */
+  HEALTH_EVENTS_RETRY: `${BASE_TOPICS.HEALTH_EVENTS}.retry`,
+
+  /**
+   * Retry topic for care journey events
+   */
+  CARE_EVENTS_RETRY: `${BASE_TOPICS.CARE_EVENTS}.retry`,
+
+  /**
+   * Retry topic for plan journey events
+   */
+  PLAN_EVENTS_RETRY: `${BASE_TOPICS.PLAN_EVENTS}.retry`,
+
+  /**
+   * Retry topic for user-related events
+   */
+  USER_EVENTS_RETRY: `${BASE_TOPICS.USER_EVENTS}.retry`,
+
+  /**
+   * Retry topic for gamification events
+   */
+  GAME_EVENTS_RETRY: `${BASE_TOPICS.GAME_EVENTS}.retry`,
+
+  /**
+   * Retry topic for notification events
+   */
+  NOTIFICATION_EVENTS_RETRY: `${BASE_TOPICS.NOTIFICATION_EVENTS}.retry`,
+} as const;
+
+/**
+ * Mapping of journey IDs to their corresponding event topics.
+ * This allows for dynamic topic lookup based on journey ID.
+ */
+export const JOURNEY_TOPICS = {
+  [JOURNEY_IDS.HEALTH]: BASE_TOPICS.HEALTH_EVENTS,
+  [JOURNEY_IDS.CARE]: BASE_TOPICS.CARE_EVENTS,
+  [JOURNEY_IDS.PLAN]: BASE_TOPICS.PLAN_EVENTS,
+} as const;
+
+/**
+ * Mapping of journey IDs to their corresponding versioned event topics.
+ * This allows for dynamic versioned topic lookup based on journey ID.
+ */
+export const JOURNEY_VERSIONED_TOPICS = {
+  [JOURNEY_IDS.HEALTH]: VERSIONED_TOPICS.HEALTH_EVENTS_V1,
+  [JOURNEY_IDS.CARE]: VERSIONED_TOPICS.CARE_EVENTS_V1,
+  [JOURNEY_IDS.PLAN]: VERSIONED_TOPICS.PLAN_EVENTS_V1,
+} as const;
+
+/**
+ * Mapping of journey IDs to their corresponding DLQ topics.
+ * This allows for dynamic DLQ topic lookup based on journey ID.
+ */
+export const JOURNEY_DLQ_TOPICS = {
+  [JOURNEY_IDS.HEALTH]: DLQ_TOPICS.HEALTH_EVENTS_DLQ,
+  [JOURNEY_IDS.CARE]: DLQ_TOPICS.CARE_EVENTS_DLQ,
+  [JOURNEY_IDS.PLAN]: DLQ_TOPICS.PLAN_EVENTS_DLQ,
+} as const;
+
+/**
+ * Mapping of journey IDs to their corresponding retry topics.
+ * This allows for dynamic retry topic lookup based on journey ID.
+ */
+export const JOURNEY_RETRY_TOPICS = {
+  [JOURNEY_IDS.HEALTH]: RETRY_TOPICS.HEALTH_EVENTS_RETRY,
+  [JOURNEY_IDS.CARE]: RETRY_TOPICS.CARE_EVENTS_RETRY,
+  [JOURNEY_IDS.PLAN]: RETRY_TOPICS.PLAN_EVENTS_RETRY,
+} as const;
+
+/**
+ * Helper function to get the appropriate topic for a journey.
  * 
- * Topics are organized by journey and include versioning information for backward
- * compatibility. Each topic has a specific purpose and should be used according
- * to the documented guidelines.
+ * @param journeyId The journey ID to get the topic for
+ * @param options Configuration options for topic selection
+ * @returns The appropriate topic name
  * 
  * @example
- * // Import specific journey topics
- * import { HEALTH_TOPICS } from '@austa/events/constants/topics.constants';
+ * // Get the base topic for the health journey
+ * const topic = getJourneyTopic('health');
  * 
- * // Use in Kafka producer
- * kafkaService.produce(HEALTH_TOPICS.METRICS, healthMetricEvent);
+ * // Get the versioned topic for the care journey
+ * const versionedTopic = getJourneyTopic('care', { versioned: true });
+ * 
+ * // Get the DLQ topic for the plan journey
+ * const dlqTopic = getJourneyTopic('plan', { dlq: true });
+ */
+export function getJourneyTopic(
+  journeyId: keyof typeof JOURNEY_IDS,
+  options: { versioned?: boolean; dlq?: boolean; retry?: boolean } = {}
+): string {
+  const { versioned = false, dlq = false, retry = false } = options;
+  
+  if (dlq) {
+    return JOURNEY_DLQ_TOPICS[journeyId];
+  }
+  
+  if (retry) {
+    return JOURNEY_RETRY_TOPICS[journeyId];
+  }
+  
+  if (versioned) {
+    return JOURNEY_VERSIONED_TOPICS[journeyId];
+  }
+  
+  return JOURNEY_TOPICS[journeyId];
+}
+
+/**
+ * Default consumer group IDs for each service.
+ * These provide consistent consumer group naming across environments.
+ */
+export const CONSUMER_GROUPS = {
+  /**
+   * Consumer group for the Gamification Engine
+   */
+  GAMIFICATION_ENGINE: 'gamification-consumer-group',
+
+  /**
+   * Consumer group for the Notification Service
+   */
+  NOTIFICATION_SERVICE: 'notification-consumer-group',
+
+  /**
+   * Consumer group for the Health Service
+   */
+  HEALTH_SERVICE: 'health-consumer-group',
+
+  /**
+   * Consumer group for the Care Service
+   */
+  CARE_SERVICE: 'care-consumer-group',
+
+  /**
+   * Consumer group for the Plan Service
+   */
+  PLAN_SERVICE: 'plan-consumer-group',
+} as const;
+
+/**
+ * Topic configuration for environment-specific prefixing.
+ * This allows for isolation between development, staging, and production environments.
+ */
+export const TOPIC_CONFIG = {
+  /**
+   * Whether to apply environment prefixes to topics
+   * Default: true for non-production environments
+   */
+  USE_ENV_PREFIX: process.env.KAFKA_USE_ENV_PREFIX !== 'false',
+
+  /**
+   * Environment prefix to apply to topics (e.g., 'dev.', 'staging.')
+   * Default: Based on NODE_ENV or empty for production
+   */
+  ENV_PREFIX: process.env.KAFKA_TOPIC_PREFIX || 
+    (process.env.NODE_ENV === 'production' ? '' : `${process.env.NODE_ENV || 'dev'}.`),
+
+  /**
+   * Whether to use versioned topics by default
+   * Default: true
+   */
+  USE_VERSIONED_TOPICS: process.env.KAFKA_USE_VERSIONED_TOPICS !== 'false',
+} as const;
+
+/**
+ * Gets the fully qualified topic name with environment prefix if configured.
+ * 
+ * @param topic The base topic name
+ * @returns The fully qualified topic name
  * 
  * @example
- * // Import all topics
- * import { TOPICS } from '@austa/events/constants/topics.constants';
- * 
- * // Use in Kafka consumer
- * kafkaService.consume(TOPICS.HEALTH.METRICS, 'consumer-group-id', handleHealthMetric);
+ * // With ENV_PREFIX = 'dev.'
+ * const fullTopic = getFullyQualifiedTopic('health.events');
+ * // Returns: 'dev.health.events'
  */
-
-/**
- * Type definitions for topic constants to enhance type safety and code completion.
- */
-
-/**
- * Base interface for topic namespaces
- */
-interface TopicNamespace {
-  EVENTS: string;
+export function getFullyQualifiedTopic(topic: string): string {
+  if (TOPIC_CONFIG.USE_ENV_PREFIX && TOPIC_CONFIG.ENV_PREFIX) {
+    return `${TOPIC_CONFIG.ENV_PREFIX}${topic}`;
+  }
+  return topic;
 }
 
 /**
- * Health journey topic namespace
- */
-interface HealthTopics extends TopicNamespace {
-  METRICS: string;
-  GOALS: string;
-  DEVICES: string;
-}
-
-/**
- * Care journey topic namespace
- */
-interface CareTopics extends TopicNamespace {
-  APPOINTMENTS: string;
-  MEDICATIONS: string;
-  TELEMEDICINE: string;
-  PROVIDERS: string;
-}
-
-/**
- * Plan journey topic namespace
- */
-interface PlanTopics extends TopicNamespace {
-  CLAIMS: string;
-  BENEFITS: string;
-  COVERAGE: string;
-}
-
-/**
- * User topic namespace
- */
-interface UserTopics extends TopicNamespace {
-  AUTH: string;
-  PROFILE: string;
-  PREFERENCES: string;
-}
-
-/**
- * Gamification topic namespace
- */
-interface GameTopics extends TopicNamespace {
-  ACHIEVEMENTS: string;
-  REWARDS: string;
-  QUESTS: string;
-  LEADERBOARD: string;
-}
-
-/**
- * Notification topic namespace
- */
-interface NotificationTopics extends TopicNamespace {
-  PUSH: string;
-  EMAIL: string;
-  SMS: string;
-  IN_APP: string;
-}
-
-/**
- * Combined topics interface
- */
-interface Topics {
-  HEALTH: HealthTopics;
-  CARE: CareTopics;
-  PLAN: PlanTopics;
-  USER: UserTopics;
-  GAME: GameTopics;
-  NOTIFICATION: NotificationTopics;
-}
-
-/**
- * Version pattern for topics to support backward compatibility.
- * Current version is v1. When making breaking changes to event schemas,
- * increment the version number and create new topic constants.
- */
-const VERSION = 'v1';
-
-/**
- * Health Journey Topics
+ * Gets the appropriate topic based on configuration and environment.
+ * This is the main function that should be used when determining which topic to publish to or consume from.
  * 
- * These topics are used for events related to the "Minha Saúde" journey,
- * including health metrics, goals, and device connections.
- */
-export const HEALTH_TOPICS: HealthTopics = {
-  /**
-   * Main topic for all health-related events.
-   * Used for tracking health metrics, goals, and achievements.
-   */
-  EVENTS: `health.events.${VERSION}`,
-  
-  /**
-   * Topic for health metric recording events.
-   * Used when users record new health measurements (weight, blood pressure, etc.).
-   */
-  METRICS: `health.metrics.${VERSION}`,
-  
-  /**
-   * Topic for health goal events.
-   * Used when users create, update, or complete health goals.
-   */
-  GOALS: `health.goals.${VERSION}`,
-  
-  /**
-   * Topic for device connection events.
-   * Used when users connect or sync wearable devices.
-   */
-  DEVICES: `health.devices.${VERSION}`,
-};
-
-/**
- * Care Journey Topics
+ * @param baseTopicKey The key of the base topic in BASE_TOPICS
+ * @param options Configuration options for topic selection
+ * @returns The appropriate topic name with environment prefix if configured
  * 
- * These topics are used for events related to the "Cuidar-me Agora" journey,
- * including appointments, medications, and telemedicine sessions.
- */
-export const CARE_TOPICS: CareTopics = {
-  /**
-   * Main topic for all care-related events.
-   * Used for tracking appointments, medications, and care activities.
-   */
-  EVENTS: `care.events.${VERSION}`,
-  
-  /**
-   * Topic for appointment events.
-   * Used when users book, reschedule, or attend appointments.
-   */
-  APPOINTMENTS: `care.appointments.${VERSION}`,
-  
-  /**
-   * Topic for medication events.
-   * Used when users add, take, or update medication schedules.
-   */
-  MEDICATIONS: `care.medications.${VERSION}`,
-  
-  /**
-   * Topic for telemedicine events.
-   * Used for telemedicine session scheduling, attendance, and completion.
-   */
-  TELEMEDICINE: `care.telemedicine.${VERSION}`,
-  
-  /**
-   * Topic for provider interaction events.
-   * Used when users interact with healthcare providers.
-   */
-  PROVIDERS: `care.providers.${VERSION}`,
-};
-
-/**
- * Plan Journey Topics
+ * @example
+ * // Get the appropriate health events topic based on configuration
+ * const topic = getConfiguredTopic('HEALTH_EVENTS');
  * 
- * These topics are used for events related to the "Meu Plano & Benefícios" journey,
- * including insurance plans, claims, and benefits.
- */
-export const PLAN_TOPICS: PlanTopics = {
-  /**
-   * Main topic for all plan-related events.
-   * Used for tracking plan selections, claims, and benefit usage.
-   */
-  EVENTS: `plan.events.${VERSION}`,
-  
-  /**
-   * Topic for insurance claim events.
-   * Used when users submit, update, or receive updates on insurance claims.
-   */
-  CLAIMS: `plan.claims.${VERSION}`,
-  
-  /**
-   * Topic for benefit usage events.
-   * Used when users view, select, or utilize plan benefits.
-   */
-  BENEFITS: `plan.benefits.${VERSION}`,
-  
-  /**
-   * Topic for coverage events.
-   * Used when users check coverage details or make coverage changes.
-   */
-  COVERAGE: `plan.coverage.${VERSION}`,
-};
-
-/**
- * User Topics
+ * // Force using the versioned topic regardless of configuration
+ * const versionedTopic = getConfiguredTopic('CARE_EVENTS', { forceVersioned: true });
  * 
- * These topics are used for cross-journey user events that don't belong
- * to a specific journey, such as authentication, profile updates, and preferences.
+ * // Get the DLQ topic
+ * const dlqTopic = getConfiguredTopic('PLAN_EVENTS', { dlq: true });
  */
-export const USER_TOPICS: UserTopics = {
-  /**
-   * Main topic for all user-related events.
-   * Used for tracking user activities across journeys.
-   */
-  EVENTS: `user.events.${VERSION}`,
+export function getConfiguredTopic(
+  baseTopicKey: keyof typeof BASE_TOPICS,
+  options: { forceVersioned?: boolean; dlq?: boolean; retry?: boolean } = {}
+): string {
+  const { forceVersioned = false, dlq = false, retry = false } = options;
   
-  /**
-   * Topic for authentication events.
-   * Used when users sign in, sign out, or change authentication details.
-   */
-  AUTH: `user.auth.${VERSION}`,
+  let topic: string;
   
-  /**
-   * Topic for profile events.
-   * Used when users update their profile information.
-   */
-  PROFILE: `user.profile.${VERSION}`,
+  if (dlq) {
+    // Get the DLQ topic
+    const dlqKey = `${baseTopicKey}_DLQ` as keyof typeof DLQ_TOPICS;
+    topic = DLQ_TOPICS[dlqKey];
+  } else if (retry) {
+    // Get the retry topic
+    const retryKey = `${baseTopicKey}_RETRY` as keyof typeof RETRY_TOPICS;
+    topic = RETRY_TOPICS[retryKey];
+  } else if (forceVersioned || TOPIC_CONFIG.USE_VERSIONED_TOPICS) {
+    // Get the versioned topic
+    const versionedKey = `${baseTopicKey}_V1` as keyof typeof VERSIONED_TOPICS;
+    topic = VERSIONED_TOPICS[versionedKey];
+  } else {
+    // Get the base topic
+    topic = BASE_TOPICS[baseTopicKey];
+  }
   
-  /**
-   * Topic for preference events.
-   * Used when users update their preferences or settings.
-   */
-  PREFERENCES: `user.preferences.${VERSION}`,
-};
-
-/**
- * Gamification Topics
- * 
- * These topics are used for gamification-related events that process
- * achievements, rewards, and other gamification elements across all journeys.
- */
-export const GAME_TOPICS: GameTopics = {
-  /**
-   * Main topic for all gamification-related events.
-   * Used for tracking gamification activities across journeys.
-   */
-  EVENTS: `game.events.${VERSION}`,
-  
-  /**
-   * Topic for achievement events.
-   * Used when users earn or progress towards achievements.
-   */
-  ACHIEVEMENTS: `game.achievements.${VERSION}`,
-  
-  /**
-   * Topic for reward events.
-   * Used when users earn, redeem, or receive rewards.
-   */
-  REWARDS: `game.rewards.${VERSION}`,
-  
-  /**
-   * Topic for quest events.
-   * Used when users start, progress on, or complete quests.
-   */
-  QUESTS: `game.quests.${VERSION}`,
-  
-  /**
-   * Topic for leaderboard events.
-   * Used for updating leaderboard rankings and scores.
-   */
-  LEADERBOARD: `game.leaderboard.${VERSION}`,
-};
-
-/**
- * Notification Topics
- * 
- * These topics are used for notification-related events across all journeys.
- */
-export const NOTIFICATION_TOPICS: NotificationTopics = {
-  /**
-   * Main topic for all notification-related events.
-   * Used for sending notifications to users.
-   */
-  EVENTS: `notification.events.${VERSION}`,
-  
-  /**
-   * Topic for push notification events.
-   * Used for sending push notifications to mobile devices.
-   */
-  PUSH: `notification.push.${VERSION}`,
-  
-  /**
-   * Topic for email notification events.
-   * Used for sending email notifications.
-   */
-  EMAIL: `notification.email.${VERSION}`,
-  
-  /**
-   * Topic for SMS notification events.
-   * Used for sending SMS notifications.
-   */
-  SMS: `notification.sms.${VERSION}`,
-  
-  /**
-   * Topic for in-app notification events.
-   * Used for sending in-app notifications.
-   */
-  IN_APP: `notification.in-app.${VERSION}`,
-};
-
-/**
- * All Topics
- * 
- * Combines all topic namespaces into a single object for easy access.
- * This allows importing all topics with a single import statement.
- */
-export const TOPICS: Topics = {
-  HEALTH: HEALTH_TOPICS,
-  CARE: CARE_TOPICS,
-  PLAN: PLAN_TOPICS,
-  USER: USER_TOPICS,
-  GAME: GAME_TOPICS,
-  NOTIFICATION: NOTIFICATION_TOPICS,
-};
-
-/**
- * Topic validation utilities
- */
-export const TopicValidation = {
-  /**
-   * Validates if a topic name follows the correct format
-   * @param topic The topic name to validate
-   * @returns True if the topic is valid, false otherwise
-   */
-  isValidTopic: (topic: string): boolean => {
-    // Topics should follow the format: domain.entity.version
-    // e.g., health.metrics.v1
-    const topicRegex = /^[a-z]+\.[a-z-]+\.v\d+$/;
-    return topicRegex.test(topic);
-  },
-  
-  /**
-   * Gets all topics for a specific journey
-   * @param journey The journey name (health, care, plan)
-   * @returns An array of all topics for the specified journey
-   */
-  getJourneyTopics: (journey: 'health' | 'care' | 'plan'): string[] => {
-    switch (journey) {
-      case 'health':
-        return Object.values(HEALTH_TOPICS);
-      case 'care':
-        return Object.values(CARE_TOPICS);
-      case 'plan':
-        return Object.values(PLAN_TOPICS);
-      default:
-        return [];
-    }
-  },
-  
-  /**
-   * Gets all topics across all journeys
-   * @returns An array of all topics
-   */
-  getAllTopics: (): string[] => {
-    return [
-      ...Object.values(HEALTH_TOPICS),
-      ...Object.values(CARE_TOPICS),
-      ...Object.values(PLAN_TOPICS),
-      ...Object.values(USER_TOPICS),
-      ...Object.values(GAME_TOPICS),
-      ...Object.values(NOTIFICATION_TOPICS),
-    ];
-  },
-};
-
-/**
- * Topic versioning utilities
- */
-export const TopicVersions = {
-  /**
-   * Current version of topics
-   */
-  CURRENT: VERSION,
-  
-  /**
-   * Gets a versioned topic name
-   * @param baseTopic The base topic name without version
-   * @param version The version to use (defaults to current version)
-   * @returns The versioned topic name
-   */
-  getVersioned: (baseTopic: string, version: string = VERSION): string => {
-    return `${baseTopic}.${version}`;
-  },
-  
-  /**
-   * Extracts the base topic name from a versioned topic
-   * @param versionedTopic The versioned topic name
-   * @returns The base topic name without version
-   */
-  getBaseTopic: (versionedTopic: string): string => {
-    const parts = versionedTopic.split('.');
-    // Remove the last part (version)
-    return parts.slice(0, -1).join('.');
-  },
-  
-  /**
-   * Extracts the version from a versioned topic
-   * @param versionedTopic The versioned topic name
-   * @returns The version string
-   */
-  getVersion: (versionedTopic: string): string => {
-    const parts = versionedTopic.split('.');
-    // Get the last part (version)
-    return parts[parts.length - 1];
-  },
-};
-
-/**
- * Default export for backward compatibility with existing code.
- * New code should use the named exports for better type safety.
- */
-export default TOPICS;
+  // Apply environment prefix if configured
+  return getFullyQualifiedTopic(topic);
+}
