@@ -8,10 +8,8 @@
 // Base Event Interfaces
 export { 
   IBaseEvent,
-  IEventMetadata,
-  IEventSource,
-  IEventType,
-  IEventPayload
+  EventMetadata,
+  IVersionedEvent
 } from './base-event.interface';
 
 // Event Versioning Interfaces
