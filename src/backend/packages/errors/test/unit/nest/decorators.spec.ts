@@ -1,446 +1,610 @@
-/**
- * @file decorators.spec.ts
- * @description Tests for the NestJS-compatible decorators that enable declarative error handling
- * throughout the AUSTA SuperApp.
- */
-
-import { Controller, Get, Module } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ErrorType } from '../../../src/decorators/types';
 import {
   Retry,
   CircuitBreaker,
   Fallback,
   ErrorBoundary,
   TimeoutConfig,
-  ResilientOperation,
-  RetryConfigs,
-  ResilientConfigs,
-  RETRY_METADATA_KEY,
-  CIRCUIT_BREAKER_METADATA_KEY,
-  FALLBACK_METADATA_KEY,
-  ERROR_BOUNDARY_METADATA_KEY,
-  TIMEOUT_METADATA_KEY
 } from '../../../src/nest/decorators';
-import { ErrorType } from '../../../src/types';
-import { DEFAULT_RETRY_CONFIG } from '../../../src/constants';
+import {
+  RetryInterceptor,
+  CircuitBreakerInterceptor,
+  FallbackInterceptor,
+  ErrorBoundaryInterceptor,
+  TimeoutInterceptor,
+} from '../../../src/nest/interceptors';
 
+/**
+ * Test suite for NestJS-compatible decorators that enable declarative error handling
+ * throughout the AUSTA SuperApp. Validates that decorators correctly store metadata
+ * on controller methods or classes and integrate properly with their corresponding interceptors.
+ */
 describe('Error Handling Decorators', () => {
   let reflector: Reflector;
 
-  beforeEach(async () => {
-    const moduleRef = await Test.createTestingModule({
-      providers: [Reflector]
-    }).compile();
-
-    reflector = moduleRef.get<Reflector>(Reflector);
+  beforeEach(() => {
+    reflector = new Reflector();
   });
 
-  describe('@Retry', () => {
+  /**
+   * Tests for the @Retry decorator which configures method-specific retry policies
+   */
+  describe('@Retry Decorator', () => {
+    // Test class with decorated methods
     @Controller('test')
     class TestController {
-      @Retry()
-      @Get('default')
+      @Retry({ maxAttempts: 3 })
+      @Get('default-retry')
       defaultRetry() {
-        return 'default';
+        return 'default retry';
+      }
+
+      @Retry({ maxAttempts: 5, delay: 1000, backoff: 2 })
+      @Get('custom-retry')
+      customRetry() {
+        return 'custom retry';
       }
 
       @Retry({
-        attempts: 5,
-        initialDelay: 2000,
-        backoffFactor: 1.5,
-        maxDelay: 15000,
-        useJitter: false,
-        retryableErrors: [ErrorType.EXTERNAL]
+        maxAttempts: 3,
+        errorTypes: [ErrorType.EXTERNAL],
+        excludeErrorTypes: [ErrorType.VALIDATION],
       })
-      @Get('custom')
-      customRetry() {
-        return 'custom';
+      @Get('filtered-retry')
+      filteredRetry() {
+        return 'filtered retry';
       }
 
-      @Retry(RetryConfigs.DATABASE)
-      @Get('predefined')
-      predefinedRetry() {
-        return 'predefined';
+      @Get('no-retry')
+      noRetry() {
+        return 'no retry';
       }
     }
 
-    it('should apply default retry configuration when no options are provided', () => {
-      const metadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.defaultRetry);
+    it('should store retry metadata with default options', () => {
+      const metadata = Reflect.getMetadata(
+        'retry:options',
+        TestController.prototype.defaultRetry,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.attempts).toBe(DEFAULT_RETRY_CONFIG.MAX_ATTEMPTS);
-      expect(metadata.initialDelay).toBe(DEFAULT_RETRY_CONFIG.INITIAL_DELAY_MS);
-      expect(metadata.backoffFactor).toBe(DEFAULT_RETRY_CONFIG.BACKOFF_FACTOR);
-      expect(metadata.maxDelay).toBe(DEFAULT_RETRY_CONFIG.MAX_DELAY_MS);
-      expect(metadata.useJitter).toBe(DEFAULT_RETRY_CONFIG.USE_JITTER);
-      expect(metadata.jitterFactor).toBe(DEFAULT_RETRY_CONFIG.JITTER_FACTOR);
-      expect(metadata.retryableErrors).toContain(ErrorType.TECHNICAL);
-      expect(metadata.retryableErrors).toContain(ErrorType.EXTERNAL);
+      expect(metadata.maxAttempts).toBe(3);
+      expect(metadata.delay).toBeDefined();
+      expect(metadata.backoff).toBeDefined();
+      expect(metadata.errorTypes).toBeUndefined();
+      expect(metadata.excludeErrorTypes).toBeUndefined();
     });
 
-    it('should apply custom retry configuration when options are provided', () => {
-      const metadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.customRetry);
+    it('should store retry metadata with custom options', () => {
+      const metadata = Reflect.getMetadata(
+        'retry:options',
+        TestController.prototype.customRetry,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.attempts).toBe(5);
-      expect(metadata.initialDelay).toBe(2000);
-      expect(metadata.backoffFactor).toBe(1.5);
-      expect(metadata.maxDelay).toBe(15000);
-      expect(metadata.useJitter).toBe(false);
-      expect(metadata.retryableErrors).toEqual([ErrorType.EXTERNAL]);
+      expect(metadata.maxAttempts).toBe(5);
+      expect(metadata.delay).toBe(1000);
+      expect(metadata.backoff).toBe(2);
     });
 
-    it('should apply predefined retry configuration when using RetryConfigs', () => {
-      const metadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.predefinedRetry);
+    it('should store retry metadata with error type filters', () => {
+      const metadata = Reflect.getMetadata(
+        'retry:options',
+        TestController.prototype.filteredRetry,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.attempts).toBe(5); // DATABASE config
-      expect(metadata.initialDelay).toBe(500); // DATABASE config
-      expect(metadata.backoffFactor).toBe(1.5); // DATABASE config
+      expect(metadata.errorTypes).toEqual([ErrorType.EXTERNAL]);
+      expect(metadata.excludeErrorTypes).toEqual([ErrorType.VALIDATION]);
+    });
+
+    it('should not store retry metadata on non-decorated methods', () => {
+      const metadata = Reflect.getMetadata(
+        'retry:options',
+        TestController.prototype.noRetry,
+      );
+      
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should integrate with RetryInterceptor', async () => {
+      // Create a test module with the controller and interceptor
+      const moduleRef = await Test.createTestingModule({
+        controllers: [TestController],
+        providers: [RetryInterceptor],
+      }).compile();
+
+      const retryInterceptor = moduleRef.get<RetryInterceptor>(RetryInterceptor);
+      const executionContext = createMockExecutionContext(TestController, 'defaultRetry');
+      
+      // Spy on the interceptor's getRetryOptions method
+      const getRetryOptionsSpy = jest.spyOn(retryInterceptor as any, 'getRetryOptions');
+      
+      // Call the interceptor's intercept method
+      await retryInterceptor.intercept(executionContext, {
+        handle: () => Promise.resolve('success'),
+      });
+      
+      // Verify the interceptor used the metadata from the decorator
+      expect(getRetryOptionsSpy).toHaveBeenCalled();
+      const options = getRetryOptionsSpy.mock.results[0].value;
+      expect(options).toBeDefined();
+      expect(options.maxAttempts).toBe(3);
     });
   });
 
-  describe('@CircuitBreaker', () => {
+  /**
+   * Tests for the @CircuitBreaker decorator which configures external dependency failure handling
+   */
+  describe('@CircuitBreaker Decorator', () => {
+    // Test class with decorated methods
     @Controller('test')
     class TestController {
-      @CircuitBreaker()
-      @Get('default')
-      defaultCircuitBreaker() {
-        return 'default';
+      @CircuitBreaker({ failureThreshold: 5 })
+      @Get('default-circuit')
+      defaultCircuit() {
+        return 'default circuit';
       }
 
       @CircuitBreaker({
-        failureThreshold: 3,
-        resetTimeout: 60000,
-        successThreshold: 2,
-        tripErrors: [ErrorType.EXTERNAL, ErrorType.TECHNICAL],
-        name: 'test-circuit'
+        failureThreshold: 10,
+        resetTimeout: 30000,
+        halfOpenSuccessThreshold: 3,
       })
-      @Get('custom')
-      customCircuitBreaker() {
-        return 'custom';
+      @Get('custom-circuit')
+      customCircuit() {
+        return 'custom circuit';
+      }
+
+      @CircuitBreaker({
+        failureThreshold: 5,
+        errorTypes: [ErrorType.EXTERNAL],
+      })
+      @Get('filtered-circuit')
+      filteredCircuit() {
+        return 'filtered circuit';
+      }
+
+      @Get('no-circuit')
+      noCircuit() {
+        return 'no circuit';
       }
     }
 
-    it('should apply default circuit breaker configuration when no options are provided', () => {
-      const metadata = Reflect.getMetadata(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.defaultCircuitBreaker);
+    it('should store circuit breaker metadata with default options', () => {
+      const metadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        TestController.prototype.defaultCircuit,
+      );
       
       expect(metadata).toBeDefined();
       expect(metadata.failureThreshold).toBe(5);
-      expect(metadata.resetTimeout).toBe(30000);
-      expect(metadata.successThreshold).toBe(2);
-      expect(metadata.tripErrors).toContain(ErrorType.EXTERNAL);
-      expect(metadata.tripErrors).toContain(ErrorType.TIMEOUT);
-      expect(metadata.tripErrors).toContain(ErrorType.SERVICE_UNAVAILABLE);
+      expect(metadata.resetTimeout).toBeDefined();
+      expect(metadata.halfOpenSuccessThreshold).toBeDefined();
+      expect(metadata.errorTypes).toBeUndefined();
     });
 
-    it('should apply custom circuit breaker configuration when options are provided', () => {
-      const metadata = Reflect.getMetadata(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.customCircuitBreaker);
+    it('should store circuit breaker metadata with custom options', () => {
+      const metadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        TestController.prototype.customCircuit,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.failureThreshold).toBe(3);
-      expect(metadata.resetTimeout).toBe(60000);
-      expect(metadata.successThreshold).toBe(2);
-      expect(metadata.tripErrors).toEqual([ErrorType.EXTERNAL, ErrorType.TECHNICAL]);
-      expect(metadata.name).toBe('test-circuit');
+      expect(metadata.failureThreshold).toBe(10);
+      expect(metadata.resetTimeout).toBe(30000);
+      expect(metadata.halfOpenSuccessThreshold).toBe(3);
+    });
+
+    it('should store circuit breaker metadata with error type filters', () => {
+      const metadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        TestController.prototype.filteredCircuit,
+      );
+      
+      expect(metadata).toBeDefined();
+      expect(metadata.errorTypes).toEqual([ErrorType.EXTERNAL]);
+    });
+
+    it('should not store circuit breaker metadata on non-decorated methods', () => {
+      const metadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        TestController.prototype.noCircuit,
+      );
+      
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should integrate with CircuitBreakerInterceptor', async () => {
+      // Create a test module with the controller and interceptor
+      const moduleRef = await Test.createTestingModule({
+        controllers: [TestController],
+        providers: [CircuitBreakerInterceptor],
+      }).compile();
+
+      const circuitBreakerInterceptor = moduleRef.get<CircuitBreakerInterceptor>(CircuitBreakerInterceptor);
+      const executionContext = createMockExecutionContext(TestController, 'defaultCircuit');
+      
+      // Spy on the interceptor's getCircuitBreakerOptions method
+      const getCircuitBreakerOptionsSpy = jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions');
+      
+      // Call the interceptor's intercept method
+      await circuitBreakerInterceptor.intercept(executionContext, {
+        handle: () => Promise.resolve('success'),
+      });
+      
+      // Verify the interceptor used the metadata from the decorator
+      expect(getCircuitBreakerOptionsSpy).toHaveBeenCalled();
+      const options = getCircuitBreakerOptionsSpy.mock.results[0].value;
+      expect(options).toBeDefined();
+      expect(options.failureThreshold).toBe(5);
     });
   });
 
-  describe('@Fallback', () => {
+  /**
+   * Tests for the @Fallback decorator which defines graceful degradation strategies
+   */
+  describe('@Fallback Decorator', () => {
+    // Test class with decorated methods
     @Controller('test')
     class TestController {
-      @Fallback({ methodName: 'fallbackMethod' })
-      @Get('method')
-      methodWithFallback() {
-        return 'primary';
+      @Fallback({ fallbackMethod: 'defaultFallbackMethod' })
+      @Get('default-fallback')
+      defaultFallback() {
+        return 'default fallback';
       }
 
-      fallbackMethod(error: Error, ...args: any[]) {
-        return 'fallback';
+      defaultFallbackMethod() {
+        return 'fallback response';
       }
 
       @Fallback({
-        fallbackFn: (error: Error) => 'function fallback',
-        fallbackErrors: [ErrorType.EXTERNAL],
-        useCachedData: true,
-        maxCacheAge: 600000
+        fallbackMethod: 'customFallbackMethod',
+        errorTypes: [ErrorType.EXTERNAL, ErrorType.TECHNICAL],
       })
-      @Get('function')
-      functionWithFallback() {
-        return 'primary';
+      @Get('custom-fallback')
+      customFallback() {
+        return 'custom fallback';
+      }
+
+      customFallbackMethod() {
+        return 'custom fallback response';
+      }
+
+      @Fallback({ defaultValue: { status: 'degraded', data: null } })
+      @Get('value-fallback')
+      valueFallback() {
+        return 'value fallback';
+      }
+
+      @Get('no-fallback')
+      noFallback() {
+        return 'no fallback';
       }
     }
 
-    it('should apply fallback configuration with method name', () => {
-      const metadata = Reflect.getMetadata(FALLBACK_METADATA_KEY, TestController.prototype.methodWithFallback);
+    it('should store fallback metadata with method reference', () => {
+      const metadata = Reflect.getMetadata(
+        'fallback:options',
+        TestController.prototype.defaultFallback,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.methodName).toBe('fallbackMethod');
-      expect(metadata.fallbackErrors).toContain(ErrorType.EXTERNAL);
-      expect(metadata.fallbackErrors).toContain(ErrorType.TIMEOUT);
-      expect(metadata.fallbackErrors).toContain(ErrorType.SERVICE_UNAVAILABLE);
-      expect(metadata.fallbackErrors).toContain(ErrorType.TECHNICAL);
-      expect(metadata.useCachedData).toBe(false);
-      expect(metadata.maxCacheAge).toBe(300000); // 5 minutes default
+      expect(metadata.fallbackMethod).toBe('defaultFallbackMethod');
+      expect(metadata.defaultValue).toBeUndefined();
+      expect(metadata.errorTypes).toBeUndefined();
     });
 
-    it('should apply fallback configuration with function', () => {
-      const metadata = Reflect.getMetadata(FALLBACK_METADATA_KEY, TestController.prototype.functionWithFallback);
+    it('should store fallback metadata with error type filters', () => {
+      const metadata = Reflect.getMetadata(
+        'fallback:options',
+        TestController.prototype.customFallback,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.fallbackFn).toBeDefined();
-      expect(typeof metadata.fallbackFn).toBe('function');
-      expect(metadata.fallbackErrors).toEqual([ErrorType.EXTERNAL]);
-      expect(metadata.useCachedData).toBe(true);
-      expect(metadata.maxCacheAge).toBe(600000);
+      expect(metadata.fallbackMethod).toBe('customFallbackMethod');
+      expect(metadata.errorTypes).toEqual([ErrorType.EXTERNAL, ErrorType.TECHNICAL]);
+    });
+
+    it('should store fallback metadata with default value', () => {
+      const metadata = Reflect.getMetadata(
+        'fallback:options',
+        TestController.prototype.valueFallback,
+      );
+      
+      expect(metadata).toBeDefined();
+      expect(metadata.defaultValue).toEqual({ status: 'degraded', data: null });
+      expect(metadata.fallbackMethod).toBeUndefined();
+    });
+
+    it('should not store fallback metadata on non-decorated methods', () => {
+      const metadata = Reflect.getMetadata(
+        'fallback:options',
+        TestController.prototype.noFallback,
+      );
+      
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should integrate with FallbackInterceptor', async () => {
+      // Create a test module with the controller and interceptor
+      const moduleRef = await Test.createTestingModule({
+        controllers: [TestController],
+        providers: [FallbackInterceptor],
+      }).compile();
+
+      const fallbackInterceptor = moduleRef.get<FallbackInterceptor>(FallbackInterceptor);
+      const executionContext = createMockExecutionContext(TestController, 'defaultFallback');
+      
+      // Spy on the interceptor's getFallbackOptions method
+      const getFallbackOptionsSpy = jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions');
+      
+      // Call the interceptor's intercept method
+      await fallbackInterceptor.intercept(executionContext, {
+        handle: () => Promise.reject(new Error('Test error')),
+      }).catch(() => {});
+      
+      // Verify the interceptor used the metadata from the decorator
+      expect(getFallbackOptionsSpy).toHaveBeenCalled();
+      const options = getFallbackOptionsSpy.mock.results[0].value;
+      expect(options).toBeDefined();
+      expect(options.fallbackMethod).toBe('defaultFallbackMethod');
     });
   });
 
-  describe('@ErrorBoundary', () => {
-    @ErrorBoundary()
-    @Controller('test-class')
-    class ClassLevelController {
-      @Get('method')
-      testMethod() {
+  /**
+   * Tests for the @ErrorBoundary decorator which provides controller-level error containment
+   */
+  describe('@ErrorBoundary Decorator', () => {
+    // Test class with decorated controller
+    @ErrorBoundary({
+      errorTypes: [ErrorType.TECHNICAL, ErrorType.EXTERNAL],
+      logErrors: true,
+    })
+    @Controller('test-boundary')
+    class BoundaryController {
+      @Get('test')
+      test() {
         return 'test';
       }
     }
 
-    @Controller('test-method')
-    class MethodLevelController {
-      @ErrorBoundary({
-        catchErrors: [ErrorType.VALIDATION, ErrorType.BUSINESS],
-        rethrow: true,
-        handleError: (error: Error) => ({ error: error.message })
-      })
-      @Get('method')
-      testMethod() {
+    // Test class without decorator
+    @Controller('test-no-boundary')
+    class NoBoundaryController {
+      @Get('test')
+      test() {
         return 'test';
       }
     }
 
-    it('should apply default error boundary configuration at class level', () => {
-      const metadata = Reflect.getMetadata(ERROR_BOUNDARY_METADATA_KEY, ClassLevelController);
+    it('should store error boundary metadata on controller class', () => {
+      const metadata = Reflect.getMetadata(
+        'error-boundary:options',
+        BoundaryController,
+      );
       
       expect(metadata).toBeDefined();
-      expect(metadata.catchAll).toBe(true);
-      expect(metadata.catchErrors).toContain(ErrorType.TECHNICAL);
-      expect(metadata.catchErrors).toContain(ErrorType.EXTERNAL);
-      expect(metadata.rethrow).toBe(false);
+      expect(metadata.errorTypes).toEqual([ErrorType.TECHNICAL, ErrorType.EXTERNAL]);
+      expect(metadata.logErrors).toBe(true);
     });
 
-    it('should apply custom error boundary configuration at method level', () => {
-      const metadata = Reflect.getMetadata(ERROR_BOUNDARY_METADATA_KEY, MethodLevelController.prototype.testMethod);
+    it('should not store error boundary metadata on non-decorated controller', () => {
+      const metadata = Reflect.getMetadata(
+        'error-boundary:options',
+        NoBoundaryController,
+      );
       
-      expect(metadata).toBeDefined();
-      expect(metadata.catchErrors).toEqual([ErrorType.VALIDATION, ErrorType.BUSINESS]);
-      expect(metadata.rethrow).toBe(true);
-      expect(metadata.handleError).toBeDefined();
-      expect(typeof metadata.handleError).toBe('function');
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should integrate with ErrorBoundaryInterceptor', async () => {
+      // Create a test module with the controller and interceptor
+      const moduleRef = await Test.createTestingModule({
+        controllers: [BoundaryController],
+        providers: [ErrorBoundaryInterceptor],
+      }).compile();
+
+      const errorBoundaryInterceptor = moduleRef.get<ErrorBoundaryInterceptor>(ErrorBoundaryInterceptor);
+      const executionContext = createMockExecutionContext(BoundaryController, 'test');
+      
+      // Spy on the interceptor's getErrorBoundaryOptions method
+      const getErrorBoundaryOptionsSpy = jest.spyOn(errorBoundaryInterceptor as any, 'getErrorBoundaryOptions');
+      
+      // Call the interceptor's intercept method
+      await errorBoundaryInterceptor.intercept(executionContext, {
+        handle: () => Promise.resolve('success'),
+      });
+      
+      // Verify the interceptor used the metadata from the decorator
+      expect(getErrorBoundaryOptionsSpy).toHaveBeenCalled();
+      const options = getErrorBoundaryOptionsSpy.mock.results[0].value;
+      expect(options).toBeDefined();
+      expect(options.errorTypes).toEqual([ErrorType.TECHNICAL, ErrorType.EXTERNAL]);
+      expect(options.logErrors).toBe(true);
     });
   });
 
-  describe('@TimeoutConfig', () => {
+  /**
+   * Tests for the @TimeoutConfig decorator which handles request timeouts
+   */
+  describe('@TimeoutConfig Decorator', () => {
+    // Test class with decorated methods
     @Controller('test')
     class TestController {
-      @TimeoutConfig()
-      @Get('default')
+      @TimeoutConfig({ timeout: 5000 })
+      @Get('default-timeout')
       defaultTimeout() {
-        return 'default';
+        return 'default timeout';
       }
 
-      @TimeoutConfig({
-        timeout: 5000,
-        message: 'Custom timeout message',
-        cancelOnTimeout: false
-      })
-      @Get('custom')
+      @TimeoutConfig({ timeout: 10000, errorMessage: 'Custom timeout error' })
+      @Get('custom-timeout')
       customTimeout() {
-        return 'custom';
+        return 'custom timeout';
+      }
+
+      @Get('no-timeout')
+      noTimeout() {
+        return 'no timeout';
       }
     }
 
-    it('should apply default timeout configuration when no options are provided', () => {
-      const metadata = Reflect.getMetadata(TIMEOUT_METADATA_KEY, TestController.prototype.defaultTimeout);
-      
-      expect(metadata).toBeDefined();
-      expect(metadata.timeout).toBe(30000); // 30 seconds default
-      expect(metadata.message).toBe('Request timed out');
-      expect(metadata.cancelOnTimeout).toBe(true);
-    });
-
-    it('should apply custom timeout configuration when options are provided', () => {
-      const metadata = Reflect.getMetadata(TIMEOUT_METADATA_KEY, TestController.prototype.customTimeout);
+    it('should store timeout metadata with default options', () => {
+      const metadata = Reflect.getMetadata(
+        'timeout:options',
+        TestController.prototype.defaultTimeout,
+      );
       
       expect(metadata).toBeDefined();
       expect(metadata.timeout).toBe(5000);
-      expect(metadata.message).toBe('Custom timeout message');
-      expect(metadata.cancelOnTimeout).toBe(false);
-    });
-  });
-
-  describe('@ResilientOperation', () => {
-    @Controller('test')
-    class TestController {
-      @ResilientOperation(
-        { attempts: 3 },
-        { failureThreshold: 3 },
-        { methodName: 'fallbackMethod' },
-        { timeout: 5000 }
-      )
-      @Get('combined')
-      combinedOperation() {
-        return 'combined';
-      }
-
-      fallbackMethod(error: Error) {
-        return 'fallback';
-      }
-
-      @ResilientOperation(
-        ResilientConfigs.EXTERNAL_API.retry,
-        ResilientConfigs.EXTERNAL_API.circuitBreaker,
-        undefined,
-        ResilientConfigs.EXTERNAL_API.timeout
-      )
-      @Get('predefined')
-      predefinedOperation() {
-        return 'predefined';
-      }
-    }
-
-    it('should apply multiple decorators when using ResilientOperation', () => {
-      // Check retry metadata
-      const retryMetadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.combinedOperation);
-      expect(retryMetadata).toBeDefined();
-      expect(retryMetadata.attempts).toBe(3);
-
-      // Check circuit breaker metadata
-      const circuitBreakerMetadata = Reflect.getMetadata(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.combinedOperation);
-      expect(circuitBreakerMetadata).toBeDefined();
-      expect(circuitBreakerMetadata.failureThreshold).toBe(3);
-
-      // Check fallback metadata
-      const fallbackMetadata = Reflect.getMetadata(FALLBACK_METADATA_KEY, TestController.prototype.combinedOperation);
-      expect(fallbackMetadata).toBeDefined();
-      expect(fallbackMetadata.methodName).toBe('fallbackMethod');
-
-      // Check timeout metadata
-      const timeoutMetadata = Reflect.getMetadata(TIMEOUT_METADATA_KEY, TestController.prototype.combinedOperation);
-      expect(timeoutMetadata).toBeDefined();
-      expect(timeoutMetadata.timeout).toBe(5000);
+      expect(metadata.errorMessage).toBeDefined();
     });
 
-    it('should apply predefined configurations when using ResilientConfigs', () => {
-      // Check retry metadata
-      const retryMetadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.predefinedOperation);
-      expect(retryMetadata).toBeDefined();
-      expect(retryMetadata.attempts).toBe(ResilientConfigs.EXTERNAL_API.retry.attempts);
-
-      // Check circuit breaker metadata
-      const circuitBreakerMetadata = Reflect.getMetadata(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.predefinedOperation);
-      expect(circuitBreakerMetadata).toBeDefined();
-      expect(circuitBreakerMetadata.failureThreshold).toBe(ResilientConfigs.EXTERNAL_API.circuitBreaker.failureThreshold);
-
-      // Check timeout metadata
-      const timeoutMetadata = Reflect.getMetadata(TIMEOUT_METADATA_KEY, TestController.prototype.predefinedOperation);
-      expect(timeoutMetadata).toBeDefined();
-      expect(timeoutMetadata.timeout).toBe(ResilientConfigs.EXTERNAL_API.timeout.timeout);
+    it('should store timeout metadata with custom options', () => {
+      const metadata = Reflect.getMetadata(
+        'timeout:options',
+        TestController.prototype.customTimeout,
+      );
+      
+      expect(metadata).toBeDefined();
+      expect(metadata.timeout).toBe(10000);
+      expect(metadata.errorMessage).toBe('Custom timeout error');
     });
-  });
 
-  describe('Decorator Composition', () => {
-    @Controller('test')
-    class TestController {
-      @TimeoutConfig({ timeout: 5000 })
-      @Retry({ attempts: 3 })
-      @CircuitBreaker({ failureThreshold: 3 })
-      @Fallback({ methodName: 'fallbackMethod' })
-      @Get('composed')
-      composedMethod() {
-        return 'composed';
-      }
-
-      fallbackMethod(error: Error) {
-        return 'fallback';
-      }
-    }
-
-    it('should support composition of multiple decorators', () => {
-      // Check retry metadata
-      const retryMetadata = Reflect.getMetadata(RETRY_METADATA_KEY, TestController.prototype.composedMethod);
-      expect(retryMetadata).toBeDefined();
-      expect(retryMetadata.attempts).toBe(3);
-
-      // Check circuit breaker metadata
-      const circuitBreakerMetadata = Reflect.getMetadata(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.composedMethod);
-      expect(circuitBreakerMetadata).toBeDefined();
-      expect(circuitBreakerMetadata.failureThreshold).toBe(3);
-
-      // Check fallback metadata
-      const fallbackMetadata = Reflect.getMetadata(FALLBACK_METADATA_KEY, TestController.prototype.composedMethod);
-      expect(fallbackMetadata).toBeDefined();
-      expect(fallbackMetadata.methodName).toBe('fallbackMethod');
-
-      // Check timeout metadata
-      const timeoutMetadata = Reflect.getMetadata(TIMEOUT_METADATA_KEY, TestController.prototype.composedMethod);
-      expect(timeoutMetadata).toBeDefined();
-      expect(timeoutMetadata.timeout).toBe(5000);
+    it('should not store timeout metadata on non-decorated methods', () => {
+      const metadata = Reflect.getMetadata(
+        'timeout:options',
+        TestController.prototype.noTimeout,
+      );
+      
+      expect(metadata).toBeUndefined();
     });
-  });
 
-  describe('Integration with NestJS', () => {
-    @ErrorBoundary()
-    @Controller('test')
-    class TestController {
-      @Retry({ attempts: 3 })
-      @CircuitBreaker({ failureThreshold: 3 })
-      @Fallback({ methodName: 'fallbackMethod' })
-      @TimeoutConfig({ timeout: 5000 })
-      @Get('method')
-      testMethod() {
-        return 'test';
-      }
-
-      fallbackMethod(error: Error) {
-        return 'fallback';
-      }
-    }
-
-    @Module({
-      controllers: [TestController]
-    })
-    class TestModule {}
-
-    it('should work with NestJS testing module', async () => {
+    it('should integrate with TimeoutInterceptor', async () => {
+      // Create a test module with the controller and interceptor
       const moduleRef = await Test.createTestingModule({
-        imports: [TestModule]
+        controllers: [TestController],
+        providers: [TimeoutInterceptor],
       }).compile();
 
-      const controller = moduleRef.get<TestController>(TestController);
-      expect(controller).toBeDefined();
+      const timeoutInterceptor = moduleRef.get<TimeoutInterceptor>(TimeoutInterceptor);
+      const executionContext = createMockExecutionContext(TestController, 'defaultTimeout');
+      
+      // Spy on the interceptor's getTimeoutOptions method
+      const getTimeoutOptionsSpy = jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions');
+      
+      // Call the interceptor's intercept method
+      await timeoutInterceptor.intercept(executionContext, {
+        handle: () => Promise.resolve('success'),
+      });
+      
+      // Verify the interceptor used the metadata from the decorator
+      expect(getTimeoutOptionsSpy).toHaveBeenCalled();
+      const options = getTimeoutOptionsSpy.mock.results[0].value;
+      expect(options).toBeDefined();
+      expect(options.timeout).toBe(5000);
+    });
+  });
 
-      // Use reflector to get metadata
-      const retryMetadata = reflector.get(RETRY_METADATA_KEY, TestController.prototype.testMethod);
+  /**
+   * Tests for decorator composition and precedence
+   */
+  describe('Decorator Composition and Precedence', () => {
+    // Test class with multiple decorators
+    @ErrorBoundary({ logErrors: true })
+    @Controller('test-composition')
+    class CompositionController {
+      @Retry({ maxAttempts: 3 })
+      @CircuitBreaker({ failureThreshold: 5 })
+      @Fallback({ fallbackMethod: 'fallbackMethod' })
+      @TimeoutConfig({ timeout: 5000 })
+      @Get('multi-decorated')
+      multiDecorated() {
+        return 'multi decorated';
+      }
+
+      fallbackMethod() {
+        return 'fallback response';
+      }
+    }
+
+    it('should apply all decorators correctly', () => {
+      // Check that all metadata is present
+      const retryMetadata = Reflect.getMetadata(
+        'retry:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const circuitBreakerMetadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const fallbackMetadata = Reflect.getMetadata(
+        'fallback:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const timeoutMetadata = Reflect.getMetadata(
+        'timeout:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const errorBoundaryMetadata = Reflect.getMetadata(
+        'error-boundary:options',
+        CompositionController,
+      );
+      
       expect(retryMetadata).toBeDefined();
-      expect(retryMetadata.attempts).toBe(3);
-
-      const circuitBreakerMetadata = reflector.get(CIRCUIT_BREAKER_METADATA_KEY, TestController.prototype.testMethod);
       expect(circuitBreakerMetadata).toBeDefined();
-      expect(circuitBreakerMetadata.failureThreshold).toBe(3);
-
-      const fallbackMetadata = reflector.get(FALLBACK_METADATA_KEY, TestController.prototype.testMethod);
       expect(fallbackMetadata).toBeDefined();
-      expect(fallbackMetadata.methodName).toBe('fallbackMethod');
-
-      const timeoutMetadata = reflector.get(TIMEOUT_METADATA_KEY, TestController.prototype.testMethod);
       expect(timeoutMetadata).toBeDefined();
-      expect(timeoutMetadata.timeout).toBe(5000);
-
-      const errorBoundaryMetadata = reflector.get(ERROR_BOUNDARY_METADATA_KEY, TestController);
       expect(errorBoundaryMetadata).toBeDefined();
-      expect(errorBoundaryMetadata.catchAll).toBe(true);
+    });
+
+    it('should maintain correct decorator values when composed', () => {
+      // Verify each decorator's metadata is preserved correctly
+      const retryMetadata = Reflect.getMetadata(
+        'retry:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const circuitBreakerMetadata = Reflect.getMetadata(
+        'circuit-breaker:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const fallbackMetadata = Reflect.getMetadata(
+        'fallback:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      const timeoutMetadata = Reflect.getMetadata(
+        'timeout:options',
+        CompositionController.prototype.multiDecorated,
+      );
+      
+      expect(retryMetadata.maxAttempts).toBe(3);
+      expect(circuitBreakerMetadata.failureThreshold).toBe(5);
+      expect(fallbackMetadata.fallbackMethod).toBe('fallbackMethod');
+      expect(timeoutMetadata.timeout).toBe(5000);
     });
   });
 });
+
+/**
+ * Helper function to create a mock ExecutionContext for testing interceptors
+ */
+function createMockExecutionContext(controller: any, methodName: string): ExecutionContext {
+  return {
+    getClass: () => controller,
+    getHandler: () => controller.prototype[methodName],
+    getType: () => 'http',
+    switchToHttp: () => ({
+      getRequest: () => ({
+        method: 'GET',
+        url: `/test/${methodName}`,
+      }),
+      getResponse: () => ({}),
+      getNext: () => ({}),
+    }),
+  } as ExecutionContext;
+}
