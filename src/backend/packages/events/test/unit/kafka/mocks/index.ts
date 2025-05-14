@@ -1,21 +1,128 @@
 /**
- * Barrel file that exports all mock implementations for Kafka testing from a single entry point.
- * This file simplifies importing Kafka mocks in test files by providing a centralized export interface.
- * Removing this file would force developers to import individual mock files directly, reducing
- * maintainability and increasing import complexity.
+ * Barrel file that exports all mock implementations for Kafka testing.
+ * 
+ * This file provides a centralized export interface for all Kafka mock implementations,
+ * simplifying imports in test files and improving maintainability.
  */
 
-// Export mock Kafka message factories
-export * from './mock-kafka-message';
+// ===== MOCK KAFKA CLIENT =====
+export {
+  // Classes
+  MockKafka,
+  MockProducer,
+  MockConsumer,
+  MockAdmin,
+  MessageStore,
+  
+  // Interfaces
+  MethodCall,
+  MockCallHistory,
+  MockResponse,
+  MockProducerConfig,
+  MockConsumerConfig,
+  MockAdminConfig,
+  MockKafkaConfig
+} from './mock-kafka-client';
 
-// Export mock serializers
-export * from './mock-serializers';
+// ===== MOCK KAFKA CONSUMER =====
+export {
+  // Classes
+  MockKafkaConsumer,
+  
+  // Interfaces
+  MockKafkaMessage,
+  MockKafkaBatch,
+  MockEachMessagePayload,
+  MockEachBatchPayload,
+  MockConsumerRunOptions,
+  MockConsumerSubscribeOptions,
+  MockConsumerConfig as MockKafkaConsumerConfig,
+  RetryOptions,
+  OffsetCommitOptions
+} from './mock-kafka-consumer';
 
-// Export mock journey events
-export * from './mock-journey-events';
+// ===== MOCK KAFKA PRODUCER =====
+export {
+  // Classes
+  MockKafkaProducer
+} from './mock-kafka-producer';
 
-// Export mock Kafka client, producer, and consumer implementations
-// These will be implemented in separate files
-// export * from './mock-kafka-client';
-// export * from './mock-kafka-producer';
-export * from './mock-kafka-consumer';
+// ===== MOCK KAFKA MESSAGES =====
+export {
+  // Functions
+  createMockKafkaMessage,
+  createMockStringMessage,
+  createMockJsonMessage,
+  createMockSerializedMessage,
+  createMockMessageBatch,
+  createMockBinaryMessage,
+  createMockErrorMessage,
+  createMockJourneyEventMessage,
+  createMockVersionedEventMessage,
+  createMockTracedMessage,
+  
+  // Interfaces
+  KafkaMessageHeaders,
+  KafkaMessage,
+  BatchContext,
+  MockKafkaMessageOptions
+} from './mock-kafka-message';
+
+// ===== MOCK SERIALIZERS =====
+export {
+  // Functions
+  mockJsonSerializer,
+  mockJsonDeserializer,
+  mockAvroSerializer,
+  mockAvroDeserializer,
+  createEventValidator,
+  createEventSerializers,
+  testBackwardCompatibility,
+  benchmarkSerializer,
+  
+  // Classes
+  MockSchemaRegistry,
+  
+  // Interfaces
+  MockSerializerOptions,
+  SerializationResult
+} from './mock-serializers';
+
+// ===== MOCK JOURNEY EVENTS =====
+export {
+  // Health Journey Event Generators
+  createHealthMetricRecordedEvent,
+  createHealthGoalAchievedEvent,
+  createDeviceConnectedEvent,
+  
+  // Care Journey Event Generators
+  createAppointmentBookedEvent,
+  createMedicationAdherenceEvent,
+  createTelemedicineSessionEvent,
+  createTreatmentPlanUpdatedEvent,
+  
+  // Plan Journey Event Generators
+  createClaimSubmittedEvent,
+  createBenefitUtilizedEvent,
+  createDocumentUploadedEvent,
+  createCoverageCheckedEvent,
+  
+  // Base Event Generators
+  createBaseEvent,
+  
+  // Invalid Event Generators
+  createInvalidEventMissingFields,
+  createInvalidEventWrongTypes,
+  createInvalidEventUnsupportedJourney,
+  createInvalidEventUnsupportedVersion,
+  
+  // Versioned Event Generators
+  createVersionedEvent,
+  createHealthMetricRecordedEventV1,
+  createHealthMetricRecordedEventV2,
+  
+  // Interfaces
+  BaseEvent,
+  UserContext,
+  MockEventOptions
+} from './mock-journey-events';
