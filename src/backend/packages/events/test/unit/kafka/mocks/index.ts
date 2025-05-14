@@ -18,4 +18,4 @@ export * from './mock-journey-events';
 // These will be implemented in separate files
 // export * from './mock-kafka-client';
 // export * from './mock-kafka-producer';
-// export * from './mock-kafka-consumer';
+export * from './mock-kafka-consumer';
