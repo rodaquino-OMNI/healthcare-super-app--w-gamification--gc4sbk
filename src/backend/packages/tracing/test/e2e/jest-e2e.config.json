@@ -1,1 +1,27 @@
-Failed to process file
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": "\\.e2e-spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", {
+      "tsconfig": "../../tsconfig.json"
+    }]
+  },
+  "moduleNameMapper": {
+    "^@austa/tracing(.*)$": "<rootDir>/../../src$1",
+    "^@austa/logging(.*)$": "<rootDir>/../../../logging/src$1",
+    "^@austa/errors(.*)$": "<rootDir>/../../../errors/src$1"
+  },
+  "testTimeout": 30000,
+  "coverageDirectory": "./coverage",
+  "collectCoverageFrom": [
+    "../../src/**/*.ts",
+    "!../../src/**/*.interface.ts",
+    "!../../src/**/*.module.ts",
+    "!../../src/**/index.ts"
+  ],
+  "coverageReporters": ["json", "lcov", "text-summary"],
+  "verbose": true,
+  "setupFilesAfterEnv": ["<rootDir>/tracing-setup.util.ts"]
+}
