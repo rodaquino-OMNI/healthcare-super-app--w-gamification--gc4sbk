@@ -1,1 +1,39 @@
-Failed to process file
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "@austa/utils/*": ["packages/utils/src/*"],
+      "@austa/validation/*": ["packages/utils/validation/src/*"],
+      "@app/shared/*": ["shared/src/*"],
+      "@app/auth/*": ["auth-service/src/*"]
+    },
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ],
+  "references": [
+    { "path": "../tsconfig.json" }
+  ]
+}
