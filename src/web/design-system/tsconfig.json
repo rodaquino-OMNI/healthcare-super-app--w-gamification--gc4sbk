@@ -1,1 +1,53 @@
-Failed to process file
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "jsx": "react-jsx",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "composite": true,
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@design-system/primitives": ["../primitives/src"],
+      "@design-system/primitives/*": ["../primitives/src/*"],
+      "@austa/interfaces": ["../interfaces"],
+      "@austa/interfaces/*": ["../interfaces/*"],
+      "@austa/journey-context": ["../journey-context/src"],
+      "@austa/journey-context/*": ["../journey-context/src/*"],
+      "@austa/design-system": ["./src"],
+      "@austa/design-system/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*", "types/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "**/*.stories.tsx"],
+  "references": [
+    { "path": "../primitives" },
+    { "path": "../interfaces" },
+    { "path": "../journey-context" }
+  ]
+}
