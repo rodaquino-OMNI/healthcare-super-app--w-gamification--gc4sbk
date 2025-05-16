@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { User } from '@austa/interfaces/auth';
-import { ValidationError } from '@austa/errors/categories';
+import { AppException, ErrorType } from '@austa/errors';
 
 /**
  * Custom decorator to extract the current authenticated user from the request object.
@@ -23,6 +23,14 @@ import { ValidationError } from '@austa/errors/categories';
  * @UseGuards(JwtAuthGuard)
  * getUserId(@CurrentUser('id') userId: string) {
  *   return { userId };
+ * }
+ * 
+ * @example
+ * // Get a nested property from the user object
+ * @Get('user-name')
+ * @UseGuards(JwtAuthGuard)
+ * getUserName(@CurrentUser('profile.firstName') firstName: string) {
+ *   return { firstName };
  * }
  * 
  * @example
@@ -54,25 +62,57 @@ export const CurrentUser = createParamDecorator(
     const request = ctx.switchToHttp().getRequest();
     const user: User = request.user;
     
-    // Throw a validation error if no user is found in the request
+    // Throw an AppException if no user is found in the request
     if (!user) {
-      throw new ValidationError(
+      throw new AppException(
+        ErrorType.VALIDATION,
         'User not found in request. Ensure JwtAuthGuard is applied to this route.',
-        'MISSING_USER_CONTEXT'
+        'AUTH_001'
       );
     }
     
     // If data is provided, return the specified property
     if (data) {
-      const value = user[data];
-      // Throw a validation error if the requested property doesn't exist
-      if (value === undefined) {
-        throw new ValidationError(
-          `Property '${data}' not found on user object.`,
-          'INVALID_USER_PROPERTY'
-        );
+      // Handle nested properties with dot notation (e.g., 'profile.firstName')
+      if (data.includes('.')) {
+        const parts = data.split('.');
+        let value = user;
+        
+        for (const part of parts) {
+          if (value === undefined || value === null) {
+            throw new AppException(
+              ErrorType.VALIDATION,
+              `Property not found in user object: ${data}`,
+              'AUTH_002'
+            );
+          }
+          value = value[part];
+        }
+        
+        if (value === undefined) {
+          throw new AppException(
+            ErrorType.VALIDATION,
+            `Property not found in user object: ${data}`,
+            'AUTH_002'
+          );
+        }
+        
+        return value;
+      } else {
+        // Handle direct properties
+        const value = user[data];
+        
+        // Throw an AppException if the requested property doesn't exist
+        if (value === undefined) {
+          throw new AppException(
+            ErrorType.VALIDATION,
+            `Property not found in user object: ${data}`,
+            'AUTH_002'
+          );
+        }
+        
+        return value;
       }
-      return value;
     }
     
     // Otherwise return the entire user object
