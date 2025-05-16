@@ -61,29 +61,27 @@ export * as SortArrays from './sort-arrays';
 export {
   // Basic arrays
   emptyArray,
-  numberArray,
-  stringArray,
-  booleanArray,
-  objectArray
+  basicNumberArray,
+  basicStringArray,
+  basicBooleanArray,
+  simpleUserArray,
+  detailedUserArray
 } from './basic-arrays';
 
 export {
   // Edge case arrays
   arrayWithNulls,
-  arrayWithUndefined,
-  arrayWithMixedTypes,
-  arrayWithNaN
-} from './edge-case-arrays';
+  arrayWithFalsyValues,
+  arrayWithTruthyValues
+} from './basic-arrays';
 
 /**
  * Type definitions for array fixtures to ensure type safety in tests.
  * These types provide proper typing for fixture objects and expected results.
  */
 export type {
-  TestObject,
-  ArrayFixture,
-  FilterFixture,
-  SortFixture,
-  MapFixture,
-  ReduceFixture
+  SimpleUser,
+  DetailedUser,
+  HealthMetric,
+  Product
 } from './basic-arrays';
