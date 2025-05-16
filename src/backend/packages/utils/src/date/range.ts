@@ -1,15 +1,10 @@
 /**
- * Date range utilities for working with date ranges, generating arrays of dates,
- * and retrieving predefined date ranges.
- * 
- * @packageDocumentation
+ * Date range utilities for working with date ranges across journey services
+ * @module @austa/utils/date/range
  */
 
 import {
   addDays,
-  subDays,
-  subMonths,
-  subYears,
   startOfDay,
   endOfDay,
   startOfWeek,
@@ -18,15 +13,15 @@ import {
   endOfMonth,
   startOfYear,
   endOfYear,
+  subDays,
+  subMonths,
+  subYears,
   isBefore,
-  isAfter,
-  isSameDay as fnIsSameDay
+  isSameDay,
 } from 'date-fns';
 
-import { isValidDate } from './validation';
-
 /**
- * Represents the available predefined date range types
+ * Predefined date range types
  */
 export type DateRangeType = 
   | 'today'
@@ -40,14 +35,28 @@ export type DateRangeType =
   | 'last7Days'
   | 'last30Days'
   | 'last90Days'
-  | 'last365Days';
+  | 'last365Days'
+  | 'currentQuarter'
+  | 'lastQuarter'
+  | 'ytd' // Year to date
+  | 'custom';
 
 /**
- * Represents a date range with start and end dates
+ * Date range object with start and end dates
  */
 export interface DateRange {
   startDate: Date;
   endDate: Date;
+}
+
+/**
+ * Error thrown when an invalid date range is specified
+ */
+export class InvalidDateRangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidDateRangeError';
+  }
 }
 
 /**
@@ -56,12 +65,17 @@ export interface DateRange {
  * @param rangeType - The type of range (today, thisWeek, thisMonth, etc.)
  * @param referenceDate - The reference date (defaults to today)
  * @returns Object with start and end dates for the range
+ * @throws {InvalidDateRangeError} If an invalid range type is provided
  */
 export const getDateRange = (
   rangeType: DateRangeType,
   referenceDate: Date = new Date()
 ): DateRange => {
-  const today = referenceDate || new Date();
+  if (!referenceDate || !(referenceDate instanceof Date) || isNaN(referenceDate.getTime())) {
+    throw new InvalidDateRangeError('Invalid reference date provided');
+  }
+  
+  const today = new Date(referenceDate);
   
   switch (rangeType) {
     case 'today':
@@ -139,12 +153,48 @@ export const getDateRange = (
         startDate: startOfDay(subDays(today, 364)),
         endDate: endOfDay(today)
       };
+
+    case 'currentQuarter':
+      const currentMonth = today.getMonth();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      const quarterStart = new Date(today.getFullYear(), quarterStartMonth, 1);
+      const quarterEnd = new Date(today.getFullYear(), quarterStartMonth + 3, 0);
       
-    default:
+      return {
+        startDate: startOfDay(quarterStart),
+        endDate: endOfDay(quarterEnd)
+      };
+
+    case 'lastQuarter':
+      const month = today.getMonth();
+      const currentQuarter = Math.floor(month / 3);
+      const lastQuarterStartMonth = ((currentQuarter + 3) % 4) * 3;
+      const lastQuarterYear = currentQuarter === 0 ? today.getFullYear() - 1 : today.getFullYear();
+      
+      const lastQuarterStart = new Date(lastQuarterYear, lastQuarterStartMonth, 1);
+      const lastQuarterEnd = new Date(lastQuarterYear, lastQuarterStartMonth + 3, 0);
+      
+      return {
+        startDate: startOfDay(lastQuarterStart),
+        endDate: endOfDay(lastQuarterEnd)
+      };
+
+    case 'ytd': // Year to date
+      return {
+        startDate: startOfYear(today),
+        endDate: endOfDay(today)
+      };
+
+    case 'custom':
+      // For custom range, return the reference date as both start and end
+      // The actual custom range should be set by the consumer
       return {
         startDate: startOfDay(today),
         endDate: endOfDay(today)
       };
+      
+    default:
+      throw new InvalidDateRangeError(`Invalid range type: ${rangeType}`);
   }
 };
 
@@ -154,21 +204,26 @@ export const getDateRange = (
  * @param startDate - The start date
  * @param endDate - The end date
  * @returns Array of dates between start and end dates
- * @throws Error if invalid date range is provided or if start date is after end date
+ * @throws {InvalidDateRangeError} If invalid dates are provided or if start date is after end date
  */
 export const getDatesBetween = (startDate: Date, endDate: Date): Date[] => {
-  if (!isValidDate(startDate) || !isValidDate(endDate)) {
-    throw new Error('Invalid date range provided');
+  // Validate input dates
+  if (!startDate || !(startDate instanceof Date) || isNaN(startDate.getTime())) {
+    throw new InvalidDateRangeError('Invalid start date provided');
   }
   
-  if (!isBefore(startDate, endDate) && !fnIsSameDay(startDate, endDate)) {
-    throw new Error('Start date must be before or the same as end date');
+  if (!endDate || !(endDate instanceof Date) || isNaN(endDate.getTime())) {
+    throw new InvalidDateRangeError('Invalid end date provided');
+  }
+  
+  if (!isBefore(startDate, endDate) && !isSameDay(startDate, endDate)) {
+    throw new InvalidDateRangeError('Start date must be before or the same as end date');
   }
   
   const dates: Date[] = [];
   let currentDate = new Date(startDate);
   
-  while (isBefore(currentDate, endDate) || fnIsSameDay(currentDate, endDate)) {
+  while (isBefore(currentDate, endDate) || isSameDay(currentDate, endDate)) {
     dates.push(new Date(currentDate));
     currentDate = addDays(currentDate, 1);
   }
@@ -177,28 +232,39 @@ export const getDatesBetween = (startDate: Date, endDate: Date): Date[] => {
 };
 
 /**
- * Checks if a date is within a specified range
+ * Checks if a date range is valid
  * 
- * @param date - The date to check
  * @param startDate - The start date of the range
  * @param endDate - The end date of the range
- * @returns True if the date is within the range, false otherwise
+ * @returns True if the date range is valid, false otherwise
  */
-export const isDateInRange = (
-  date: Date | string | number,
-  startDate: Date | string | number,
-  endDate: Date | string | number
-): boolean => {
-  if (!isValidDate(date) || !isValidDate(startDate) || !isValidDate(endDate)) {
+export const isValidDateRange = (startDate: Date, endDate: Date): boolean => {
+  if (!startDate || !(startDate instanceof Date) || isNaN(startDate.getTime())) {
     return false;
   }
   
-  const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
-  const startDateObj = typeof startDate === 'string' || typeof startDate === 'number' ? new Date(startDate) : startDate;
-  const endDateObj = typeof endDate === 'string' || typeof endDate === 'number' ? new Date(endDate) : endDate;
+  if (!endDate || !(endDate instanceof Date) || isNaN(endDate.getTime())) {
+    return false;
+  }
   
-  const isAfterOrEqualStart = isAfter(dateObj, startDateObj) || fnIsSameDay(dateObj, startDateObj);
-  const isBeforeOrEqualEnd = isBefore(dateObj, endDateObj) || fnIsSameDay(dateObj, endDateObj);
+  return isBefore(startDate, endDate) || isSameDay(startDate, endDate);
+};
+
+/**
+ * Creates a custom date range
+ * 
+ * @param startDate - The start date of the range
+ * @param endDate - The end date of the range
+ * @returns A DateRange object with the specified start and end dates
+ * @throws {InvalidDateRangeError} If invalid dates are provided or if start date is after end date
+ */
+export const createCustomDateRange = (startDate: Date, endDate: Date): DateRange => {
+  if (!isValidDateRange(startDate, endDate)) {
+    throw new InvalidDateRangeError('Invalid date range provided');
+  }
   
-  return isAfterOrEqualStart && isBeforeOrEqualEnd;
+  return {
+    startDate: startOfDay(startDate),
+    endDate: endOfDay(endDate)
+  };
 };
