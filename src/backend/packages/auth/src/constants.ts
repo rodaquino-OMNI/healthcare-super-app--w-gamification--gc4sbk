@@ -7,12 +7,17 @@
  */
 
 /**
+ * Default JWT expiration time (1 hour in seconds)
+ */
+export const JWT_EXPIRATION_DEFAULT = '3600s';
+
+/**
  * Authentication Error Codes
  * 
  * Standardized error codes for authentication-related errors.
  * These codes are used for client-side error handling and debugging.
  */
-export const ERROR_CODES = {
+export const AUTH_ERROR_CODES = {
   INVALID_CREDENTIALS: 'AUTH_001',
   TOKEN_EXPIRED: 'AUTH_002',
   INSUFFICIENT_PERMISSIONS: 'AUTH_003',
