@@ -1,25 +1,46 @@
 /**
- * @austa/auth package
+ * @austa/auth
  * 
- * This package provides authentication and authorization functionality for the AUSTA SuperApp.
- * It includes services for user authentication, JWT token management, and role-based access control.
+ * This package provides authentication and authorization capabilities for the AUSTA SuperApp.
+ * It includes JWT authentication, OAuth providers, role-based access control, and utilities
+ * for secure authentication operations.
  */
 
-// Core components
-export * from './auth.service';
+// Core exports
 export * from './auth.module';
-
-// DTOs
-export * from './dto/create-user.dto';
-
-// Types
+export * from './auth.service';
+export * from './token.service';
 export * from './types';
-
-// Constants
 export * from './constants';
 
-// Utilities
-export * from './utils/retry.util';
+// Authentication providers
+export * from './providers';
 
-// Re-export from NestJS for convenience
-export { JwtService } from '@nestjs/jwt';
+// Authentication decorators
+export * from './decorators';
+
+// Authentication guards
+export * from './guards/jwt-auth.guard';
+export * from './guards/local-auth.guard';
+export * from './guards/roles.guard';
+
+// Authentication strategies
+export * from './strategies/jwt.strategy';
+export * from './strategies/local.strategy';
+export * from './strategies/oauth.strategy';
+
+// Data Transfer Objects
+export * from './dto/login.dto';
+export * from './dto/refresh-token.dto';
+export * from './dto/token-response.dto';
+export * from './dto/social-login.dto';
+export * from './dto/mfa-verification.dto';
+
+// Interfaces
+export * from './interfaces';
+
+// Utilities
+export * from './utils/crypto.util';
+export * from './utils/password.util';
+export * from './utils/token.util';
+export * from './utils/validation.util';
