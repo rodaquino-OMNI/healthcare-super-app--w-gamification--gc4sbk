@@ -1,34 +1,46 @@
+/**
+ * Touchable component styles for the AUSTA SuperApp
+ * Provides consistent touchable behavior across web and mobile platforms
+ * with appropriate visual feedback and accessibility features
+ * 
+ * @package @design-system/primitives
+ * @version 2.0.0
+ */
+
 import styled, { css } from 'styled-components';
 import { TouchableOpacity, Platform } from 'react-native';
-import { animation } from '../../../tokens';
-
-interface StyledTouchableOpacityProps {
-  fullWidth?: boolean;
-  disabled?: boolean;
-  journey?: 'health' | 'care' | 'plan';
-}
+import { TouchableStyleProps } from '@austa/interfaces/components';
+import { animation } from '../../../tokens/animation';
 
 /**
  * StyledTouchableOpacity provides a consistent touchable component that works across platforms
  * with appropriate visual feedback and styling.
  * 
- * It handles platform-specific styling differences between web and mobile, ensuring
- * consistent behavior and appearance across all platforms while respecting
- * accessibility requirements.
+ * Features:
+ * - Cross-platform compatibility (web and mobile)
+ * - Consistent visual feedback for all interactive states
+ * - Accessibility-friendly focus styles for keyboard navigation
+ * - Support for disabled state with visual indication
+ * - Configurable width behavior
  * 
- * @param fullWidth - Makes the touchable expand to fill its container width
- * @param disabled - Disables the touchable and applies a visual indication
- * @param journey - Optional journey identifier for journey-specific styling
+ * @example
+ * ```tsx
+ * import { StyledTouchableOpacity } from '@design-system/primitives/components/Touchable';
  * 
- * Note: The native activeOpacity prop is passed through to the underlying TouchableOpacity
- * component and controls the opacity when pressed on mobile platforms.
+ * <StyledTouchableOpacity 
+ *   fullWidth 
+ *   activeOpacity={0.7} 
+ *   onPress={() => console.log('Pressed!')}
+ * >
+ *   <Text>Press me</Text>
+ * </StyledTouchableOpacity>
+ * ```
  */
-export const StyledTouchableOpacity = styled(TouchableOpacity)<StyledTouchableOpacityProps>`
+export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStyleProps>`
   /* Base styles */
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  position: relative;
   
   /* Handle width */
   width: ${props => (props.fullWidth ? '100%' : 'auto')};
@@ -52,11 +64,18 @@ export const StyledTouchableOpacity = styled(TouchableOpacity)<StyledTouchableOp
       }
     `}
     
+    /* Enhanced focus state for accessibility */
     &:focus-visible {
-      outline: 2px solid ${props.journey ? 
-        `var(--journey-${props.journey}-accent, rgba(0, 102, 204, 0.5))` : 
-        'rgba(0, 102, 204, 0.5)'};
+      box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.5);
+      outline: 2px solid transparent;
       outline-offset: 2px;
+    }
+    
+    /* Ensure keyboard focus is visible even when using high contrast mode */
+    @media (forced-colors: active) {
+      &:focus-visible {
+        outline: 2px solid HighlightText;
+      }
     }
   `}
 `;
