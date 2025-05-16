@@ -1,1 +1,1 @@
-Failed to process file
+export { Stack, StackProps } from './Stack';
