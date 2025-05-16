@@ -1,1 +1,4 @@
-Failed to process file
+import Text, { TextProps } from './Text';
+
+export type { TextProps };
+export default Text;
