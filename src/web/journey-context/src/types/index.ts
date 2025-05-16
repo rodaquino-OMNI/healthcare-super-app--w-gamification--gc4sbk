@@ -1,43 +1,47 @@
 /**
  * Journey Context Types
  * 
- * This file exports types used throughout the journey-context package.
- * It provides a central location for type definitions to ensure consistency.
+ * This file centralizes exports of all journey-related type definitions through a barrel pattern,
+ * making types from journey.types.ts, context.types.ts, and platform.types.ts available through
+ * a single import path. This simplifies importing of journey context types throughout the application,
+ * reducing import complexity and ensuring consistency.
  */
-
-// Re-export auth types for convenience
-export { AuthSession, JwtPayload } from '@austa/interfaces/auth';
-export { AuthUser } from '@austa/interfaces/auth/user.types';
 
 /**
- * Authentication status type
+ * Journey Types
+ * Core type definitions for journeys, including identifiers, constants, and interfaces
  */
-export type AuthStatus = 'authenticated' | 'loading' | 'unauthenticated';
+export type {
+  JourneyId,
+  Journey,
+  JourneyConfig,
+} from './journey.types';
+
+export {
+  JOURNEY_IDS,
+  DEFAULT_JOURNEY,
+} from './journey.types';
 
 /**
- * Authentication state interface
+ * Context Types
+ * Type definitions for journey context providers and hooks
  */
-export interface AuthState {
-  session: AuthSession | null;
-  status: AuthStatus;
-  user: AuthUser | null;
-}
+export type {
+  JourneyProviderProps,
+  BaseJourneyContextType,
+  WebJourneyContextType,
+  MobileJourneyContextType,
+  JourneyContextType,
+} from './context.types';
 
 /**
- * Authentication error interface
+ * Platform Types
+ * Type definitions for platform-specific adaptations
  */
-export interface AuthError extends Error {
-  code?: string;
-  details?: Record<string, any>;
-}
-
-/**
- * Storage hook return type
- */
-export interface UseStorageReturn<T> {
-  value: T | null;
-  setValue: (value: T | null) => Promise<void>;
-  removeValue: () => Promise<void>;
-  error: Error | null;
-  isLoading: boolean;
-}
+export type {
+  Platform,
+  PlatformContextMap,
+  PlatformJourneyContextType,
+  PlatformJourneyStateMap,
+  PlatformJourneyState,
+} from './platform.types';
