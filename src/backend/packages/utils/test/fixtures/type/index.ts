@@ -4,3 +4,4 @@
  */
 
 export * from './assertion-fixtures';
+export * from './predicate-fixtures';
