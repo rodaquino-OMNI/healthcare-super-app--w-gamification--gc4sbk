@@ -1,87 +1,12 @@
 /**
- * Journey Context Adapters
+ * Authentication Adapters
  * 
- * This file provides platform-specific adapters based on the runtime environment,
- * enabling the journey context package to be platform-agnostic while still
- * accessing platform-specific features.
- * 
- * It automatically detects whether the code is running in a web or mobile environment
- * and exports the appropriate adapters accordingly.
+ * This file provides a unified entry point for platform-specific authentication adapters.
+ * It automatically detects the current platform and initializes the appropriate adapter.
  */
 
-import { Platform } from '../types/platform.types';
-
-/**
- * Adapter interfaces
- * 
- * These interfaces define the contract for platform-specific adapters.
- * They ensure that both web and mobile implementations provide the same
- * functionality, even if the underlying implementation differs.
- */
-
-// Authentication adapter interface
-export interface IAuthAdapter {
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  refreshToken: () => Promise<boolean>;
-  getToken: () => Promise<string | null>;
-  isAuthenticated: () => Promise<boolean>;
-  getUserProfile: () => Promise<any>;
-}
-
-// Gamification adapter interface
-export interface IGamificationAdapter {
-  triggerEvent: (eventName: string, eventData: any) => Promise<void>;
-  getAchievements: () => Promise<any[]>;
-  getQuests: () => Promise<any[]>;
-  getProfile: () => Promise<any>;
-  getLeaderboard: () => Promise<any[]>;
-}
-
-// Journey adapter interface
-export interface IJourneyAdapter {
-  setCurrentJourney: (journeyId: string) => Promise<void>;
-  getCurrentJourney: () => Promise<string | null>;
-  getJourneyPreferences: () => Promise<any>;
-  saveJourneyPreferences: (preferences: any) => Promise<void>;
-}
-
-// Navigation adapter interface
-export interface INavigationAdapter {
-  navigateTo: (route: string, params?: any) => void;
-  goBack: () => void;
-  resetToHome: () => void;
-  getCurrentRoute: () => string;
-  setRouteParams: (params: any) => void;
-}
-
-// Notification adapter interface
-export interface INotificationAdapter {
-  getNotifications: () => Promise<any[]>;
-  markAsRead: (notificationId: string) => Promise<void>;
-  markAllAsRead: () => Promise<void>;
-  deleteNotification: (notificationId: string) => Promise<void>;
-  registerForPushNotifications: () => Promise<void>;
-}
-
-// Storage adapter interface
-export interface IStorageAdapter {
-  setItem: (key: string, value: any) => Promise<void>;
-  getItem: (key: string) => Promise<any>;
-  removeItem: (key: string) => Promise<void>;
-  clear: () => Promise<void>;
-  getAllKeys: () => Promise<string[]>;
-}
-
-/**
- * Detects the current platform (web or mobile) based on runtime environment.
- * 
- * This function uses multiple checks to reliably determine the platform:
- * 1. Checks for React Native-specific globals
- * 2. Checks for React Native-specific APIs
- * 3. Checks for web-specific APIs
- */
-const detectPlatform = (): Platform => {
+// Platform detection function
+const detectPlatform = (): 'web' | 'mobile' => {
   try {
     // Primary check: React Native specific global
     if (typeof navigator !== 'undefined' && navigator.product === 'ReactNative') {
@@ -115,61 +40,32 @@ const detectPlatform = (): Platform => {
   }
 };
 
-// Determine the current platform
-const currentPlatform = detectPlatform();
-
-// Declare adapter variables with proper interface types
-let AuthAdapter: IAuthAdapter;
-let GamificationAdapter: IGamificationAdapter;
-let JourneyAdapter: IJourneyAdapter;
-let NavigationAdapter: INavigationAdapter;
-let NotificationAdapter: INotificationAdapter;
-let StorageAdapter: IStorageAdapter;
-
-try {
-  // Import and export platform-specific adapters based on detected platform
-  if (currentPlatform === 'web') {
-    // Using dynamic import with require for synchronous loading
-    // This pattern maintains compatibility with various bundlers while
-    // still allowing for conditional imports
-    const webAdapters = require('./web');
-    
-    // Export web-specific adapters
-    AuthAdapter = webAdapters.AuthAdapter;
-    GamificationAdapter = webAdapters.GamificationAdapter;
-    JourneyAdapter = webAdapters.JourneyAdapter;
-    NavigationAdapter = webAdapters.NavigationAdapter;
-    NotificationAdapter = webAdapters.NotificationAdapter;
-    StorageAdapter = webAdapters.StorageAdapter;
+/**
+ * Initializes the appropriate authentication adapter based on the detected platform
+ */
+export function initAuthAdapter(): void {
+  const platform = detectPlatform();
+  
+  if (platform === 'web') {
+    // Dynamically import the web adapter to avoid bundling issues
+    import('./web/authAdapter').then(({ initWebAuthAdapter }) => {
+      initWebAuthAdapter();
+    }).catch(error => {
+      console.error('Failed to initialize web auth adapter:', error);
+    });
   } else {
-    // Import mobile adapters
-    const mobileAdapters = require('./mobile');
-    
-    // Export mobile-specific adapters
-    AuthAdapter = mobileAdapters.AuthAdapter;
-    GamificationAdapter = mobileAdapters.GamificationAdapter;
-    JourneyAdapter = mobileAdapters.JourneyAdapter;
-    NavigationAdapter = mobileAdapters.NavigationAdapter;
-    NotificationAdapter = mobileAdapters.NotificationAdapter;
-    StorageAdapter = mobileAdapters.StorageAdapter;
+    // Dynamically import the mobile adapter to avoid bundling issues
+    import('./mobile/authAdapter').then(({ initMobileAuthAdapter }) => {
+      initMobileAuthAdapter();
+    }).catch(error => {
+      console.error('Failed to initialize mobile auth adapter:', error);
+    });
   }
-} catch (error) {
-  // Handle initialization errors
-  console.error(`Failed to initialize ${currentPlatform} adapters:`, error);
-  throw new Error(`Journey context adapters initialization failed: ${error.message}`);
 }
 
-// Export platform-specific adapters with consistent interface
-export {
-  AuthAdapter,
-  GamificationAdapter,
-  JourneyAdapter,
-  NavigationAdapter,
-  NotificationAdapter,
-  StorageAdapter,
-  currentPlatform,
-};
+// Auto-initialize the adapter when this module is imported
+initAuthAdapter();
 
-// Export platform detection utility for consumers that need to perform
-// platform-specific logic outside of the adapters
-export { detectPlatform };
+// Re-export the adapters for direct access if needed
+export { default as webAuthAdapter } from './web/authAdapter';
+export { default as mobileAuthAdapter } from './mobile/authAdapter';
