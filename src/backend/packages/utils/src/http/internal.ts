@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { createSecureAxios } from './secure-axios';
+import { createSecureHttpClient } from './security';
 
 /**
  * Represents the journey types in the AUSTA SuperApp
@@ -158,7 +158,16 @@ export function createInternalApiClient(options: InternalApiClientOptions): Axio
   } = options;
 
   // Create a secure axios instance
-  const instance = createSecureAxios();
+  const securityClient = createSecureHttpClient();
+  const instance = axios.create();
+  
+  // Add URL validation interceptor for SSRF protection
+  instance.interceptors.request.use(config => {
+    if (config.url) {
+      securityClient.validateUrl(config.url, config.baseURL);
+    }
+    return config;
+  });
   
   // Set default configuration
   instance.defaults.baseURL = baseURL;
