@@ -1,1 +1,29 @@
-Failed to process file
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "module": "commonjs",
+    "outDir": "../dist/test",
+    "baseUrl": "./",
+    "paths": {
+      "@austa/utils/*": ["../src/*"],
+      "@austa/utils": ["../src"],
+      "@austa/*": ["../../*/src"],
+      "test/*": ["./"]
+    }
+  },
+  "include": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts",
+    "**/*.d.ts",
+    "./setup-tests.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "../dist"
+  ]
+}
