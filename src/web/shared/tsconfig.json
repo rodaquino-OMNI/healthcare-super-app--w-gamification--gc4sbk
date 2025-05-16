@@ -1,1 +1,49 @@
-Failed to process file
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "target": "es2018",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "declaration": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["*"],
+      "@austa/interfaces": ["../interfaces"],
+      "@austa/interfaces/*": ["../interfaces/*"],
+      "@design-system/primitives": ["../primitives"],
+      "@design-system/primitives/*": ["../primitives/*"],
+      "@austa/journey-context": ["../journey-context"],
+      "@austa/journey-context/*": ["../journey-context/*"],
+      "@austa/design-system": ["../design-system"],
+      "@austa/design-system/*": ["../design-system/*"]
+    },
+    "composite": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rootDir": ".",
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "**/*.stories.tsx"],
+  "references": [
+    { "path": "../interfaces" },
+    { "path": "../primitives" },
+    { "path": "../journey-context" },
+    { "path": "../design-system" }
+  ]
+}
