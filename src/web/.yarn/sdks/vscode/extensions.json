@@ -1,1 +1,29 @@
-Failed to process file
+{
+  // VSCode extensions recommended for the AUSTA SuperApp monorepo
+  "recommendations": [
+    // Core extensions for monorepo development
+    "ms-vscode.vscode-typescript-next", // TypeScript v5.3.3 support
+    "arcanis.vscode-zipfs", // Required for Yarn PnP to access dependencies in zip files
+    "christian-kohler.path-intellisense", // Support for @app/* and @austa/* path aliases
+    
+    // Code quality and formatting
+    "dbaeumer.vscode-eslint", // ESLint with monorepo support
+    "esbenp.prettier-vscode", // Consistent code formatting
+    "wix.vscode-import-cost", // Visualize size of imported packages
+    
+    // Framework support
+    "graphql.vscode-graphql", // GraphQL schema support
+    "prisma.prisma", // Prisma schema support
+    "bradlc.vscode-tailwindcss", // Tailwind CSS support
+    "styled-components.vscode-styled-components", // Styled-components syntax highlighting
+    
+    // Testing and development
+    "orta.vscode-jest", // Jest testing support
+    "mikestead.dotenv", // Environment variable support
+    
+    // UI development
+    "formulahendry.auto-rename-tag", // HTML/JSX tag renaming
+    "naumovs.color-highlight", // Color visualization in code
+    "csstools.postcss" // PostCSS support
+  ]
+}
