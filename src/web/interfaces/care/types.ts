@@ -1,71 +1,56 @@
 /**
- * Core enum types for the Care journey in the AUSTA SuperApp
+ * Core Type Definitions for Care Journey
  * 
- * These enums provide type-safe categorization for appointments and their statuses
- * throughout the Care journey, ensuring consistent data structures between frontend
- * and backend systems.
+ * This file defines the fundamental enum types used throughout the Care journey
+ * in the AUSTA SuperApp. These enums provide type safety and standardization
+ * for appointment management and care-related features.
+ * 
+ * @module care
  */
 
 /**
- * Defines the type of healthcare appointment
- * 
- * Used to differentiate between appointments that require physical presence
- * and those that can be conducted remotely through the telemedicine platform.
+ * Defines the possible types of healthcare appointments in the system.
+ * Used to categorize appointments based on their delivery method.
  */
 export enum AppointmentType {
   /**
-   * Appointment that requires physical presence at a healthcare facility
-   * Examples: Physical examinations, procedures, lab tests
+   * In-person appointment that occurs at a physical healthcare facility.
+   * Requires the patient to travel to the provider's location.
+   * Associated with location information including address and room number.
    */
-  IN_PERSON = 'IN_PERSON',
+  IN_PERSON = 'in-person',
   
   /**
-   * Remote appointment conducted through the telemedicine platform
-   * Examples: Follow-up consultations, prescription renewals, quick assessments
+   * Virtual appointment conducted via video conferencing technology.
+   * Allows patients to consult with healthcare providers remotely.
+   * Associated with a telemedicine session ID for connecting to the virtual meeting.
    */
-  VIRTUAL = 'VIRTUAL',
+  TELEMEDICINE = 'telemedicine'
 }
 
 /**
- * Defines the current status of a healthcare appointment
- * 
- * Used to track the lifecycle of an appointment from creation to completion
- * or cancellation, enabling proper UI state management and notifications.
+ * Defines the possible statuses of healthcare appointments in the system.
+ * Used to track the lifecycle of an appointment from creation to completion.
  */
 export enum AppointmentStatus {
   /**
-   * Appointment has been requested but not yet confirmed by the provider
-   * UI should indicate pending confirmation and allow cancellation
+   * Appointment has been booked and confirmed but has not yet occurred.
+   * The default status when an appointment is first created.
+   * Appointments in this status can be cancelled or rescheduled.
    */
-  REQUESTED = 'REQUESTED',
+  SCHEDULED = 'scheduled',
   
   /**
-   * Appointment has been confirmed and scheduled
-   * UI should display date/time prominently and enable reminders
+   * Appointment has successfully taken place.
+   * Indicates that the patient and provider have met and the consultation is finished.
+   * Appointments in this status cannot be modified or cancelled.
    */
-  SCHEDULED = 'SCHEDULED',
+  COMPLETED = 'completed',
   
   /**
-   * Appointment is currently in progress
-   * UI should provide access to telemedicine session or check-in options
+   * Appointment has been cancelled and will not take place as scheduled.
+   * Can be cancelled by either the patient, provider, or system.
+   * Cancelled appointments may include a reason for cancellation.
    */
-  IN_PROGRESS = 'IN_PROGRESS',
-  
-  /**
-   * Appointment has been completed
-   * UI should offer options for feedback, follow-up booking, and treatment plan access
-   */
-  COMPLETED = 'COMPLETED',
-  
-  /**
-   * Appointment was cancelled by either the patient or provider
-   * UI should offer rebooking options and display cancellation reason if available
-   */
-  CANCELLED = 'CANCELLED',
-  
-  /**
-   * Patient did not attend the scheduled appointment
-   * UI should offer rebooking options and potentially display missed appointment policies
-   */
-  NO_SHOW = 'NO_SHOW',
+  CANCELLED = 'cancelled'
 }
