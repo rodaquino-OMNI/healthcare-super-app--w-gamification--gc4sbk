@@ -51,7 +51,20 @@ export {
 } from './comparison';
 
 // Re-export timezone utilities
-export { getLocalTimezone } from './timezone';
+export {
+  getLocalTimezone,
+  getLocalIANATimezone,
+  isValidTimezone,
+  convertToTimezone,
+  formatWithTimezone,
+  getTimezoneOffset,
+  isDaylightSavingTime,
+  isDSTTransition,
+  getTimezoneAbbreviation,
+  getAvailableTimezones,
+  getCurrentDateInTimezone,
+  TimezoneError
+} from './timezone';
 
 // Re-export journey-specific utilities
 export { formatJourneyDate } from './journey';
@@ -91,4 +104,28 @@ export { formatJourneyDate } from './journey';
  * 
  * // Format a date for the plan journey
  * const planDate = formatJourneyDate(new Date(), 'plan', 'pt-BR');
+ * 
+ * @example
+ * // Timezone utilities
+ * import { formatWithTimezone, convertToTimezone, isDSTTransition } from '@austa/utils/date';
+ * 
+ * // Format a date with timezone information
+ * const formattedWithTz = formatWithTimezone(
+ *   new Date(), 
+ *   'yyyy-MM-dd HH:mm:ss zzz', 
+ *   'America/Sao_Paulo'
+ * );
+ * 
+ * // Convert a date from one timezone to another
+ * const convertedDate = convertToTimezone(
+ *   new Date(), 
+ *   'America/Sao_Paulo', 
+ *   'America/New_York'
+ * );
+ * 
+ * // Check if a date is during a DST transition
+ * const isTransition = isDSTTransition(
+ *   new Date('2023-03-12T02:30:00'), 
+ *   'America/New_York'
+ * );
  */
