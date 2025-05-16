@@ -11,7 +11,7 @@
 /**
  * Standard JWT payload structure with user information and claims
  */
-export interface JwtPayload {
+export interface TokenPayload {
   /** Unique identifier for the user (subject) */
   sub: string;
   /** User's email address */
