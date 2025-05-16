@@ -1,49 +1,36 @@
 {
-  "extends": "../tsconfig.json",
   "compilerOptions": {
     "target": "es2018",
-    "lib": ["dom", "dom.iterable", "esnext"],
     "module": "esnext",
-    "moduleResolution": "node",
-    "jsx": "react",
+    "lib": ["dom", "esnext"],
+    "importHelpers": true,
     "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
-    "outDir": "./dist",
     "rootDir": "./src",
+    "outDir": "./dist",
     "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "moduleResolution": "node",
+    "baseUrl": "./",
+    "paths": {
+      "@austa/*": ["../*/src"],
+      "*": ["src/*", "node_modules/*"]
+    },
+    "jsx": "react",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@austa/interfaces/*": ["../interfaces/*"],
-      "@design-system/primitives/*": ["../primitives/*"]
-    },
-    "typeRoots": ["./node_modules/@types", "./src/types"]
+    "resolveJsonModule": true
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "src/**/*.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "**/*.stories.tsx"
-  ],
-  "references": [
-    { "path": "../interfaces" },
-    { "path": "../primitives" }
-  ]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }
