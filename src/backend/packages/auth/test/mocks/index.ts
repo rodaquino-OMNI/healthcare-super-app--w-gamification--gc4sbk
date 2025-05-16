@@ -1,22 +1,26 @@
 /**
- * Barrel file that exports all mock implementations from the auth test/mocks folder.
- * This provides a centralized access point for test utilities.
+ * @file Auth Package Test Mocks Barrel File
+ * @description Centralized export point for all auth package test mocks.
+ * This file provides a single import source for all mock implementations
+ * used in auth package tests, organized by mock type.
  */
 
-// Database mocks
+// Database-related mocks
 export * from './prisma.mock';
-
-// Service mocks
-export * from './auth.service.mock';
-export * from './token.service.mock';
-export * from './config.mock';
-export * from './logger.mock';
 export * from './redis.mock';
+export * from './database-auth-provider.mock';
 
-// Provider mocks
+// JWT-related mocks
+export * from './jwt-provider.mock';
+export * from './token.service.mock';
+
+// OAuth-related mocks
 export * from './oauth-provider.mock';
 export * from './apple-provider.mock';
 export * from './facebook-provider.mock';
 export * from './google-provider.mock';
-export * from './jwt-provider.mock';
-export * from './database-auth-provider.mock';
+
+// Service-related mocks
+export * from './auth.service.mock';
+export * from './config.mock';
+export * from './logger.mock';
