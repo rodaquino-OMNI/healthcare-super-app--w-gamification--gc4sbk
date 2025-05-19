@@ -1,1 +1,336 @@
-Failed to process file
+# Journey Context CI Workflow
+#
+# This workflow implements continuous integration for the @austa/journey-context package
+# that provides React context providers for journey-specific state management.
+# It ensures proper linting, testing, and building of the package.
+
+name: Journey Context CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/web/journey-context/**'
+  pull_request:
+    paths:
+      - 'src/web/journey-context/**'
+  workflow_dispatch:
+    # Allow manual triggering
+
+env:
+  NODE_VERSION: '18.15.0'
+  WORKING_DIRECTORY: 'src/web/journey-context'
+
+jobs:
+  # Validate dependencies using the reusable workflow
+  validate-dependencies:
+    name: Validate Dependencies
+    uses: ./.github/workflows/dependency-validation.yml
+    with:
+      working-directory: ${{ env.WORKING_DIRECTORY }}
+      node-version: ${{ env.NODE_VERSION }}
+      package-manager: 'pnpm'
+      fail-on-warning: true
+      validate-typescript: true
+      detect-circular: true
+
+  # Lint the codebase
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: validate-dependencies
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run ESLint
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm lint
+
+  # Type check the codebase
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    needs: validate-dependencies
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run TypeScript compiler
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm tsc --noEmit
+
+  # Test the package
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run tests with coverage
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm test:coverage
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ${{ env.WORKING_DIRECTORY }}/coverage
+          env_vars: CI,GITHUB_ACTIONS
+          fail_ci_if_error: true
+          flags: journey-context
+          name: codecov-journey-context
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+
+  # Test cross-platform compatibility
+  cross-platform-test:
+    name: Cross-Platform Test
+    runs-on: ${{ matrix.os }}
+    needs: validate-dependencies
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        react-environment: ['web', 'react-native']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run platform-specific tests
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm test:${{ matrix.react-environment }}
+
+  # Build the package
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, cross-platform-test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Build package
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: journey-context-build
+          path: ${{ env.WORKING_DIRECTORY }}/dist
+          retention-days: 7
+
+  # Publish the package (only on main branch)
+  publish:
+    name: Publish Package
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm install --frozen-lockfile
+      
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: journey-context-build
+          path: ${{ env.WORKING_DIRECTORY }}/dist
+      
+      - name: Check if version has changed
+        id: check-version
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED_VERSION=$(npm view @austa/journey-context version 2>/dev/null || echo "0.0.0")
+          
+          if [ "$CURRENT_VERSION" != "$PUBLISHED_VERSION" ]; then
+            echo "New version detected: $CURRENT_VERSION (current) vs $PUBLISHED_VERSION (published)"
+            echo "version_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version unchanged: $CURRENT_VERSION"
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Publish to npm
+        if: steps.check-version.outputs.version_changed == 'true'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
