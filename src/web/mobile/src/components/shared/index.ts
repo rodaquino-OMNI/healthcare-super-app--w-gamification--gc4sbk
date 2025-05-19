@@ -1,44 +1,25 @@
-/**
- * @file Shared Components Index
- * @description Exports all shared UI components and their associated TypeScript props interfaces
- * from the shared components directory, providing a single, centralized import entry point for the
- * AUSTA SuperApp mobile application.
- */
+// Exports all shared components from the shared components directory,
+// providing a single import point for all shared components used throughout the AUSTA SuperApp mobile application.
 
-// Component imports
-import EmptyState from './EmptyState';
-import FileUploader from './FileUploader';
+import EmptyState, { EmptyStateProps } from './EmptyState';
+import ErrorState from './ErrorState';
+import { FileUploader } from './FileUploader';
 import GamificationPopup from './GamificationPopup';
-import JourneyHeader from './JourneyHeader';
+import JourneyHeader, { JourneyHeaderProps } from './JourneyHeader';
 import LoadingIndicator from './LoadingIndicator';
 import PhotoCapture from './PhotoCapture';
 
-// Type imports from @austa/interfaces
-import type {
-  EmptyStateProps,
-  FileUploaderProps,
-  GamificationPopupProps,
-  JourneyHeaderProps,
-  LoadingIndicatorProps,
-  PhotoCaptureProps
-} from '@austa/interfaces/components';
-
-// Component exports
 export {
   EmptyState,
+  ErrorState,
   FileUploader,
   GamificationPopup,
   JourneyHeader,
   LoadingIndicator,
-  PhotoCapture
+  PhotoCapture,
 };
 
-// Type exports
 export type {
   EmptyStateProps,
-  FileUploaderProps,
-  GamificationPopupProps,
   JourneyHeaderProps,
-  LoadingIndicatorProps,
-  PhotoCaptureProps
 };
