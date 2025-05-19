@@ -1,1 +1,24 @@
-Failed to process file
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: auth-service
+  labels:
+    app: auth-service
+    part-of: austa-superapp
+    managed-by: terraform
+  annotations:
+    description: "Service for Authentication microservice"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: auth-service
+  sessionAffinity: None
