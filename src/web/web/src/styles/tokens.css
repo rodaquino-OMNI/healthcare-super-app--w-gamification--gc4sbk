@@ -1,0 +1,239 @@
+/**
+ * Design Tokens CSS Variables
+ * 
+ * This file imports design tokens from @design-system/primitives and converts them
+ * to CSS custom properties (variables) for use in global styles and other CSS files.
+ * 
+ * These variables provide a bridge between the TypeScript-based design tokens and
+ * traditional CSS, ensuring consistent theming across the application.
+ */
+
+:root {
+  /* ========================================================================
+   * COLORS
+   * ======================================================================== */
+
+  /* Brand Colors */
+  --color-brand-primary: #0066CC;
+  --color-brand-secondary: #00A3E0;
+  --color-brand-tertiary: #6D2077;
+
+  /* Semantic Colors */
+  --color-semantic-success: #00C853;
+  --color-semantic-warning: #FFD600;
+  --color-semantic-error: #FF3B30;
+  --color-semantic-info: #0066CC;
+
+  /* Neutral Colors */
+  --color-neutral-white: #FFFFFF;
+  --color-neutral-gray-100: #F5F5F5;
+  --color-neutral-gray-200: #EEEEEE;
+  --color-neutral-gray-300: #E0E0E0;
+  --color-neutral-gray-400: #BDBDBD;
+  --color-neutral-gray-500: #9E9E9E;
+  --color-neutral-gray-600: #757575;
+  --color-neutral-gray-700: #616161;
+  --color-neutral-gray-800: #424242;
+  --color-neutral-gray-900: #212121;
+  --color-neutral-black: #000000;
+
+  /* Health Journey Colors */
+  --color-journey-health-primary: #0ACF83;
+  --color-journey-health-secondary: #05A66A;
+  --color-journey-health-accent: #00875A;
+  --color-journey-health-background: #F0FFF4;
+  --color-journey-health-text: #1A1A1A;
+
+  /* Care Journey Colors */
+  --color-journey-care-primary: #FF8C42;
+  --color-journey-care-secondary: #F17C3A;
+  --color-journey-care-accent: #E55A00;
+  --color-journey-care-background: #FFF8F0;
+  --color-journey-care-text: #1A1A1A;
+
+  /* Plan Journey Colors */
+  --color-journey-plan-primary: #3A86FF;
+  --color-journey-plan-secondary: #2D6FD9;
+  --color-journey-plan-accent: #0057E7;
+  --color-journey-plan-background: #F0F8FF;
+  --color-journey-plan-text: #1A1A1A;
+
+  /* ========================================================================
+   * TYPOGRAPHY
+   * ======================================================================== */
+
+  /* Font Families */
+  --font-family-base: 'Roboto, sans-serif';
+  --font-family-heading: 'Roboto, sans-serif';
+  --font-family-mono: 'Roboto Mono, monospace';
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  /* Font Sizes */
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 36px;
+
+  /* Line Heights */
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Letter Spacing */
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;
+
+  /* ========================================================================
+   * SPACING
+   * ======================================================================== */
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+  --spacing-4xl: 96px;
+
+  /* ========================================================================
+   * SHADOWS
+   * ======================================================================== */
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+  /* ========================================================================
+   * ANIMATION
+   * ======================================================================== */
+
+  /* Durations */
+  --animation-duration-fast: 150ms;
+  --animation-duration-normal: 300ms;
+  --animation-duration-slow: 500ms;
+
+  /* Easing Functions */
+  --animation-easing-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --animation-easing-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --animation-easing-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ========================================================================
+   * BREAKPOINTS
+   * ======================================================================== */
+
+  --breakpoint-xs: 576px;
+  --breakpoint-sm: 768px;
+  --breakpoint-md: 992px;
+  --breakpoint-lg: 1200px;
+  --breakpoint-xl: 1440px;
+}
+
+/* ========================================================================
+ * MEDIA QUERY BASED RESPONSIVE TOKENS
+ * ======================================================================== */
+
+/* Small devices (phones, 576px and up) */
+@media (min-width: 576px) {
+  :root {
+    --font-size-md: 16px;
+    --font-size-lg: 18px;
+    --font-size-xl: 20px;
+    --font-size-2xl: 24px;
+    --font-size-3xl: 30px;
+    --font-size-4xl: 36px;
+  }
+}
+
+/* Medium devices (tablets, 768px and up) */
+@media (min-width: 768px) {
+  :root {
+    --font-size-md: 16px;
+    --font-size-lg: 20px;
+    --font-size-xl: 22px;
+    --font-size-2xl: 26px;
+    --font-size-3xl: 32px;
+    --font-size-4xl: 40px;
+  }
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) {
+  :root {
+    --font-size-md: 16px;
+    --font-size-lg: 20px;
+    --font-size-xl: 24px;
+    --font-size-2xl: 28px;
+    --font-size-3xl: 36px;
+    --font-size-4xl: 44px;
+  }
+}
+
+/* ========================================================================
+ * JOURNEY-SPECIFIC THEME CLASSES
+ * ======================================================================== */
+
+/* Health Journey Theme */
+.theme-health {
+  --color-primary: var(--color-journey-health-primary);
+  --color-secondary: var(--color-journey-health-secondary);
+  --color-accent: var(--color-journey-health-accent);
+  --color-background: var(--color-journey-health-background);
+  --color-text: var(--color-journey-health-text);
+}
+
+/* Care Journey Theme */
+.theme-care {
+  --color-primary: var(--color-journey-care-primary);
+  --color-secondary: var(--color-journey-care-secondary);
+  --color-accent: var(--color-journey-care-accent);
+  --color-background: var(--color-journey-care-background);
+  --color-text: var(--color-journey-care-text);
+}
+
+/* Plan Journey Theme */
+.theme-plan {
+  --color-primary: var(--color-journey-plan-primary);
+  --color-secondary: var(--color-journey-plan-secondary);
+  --color-accent: var(--color-journey-plan-accent);
+  --color-background: var(--color-journey-plan-background);
+  --color-text: var(--color-journey-plan-text);
+}
+
+/* ========================================================================
+ * ACCESSIBILITY SUPPORT
+ * ======================================================================== */
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animation-duration-fast: 0ms;
+    --animation-duration-normal: 0ms;
+    --animation-duration-slow: 0ms;
+  }
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  :root {
+    --color-semantic-success: #00A050;
+    --color-semantic-warning: #B86E00;
+    --color-semantic-error: #D50000;
+    --color-semantic-info: #0050B8;
+    
+    --shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 0 0 2px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 0 0 3px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 0 0 4px rgba(0, 0, 0, 0.5);
+  }
+}

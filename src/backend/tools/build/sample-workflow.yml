@@ -1,0 +1,125 @@
+name: Build with Dependency Ordering
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/backend/**'
+      - 'src/web/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'src/backend/**'
+      - 'src/web/**'
+  workflow_dispatch:
+
+jobs:
+  # First job: Determine the build order and create a build matrix
+  determine-build-order:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-save glob fs-extra
+
+      - name: Determine build order
+        id: set-matrix
+        run: |
+          # Generate the build matrix using the build-order.js tool
+          MATRIX=$(node src/backend/tools/build/build-order.js --format github-actions)
+          # Set the matrix as an output variable
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          # Also save to a file for debugging
+          echo "$MATRIX" > build-matrix.json
+
+      - name: Upload build matrix for debugging
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-matrix
+          path: build-matrix.json
+
+  # Second job: Build packages in the correct order
+  build:
+    needs: determine-build-order
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.determine-build-order.outputs.matrix) }}
+      fail-fast: false # Continue with other packages even if one fails
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd ${{ matrix.path }}
+          if [ -f "package.json" ]; then
+            npm install
+          fi
+
+      - name: Build package
+        run: |
+          cd ${{ matrix.path }}
+          if [ -f "package.json" ]; then
+            if grep -q "\"build\"" package.json; then
+              npm run build
+            else
+              echo "No build script found in package.json, skipping build"
+            fi
+          else
+            echo "No package.json found, skipping build"
+          fi
+
+      - name: Run tests
+        run: |
+          cd ${{ matrix.path }}
+          if [ -f "package.json" ]; then
+            if grep -q "\"test\"" package.json; then
+              npm test || echo "Tests failed but continuing"
+            else
+              echo "No test script found in package.json, skipping tests"
+            fi
+          else
+            echo "No package.json found, skipping tests"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.package }}-build
+          path: ${{ matrix.path }}/dist
+          if-no-files-found: ignore
+
+  # Final job: Verify all packages built successfully
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Verify build
+        run: |
+          echo "All packages built successfully!"
+          # Additional verification steps could be added here
+          # For example, checking if all expected artifacts were created

@@ -1,0 +1,192 @@
+name: Web CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/web/**'
+      - '.github/workflows/web-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/web/**'
+      - '.github/workflows/web-ci.yml'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Detect changed workspaces
+        id: set-matrix
+        run: |
+          # Determine base commit for comparison
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA=${{ github.event.pull_request.base.sha }}
+          else
+            BASE_SHA=$(git rev-parse HEAD~1)
+          fi
+          
+          # Check for changes in specific workspaces
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
+          
+          # Initialize workspace arrays
+          WORKSPACES=()
+          
+          # Check for changes in each workspace
+          if echo "$CHANGED_FILES" | grep -q "src/web/design-system/"; then
+            WORKSPACES+=("design-system")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/primitives/"; then
+            WORKSPACES+=("primitives")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/interfaces/"; then
+            WORKSPACES+=("interfaces")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/journey-context/"; then
+            WORKSPACES+=("journey-context")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/shared/"; then
+            WORKSPACES+=("shared")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/mobile/"; then
+            WORKSPACES+=("mobile")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "src/web/web/"; then
+            WORKSPACES+=("web")
+          fi
+          
+          # If no specific workspace changes detected, check all workspaces
+          if [ ${#WORKSPACES[@]} -eq 0 ]; then
+            WORKSPACES=("design-system" "primitives" "interfaces" "journey-context" "shared" "mobile" "web")
+          fi
+          
+          # Create JSON array for matrix
+          JSON_ARRAY=$(printf '%s\n' "${WORKSPACES[@]}" | jq -R . | jq -s .)
+          echo "matrix={\"workspace\":$JSON_ARRAY}" >> $GITHUB_OUTPUT
+          echo "Detected changes in workspaces: ${WORKSPACES[*]}"
+
+  validate-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.x
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: |
+          echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('src/web/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+      
+      - name: Validate dependency resolution
+        working-directory: src/web
+        run: |
+          echo "Checking for missing or conflicting packages..."
+          pnpm ls --depth=0
+          
+          echo "Validating TypeScript project references..."
+          pnpm exec tsc --build --verbose
+          
+          echo "Checking for circular dependencies..."
+          pnpm exec madge --circular --extensions ts,tsx src/
+
+  build:
+    needs: [detect-changes, validate-dependencies]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.x
+          run_install: false
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: |
+          echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('src/web/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Setup workspace cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            src/web/${{ matrix.workspace }}/.turbo
+            src/web/${{ matrix.workspace }}/dist
+            src/web/${{ matrix.workspace }}/node_modules/.cache
+          key: ${{ runner.os }}-${{ matrix.workspace }}-${{ hashFiles(format('src/web/{0}/package.json', matrix.workspace)) }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.workspace }}-${{ hashFiles(format('src/web/{0}/package.json', matrix.workspace)) }}-
+            ${{ runner.os }}-${{ matrix.workspace }}-
+      
+      - name: Install dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+      
+      - name: Lint
+        working-directory: src/web
+        run: pnpm --filter ${{ matrix.workspace }} lint
+      
+      - name: Test
+        working-directory: src/web
+        run: pnpm --filter ${{ matrix.workspace }} test
+      
+      - name: Build
+        working-directory: src/web
+        run: pnpm --filter ${{ matrix.workspace }}... build
+
+  # Final job to ensure all builds completed successfully
+  build-complete:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build completed
+        run: echo "All web components built successfully"

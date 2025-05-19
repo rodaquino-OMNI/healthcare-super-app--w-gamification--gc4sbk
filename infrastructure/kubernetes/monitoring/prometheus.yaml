@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: austa-prometheus
+  namespace: monitoring
+  labels:
+    app: austa-prometheus
+spec:
+  serviceAccountName: austa-prometheus
+  version: v2.48.0
+  replicas: 2
+  # Enhanced rule selector to include performance baseline rules and CI/CD monitoring
+  ruleSelector:
+    matchLabels:
+      app: austa-superapp
+  # Added additional rule selector for performance baseline recording rules
+  additionalRuleSelectors:
+    - matchLabels:
+        role: recording-rules
+        type: performance-baseline
+    - matchLabels:
+        role: alert-rules
+        component: ci-cd
+  probeNamespaceLabel: monitoring
+  scrapeInterval: 30s
+  evaluationInterval: 30s
+  externalLabels:
+    cluster: austa-superapp
+  # Updated resource limits to accommodate additional monitoring workload
+  resources:
+    requests:
+      memory: 600Mi
+      cpu: 300m
+    limits:
+      memory: 1200Mi
+      cpu: 600m
+  retention: 7d
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+  # Added extended scrape configuration for CI/CD metrics collectors
+  # This references a Secret containing the additional scrape configurations
+  additionalScrapeConfigs:
+    name: additional-scrape-configs
+    key: prometheus-additional.yaml

@@ -1,0 +1,633 @@
+# AUSTA SuperApp Prometheus AlertManager Configuration and Alert Rules
+# This file defines the AlertManager configuration and comprehensive alert rules for the AUSTA SuperApp
+
+# AlertManager Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      # Global SMTP configuration
+      smtp_smarthost: 'smtp.austa.com:587'
+      smtp_from: 'alertmanager@austa.com'
+      smtp_auth_username: 'alertmanager'
+      smtp_auth_password: 'SMTP_PASSWORD' # Replace with actual password or use secrets
+      smtp_require_tls: true
+      # Slack configuration
+      slack_api_url: 'https://hooks.slack.com/services/SLACK_WEBHOOK_TOKEN' # Replace with actual token or use secrets
+      # Default resolve timeout
+      resolve_timeout: 5m
+
+    # Templates for notifications
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+
+    # The root route on which each incoming alert enters
+    route:
+      # Group alerts by alertname and journey
+      group_by: ['alertname', 'journey']
+      # Wait 30s to buffer alerts of the same group before sending
+      group_wait: 30s
+      # Wait 5m before sending a notification for new alerts added to a group
+      group_interval: 5m
+      # Wait 4h before resending a notification
+      repeat_interval: 4h
+      # Default receiver if no match
+      receiver: 'platform-team-slack'
+
+      # Child routes for specific alert categories
+      routes:
+        # CI/CD Pipeline Alerts
+        - match:
+            category: 'cicd'
+          receiver: 'devops-team-slack'
+          group_by: ['alertname', 'pipeline', 'stage']
+          continue: true
+
+        # Critical CI/CD Pipeline Alerts
+        - match:
+            category: 'cicd'
+            severity: 'critical'
+          receiver: 'devops-team-pagerduty'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+
+        # Performance Baseline Alerts
+        - match:
+            category: 'performance'
+          receiver: 'performance-team-slack'
+          group_by: ['alertname', 'service', 'journey']
+          continue: true
+
+        # Critical Performance Alerts
+        - match:
+            category: 'performance'
+            severity: 'critical'
+          receiver: 'performance-team-pagerduty'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+
+        # Health Journey Alerts
+        - match:
+            journey: 'health'
+          receiver: 'health-journey-team-slack'
+          group_by: ['alertname', 'service', 'instance']
+
+        # Care Journey Alerts
+        - match:
+            journey: 'care'
+          receiver: 'care-journey-team-slack'
+          group_by: ['alertname', 'service', 'instance']
+
+        # Plan Journey Alerts
+        - match:
+            journey: 'plan'
+          receiver: 'plan-journey-team-slack'
+          group_by: ['alertname', 'service', 'instance']
+
+        # Watchdog Alert (heartbeat)
+        - match:
+            alertname: 'Watchdog'
+          receiver: 'null'
+
+    # Inhibition rules prevent notifications for less severe alerts when a more severe alert is firing
+    inhibit_rules:
+      # Inhibit service-specific alerts when the entire journey is down
+      - source_match:
+          alertname: 'JourneyDown'
+        target_match_re:
+          alertname: '.*Down'
+        equal: ['journey']
+
+      # Inhibit node-level alerts when the cluster has issues
+      - source_match:
+          alertname: 'ClusterDown'
+        target_match_re:
+          alertname: 'NodeDown'
+        equal: ['cluster']
+
+      # Inhibit specific dependency alerts when general dependency validation fails
+      - source_match:
+          alertname: 'DependencyValidationFailure'
+        target_match_re:
+          alertname: 'Dependency.*'
+        equal: ['pipeline']
+
+    # Receivers define notification integrations
+    receivers:
+      # Platform Team Receivers
+      - name: 'platform-team-slack'
+        slack_configs:
+          - channel: '#platform-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Severity:* {{ .Labels.severity }}
+                *Journey:* {{ .Labels.journey }}
+                *Service:* {{ .Labels.service }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      - name: 'devops-team-slack'
+        slack_configs:
+          - channel: '#devops-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] CI/CD Alert: {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Pipeline:* {{ .Labels.pipeline }}
+                *Stage:* {{ .Labels.stage }}
+                *Severity:* {{ .Labels.severity }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      - name: 'devops-team-pagerduty'
+        pagerduty_configs:
+          - service_key: 'PAGERDUTY_SERVICE_KEY_DEVOPS' # Replace with actual key or use secrets
+            description: '{{ .CommonLabels.alertname }}'
+            details:
+              summary: '{{ .CommonAnnotations.summary }}'
+              description: '{{ .CommonAnnotations.description }}'
+              pipeline: '{{ .CommonLabels.pipeline }}'
+              severity: '{{ .CommonLabels.severity }}'
+
+      - name: 'performance-team-slack'
+        slack_configs:
+          - channel: '#performance-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] Performance Alert: {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Service:* {{ .Labels.service }}
+                *Journey:* {{ .Labels.journey }}
+                *Severity:* {{ .Labels.severity }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      - name: 'performance-team-pagerduty'
+        pagerduty_configs:
+          - service_key: 'PAGERDUTY_SERVICE_KEY_PERFORMANCE' # Replace with actual key or use secrets
+            description: '{{ .CommonLabels.alertname }}'
+            details:
+              summary: '{{ .CommonAnnotations.summary }}'
+              description: '{{ .CommonAnnotations.description }}'
+              service: '{{ .CommonLabels.service }}'
+              journey: '{{ .CommonLabels.journey }}'
+              severity: '{{ .CommonLabels.severity }}'
+
+      # Journey Team Receivers
+      - name: 'health-journey-team-slack'
+        slack_configs:
+          - channel: '#health-journey-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] Health Journey: {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Service:* {{ .Labels.service }}
+                *Severity:* {{ .Labels.severity }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      - name: 'care-journey-team-slack'
+        slack_configs:
+          - channel: '#care-journey-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] Care Journey: {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Service:* {{ .Labels.service }}
+                *Severity:* {{ .Labels.severity }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      - name: 'plan-journey-team-slack'
+        slack_configs:
+          - channel: '#plan-journey-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] Plan Journey: {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+                *Alert:* {{ .Annotations.summary }}
+                *Description:* {{ .Annotations.description }}
+                *Service:* {{ .Labels.service }}
+                *Severity:* {{ .Labels.severity }}
+                *Details:*
+                {{ range .Labels.SortedPairs }}
+                  • *{{ .Name }}:* `{{ .Value }}`
+                {{ end }}
+              {{ end }}
+
+      # Null receiver for alerts that don't need notifications
+      - name: 'null'
+
+---
+# Prometheus Alert Rules
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+data:
+  # CI/CD Pipeline Alert Rules
+  cicd-alerts.yaml: |
+    groups:
+      - name: cicd_alerts
+        rules:
+          # Dependency Validation Alerts
+          - alert: DependencyValidationFailureRate
+            expr: sum(rate(dependency_validation_failures_total[6h])) / sum(rate(dependency_validation_runs_total[6h])) > 0.05
+            for: 10m
+            labels:
+              severity: critical
+              category: cicd
+            annotations:
+              summary: "High dependency validation failure rate"
+              description: "Dependency validation is failing at a rate of {{ $value | humanizePercentage }} over the last 6 hours"
+
+          - alert: DependencyResolutionTimeout
+            expr: sum(rate(dependency_resolution_timeouts_total[1h])) / sum(rate(dependency_resolution_runs_total[1h])) > 0.02
+            for: 5m
+            labels:
+              severity: warning
+              category: cicd
+            annotations:
+              summary: "Dependency resolution timeouts"
+              description: "Dependency resolution is timing out at a rate of {{ $value | humanizePercentage }} over the last hour"
+
+          # Build Performance Alerts
+          - alert: SlowBuildTime
+            expr: avg_over_time(build_duration_seconds{stage="total"}[1h]) > 600
+            for: 10m
+            labels:
+              severity: warning
+              category: cicd
+            annotations:
+              summary: "Slow build time for {{ $labels.pipeline }}"
+              description: "Average build time for {{ $labels.pipeline }} exceeds 10 minutes ({{ $value | humanizeDuration }})"
+
+          - alert: CriticalBuildTime
+            expr: build_duration_seconds{stage="total"} > 1200
+            for: 5m
+            labels:
+              severity: critical
+              category: cicd
+            annotations:
+              summary: "Critical build time for {{ $labels.pipeline }}"
+              description: "Build time for {{ $labels.pipeline }} exceeds 20 minutes ({{ $value | humanizeDuration }})"
+
+          # Pipeline Stability Alerts
+          - alert: ProductionPipelineFailure
+            expr: pipeline_status{environment="production", status="failure"} > 0
+            for: 1m
+            labels:
+              severity: critical
+              category: cicd
+            annotations:
+              summary: "Production pipeline failure for {{ $labels.pipeline }}"
+              description: "The production deployment pipeline for {{ $labels.pipeline }} has failed"
+
+          - alert: StagingPipelineFailureRate
+            expr: sum(rate(pipeline_runs_total{environment="staging", status="failure"}[6h])) / sum(rate(pipeline_runs_total{environment="staging"}[6h])) > 0.1
+            for: 10m
+            labels:
+              severity: warning
+              category: cicd
+            annotations:
+              summary: "High staging pipeline failure rate"
+              description: "Staging pipeline success rate has dropped below 90% over the last 6 hours"
+
+          # Cache Performance Alerts
+          - alert: LowCacheHitRatio
+            expr: sum(rate(build_cache_hits_total[1h])) / sum(rate(build_cache_requests_total[1h])) < 0.7
+            for: 30m
+            labels:
+              severity: warning
+              category: cicd
+            annotations:
+              summary: "Low build cache hit ratio"
+              description: "Build cache hit ratio is below 70% over the last hour, indicating potential cache inefficiency"
+
+  # Performance Baseline Deviation Alert Rules
+  performance-baseline-alerts.yaml: |
+    groups:
+      - name: performance_baseline_alerts
+        rules:
+          # Container Startup Time Alerts
+          - alert: ContainerStartupTimeDeviation
+            expr: abs(container_startup_time_seconds{environment="production"} - on(container) container_startup_time_baseline_seconds) / container_startup_time_baseline_seconds > 0.3
+            for: 5m
+            labels:
+              severity: warning
+              category: performance
+            annotations:
+              summary: "Container startup time deviation for {{ $labels.container }}"
+              description: "Container {{ $labels.container }} startup time deviates more than 30% from baseline (Current: {{ $value | humanizeDuration }})"
+
+          # Database Query Latency Alerts
+          - alert: DatabaseQueryLatencyDeviation
+            expr: abs(database_query_latency_seconds{environment="production"} - on(query_id) database_query_latency_baseline_seconds) / database_query_latency_baseline_seconds > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              category: performance
+            annotations:
+              summary: "Database query latency deviation for {{ $labels.query_id }}"
+              description: "Database query {{ $labels.query_id }} latency deviates more than 50% from baseline (Current: {{ $value | humanizeDuration }})"
+
+          - alert: CriticalDatabaseQueryLatencyDeviation
+            expr: abs(database_query_latency_seconds{environment="production", criticality="high"} - on(query_id) database_query_latency_baseline_seconds) / database_query_latency_baseline_seconds > 0.3
+            for: 5m
+            labels:
+              severity: critical
+              category: performance
+            annotations:
+              summary: "Critical database query latency deviation for {{ $labels.query_id }}"
+              description: "Critical database query {{ $labels.query_id }} latency deviates more than 30% from baseline (Current: {{ $value | humanizeDuration }})"
+
+          # API Response Time Alerts
+          - alert: ApiResponseTimeDeviation
+            expr: abs(api_response_time_seconds{environment="production"} - on(endpoint) api_response_time_baseline_seconds) / api_response_time_baseline_seconds > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              category: performance
+            annotations:
+              summary: "API response time deviation for {{ $labels.endpoint }}"
+              description: "API endpoint {{ $labels.endpoint }} response time deviates more than 50% from baseline (Current: {{ $value | humanizeDuration }})"
+
+          - alert: CriticalApiResponseTimeDeviation
+            expr: abs(api_response_time_seconds{environment="production", journey_critical="true"} - on(endpoint) api_response_time_baseline_seconds) / api_response_time_baseline_seconds > 0.3
+            for: 5m
+            labels:
+              severity: critical
+              category: performance
+            annotations:
+              summary: "Critical API response time deviation for {{ $labels.endpoint }}"
+              description: "Critical API endpoint {{ $labels.endpoint }} response time deviates more than 30% from baseline (Current: {{ $value | humanizeDuration }})"
+
+          # Resource Utilization Pattern Alerts
+          - alert: ResourceUtilizationDeviation
+            expr: abs(resource_utilization_ratio{environment="production"} - on(resource_id) resource_utilization_baseline_ratio) / resource_utilization_baseline_ratio > 0.4
+            for: 15m
+            labels:
+              severity: warning
+              category: performance
+            annotations:
+              summary: "Resource utilization deviation for {{ $labels.resource_id }}"
+              description: "Resource {{ $labels.resource_id }} utilization deviates more than 40% from baseline pattern"
+
+  # Service Health Alert Rules
+  service-health-alerts.yaml: |
+    groups:
+      - name: service_health_alerts
+        rules:
+          # General Service Health Alerts
+          - alert: ServiceDown
+            expr: up{job=~".*-service"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              journey: '{{ $labels.journey }}'
+            annotations:
+              summary: "Service {{ $labels.job }} is down"
+              description: "Service {{ $labels.job }} has been down for more than 1 minute"
+
+          - alert: JourneyDown
+            expr: count by(journey) (up{job=~".*-service"} == 0) / count by(journey) (up{job=~".*-service"}) > 0.5
+            for: 2m
+            labels:
+              severity: critical
+              journey: '{{ $labels.journey }}'
+            annotations:
+              summary: "Journey {{ $labels.journey }} is down"
+              description: "More than 50% of services in the {{ $labels.journey }} journey are down"
+
+          # Health Journey Service Alerts
+          - alert: HealthServiceHighErrorRate
+            expr: sum(rate(http_requests_total{journey="health", status=~"5.."}[5m])) / sum(rate(http_requests_total{journey="health"}[5m])) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+              journey: health
+            annotations:
+              summary: "Health journey high error rate"
+              description: "Health journey is experiencing more than 5% error rate over the last 5 minutes"
+
+          - alert: HealthMetricsProcessingDelay
+            expr: health_metrics_processing_delay_seconds > 300
+            for: 5m
+            labels:
+              severity: warning
+              journey: health
+            annotations:
+              summary: "Health metrics processing delay"
+              description: "Health metrics are delayed by more than 5 minutes ({{ $value | humanizeDuration }})"
+
+          # Care Journey Service Alerts
+          - alert: CareServiceHighErrorRate
+            expr: sum(rate(http_requests_total{journey="care", status=~"5.."}[5m])) / sum(rate(http_requests_total{journey="care"}[5m])) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+              journey: care
+            annotations:
+              summary: "Care journey high error rate"
+              description: "Care journey is experiencing more than 5% error rate over the last 5 minutes"
+
+          - alert: AppointmentBookingFailures
+            expr: rate(appointment_booking_failures_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              journey: care
+            annotations:
+              summary: "Appointment booking failures"
+              description: "Users are experiencing appointment booking failures"
+
+          # Plan Journey Service Alerts
+          - alert: PlanServiceHighErrorRate
+            expr: sum(rate(http_requests_total{journey="plan", status=~"5.."}[5m])) / sum(rate(http_requests_total{journey="plan"}[5m])) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+              journey: plan
+            annotations:
+              summary: "Plan journey high error rate"
+              description: "Plan journey is experiencing more than 5% error rate over the last 5 minutes"
+
+          - alert: ClaimProcessingDelay
+            expr: claim_processing_delay_seconds > 600
+            for: 10m
+            labels:
+              severity: warning
+              journey: plan
+            annotations:
+              summary: "Claim processing delay"
+              description: "Claims are taking more than 10 minutes to process ({{ $value | humanizeDuration }})"
+
+          # Database Health Alerts
+          - alert: DatabaseConnectionPoolExhaustion
+            expr: sum by(database) (database_connections_used) / sum by(database) (database_connections_max) > 0.8
+            for: 5m
+            labels:
+              severity: warning
+              category: database
+            annotations:
+              summary: "Database connection pool near exhaustion for {{ $labels.database }}"
+              description: "Database {{ $labels.database }} connection pool is more than 80% utilized"
+
+          - alert: DatabaseHighErrorRate
+            expr: sum by(database) (rate(database_query_errors_total[5m])) / sum by(database) (rate(database_queries_total[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+              category: database
+            annotations:
+              summary: "Database high error rate for {{ $labels.database }}"
+              description: "Database {{ $labels.database }} is experiencing more than 5% query error rate"
+
+          # Kafka Health Alerts
+          - alert: KafkaLagGrowing
+            expr: sum by(topic) (kafka_consumer_lag) > 1000 and sum by(topic) (rate(kafka_consumer_lag[5m])) > 0
+            for: 10m
+            labels:
+              severity: warning
+              category: messaging
+            annotations:
+              summary: "Kafka consumer lag growing for {{ $labels.topic }}"
+              description: "Kafka consumer lag for topic {{ $labels.topic }} is growing and exceeds 1000 messages"
+
+          - alert: KafkaHighProducerErrorRate
+            expr: sum by(topic) (rate(kafka_producer_errors_total[5m])) / sum by(topic) (rate(kafka_producer_messages_total[5m])) > 0.01
+            for: 5m
+            labels:
+              severity: critical
+              category: messaging
+            annotations:
+              summary: "Kafka high producer error rate for {{ $labels.topic }}"
+              description: "Kafka producer for topic {{ $labels.topic }} is experiencing more than 1% error rate"
+
+  # Gamification Engine Alert Rules
+  gamification-alerts.yaml: |
+    groups:
+      - name: gamification_alerts
+        rules:
+          - alert: GamificationEventProcessingDelay
+            expr: gamification_event_processing_delay_seconds > 300
+            for: 5m
+            labels:
+              severity: warning
+              category: gamification
+            annotations:
+              summary: "Gamification event processing delay"
+              description: "Gamification events are delayed by more than 5 minutes ({{ $value | humanizeDuration }})"
+
+          - alert: GamificationEventProcessingFailures
+            expr: rate(gamification_event_processing_failures_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              category: gamification
+            annotations:
+              summary: "Gamification event processing failures"
+              description: "Gamification engine is experiencing event processing failures"
+
+          - alert: GamificationDatabaseHighLatency
+            expr: gamification_database_query_latency_seconds{quantile="0.95"} > 1
+            for: 5m
+            labels:
+              severity: warning
+              category: gamification
+            annotations:
+              summary: "Gamification database high latency"
+              description: "Gamification database 95th percentile query latency exceeds 1 second ({{ $value | humanizeDuration }})"
+
+  # System Monitoring Alert Rules
+  system-alerts.yaml: |
+    groups:
+      - name: system_alerts
+        rules:
+          - alert: HighCPUUsage
+            expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 5m
+            labels:
+              severity: warning
+              category: system
+            annotations:
+              summary: "High CPU usage on {{ $labels.instance }}"
+              description: "CPU usage on {{ $labels.instance }} is above 80% for more than 5 minutes"
+
+          - alert: HighMemoryUsage
+            expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+              category: system
+            annotations:
+              summary: "High memory usage on {{ $labels.instance }}"
+              description: "Memory usage on {{ $labels.instance }} is above 85% for more than 5 minutes"
+
+          - alert: HighDiskUsage
+            expr: 100 - ((node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100) > 85
+            for: 5m
+            labels:
+              severity: warning
+              category: system
+            annotations:
+              summary: "High disk usage on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+              description: "Disk usage on {{ $labels.instance }} at {{ $labels.mountpoint }} is above 85% for more than 5 minutes"
+
+          - alert: PodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+            for: 10m
+            labels:
+              severity: warning
+              category: kubernetes
+            annotations:
+              summary: "Pod {{ $labels.pod }} is crash looping"
+              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted more than 5 times in the last hour"
+
+  # Watchdog Alert (Heartbeat)
+  watchdog.yaml: |
+    groups:
+      - name: watchdog
+        rules:
+          - alert: Watchdog
+            expr: vector(1)
+            for: 0m
+            labels:
+              severity: none
+            annotations:
+              summary: "Alertmanager Watchdog"
+              description: "This is an alert meant to ensure that the entire alerting pipeline is functional. This alert is always firing, therefore it should always be firing in Alertmanager. If this alert is not firing, it means there is an issue with the alerting pipeline."

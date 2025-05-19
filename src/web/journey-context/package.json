@@ -1,0 +1,52 @@
+{
+  "name": "@austa/journey-context",
+  "version": "1.0.0",
+  "description": "Journey context providers and hooks for the AUSTA SuperApp",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "test": "jest"
+  },
+  "dependencies": {
+    "jwt-decode": "^3.1.2"
+  },
+  "peerDependencies": {
+    "@austa/interfaces": "^1.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-native": "^0.71.8",
+    "@react-native-async-storage/async-storage": "^1.18.1"
+  },
+  "devDependencies": {
+    "@austa/interfaces": "^1.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/react-native": "^0.71.8",
+    "typescript": "^5.3.3",
+    "rollup": "^2.79.1",
+    "rollup-plugin-typescript2": "^0.34.1",
+    "rimraf": "^3.0.2",
+    "eslint": "^8.38.0",
+    "jest": "^29.5.0"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austa/superapp.git",
+    "directory": "src/web/journey-context"
+  },
+  "author": "AUSTA Health",
+  "license": "UNLICENSED",
+  "private": true
+}

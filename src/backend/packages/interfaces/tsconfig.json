@@ -1,0 +1,58 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "composite": true,
+    "incremental": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "allowUnusedLabels": false,
+    "allowUnreachableCode": false,
+    "baseUrl": "./",
+    "paths": {
+      "@austa/interfaces": ["./index.ts"],
+      "@austa/interfaces/*": ["./*"],
+      "@austa/interfaces/common": ["./common/index.ts"],
+      "@austa/interfaces/auth": ["./auth/index.ts"],
+      "@austa/interfaces/journey": ["./journey/index.ts"],
+      "@austa/interfaces/journey/health": ["./journey/health/index.ts"],
+      "@austa/interfaces/journey/care": ["./journey/care/index.ts"],
+      "@austa/interfaces/journey/plan": ["./journey/plan/index.ts"],
+      "@austa/interfaces/gamification": ["./gamification/index.ts"]
+    }
+  },
+  "include": [
+    "**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/__tests__/**"
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "name": "austa",
+  "displayName": "AUSTA SuperApp",
+  "version": "1.0.0",
+  "description": "A unified digital health platform with journey-centered design and gamification",
+  "author": {
+    "name": "AUSTA Health",
+    "email": "contact@austa.com.br",
+    "url": "https://austa.com.br"
+  },
+  "platforms": ["web", "ios", "android"],
+  "config": {
+    "journeys": {
+      "health": {
+        "name": "Minha Saúde",
+        "color": "#0ACF83",
+        "icon": "heart-pulse",
+        "contextKey": "healthContext",
+        "themeKey": "healthTheme"
+      },
+      "care": {
+        "name": "Cuidar-me Agora",
+        "color": "#FF8C42",
+        "icon": "medical-bag",
+        "contextKey": "careContext",
+        "themeKey": "careTheme"
+      },
+      "plan": {
+        "name": "Meu Plano & Benefícios",
+        "color": "#3A86FF",
+        "icon": "shield-check",
+        "contextKey": "planContext",
+        "themeKey": "planTheme"
+      }
+    },
+    "api": {
+      "graphql": "https://api.austa.com.br/graphql",
+      "rest": "https://api.austa.com.br/api",
+      "websocket": "wss://api.austa.com.br/ws"
+    },
+    "features": {
+      "gamification": true,
+      "telemedicine": true,
+      "wearableSync": true,
+      "aiAssistant": false,
+      "socialFeatures": false
+    },
+    "packages": {
+      "designSystem": "@austa/design-system",
+      "primitives": "@design-system/primitives",
+      "interfaces": "@austa/interfaces",
+      "journeyContext": "@austa/journey-context"
+    },
+    "platformSpecific": {
+      "web": {
+        "baseUrl": "https://app.austa.com.br",
+        "routes": {
+          "health": "/health",
+          "care": "/care",
+          "plan": "/plan"
+        }
+      },
+      "mobile": {
+        "deepLinking": {
+          "scheme": "austa",
+          "host": "app.austa.com.br"
+        },
+        "notifications": {
+          "android": {
+            "channelId": "austa-notifications",
+            "icon": "notification_icon"
+          },
+          "ios": {
+            "sound": "default",
+            "badge": true
+          }
+        }
+      }
+    },
+    "environments": {
+      "development": {
+        "api": {
+          "graphql": "https://dev-api.austa.com.br/graphql",
+          "rest": "https://dev-api.austa.com.br/api",
+          "websocket": "wss://dev-api.austa.com.br/ws"
+        }
+      },
+      "staging": {
+        "api": {
+          "graphql": "https://staging-api.austa.com.br/graphql",
+          "rest": "https://staging-api.austa.com.br/api",
+          "websocket": "wss://staging-api.austa.com.br/ws"
+        }
+      },
+      "production": {
+        "api": {
+          "graphql": "https://api.austa.com.br/graphql",
+          "rest": "https://api.austa.com.br/api",
+          "websocket": "wss://api.austa.com.br/ws"
+        }
+      }
+    }
+  }
+}

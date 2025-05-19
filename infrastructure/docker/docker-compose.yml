@@ -1,0 +1,552 @@
+version: '3.8'
+
+services:
+  # API Gateway - Entry point for all client requests
+  api-gateway:
+    image: austa-api-gateway:local
+    container_name: austa-api-gateway
+    build:
+      context: ../../
+      dockerfile: src/backend/api-gateway/Dockerfile
+      args:
+        NODE_VERSION: 18.15.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../src/backend/api-gateway:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      API_URL: http://localhost:3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      HEALTH_SERVICE_URL: http://health-service:3002
+      CARE_SERVICE_URL: http://care-service:3003
+      PLAN_SERVICE_URL: http://plan-service:3004
+      GAMIFICATION_ENGINE_URL: http://gamification-engine:3005
+      NOTIFICATION_SERVICE_URL: http://notification-service:3006
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: local-development-secret
+      # Logging configuration
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      # Tracing configuration
+      TRACING_ENABLED: "true"
+      # Rate limiting
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX_REQUESTS: 100
+    depends_on:
+      - auth-service
+      - health-service
+      - care-service
+      - plan-service
+      - gamification-engine
+      - notification-service
+      - redis
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Authentication Service
+  auth-service:
+    image: austa-auth-service:local
+    container_name: austa-auth-service
+    build:
+      context: ../../
+      dockerfile: src/backend/auth-service/Dockerfile
+      args:
+        NODE_VERSION: 18.15.0
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../../src/backend/auth-service:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=auth
+      JWT_SECRET: local-development-secret
+      JWT_EXPIRATION: 86400
+      REFRESH_TOKEN_EXPIRATION: 604800
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Logging configuration
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      # Tracing configuration
+      TRACING_ENABLED: "true"
+    depends_on:
+      - postgres
+      - redis
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Health Journey Service
+  health-service:
+    image: austa-health-service:local
+    container_name: austa-health-service
+    build:
+      context: ../../
+      dockerfile: src/backend/health-service/Dockerfile
+    ports:
+      - "3002:3002"
+    volumes:
+      - ../../src/backend/health-service:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=health
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Care Journey Service
+  care-service:
+    image: austa-care-service:local
+    container_name: austa-care-service
+    build:
+      context: ../../
+      dockerfile: src/backend/care-service/Dockerfile
+    ports:
+      - "3003:3003"
+    volumes:
+      - ../../src/backend/care-service:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=care
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Plan Journey Service
+  plan-service:
+    image: austa-plan-service:local
+    container_name: austa-plan-service
+    build:
+      context: ../../
+      dockerfile: src/backend/plan-service/Dockerfile
+    ports:
+      - "3004:3004"
+    volumes:
+      - ../../src/backend/plan-service:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=plan
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Gamification Engine
+  gamification-engine:
+    image: austa-gamification-engine:local
+    container_name: austa-gamification-engine
+    build:
+      context: ../../
+      dockerfile: src/backend/gamification-engine/Dockerfile
+    ports:
+      - "3005:3005"
+    volumes:
+      - ../../src/backend/gamification-engine:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3005
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=gamification
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Notification Service
+  notification-service:
+    image: austa-notification-service:local
+    container_name: austa-notification-service
+    build:
+      context: ../../
+      dockerfile: src/backend/notification-service/Dockerfile
+    ports:
+      - "3006:3006"
+    volumes:
+      - ../../src/backend/notification-service:/app
+      - backend_node_modules:/app/node_modules
+      - ../../src/backend/packages:/packages
+    environment:
+      NODE_ENV: development
+      PORT: 3006
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa?schema=notification
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - db-seed
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Web Application (Next.js)
+  web-app:
+    image: austa-web-app:local
+    container_name: austa-web-app
+    build:
+      context: ../../
+      dockerfile: src/web/web/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../src/web/web:/app
+      - web_node_modules:/app/node_modules
+      - ../../src/web/design-system:/design-system
+      - ../../src/web/primitives:/primitives
+      - ../../src/web/interfaces:/interfaces
+      - ../../src/web/journey-context:/journey-context
+      - ../../src/web/shared:/shared
+    environment:
+      NODE_ENV: development
+      PORT: 8000
+      NEXT_PUBLIC_API_URL: http://localhost:8080/api
+      NEXT_PUBLIC_WS_URL: ws://localhost:8080/ws
+      # Journey-specific configuration
+      NEXT_PUBLIC_HEALTH_JOURNEY_ENABLED: "true"
+      NEXT_PUBLIC_CARE_JOURNEY_ENABLED: "true"
+      NEXT_PUBLIC_PLAN_JOURNEY_ENABLED: "true"
+      # Gamification configuration
+      NEXT_PUBLIC_GAMIFICATION_ENABLED: "true"
+    depends_on:
+      - api-gateway
+      - dev-proxy
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Mobile Application (React Native)
+  mobile-app:
+    image: austa-mobile-app:local
+    container_name: austa-mobile-app
+    build:
+      context: ../../
+      dockerfile: src/web/mobile/Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../../src/web/mobile:/app
+      - mobile_node_modules:/app/node_modules
+      - ../../src/web/design-system:/design-system
+      - ../../src/web/primitives:/primitives
+      - ../../src/web/interfaces:/interfaces
+      - ../../src/web/journey-context:/journey-context
+      - ../../src/web/shared:/shared
+    environment:
+      NODE_ENV: development
+      PORT: 8081
+      RN_API_URL: http://localhost:8080/api
+      RN_WS_URL: ws://localhost:8080/ws
+      # Journey-specific configuration
+      RN_HEALTH_JOURNEY_ENABLED: "true"
+      RN_CARE_JOURNEY_ENABLED: "true"
+      RN_PLAN_JOURNEY_ENABLED: "true"
+      # Gamification configuration
+      RN_GAMIFICATION_ENABLED: "true"
+      # React Native specific
+      EXPO_DEVTOOLS_LISTEN_ADDRESS: "0.0.0.0"
+      REACT_NATIVE_PACKAGER_HOSTNAME: "localhost"
+    depends_on:
+      - api-gateway
+      - dev-proxy
+    networks:
+      - austa-network
+    restart: unless-stopped
+
+  # Development Proxy for API and WebSocket routing
+  dev-proxy:
+    image: nginx:1.21.6-alpine
+    container_name: austa-dev-proxy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dev-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Database Seeding Service
+  db-seed:
+    image: austa-db-seed:local
+    container_name: austa-db-seed
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/db/Dockerfile
+    volumes:
+      - ../../src/backend:/backend
+      - backend_node_modules:/backend/node_modules
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://austa:austa@postgres:5432/austa
+      # Schema-specific connection strings for each service
+      AUTH_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=auth
+      HEALTH_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=health
+      CARE_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=care
+      PLAN_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=plan
+      GAMIFICATION_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=gamification
+      NOTIFICATION_DB_URL: postgresql://austa:austa@postgres:5432/austa?schema=notification
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - austa-network
+    restart: "no"
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: austa-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: austa
+      POSTGRES_PASSWORD: austa
+      POSTGRES_DB: austa
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U austa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: austa-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.2.0
+    container_name: austa-kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Pre-create topics for each journey
+      KAFKA_CREATE_TOPICS: "health-events:1:1,care-events:1:1,plan-events:1:1,gamification-events:1:1,notification-events:1:1"
+    depends_on:
+      - zookeeper
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Zookeeper (required by Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.0
+    container_name: austa-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - austa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka UI for monitoring and management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: austa-kafka-ui
+    ports:
+      - "8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: austa-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - austa-network
+    restart: unless-stopped
+
+  # Environment validation service
+  env-validator:
+    image: austa-env-validator:local
+    container_name: austa-env-validator
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/scripts/Dockerfile
+    volumes:
+      - ../../scripts:/scripts
+    environment:
+      NODE_ENV: development
+      # Service endpoints for validation
+      API_GATEWAY_URL: http://api-gateway:3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      HEALTH_SERVICE_URL: http://health-service:3002
+      CARE_SERVICE_URL: http://care-service:3003
+      PLAN_SERVICE_URL: http://plan-service:3004
+      GAMIFICATION_ENGINE_URL: http://gamification-engine:3005
+      NOTIFICATION_SERVICE_URL: http://notification-service:3006
+      # Infrastructure endpoints
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+    command: ["/scripts/validate-env.sh"]
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - zookeeper
+    networks:
+      - austa-network
+    restart: "no"
+
+networks:
+  austa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_node_modules:
+  web_node_modules:
+  mobile_node_modules:

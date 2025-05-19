@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-config
+  namespace: shared-services
+  labels:
+    app: auth-service
+    component: authentication
+    part-of: austa-superapp
+    managed-by: kubectl
+data:
+  # Server Configuration
+  NODE_ENV: "production"
+  AUTH_SERVICE_PORT: "3001"
+  AUTH_SERVICE_API_PREFIX: "api/v1"
+  
+  # Logging Configuration
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  LOG_FILE_OUTPUT: "false"
+  
+  # Monitoring Configuration
+  MONITORING_ENABLED: "true"
+  METRICS_PATH: "/metrics"
+  
+  # MFA Configuration
+  MFA_ENABLED: "true"
+  MFA_ISSUER: "AUSTA SuperApp"
+  MFA_CODE_EXPIRATION: "300"
+  MFA_WINDOW_SIZE: "1"
+  SMS_PROVIDER: "twilio"
+  EMAIL_MFA_ENABLED: "true"
+  SMS_MFA_ENABLED: "true"
+  TOTP_MFA_ENABLED: "true"
+  
+  # Session Configuration
+  MAX_CONCURRENT_SESSIONS: "5"
+  SESSION_ABSOLUTE_TIMEOUT: "43200"
+  SESSION_INACTIVITY_TIMEOUT: "1800"
+  REMEMBER_ME_EXTENSION: "2592000"
+  
+  # Password Policy Configuration
+  PASSWORD_MIN_LENGTH: "10"
+  PASSWORD_REQUIRE_UPPERCASE: "true"
+  PASSWORD_REQUIRE_LOWERCASE: "true"
+  PASSWORD_REQUIRE_NUMBER: "true"
+  PASSWORD_REQUIRE_SPECIAL: "true"
+  PASSWORD_HISTORY: "5"
+  PASSWORD_MAX_AGE: "7776000"
+  PASSWORD_LOCKOUT_THRESHOLD: "5"
+  PASSWORD_LOCKOUT_DURATION: "1800"
+  
+  # Security Configuration - Rate Limiting
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "100"
+  
+  # Security Configuration - CORS
+  CORS_ORIGIN: "https://app.austa.com.br,https://api.austa.com.br"
+  CORS_METHODS: "GET,POST,PUT,DELETE,PATCH"
+  CORS_CREDENTIALS: "true"
+  
+  # JWT Configuration (non-sensitive)
+  JWT_ACCESS_EXPIRATION: "1h"
+  JWT_REFRESH_EXPIRATION: "7d"
+  JWT_ISSUER: "austa.com.br"
+  JWT_AUDIENCE: "austa-users"
+  
+  # Database Configuration (non-sensitive)
+  DATABASE_SSL: "true"
+  DATABASE_MAX_CONNECTIONS: "20"
+  DATABASE_IDLE_TIMEOUT: "30000"

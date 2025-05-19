@@ -1,0 +1,890 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.3
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 512Mi
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin
+              key: password
+        - name: GF_INSTALL_PLUGINS
+          value: grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel,grafana-polystat-panel,grafana-timestream-datasource,grafana-annotation-panel
+        - name: GF_SERVER_ROOT_URL
+          value: https://monitoring.austa.com.br/grafana
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_FEATURE_TOGGLES_ENABLE
+          value: "annotationPanel,annotationPermissionUpdate,dashboardAnnotations,timeSeriesTable"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: journey-dashboards
+          mountPath: /var/lib/grafana/dashboards
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-storage
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards-config
+      - name: journey-dashboards
+        configMap:
+          name: journey-dashboards
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: grafana
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://austa-prometheus:9090
+        isDefault: true
+        version: 1
+        editable: false
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        version: 1
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'Journey Dashboards'
+        orgId: 1
+        folder: 'AUSTA SuperApp'
+        type: file
+        disableDeletion: true
+        editable: false
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: journey-dashboards
+  namespace: monitoring
+data:
+  health-journey-dashboard.json: |
+    {
+      "title": "Health Journey Dashboard",
+      "uid": "health-journey",
+      "panels": [
+        {
+          "title": "API Response Times",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"health-journey\"}[5m])) by (le))",
+              "legendFormat": "95th Percentile"
+            }
+          ]
+        },
+        {
+          "title": "Error Rates",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"health-journey\", status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"health-journey\"}[5m]))",
+              "legendFormat": "Error Rate"
+            }
+          ]
+        },
+        {
+          "title": "Health Metrics Recorded",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(health_metrics_recorded_total[24h]))",
+              "legendFormat": "Metrics Recorded"
+            }
+          ]
+        },
+        {
+          "title": "Device Connections",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(device_connections_active)",
+              "legendFormat": "Active Connections"
+            }
+          ]
+        }
+      ]
+    }
+  care-journey-dashboard.json: |
+    {
+      "title": "Care Journey Dashboard",
+      "uid": "care-journey",
+      "panels": [
+        {
+          "title": "API Response Times",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"care-journey\"}[5m])) by (le))",
+              "legendFormat": "95th Percentile"
+            }
+          ]
+        },
+        {
+          "title": "Error Rates",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"care-journey\", status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"care-journey\"}[5m]))",
+              "legendFormat": "Error Rate"
+            }
+          ]
+        },
+        {
+          "title": "Appointments Booked",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(appointments_booked_total[24h]))",
+              "legendFormat": "Appointments Booked"
+            }
+          ]
+        },
+        {
+          "title": "Telemedicine Sessions",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(telemedicine_sessions_active)",
+              "legendFormat": "Active Sessions"
+            }
+          ]
+        }
+      ]
+    }
+  plan-journey-dashboard.json: |
+    {
+      "title": "Plan Journey Dashboard",
+      "uid": "plan-journey",
+      "panels": [
+        {
+          "title": "API Response Times",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"plan-journey\"}[5m])) by (le))",
+              "legendFormat": "95th Percentile"
+            }
+          ]
+        },
+        {
+          "title": "Error Rates",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"plan-journey\", status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"plan-journey\"}[5m]))",
+              "legendFormat": "Error Rate"
+            }
+          ]
+        },
+        {
+          "title": "Claims Submitted",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(claims_submitted_total[24h]))",
+              "legendFormat": "Claims Submitted"
+            }
+          ]
+        },
+        {
+          "title": "Claim Processing Time",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(claim_processing_time_seconds)",
+              "legendFormat": "Avg Processing Time"
+            }
+          ]
+        }
+      ]
+    }
+  gamification-dashboard.json: |
+    {
+      "title": "Gamification Dashboard",
+      "uid": "gamification",
+      "panels": [
+        {
+          "title": "Events Processed",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(gamification_events_processed_total[5m]))",
+              "legendFormat": "Events/sec"
+            }
+          ]
+        },
+        {
+          "title": "Event Processing Time",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(event_processing_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "95th Percentile"
+            }
+          ]
+        },
+        {
+          "title": "Achievements Unlocked",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(achievements_unlocked_total[24h]))",
+              "legendFormat": "Achievements Unlocked"
+            }
+          ]
+        },
+        {
+          "title": "XP Awarded",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(xp_awarded_total[24h]))",
+              "legendFormat": "XP Awarded"
+            }
+          ]
+        }
+      ]
+    }
+  system-overview-dashboard.json: |
+    {
+      "title": "System Overview",
+      "uid": "system-overview",
+      "panels": [
+        {
+          "title": "API Gateway Requests",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[5m])) by (journey)",
+              "legendFormat": "{{journey}}"
+            }
+          ]
+        },
+        {
+          "title": "Service Health",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "up",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "title": "Memory Usage",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(container_memory_usage_bytes) by (pod)",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "title": "CPU Usage",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total[5m])) by (pod)",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        }
+      ]
+    }
+  cicd-health-dashboard.json: |
+    {
+      "title": "CI/CD Health Dashboard",
+      "uid": "cicd-health",
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": "-- Grafana --",
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": "Prometheus",
+            "enable": true,
+            "expr": "changes(deployment_events_total[5m]) > 0",
+            "iconColor": "rgba(255, 96, 96, 1)",
+            "name": "Deployments",
+            "titleFormat": "Deployment",
+            "textFormat": "Version ${tag} deployed to ${environment}"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "title": "Build Performance Overview",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Average Build Times",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(build_duration_seconds) by (repository)",
+              "legendFormat": "{{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "Build Time Distribution",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(build_duration_seconds_bucket[24h])) by (le, repository))",
+              "legendFormat": "p50 {{repository}}"
+            },
+            {
+              "expr": "histogram_quantile(0.9, sum(rate(build_duration_seconds_bucket[24h])) by (le, repository))",
+              "legendFormat": "p90 {{repository}}"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(build_duration_seconds_bucket[24h])) by (le, repository))",
+              "legendFormat": "p99 {{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "Pipeline Stability Metrics",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Build Success Rate",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(build_success_total[24h])) / sum(rate(build_total[24h])) * 100",
+              "legendFormat": "Success Rate"
+            }
+          ],
+          "options": {
+            "thresholds": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          }
+        },
+        {
+          "title": "Failure Categories",
+          "type": "piechart",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(build_failures_total[24h])) by (failure_type)",
+              "legendFormat": "{{failure_type}}"
+            }
+          ]
+        },
+        {
+          "title": "Mean Time Between Failures",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(mtbf_seconds) by (workflow)",
+              "legendFormat": "{{workflow}}"
+            }
+          ]
+        },
+        {
+          "title": "Mean Time To Recovery",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(mttr_seconds) by (workflow)",
+              "legendFormat": "{{workflow}}"
+            }
+          ]
+        },
+        {
+          "title": "Dependency Management",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Cache Hit Ratio",
+          "type": "polystat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(dependency_cache_hits_total[24h])) by (repository) / sum(rate(dependency_cache_requests_total[24h])) by (repository) * 100",
+              "legendFormat": "{{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "Dependency Resolution Time",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(dependency_resolution_duration_seconds) by (repository)",
+              "legendFormat": "{{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "Validation Failures",
+          "type": "table",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(dependency_validation_failures_total[24h])) by (repository, dependency_type)",
+              "legendFormat": "{{repository}} - {{dependency_type}}"
+            }
+          ]
+        },
+        {
+          "title": "Resource Utilization",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Runner Utilization",
+          "type": "heatmap",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(runner_busy_seconds[5m])) by (runner) / sum(rate(runner_available_seconds[5m])) by (runner) * 100",
+              "legendFormat": "{{runner}}"
+            }
+          ]
+        },
+        {
+          "title": "Queue Time",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(build_queue_duration_seconds) by (repository)",
+              "legendFormat": "{{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "CPU Usage During Builds",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(rate(build_cpu_usage_seconds_total[5m])) by (repository) * 100",
+              "legendFormat": "{{repository}}"
+            }
+          ]
+        },
+        {
+          "title": "Memory Usage During Builds",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(build_memory_usage_bytes) by (repository) / 1024 / 1024",
+              "legendFormat": "{{repository}} (MB)"
+            }
+          ]
+        }
+      ]
+    }
+  performance-baseline-dashboard.json: |
+    {
+      "title": "Performance Baseline Dashboard",
+      "uid": "performance-baseline",
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": "-- Grafana --",
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": "Prometheus",
+            "enable": true,
+            "expr": "changes(deployment_events_total[5m]) > 0",
+            "iconColor": "rgba(255, 96, 96, 1)",
+            "name": "Deployments",
+            "titleFormat": "Deployment",
+            "textFormat": "Version ${tag} deployed to ${environment}"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "title": "Container Startup Performance",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Container Startup Time Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(container_startup_time_seconds{environment=\"pre-deployment\"}) by (service)",
+              "legendFormat": "Pre: {{service}}"
+            },
+            {
+              "expr": "avg(container_startup_time_seconds{environment=\"post-deployment\"}) by (service)",
+              "legendFormat": "Post: {{service}}"
+            }
+          ]
+        },
+        {
+          "title": "Startup Time Delta",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "(avg(container_startup_time_seconds{environment=\"post-deployment\"}) by (service) - avg(container_startup_time_seconds{environment=\"pre-deployment\"}) by (service)) / avg(container_startup_time_seconds{environment=\"pre-deployment\"}) by (service) * 100",
+              "legendFormat": "{{service}}"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 10
+                  }
+                ]
+              },
+              "unit": "percent"
+            }
+          }
+        },
+        {
+          "title": "Database Query Performance",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Query Latency Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{environment=\"pre-deployment\"}[5m])) by (le, query_type))",
+              "legendFormat": "Pre: {{query_type}} (p95)"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{environment=\"post-deployment\"}[5m])) by (le, query_type))",
+              "legendFormat": "Post: {{query_type}} (p95)"
+            }
+          ]
+        },
+        {
+          "title": "Query Latency Delta",
+          "type": "table",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "(histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{environment=\"post-deployment\"}[5m])) by (le, query_type)) - histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{environment=\"pre-deployment\"}[5m])) by (le, query_type))) / histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{environment=\"pre-deployment\"}[5m])) by (le, query_type)) * 100",
+              "legendFormat": "{{query_type}}"
+            }
+          ]
+        },
+        {
+          "title": "API Response Time",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "API Endpoint Response Time Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{environment=\"pre-deployment\"}[5m])) by (le, endpoint))",
+              "legendFormat": "Pre: {{endpoint}} (p95)"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{environment=\"post-deployment\"}[5m])) by (le, endpoint))",
+              "legendFormat": "Post: {{endpoint}} (p95)"
+            }
+          ]
+        },
+        {
+          "title": "Response Time Delta by Journey",
+          "type": "bar",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "(avg(http_request_duration_seconds{environment=\"post-deployment\"}) by (journey) - avg(http_request_duration_seconds{environment=\"pre-deployment\"}) by (journey)) / avg(http_request_duration_seconds{environment=\"pre-deployment\"}) by (journey) * 100",
+              "legendFormat": "{{journey}}"
+            }
+          ]
+        },
+        {
+          "title": "Resource Utilization Patterns",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "CPU Usage Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(rate(container_cpu_usage_seconds_total{environment=\"pre-deployment\"}[5m])) by (service) * 100",
+              "legendFormat": "Pre: {{service}}"
+            },
+            {
+              "expr": "avg(rate(container_cpu_usage_seconds_total{environment=\"post-deployment\"}[5m])) by (service) * 100",
+              "legendFormat": "Post: {{service}}"
+            }
+          ]
+        },
+        {
+          "title": "Memory Usage Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "avg(container_memory_usage_bytes{environment=\"pre-deployment\"}) by (service) / 1024 / 1024",
+              "legendFormat": "Pre: {{service}} (MB)"
+            },
+            {
+              "expr": "avg(container_memory_usage_bytes{environment=\"post-deployment\"}) by (service) / 1024 / 1024",
+              "legendFormat": "Post: {{service}} (MB)"
+            }
+          ]
+        },
+        {
+          "title": "Transaction Throughput",
+          "type": "row",
+          "collapsed": false
+        },
+        {
+          "title": "Transaction Rate Comparison",
+          "type": "graph",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(transaction_total{environment=\"pre-deployment\"}[5m])) by (service)",
+              "legendFormat": "Pre: {{service}}"
+            },
+            {
+              "expr": "sum(rate(transaction_total{environment=\"post-deployment\"}[5m])) by (service)",
+              "legendFormat": "Post: {{service}}"
+            }
+          ]
+        },
+        {
+          "title": "Maximum Throughput Capacity",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max_over_time(max_throughput_capacity{environment=\"pre-deployment\"}[24h])",
+              "legendFormat": "Pre-deployment"
+            },
+            {
+              "expr": "max_over_time(max_throughput_capacity{environment=\"post-deployment\"}[24h])",
+              "legendFormat": "Post-deployment"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - monitoring.austa.com.br
+    secretName: grafana-tls
+  rules:
+  - host: monitoring.austa.com.br
+    http:
+      paths:
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              name: http

@@ -1,0 +1,66 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ci-cd-alert-rules
+  namespace: monitoring
+  labels:
+    app: austa-prometheus
+    role: alert-rules
+    component: ci-cd
+    severity: warning
+spec:
+  groups:
+  - name: ci_cd_alerts
+    rules:
+    # Dependency validation failure alerts
+    - alert: DependencyValidationFailureRate
+      expr: sum(rate(dependency_validation_failures_total[6h])) / sum(rate(dependency_validation_runs_total[6h])) > 0.05
+      for: 10m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: "High dependency validation failure rate"
+        description: "Dependency validation is failing at a rate of {{ $value | humanizePercentage }} over the last 6 hours"
+    
+    # Build performance alerts
+    - alert: CIBuildTimeTooLong
+      expr: avg_over_time(ci_build_duration_seconds[1h]) > 600
+      for: 5m
+      labels:
+        severity: warning
+        team: platform
+      annotations:
+        summary: "CI build time exceeds 10 minutes"
+        description: "Average CI build time for {{ $labels.repository }}/{{ $labels.workflow }} is {{ $value | humanizeDuration }}"
+    
+    - alert: CIBuildTimeCritical
+      expr: ci_build_duration_seconds > 1200
+      for: 1m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: "CI build time exceeds 20 minutes"
+        description: "CI build time for {{ $labels.repository }}/{{ $labels.workflow }} is {{ $value | humanizeDuration }}"
+    
+    # Pipeline stability alerts
+    - alert: ProductionDeploymentFailure
+      expr: ci_deployment_status{environment="production", status="failure"} > 0
+      for: 1m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: "Production deployment pipeline failure"
+        description: "Deployment to production failed for {{ $labels.repository }}/{{ $labels.workflow }}"
+    
+    - alert: StagingWorkflowSuccessRateLow
+      expr: sum(rate(ci_workflow_runs_total{environment="staging", status="success"}[1h])) / sum(rate(ci_workflow_runs_total{environment="staging"}[1h])) < 0.9
+      for: 30m
+      labels:
+        severity: warning
+        team: platform
+      annotations:
+        summary: "Staging workflow success rate below 90%"
+        description: "Staging workflow success rate is {{ $value | humanizePercentage }} over the last hour"

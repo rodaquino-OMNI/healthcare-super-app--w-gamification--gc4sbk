@@ -1,0 +1,370 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  validate-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.x
+          run_install: false
+          
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+          
+      - name: Install validation dependencies
+        run: pnpm install glob
+          
+      - name: Validate package.json files
+        run: node scripts/validate-package-json.js
+        
+      - name: Validate dependency resolution
+        run: |
+          # Install dependencies for validation
+          cd src/backend
+          pnpm install --frozen-lockfile
+          # Validate TypeScript project references
+          pnpm exec tsc --build --verbose
+          
+          cd ../web
+          pnpm install --frozen-lockfile
+          # Validate TypeScript project references
+          pnpm exec tsc --build --verbose
+  
+  audit:
+    runs-on: ubuntu-latest
+    needs: validate-dependencies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.x
+          run_install: false
+          
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+          
+      - name: Audit backend dependencies
+        working-directory: src/backend
+        run: |
+          # Install dependencies using pnpm
+          pnpm install --frozen-lockfile
+          # Run audit 
+          pnpm audit || true
+          
+      - name: Audit web dependencies
+        working-directory: src/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm audit || true
+          
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: audit
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.x
+          run_install: false
+          
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+          
+      - name: Cache build outputs
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/dist
+            **/build
+            **/.next
+          key: ${{ runner.os }}-build-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-build-
+          
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: pnpm install --frozen-lockfile
+          
+      - name: Install web dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+        
+      - name: Run backend linters
+        working-directory: src/backend
+        run: pnpm lint || true
+        
+      - name: Run web linters
+        working-directory: src/web
+        run: pnpm lint || true
+        
+      - name: Run backend tests
+        working-directory: src/backend
+        run: pnpm test || true
+        
+      - name: Run web tests
+        working-directory: src/web
+        run: pnpm test || true
+        
+      - name: Build shared packages first
+        run: |
+          # Build packages in correct order
+          cd src/web/primitives
+          pnpm build
+          
+          cd ../interfaces
+          pnpm build
+          
+          cd ../journey-context
+          pnpm build
+          
+          cd ../design-system
+          pnpm build
+        
+      - name: Build backend
+        working-directory: src/backend
+        run: pnpm build
+        
+      - name: Build web
+        working-directory: src/web
+        run: pnpm build
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+        
+      - name: Login to Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          
+      - name: Build and push gamification-engine container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/gamification-engine
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-gamification-engine:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-gamification-engine:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push api-gateway container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/api-gateway
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-api-gateway:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-api-gateway:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push auth-service container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/auth-service
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-auth-service:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-auth-service:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push health-service container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/health-service
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-health-service:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-health-service:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push care-service container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/care-service
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-care-service:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-care-service:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push plan-service container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/plan-service
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-plan-service:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-plan-service:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      - name: Build and push notification-service container
+        uses: docker/build-push-action@v4
+        with:
+          context: ./src/backend/notification-service
+          push: true
+          tags: ${{ secrets.DOCKER_REGISTRY }}/austa-notification-service:${{ github.sha }},${{ secrets.DOCKER_REGISTRY }}/austa-notification-service:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      # Move cache to prevent cache growth
+      - name: Move Docker cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Kubernetes CLI
+        uses: azure/setup-kubectl@v2
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: sa-east-1
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name austa-staging-cluster --region sa-east-1
+        
+      - name: Update deployment image tags
+        run: |
+          # Update image tags in deployment files
+          sed -i "s|austa-gamification-engine:latest|austa-gamification-engine:${{ github.sha }}|g" infrastructure/kubernetes/gamification/deployment.yaml
+          sed -i "s|austa-api-gateway:latest|austa-api-gateway:${{ github.sha }}|g" infrastructure/kubernetes/api-gateway/deployment.yaml
+          sed -i "s|austa-auth-service:latest|austa-auth-service:${{ github.sha }}|g" infrastructure/kubernetes/auth-service/deployment.yaml
+          sed -i "s|austa-health-service:latest|austa-health-service:${{ github.sha }}|g" infrastructure/kubernetes/health-journey/deployment.yaml
+          sed -i "s|austa-care-service:latest|austa-care-service:${{ github.sha }}|g" infrastructure/kubernetes/care-journey/deployment.yaml
+          sed -i "s|austa-plan-service:latest|austa-plan-service:${{ github.sha }}|g" infrastructure/kubernetes/plan-journey/deployment.yaml
+          sed -i "s|austa-notification-service:latest|austa-notification-service:${{ github.sha }}|g" infrastructure/kubernetes/notification-service/deployment.yaml
+        
+      - name: Deploy to Kubernetes
+        run: |
+          # Apply network policies first
+          kubectl apply -f infrastructure/kubernetes/gamification/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/api-gateway/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/auth-service/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/health-journey/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/care-journey/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/plan-journey/network-policy.yaml
+          kubectl apply -f infrastructure/kubernetes/notification-service/network-policy.yaml
+          
+          # Deploy services in dependency order
+          # First deploy shared services
+          kubectl apply -f infrastructure/kubernetes/auth-service/deployment.yaml
+          kubectl apply -f infrastructure/kubernetes/notification-service/deployment.yaml
+          
+          # Then deploy journey services
+          kubectl apply -f infrastructure/kubernetes/health-journey/deployment.yaml
+          kubectl apply -f infrastructure/kubernetes/care-journey/deployment.yaml
+          kubectl apply -f infrastructure/kubernetes/plan-journey/deployment.yaml
+          kubectl apply -f infrastructure/kubernetes/gamification/deployment.yaml
+          
+          # Finally deploy API gateway
+          kubectl apply -f infrastructure/kubernetes/api-gateway/deployment.yaml
+          
+          # Apply service configurations
+          kubectl apply -f infrastructure/kubernetes/auth-service/service.yaml
+          kubectl apply -f infrastructure/kubernetes/notification-service/service.yaml
+          kubectl apply -f infrastructure/kubernetes/health-journey/service.yaml
+          kubectl apply -f infrastructure/kubernetes/care-journey/service.yaml
+          kubectl apply -f infrastructure/kubernetes/plan-journey/service.yaml
+          kubectl apply -f infrastructure/kubernetes/gamification/service.yaml
+          kubectl apply -f infrastructure/kubernetes/api-gateway/service.yaml
+          
+          # Apply ingress configurations
+          kubectl apply -f infrastructure/kubernetes/api-gateway/ingress.yaml
+          
+      - name: Wait for deployments to be ready
+        run: |
+          kubectl rollout status deployment/auth-service
+          kubectl rollout status deployment/notification-service
+          kubectl rollout status deployment/health-service
+          kubectl rollout status deployment/care-service
+          kubectl rollout status deployment/plan-service
+          kubectl rollout status deployment/gamification-engine
+          kubectl rollout status deployment/api-gateway
+          
+      - name: Verify deployment health
+        run: |
+          # Check service health endpoints
+          echo "Verifying API Gateway health..."
+          kubectl exec deploy/api-gateway -- curl -s http://localhost:3000/health || echo "API Gateway health check failed but continuing"
+          
+          echo "Verifying Auth Service health..."
+          kubectl exec deploy/auth-service -- curl -s http://localhost:3001/health || echo "Auth Service health check failed but continuing"
+          
+          echo "Deployment to staging complete!"

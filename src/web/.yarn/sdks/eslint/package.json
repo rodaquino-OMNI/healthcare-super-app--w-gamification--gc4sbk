@@ -1,0 +1,11 @@
+{
+  "name": "eslint-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ESLint SDK for Yarn PnP",
+  "main": "./lib/api.js",
+  "license": "MIT",
+  "dependencies": {
+    "eslint": "^8.57.0"
+  }
+}

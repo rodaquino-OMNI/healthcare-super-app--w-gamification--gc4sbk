@@ -1,0 +1,980 @@
+"""
+Main GraphQL schema for the AUSTA SuperApp
+This schema aggregates type definitions, queries, and mutations from various feature areas.
+The schema is designed to support the three main user journeys: Health, Care, and Plan.
+"""
+
+# Scalar type definitions
+"""
+Represents a date and time, serialized as an ISO-8601 formatted string
+"""
+scalar DateTime
+
+"""
+Represents arbitrary JSON data, useful for complex or dynamic structures
+"""
+scalar JSON
+
+"""
+Represents a file upload conforming to the GraphQL multipart request specification
+"""
+scalar Upload
+
+"""
+Represents a Universally Unique Identifier (UUID) in standard format
+"""
+scalar UUID
+
+"""
+Represents a valid URL string
+"""
+scalar URL
+
+"""
+Represents a valid email address string
+"""
+scalar EmailAddress
+
+# Enum type definitions
+"""
+Types of health metrics that can be tracked in the Health journey
+"""
+enum MetricType {
+  HEART_RATE
+  BLOOD_PRESSURE
+  BLOOD_GLUCOSE
+  STEPS
+  SLEEP
+  WEIGHT
+  OXYGEN_SATURATION
+  TEMPERATURE
+  RESPIRATORY_RATE
+}
+
+"""
+Sources from which health metrics can be recorded
+"""
+enum MetricSource {
+  MANUAL
+  DEVICE
+  IMPORTED
+}
+
+"""
+Possible statuses for health goals
+"""
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  EXPIRED
+}
+
+"""
+Frequency options for recurring health goals
+"""
+enum GoalFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+"""
+Connection status for health tracking devices
+"""
+enum DeviceStatus {
+  CONNECTED
+  DISCONNECTED
+  PAIRING
+  ERROR
+}
+
+"""
+Types of health tracking devices supported by the platform
+"""
+enum DeviceType {
+  SMARTWATCH
+  FITNESS_TRACKER
+  SMART_SCALE
+  BLOOD_PRESSURE_MONITOR
+  GLUCOSE_MONITOR
+  PULSE_OXIMETER
+  THERMOMETER
+}
+
+"""
+Types of medical events that can be recorded in a user's medical history
+"""
+enum MedicalEventType {
+  APPOINTMENT
+  DIAGNOSIS
+  PROCEDURE
+  VACCINATION
+  MEDICATION
+  ALLERGY
+  LAB_RESULT
+  HOSPITALIZATION
+  EMERGENCY
+}
+
+"""
+Severity levels for medical events
+"""
+enum MedicalEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+"""
+Possible statuses for insurance claims in the Plan journey
+"""
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ADDITIONAL_INFO_REQUIRED
+  APPROVED
+  DENIED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+"""
+Types of errors that can occur during API operations
+"""
+enum ErrorType {
+  # Client errors (4xx)
+  VALIDATION_ERROR
+  AUTHENTICATION_ERROR
+  AUTHORIZATION_ERROR
+  NOT_FOUND
+  BAD_REQUEST
+  RATE_LIMITED
+  
+  # Server errors (5xx)
+  INTERNAL_ERROR
+  SERVICE_UNAVAILABLE
+  DATABASE_ERROR
+  
+  # Integration errors
+  EXTERNAL_SERVICE_ERROR
+  INTEGRATION_TIMEOUT
+  
+  # Data errors
+  DATA_INTEGRITY_ERROR
+  CONFLICT_ERROR
+}
+
+"""
+Categories of journeys in the AUSTA SuperApp
+"""
+enum JourneyType {
+  HEALTH
+  CARE
+  PLAN
+  CROSS_JOURNEY
+}
+
+# Error type definitions
+"""
+Base error type for all GraphQL errors
+"""
+type Error {
+  message: String!
+  type: ErrorType!
+  code: String!
+  path: [String!]
+  timestamp: DateTime!
+  retryable: Boolean!
+}
+
+"""
+Validation error with field-specific details
+"""
+type ValidationError {
+  message: String!
+  type: ErrorType!
+  code: String!
+  path: [String!]
+  timestamp: DateTime!
+  retryable: Boolean!
+  fieldErrors: [FieldError!]!
+}
+
+"""
+Field-specific error details for validation errors
+"""
+type FieldError {
+  field: String!
+  message: String!
+  code: String!
+}
+
+"""
+Error response wrapper for all operations
+"""
+type ErrorResponse {
+  errors: [Error!]!
+}
+
+# Object type definitions
+"""
+Represents a single health metric measurement in the Health journey
+"""
+type HealthMetric {
+  id: ID!
+  userId: ID!
+  type: MetricType!
+  value: Float!
+  unit: String!
+  timestamp: DateTime!
+  source: MetricSource
+  notes: String
+  trend: Float
+  isAbnormal: Boolean
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a health goal set by a user in the Health journey
+"""
+type HealthGoal {
+  id: ID!
+  userId: ID!
+  type: String!
+  title: String!
+  description: String
+  target: Float!
+  unit: String!
+  currentValue: Float!
+  startDate: DateTime!
+  endDate: DateTime
+  frequency: GoalFrequency!
+  status: GoalStatus!
+  progress: Float!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a medical event in a user's medical history
+"""
+type MedicalEvent {
+  id: ID!
+  userId: ID!
+  type: MedicalEventType!
+  title: String!
+  description: String
+  date: DateTime!
+  provider: String
+  location: String
+  documents: [String!]!
+  severity: MedicalEventSeverity
+  outcome: String
+  notes: String
+  isImported: Boolean!
+  importSource: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a connection between a user and a health tracking device
+"""
+type DeviceConnection {
+  id: ID!
+  userId: ID!
+  deviceType: DeviceType!
+  deviceId: String!
+  deviceName: String!
+  lastSync: DateTime
+  status: DeviceStatus!
+  connectionDetails: JSON
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a healthcare appointment in the Care journey
+"""
+type Appointment {
+  id: ID!
+  userId: ID!
+  providerId: String!
+  dateTime: DateTime!
+  type: String!
+  reason: String!
+  status: String!
+  location: String
+  notes: String
+  telehealthLink: URL
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a healthcare provider in the Care journey
+"""
+type Provider {
+  id: ID!
+  name: String!
+  specialty: String!
+  location: String!
+  availability: [String!]
+  rating: Float
+  reviews: Int
+  acceptedInsurance: [String!]
+  telehealth: Boolean
+  imageUrl: URL
+  contactInfo: ContactInfo
+  journeyContext: JourneyContext
+}
+
+"""
+Represents contact information for a provider
+"""
+type ContactInfo {
+  phone: String
+  email: EmailAddress
+  website: URL
+  address: Address
+}
+
+"""
+Represents a physical address
+"""
+type Address {
+  street: String!
+  city: String!
+  state: String!
+  zipCode: String!
+  country: String!
+}
+
+"""
+Represents an insurance claim in the Plan journey
+"""
+type Claim {
+  id: ID!
+  userId: ID!
+  planId: String!
+  type: String!
+  procedureCode: String!
+  providerName: String!
+  serviceDate: DateTime!
+  amount: Float!
+  status: ClaimStatus!
+  submittedAt: DateTime!
+  processedAt: DateTime
+  reimbursementAmount: Float
+  denialReason: String
+  additionalInfoRequired: JSON
+  documents: [ClaimDocument!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a document attached to an insurance claim
+"""
+type ClaimDocument {
+  id: ID!
+  claimId: ID!
+  fileUrl: URL!
+  fileName: String!
+  fileType: String!
+  uploadedAt: DateTime!
+  size: Int!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents an insurance plan in the Plan journey
+"""
+type Plan {
+  id: ID!
+  userId: ID!
+  planNumber: String!
+  type: String!
+  provider: String!
+  coverageDetails: JSON
+  startDate: DateTime!
+  endDate: DateTime
+  status: String!
+  premium: Float
+  deductible: Float
+  outOfPocketMax: Float
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  journeyContext: JourneyContext
+}
+
+"""
+Represents a user's gamification profile
+"""
+type GameProfile {
+  id: ID!
+  userId: ID!
+  level: Int!
+  xp: Int!
+  achievements: [Achievement!]!
+  quests: [Quest!]!
+  rewards: [Reward!]!
+  streakDays: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+Represents an achievement in the gamification system
+"""
+type Achievement {
+  id: ID!
+  title: String!
+  description: String!
+  icon: String!
+  progress: Int!
+  total: Int!
+  unlocked: Boolean!
+  journey: JourneyType!
+  unlockedAt: DateTime
+  xpReward: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+Represents a quest in the gamification system
+"""
+type Quest {
+  id: ID!
+  title: String!
+  description: String!
+  journey: JourneyType!
+  progress: Int!
+  total: Int!
+  completed: Boolean!
+  expiresAt: DateTime
+  tasks: [QuestTask!]!
+  xpReward: Int!
+  rewardId: ID
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+Represents a task within a quest
+"""
+type QuestTask {
+  id: ID!
+  questId: ID!
+  description: String!
+  completed: Boolean!
+  completedAt: DateTime
+  order: Int!
+}
+
+"""
+Represents a reward in the gamification system
+"""
+type Reward {
+  id: ID!
+  title: String!
+  description: String!
+  icon: String!
+  type: String!
+  value: String!
+  cost: Int
+  available: Boolean!
+  expiresAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+Represents an authentication session
+"""
+type AuthSession {
+  accessToken: String!
+  refreshToken: String!
+  expiresAt: Float!
+  user: User!
+}
+
+"""
+Represents a user in the system
+"""
+type User {
+  id: ID!
+  name: String!
+  email: EmailAddress!
+  profileImage: URL
+  phoneNumber: String
+  preferredLanguage: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  lastLogin: DateTime
+  mfaEnabled: Boolean!
+  activeJourney: JourneyType
+}
+
+"""
+Represents journey-specific context for data entities
+"""
+type JourneyContext {
+  journey: JourneyType!
+  metadata: JSON
+}
+
+"""
+Represents a paginated response
+"""
+type PaginatedResponse {
+  totalCount: Int!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  items: [JSON!]!
+}
+
+# Input types
+"""
+Input for creating a new health metric
+"""
+input CreateHealthMetricInput {
+  type: MetricType!
+  value: Float!
+  unit: String!
+  timestamp: DateTime
+  source: MetricSource
+  notes: String
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for creating a new health goal
+"""
+input CreateHealthGoalInput {
+  type: String!
+  title: String!
+  description: String
+  target: Float!
+  unit: String!
+  startDate: DateTime!
+  endDate: DateTime
+  frequency: GoalFrequency!
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for updating a health goal
+"""
+input UpdateHealthGoalInput {
+  title: String
+  description: String
+  target: Float
+  currentValue: Float
+  endDate: DateTime
+  status: GoalStatus
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for booking a new appointment
+"""
+input BookAppointmentInput {
+  providerId: String!
+  dateTime: DateTime!
+  type: String!
+  reason: String!
+  location: String
+  notes: String
+  telehealthPreferred: Boolean
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for submitting a new insurance claim
+"""
+input SubmitClaimInput {
+  planId: String!
+  type: String!
+  procedureCode: String!
+  providerName: String!
+  serviceDate: DateTime!
+  amount: Float!
+  notes: String
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for updating an existing claim
+"""
+input UpdateClaimInput {
+  additionalInfo: JSON
+  documents: [Upload!]
+  journeyContext: JourneyContextInput
+}
+
+"""
+Input for journey context information
+"""
+input JourneyContextInput {
+  journey: JourneyType!
+  metadata: JSON
+}
+
+"""
+Input for pagination parameters
+"""
+input PaginationInput {
+  page: Int = 1
+  pageSize: Int = 20
+  sortBy: String
+  sortDirection: String
+}
+
+"""
+Input for filtering health metrics
+"""
+input HealthMetricsFilterInput {
+  types: [MetricType!]
+  startDate: DateTime
+  endDate: DateTime
+  source: MetricSource
+}
+
+"""
+Input for filtering health goals
+"""
+input HealthGoalsFilterInput {
+  status: GoalStatus
+  type: String
+}
+
+"""
+Input for filtering medical events
+"""
+input MedicalEventsFilterInput {
+  types: [MedicalEventType!]
+  startDate: DateTime
+  endDate: DateTime
+  severity: MedicalEventSeverity
+}
+
+"""
+Input for filtering claims
+"""
+input ClaimsFilterInput {
+  status: ClaimStatus
+  startDate: DateTime
+  endDate: DateTime
+  minAmount: Float
+  maxAmount: Float
+}
+
+"""
+Input for user registration
+"""
+input RegisterUserInput {
+  name: String!
+  email: EmailAddress!
+  password: String!
+  phoneNumber: String
+  preferredLanguage: String
+}
+
+"""
+Input for user profile updates
+"""
+input UpdateUserInput {
+  name: String
+  email: EmailAddress
+  phoneNumber: String
+  preferredLanguage: String
+  profileImage: Upload
+}
+
+# Union types for operation responses
+"""
+Possible responses for health metric operations
+"""
+union HealthMetricResponse = HealthMetric | ValidationError | ErrorResponse
+
+"""
+Possible responses for health goal operations
+"""
+union HealthGoalResponse = HealthGoal | ValidationError | ErrorResponse
+
+"""
+Possible responses for appointment operations
+"""
+union AppointmentResponse = Appointment | ValidationError | ErrorResponse
+
+"""
+Possible responses for claim operations
+"""
+union ClaimResponse = Claim | ValidationError | ErrorResponse
+
+"""
+Possible responses for authentication operations
+"""
+union AuthResponse = AuthSession | ValidationError | ErrorResponse
+
+# Query and Mutation types
+"""
+Root Query type for all read operations
+"""
+type Query {
+  # Health Journey Queries
+  """
+  Retrieves health metrics for a user with optional filtering
+  """
+  getHealthMetrics(userId: ID!, filter: HealthMetricsFilterInput, pagination: PaginationInput): [HealthMetric!]!
+  
+  """
+  Retrieves health goals for a user with optional filtering
+  """
+  getHealthGoals(userId: ID!, filter: HealthGoalsFilterInput, pagination: PaginationInput): [HealthGoal!]!
+  
+  """
+  Retrieves medical history events for a user with optional filtering
+  """
+  getMedicalHistory(userId: ID!, filter: MedicalEventsFilterInput, pagination: PaginationInput): [MedicalEvent!]!
+  
+  """
+  Retrieves connected health tracking devices for a user
+  """
+  getConnectedDevices(userId: ID!, pagination: PaginationInput): [DeviceConnection!]!
+  
+  # Care Journey Queries
+  """
+  Retrieves appointments for a user
+  """
+  getAppointments(userId: ID!, pagination: PaginationInput): [Appointment!]!
+  
+  """
+  Retrieves a specific appointment by ID
+  """
+  getAppointment(id: ID!): Appointment
+  
+  """
+  Searches for healthcare providers with optional filtering
+  """
+  getProviders(specialty: String, location: String, pagination: PaginationInput): [Provider!]!
+  
+  # Plan Journey Queries
+  """
+  Retrieves a specific insurance plan by ID
+  """
+  getPlan(planId: ID!): Plan
+  
+  """
+  Retrieves insurance plans for a user
+  """
+  getUserPlans(userId: ID!, pagination: PaginationInput): [Plan!]!
+  
+  """
+  Retrieves claims for a specific insurance plan with optional filtering
+  """
+  getClaims(planId: ID!, filter: ClaimsFilterInput, pagination: PaginationInput): [Claim!]!
+  
+  # Gamification Queries
+  """
+  Retrieves the gamification profile for a user
+  """
+  getGameProfile(userId: ID!): GameProfile
+  
+  """
+  Retrieves achievements for a user
+  """
+  getAchievements(userId: ID!, journeyType: JourneyType, pagination: PaginationInput): [Achievement!]!
+  
+  """
+  Retrieves quests for a user
+  """
+  getQuests(userId: ID!, journeyType: JourneyType, pagination: PaginationInput): [Quest!]!
+  
+  """
+  Retrieves available rewards for a user
+  """
+  getRewards(userId: ID!, pagination: PaginationInput): [Reward!]!
+  
+  # User Queries
+  """
+  Retrieves a user by ID
+  """
+  getUser(id: ID!): User
+  
+  """
+  Retrieves the currently authenticated user
+  """
+  getCurrentUser: User
+}
+
+"""
+Root Mutation type for all write operations
+"""
+type Mutation {
+  # Health Journey Mutations
+  """
+  Creates a new health metric record
+  """
+  createHealthMetric(createMetricInput: CreateHealthMetricInput!): HealthMetricResponse!
+  
+  """
+  Creates a new health goal
+  """
+  createHealthGoal(createGoalInput: CreateHealthGoalInput!): HealthGoalResponse!
+  
+  """
+  Updates an existing health goal
+  """
+  updateHealthGoal(id: ID!, updateGoalInput: UpdateHealthGoalInput!): HealthGoalResponse!
+  
+  """
+  Connects a new health tracking device
+  """
+  connectDevice(deviceType: DeviceType!, deviceId: String!, deviceName: String!): DeviceConnection!
+  
+  """
+  Disconnects a health tracking device
+  """
+  disconnectDevice(id: ID!): Boolean!
+  
+  # Care Journey Mutations
+  """
+  Books a new healthcare appointment
+  """
+  bookAppointment(bookAppointmentInput: BookAppointmentInput!): AppointmentResponse!
+  
+  """
+  Cancels an existing appointment
+  """
+  cancelAppointment(id: ID!): AppointmentResponse!
+  
+  """
+  Reschedules an existing appointment
+  """
+  rescheduleAppointment(id: ID!, newDateTime: DateTime!): AppointmentResponse!
+  
+  # Plan Journey Mutations
+  """
+  Submits a new insurance claim
+  """
+  submitClaim(submitClaimInput: SubmitClaimInput!): ClaimResponse!
+  
+  """
+  Uploads a document for an insurance claim
+  """
+  uploadClaimDocument(claimId: String!, file: Upload!): ClaimDocument!
+  
+  """
+  Updates an existing insurance claim
+  """
+  updateClaim(id: String!, updateClaimInput: UpdateClaimInput!): ClaimResponse!
+  
+  """
+  Cancels an insurance claim
+  """
+  cancelClaim(id: ID!): ClaimResponse!
+  
+  # Gamification Mutations
+  """
+  Claims a reward from the gamification system
+  """
+  claimReward(rewardId: ID!): Reward!
+  
+  """
+  Marks a quest task as completed
+  """
+  completeQuestTask(questId: ID!, taskId: ID!): Quest!
+  
+  """
+  Acknowledges an achievement notification
+  """
+  acknowledgeAchievement(achievementId: ID!): Achievement!
+  
+  # Authentication Mutations
+  """
+  Authenticates a user with email and password
+  """
+  login(email: EmailAddress!, password: String!): AuthResponse!
+  
+  """
+  Registers a new user
+  """
+  register(registerInput: RegisterUserInput!): AuthResponse!
+  
+  """
+  Logs out the current user
+  """
+  logout: Boolean!
+  
+  """
+  Refreshes an authentication token
+  """
+  refreshToken: AuthResponse!
+  
+  """
+  Verifies a multi-factor authentication code
+  """
+  verifyMFA(code: String!): AuthResponse!
+  
+  """
+  Requests a password reset email
+  """
+  requestPasswordReset(email: EmailAddress!): Boolean!
+  
+  """
+  Resets a password using a reset token
+  """
+  resetPassword(token: String!, password: String!): Boolean!
+  
+  """
+  Updates user profile information
+  """
+  updateUser(updateUserInput: UpdateUserInput!): User!
+  
+  """
+  Changes a user's password
+  """
+  changePassword(oldPassword: String!, newPassword: String!): Boolean!
+  
+  """
+  Sets up multi-factor authentication
+  """
+  setupMFA: Boolean!
+  
+  """
+  Disables multi-factor authentication
+  """
+  disableMFA: Boolean!
+  
+  """
+  Authenticates a user with a social provider
+  """
+  socialLogin(provider: String!, token: String!): AuthResponse!
+  
+  """
+  Authenticates a user with biometric data
+  """
+  biometricLogin(biometricData: String!): AuthResponse!
+  
+  """
+  Sets the active journey for a user
+  """
+  setActiveJourney(journeyType: JourneyType!): User!
+}
+
+# Schema definition
+schema {
+  query: Query
+  mutation: Mutation
+}

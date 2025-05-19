@@ -1,0 +1,125 @@
+name: Design System CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/web/design-system/**'
+      - 'src/web/primitives/**'
+      - 'src/web/interfaces/**'
+      - 'src/web/journey-context/**'
+  pull_request:
+    paths:
+      - 'src/web/design-system/**'
+      - 'src/web/primitives/**'
+      - 'src/web/interfaces/**'
+      - 'src/web/journey-context/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |  
+            **/node_modules
+          key: ${{ runner.os }}-design-system-${{ hashFiles('src/web/design-system/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-design-system-
+      - name: Install dependencies
+        run: cd src/web/design-system && pnpm install --frozen-lockfile
+      - name: Validate dependencies
+        run: cd src/web/design-system && pnpm exec tsc --noEmit
+      - name: Run lint
+        run: cd src/web/design-system && pnpm lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/node_modules
+          key: ${{ runner.os }}-design-system-${{ hashFiles('src/web/design-system/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-design-system-
+      - name: Install dependencies
+        run: cd src/web/design-system && pnpm install --frozen-lockfile
+      - name: Run tests
+        run: cd src/web/design-system && pnpm test:ci
+        env:
+          JEST_COVERAGE_THRESHOLD: 80
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: src/web/design-system/coverage
+          env_vars: CI,GITHUB_ACTIONS
+          fail_ci_if_error: true
+          flags: design-system
+          name: codecov-design-system
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+
+  storybook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.15.0'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/node_modules
+            src/web/design-system/.storybook-static
+          key: ${{ runner.os }}-design-system-storybook-${{ hashFiles('src/web/design-system/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-design-system-storybook-
+      - name: Install dependencies
+        run: cd src/web/design-system && pnpm install --frozen-lockfile
+      - name: Build Storybook
+        run: cd src/web/design-system && pnpm build-storybook
+        env:
+          CI: 'true'
+      - name: Chromatic Publish
+        uses: chromaui/action@v2
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          workingDir: src/web/design-system
+          storybookBuildDir: .storybook-static
+          autoAcceptChanges: main
+          exitZeroOnChanges: true
+          exitOnceUploaded: true

@@ -1,0 +1,160 @@
+# AUSTA SuperApp Backend .dockerignore
+# Purpose: Defines patterns for files and directories to exclude from Docker build contexts
+# Benefits: Optimizes image size, improves build performance, and enhances security
+
+# ===== Dependencies =====
+# Exclude all node_modules to ensure clean installs and prevent platform-specific binaries issues
+node_modules
+
+# Package manager logs that aren't needed in the container
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+yarn-error.log*
+.yarn-integrity
+.npm
+.pnpm-store
+
+# Lerna and Turborepo cache files
+.turbo
+.lerna-cache
+lerna-debug.log
+
+# Yarn v2+ specific files
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# ===== Environment & Secrets =====
+# Prevent accidental inclusion of environment variables and secrets
+.env
+.env.*
+!.env.example
+.aws
+.npmrc
+.yarnrc
+
+# ===== Version Control =====
+.git
+.gitignore
+.gitattributes
+.github
+
+# ===== Development Files =====
+# Documentation files not needed at runtime
+*.md
+CHANGELOG.md
+README.md
+LICENSE
+docs
+
+# Log files
+*.log
+logs
+
+# Test files and directories
+*.spec.ts
+*.test.ts
+**/*.e2e-spec.ts
+**/__tests__
+**/__mocks__
+test
+tests
+coverage
+.nyc_output
+
+# Configuration files for development tools
+jest.config.js
+.eslintrc.js
+.eslintrc.json
+.prettierrc
+.prettierrc.js
+tsconfig.tsbuildinfo
+
+# ===== Build Artifacts =====
+# Compiled output that will be rebuilt during the container build process
+dist
+build
+out
+
+# Package-specific build artifacts
+**/dist
+**/build
+**/lib
+**/esm
+**/cjs
+**/umd
+
+# NestJS build artifacts
+**/.nest
+
+# TypeScript incremental compilation artifacts
+**/*.tsbuildinfo
+
+# Prisma generated client
+**/prisma/generated
+**/prisma/client
+
+# Cache directories
+.cache
+.eslintcache
+.babel-cache
+
+# ===== Docker Files =====
+# Docker files aren't needed inside the container
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# ===== Editor & IDE =====
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# ===== Temporary Files =====
+tmp
+temp
+
+# ===== Tools and Scripts =====
+# Exclude tools and scripts not needed at runtime
+tools
+scripts
+
+# ===== Infrastructure =====
+# Infrastructure as code and deployment configurations
+infrastructure
+terraform
+kubernetes
+
+# ===== Package-specific exclusions =====
+# Exclude test directories from packages while keeping the source code
+packages/*/test
+packages/*/tests
+packages/*/__tests__
+packages/*/coverage
+packages/*/.nyc_output
+packages/*/*.tsbuildinfo
+
+# Specific exclusions for the new package structure
+packages/auth/test
+packages/utils/test
+packages/tracing/test
+packages/logging/test
+packages/events/test
+packages/errors/test
+packages/database/test
+packages/interfaces/test
+
+# Keep source code but exclude unnecessary files in packages
+packages/*/*.md
+packages/*/docs
+packages/*/.eslintrc.js
+packages/*/.prettierrc
