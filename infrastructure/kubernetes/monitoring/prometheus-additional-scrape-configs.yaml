@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: additional-scrape-configs
+  namespace: monitoring
+  labels:
+    app: austa-prometheus
+type: Opaque
+stringData:
+  prometheus-additional.yaml: |
+    # CI/CD metrics collection from GitHub Actions
+    - job_name: 'github-actions-metrics'
+      scrape_interval: 30s
+      metrics_path: '/metrics'
+      static_configs:
+        - targets: ['ci-exporter:9090']
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_workflow]
+          target_label: workflow
+        - source_labels: [__meta_kubernetes_pod_label_repository]
+          target_label: repository
+
+    # Performance baseline monitoring for services
+    - job_name: 'service-performance-baseline'
+      scrape_interval: 15s
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape_baseline]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          target_label: app
+        - source_labels: [__meta_kubernetes_pod_label_journey]
+          target_label: journey
+        - source_labels: [__meta_kubernetes_pod_label_version]
+          target_label: version
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+
+    # Database performance monitoring
+    - job_name: 'database-performance-metrics'
+      scrape_interval: 30s
+      static_configs:
+        - targets: ['db-exporter:9187']
+      metric_relabel_configs:
+        - source_labels: [__name__]
+          regex: 'pg_.*'
+          action: keep
