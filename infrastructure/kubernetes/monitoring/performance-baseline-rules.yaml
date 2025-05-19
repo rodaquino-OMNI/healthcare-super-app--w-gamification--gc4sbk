@@ -1,0 +1,90 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: performance-baseline-rules
+  namespace: monitoring
+  labels:
+    app: austa-prometheus
+    role: recording-rules
+    type: performance-baseline
+spec:
+  groups:
+  - name: performance-baseline
+    rules:
+    # Container startup time baseline metrics
+    - record: austa:container_startup_time:baseline
+      expr: avg by (app, journey, version) (container_start_time_seconds{namespace=~".*"})
+      labels:
+        baseline_type: "pre_deployment"
+    
+    # API response time baseline metrics
+    - record: austa:api_response_time:baseline
+      expr: avg by (app, journey, path, method) (http_request_duration_seconds{namespace=~".*"})
+      labels:
+        baseline_type: "pre_deployment"
+    
+    # Database query latency baseline metrics
+    - record: austa:db_query_latency:baseline
+      expr: avg by (app, journey, query_type) (db_query_duration_seconds{namespace=~".*"})
+      labels:
+        baseline_type: "pre_deployment"
+    
+    # Resource utilization baseline metrics
+    - record: austa:resource_cpu_usage:baseline
+      expr: avg by (app, journey) (container_cpu_usage_seconds_total{namespace=~".*"})
+      labels:
+        baseline_type: "pre_deployment"
+    
+    - record: austa:resource_memory_usage:baseline
+      expr: avg by (app, journey) (container_memory_usage_bytes{namespace=~".*"})
+      labels:
+        baseline_type: "pre_deployment"
+    
+    # Transaction throughput baseline metrics
+    - record: austa:transaction_throughput:baseline
+      expr: sum by (app, journey) (rate(http_requests_total{namespace=~".*"}[5m]))
+      labels:
+        baseline_type: "pre_deployment"
+
+  - name: performance-comparison
+    rules:
+    # Container startup time comparison
+    - record: austa:container_startup_time:delta
+      expr: |
+        avg by (app, journey, version) (container_start_time_seconds{namespace=~".*"}) 
+        - on(app, journey) group_left() 
+        austa:container_startup_time:baseline{baseline_type="pre_deployment"}
+    
+    # API response time comparison
+    - record: austa:api_response_time:delta
+      expr: |
+        avg by (app, journey, path, method) (http_request_duration_seconds{namespace=~".*"}) 
+        - on(app, journey, path, method) group_left() 
+        austa:api_response_time:baseline{baseline_type="pre_deployment"}
+    
+    # Database query latency comparison
+    - record: austa:db_query_latency:delta
+      expr: |
+        avg by (app, journey, query_type) (db_query_duration_seconds{namespace=~".*"}) 
+        - on(app, journey, query_type) group_left() 
+        austa:db_query_latency:baseline{baseline_type="pre_deployment"}
+    
+    # Resource utilization comparison
+    - record: austa:resource_cpu_usage:delta
+      expr: |
+        avg by (app, journey) (container_cpu_usage_seconds_total{namespace=~".*"}) 
+        - on(app, journey) group_left() 
+        austa:resource_cpu_usage:baseline{baseline_type="pre_deployment"}
+    
+    - record: austa:resource_memory_usage:delta
+      expr: |
+        avg by (app, journey) (container_memory_usage_bytes{namespace=~".*"}) 
+        - on(app, journey) group_left() 
+        austa:resource_memory_usage:baseline{baseline_type="pre_deployment"}
+    
+    # Transaction throughput comparison
+    - record: austa:transaction_throughput:delta
+      expr: |
+        sum by (app, journey) (rate(http_requests_total{namespace=~".*"}[5m])) 
+        - on(app, journey) group_left() 
+        austa:transaction_throughput:baseline{baseline_type="pre_deployment"}
