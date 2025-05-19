@@ -1,1 +1,65 @@
-Failed to process file
+rootProject.name = "AustaSuperApp"
+
+// Configure plugin management for React Native 0.73.4 (requires AGP 8.x)
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+// Include the app module
+include ':app'
+
+// Include React Native Gradle Plugin
+includeBuild('../../../node_modules/@react-native/gradle-plugin')
+
+// Configure repositories for React Native dependencies
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        // React Native packages
+        maven {
+            url "$rootDir/../../../node_modules/react-native/android"
+        }
+        // JSC from npm
+        maven {
+            url "$rootDir/../../../node_modules/jsc-android/dist"
+        }
+        // For monorepo packages
+        maven {
+            // This allows the Android build system to find the monorepo packages
+            // when they're referenced in the app's build.gradle
+            url "$rootDir/../../.."
+        }
+    }
+}
+
+// Define paths to monorepo packages for module resolution
+gradle.ext.monorepoPackages = [
+    designSystem: "$rootDir/../../design-system",
+    primitives: "$rootDir/../../primitives",
+    interfaces: "$rootDir/../../interfaces",
+    journeyContext: "$rootDir/../../journey-context"
+]
+
+// Configure project-wide properties for React Native
+gradle.ext.react = [
+    // The path to the React Native directory
+    reactNativeDir: "$rootDir/../../../node_modules/react-native",
+    // The path to the React Native Codegen directory
+    codegenDir: "$rootDir/../../../node_modules/@react-native/codegen",
+    // The CLI file for React Native commands
+    cliFile: "$rootDir/../../../node_modules/react-native/cli.js",
+    // Enable Hermes JavaScript engine
+    enableHermes: true,
+    // Use the new architecture when set to true
+    newArchEnabled: false
+]
+
+// Apply native modules configuration from React Native CLI
+apply from: file("../../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle");
+applyNativeModulesSettingsGradle(settings)
