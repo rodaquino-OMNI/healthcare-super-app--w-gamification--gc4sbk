@@ -1,1 +1,222 @@
-Failed to process file
+version: '3.8'
+
+services:
+  # Next.js web application
+  web:
+    build:
+      context: ../../src/web
+      dockerfile: web/Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../src/web:/app
+      - web_node_modules:/app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
+      - NEXT_PUBLIC_GRAPHQL_URL=http://localhost:4000/graphql
+      - NEXT_PUBLIC_WS_URL=ws://localhost:4000/subscriptions
+      - PORT=3000
+      - NODE_ENV=development
+      # Journey-specific environment variables
+      - NEXT_PUBLIC_HEALTH_JOURNEY_ENABLED=true
+      - NEXT_PUBLIC_CARE_JOURNEY_ENABLED=true
+      - NEXT_PUBLIC_PLAN_JOURNEY_ENABLED=true
+    depends_on:
+      - design-system-watch
+      - primitives-watch
+      - interfaces-watch
+      - journey-context-watch
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # React Native mobile application
+  mobile:
+    build:
+      context: ../../src/web
+      dockerfile: mobile/Dockerfile.dev
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../../src/web:/app
+      - mobile_node_modules:/app/node_modules
+    environment:
+      - RN_API_BASE_URL=http://localhost:4000
+      - RN_GRAPHQL_URL=http://localhost:4000/graphql
+      - RN_WS_URL=ws://localhost:4000/subscriptions
+      - PORT=8081
+      - NODE_ENV=development
+      # Journey-specific environment variables
+      - RN_HEALTH_JOURNEY_ENABLED=true
+      - RN_CARE_JOURNEY_ENABLED=true
+      - RN_PLAN_JOURNEY_ENABLED=true
+      # Metro bundler configuration
+      - RN_METRO_RESET_CACHE=false
+    depends_on:
+      - design-system-watch
+      - primitives-watch
+      - interfaces-watch
+      - journey-context-watch
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Design system watch mode for development
+  design-system-watch:
+    build:
+      context: ../../src/web
+      dockerfile: design-system/Dockerfile.dev
+    volumes:
+      - ../../src/web:/app
+      - design_system_node_modules:/app/node_modules
+    command: sh -c "cd design-system && yarn install && yarn build --watch"
+    environment:
+      - NODE_ENV=development
+      # Package-specific configuration
+      - SKIP_PREFLIGHT_CHECK=true
+      - STORYBOOK_ENABLED=false
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/design-system/dist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Design system primitives watch mode for development
+  primitives-watch:
+    build:
+      context: ../../src/web
+      dockerfile: primitives/Dockerfile.dev
+    volumes:
+      - ../../src/web:/app
+      - primitives_node_modules:/app/node_modules
+    command: sh -c "cd primitives && yarn install && yarn build --watch"
+    environment:
+      - NODE_ENV=development
+      - SKIP_PREFLIGHT_CHECK=true
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/primitives/dist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Shared interfaces watch mode for development
+  interfaces-watch:
+    build:
+      context: ../../src/web
+      dockerfile: interfaces/Dockerfile.dev
+    volumes:
+      - ../../src/web:/app
+      - interfaces_node_modules:/app/node_modules
+    command: sh -c "cd interfaces && yarn install && yarn build --watch"
+    environment:
+      - NODE_ENV=development
+      - SKIP_PREFLIGHT_CHECK=true
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/interfaces/dist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Journey context watch mode for development
+  journey-context-watch:
+    build:
+      context: ../../src/web
+      dockerfile: journey-context/Dockerfile.dev
+    volumes:
+      - ../../src/web:/app
+      - journey_context_node_modules:/app/node_modules
+    command: sh -c "cd journey-context && yarn install && yarn build --watch"
+    environment:
+      - NODE_ENV=development
+      - SKIP_PREFLIGHT_CHECK=true
+    depends_on:
+      - interfaces-watch
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/journey-context/dist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Storybook for design system development and documentation
+  storybook:
+    build:
+      context: ../../src/web
+      dockerfile: design-system/Dockerfile.storybook
+    ports:
+      - "6006:6006"
+    volumes:
+      - ../../src/web:/app
+      - storybook_node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - STORYBOOK_ENABLED=true
+      - SKIP_PREFLIGHT_CHECK=true
+    command: sh -c "cd design-system && yarn storybook"
+    depends_on:
+      design-system-watch:
+        condition: service_healthy
+      primitives-watch:
+        condition: service_healthy
+      interfaces-watch:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+  # Type checking service for continuous validation
+  type-check:
+    build:
+      context: ../../src/web
+      dockerfile: Dockerfile.typecheck
+    volumes:
+      - ../../src/web:/app
+      - typecheck_node_modules:/app/node_modules
+    command: sh -c "yarn tsc --build --watch"
+    environment:
+      - NODE_ENV=development
+      - SKIP_PREFLIGHT_CHECK=true
+    depends_on:
+      - design-system-watch
+      - primitives-watch
+      - interfaces-watch
+      - journey-context-watch
+    restart: unless-stopped
+    networks:
+      - austa-network
+
+volumes:
+  web_node_modules:
+  mobile_node_modules:
+  design_system_node_modules:
+  primitives_node_modules:
+  interfaces_node_modules:
+  journey_context_node_modules:
+  storybook_node_modules:
+  typecheck_node_modules:
+
+networks:
+  austa-network:
+    name: austa-network
+    external: true
+
+# Custom labels for documentation
+labels:
+  com.austa.description: "Frontend services for AUSTA SuperApp"
+  com.austa.documentation: "https://github.com/austa/superapp/blob/main/docs/frontend.md"
+  com.austa.version: "1.0.0"
