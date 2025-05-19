@@ -1,1 +1,101 @@
-Failed to process file
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plan-journey
+  labels:
+    app: plan-journey
+    journey: plan
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: plan-journey
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: plan-journey
+        journey: plan
+    spec:
+      containers:
+      - name: plan-journey
+        image: austa-superapp/plan-journey:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: PORT
+          value: "3000"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: jwt-secret
+              key: JWT_SECRET
+        - name: API_GATEWAY_URL
+          value: http://api-gateway:3000
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: kafka-config
+              key: brokers
+        - name: INTERFACES_PATH
+          value: "/app/node_modules/@austa/interfaces"
+        - name: JOURNEY_CONTEXT_PATH
+          value: "/app/node_modules/@austa/journey-context"
+        - name: EVENTS_SCHEMA_PATH
+          value: "/app/node_modules/@austa/events/schema"
+        - name: GAMIFICATION_SERVICE_URL
+          value: "http://gamification-engine:3000"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service:3000"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        startupProbe:
+          httpGet:
+            path: /health/startup
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+          successThreshold: 1
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+          successThreshold: 1
