@@ -9,6 +9,7 @@
  */
 
 // Re-export all types from the common module
+export * from './config';
 export * from './error';
 export * from './model';
 export * from './response';
