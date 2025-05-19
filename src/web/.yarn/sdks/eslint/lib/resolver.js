@@ -1,306 +1,217 @@
 /**
- * @fileoverview ESLint Plugin and Parser Resolver for Yarn PnP
- * 
- * This module handles ESLint plugin, config, and parser resolution in a Yarn Plug'n'Play environment.
- * It translates standard Node.js require calls to PnP-compatible resolution paths, ensuring that
- * ESLint can correctly locate and load its dependencies.
+ * ESLint resolver for Yarn Plug'n'Play environments
+ *
+ * This module translates standard Node.js require calls to PnP-compatible resolution paths,
+ * ensuring that ESLint can correctly locate and load its dependencies in a Yarn PnP environment.
  */
 
 'use strict';
 
-const path = require('path');
 const fs = require('fs');
+const path = require('path');
 
-// Try to load the PnP API
-let pnpApi;
+// Try to detect if we're running in a PnP environment
+let pnp;
 try {
-  pnpApi = require('pnpapi');
+  pnp = require('pnpapi');
 } catch (error) {
-  // Not in a PnP environment, will use standard resolution
+  // Not in a PnP environment, or PnP API not available
 }
 
 /**
- * Resolves a module using Yarn PnP if available, falling back to Node.js resolution
- * @param {string} request - The module request
- * @param {string} issuer - The path of the file making the request
- * @returns {string} The resolved module path
+ * Resolves a module request in a Yarn PnP environment
+ * 
+ * @param {string} moduleName - The name of the module to resolve
+ * @param {string} [basedir] - The directory to resolve from
+ * @returns {string|null} The resolved path or null if not found
  */
-function resolveModule(request, issuer) {
-  if (pnpApi) {
-    try {
-      return pnpApi.resolveRequest(request, issuer);
-    } catch (error) {
-      // Fall through to standard resolution if PnP resolution fails
-    }
+function resolveModule(moduleName, basedir) {
+  if (!basedir) {
+    basedir = process.cwd();
   }
-  
-  // Fall back to Node.js resolution
-  return require.resolve(request, { paths: [path.dirname(issuer)] });
+
+  try {
+    // If we're in a PnP environment, use the PnP API to resolve the module
+    if (pnp) {
+      return pnp.resolveRequest(moduleName, basedir + '/');
+    }
+
+    // Fallback to standard Node.js resolution
+    return require.resolve(moduleName, { paths: [basedir] });
+  } catch (error) {
+    // Module not found
+    return null;
+  }
 }
 
 /**
  * Resolves an ESLint plugin
+ * 
  * @param {string} pluginName - The name of the plugin to resolve
- * @param {string} issuer - The path of the file making the request
- * @returns {string} The resolved plugin path
+ * @param {string} [basedir] - The directory to resolve from
+ * @returns {string|null} The resolved path or null if not found
  */
-function resolvePlugin(pluginName, issuer) {
-  // Handle the case where the plugin name doesn't have the eslint-plugin- prefix
-  const normalizedName = pluginName.startsWith('eslint-plugin-') 
-    ? pluginName 
-    : `eslint-plugin-${pluginName}`;
-  
-  // Handle scoped packages
-  const scopedName = pluginName.startsWith('@') && !pluginName.includes('/eslint-plugin-')
-    ? pluginName.replace(/^@([^/]+)\/(.*)$/, '@$1/eslint-plugin-$2')
-    : pluginName;
-  
-  try {
-    // First try with the normalized name
-    return resolveModule(normalizedName, issuer);
-  } catch (error) {
-    try {
-      // Then try with the scoped name
-      return resolveModule(scopedName, issuer);
-    } catch (scopedError) {
-      try {
-        // Try resolving from the project root
-        if (pnpApi) {
-          const topLevelLocation = pnpApi.getPackageInformation(pnpApi.topLevel).packageLocation;
-          return resolveModule(normalizedName, path.join(topLevelLocation, 'package.json'));
-        }
-      } catch (rootError) {
-        // If all resolution attempts fail, throw the original error
-        throw error;
-      }
-    }
+function resolveESLintPlugin(pluginName, basedir) {
+  // Handle scoped plugins (e.g., @typescript-eslint/eslint-plugin)
+  if (pluginName.startsWith('@')) {
+    const [scope, name] = pluginName.split('/');
+    return resolveModule(`${scope}/eslint-plugin-${name}`, basedir) ||
+           resolveModule(pluginName, basedir);
   }
+
+  // Handle regular plugins (e.g., eslint-plugin-react)
+  return resolveModule(`eslint-plugin-${pluginName}`, basedir) ||
+         resolveModule(pluginName, basedir);
 }
 
 /**
  * Resolves an ESLint config
+ * 
  * @param {string} configName - The name of the config to resolve
- * @param {string} issuer - The path of the file making the request
- * @returns {string} The resolved config path
+ * @param {string} [basedir] - The directory to resolve from
+ * @returns {string|null} The resolved path or null if not found
  */
-function resolveConfig(configName, issuer) {
-  // Handle the case where the config name doesn't have the eslint-config- prefix
-  const normalizedName = configName.startsWith('eslint-config-') 
-    ? configName 
-    : `eslint-config-${configName}`;
-  
-  // Handle scoped packages
-  const scopedName = configName.startsWith('@') && !configName.includes('/eslint-config-')
-    ? configName.replace(/^@([^/]+)\/(.*)$/, '@$1/eslint-config-$2')
-    : configName;
-  
-  try {
-    // First try with the normalized name
-    return resolveModule(normalizedName, issuer);
-  } catch (error) {
-    try {
-      // Then try with the scoped name
-      return resolveModule(scopedName, issuer);
-    } catch (scopedError) {
-      try {
-        // Try resolving from the project root
-        if (pnpApi) {
-          const topLevelLocation = pnpApi.getPackageInformation(pnpApi.topLevel).packageLocation;
-          return resolveModule(normalizedName, path.join(topLevelLocation, 'package.json'));
-        }
-      } catch (rootError) {
-        // If all resolution attempts fail, throw the original error
-        throw error;
-      }
-    }
+function resolveESLintConfig(configName, basedir) {
+  // Handle scoped configs (e.g., @company/eslint-config)
+  if (configName.startsWith('@')) {
+    const [scope, name] = configName.split('/');
+    return resolveModule(`${scope}/eslint-config-${name}`, basedir) ||
+           resolveModule(`${scope}/eslint-config`, basedir) ||
+           resolveModule(configName, basedir);
   }
+
+  // Handle regular configs (e.g., eslint-config-airbnb)
+  return resolveModule(`eslint-config-${configName}`, basedir) ||
+         resolveModule(configName, basedir);
 }
 
 /**
  * Resolves an ESLint parser
+ * 
  * @param {string} parserName - The name of the parser to resolve
- * @param {string} issuer - The path of the file making the request
- * @returns {string} The resolved parser path
+ * @param {string} [basedir] - The directory to resolve from
+ * @returns {string|null} The resolved path or null if not found
  */
-function resolveParser(parserName, issuer) {
-  // Handle special case for typescript-eslint parser
-  if (parserName === '@typescript-eslint/parser') {
-    try {
-      return resolveModule(parserName, issuer);
-    } catch (error) {
-      // Try resolving from the project root
-      if (pnpApi) {
-        try {
-          const topLevelLocation = pnpApi.getPackageInformation(pnpApi.topLevel).packageLocation;
-          return resolveModule(parserName, path.join(topLevelLocation, 'package.json'));
-        } catch (rootError) {
-          throw error;
-        }
-      }
-      throw error;
-    }
+function resolveESLintParser(parserName, basedir) {
+  // Handle scoped parsers (e.g., @typescript-eslint/parser)
+  if (parserName.startsWith('@')) {
+    const [scope, name] = parserName.split('/');
+    return resolveModule(`${scope}/eslint-parser-${name}`, basedir) ||
+           resolveModule(parserName, basedir);
   }
-  
-  // For other parsers, use standard module resolution
-  return resolveModule(parserName, issuer);
+
+  // Handle regular parsers (e.g., babel-eslint)
+  return resolveModule(`eslint-parser-${parserName}`, basedir) ||
+         resolveModule(parserName, basedir);
 }
 
 /**
- * Resolves a path alias from tsconfig.json
- * @param {string} alias - The alias to resolve
- * @param {string} issuer - The path of the file making the request
- * @returns {string|null} The resolved path or null if not resolvable
+ * Resolves a path alias in a monorepo environment
+ * 
+ * @param {string} source - The source path to resolve
+ * @param {string} [basedir] - The directory to resolve from
+ * @returns {string|null} The resolved path or null if not found
  */
-function resolvePathAlias(alias, issuer) {
-  // Find the nearest tsconfig.json
-  const tsconfig = findNearestTsconfig(issuer);
-  if (!tsconfig) {
-    return null;
+function resolvePathAlias(source, basedir) {
+  if (!basedir) {
+    basedir = process.cwd();
   }
-  
-  try {
-    const tsconfigContent = JSON.parse(fs.readFileSync(tsconfig, 'utf8'));
-    const paths = tsconfigContent.compilerOptions?.paths;
-    
-    if (!paths) {
-      return null;
+
+  // Handle path aliases (e.g., @app/shared, @austa/*)
+  if (source.startsWith('@app/') || source.startsWith('@austa/')) {
+    // Try to resolve from the monorepo root
+    const parts = source.split('/');
+    const scope = parts[0];
+    const packageName = parts[1];
+    const remainingPath = parts.slice(2).join('/');
+
+    // Try to resolve from src/web or src/backend based on the scope
+    let basePaths = [];
+    if (scope === '@app') {
+      basePaths = [
+        path.resolve(process.cwd(), 'src/web'),
+        path.resolve(process.cwd(), 'src/backend')
+      ];
+    } else if (scope === '@austa') {
+      basePaths = [
+        path.resolve(process.cwd(), 'src/web'),
+        path.resolve(process.cwd(), 'src/backend/packages')
+      ];
     }
-    
-    // Check if the alias matches any of the path mappings
-    for (const [pattern, destinations] of Object.entries(paths)) {
-      const normalizedPattern = pattern.replace(/\*/g, '');
-      if (alias.startsWith(normalizedPattern) && Array.isArray(destinations) && destinations.length > 0) {
-        const suffix = alias.slice(normalizedPattern.length);
-        const destination = destinations[0].replace(/\*/g, '');
-        const resolvedPath = path.resolve(path.dirname(tsconfig), destination, suffix);
-        
-        // Check if the resolved path exists
-        if (fs.existsSync(resolvedPath) || 
-            fs.existsSync(`${resolvedPath}.js`) || 
-            fs.existsSync(`${resolvedPath}.ts`) || 
-            fs.existsSync(`${resolvedPath}/index.js`) || 
-            fs.existsSync(`${resolvedPath}/index.ts`)) {
-          return resolvedPath;
+
+    for (const basePath of basePaths) {
+      const potentialPath = path.join(basePath, packageName, remainingPath);
+      if (fs.existsSync(potentialPath)) {
+        return potentialPath;
+      }
+
+      // Try with index.js, index.ts, etc.
+      const extensions = ['.js', '.jsx', '.ts', '.tsx', '.json'];
+      for (const ext of extensions) {
+        const potentialPathWithExt = `${potentialPath}${ext}`;
+        if (fs.existsSync(potentialPathWithExt)) {
+          return potentialPathWithExt;
         }
       }
     }
-  } catch (error) {
-    // Ignore tsconfig parsing errors
   }
-  
+
   return null;
 }
 
 /**
- * Finds the nearest tsconfig.json file
- * @param {string} startPath - The path to start searching from
- * @returns {string|null} The path to the nearest tsconfig.json or null if not found
+ * Main resolver function that handles all ESLint resolution types
+ * 
+ * @param {string} source - The source to resolve
+ * @param {string} file - The file containing the request
+ * @returns {string|null} The resolved path or null if not found
  */
-function findNearestTsconfig(startPath) {
-  let currentDir = path.dirname(startPath);
-  const root = path.parse(currentDir).root;
-  
-  while (currentDir !== root) {
-    const tsconfigPath = path.join(currentDir, 'tsconfig.json');
-    if (fs.existsSync(tsconfigPath)) {
-      return tsconfigPath;
-    }
-    currentDir = path.dirname(currentDir);
+function resolve(source, file) {
+  const basedir = path.dirname(file);
+
+  // Handle relative paths
+  if (source.startsWith('./') || source.startsWith('../')) {
+    const resolvedPath = path.resolve(basedir, source);
+    return fs.existsSync(resolvedPath) ? resolvedPath : null;
   }
-  
-  return null;
+
+  // Handle absolute paths
+  if (path.isAbsolute(source)) {
+    return fs.existsSync(source) ? source : null;
+  }
+
+  // Handle path aliases
+  const aliasPath = resolvePathAlias(source, basedir);
+  if (aliasPath) {
+    return aliasPath;
+  }
+
+  // Handle ESLint plugins
+  if (source.startsWith('eslint-plugin-') || source.startsWith('@') && source.includes('/eslint-plugin')) {
+    return resolveModule(source, basedir);
+  }
+
+  // Handle ESLint configs
+  if (source.startsWith('eslint-config-') || source.startsWith('@') && source.includes('/eslint-config')) {
+    return resolveModule(source, basedir);
+  }
+
+  // Handle ESLint parsers
+  if (source.startsWith('eslint-parser-') || source.startsWith('@') && source.includes('/parser')) {
+    return resolveModule(source, basedir);
+  }
+
+  // Handle other ESLint dependencies
+  return resolveModule(source, basedir);
 }
 
 /**
- * Resolves a workspace-specific module
- * @param {string} moduleName - The name of the module to resolve
- * @param {string} issuer - The path of the file making the request
- * @returns {string} The resolved module path
+ * Interface for ESLint's resolver
  */
-function resolveWorkspaceModule(moduleName, issuer) {
-  if (!pnpApi) {
-    // Not in a PnP environment, use standard resolution
-    return resolveModule(moduleName, issuer);
-  }
-  
-  try {
-    // Try to resolve using the standard PnP resolution
-    return resolveModule(moduleName, issuer);
-  } catch (error) {
-    // If that fails, try to find the module in each workspace
-    try {
-      const topLevelInfo = pnpApi.getPackageInformation(pnpApi.topLevel);
-      const workspaces = topLevelInfo.workspaces || [];
-      
-      for (const workspace of workspaces) {
-        try {
-          return resolveModule(moduleName, path.join(workspace.location, 'package.json'));
-        } catch (workspaceError) {
-          // Continue to the next workspace
-        }
-      }
-    } catch (workspaceError) {
-      // Ignore workspace resolution errors
-    }
-    
-    // If all resolution attempts fail, throw the original error
-    throw error;
-  }
-}
-
-/**
- * Patches ESLint's module resolution to work with Yarn PnP
- */
-function patchEslintModuleResolution() {
-  if (!pnpApi) {
-    // Not in a PnP environment, no need to patch
-    return;
-  }
-  
-  try {
-    // Try to patch ESLint's module resolver
-    const Module = require('module');
-    const originalResolveFilename = Module._resolveFilename;
-    
-    Module._resolveFilename = function(request, parent, isMain, options) {
-      // Handle ESLint-specific modules
-      if (request.startsWith('eslint-plugin-') || 
-          request.startsWith('eslint-config-') || 
-          request.startsWith('@typescript-eslint/') ||
-          (request.startsWith('@') && 
-           (request.includes('/eslint-plugin-') || request.includes('/eslint-config-')))) {
-        try {
-          // Try to resolve using our custom resolver
-          if (request.startsWith('eslint-plugin-') || request.includes('/eslint-plugin-')) {
-            return resolvePlugin(request, parent.filename);
-          } else if (request.startsWith('eslint-config-') || request.includes('/eslint-config-')) {
-            return resolveConfig(request, parent.filename);
-          } else if (request.startsWith('@typescript-eslint/')) {
-            return resolveModule(request, parent.filename);
-          }
-        } catch (error) {
-          // Fall through to standard resolution if our custom resolver fails
-        }
-      }
-      
-      // For all other requests, use the original resolver
-      return originalResolveFilename.call(this, request, parent, isMain, options);
-    };
-  } catch (error) {
-    // If patching fails, log a warning but don't crash
-    console.warn('Failed to patch ESLint module resolution for Yarn PnP:', error.message);
-  }
-}
-
-// Apply the patch when this module is loaded
-patchEslintModuleResolution();
-
 module.exports = {
-  resolveModule,
-  resolvePlugin,
-  resolveConfig,
-  resolveParser,
-  resolvePathAlias,
-  resolveWorkspaceModule,
-  findNearestTsconfig
+  interfaceVersion: 2,
+  resolve: resolve,
+  resolvePlugin: resolveESLintPlugin,
+  resolveConfig: resolveESLintConfig,
+  resolveParser: resolveESLintParser
 };
