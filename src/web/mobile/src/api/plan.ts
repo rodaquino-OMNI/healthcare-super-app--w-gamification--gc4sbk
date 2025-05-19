@@ -400,3 +400,34 @@ export const getDigitalCard = withErrorHandling(
   planServiceCircuitBreaker,
   PLAN_API_RETRY_OPTIONS
 );
+
+/**
+ * Fetches all benefits available under the user's current plan
+ * 
+ * @returns A promise that resolves to an array of Benefit objects
+ */
+export const getBenefits = withErrorHandling(
+  async (): Promise<Benefit[]> => {
+    // Get the current user's active plan first
+    const { data: userPlans } = await graphQLClient.query({
+      query: GET_PLAN,
+      variables: { active: true },
+      fetchPolicy: 'cache-first',
+    });
+    
+    // If no active plan is found, return empty array
+    if (!userPlans?.getPlans?.length) {
+      return [];
+    }
+    
+    // Use the first active plan to fetch benefits
+    const activePlanId = userPlans.getPlans[0].id;
+    
+    // Fetch benefits for the active plan
+    const { data } = await restClient.get(`/plans/${activePlanId}/benefits`);
+    
+    return data.benefits;
+  },
+  planServiceCircuitBreaker,
+  PLAN_API_RETRY_OPTIONS
+);
