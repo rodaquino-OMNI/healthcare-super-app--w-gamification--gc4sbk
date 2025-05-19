@@ -1,583 +1,385 @@
+import React from 'react';
+import { SpacingTokens } from '../themes/tokens.types';
+
 /**
- * Core Component Interfaces
- * 
- * This file defines TypeScript interfaces for core UI components in the AUSTA SuperApp design system.
- * These interfaces ensure consistent prop typing across all core components and provide
- * platform-specific type variations where needed for web and mobile implementations.
- * 
- * The interfaces are organized into the following categories:
- * - Input Controls: Button, Input, Select, Checkbox, RadioButton, DatePicker
- * - Containers: Card, Modal, Accordion
- * - Feedback: ProgressBar, ProgressCircle, Toast
- * - Navigation: Tabs, Avatar, Badge
+ * Journey types for theming components
  */
-
-import { ReactNode, MouseEvent, ChangeEvent, FocusEvent, KeyboardEvent } from 'react';
-import { GestureResponderEvent, TextInputChangeEventData, NativeSyntheticEvent } from 'react-native';
-
-// Common types used across multiple components
+export type JourneyType = 'health' | 'care' | 'plan';
 
 /**
- * Common size variants used across components
- */
-export type SizeVariant = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-
-/**
- * Common status variants used for feedback components
- */
-export type StatusVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
-
-/**
- * Journey theme variants for component styling
- */
-export type JourneyTheme = 'base' | 'health' | 'care' | 'plan';
-
-/**
- * Common props shared across all components
+ * Common props for all components
  */
 export interface BaseComponentProps {
-  /** Optional ID for the component */
-  id?: string;
   /** Optional test ID for testing */
   testID?: string;
-  /** Optional class name for web styling */
+  /** Optional className for styling */
   className?: string;
-  /** Optional style object for component styling */
-  style?: Record<string, any>;
-  /** Optional journey theme variant */
-  journeyTheme?: JourneyTheme;
-  /** Optional accessibility label */
-  accessibilityLabel?: string;
-  /** Whether the component is disabled */
-  disabled?: boolean;
 }
 
-// Input Controls
-
 /**
- * Button component props interface
+ * Props for the Button component
  */
 export interface ButtonProps extends BaseComponentProps {
-  /** Button label text */
-  label: string;
-  /** Optional icon to display before the label */
-  leftIcon?: ReactNode;
-  /** Optional icon to display after the label */
-  rightIcon?: ReactNode;
   /** Button variant */
-  variant?: 'primary' | 'secondary' | 'tertiary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'tertiary';
   /** Button size */
-  size?: SizeVariant;
-  /** Whether the button is in loading state */
+  size?: 'sm' | 'md' | 'lg';
+  /** Whether the button is disabled */
+  disabled?: boolean;
+  /** Whether the button is in a loading state */
   loading?: boolean;
-  /** Whether the button takes full width of its container */
+  /** Whether the button should take up the full width of its container */
   fullWidth?: boolean;
-  /** Whether the button has rounded corners */
-  rounded?: boolean;
-  /** Click handler for web */
-  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
-  /** Press handler for mobile */
-  onPress?: (event: GestureResponderEvent) => void;
-  /** Long press handler for mobile */
-  onLongPress?: (event: GestureResponderEvent) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLButtonElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLButtonElement>) => void;
-  /** Type of button (for web) */
-  type?: 'button' | 'submit' | 'reset';
+  /** Optional icon to display in the button */
+  icon?: React.ReactNode;
+  /** Whether the button should only display an icon */
+  iconOnly?: boolean;
+  /** Function to call when the button is pressed */
+  onPress?: () => void;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Button content */
+  children: React.ReactNode;
 }
 
 /**
- * Input component props interface
+ * Props for the Input component
  */
-export interface InputProps extends BaseComponentProps {
+export interface InputProps extends 
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'>, 
+  BaseComponentProps {
+  /** Input ID */
+  id?: string;
   /** Input name */
-  name: string;
-  /** Input value */
-  value: string;
-  /** Input placeholder */
-  placeholder?: string;
-  /** Input label */
-  label?: string;
-  /** Helper text displayed below the input */
-  helperText?: string;
-  /** Error message displayed when input has an error */
-  errorMessage?: string;
-  /** Whether the input is in error state */
-  hasError?: boolean;
-  /** Whether the input is required */
-  required?: boolean;
+  name?: string;
   /** Input type */
   type?: 'text' | 'password' | 'email' | 'number' | 'tel' | 'url' | 'search';
-  /** Input size */
-  size?: SizeVariant;
-  /** Maximum length of input */
-  maxLength?: number;
-  /** Whether the input is in loading state */
-  loading?: boolean;
-  /** Whether the input is read-only */
-  readOnly?: boolean;
-  /** Optional icon to display at the start of the input */
-  leftIcon?: ReactNode;
-  /** Optional icon to display at the end of the input */
-  rightIcon?: ReactNode;
-  /** Whether the input takes full width of its container */
-  fullWidth?: boolean;
-  /** Change handler for web */
-  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
-  /** Change handler for mobile */
-  onChangeText?: (text: string) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Key press handler */
-  onKeyPress?: (event: KeyboardEvent<HTMLInputElement>) => void;
-  /** Submit editing handler for mobile */
-  onSubmitEditing?: (event: NativeSyntheticEvent<TextInputChangeEventData>) => void;
-  /** Auto-capitalization behavior for mobile */
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  /** Auto-correction behavior for mobile */
-  autoCorrect?: boolean;
-  /** Whether to enable auto-complete */
-  autoComplete?: string;
-}
-
-/**
- * Select component props interface
- */
-export interface SelectProps extends BaseComponentProps {
-  /** Select name */
-  name: string;
-  /** Selected value */
-  value: string | string[];
-  /** Options for the select */
-  options: SelectOption[];
-  /** Select label */
-  label?: string;
-  /** Helper text displayed below the select */
-  helperText?: string;
-  /** Error message displayed when select has an error */
-  errorMessage?: string;
-  /** Whether the select is in error state */
-  hasError?: boolean;
-  /** Whether the select is required */
-  required?: boolean;
-  /** Whether multiple options can be selected */
-  multiple?: boolean;
-  /** Select size */
-  size?: SizeVariant;
+  /** Input value for controlled component */
+  value?: string;
+  /** Default value for uncontrolled component */
+  defaultValue?: string;
+  /** Function to call when input value changes */
+  onChange?: React.ChangeEventHandler<HTMLInputElement>;
+  /** Function to call when input gains focus */
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  /** Function to call when input loses focus */
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
   /** Placeholder text */
   placeholder?: string;
-  /** Whether the select is in loading state */
-  loading?: boolean;
-  /** Whether the select takes full width of its container */
-  fullWidth?: boolean;
-  /** Change handler */
-  onChange?: (value: string | string[]) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLSelectElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLSelectElement>) => void;
-  /** Open handler */
-  onOpen?: () => void;
-  /** Close handler */
-  onClose?: () => void;
-}
-
-/**
- * Option for Select component
- */
-export interface SelectOption {
-  /** Option value */
-  value: string;
-  /** Option label */
-  label: string;
-  /** Whether the option is disabled */
+  /** Label text */
+  label?: string;
+  /** Whether the input is disabled */
   disabled?: boolean;
-  /** Optional group the option belongs to */
-  group?: string;
-  /** Optional icon to display with the option */
-  icon?: ReactNode;
+  /** Whether the input is required */
+  required?: boolean;
+  /** Error message or state */
+  error?: string | boolean;
+  /** Success state */
+  success?: boolean;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Input size */
+  size?: 'sm' | 'md' | 'lg';
+  /** Whether the input should take up the full width of its container */
+  fullWidth?: boolean;
+  /** Bottom margin size */
+  marginBottom?: keyof SpacingTokens;
+  /** Accessibility label for screen readers */
+  'aria-label'?: string;
+  /** ID of element that labels this input */
+  'aria-labelledby'?: string;
+  /** Tab index for keyboard navigation */
+  tabIndex?: number;
 }
 
 /**
- * Checkbox component props interface
+ * Props for the Checkbox component
  */
 export interface CheckboxProps extends BaseComponentProps {
+  /** Checkbox ID */
+  id?: string;
   /** Checkbox name */
-  name: string;
+  name?: string;
   /** Whether the checkbox is checked */
-  checked: boolean;
-  /** Checkbox label */
+  checked?: boolean;
+  /** Default checked state for uncontrolled component */
+  defaultChecked?: boolean;
+  /** Function to call when checkbox state changes */
+  onChange?: (checked: boolean) => void;
+  /** Label text */
   label?: string;
-  /** Helper text displayed below the checkbox */
-  helperText?: string;
-  /** Error message displayed when checkbox has an error */
-  errorMessage?: string;
-  /** Whether the checkbox is in error state */
-  hasError?: boolean;
+  /** Whether the checkbox is disabled */
+  disabled?: boolean;
   /** Whether the checkbox is required */
   required?: boolean;
-  /** Checkbox size */
-  size?: SizeVariant;
-  /** Whether the checkbox is in indeterminate state */
-  indeterminate?: boolean;
-  /** Change handler */
-  onChange?: (checked: boolean) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
+  /** Error message or state */
+  error?: string | boolean;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
 }
 
 /**
- * RadioButton component props interface
+ * Props for the RadioButton component
  */
 export interface RadioButtonProps extends BaseComponentProps {
+  /** RadioButton ID */
+  id?: string;
   /** RadioButton name */
-  name: string;
+  name?: string;
   /** RadioButton value */
   value: string;
   /** Whether the radio button is checked */
-  checked: boolean;
-  /** RadioButton label */
+  checked?: boolean;
+  /** Default checked state for uncontrolled component */
+  defaultChecked?: boolean;
+  /** Function to call when radio button state changes */
+  onChange?: (value: string) => void;
+  /** Label text */
   label?: string;
-  /** Helper text displayed below the radio button */
-  helperText?: string;
-  /** Error message displayed when radio button has an error */
-  errorMessage?: string;
-  /** Whether the radio button is in error state */
-  hasError?: boolean;
+  /** Whether the radio button is disabled */
+  disabled?: boolean;
   /** Whether the radio button is required */
   required?: boolean;
-  /** RadioButton size */
-  size?: SizeVariant;
-  /** Change handler */
-  onChange?: (value: string) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
+  /** Error message or state */
+  error?: string | boolean;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
 }
 
 /**
- * DatePicker component props interface
+ * Props for the Select component
  */
-export interface DatePickerProps extends BaseComponentProps {
-  /** DatePicker name */
-  name: string;
-  /** Selected date */
-  value: Date | null;
-  /** DatePicker label */
-  label?: string;
-  /** Helper text displayed below the date picker */
-  helperText?: string;
-  /** Error message displayed when date picker has an error */
-  errorMessage?: string;
-  /** Whether the date picker is in error state */
-  hasError?: boolean;
-  /** Whether the date picker is required */
-  required?: boolean;
-  /** DatePicker size */
-  size?: SizeVariant;
+export interface SelectProps extends BaseComponentProps {
+  /** Select ID */
+  id?: string;
+  /** Select name */
+  name?: string;
+  /** Options for the select */
+  options: Array<{ label: string; value: string; disabled?: boolean }>;
+  /** Selected value(s) for controlled component */
+  value?: string | string[];
+  /** Default value(s) for uncontrolled component */
+  defaultValue?: string | string[];
+  /** Function to call when selection changes */
+  onChange?: (value: string | string[]) => void;
   /** Placeholder text */
   placeholder?: string;
+  /** Label text */
+  label?: string;
+  /** Whether the select is disabled */
+  disabled?: boolean;
+  /** Whether the select is required */
+  required?: boolean;
+  /** Error message or state */
+  error?: string | boolean;
+  /** Whether multiple options can be selected */
+  multiple?: boolean;
+  /** Whether to show a search input */
+  searchable?: boolean;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
+}
+
+/**
+ * Props for the DatePicker component
+ */
+export interface DatePickerProps extends BaseComponentProps {
+  /** DatePicker ID */
+  id?: string;
+  /** DatePicker name */
+  name?: string;
+  /** Selected date for controlled component */
+  value?: Date;
+  /** Default date for uncontrolled component */
+  defaultValue?: Date;
+  /** Function to call when date changes */
+  onChange?: (date: Date) => void;
+  /** Placeholder text */
+  placeholder?: string;
+  /** Label text */
+  label?: string;
+  /** Whether the date picker is disabled */
+  disabled?: boolean;
+  /** Whether the date picker is required */
+  required?: boolean;
+  /** Error message or state */
+  error?: string | boolean;
+  /** Date format */
+  dateFormat?: string;
   /** Minimum selectable date */
   minDate?: Date;
   /** Maximum selectable date */
   maxDate?: Date;
-  /** Whether the date picker is in loading state */
-  loading?: boolean;
-  /** Whether the date picker takes full width of its container */
-  fullWidth?: boolean;
-  /** Format to display the date */
-  displayFormat?: string;
-  /** Change handler */
-  onChange?: (date: Date | null) => void;
-  /** Focus handler */
-  onFocus?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Blur handler */
-  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
-  /** Open handler */
-  onOpen?: () => void;
-  /** Close handler */
-  onClose?: () => void;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
 }
 
-// Containers
-
 /**
- * Card component props interface
+ * Props for the Card component
  */
 export interface CardProps extends BaseComponentProps {
+  /** Card elevation */
+  elevation?: 'sm' | 'md' | 'lg';
+  /** Function to call when card is pressed */
+  onPress?: () => void;
+  /** Journey type for theming */
+  journey?: JourneyType;
   /** Card content */
-  children: ReactNode;
-  /** Card title */
-  title?: string | ReactNode;
-  /** Card subtitle */
-  subtitle?: string | ReactNode;
-  /** Whether the card has a shadow */
-  elevated?: boolean;
-  /** Shadow intensity */
-  elevation?: 'sm' | 'md' | 'lg' | 'xl';
-  /** Whether the card has a border */
-  bordered?: boolean;
-  /** Whether the card has rounded corners */
-  rounded?: boolean;
-  /** Whether the card is interactive */
-  interactive?: boolean;
-  /** Whether the card is in loading state */
-  loading?: boolean;
-  /** Optional footer content */
-  footer?: ReactNode;
-  /** Optional header actions */
-  headerActions?: ReactNode;
-  /** Click handler for web */
-  onClick?: (event: MouseEvent<HTMLDivElement>) => void;
-  /** Press handler for mobile */
-  onPress?: (event: GestureResponderEvent) => void;
+  children: React.ReactNode;
+  /** Accessibility role */
+  role?: string;
+  /** Accessibility label for screen readers */
+  'aria-label'?: string;
+  /** Custom styles */
+  style?: React.CSSProperties;
 }
 
 /**
- * Modal component props interface
+ * Props for the Modal component
  */
 export interface ModalProps extends BaseComponentProps {
-  /** Modal content */
-  children: ReactNode;
-  /** Whether the modal is open */
-  isOpen: boolean;
+  /** Whether the modal is visible */
+  visible: boolean;
   /** Modal title */
-  title?: string | ReactNode;
-  /** Whether to show a close button */
-  showCloseButton?: boolean;
-  /** Modal size */
-  size?: 'sm' | 'md' | 'lg' | 'full';
-  /** Whether to close the modal when clicking outside */
-  closeOnOutsideClick?: boolean;
-  /** Whether to close the modal when pressing escape key */
-  closeOnEscape?: boolean;
-  /** Whether the modal has a backdrop */
-  hasBackdrop?: boolean;
-  /** Close handler */
+  title?: string;
+  /** Function to call when modal is closed */
   onClose: () => void;
-  /** Open handler */
-  onOpen?: () => void;
-  /** After open handler */
-  onAfterOpen?: () => void;
-  /** Before close handler */
-  onBeforeClose?: () => void;
-  /** Optional footer content */
-  footer?: ReactNode;
-  /** Optional header actions */
-  headerActions?: ReactNode;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Modal content */
+  children: React.ReactNode;
+  /** Modal actions (buttons) */
+  actions?: React.ReactNode;
 }
 
 /**
- * Accordion component props interface
+ * Props for the Accordion component
  */
 export interface AccordionProps extends BaseComponentProps {
-  /** Accordion items */
-  items: AccordionItem[];
-  /** Whether multiple items can be expanded at once */
-  allowMultiple?: boolean;
-  /** Index of the initially expanded item(s) */
-  defaultIndex?: number | number[];
-  /** Whether the accordion has a border */
-  bordered?: boolean;
-  /** Whether the accordion is compact */
-  compact?: boolean;
-  /** Change handler */
-  onChange?: (expandedIndexes: number | number[]) => void;
+  /** Accordion title */
+  title: string;
+  /** Whether the accordion is expanded */
+  isExpanded?: boolean;
+  /** Function to call when accordion is toggled */
+  onToggle?: (isExpanded: boolean) => void;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Accordion content */
+  children: React.ReactNode;
 }
 
 /**
- * Accordion item interface
- */
-export interface AccordionItem {
-  /** Item title */
-  title: string | ReactNode;
-  /** Item content */
-  content: ReactNode;
-  /** Whether the item is disabled */
-  disabled?: boolean;
-  /** Optional icon to display with the title */
-  icon?: ReactNode;
-}
-
-// Feedback
-
-/**
- * ProgressBar component props interface
+ * Props for the ProgressBar component
  */
 export interface ProgressBarProps extends BaseComponentProps {
-  /** Current progress value (0-100) */
-  value: number;
-  /** Maximum progress value */
-  max?: number;
-  /** Whether to show the progress value */
-  showValue?: boolean;
-  /** Progress bar size */
-  size?: SizeVariant;
-  /** Progress bar color variant */
-  variant?: StatusVariant;
-  /** Whether the progress bar is animated */
-  animated?: boolean;
-  /** Whether the progress bar is striped */
-  striped?: boolean;
-  /** Optional label to display */
-  label?: string;
+  /** Current progress value */
+  current: number;
+  /** Total progress value */
+  total: number;
+  /** ProgressBar size */
+  size?: 'sm' | 'md' | 'lg';
+  /** Whether to show level markers */
+  showLevels?: boolean;
+  /** Level marker positions */
+  levelMarkers?: number[];
+  /** Journey type for theming */
+  journey?: JourneyType;
 }
 
 /**
- * ProgressCircle component props interface
+ * Props for the ProgressCircle component
  */
 export interface ProgressCircleProps extends BaseComponentProps {
-  /** Current progress value (0-100) */
-  value: number;
-  /** Maximum progress value */
-  max?: number;
-  /** Whether to show the progress value */
-  showValue?: boolean;
-  /** Progress circle size */
-  size?: SizeVariant;
-  /** Progress circle color variant */
-  variant?: StatusVariant;
-  /** Whether the progress circle is animated */
-  animated?: boolean;
-  /** Optional label to display */
-  label?: string;
-  /** Thickness of the progress circle */
-  thickness?: number;
-  /** Optional content to display inside the circle */
-  children?: ReactNode;
+  /** Progress percentage (0-100) */
+  progress: number;
+  /** Circle size in pixels */
+  size?: number;
+  /** Stroke width in pixels */
+  strokeWidth?: number;
+  /** Whether to show percentage label */
+  showLabel?: boolean;
+  /** Custom color */
+  color?: string;
+  /** Journey type for theming */
+  journey?: JourneyType;
 }
 
 /**
- * Toast component props interface
+ * Props for the Toast component
  */
 export interface ToastProps extends BaseComponentProps {
+  /** Whether the toast is visible */
+  visible: boolean;
   /** Toast message */
   message: string;
-  /** Toast title */
-  title?: string;
-  /** Toast variant */
-  variant?: StatusVariant;
-  /** Whether the toast is visible */
-  isVisible: boolean;
-  /** Duration in milliseconds before auto-hiding */
+  /** Toast type */
+  type?: 'info' | 'success' | 'warning' | 'error';
+  /** Function to call when toast is dismissed */
+  onDismiss: () => void;
+  /** Toast duration in milliseconds */
   duration?: number;
-  /** Whether to show a close button */
-  showCloseButton?: boolean;
-  /** Optional icon to display */
-  icon?: ReactNode;
-  /** Close handler */
-  onClose: () => void;
-  /** Action button text */
-  actionText?: string;
-  /** Action button handler */
-  onAction?: () => void;
-  /** Position of the toast */
-  position?: 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /** Journey type for theming */
+  journey?: JourneyType;
 }
 
-// Navigation
+/**
+ * Props for the Avatar component
+ */
+export interface AvatarProps extends BaseComponentProps {
+  /** Image source */
+  src?: string;
+  /** Alternative text */
+  alt?: string;
+  /** Avatar size in pixels */
+  size?: number;
+  /** Whether to show fallback (initials or icon) */
+  showFallback?: boolean;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Function to call when image fails to load */
+  onImageError?: () => void;
+}
 
 /**
- * Tabs component props interface
+ * Props for the Badge component
+ */
+export interface BadgeProps extends BaseComponentProps {
+  /** Badge size */
+  size?: 'sm' | 'md' | 'lg';
+  /** Whether the badge is unlocked */
+  unlocked?: boolean;
+  /** Function to call when badge is pressed */
+  onPress?: () => void;
+  /** Journey type for theming */
+  journey?: JourneyType;
+  /** Badge content */
+  children: React.ReactNode;
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
+}
+
+/**
+ * Props for the Tabs component
  */
 export interface TabsProps extends BaseComponentProps {
   /** Tab items */
-  tabs: TabItem[];
-  /** Index of the active tab */
-  activeIndex: number;
-  /** Tab size */
-  size?: SizeVariant;
-  /** Tab variant */
-  variant?: 'default' | 'pills' | 'underlined' | 'contained';
-  /** Whether the tabs take full width of their container */
-  fullWidth?: boolean;
-  /** Change handler */
-  onChange: (index: number) => void;
-  /** Whether to render the tab content */
-  renderContent?: boolean;
-  /** Whether the tabs are centered */
-  centered?: boolean;
-  /** Whether the tabs are scrollable */
-  scrollable?: boolean;
-}
-
-/**
- * Tab item interface
- */
-export interface TabItem {
-  /** Tab label */
-  label: string;
-  /** Tab content */
-  content?: ReactNode;
-  /** Whether the tab is disabled */
-  disabled?: boolean;
-  /** Optional icon to display with the label */
-  icon?: ReactNode;
-  /** Optional badge to display with the label */
-  badge?: number | string;
-}
-
-/**
- * Avatar component props interface
- */
-export interface AvatarProps extends BaseComponentProps {
-  /** Avatar name (used for initials and alt text) */
-  name?: string;
-  /** Avatar image source */
-  src?: string;
-  /** Avatar size */
-  size?: SizeVariant;
-  /** Avatar shape */
-  shape?: 'circle' | 'square' | 'rounded';
-  /** Whether to show a border */
-  bordered?: boolean;
-  /** Background color when using initials */
-  bgColor?: string;
-  /** Text color when using initials */
-  textColor?: string;
-  /** Whether the avatar is in loading state */
-  loading?: boolean;
-  /** Optional icon to display when no image or initials are available */
-  fallbackIcon?: ReactNode;
-  /** Click handler for web */
-  onClick?: (event: MouseEvent<HTMLDivElement>) => void;
-  /** Press handler for mobile */
-  onPress?: (event: GestureResponderEvent) => void;
-  /** Error handler when image fails to load */
-  onError?: () => void;
-}
-
-/**
- * Badge component props interface
- */
-export interface BadgeProps extends BaseComponentProps {
-  /** Badge content */
-  content: string | number | ReactNode;
-  /** Badge variant */
-  variant?: StatusVariant;
-  /** Badge size */
-  size?: SizeVariant;
-  /** Whether the badge is visible */
-  visible?: boolean;
-  /** Maximum value to display (shows "+" suffix if exceeded) */
-  max?: number;
-  /** Whether the badge is a dot (no content) */
-  dot?: boolean;
-  /** Optional component to attach the badge to */
-  children?: ReactNode;
-  /** Badge position when attached to a component */
-  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
-  /** Whether the badge is standalone (not attached to another component) */
-  standalone?: boolean;
-  /** Click handler for web */
-  onClick?: (event: MouseEvent<HTMLSpanElement>) => void;
-  /** Press handler for mobile */
-  onPress?: (event: GestureResponderEvent) => void;
+  items: Array<{ id: string; label: string; content: React.ReactNode }>;
+  /** Default selected tab ID */
+  defaultTab?: string;
+  /** Selected tab ID for controlled component */
+  selectedTab?: string;
+  /** Function to call when tab selection changes */
+  onTabChange?: (tabId: string) => void;
+  /** Journey type for theming */
+  journey?: JourneyType;
 }
