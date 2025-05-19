@@ -1,16 +1,15 @@
 import styled from 'styled-components';
-import { colors } from '../../tokens/colors';
-import { spacing } from '../../tokens/spacing';
-import { typography } from '../../tokens/typography';
-import { Card } from '@austa/design-system/components/Card';
-import { ProgressBar } from '@austa/design-system/components/ProgressBar';
+import { colors, spacing, typography } from '@design-system/primitives';
+import { ThemeProps, JourneyType } from '@austa/interfaces/themes';
+import Card from '../../components/Card';
+import ProgressBar from '../../components/ProgressBar';
 
 /**
  * Returns the appropriate color for the specified journey.
  * @param journey The journey identifier (health, care, plan)
  * @returns The color hex code for the specified journey.
  */
-export const getJourneyColor = (journey?: string): string => {
+export const getJourneyColor = (journey?: JourneyType): string => {
   if (journey === 'health') {
     return colors.journeys.health.primary;
   } else if (journey === 'care') {
@@ -26,7 +25,7 @@ export const getJourneyColor = (journey?: string): string => {
 /**
  * Styled Card component specifically for QuestCard with journey-specific styling
  */
-export const QuestCardContainer = styled(Card)`
+export const QuestCardContainer = styled(Card)<ThemeProps>`
   margin-bottom: ${props => props.theme.spacing.md};
   transition: transform 0.2s ease;
 
@@ -38,7 +37,7 @@ export const QuestCardContainer = styled(Card)`
 /**
  * Styled component for the quest title with appropriate typography
  */
-export const QuestTitle = styled.h3`
+export const QuestTitle = styled.h3<ThemeProps>`
   font-family: ${props => props.theme.typography.fontFamily.heading};
   font-size: ${props => props.theme.typography.fontSize.lg};
   font-weight: ${props => props.theme.typography.fontWeight.medium};
@@ -50,7 +49,7 @@ export const QuestTitle = styled.h3`
 /**
  * Styled component for the quest description with appropriate typography
  */
-export const QuestDescription = styled.p`
+export const QuestDescription = styled.p<ThemeProps>`
   font-family: ${props => props.theme.typography.fontFamily.base};
   font-size: ${props => props.theme.typography.fontSize.md};
   font-weight: ${props => props.theme.typography.fontWeight.regular};
@@ -62,14 +61,14 @@ export const QuestDescription = styled.p`
 /**
  * Styled component for the quest progress indicator, extending the ProgressBar component
  */
-export const QuestProgress = styled(ProgressBar)`
+export const QuestProgress = styled(ProgressBar)<ThemeProps>`
   margin: ${props => props.theme.spacing.sm} 0;
 `;
 
 /**
  * Styled component for displaying the progress text (e.g., '5/10 completed')
  */
-export const QuestProgressText = styled.span`
+export const QuestProgressText = styled.span<ThemeProps>`
   font-family: ${props => props.theme.typography.fontFamily.base};
   font-size: ${props => props.theme.typography.fontSize.sm};
   font-weight: ${props => props.theme.typography.fontWeight.medium};
@@ -81,7 +80,7 @@ export const QuestProgressText = styled.span`
 /**
  * Styled component for the quest icon with journey-specific coloring
  */
-export const QuestIcon = styled.div<{ journey?: string }>`
+export const QuestIcon = styled.div<ThemeProps & { journey?: JourneyType }>`
   display: flex;
   align-items: center;
   justify-content: center;
