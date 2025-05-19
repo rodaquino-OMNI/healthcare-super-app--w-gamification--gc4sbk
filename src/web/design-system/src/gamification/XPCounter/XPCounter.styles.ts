@@ -2,10 +2,6 @@ import styled from 'styled-components';
 import { JourneyType } from '@austa/interfaces/themes';
 import { spacing, typography, colors } from '@design-system/primitives';
 
-type JourneyProps = {
-  journey?: JourneyType;
-};
-
 export const XPContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -13,10 +9,10 @@ export const XPContainer = styled.div`
   margin: ${spacing.sm} 0;
 `;
 
-export const XPLabel = styled.span<JourneyProps>`
+export const XPLabel = styled.span<{ journey?: JourneyType }>`
   font-size: ${typography.fontSize.lg};
   font-weight: ${typography.fontWeight.bold};
-  color: ${({ theme, journey }) => 
+  color: ${({ journey, theme }) => 
     journey ? theme.colors.journeys[journey].primary : colors.brand.primary};
   display: flex;
   align-items: center;
