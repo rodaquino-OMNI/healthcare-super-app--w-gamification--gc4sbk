@@ -1,1 +1,35 @@
-Failed to process file
+{
+  "name": "typescript-sdk-yarn-pnp",
+  "version": "5.3.3",
+  "description": "TypeScript SDK for Yarn PnP integration in AUSTA SuperApp",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "typescript": "5.3.3"
+  },
+  "peerDependencies": {
+    "typescript": "5.3.3"
+  },
+  "bin": {
+    "tsc": "./lib/tsc.js",
+    "tsserver": "./lib/tsserver.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "languageName": "node",
+  "packageManager": "yarn@1.22.19",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austa/superapp.git",
+    "directory": "src/web/.yarn/sdks/typescript"
+  },
+  "resolutions": {
+    "typescript": "5.3.3"
+  },
+  "pnpify": {
+    "patchedDependencies": {
+      "typescript@5.3.3": true
+    }
+  }
+}
