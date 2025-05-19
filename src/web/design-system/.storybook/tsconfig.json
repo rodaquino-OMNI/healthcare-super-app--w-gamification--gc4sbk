@@ -1,1 +1,35 @@
-Failed to process file
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../src/*"],
+      "@tokens/*": ["../src/tokens/*"],
+      "@themes/*": ["../src/themes/*"],
+      "@primitives/*": ["../src/primitives/*"],
+      "@components/*": ["../src/components/*"],
+      "@gamification/*": ["../src/gamification/*"],
+      "@health/*": ["../src/health/*"],
+      "@care/*": ["../src/care/*"],
+      "@plan/*": ["../src/plan/*"],
+      "@charts/*": ["../src/charts/*"],
+      "@austa/design-system": ["../src"],
+      "@design-system/primitives": ["../../primitives/src"],
+      "@austa/interfaces": ["../../interfaces"],
+      "@austa/journey-context": ["../../journey-context/src"]
+    }
+  },
+  "include": [
+    "../src/**/*.stories.tsx",
+    "../src/**/*.stories.ts",
+    "../src/**/*.story.tsx",
+    "../.storybook/**/*.ts",
+    "../.storybook/**/*.tsx"
+  ],
+  "exclude": ["../node_modules", "../dist"]
+}
