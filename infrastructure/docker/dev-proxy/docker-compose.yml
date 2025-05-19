@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  dev-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: austa/dev-proxy:latest
+    container_name: austa-dev-proxy
+    ports:
+      - "80:80"
+    environment:
+      # API Gateway service
+      API_GATEWAY_HOST: api-gateway
+      API_GATEWAY_PORT: 4000
+      
+      # Auth service
+      AUTH_SERVICE_HOST: auth-service
+      AUTH_SERVICE_PORT: 4001
+      
+      # Health journey service
+      HEALTH_SERVICE_HOST: health-service
+      HEALTH_SERVICE_PORT: 4002
+      
+      # Care journey service
+      CARE_SERVICE_HOST: care-service
+      CARE_SERVICE_PORT: 4003
+      
+      # Plan journey service
+      PLAN_SERVICE_HOST: plan-service
+      PLAN_SERVICE_PORT: 4004
+      
+      # Gamification engine
+      GAMIFICATION_ENGINE_HOST: gamification-engine
+      GAMIFICATION_ENGINE_PORT: 4005
+      
+      # Notification service
+      NOTIFICATION_SERVICE_HOST: notification-service
+      NOTIFICATION_SERVICE_PORT: 4006
+      
+      # Web application
+      WEB_APP_HOST: web
+      WEB_APP_PORT: 3000
+      
+      # Mobile application
+      MOBILE_APP_HOST: mobile
+      MOBILE_APP_PORT: 8081
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./templates:/etc/nginx/templates:ro
+    networks:
+      - austa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    depends_on:
+      - api-gateway
+      - auth-service
+      - health-service
+      - care-service
+      - plan-service
+      - gamification-engine
+      - notification-service
+
+networks:
+  austa-network:
+    external: true
+    name: austa-network
