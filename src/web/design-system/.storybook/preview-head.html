@@ -1,1 +1,104 @@
-Failed to process file
+<!-- Font loading for Inter font family -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+<!-- Meta viewport tags for responsive testing -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+<!-- Base CSS resets and normalization -->
+<style>
+  /* Use a more intuitive box-sizing model */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  /* Remove default margin and padding */
+  body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Set core body defaults */
+  body {
+    min-height: 100vh;
+    text-rendering: optimizeSpeed;
+    line-height: 1.5;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Make images easier to work with */
+  img, picture {
+    max-width: 100%;
+    display: block;
+  }
+
+  /* Inherit fonts for inputs and buttons */
+  input, button, textarea, select {
+    font: inherit;
+  }
+
+  /* Remove list styles on ul, ol elements */
+  ul, ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Set default font weight for headings */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: bold;
+  }
+
+  /* Set default styles for links */
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  /* Remove all animations, transitions and smooth scroll for people that prefer not to see them */
+  @media (prefers-reduced-motion: reduce) {
+    html:focus-within {
+      scroll-behavior: auto;
+    }
+    
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Journey-specific color variables for reference */
+  :root {
+    /* Brand Colors */
+    --brand-primary: #3772FF;
+    --brand-secondary: #5096FF;
+    --brand-tertiary: #A9C4FF;
+    
+    /* Journey Colors */
+    --health-primary: #00B383;
+    --health-secondary: #4DDBBA;
+    --care-primary: #FF8C42;
+    --care-secondary: #FFAD75;
+    --plan-primary: #3772FF;
+    --plan-secondary: #5096FF;
+    
+    /* Semantic Colors */
+    --success: #00B383;
+    --warning: #FFB054;
+    --error: #FF5454;
+    --info: #5096FF;
+    
+    /* Neutral Colors */
+    --white: #FFFFFF;
+    --gray-100: #F8F9FA;
+    --gray-200: #E9ECEF;
+    --gray-900: #212529;
+    --black: #000000;
+  }
+</style>
