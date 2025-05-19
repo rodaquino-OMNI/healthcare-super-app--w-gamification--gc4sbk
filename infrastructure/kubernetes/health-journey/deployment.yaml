@@ -1,1 +1,146 @@
-Failed to process file
+# Kubernetes deployment configuration for the Health Journey service of the AUSTA SuperApp
+# This deployment ensures both scalability and high availability for the Health Journey component
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-journey
+  labels:
+    app: health-journey
+    journey: health
+spec:
+  # High Availability: Multiple replicas ensure the service remains available even if some pods fail
+  replicas: 3
+  selector:
+    matchLabels:
+      app: health-journey
+      journey: health
+  # High Availability: Rolling update strategy ensures zero downtime during deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "25%"
+  template:
+    metadata:
+      labels:
+        app: health-journey
+        journey: health
+    spec:
+      containers:
+      - name: health-journey
+        # Updated image reference with semantic versioning and git hash for reproducibility
+        image: austa-superapp/health-journey:1.0.0-$(GIT_HASH)
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        # Enhanced health check configuration for improved reliability
+        # Startup probe ensures the application is fully initialized before receiving traffic
+        startupProbe:
+          httpGet:
+            path: /health/startup
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30 # Allow up to 150 seconds for startup
+        # Liveness probe ensures the application is responsive and not deadlocked
+        livenessProbe:
+          httpGet:
+            path: /health/liveness
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        # Readiness probe ensures the application is ready to receive traffic
+        readinessProbe:
+          httpGet:
+            path: /health/readiness
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 2
+        # Scalability: Resource requests and limits ensure efficient resource utilization and scaling
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: API_URL
+          value: http://api-gateway:3000/graphql
+        # Environment variables for refactored package structure
+        - name: DESIGN_SYSTEM_VERSION
+          value: "1.0.0"
+        - name: JOURNEY_CONTEXT_ENABLED
+          value: "true"
+        # Database configuration for enhanced connection pooling and optimization
+        - name: DATABASE_POOL_MIN
+          value: "5"
+        - name: DATABASE_POOL_MAX
+          value: "20"
+        - name: DATABASE_IDLE_TIMEOUT
+          value: "60000" # 60 seconds in milliseconds
+        - name: DATABASE_CONNECTION_TIMEOUT
+          value: "30000" # 30 seconds in milliseconds
+        # Secure credentials management using Kubernetes secrets
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: health-db-secret
+              key: database_url
+        # Additional database context for health journey
+        - name: DATABASE_SCHEMA
+          value: "health_journey"
+        - name: DATABASE_SSL_MODE
+          valueFrom:
+            secretKeyRef:
+              name: health-db-secret
+              key: ssl_mode
+        - name: DATABASE_CA_CERT
+          valueFrom:
+            secretKeyRef:
+              name: health-db-secret
+              key: ca_cert
+              optional: true
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis_url
+        # Kafka configuration for event processing
+        - name: KAFKA_BROKERS
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: kafka_brokers
+        - name: KAFKA_CLIENT_ID
+          value: "health-journey-service"
+        - name: KAFKA_CONSUMER_GROUP
+          value: "health-journey-group"
+        # Monitoring and observability configuration
+        - name: SENTRY_DSN
+          valueFrom:
+            secretKeyRef:
+              name: sentry-secret
+              key: sentry_dsn
+        - name: SENTRY_ENVIRONMENT
+          value: "production"
+        - name: SENTRY_RELEASE
+          value: "health-journey@1.0.0"
+        - name: DATADOG_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datadog-secret
+              key: datadog_api_key
+        - name: DATADOG_SERVICE_NAME
+          value: "health-journey"
+        - name: DATADOG_ENV
+          value: "production"
+      # Secure image pulling from private registry
+      imagePullSecrets:
+      - name: regcred
