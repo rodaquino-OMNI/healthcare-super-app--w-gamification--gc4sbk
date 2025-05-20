@@ -1,554 +1,465 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { LoggerService } from '../../src/logger.service';
-import { TracingService } from '@austa/tracing';
-import { MockTracingService } from '../mocks/tracing.service.mock';
-import { MockFormatter } from '../mocks/formatter.mock';
-import { MockTransport } from '../mocks/transport.mock';
-import { MockConfigService } from '../mocks/config.service.mock';
-import { ConfigService } from '@nestjs/config';
-import { LogLevel } from '@nestjs/common';
+import { LogLevel } from '../../src/interfaces/log-level.enum';
+import { Transport } from '../../src/interfaces/transport.interface';
+import { LoggerConfig } from '../../src/interfaces/log-config.interface';
+import { LoggingContext } from '../../src/context/context.interface';
+import { JourneyContext } from '../../src/context/journey-context.interface';
+import { UserContext } from '../../src/context/user-context.interface';
+import { RequestContext } from '../../src/context/request-context.interface';
+
+// Import test fixtures
+import { journeyContexts } from '../fixtures/journey-data.fixture';
+import { logContexts } from '../fixtures/log-contexts.fixture';
+import { errorObjects } from '../fixtures/error-objects.fixture';
+import { configOptions } from '../fixtures/config-options.fixture';
+
+// Create mock for TracingService
+class MockTracingService {
+  getCurrentTraceContext() {
+    return {
+      traceId: 'test-trace-id',
+      spanId: 'test-span-id',
+    };
+  }
+}
+
+// Create mock for Transport
+class MockTransport implements Transport {
+  public logs: any[] = [];
+  
+  write(logEntry: any): void {
+    this.logs.push(logEntry);
+  }
+
+  initialize(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  clear(): void {
+    this.logs = [];
+  }
+}
 
 describe('LoggerService', () => {
-  let service: LoggerService;
-  let tracingService: MockTracingService;
-  let mockFormatter: MockFormatter;
+  let loggerService: LoggerService;
   let mockTransport: MockTransport;
-  let mockConfigService: MockConfigService;
+  let mockTracingService: MockTracingService;
+  let defaultConfig: LoggerConfig;
 
   beforeEach(async () => {
-    tracingService = new MockTracingService();
-    mockFormatter = new MockFormatter();
     mockTransport = new MockTransport();
-    mockConfigService = new MockConfigService();
+    mockTracingService = new MockTracingService();
+    
+    // Create a default config for testing
+    defaultConfig = {
+      serviceName: 'test-service',
+      environment: 'test',
+      appVersion: '1.0.0',
+      logLevel: LogLevel.DEBUG,
+      transports: [{ type: 'console' }]
+    };
 
-    // Configure mock formatter to return structured JSON
-    mockFormatter.format.mockImplementation((level, message, context) => {
-      return JSON.stringify({
-        level,
-        message,
-        context,
-        timestamp: expect.any(String),
-      });
-    });
-
-    // Configure mock config service with default values
-    mockConfigService.get.mockImplementation((key: string) => {
-      const config = {
-        'logging.level': 'debug',
-        'logging.format': 'json',
-        'logging.transports': ['console'],
-        'app.name': 'test-service',
-      };
-      return config[key];
-    });
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        LoggerService,
-        { provide: TracingService, useValue: tracingService },
-        { provide: ConfigService, useValue: mockConfigService },
-        { provide: 'FORMATTER', useValue: mockFormatter },
-        { provide: 'TRANSPORT', useValue: mockTransport },
-      ],
-    }).compile();
-
-    service = module.get<LoggerService>(LoggerService);
+    // Create the logger service with mocked dependencies
+    loggerService = new LoggerService(defaultConfig, mockTracingService);
+    
+    // Replace the transports with our mock
+    (loggerService as any).transports = [mockTransport];
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
-    tracingService.reset();
-    mockFormatter.format.mockClear();
-    mockTransport.write.mockClear();
+    mockTransport.clear();
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
-  describe('log methods', () => {
-    it('should call log method with INFO level', () => {
-      const message = 'Test info message';
-      const context = { requestId: '123' };
+  describe('Basic logging methods', () => {
+    it('should log messages with INFO level', () => {
+      // Act
+      loggerService.log('Test info message');
       
-      service.log(message, context);
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        message,
-        expect.objectContaining(context)
-      );
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.INFO);
+      expect(mockTransport.logs[0].message).toBe('Test info message');
     });
 
-    it('should call error method with ERROR level', () => {
-      const message = 'Test error message';
-      const trace = new Error('Test error');
-      const context = { requestId: '123' };
+    it('should log messages with ERROR level', () => {
+      // Act
+      loggerService.error('Test error message');
       
-      service.error(message, trace, context);
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'ERROR',
-        message,
-        expect.objectContaining({
-          ...context,
-          trace: expect.any(String),
-        })
-      );
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.ERROR);
+      expect(mockTransport.logs[0].message).toBe('Test error message');
     });
 
-    it('should call warn method with WARN level', () => {
-      const message = 'Test warn message';
-      const context = { requestId: '123' };
+    it('should log messages with WARN level', () => {
+      // Act
+      loggerService.warn('Test warning message');
       
-      service.warn(message, context);
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'WARN',
-        message,
-        expect.objectContaining(context)
-      );
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.WARN);
+      expect(mockTransport.logs[0].message).toBe('Test warning message');
     });
 
-    it('should call debug method with DEBUG level', () => {
-      const message = 'Test debug message';
-      const context = { requestId: '123' };
+    it('should log messages with DEBUG level', () => {
+      // Act
+      loggerService.debug('Test debug message');
       
-      service.debug(message, context);
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'DEBUG',
-        message,
-        expect.objectContaining(context)
-      );
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.DEBUG);
+      expect(mockTransport.logs[0].message).toBe('Test debug message');
     });
 
-    it('should call verbose method with VERBOSE level', () => {
-      const message = 'Test verbose message';
-      const context = { requestId: '123' };
+    it('should log messages with VERBOSE level (maps to DEBUG)', () => {
+      // Act
+      loggerService.verbose('Test verbose message');
       
-      service.verbose(message, context);
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'VERBOSE',
-        message,
-        expect.objectContaining(context)
-      );
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.DEBUG);
+      expect(mockTransport.logs[0].message).toBe('Test verbose message');
     });
 
-    it('should not log messages below configured log level', () => {
-      // Configure log level to INFO
-      mockConfigService.get.mockImplementation((key: string) => {
-        const config = {
-          'logging.level': 'info',
-          'logging.format': 'json',
-          'logging.transports': ['console'],
-          'app.name': 'test-service',
-        };
-        return config[key];
-      });
-
-      // Re-initialize service with new config
-      service.onModuleInit();
-
-      // This should be logged (INFO level)
-      service.log('Info message');
-      // This should be logged (ERROR level > INFO)
-      service.error('Error message');
-      // This should be logged (WARN level > INFO)
-      service.warn('Warn message');
-      // This should NOT be logged (DEBUG level < INFO)
-      service.debug('Debug message');
-      // This should NOT be logged (VERBOSE level < INFO)
-      service.verbose('Verbose message');
-
-      // Verify only INFO, ERROR, and WARN were logged
-      expect(mockFormatter.format).toHaveBeenCalledTimes(3);
-      expect(mockFormatter.format).toHaveBeenCalledWith('INFO', 'Info message', expect.any(Object));
-      expect(mockFormatter.format).toHaveBeenCalledWith('ERROR', 'Error message', expect.any(Object));
-      expect(mockFormatter.format).toHaveBeenCalledWith('WARN', 'Warn message', expect.any(Object));
+    it('should log messages with FATAL level', () => {
+      // Act
+      loggerService.fatal('Test fatal message');
+      
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.FATAL);
+      expect(mockTransport.logs[0].message).toBe('Test fatal message');
     });
   });
 
-  describe('context enrichment', () => {
-    it('should enrich logs with request context', () => {
-      const requestContext = {
-        requestId: 'req-123',
-        userId: 'user-456',
-        ip: '127.0.0.1',
-      };
-
-      // Set request context
-      service.setRequestContext(requestContext);
+  describe('Context handling', () => {
+    it('should include default context in log entries', () => {
+      // Act
+      loggerService.log('Test message with default context');
       
-      // Log a message
-      service.log('Test message with request context');
-      
-      // Verify context was included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with request context',
-        expect.objectContaining(requestContext)
-      );
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].serviceName).toBe('test-service');
+      expect(mockTransport.logs[0].environment).toBe('test');
+      expect(mockTransport.logs[0].appVersion).toBe('1.0.0');
     });
 
-    it('should enrich logs with user context', () => {
-      const userContext = {
-        userId: 'user-456',
-        email: 'user@example.com',
-        roles: ['user', 'admin'],
-      };
-
-      // Set user context
-      service.setUserContext(userContext);
+    it('should include string context in log entries', () => {
+      // Act
+      loggerService.log('Test message with string context', 'TestContext');
       
-      // Log a message
-      service.log('Test message with user context');
-      
-      // Verify context was included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with user context',
-        expect.objectContaining({ user: userContext })
-      );
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].context).toBe('TestContext');
     });
 
-    it('should enrich logs with journey context', () => {
-      const journeyContext = {
-        journeyId: 'journey-789',
-        journeyType: 'health',
-        step: 'metrics-input',
-      };
-
-      // Set journey context
-      service.setJourneyContext(journeyContext);
+    it('should include object context in log entries', () => {
+      // Arrange
+      const contextObj = { userId: '123', action: 'test' };
       
-      // Log a message
-      service.log('Test message with journey context');
+      // Act
+      loggerService.log('Test message with object context', contextObj);
       
-      // Verify context was included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with journey context',
-        expect.objectContaining({ journey: journeyContext })
-      );
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].context).toBeUndefined();
+      expect(mockTransport.logs[0].userId).toBe('123');
+      expect(mockTransport.logs[0].action).toBe('test');
     });
 
-    it('should combine multiple contexts in logs', () => {
-      const requestContext = { requestId: 'req-123', ip: '127.0.0.1' };
-      const userContext = { userId: 'user-456', roles: ['user'] };
-      const journeyContext = { journeyId: 'journey-789', journeyType: 'health' };
-
-      // Set all contexts
-      service.setRequestContext(requestContext);
-      service.setUserContext(userContext);
-      service.setJourneyContext(journeyContext);
-      
-      // Log a message
-      service.log('Test message with all contexts');
-      
-      // Verify all contexts were included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with all contexts',
-        expect.objectContaining({
-          ...requestContext,
-          user: userContext,
-          journey: journeyContext,
-        })
-      );
-    });
-
-    it('should allow context to be passed directly to log methods', () => {
-      const directContext = { transactionId: 'tx-123', source: 'payment-service' };
-      
-      // Log with direct context
-      service.log('Test message with direct context', directContext);
-      
-      // Verify direct context was included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with direct context',
-        expect.objectContaining(directContext)
-      );
-    });
-
-    it('should merge direct context with stored contexts', () => {
-      const requestContext = { requestId: 'req-123' };
-      const directContext = { transactionId: 'tx-123' };
-
-      // Set request context
-      service.setRequestContext(requestContext);
-      
-      // Log with direct context
-      service.log('Test message with merged contexts', directContext);
-      
-      // Verify contexts were merged
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with merged contexts',
-        expect.objectContaining({
-          ...requestContext,
-          ...directContext,
-        })
-      );
-    });
-  });
-
-  describe('trace correlation', () => {
-    it('should create a span for each log operation', () => {
-      service.log('Test message with span');
-      
-      expect(tracingService.createSpan).toHaveBeenCalledWith(
-        'log.info',
-        expect.any(Function)
-      );
-    });
-
-    it('should include trace context in log entries', () => {
-      // Configure tracing service to return trace context
-      const traceContext = {
-        traceId: 'trace-123',
-        spanId: 'span-456',
-      };
-      
-      tracingService.getTraceContext.mockReturnValue(traceContext);
-      
-      // Log a message
-      service.log('Test message with trace context');
-      
-      // Verify trace context was included
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Test message with trace context',
-        expect.objectContaining({
-          trace: traceContext,
-        })
-      );
-    });
-
-    it('should handle errors in span creation', () => {
-      // Configure tracing service to throw an error
-      tracingService.createSpan.mockImplementation(() => {
-        throw new Error('Tracing error');
-      });
-      
-      // Log should not throw even if tracing fails
-      expect(() => service.log('Test message with tracing error')).not.toThrow();
-      
-      // Log should still be written
-      expect(mockTransport.write).toHaveBeenCalled();
-    });
-
-    it('should add error details to span for error logs', () => {
+    it('should include error details when logging errors', () => {
+      // Arrange
       const error = new Error('Test error');
-      error.stack = 'Error: Test error\n    at TestFunction';
       
-      service.error('Error message', error);
+      // Act
+      loggerService.error('Error occurred', error);
       
-      expect(tracingService.createSpan).toHaveBeenCalledWith(
-        'log.error',
-        expect.any(Function)
-      );
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].error).toBeDefined();
+      expect(mockTransport.logs[0].error.name).toBe('Error');
+      expect(mockTransport.logs[0].error.message).toBe('Test error');
+      expect(mockTransport.logs[0].error.stack).toBeDefined();
+    });
+
+    it('should include trace context from tracing service', () => {
+      // Act
+      loggerService.log('Test message with trace context');
       
-      // Verify span was annotated with error details
-      const spanCallback = tracingService.createSpan.mock.calls[0][1];
-      const mockSpan = { setAttributes: jest.fn(), recordException: jest.fn() };
-      spanCallback(mockSpan);
-      
-      expect(mockSpan.recordException).toHaveBeenCalledWith(error);
-      expect(mockSpan.setAttributes).toHaveBeenCalledWith({
-        'log.level': 'ERROR',
-        'log.message': 'Error message',
-      });
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].traceId).toBe('test-trace-id');
+      expect(mockTransport.logs[0].spanId).toBe('test-span-id');
     });
   });
 
-  describe('structured JSON format', () => {
-    it('should use JSON formatter when configured', () => {
-      // Already configured in beforeEach
-      
-      service.log('Test JSON formatted message');
-      
-      // Verify formatter was called
-      expect(mockFormatter.format).toHaveBeenCalled();
-      // Verify transport received formatted output
-      expect(mockTransport.write).toHaveBeenCalled();
-    });
-
-    it('should include standard fields in JSON output', () => {
-      const standardFields = {
-        timestamp: expect.any(String),
-        level: 'INFO',
-        message: 'Test standard fields',
-        service: 'test-service',
-      };
-      
-      // Configure formatter to verify fields
-      mockFormatter.format.mockImplementation((level, message, context) => {
-        const output = {
-          timestamp: new Date().toISOString(),
-          level,
-          message,
-          service: context.service,
-          ...context,
-        };
-        return JSON.stringify(output);
-      });
-      
-      service.log('Test standard fields');
-      
-      // Extract the context argument passed to formatter
-      const formatterContext = mockFormatter.format.mock.calls[0][2];
-      
-      // Verify standard fields
-      expect(formatterContext).toMatchObject({
-        service: 'test-service',
-      });
-    });
-  });
-
-  describe('journey-specific context', () => {
-    it('should handle health journey context', () => {
-      const healthJourneyContext = {
+  describe('Journey-specific logging', () => {
+    it('should log with journey context', () => {
+      // Arrange
+      const journeyContext: JourneyContext = {
         journeyType: 'health',
-        metricId: 'blood-pressure',
-        deviceId: 'device-123',
+        journeyId: 'health-journey-123',
+        journeyState: 'active',
       };
-
-      service.setJourneyContext(healthJourneyContext);
-      service.log('Health journey log');
       
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Health journey log',
-        expect.objectContaining({
-          journey: healthJourneyContext,
-        })
-      );
+      // Act
+      loggerService.logWithJourneyContext(LogLevel.INFO, 'Health journey event', journeyContext);
+      
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].journeyType).toBe('health');
+      expect(mockTransport.logs[0].journeyId).toBe('health-journey-123');
+      expect(mockTransport.logs[0].journeyState).toBe('active');
     });
 
-    it('should handle care journey context', () => {
-      const careJourneyContext = {
+    it('should create a journey-specific logger', () => {
+      // Arrange
+      const journeyContext: JourneyContext = {
         journeyType: 'care',
-        appointmentId: 'appt-123',
-        providerId: 'provider-456',
+        journeyId: 'care-journey-456',
+        journeyState: 'pending',
       };
-
-      service.setJourneyContext(careJourneyContext);
-      service.log('Care journey log');
       
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Care journey log',
-        expect.objectContaining({
-          journey: careJourneyContext,
-        })
-      );
-    });
-
-    it('should handle plan journey context', () => {
-      const planJourneyContext = {
-        journeyType: 'plan',
-        planId: 'plan-123',
-        benefitId: 'benefit-456',
-      };
-
-      service.setJourneyContext(planJourneyContext);
-      service.log('Plan journey log');
+      // Act
+      const journeyLogger = loggerService.createJourneyLogger(journeyContext);
+      journeyLogger.log('Care journey event');
       
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Plan journey log',
-        expect.objectContaining({
-          journey: planJourneyContext,
-        })
-      );
-    });
-
-    it('should handle cross-journey context', () => {
-      const crossJourneyContext = {
-        journeyType: 'cross',
-        healthMetricId: 'blood-pressure',
-        appointmentId: 'appt-123',
-        planId: 'plan-456',
-      };
-
-      service.setJourneyContext(crossJourneyContext);
-      service.log('Cross journey log');
-      
-      expect(mockFormatter.format).toHaveBeenCalledWith(
-        'INFO',
-        'Cross journey log',
-        expect.objectContaining({
-          journey: crossJourneyContext,
-        })
-      );
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].journeyType).toBe('care');
+      expect(mockTransport.logs[0].journeyId).toBe('care-journey-456');
+      expect(mockTransport.logs[0].journeyState).toBe('pending');
     });
   });
 
-  describe('configuration', () => {
-    it('should initialize with default configuration', () => {
-      // Reset config mock to return undefined
-      mockConfigService.get.mockReturnValue(undefined);
+  describe('User-specific logging', () => {
+    it('should log with user context', () => {
+      // Arrange
+      const userContext: UserContext = {
+        userId: 'user-123',
+        isAuthenticated: true,
+        roles: ['patient'],
+      };
       
-      // Re-initialize service
-      service.onModuleInit();
+      // Act
+      loggerService.logWithUserContext(LogLevel.INFO, 'User action', userContext);
       
-      // Log a message
-      service.log('Test default config');
-      
-      // Verify default formatter and transport were used
-      expect(mockFormatter.format).toHaveBeenCalled();
-      expect(mockTransport.write).toHaveBeenCalled();
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].userId).toBe('user-123');
+      expect(mockTransport.logs[0].isAuthenticated).toBe(true);
+      expect(mockTransport.logs[0].roles).toEqual(['patient']);
     });
 
-    it('should respect configured log level', () => {
-      // Configure log level to ERROR
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === 'logging.level') return 'error';
-        return undefined;
-      });
+    it('should create a user-specific logger', () => {
+      // Arrange
+      const userContext: UserContext = {
+        userId: 'user-456',
+        isAuthenticated: true,
+        roles: ['provider'],
+      };
       
-      // Re-initialize service
-      service.onModuleInit();
+      // Act
+      const userLogger = loggerService.createUserLogger(userContext);
+      userLogger.log('Provider action');
       
-      // These should NOT be logged (below ERROR level)
-      service.log('Info message');
-      service.warn('Warn message');
-      service.debug('Debug message');
-      service.verbose('Verbose message');
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].userId).toBe('user-456');
+      expect(mockTransport.logs[0].isAuthenticated).toBe(true);
+      expect(mockTransport.logs[0].roles).toEqual(['provider']);
+    });
+  });
+
+  describe('Request-specific logging', () => {
+    it('should log with request context', () => {
+      // Arrange
+      const requestContext: RequestContext = {
+        requestId: 'req-123',
+        method: 'GET',
+        url: '/api/health',
+        ip: '127.0.0.1',
+        userAgent: 'test-agent',
+      };
       
-      // This should be logged (ERROR level)
-      service.error('Error message');
+      // Act
+      loggerService.logWithRequestContext(LogLevel.INFO, 'API request', requestContext);
       
-      // Verify only ERROR was logged
-      expect(mockFormatter.format).toHaveBeenCalledTimes(1);
-      expect(mockFormatter.format).toHaveBeenCalledWith('ERROR', 'Error message', expect.any(Object));
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].requestId).toBe('req-123');
+      expect(mockTransport.logs[0].method).toBe('GET');
+      expect(mockTransport.logs[0].url).toBe('/api/health');
+      expect(mockTransport.logs[0].ip).toBe('127.0.0.1');
+      expect(mockTransport.logs[0].userAgent).toBe('test-agent');
     });
 
-    it('should handle invalid log level configuration', () => {
-      // Configure invalid log level
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === 'logging.level') return 'INVALID_LEVEL';
-        return undefined;
-      });
+    it('should create a request-specific logger', () => {
+      // Arrange
+      const requestContext: RequestContext = {
+        requestId: 'req-456',
+        method: 'POST',
+        url: '/api/care',
+        ip: '192.168.1.1',
+        userAgent: 'mobile-app',
+      };
       
-      // Re-initialize service should not throw
-      expect(() => service.onModuleInit()).not.toThrow();
+      // Act
+      const requestLogger = loggerService.createRequestLogger(requestContext);
+      requestLogger.log('API request processed');
       
-      // Should default to INFO level
-      service.debug('Debug message'); // Should not be logged
-      service.log('Info message'); // Should be logged
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].requestId).toBe('req-456');
+      expect(mockTransport.logs[0].method).toBe('POST');
+      expect(mockTransport.logs[0].url).toBe('/api/care');
+      expect(mockTransport.logs[0].ip).toBe('192.168.1.1');
+      expect(mockTransport.logs[0].userAgent).toBe('mobile-app');
+    });
+  });
+
+  describe('Combined context logging', () => {
+    it('should log with combined contexts', () => {
+      // Arrange
+      const userContext: UserContext = {
+        userId: 'user-789',
+        isAuthenticated: true,
+        roles: ['patient'],
+      };
       
-      // Verify only INFO was logged
-      expect(mockFormatter.format).toHaveBeenCalledTimes(1);
-      expect(mockFormatter.format).toHaveBeenCalledWith('INFO', 'Info message', expect.any(Object));
+      const journeyContext: JourneyContext = {
+        journeyType: 'plan',
+        journeyId: 'plan-journey-789',
+        journeyState: 'completed',
+      };
+      
+      const requestContext: RequestContext = {
+        requestId: 'req-789',
+        method: 'PUT',
+        url: '/api/plan',
+        ip: '10.0.0.1',
+        userAgent: 'web-app',
+      };
+      
+      // Act
+      loggerService.logWithCombinedContext(
+        LogLevel.INFO,
+        'Cross-journey action',
+        [userContext, journeyContext, requestContext]
+      );
+      
+      // Assert
+      expect(mockTransport.logs.length).toBe(1);
+      expect(mockTransport.logs[0].userId).toBe('user-789');
+      expect(mockTransport.logs[0].journeyType).toBe('plan');
+      expect(mockTransport.logs[0].requestId).toBe('req-789');
+    });
+  });
+
+  describe('Log level filtering', () => {
+    it('should not log messages below configured log level', () => {
+      // Arrange
+      const highLevelConfig: LoggerConfig = {
+        ...defaultConfig,
+        logLevel: LogLevel.ERROR,
+      };
+      const highLevelLogger = new LoggerService(highLevelConfig, mockTracingService);
+      (highLevelLogger as any).transports = [mockTransport];
+      
+      // Act - these should be filtered out
+      highLevelLogger.debug('Debug message');
+      highLevelLogger.log('Info message');
+      highLevelLogger.warn('Warning message');
+      
+      // Act - these should be logged
+      highLevelLogger.error('Error message');
+      highLevelLogger.fatal('Fatal message');
+      
+      // Assert
+      expect(mockTransport.logs.length).toBe(2);
+      expect(mockTransport.logs[0].level).toBe(LogLevel.ERROR);
+      expect(mockTransport.logs[1].level).toBe(LogLevel.FATAL);
+    });
+  });
+
+  describe('Message formatting', () => {
+    it('should format string messages', () => {
+      // Act
+      loggerService.log('Simple string message');
+      
+      // Assert
+      expect(mockTransport.logs[0].message).toBe('Simple string message');
+    });
+
+    it('should format error messages', () => {
+      // Arrange
+      const error = new Error('Test error message');
+      
+      // Act
+      loggerService.log(error);
+      
+      // Assert
+      expect(mockTransport.logs[0].message).toBe('Test error message');
+    });
+
+    it('should format object messages', () => {
+      // Arrange
+      const obj = { key: 'value', nested: { prop: 'test' } };
+      
+      // Act
+      loggerService.log(obj);
+      
+      // Assert
+      expect(mockTransport.logs[0].message).toBe(JSON.stringify(obj));
+    });
+
+    it('should handle circular references in object messages', () => {
+      // Arrange
+      const obj: any = { key: 'value' };
+      obj.circular = obj; // Create circular reference
+      
+      // Act
+      loggerService.log(obj);
+      
+      // Assert
+      expect(mockTransport.logs[0].message).toBe('[Object]');
+    });
+  });
+
+  describe('Error handling', () => {
+    it('should handle transport errors gracefully', () => {
+      // Arrange
+      const errorTransport: Transport = {
+        write: jest.fn().mockImplementation(() => {
+          throw new Error('Transport failure');
+        }),
+        initialize: jest.fn().mockResolvedValue(undefined),
+        close: jest.fn().mockResolvedValue(undefined),
+      };
+      
+      // Replace transports with our error-throwing transport
+      (loggerService as any).transports = [errorTransport];
+      
+      // Mock console.error to prevent test output pollution
+      const originalConsoleError = console.error;
+      console.error = jest.fn();
+      
+      // Act - should not throw despite transport error
+      expect(() => {
+        loggerService.log('This should not throw');
+      }).not.toThrow();
+      
+      // Assert
+      expect(errorTransport.write).toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalled();
+      
+      // Restore console.error
+      console.error = originalConsoleError;
     });
   });
 });
