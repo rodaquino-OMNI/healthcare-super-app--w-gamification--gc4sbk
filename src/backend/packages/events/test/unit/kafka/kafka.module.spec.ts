@@ -1,309 +1,372 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from '@austa/logging';
+import { TracingModule } from '@austa/tracing';
 import { KafkaModule } from '../../../src/kafka/kafka.module';
 import { KafkaService } from '../../../src/kafka/kafka.service';
-import { KafkaProducer } from '../../../src/kafka/kafka.producer';
-import { KAFKA_MODULE_OPTIONS } from '../../../src/kafka/kafka.constants';
-import { KafkaModuleOptions, KafkaOptionsFactory } from '../../../src/kafka/kafka.interfaces';
-import { Injectable, Module } from '@nestjs/common';
+import { EventSchemaRegistry } from '../../../src/schema/schema-registry.service';
+import { KAFKA_MODULE_OPTIONS, EVENT_SCHEMA_REGISTRY } from '../../../src/constants/tokens.constants';
+import { KafkaModuleOptions } from '../../../src/interfaces/kafka-options.interface';
 
+/**
+ * Unit tests for the KafkaModule.
+ * 
+ * These tests verify that the KafkaModule correctly integrates with NestJS
+ * dependency injection system, properly registers providers, and supports
+ * various module registration patterns.
+ */
 describe('KafkaModule', () => {
-  // Test static registration
-  describe('register', () => {
-    let moduleRef: TestingModule;
-    const mockKafkaOptions: KafkaModuleOptions = {
-      clientId: 'test-client',
-      brokers: ['localhost:9092'],
-      groupId: 'test-group',
-    };
+  // Test basic module registration
+  describe('basic registration', () => {
+    let module: TestingModule;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [KafkaModule.register(mockKafkaOptions)],
+      module = await Test.createTestingModule({
+        imports: [KafkaModule],
       }).compile();
     });
 
-    it('should provide the KafkaService', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
+    afterEach(async () => {
+      await module.close();
     });
 
-    it('should provide the KafkaProducer', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
+    it('should be defined', () => {
+      expect(module).toBeDefined();
     });
 
-    it('should provide the module options', () => {
-      const options = moduleRef.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options).toEqual(mockKafkaOptions);
+    it('should provide KafkaService', () => {
+      const service = module.get<KafkaService>(KafkaService);
+      expect(service).toBeDefined();
+      expect(service).toBeInstanceOf(KafkaService);
     });
 
-    it('should register as a global module by default', () => {
-      // Create a test module that doesn't import KafkaModule
-      @Module({})
-      class TestModule {}
-
-      // The module should be available globally
-      const testModuleRef = Test.createTestingModule({
-        imports: [TestModule, KafkaModule.register(mockKafkaOptions, true)],
-      });
-
-      expect(testModuleRef).toBeDefined();
-    });
-
-    it('should register as a non-global module when specified', async () => {
-      // Create a test module that doesn't import KafkaModule
-      @Module({})
-      class TestModule {}
-
-      // Create a module that imports KafkaModule as non-global
-      const nonGlobalModuleRef = await Test.createTestingModule({
-        imports: [KafkaModule.register(mockKafkaOptions, false)],
-      }).compile();
-
-      const kafkaService = nonGlobalModuleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
-
-      // Create another module that doesn't import KafkaModule
-      // This should throw an error when trying to get KafkaService
-      const testModuleRef = await Test.createTestingModule({
-        imports: [TestModule],
-      }).compile();
-
-      expect(() => testModuleRef.get<KafkaService>(KafkaService)).toThrow();
+    it('should import required modules', () => {
+      // Verify that the required modules are imported
+      expect(() => module.get(ConfigModule)).not.toThrow();
+      expect(() => module.get(LoggerModule)).not.toThrow();
+      expect(() => module.get(TracingModule)).not.toThrow();
     });
   });
 
-  // Test async registration with useFactory
-  describe('registerAsync with useFactory', () => {
-    let moduleRef: TestingModule;
-    const mockKafkaOptions: KafkaModuleOptions = {
-      clientId: 'test-client',
-      brokers: ['localhost:9092'],
-      groupId: 'test-group',
+  // Test module registration with options
+  describe('register() with options', () => {
+    let module: TestingModule;
+    const testOptions: KafkaModuleOptions = {
+      serviceName: 'test-service',
+      configNamespace: 'test-namespace',
+      enableSchemaValidation: true,
     };
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot({
-            isGlobal: true,
-            load: [() => ({ kafka: mockKafkaOptions })],
-          }),
-          KafkaModule.registerAsync({
-            imports: [ConfigModule],
-            inject: [ConfigService],
-            useFactory: (configService: ConfigService) => {
-              return configService.get('kafka');
+      module = await Test.createTestingModule({
+        imports: [KafkaModule.register(testOptions)],
+      }).compile();
+    });
+
+    afterEach(async () => {
+      await module.close();
+    });
+
+    it('should register module with options', () => {
+      const options = module.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
+      expect(options).toEqual(testOptions);
+    });
+
+    it('should provide EventSchemaRegistry when enableSchemaValidation is true', () => {
+      const schemaRegistry = module.get<EventSchemaRegistry>(EVENT_SCHEMA_REGISTRY);
+      expect(schemaRegistry).toBeDefined();
+      expect(schemaRegistry).toBeInstanceOf(EventSchemaRegistry);
+    });
+
+    it('should export KafkaService', () => {
+      // Create a module that imports KafkaModule to test exports
+      const createTestModule = async () => {
+        return Test.createTestingModule({
+          imports: [KafkaModule.register(testOptions)],
+          providers: [
+            {
+              provide: 'TEST_PROVIDER',
+              useFactory: (kafkaService: KafkaService) => {
+                return { kafkaService };
+              },
+              inject: [KafkaService],
             },
-          }),
-        ],
-      }).compile();
-    });
+          ],
+        }).compile();
+      };
 
-    it('should provide the KafkaService', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
-    });
-
-    it('should provide the KafkaProducer', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
-    });
-
-    it('should provide the module options from factory', () => {
-      const options = moduleRef.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options).toEqual(mockKafkaOptions);
+      return createTestModule().then((testModule) => {
+        const testProvider = testModule.get('TEST_PROVIDER');
+        expect(testProvider.kafkaService).toBeInstanceOf(KafkaService);
+        return testModule.close();
+      });
     });
   });
 
-  // Test async registration with useClass
-  describe('registerAsync with useClass', () => {
-    @Injectable()
-    class TestKafkaOptionsFactory implements KafkaOptionsFactory {
-      createKafkaOptions(): KafkaModuleOptions {
-        return {
-          clientId: 'test-client-class',
-          brokers: ['localhost:9092'],
-          groupId: 'test-group-class',
-        };
-      }
-    }
-
-    let moduleRef: TestingModule;
+  // Test module registration without schema validation
+  describe('register() without schema validation', () => {
+    let module: TestingModule;
+    const testOptions: KafkaModuleOptions = {
+      serviceName: 'test-service',
+      enableSchemaValidation: false,
+    };
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
+      module = await Test.createTestingModule({
+        imports: [KafkaModule.register(testOptions)],
+      }).compile();
+    });
+
+    afterEach(async () => {
+      await module.close();
+    });
+
+    it('should not provide EventSchemaRegistry when enableSchemaValidation is false', () => {
+      expect(() => module.get<EventSchemaRegistry>(EVENT_SCHEMA_REGISTRY)).toThrow();
+    });
+  });
+
+  // Test global module registration
+  describe('registerGlobal()', () => {
+    let module: TestingModule;
+    const testOptions: KafkaModuleOptions = {
+      serviceName: 'test-service',
+    };
+
+    beforeEach(async () => {
+      // Create a dynamic module with KafkaModule registered as global
+      const dynamicModule = KafkaModule.registerGlobal(testOptions);
+      
+      // Verify the module is marked as global
+      expect(dynamicModule.global).toBe(true);
+      
+      module = await Test.createTestingModule({
+        imports: [dynamicModule],
+      }).compile();
+    });
+
+    afterEach(async () => {
+      await module.close();
+    });
+
+    it('should register module with options', () => {
+      const options = module.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
+      expect(options).toEqual(testOptions);
+    });
+
+    it('should make KafkaService available globally', async () => {
+      // Create a separate module that doesn't import KafkaModule
+      // but should have access to KafkaService because it's global
+      const testModule = await Test.createTestingModule({
+        providers: [
+          {
+            provide: 'TEST_PROVIDER',
+            useFactory: (kafkaService: KafkaService) => {
+              return { kafkaService };
+            },
+            inject: [KafkaService],
+          },
+        ],
+      }).compile();
+
+      try {
+        const testProvider = testModule.get('TEST_PROVIDER');
+        expect(testProvider.kafkaService).toBeInstanceOf(KafkaService);
+      } finally {
+        await testModule.close();
+      }
+    });
+  });
+
+  // Test async module registration
+  describe('registerAsync()', () => {
+    let module: TestingModule;
+    const testOptions: KafkaModuleOptions = {
+      serviceName: 'test-service',
+      enableSchemaValidation: true,
+    };
+
+    beforeEach(async () => {
+      module = await Test.createTestingModule({
         imports: [
           KafkaModule.registerAsync({
-            useClass: TestKafkaOptionsFactory,
+            imports: [ConfigModule.forRoot()],
+            useFactory: () => testOptions,
+            inject: [ConfigModule],
           }),
         ],
       }).compile();
     });
 
-    it('should provide the KafkaService', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
+    afterEach(async () => {
+      await module.close();
     });
 
-    it('should provide the KafkaProducer', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
+    it('should register module with async factory', () => {
+      const options = module.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
+      expect(options).toEqual(testOptions);
     });
 
-    it('should provide the module options from class factory', () => {
-      const options = moduleRef.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options).toEqual({
-        clientId: 'test-client-class',
-        brokers: ['localhost:9092'],
-        groupId: 'test-group-class',
+    it('should provide EventSchemaRegistry', () => {
+      const schemaRegistry = module.get<EventSchemaRegistry>(EVENT_SCHEMA_REGISTRY);
+      expect(schemaRegistry).toBeDefined();
+      expect(schemaRegistry).toBeInstanceOf(EventSchemaRegistry);
+    });
+
+    it('should export KafkaService and EventSchemaRegistry', () => {
+      // Create a module that imports KafkaModule to test exports
+      const createTestModule = async () => {
+        return Test.createTestingModule({
+          imports: [
+            KafkaModule.registerAsync({
+              useFactory: () => testOptions,
+            }),
+          ],
+          providers: [
+            {
+              provide: 'TEST_PROVIDER',
+              useFactory: (kafkaService: KafkaService, schemaRegistry: EventSchemaRegistry) => {
+                return { kafkaService, schemaRegistry };
+              },
+              inject: [KafkaService, EVENT_SCHEMA_REGISTRY],
+            },
+          ],
+        }).compile();
+      };
+
+      return createTestModule().then((testModule) => {
+        const testProvider = testModule.get('TEST_PROVIDER');
+        expect(testProvider.kafkaService).toBeInstanceOf(KafkaService);
+        expect(testProvider.schemaRegistry).toBeInstanceOf(EventSchemaRegistry);
+        return testModule.close();
       });
     });
   });
 
-  // Test async registration with useExisting
-  describe('registerAsync with useExisting', () => {
-    @Injectable()
-    class TestKafkaOptionsFactory implements KafkaOptionsFactory {
-      createKafkaOptions(): KafkaModuleOptions {
-        return {
-          clientId: 'test-client-existing',
-          brokers: ['localhost:9092'],
-          groupId: 'test-group-existing',
-        };
+  // Test global async module registration
+  describe('registerAsync() with global flag', () => {
+    let module: TestingModule;
+    const testOptions: KafkaModuleOptions = {
+      serviceName: 'test-service',
+    };
+
+    beforeEach(async () => {
+      // Create a dynamic module with KafkaModule registered as global
+      const dynamicModule = KafkaModule.registerAsync({
+        useFactory: () => testOptions,
+        global: true,
+      });
+      
+      module = await Test.createTestingModule({
+        imports: [dynamicModule],
+      }).compile();
+    });
+
+    afterEach(async () => {
+      await module.close();
+    });
+
+    it('should make KafkaService available globally', async () => {
+      // Create a separate module that doesn't import KafkaModule
+      // but should have access to KafkaService because it's global
+      const testModule = await Test.createTestingModule({
+        providers: [
+          {
+            provide: 'TEST_PROVIDER',
+            useFactory: (kafkaService: KafkaService) => {
+              return { kafkaService };
+            },
+            inject: [KafkaService],
+          },
+        ],
+      }).compile();
+
+      try {
+        const testProvider = testModule.get('TEST_PROVIDER');
+        expect(testProvider.kafkaService).toBeInstanceOf(KafkaService);
+      } finally {
+        await testModule.close();
       }
-    }
-
-    let moduleRef: TestingModule;
-
-    beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        providers: [TestKafkaOptionsFactory],
-        imports: [
-          KafkaModule.registerAsync({
-            useExisting: TestKafkaOptionsFactory,
-          }),
-        ],
-      }).compile();
-    });
-
-    it('should provide the KafkaService', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
-    });
-
-    it('should provide the KafkaProducer', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
-    });
-
-    it('should provide the module options from existing factory', () => {
-      const options = moduleRef.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options).toEqual({
-        clientId: 'test-client-existing',
-        brokers: ['localhost:9092'],
-        groupId: 'test-group-existing',
-      });
-    });
-  });
-
-  // Test journey-specific registration
-  describe('forJourney', () => {
-    let moduleRef: TestingModule;
-    const journeyName = 'health';
-
-    beforeEach(async () => {
-      // Mock environment variables
-      process.env.KAFKA_CLIENT_ID = 'austa';
-      process.env.KAFKA_BROKERS = 'localhost:9092';
-      process.env.KAFKA_GROUP_ID = 'austa-group';
-
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot(),
-          KafkaModule.forJourney(journeyName),
-        ],
-      }).compile();
-    });
-
-    afterEach(() => {
-      // Clean up environment variables
-      delete process.env.KAFKA_CLIENT_ID;
-      delete process.env.KAFKA_BROKERS;
-      delete process.env.KAFKA_GROUP_ID;
-    });
-
-    it('should provide the KafkaService', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
-    });
-
-    it('should provide the KafkaProducer', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
-    });
-
-    it('should provide the module options with journey-specific configuration', () => {
-      const options = moduleRef.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options).toEqual({
-        clientId: 'austa-health',
-        brokers: ['localhost:9092'],
-        groupId: 'austa-group-health',
-      });
-    });
-
-    it('should allow additional broker configuration', async () => {
-      const additionalBrokers = ['kafka-broker-2:9092'];
-      const moduleRefWithAdditionalBrokers = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot(),
-          KafkaModule.forJourney(journeyName, {
-            brokers: additionalBrokers,
-          }),
-        ],
-      }).compile();
-
-      const options = moduleRefWithAdditionalBrokers.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
-      expect(options.brokers).toEqual(['localhost:9092', 'kafka-broker-2:9092']);
     });
   });
 
   // Test integration with other modules
   describe('integration with other modules', () => {
-    @Module({
-      imports: [
-        KafkaModule.register({
-          clientId: 'test-client',
-          brokers: ['localhost:9092'],
-          groupId: 'test-group',
-        }),
-      ],
-      exports: [KafkaModule],
-    })
-    class TestModule {}
-
-    @Module({
-      imports: [TestModule],
-    })
-    class ConsumerModule {}
-
-    let moduleRef: TestingModule;
+    let module: TestingModule;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [ConsumerModule],
+      // Create a test module that simulates a journey service
+      module = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot(),
+          LoggerModule.register({ service: 'test-service' }),
+          TracingModule.register({ service: 'test-service' }),
+          KafkaModule.register({
+            serviceName: 'test-service',
+            enableSchemaValidation: true,
+          }),
+        ],
+        providers: [
+          {
+            provide: 'JOURNEY_SERVICE',
+            useFactory: (kafkaService: KafkaService) => {
+              return { kafkaService };
+            },
+            inject: [KafkaService],
+          },
+        ],
       }).compile();
     });
 
-    it('should provide the KafkaService to modules that import a module that exports KafkaModule', () => {
-      const kafkaService = moduleRef.get<KafkaService>(KafkaService);
-      expect(kafkaService).toBeDefined();
+    afterEach(async () => {
+      await module.close();
     });
 
-    it('should provide the KafkaProducer to modules that import a module that exports KafkaModule', () => {
-      const kafkaProducer = moduleRef.get<KafkaProducer>(KafkaProducer);
-      expect(kafkaProducer).toBeDefined();
+    it('should integrate with ConfigModule', () => {
+      const configService = module.get(ConfigModule);
+      expect(configService).toBeDefined();
+    });
+
+    it('should integrate with LoggerModule', () => {
+      const loggerModule = module.get(LoggerModule);
+      expect(loggerModule).toBeDefined();
+    });
+
+    it('should integrate with TracingModule', () => {
+      const tracingModule = module.get(TracingModule);
+      expect(tracingModule).toBeDefined();
+    });
+
+    it('should provide KafkaService to journey service', () => {
+      const journeyService = module.get('JOURNEY_SERVICE');
+      expect(journeyService).toBeDefined();
+      expect(journeyService.kafkaService).toBeInstanceOf(KafkaService);
+    });
+  });
+
+  // Test default options
+  describe('default options', () => {
+    let module: TestingModule;
+
+    beforeEach(async () => {
+      module = await Test.createTestingModule({
+        imports: [KafkaModule.register()],
+      }).compile();
+    });
+
+    afterEach(async () => {
+      await module.close();
+    });
+
+    it('should use empty object as default options', () => {
+      const options = module.get<KafkaModuleOptions>(KAFKA_MODULE_OPTIONS);
+      expect(options).toEqual({});
+    });
+
+    it('should still provide KafkaService', () => {
+      const service = module.get<KafkaService>(KafkaService);
+      expect(service).toBeDefined();
+      expect(service).toBeInstanceOf(KafkaService);
     });
   });
 });
