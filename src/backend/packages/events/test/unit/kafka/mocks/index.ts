@@ -1,128 +1,103 @@
 /**
- * Barrel file that exports all mock implementations for Kafka testing.
+ * @file index.ts
+ * @description Barrel file that exports all mock implementations for Kafka testing.
  * 
  * This file provides a centralized export interface for all Kafka mock implementations,
- * simplifying imports in test files and improving maintainability.
+ * simplifying imports in test files and improving maintainability. It exports mock
+ * implementations for Kafka consumers, producers, message factories, serializers,
+ * and journey-specific event generators.
  */
 
-// ===== MOCK KAFKA CLIENT =====
-export {
-  // Classes
-  MockKafka,
-  MockProducer,
-  MockConsumer,
-  MockAdmin,
-  MessageStore,
-  
-  // Interfaces
-  MethodCall,
-  MockCallHistory,
-  MockResponse,
-  MockProducerConfig,
-  MockConsumerConfig,
-  MockAdminConfig,
-  MockKafkaConfig
-} from './mock-kafka-client';
-
-// ===== MOCK KAFKA CONSUMER =====
-export {
-  // Classes
+// ===== KAFKA CONSUMER EXPORTS =====
+export { 
   MockKafkaConsumer,
-  
-  // Interfaces
-  MockKafkaMessage,
-  MockKafkaBatch,
-  MockEachMessagePayload,
-  MockEachBatchPayload,
-  MockConsumerRunOptions,
-  MockConsumerSubscribeOptions,
-  MockConsumerConfig as MockKafkaConsumerConfig,
-  RetryOptions,
-  OffsetCommitOptions
+  MockKafkaConsumerConfig,
+  TopicPartitionOffset,
+  MockMessage
 } from './mock-kafka-consumer';
 
-// ===== MOCK KAFKA PRODUCER =====
+// ===== KAFKA PRODUCER EXPORTS =====
 export {
-  // Classes
-  MockKafkaProducer
+  MockKafkaProducer,
+  MockKafkaProducerConfig,
+  SentMessageRecord
 } from './mock-kafka-producer';
 
-// ===== MOCK KAFKA MESSAGES =====
+// ===== KAFKA MESSAGE FACTORY EXPORTS =====
 export {
-  // Functions
-  createMockKafkaMessage,
-  createMockStringMessage,
-  createMockJsonMessage,
-  createMockSerializedMessage,
-  createMockMessageBatch,
-  createMockBinaryMessage,
-  createMockErrorMessage,
-  createMockJourneyEventMessage,
-  createMockVersionedEventMessage,
-  createMockTracedMessage,
-  
   // Interfaces
-  KafkaMessageHeaders,
+  IHeaders,
   KafkaMessage,
-  BatchContext,
-  MockKafkaMessageOptions
+  KafkaBatch,
+  KafkaMessageWithError,
+  
+  // Basic message factories
+  createMockMessage,
+  createMockMessageWithHeaders,
+  createMockMessageWithTracing,
+  createMockBatch,
+  createMockBatchWithTracing,
+  createMockMessageWithError,
+  
+  // JSON message utilities
+  createMockJsonMessage,
+  createMockVersionedJsonMessage,
+  deserializeMockJsonMessage,
+  
+  // Journey-specific message factories
+  createMockJourneyMessage,
+  createMockInvalidSchemaMessage
 } from './mock-kafka-message';
 
-// ===== MOCK SERIALIZERS =====
+// ===== SERIALIZER EXPORTS =====
 export {
-  // Functions
-  mockJsonSerializer,
-  mockJsonDeserializer,
-  mockAvroSerializer,
-  mockAvroDeserializer,
-  createEventValidator,
-  createEventSerializers,
-  testBackwardCompatibility,
-  benchmarkSerializer,
-  
-  // Classes
-  MockSchemaRegistry,
-  
   // Interfaces
   MockSerializerOptions,
-  SerializationResult
+  SerializationPerformance,
+  
+  // Schema registry
+  MockSchemaRegistry,
+  
+  // Serializer factories
+  createMockJsonSerializer,
+  createMockBinarySerializer,
+  createMockAvroSerializer,
+  createSerializerFactory,
+  
+  // Enhanced serializers
+  createErrorInjectingSerializer,
+  createVersionIncompatibleSerializer,
+  createPerformanceMeasuringSerializer
 } from './mock-serializers';
 
-// ===== MOCK JOURNEY EVENTS =====
+// ===== JOURNEY EVENT GENERATORS =====
 export {
-  // Health Journey Event Generators
+  // Base event generators
+  createBaseEvent,
+  createVersionedEvent,
+  createInvalidEvent,
+  
+  // Health journey events
   createHealthMetricRecordedEvent,
   createHealthGoalAchievedEvent,
-  createDeviceConnectedEvent,
+  createHealthDeviceConnectedEvent,
+  createHealthInsightGeneratedEvent,
   
-  // Care Journey Event Generators
-  createAppointmentBookedEvent,
-  createMedicationAdherenceEvent,
-  createTelemedicineSessionEvent,
-  createTreatmentPlanUpdatedEvent,
+  // Care journey events
+  createCareAppointmentBookedEvent,
+  createCareAppointmentCompletedEvent,
+  createCareMedicationTakenEvent,
+  createCarePlanTaskCompletedEvent,
   
-  // Plan Journey Event Generators
-  createClaimSubmittedEvent,
-  createBenefitUtilizedEvent,
-  createDocumentUploadedEvent,
-  createCoverageCheckedEvent,
+  // Plan journey events
+  createPlanClaimSubmittedEvent,
+  createPlanClaimProcessedEvent,
+  createPlanBenefitUtilizedEvent,
+  createPlanRewardRedeemedEvent,
   
-  // Base Event Generators
-  createBaseEvent,
-  
-  // Invalid Event Generators
-  createInvalidEventMissingFields,
-  createInvalidEventWrongTypes,
-  createInvalidEventUnsupportedJourney,
-  createInvalidEventUnsupportedVersion,
-  
-  // Versioned Event Generators
-  createVersionedEvent,
-  createHealthMetricRecordedEventV1,
-  createHealthMetricRecordedEventV2,
-  
-  // Interfaces
-  BaseEvent,
-  UserContext,
-  MockEventOptions
+  // Cross-journey events
+  createGamificationPointsEarnedEvent,
+  createGamificationAchievementUnlockedEvent,
+  createCrossJourneyEventSequence,
+  createRandomEventBatch
 } from './mock-journey-events';
