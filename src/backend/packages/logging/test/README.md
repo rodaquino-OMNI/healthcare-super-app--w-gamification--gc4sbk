@@ -1,34 +1,19 @@
-# Logging Package Test Documentation
+# Logging Package Testing Documentation
 
 ## Overview
 
-This directory contains the test suite for the `@austa/logging` package, which provides a centralized and consistent logging system for the AUSTA SuperApp backend services. The tests ensure that the logging system correctly handles journey-specific context, integrates with distributed tracing, formats logs appropriately for different environments, and reliably delivers logs to configured destinations.
+This document provides comprehensive guidance for the testing approach used in the AUSTA SuperApp logging package. The logging package is a critical component that provides structured, context-enriched logging capabilities across all backend services, with special support for the journey-centered architecture of the platform.
 
-## Table of Contents
+## Testing Philosophy
 
-- [Test Architecture](#test-architecture)
-- [Folder Structure](#folder-structure)
-- [Test Types](#test-types)
-- [Running Tests](#running-tests)
-- [Adding New Tests](#adding-new-tests)
-- [Testing Utilities](#testing-utilities)
-- [Mocks and Fixtures](#mocks-and-fixtures)
-- [Troubleshooting](#troubleshooting)
+The logging package testing follows these core principles:
 
-## Test Architecture
-
-The logging package test suite follows a comprehensive testing strategy that covers all aspects of the logging system:
-
-- **Unit Tests**: Test individual components in isolation (formatters, transports, service methods)
-- **Integration Tests**: Test interactions between components (logger + formatter + transport)
-- **End-to-End Tests**: Test the logging system in a realistic NestJS application context
-
-The tests use Jest as the primary testing framework, with custom utilities for log capture, assertion, and context simulation. The test architecture emphasizes:
-
-- **Journey-Awareness**: Tests verify that logs correctly include journey context (Health, Care, Plan)
-- **Trace Correlation**: Tests ensure proper integration with the distributed tracing system
-- **Environment Adaptability**: Tests validate behavior across development, staging, and production environments
-- **Error Resilience**: Tests verify proper handling of transport failures and formatting errors
+1. **Complete Coverage**: Tests should cover all functionality, edge cases, and error scenarios.
+2. **Journey Awareness**: Tests must verify journey-specific context enrichment for all three journeys (Health, Care, Plan).
+3. **Realistic Environments**: Tests should simulate production-like environments where appropriate.
+4. **Isolation**: Unit tests should isolate components with proper mocking of dependencies.
+5. **Integration**: Integration tests should verify components work together correctly.
+6. **End-to-End**: E2E tests should verify the logging system works in a complete NestJS application.
 
 ## Folder Structure
 
@@ -36,57 +21,82 @@ The test directory is organized as follows:
 
 ```
 test/
-├── e2e/                    # End-to-end tests in a NestJS application context
-│   ├── fixtures/           # E2E-specific test fixtures
-│   └── utils/              # E2E-specific test utilities
-├── fixtures/               # Shared test fixtures (log entries, contexts, etc.)
-├── integration/            # Integration tests between components
-├── mocks/                  # Mock implementations of dependencies
-├── unit/                   # Unit tests for individual components
-│   ├── formatters/         # Tests for log formatters
-│   ├── transports/         # Tests for log transports
-│   └── utils/              # Unit test utilities
-├── utils/                  # Shared test utilities
-├── jest.config.js          # Jest configuration
-├── setup.ts                # Test setup file
-├── teardown.ts             # Test teardown file
-└── test-constants.ts       # Shared test constants
+├── README.md                 # This documentation file
+├── jest.config.js            # Jest configuration for all tests
+├── setup.ts                  # Global test setup
+├── teardown.ts               # Global test teardown
+├── test-constants.ts         # Shared test constants
+├── e2e/                      # End-to-end tests
+│   ├── exceptions-integration.e2e-spec.ts
+│   ├── journey-context.e2e-spec.ts
+│   ├── logger.e2e-spec.ts
+│   ├── test-app.module.ts    # Test NestJS application
+│   └── tracing-integration.e2e-spec.ts
+├── fixtures/                 # Test data and objects
+│   ├── config-options.fixture.ts
+│   ├── error-objects.fixture.ts
+│   ├── journey-data.fixture.ts
+│   ├── log-contexts.fixture.ts
+│   └── log-entries.fixture.ts
+├── unit/                     # Unit tests
+│   ├── context-manager.spec.ts
+│   ├── integration.spec.ts
+│   ├── logger-module.spec.ts
+│   └── logger-service.spec.ts
+└── utils/                    # Test utilities
+    ├── assertion.utils.ts
+    ├── index.ts
+    ├── log-capture.utils.ts
+    ├── mocks.ts
+    └── test-context.utils.ts
 ```
 
 ## Test Types
 
 ### Unit Tests
 
-Unit tests focus on testing individual components in isolation:
+Unit tests focus on testing individual components in isolation. They use mocks to replace dependencies and focus on verifying the component's behavior under various conditions.
 
-- **Logger Service**: Tests for the core logging methods (log, error, warn, debug, verbose)
-- **Formatters**: Tests for each formatter implementation (JSON, text, CloudWatch)
-- **Transports**: Tests for each transport implementation (console, file, CloudWatch)
-- **Context Management**: Tests for the context handling and propagation
-
-Unit tests use extensive mocking to isolate the component under test from its dependencies.
+**Key Unit Test Files:**
+- `logger-service.spec.ts` - Tests the core LoggerService functionality
+- `logger-module.spec.ts` - Tests the NestJS module registration
+- `context-manager.spec.ts` - Tests the context management functionality
 
 ### Integration Tests
 
-Integration tests verify the correct interaction between components:
+Integration tests verify that components work together correctly. They use minimal mocking and focus on the interactions between components.
 
-- **Logger + Formatter**: Tests that logs are correctly formatted
-- **Logger + Transport**: Tests that logs are correctly delivered
-- **Formatter + Transport**: Tests that formatted logs are correctly handled by transports
-- **Complete Pipeline**: Tests the entire logging pipeline from logger to transport
-
-Integration tests use minimal mocking, focusing on the interactions between real components.
+**Key Integration Test Files:**
+- `integration.spec.ts` - Tests the complete logging pipeline
 
 ### End-to-End Tests
 
-E2E tests validate the logging system in a realistic application context:
+E2E tests verify that the logging system works correctly in a complete NestJS application. They use a test application that simulates a real AUSTA SuperApp backend service.
 
-- **NestJS Integration**: Tests within a NestJS application module
-- **Journey Context**: Tests with realistic journey-specific requests
-- **Exception Handling**: Tests integration with the exception system
-- **Tracing Integration**: Tests correlation with the distributed tracing system
+**Key E2E Test Files:**
+- `logger.e2e-spec.ts` - Tests core logging functionality
+- `journey-context.e2e-spec.ts` - Tests journey-specific context enrichment
+- `exceptions-integration.e2e-spec.ts` - Tests exception handling and logging
+- `tracing-integration.e2e-spec.ts` - Tests distributed tracing integration
 
-E2E tests use a test NestJS application with minimal mocking of external dependencies.
+## Test Utilities
+
+The `utils` directory contains utilities that support testing:
+
+- **Assertion Utilities** (`assertion.utils.ts`) - Custom assertions for verifying log content and format
+- **Log Capture Utilities** (`log-capture.utils.ts`) - Utilities for capturing log output during tests
+- **Mock Utilities** (`mocks.ts`) - Mock implementations of logging dependencies
+- **Test Context Utilities** (`test-context.utils.ts`) - Utilities for creating test contexts
+
+## Test Fixtures
+
+The `fixtures` directory contains test data and objects:
+
+- **Config Options** (`config-options.fixture.ts`) - Sample logger configurations
+- **Error Objects** (`error-objects.fixture.ts`) - Sample error objects for testing error logging
+- **Journey Data** (`journey-data.fixture.ts`) - Journey-specific test data
+- **Log Contexts** (`log-contexts.fixture.ts`) - Sample logging contexts
+- **Log Entries** (`log-entries.fixture.ts`) - Sample log entries
 
 ## Running Tests
 
@@ -96,394 +106,199 @@ E2E tests use a test NestJS application with minimal mocking of external depende
 # From the package root
 npm test
 
-# From the monorepo root
-npm test -- --scope=@austa/logging
+# Or with yarn
+yarn test
 ```
 
 ### Running Specific Test Types
 
 ```bash
-# Run only unit tests
-npm test -- --testPathPattern=unit
+# Unit tests only
+npm run test:unit
 
-# Run only integration tests
-npm test -- --testPathPattern=integration
+# E2E tests only
+npm run test:e2e
 
-# Run only e2e tests
-npm test -- --testPathPattern=e2e
+# With coverage report
+npm run test:cov
 ```
 
-### Running Tests with Coverage
+### Running Individual Test Files
 
 ```bash
-npm test -- --coverage
-```
+# Run a specific test file
+npm test -- -t "LoggerService"
 
-### Running Tests in Watch Mode
-
-```bash
-npm test -- --watch
+# Run tests matching a pattern
+npm test -- --testPathPattern="unit/logger"
 ```
 
 ## Adding New Tests
 
 ### Adding a Unit Test
 
-1. Identify the component to test (formatter, transport, service method)
-2. Create a new test file in the appropriate directory:
-   - `unit/formatters/` for formatter tests
-   - `unit/transports/` for transport tests
-   - `unit/` for service and utility tests
-3. Use the naming convention `[component-name].[type].spec.ts`
-4. Import necessary test utilities and mocks
-5. Structure your test with describe/it blocks
-6. Use appropriate assertions for the component type
+1. Create a new file in the `unit` directory with the `.spec.ts` extension
+2. Import necessary utilities and fixtures
+3. Use Jest's `describe` and `it` functions to structure your tests
+4. Use the assertion utilities for consistent verification
 
-Example unit test structure:
-
-```typescript
-import { MockTransport } from '../../mocks/transport.mock';
-import { JsonFormatter } from '../../../src/formatters/json.formatter';
-import { logEntries } from '../../fixtures/log-entries.fixture';
-
-describe('JsonFormatter', () => {
-  let formatter: JsonFormatter;
-
-  beforeEach(() => {
-    formatter = new JsonFormatter();
-  });
-
-  it('should format log entries as JSON', () => {
-    // Arrange
-    const entry = logEntries.info;
-
-    // Act
-    const result = formatter.format(entry);
-
-    // Assert
-    expect(JSON.parse(result)).toMatchObject({
-      level: 'info',
-      message: entry.message,
-      timestamp: expect.any(String),
-    });
-  });
-
-  // Additional tests...
-});
-```
-
-### Adding an Integration Test
-
-1. Identify the components to test together
-2. Create a new test file in the `integration/` directory
-3. Use the naming convention `[component-a]-[component-b].integration.spec.ts`
-4. Import the actual components (minimal mocking)
-5. Test the interaction between components
-
-Example integration test structure:
+Example:
 
 ```typescript
 import { LoggerService } from '../../src/logger.service';
-import { JsonFormatter } from '../../src/formatters/json.formatter';
-import { ConsoleTransport } from '../../src/transports/console.transport';
-import { logCapture } from '../utils/log-capture.utils';
+import { assertLogContains } from '../utils/assertion.utils';
+import { sampleLogEntries } from '../fixtures/log-entries.fixture';
 
-describe('Logger-Formatter-Transport Integration', () => {
-  let logger: LoggerService;
-  let formatter: JsonFormatter;
-  let transport: ConsoleTransport;
-  let capturedLogs: string[];
-
+describe('YourComponent', () => {
+  let component: YourComponent;
+  
   beforeEach(() => {
-    formatter = new JsonFormatter();
-    transport = new ConsoleTransport({ formatter });
-    logger = new LoggerService({ transports: [transport] });
-    capturedLogs = logCapture.start();
+    component = new YourComponent();
   });
-
-  afterEach(() => {
-    logCapture.stop();
-  });
-
-  it('should log formatted messages through the transport', () => {
+  
+  it('should log correctly', () => {
+    // Arrange
+    const logCapture = captureLogOutput();
+    
     // Act
-    logger.log('Test message', { userId: '123' });
-
+    component.doSomething();
+    
     // Assert
-    expect(capturedLogs).toHaveLength(1);
-    const loggedJson = JSON.parse(capturedLogs[0]);
-    expect(loggedJson).toMatchObject({
+    assertLogContains(logCapture, {
       level: 'info',
-      message: 'Test message',
-      context: { userId: '123' },
+      message: 'Expected message',
+      context: { journey: 'health' }
     });
   });
-
-  // Additional tests...
 });
 ```
 
 ### Adding an E2E Test
 
-1. Identify the scenario to test in a realistic application context
-2. Create a new test file in the `e2e/` directory
-3. Use the naming convention `[feature].e2e-spec.ts`
-4. Use the test application module from `e2e/test-app.module.ts`
-5. Test the logging behavior in a NestJS application context
+1. Create a new file in the `e2e` directory with the `.e2e-spec.ts` extension
+2. Import the test application module
+3. Use NestJS testing utilities to create a test application
+4. Test the logging functionality in a complete application context
 
-Example E2E test structure:
+Example:
 
 ```typescript
 import { Test } from '@nestjs/testing';
 import { TestAppModule } from './test-app.module';
 import { LoggerService } from '../../src/logger.service';
-import { logCapture } from '../utils/log-capture.utils';
-import { createJourneyContext } from '../utils/test-context.utils';
+import { captureAppLogs } from '../utils/log-capture.utils';
 
 describe('Logger E2E', () => {
   let app;
-  let logger: LoggerService;
-  let capturedLogs: string[];
-
+  let loggerService: LoggerService;
+  
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [TestAppModule],
     }).compile();
-
+    
     app = moduleRef.createNestApplication();
     await app.init();
-
-    logger = app.get(LoggerService);
-    capturedLogs = logCapture.start();
+    
+    loggerService = app.get(LoggerService);
   });
-
+  
   afterEach(async () => {
-    logCapture.stop();
     await app.close();
   });
-
-  it('should log with journey context in a NestJS application', () => {
+  
+  it('should log with journey context', async () => {
     // Arrange
-    const healthContext = createJourneyContext('health');
+    const logCapture = captureAppLogs(app);
     
     // Act
-    logger.log('Health metric recorded', healthContext);
-
+    loggerService.log('Test message', { journey: 'health' });
+    
     // Assert
-    expect(capturedLogs).toHaveLength(1);
-    const loggedJson = JSON.parse(capturedLogs[0]);
-    expect(loggedJson).toMatchObject({
+    expect(logCapture).toContainLogWithContext({
       journey: 'health',
-      message: 'Health metric recorded',
+      message: 'Test message'
     });
   });
-
-  // Additional tests...
 });
 ```
 
-## Testing Utilities
+## Journey-Specific Testing
 
-The test suite provides several utilities to simplify testing:
+The AUSTA SuperApp is built around three core journeys: Health, Care, and Plan. The logging package must support journey-specific context enrichment to enable effective debugging and monitoring of journey-specific functionality.
 
-### Log Capture
+When testing journey-specific logging:
 
-Utilities for capturing logs during tests:
+1. Use the journey data fixtures to create realistic journey contexts
+2. Verify that logs include the correct journey identifier
+3. Test all three journeys to ensure consistent behavior
+4. Test cross-journey scenarios to verify context isolation
 
-```typescript
-import { logCapture } from '../utils/log-capture.utils';
-
-// Start capturing logs
-const capturedLogs = logCapture.start();
-
-// Your test code that produces logs
-logger.log('Test message');
-
-// Assert on captured logs
-expect(capturedLogs).toHaveLength(1);
-expect(capturedLogs[0]).toContain('Test message');
-
-// Stop capturing
-logCapture.stop();
-```
-
-### Test Context
-
-Utilities for creating test contexts:
+Example:
 
 ```typescript
-import { createJourneyContext, createRequestContext } from '../utils/test-context.utils';
+import { healthJourneyContext, careJourneyContext, planJourneyContext } 
+  from '../fixtures/journey-data.fixture';
 
-// Create a journey-specific context
-const healthContext = createJourneyContext('health', { userId: '123' });
-
-// Create a request context
-const requestContext = createRequestContext({
-  requestId: 'req-123',
-  path: '/api/health',
-  method: 'GET',
+describe('Journey Context Logging', () => {
+  it('should log with Health journey context', () => {
+    // Test with Health journey context
+  });
+  
+  it('should log with Care journey context', () => {
+    // Test with Care journey context
+  });
+  
+  it('should log with Plan journey context', () => {
+    // Test with Plan journey context
+  });
+  
+  it('should maintain journey isolation in cross-journey scenarios', () => {
+    // Test cross-journey context isolation
+  });
 });
-
-// Use in tests
-logger.log('Test message', healthContext);
-```
-
-### Assertions
-
-Custom assertions for verifying logs:
-
-```typescript
-import { assertLogContains, assertLogLevel } from '../utils/assertion.utils';
-
-// Assert log contains specific fields
-assertLogContains(capturedLogs[0], {
-  message: 'Test message',
-  userId: '123',
-  journey: 'health',
-});
-
-// Assert log has correct level
-assertLogLevel(capturedLogs[0], 'info');
-```
-
-## Mocks and Fixtures
-
-### Mock Implementations
-
-The test suite provides mock implementations of dependencies:
-
-```typescript
-import { MockLogger } from '../mocks/logger.service.mock';
-import { MockTransport } from '../mocks/transport.mock';
-import { MockFormatter } from '../mocks/formatter.mock';
-
-// Create mock instances
-const logger = new MockLogger();
-const transport = new MockTransport();
-const formatter = new MockFormatter();
-
-// Use in tests
-logger.log('Test message');
-
-// Assert on mock calls
-expect(logger.logs).toHaveLength(1);
-expect(logger.logs[0].message).toBe('Test message');
-```
-
-### Test Fixtures
-
-The test suite provides fixtures for common test data:
-
-```typescript
-import { logEntries } from '../fixtures/log-entries.fixture';
-import { logContexts } from '../fixtures/log-contexts.fixture';
-import { errorObjects } from '../fixtures/error-objects.fixture';
-
-// Use fixtures in tests
-const result = formatter.format(logEntries.error);
-logger.log('Test message', logContexts.health);
-logger.error('Error occurred', errorObjects.validation);
 ```
 
 ## Troubleshooting
 
-### Common Issues
+### Common Test Issues
 
-#### Tests Failing with Timeout Errors
+1. **Context Leakage**: If tests are failing due to unexpected context values, check for context leakage between tests. Use the `beforeEach` hook to reset context.
 
-**Problem**: Tests fail with timeout errors, especially in E2E tests.
+2. **Async Context Issues**: When testing async code, ensure that the async context is properly maintained. Use the async context utilities provided in the test utils.
 
-**Solution**: Increase the test timeout in Jest configuration or for specific tests:
+3. **Mock Transport Failures**: If tests fail due to transport issues, check that the mock transports are properly configured and reset between tests.
 
-```typescript
-// For a specific test
-it('should complete a long-running operation', async () => {
-  // Test code
-}, 10000); // 10 second timeout
-
-// Or in jest.config.js
-module.exports = {
-  // ...
-  testTimeout: 10000,
-};
-```
-
-#### Inconsistent Test Results
-
-**Problem**: Tests pass sometimes and fail other times.
-
-**Solution**: Check for test isolation issues:
-
-1. Ensure proper cleanup in `afterEach` blocks
-2. Use the `logCapture.stop()` method to stop capturing logs
-3. Reset mocks between tests
-4. Check for shared state between tests
-
-#### Console Output During Tests
-
-**Problem**: Tests produce unwanted console output.
-
-**Solution**: Use silent logging during tests:
-
-```typescript
-// In setup.ts or beforeEach
-const originalConsoleLog = console.log;
-console.log = jest.fn();
-
-// In teardown.ts or afterEach
-console.log = originalConsoleLog;
-```
-
-#### Environment-Specific Test Failures
-
-**Problem**: Tests pass locally but fail in CI or vice versa.
-
-**Solution**: Ensure consistent environment variables:
-
-1. Use `setup.ts` to set environment variables for tests
-2. Mock environment-dependent services consistently
-3. Check for timing issues that might be environment-dependent
+4. **Environment Variables**: Some tests may depend on environment variables. Ensure that the test environment is properly configured in `setup.ts` and reset in `teardown.ts`.
 
 ### Debugging Tests
 
-#### Using Jest Debug Mode
-
-Run tests in debug mode:
-
 ```bash
-node --inspect-brk node_modules/.bin/jest --runInBand
+# Run tests in debug mode
+npm run test:debug
+
+# Run a specific test file in debug mode
+npm run test:debug -- path/to/test.spec.ts
 ```
 
-Then connect with Chrome DevTools or your IDE debugger.
+## Best Practices
 
-#### Adding Debug Logs
+1. **Use Fixtures**: Always use the provided fixtures for test data to ensure consistency.
 
-Add temporary debug logs to troubleshoot test issues:
+2. **Isolate Tests**: Each test should be independent and not rely on the state from other tests.
 
-```typescript
-it('should handle complex context', () => {
-  // Arrange
-  const context = createJourneyContext('health');
-  console.log('Test context:', JSON.stringify(context, null, 2));
-  
-  // Act & Assert
-  // ...
-});
-```
+3. **Mock External Dependencies**: Use the provided mock utilities to replace external dependencies.
 
-#### Isolating Failing Tests
+4. **Test Edge Cases**: Include tests for error conditions, edge cases, and unusual inputs.
 
-Run only the failing test:
+5. **Journey Coverage**: Ensure tests cover all three journeys (Health, Care, Plan) where applicable.
 
-```bash
-npm test -- -t "should handle complex context"
-```
+6. **Realistic Data**: Use realistic data that matches production patterns for more effective testing.
 
-### Getting Help
+7. **Clear Assertions**: Use the custom assertion utilities for clear, specific test assertions.
 
-If you encounter persistent issues with the logging tests:
+## Conclusion
 
-1. Check the logging package documentation
-2. Review recent changes to the logging implementation
-3. Consult with the platform team responsible for the logging infrastructure
-4. Open an issue in the project repository with detailed reproduction steps
+The logging package is a critical component of the AUSTA SuperApp backend infrastructure, providing structured, context-enriched logging across all services. The comprehensive testing approach ensures that the logging system works correctly in all scenarios, with special attention to the journey-centered architecture of the platform.
+
+By following the guidelines in this document, you can maintain and extend the logging package tests to ensure continued reliability and functionality as the AUSTA SuperApp evolves.
