@@ -3,304 +3,214 @@
  * @description Centralized exports for all mock implementations in the events/test/mocks directory.
  * This barrel file provides a clean and organized API for importing mocks into tests,
  * simplifying test setup and improving readability and maintainability.
+ *
+ * @example
+ * // Import all mocks from a single entry point
+ * import { MockEventBroker, MockEventProcessor, createMockHealthJourneyService } from '@austa/events/test/mocks';
+ *
+ * // Use factory functions for common test scenarios
+ * const mockBroker = createMockEventBroker({ simulateErrors: true });
  */
 
-// Import all mock implementations
-import * as MockEventBroker from './mock-event-broker';
-import * as MockEventProcessor from './mock-event-processor';
-import * as MockEventStore from './mock-event-store';
-import * as MockEventValidator from './mock-event-validator';
-import * as MockErrorHandler from './mock-error-handler';
-import * as MockJourneyServices from './mock-journey-services';
+// Journey Service Mocks
+import {
+  MockHealthJourneyService,
+  MockCareJourneyService,
+  MockPlanJourneyService,
+  createMockHealthJourneyService,
+  createMockCareJourneyService,
+  createMockPlanJourneyService,
+  JourneyServiceMockOptions,
+  HealthJourneyEventPayload,
+  CareJourneyEventPayload,
+  PlanJourneyEventPayload,
+} from './mock-journey-services';
 
-// Re-export all mocks by category
+// Event Processing Mocks
+import {
+  MockEventProcessor,
+  createMockEventProcessor,
+  EventProcessorMockOptions,
+  EventProcessingResult,
+  EventProcessingMetrics,
+} from './mock-event-processor';
+
+// Event Broker Mocks
+import {
+  MockEventBroker,
+  createMockEventBroker,
+  EventBrokerMockOptions,
+  TopicSubscription,
+  MessageDeliveryStatus,
+} from './mock-event-broker';
+
+// Event Store Mocks
+import {
+  MockEventStore,
+  createMockEventStore,
+  EventStoreMockOptions,
+  EventQuery,
+  EventAggregation,
+} from './mock-event-store';
+
+// Event Validation Mocks
+import {
+  MockEventValidator,
+  createMockEventValidator,
+  EventValidatorMockOptions,
+  ValidationResult,
+  SchemaVersion,
+} from './mock-event-validator';
+
+// Error Handling Mocks
+import {
+  MockErrorHandler,
+  createMockErrorHandler,
+  ErrorHandlerMockOptions,
+  RetryPolicy,
+  ErrorCategory,
+  DeadLetterQueueEntry,
+} from './mock-error-handler';
 
 /**
- * Event Broker Mocks
- * 
- * Provides mock implementations for the event broker system that simulates
- * the publish/subscribe pattern for testing event-driven communication.
- * 
- * @example
- * ```typescript
- * import { EventBroker } from '@austa/events/test/mocks';
- * 
- * const broker = EventBroker.createMockBroker();
- * broker.publish('topic', { eventType: 'TEST_EVENT', payload: {} });
- * ```
+ * Journey Service Mocks
+ * @description Mock implementations for journey-specific services (Health, Care, Plan)
+ * that produce and consume events. These mocks allow testing of cross-journey event
+ * flows and gamification integration without requiring the actual microservices.
  */
-export const EventBroker = {
-  ...MockEventBroker,
+export {
+  // Classes
+  MockHealthJourneyService,
+  MockCareJourneyService,
+  MockPlanJourneyService,
+  
+  // Factory Functions
+  createMockHealthJourneyService,
+  createMockCareJourneyService,
+  createMockPlanJourneyService,
+  
+  // Types
+  JourneyServiceMockOptions,
+  HealthJourneyEventPayload,
+  CareJourneyEventPayload,
+  PlanJourneyEventPayload,
 };
 
 /**
- * Event Processor Mocks
- * 
- * Provides mock implementations for the event processing pipeline
- * that simulates the full event processing flow from reception to handling.
- * 
- * @example
- * ```typescript
- * import { EventProcessor } from '@austa/events/test/mocks';
- * 
- * const processor = new EventProcessor.MockEventProcessor({
- *   validateEvents: true,
- *   asyncProcessing: true,
- *   processingDelayRange: [10, 50],
- * });
- * ```
+ * Event Processing Mocks
+ * @description Mock implementation of the event processing pipeline for testing.
+ * Simulates the full event processing flow from reception to handling, allowing
+ * tests to verify event transformations, validation, and routing.
  */
-export const EventProcessor = {
-  ...MockEventProcessor,
-  /**
-   * Creates a new MockEventProcessor with the specified options
-   * 
-   * @param options Configuration options for the processor
-   * @returns A configured MockEventProcessor instance
-   */
-  createMockProcessor: (options?: MockEventProcessor.MockEventProcessorOptions) => {
-    return new MockEventProcessor.MockEventProcessor(options);
-  }
+export {
+  // Classes
+  MockEventProcessor,
+  
+  // Factory Functions
+  createMockEventProcessor,
+  
+  // Types
+  EventProcessorMockOptions,
+  EventProcessingResult,
+  EventProcessingMetrics,
+};
+
+/**
+ * Event Broker Mocks
+ * @description In-memory event broker that simulates the publish/subscribe pattern
+ * for testing event-driven communication between services. Supports topics,
+ * subscriptions, and message routing without requiring an actual Kafka instance.
+ */
+export {
+  // Classes
+  MockEventBroker,
+  
+  // Factory Functions
+  createMockEventBroker,
+  
+  // Types
+  EventBrokerMockOptions,
+  TopicSubscription,
+  MessageDeliveryStatus,
 };
 
 /**
  * Event Store Mocks
- * 
- * Provides an in-memory event storage mechanism for testing
- * event persistence and retrieval without requiring a database.
- * 
- * @example
- * ```typescript
- * import { EventStore } from '@austa/events/test/mocks';
- * 
- * const store = EventStore.createInMemoryStore();
- * await store.saveEvent({ eventType: 'TEST_EVENT', payload: {} });
- * const events = await store.findEvents({ eventType: 'TEST_EVENT' });
- * ```
+ * @description In-memory event storage mechanism for testing event persistence
+ * and retrieval. Simulates database operations for storing, querying, and
+ * retrieving events without requiring an actual database connection.
  */
-export const EventStore = {
-  ...MockEventStore,
+export {
+  // Classes
+  MockEventStore,
+  
+  // Factory Functions
+  createMockEventStore,
+  
+  // Types
+  EventStoreMockOptions,
+  EventQuery,
+  EventAggregation,
 };
 
 /**
- * Event Validator Mocks
- * 
- * Provides a validation framework for testing event payload
- * compliance with schemas for each journey and event type.
- * 
- * @example
- * ```typescript
- * import { EventValidator } from '@austa/events/test/mocks';
- * 
- * const validator = EventValidator.createValidator();
- * const result = validator.validate('HEALTH_METRIC_RECORDED', payload);
- * expect(result.isValid).toBe(true);
- * ```
+ * Event Validation Mocks
+ * @description Validation framework for testing event payload compliance with schemas.
+ * Allows tests to verify that events conform to the expected structure for each
+ * journey and event type without requiring the full validation pipeline.
  */
-export const EventValidator = {
-  ...MockEventValidator,
+export {
+  // Classes
+  MockEventValidator,
+  
+  // Factory Functions
+  createMockEventValidator,
+  
+  // Types
+  EventValidatorMockOptions,
+  ValidationResult,
+  SchemaVersion,
 };
 
 /**
- * Error Handler Mocks
- * 
- * Implements a configurable error handling framework for testing
- * error scenarios in event processing, including retry policies.
- * 
- * @example
- * ```typescript
- * import { ErrorHandler } from '@austa/events/test/mocks';
- * 
- * const handler = ErrorHandler.createMockErrorHandler({
- *   retryPolicy: 'exponential',
- *   maxRetries: 3,
- * });
- * ```
+ * Error Handling Mocks
+ * @description Configurable error handling framework for testing error scenarios
+ * in event processing. Allows tests to simulate various error conditions, retry
+ * policies, and recovery mechanisms without triggering actual failures.
  */
-export const ErrorHandler = {
-  ...MockErrorHandler,
+export {
+  // Classes
+  MockErrorHandler,
+  
+  // Factory Functions
+  createMockErrorHandler,
+  
+  // Types
+  ErrorHandlerMockOptions,
+  RetryPolicy,
+  ErrorCategory,
+  DeadLetterQueueEntry,
 };
 
 /**
- * Journey Services Mocks
- * 
- * Provides mock implementations for journey-specific services
- * (Health, Care, Plan) that produce and consume events.
- * 
- * @example
- * ```typescript
- * import { JourneyServices } from '@austa/events/test/mocks';
- * 
- * const healthService = JourneyServices.createHealthService();
- * await healthService.recordMetric(userId, {
- *   type: 'HEART_RATE',
- *   value: 75,
- *   unit: 'bpm',
- * });
- * ```
+ * Convenience function to create a complete mock environment for event testing.
+ * @param options Configuration options for the mock environment
+ * @returns An object containing all necessary mock instances for comprehensive event testing
  */
-export const JourneyServices = {
-  ...MockJourneyServices,
-};
-
-/**
- * Factory Functions
- * 
- * Convenience functions for creating common test scenarios with
- * pre-configured mock implementations.
- */
-
-/**
- * Creates a complete mock event testing environment with all components
- * pre-configured and connected to each other.
- * 
- * @param options Configuration options for the test environment
- * @returns An object containing all mock implementations
- * 
- * @example
- * ```typescript
- * import { createTestEnvironment } from '@austa/events/test/mocks';
- * 
- * const {
- *   broker,
- *   processor,
- *   store,
- *   validator,
- *   errorHandler,
- *   healthService,
- *   careService,
- *   planService,
- * } = createTestEnvironment();
- * 
- * // Use the pre-configured environment for testing
- * await healthService.recordMetric(userId, { type: 'HEART_RATE', value: 75 });
- * expect(broker.getPublishedEvents()).toHaveLength(1);
- * ```
- */
-export function createTestEnvironment(options: TestEnvironmentOptions = {}) {
-  // This will be implemented when the actual mock files are created
-  // For now, we're just defining the interface
+export function createMockEventTestEnvironment(options: {
+  simulateErrors?: boolean;
+  validateEvents?: boolean;
+  trackMetrics?: boolean;
+  persistEvents?: boolean;
+}) {
   return {
-    broker: EventBroker.createMockBroker(options.brokerOptions),
-    processor: EventProcessor.createMockProcessor(options.processorOptions),
-    store: EventStore.createInMemoryStore(options.storeOptions),
-    validator: EventValidator.createValidator(options.validatorOptions),
-    errorHandler: ErrorHandler.createMockErrorHandler(options.errorHandlerOptions),
-    healthService: JourneyServices.createHealthService(options.healthServiceOptions),
-    careService: JourneyServices.createCareService(options.careServiceOptions),
-    planService: JourneyServices.createPlanService(options.planServiceOptions),
+    broker: createMockEventBroker({ simulateErrors: options.simulateErrors }),
+    processor: createMockEventProcessor({ trackMetrics: options.trackMetrics }),
+    validator: createMockEventValidator({ active: options.validateEvents }),
+    errorHandler: createMockErrorHandler(),
+    eventStore: createMockEventStore({ active: options.persistEvents }),
+    healthJourney: createMockHealthJourneyService(),
+    careJourney: createMockCareJourneyService(),
+    planJourney: createMockPlanJourneyService(),
   };
 }
-
-/**
- * Creates a mock event broker with pre-registered topics and subscriptions
- * for testing event publishing and subscription.
- * 
- * @param topics List of topics to pre-register
- * @returns A configured mock event broker
- * 
- * @example
- * ```typescript
- * import { createMockBrokerWithTopics } from '@austa/events/test/mocks';
- * 
- * const broker = createMockBrokerWithTopics([
- *   'health.metrics',
- *   'care.appointments',
- *   'plan.claims',
- * ]);
- * 
- * broker.publish('health.metrics', { eventType: 'HEART_RATE_RECORDED', payload: {} });
- * ```
- */
-export function createMockBrokerWithTopics(topics: string[]) {
-  // This will be implemented when the actual mock files are created
-  // For now, we're just defining the interface
-  return EventBroker.createMockBroker({ topics });
-}
-
-/**
- * Creates a mock event processor with pre-configured handlers for
- * specific event types.
- * 
- * @param handlers Map of event types to handler functions
- * @returns A configured mock event processor
- * 
- * @example
- * ```typescript
- * import { createMockProcessorWithHandlers } from '@austa/events/test/mocks';
- * 
- * const processor = createMockProcessorWithHandlers({
- *   'HEART_RATE_RECORDED': (event) => {
- *     console.log('Processing heart rate event:', event);
- *     return { success: true };
- *   },
- * });
- * ```
- */
-export function createMockProcessorWithHandlers(handlers: Record<string, (event: any) => any>) {
-  // Convert the handlers record to an array of IEventHandler implementations
-  const handlerImplementations = Object.entries(handlers).map(([eventType, handlerFn]) => {
-    return {
-      handle: handlerFn,
-      canHandle: (event: any) => event.type === eventType,
-      getEventType: () => eventType
-    };
-  });
-  
-  return EventProcessor.createMockProcessor({ handlers: handlerImplementations });
-}
-
-// Type definitions
-
-/**
- * Options for configuring the test environment
- */
-export interface TestEnvironmentOptions {
-  /**
-   * Options for configuring the mock event broker
-   */
-  brokerOptions?: any;
-  
-  /**
-   * Options for configuring the mock event processor
-   */
-  processorOptions?: MockEventProcessor.MockEventProcessorOptions;
-  
-  /**
-   * Options for configuring the mock event store
-   */
-  storeOptions?: any;
-  
-  /**
-   * Options for configuring the mock event validator
-   */
-  validatorOptions?: any;
-  
-  /**
-   * Options for configuring the mock error handler
-   */
-  errorHandlerOptions?: any;
-  
-  /**
-   * Options for configuring the mock health service
-   */
-  healthServiceOptions?: any;
-  
-  /**
-   * Options for configuring the mock care service
-   */
-  careServiceOptions?: any;
-  
-  /**
-   * Options for configuring the mock plan service
-   */
-  planServiceOptions?: any;
-}
-
-// Export everything from each mock file for direct access if needed
-export * from './mock-event-broker';
-export * from './mock-event-processor';
-export * from './mock-event-store';
-export * from './mock-event-validator';
-export * from './mock-error-handler';
-export * from './mock-journey-services';
