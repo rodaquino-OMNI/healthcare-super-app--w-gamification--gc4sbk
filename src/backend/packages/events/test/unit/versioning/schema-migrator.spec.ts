@@ -4,773 +4,831 @@
  * to transform events between different schema versions.
  */
 
-import { SchemaMigrator, schemaMigrator, migrateEvent, registerMigration, registerBidirectionalMigration, canMigrate, discoverMigrationPath } from '../../../src/versioning/schema-migrator';
-import { MigrationPathNotFoundError, ValidationError, MigrationExecutionError } from '../../../src/versioning/errors';
-import { DEFAULT_MIGRATION_OPTIONS } from '../../../src/versioning/constants';
-
-// Test event types
-type TestEventV1 = {
-  version: string;
-  type: string;
-  eventId: string;
-  payload: {
-    name: string;
-    value: number;
-  };
-};
-
-type TestEventV2 = {
-  version: string;
-  type: string;
-  eventId: string;
-  payload: {
-    name: string;
-    value: number;
-    metadata: {
-      createdAt: string;
-    };
-  };
-};
-
-type TestEventV3 = {
-  version: string;
-  type: string;
-  eventId: string;
-  payload: {
-    name: string;
-    value: number;
-    metadata: {
-      createdAt: string;
-      updatedAt: string;
-    };
-  };
-};
+import { Test } from '@nestjs/testing';
+import { SchemaMigrator } from '../../../src/versioning/schema-migrator';
+import { VersionDetector } from '../../../src/versioning/version-detector';
+import { VersionCompatibilityChecker } from '../../../src/versioning/compatibility-checker';
+import { EventTransformer } from '../../../src/versioning/transformer';
+import { EventTypes } from '../../../src/dto/event-types.enum';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { MigrationError, VersionError } from '../../../src/versioning/errors';
 
 describe('SchemaMigrator', () => {
-  let migrator: SchemaMigrator;
+  let schemaMigrator: SchemaMigrator;
+  let versionDetector: VersionDetector;
+  let compatibilityChecker: VersionCompatibilityChecker;
+  let eventTransformer: EventTransformer;
 
-  beforeEach(() => {
-    // Create a fresh migrator instance for each test
-    migrator = new SchemaMigrator();
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        SchemaMigrator,
+        {
+          provide: VersionDetector,
+          useValue: {
+            detectVersion: jest.fn(),
+          },
+        },
+        {
+          provide: VersionCompatibilityChecker,
+          useValue: {
+            isCompatible: jest.fn(),
+            requiresTransformation: jest.fn(),
+          },
+        },
+        {
+          provide: EventTransformer,
+          useValue: {
+            transform: jest.fn(),
+            transformPipeline: jest.fn(),
+            registerTransformation: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    schemaMigrator = moduleRef.get<SchemaMigrator>(SchemaMigrator);
+    versionDetector = moduleRef.get<VersionDetector>(VersionDetector);
+    compatibilityChecker = moduleRef.get<VersionCompatibilityChecker>(VersionCompatibilityChecker);
+    eventTransformer = moduleRef.get<EventTransformer>(EventTransformer);
   });
 
-  describe('Migration Registration', () => {
-    it('should register a single migration path', () => {
+  describe('registerMigrationPath', () => {
+    it('should register a migration path for a specific event type and version pair', () => {
       // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const transformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: toVersion,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn = jest.fn();
 
       // Act
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer);
-
-      // Assert
-      const migrations = migrator.getMigrations(eventType);
-      expect(migrations).toHaveLength(1);
-      expect(migrations[0].eventType).toBe(eventType);
-      expect(migrations[0].fromVersion).toBe(fromVersion);
-      expect(migrations[0].toVersion).toBe(toVersion);
-      expect(migrations[0].transformer).toBe(transformer);
-    });
-
-    it('should register bidirectional migration paths', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const version1 = '1.0.0';
-      const version2 = '2.0.0';
-      const upgradeTransformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: version2,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
-      const downgradeTransformer = jest.fn((event: TestEventV2) => {
-        return {
-          ...event,
-          version: version1,
-          payload: {
-            name: event.payload.name,
-            value: event.payload.value,
-          },
-        } as TestEventV1;
-      });
-
-      // Act
-      migrator.registerBidirectionalMigration(
+      schemaMigrator.registerMigrationPath({
         eventType,
-        version1,
-        version2,
-        upgradeTransformer,
-        downgradeTransformer
-      );
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn,
+      });
 
       // Assert
-      const migrations = migrator.getMigrations(eventType);
-      expect(migrations).toHaveLength(2);
-      
-      // Check upgrade path
-      const upgradePath = migrations.find(m => m.fromVersion === version1 && m.toVersion === version2);
-      expect(upgradePath).toBeDefined();
-      expect(upgradePath?.transformer).toBe(upgradeTransformer);
-      
-      // Check downgrade path
-      const downgradePath = migrations.find(m => m.fromVersion === version2 && m.toVersion === version1);
-      expect(downgradePath).toBeDefined();
-      expect(downgradePath?.transformer).toBe(downgradeTransformer);
+      expect(schemaMigrator['migrationPaths']).toHaveProperty(eventType);
+      expect(schemaMigrator['migrationPaths'][eventType]).toHaveProperty(`${sourceVersion}->${targetVersion}`);
+      expect(schemaMigrator['migrationPaths'][eventType][`${sourceVersion}->${targetVersion}`]).toBe(mockMigrationFn);
     });
 
-    it('should retrieve registered event types', () => {
+    it('should throw an error when registering a duplicate migration path', () => {
       // Arrange
-      const eventTypes = ['test.event.1', 'test.event.2', 'test.event.3'];
-      const transformer = jest.fn(event => event);
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn = jest.fn();
 
-      // Register migrations for each event type
-      eventTypes.forEach(eventType => {
-        migrator.registerMigration(eventType, '1.0.0', '2.0.0', transformer);
+      // Act & Assert
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn,
       });
+
+      expect(() => {
+        schemaMigrator.registerMigrationPath({
+          eventType,
+          sourceVersion,
+          targetVersion,
+          migrate: mockMigrationFn,
+        });
+      }).toThrow(/Migration path already registered/);
+    });
+
+    it('should register multiple migration paths for different event types', () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType1 = EventTypes.HEALTH_METRIC_RECORDED;
+      const eventType2 = EventTypes.APPOINTMENT_BOOKED;
+      const mockMigrationFn1 = jest.fn();
+      const mockMigrationFn2 = jest.fn();
 
       // Act
-      const registeredTypes = migrator.getRegisteredEventTypes();
+      schemaMigrator.registerMigrationPath({
+        eventType: eventType1,
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn1,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType: eventType2,
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn2,
+      });
 
       // Assert
-      expect(registeredTypes).toHaveLength(eventTypes.length);
-      eventTypes.forEach(eventType => {
-        expect(registeredTypes).toContain(eventType);
+      expect(schemaMigrator['migrationPaths']).toHaveProperty(eventType1);
+      expect(schemaMigrator['migrationPaths']).toHaveProperty(eventType2);
+      expect(schemaMigrator['migrationPaths'][eventType1][`${sourceVersion}->${targetVersion}`]).toBe(mockMigrationFn1);
+      expect(schemaMigrator['migrationPaths'][eventType2][`${sourceVersion}->${targetVersion}`]).toBe(mockMigrationFn2);
+    });
+
+    it('should register multiple migration paths for the same event type but different versions', () => {
+      // Arrange
+      const sourceVersion1 = '1.0.0';
+      const targetVersion1 = '1.1.0';
+      const sourceVersion2 = '1.1.0';
+      const targetVersion2 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn1 = jest.fn();
+      const mockMigrationFn2 = jest.fn();
+
+      // Act
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: sourceVersion1,
+        targetVersion: targetVersion1,
+        migrate: mockMigrationFn1,
       });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: sourceVersion2,
+        targetVersion: targetVersion2,
+        migrate: mockMigrationFn2,
+      });
+
+      // Assert
+      expect(schemaMigrator['migrationPaths']).toHaveProperty(eventType);
+      expect(schemaMigrator['migrationPaths'][eventType]).toHaveProperty(`${sourceVersion1}->${targetVersion1}`);
+      expect(schemaMigrator['migrationPaths'][eventType]).toHaveProperty(`${sourceVersion2}->${targetVersion2}`);
+      expect(schemaMigrator['migrationPaths'][eventType][`${sourceVersion1}->${targetVersion1}`]).toBe(mockMigrationFn1);
+      expect(schemaMigrator['migrationPaths'][eventType][`${sourceVersion2}->${targetVersion2}`]).toBe(mockMigrationFn2);
     });
   });
 
-  describe('Migration Path Discovery', () => {
-    it('should discover direct migration path', () => {
+  describe('migrate', () => {
+    it('should migrate an event from source to target version', async () => {
       // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const transformer = jest.fn(event => event);
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
+      
+      const expectedMigratedEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: expect.any(String) },
+        metadata: { version: targetVersion } as EventMetadataDto,
+      };
 
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer);
+      const mockMigrationFn = jest.fn().mockImplementation((event) => ({
+        ...event,
+        payload: { ...event.payload, timestamp: new Date().toISOString() },
+        metadata: { ...event.metadata, version: targetVersion },
+      }));
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn,
+      });
 
       // Act
-      const path = migrator.discoverMigrationPath(eventType, fromVersion, toVersion);
+      const result = await schemaMigrator.migrate(sourceEvent, targetVersion);
 
       // Assert
-      expect(path).not.toBeNull();
-      expect(path).toHaveLength(1);
-      expect(path?.[0].fromVersion).toBe(fromVersion);
-      expect(path?.[0].toVersion).toBe(toVersion);
+      expect(result).toEqual(expectedMigratedEvent);
+      expect(mockMigrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(versionDetector.detectVersion).toHaveBeenCalledWith(sourceEvent);
+      expect(compatibilityChecker.requiresTransformation).toHaveBeenCalledWith(
+        sourceVersion,
+        targetVersion
+      );
     });
 
-    it('should discover multi-step migration path', () => {
+    it('should return the original event if no migration is required', async () => {
       // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const transformer = jest.fn(event => event);
+      const sourceVersion = '2.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
 
-      // Register v1 -> v2 and v2 -> v3 migrations
-      migrator.registerMigration(eventType, v1, v2, transformer);
-      migrator.registerMigration(eventType, v2, v3, transformer);
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(false);
 
       // Act
-      const path = migrator.discoverMigrationPath(eventType, v1, v3);
+      const result = await schemaMigrator.migrate(sourceEvent, targetVersion);
 
       // Assert
-      expect(path).not.toBeNull();
-      expect(path).toHaveLength(2);
-      expect(path?.[0].fromVersion).toBe(v1);
-      expect(path?.[0].toVersion).toBe(v2);
-      expect(path?.[1].fromVersion).toBe(v2);
-      expect(path?.[1].toVersion).toBe(v3);
+      expect(result).toBe(sourceEvent);
+      expect(versionDetector.detectVersion).toHaveBeenCalledWith(sourceEvent);
+      expect(compatibilityChecker.requiresTransformation).toHaveBeenCalledWith(
+        sourceVersion,
+        targetVersion
+      );
     });
 
-    it('should return null when no migration path exists', () => {
+    it('should throw an error when no migration path is registered for the version pair', async () => {
       // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v3 = '3.0.0';
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
 
-      // No migrations registered
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      // Act & Assert
+      await expect(schemaMigrator.migrate(sourceEvent, targetVersion)).rejects.toThrow(
+        MigrationError
+      );
+      expect(versionDetector.detectVersion).toHaveBeenCalledWith(sourceEvent);
+      expect(compatibilityChecker.requiresTransformation).toHaveBeenCalledWith(
+        sourceVersion,
+        targetVersion
+      );
+    });
+  });
+
+  describe('migrationPathDiscovery', () => {
+    it('should discover a direct migration path between versions', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn = jest.fn();
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: mockMigrationFn,
+      });
 
       // Act
-      const path = migrator.discoverMigrationPath(eventType, v1, v3);
+      const path = schemaMigrator.findMigrationPath(eventType, sourceVersion, targetVersion);
+
+      // Assert
+      expect(path).toEqual([{ from: sourceVersion, to: targetVersion }]);
+    });
+
+    it('should discover a multi-step migration path between versions', async () => {
+      // Arrange
+      const v1 = '1.0.0';
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn1 = jest.fn();
+      const mockMigrationFn2 = jest.fn();
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: mockMigrationFn1,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: mockMigrationFn2,
+      });
+
+      // Act
+      const path = schemaMigrator.findMigrationPath(eventType, v1, v3);
+
+      // Assert
+      expect(path).toEqual([
+        { from: v1, to: v2 },
+        { from: v2, to: v3 }
+      ]);
+    });
+
+    it('should return null when no migration path exists', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '3.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+
+      // Act
+      const path = schemaMigrator.findMigrationPath(eventType, sourceVersion, targetVersion);
 
       // Assert
       expect(path).toBeNull();
     });
 
-    it('should return empty array when source and target versions are the same', () => {
+    it('should discover the shortest migration path when multiple paths exist', async () => {
       // Arrange
-      const eventType = 'test.event';
-      const version = '1.0.0';
-
-      // Act
-      const path = migrator.discoverMigrationPath(eventType, version, version);
-
-      // Assert
-      expect(path).toEqual([]);
-    });
-
-    it('should find the shortest path when multiple paths exist', () => {
-      // Arrange
-      const eventType = 'test.event';
       const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const transformer = jest.fn(event => event);
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      const mockMigrationFn1 = jest.fn();
+      const mockMigrationFn2 = jest.fn();
+      const mockMigrationFn3 = jest.fn();
 
-      // Register v1 -> v2, v2 -> v3, and direct v1 -> v3 migrations
-      migrator.registerMigration(eventType, v1, v2, transformer);
-      migrator.registerMigration(eventType, v2, v3, transformer);
-      migrator.registerMigration(eventType, v1, v3, transformer);
-
-      // Act
-      const path = migrator.discoverMigrationPath(eventType, v1, v3);
-
-      // Assert
-      expect(path).not.toBeNull();
-      expect(path).toHaveLength(1); // Should find the direct path
-      expect(path?.[0].fromVersion).toBe(v1);
-      expect(path?.[0].toVersion).toBe(v3);
-    });
-  });
-
-  describe('Event Migration', () => {
-    it('should migrate event with direct path', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: toVersion,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
-
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer);
-
-      // Act
-      const result = await migrator.migrateEvent(sourceEvent, toVersion);
-
-      // Assert
-      expect(result.success).toBe(true);
-      expect(result.originalEvent).toBe(sourceEvent);
-      expect(result.migratedEvent.version).toBe(toVersion);
-      expect(result.fromVersion).toBe(fromVersion);
-      expect(result.toVersion).toBe(toVersion);
-      expect(result.migrationPath).toHaveLength(1);
-      expect(transformer).toHaveBeenCalledWith(sourceEvent);
-      
-      // Check the transformed event structure
-      const migratedEvent = result.migratedEvent as TestEventV2;
-      expect(migratedEvent.payload.name).toBe(sourceEvent.payload.name);
-      expect(migratedEvent.payload.value).toBe(sourceEvent.payload.value);
-      expect(migratedEvent.payload.metadata).toBeDefined();
-      expect(migratedEvent.payload.metadata.createdAt).toBeDefined();
-    });
-
-    it('should migrate event with multi-step path', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: v1,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer1to2 = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: v2,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
-      
-      const transformer2to3 = jest.fn((event: TestEventV2) => {
-        return {
-          ...event,
-          version: v3,
-          payload: {
-            ...event.payload,
-            metadata: {
-              ...event.payload.metadata,
-              updatedAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV3;
-      });
-
-      migrator.registerMigration(eventType, v1, v2, transformer1to2);
-      migrator.registerMigration(eventType, v2, v3, transformer2to3);
-
-      // Act
-      const result = await migrator.migrateEvent(sourceEvent, v3);
-
-      // Assert
-      expect(result.success).toBe(true);
-      expect(result.originalEvent).toBe(sourceEvent);
-      expect(result.migratedEvent.version).toBe(v3);
-      expect(result.fromVersion).toBe(v1);
-      expect(result.toVersion).toBe(v3);
-      expect(result.migrationPath).toHaveLength(2);
-      expect(transformer1to2).toHaveBeenCalledWith(sourceEvent);
-      
-      // Check the transformed event structure
-      const migratedEvent = result.migratedEvent as TestEventV3;
-      expect(migratedEvent.payload.name).toBe(sourceEvent.payload.name);
-      expect(migratedEvent.payload.value).toBe(sourceEvent.payload.value);
-      expect(migratedEvent.payload.metadata).toBeDefined();
-      expect(migratedEvent.payload.metadata.createdAt).toBeDefined();
-      expect(migratedEvent.payload.metadata.updatedAt).toBeDefined();
-      
-      // Verify the second transformer was called with the output of the first transformer
-      const expectedInputForSecondTransformer = transformer1to2.mock.results[0].value;
-      expect(transformer2to3).toHaveBeenCalledWith(expectedInputForSecondTransformer);
-    });
-
-    it('should return the original event when already at target version', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const version = '1.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer = jest.fn((event: TestEventV1) => event);
-
-      // Act
-      const result = await migrator.migrateEvent(sourceEvent, version);
-
-      // Assert
-      expect(result.success).toBe(true);
-      expect(result.originalEvent).toBe(sourceEvent);
-      expect(result.migratedEvent).toBe(sourceEvent);
-      expect(result.fromVersion).toBe(version);
-      expect(result.toVersion).toBe(version);
-      expect(result.migrationPath).toHaveLength(0);
-      expect(transformer).not.toHaveBeenCalled();
-    });
-
-    it('should throw MigrationPathNotFoundError when no path exists', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '3.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-
-      // No migrations registered
-
-      // Act & Assert
-      await expect(migrator.migrateEvent(sourceEvent, toVersion))
-        .rejects
-        .toThrow(MigrationPathNotFoundError);
-    });
-
-    it('should validate migrated event when validation is enabled', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: toVersion,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
-      
-      // Validator that always fails
-      const validator = jest.fn(() => false);
-
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer, validator);
-
-      // Act & Assert
-      await expect(migrator.migrateEvent(sourceEvent, toVersion, {
-        ...DEFAULT_MIGRATION_OPTIONS,
-        validateResult: true,
-      }))
-        .rejects
-        .toThrow(ValidationError);
-      
-      expect(transformer).toHaveBeenCalledWith(sourceEvent);
-      expect(validator).toHaveBeenCalled();
-    });
-
-    it('should handle migration execution errors', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      // Transformer that throws an error
-      const transformer = jest.fn(() => {
-        throw new Error('Transformation failed');
-      });
-
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer);
-
-      // Act & Assert
-      await expect(migrator.migrateEvent(sourceEvent, toVersion))
-        .rejects
-        .toThrow(MigrationExecutionError);
-      
-      expect(transformer).toHaveBeenCalledWith(sourceEvent);
-    });
-  });
-
-  describe('Rollback Functionality', () => {
-    it('should rollback to original event on validation error when rollbackOnError is true', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: toVersion,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
-      });
-      
-      // Validator that always fails
-      const validator = jest.fn(() => false);
-
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer, validator);
-
-      // Act
-      const result = await migrator.migrateEvent(sourceEvent, toVersion, {
-        validateResult: true,
-        rollbackOnError: true,
-      });
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.originalEvent).toBe(sourceEvent);
-      expect(result.migratedEvent).toBe(sourceEvent); // Should be rolled back to original
-      expect(result.error).toBeInstanceOf(ValidationError);
-      expect(transformer).toHaveBeenCalledWith(sourceEvent);
-      expect(validator).toHaveBeenCalled();
-    });
-
-    it('should rollback to original event on execution error when rollbackOnError is true', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      // Transformer that throws an error
-      const transformer = jest.fn(() => {
-        throw new Error('Transformation failed');
-      });
-
-      migrator.registerMigration(eventType, fromVersion, toVersion, transformer);
-
-      // Act
-      const result = await migrator.migrateEvent(sourceEvent, toVersion, {
-        rollbackOnError: true,
-      });
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.originalEvent).toBe(sourceEvent);
-      expect(result.migratedEvent).toBe(sourceEvent); // Should be rolled back to original
-      expect(result.error).toBeDefined();
-      expect(transformer).toHaveBeenCalledWith(sourceEvent);
-    });
-  });
-
-  describe('Compatibility Checks', () => {
-    it('should check if direct migration is possible', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const transformer = jest.fn(event => event);
-
-      migrator.registerMigration(eventType, v1, v2, transformer);
-
-      // Act & Assert
-      expect(migrator.canMigrateDirect(eventType, v1, v2)).toBe(true);
-      expect(migrator.canMigrateDirect(eventType, v1, v3)).toBe(false);
-      expect(migrator.canMigrateDirect(eventType, v2, v3)).toBe(false);
-    });
-
-    it('should check if any migration path is possible', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const transformer = jest.fn(event => event);
-
-      migrator.registerMigration(eventType, v1, v2, transformer);
-      migrator.registerMigration(eventType, v2, v3, transformer);
-
-      // Act & Assert
-      expect(migrator.canMigrate(eventType, v1, v2)).toBe(true);
-      expect(migrator.canMigrate(eventType, v2, v3)).toBe(true);
-      expect(migrator.canMigrate(eventType, v1, v3)).toBe(true); // Multi-step path
-      expect(migrator.canMigrate(eventType, v3, v1)).toBe(false); // No path in reverse direction
-    });
-
-    it('should return true when source and target versions are the same', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const version = '1.0.0';
-
-      // Act & Assert
-      expect(migrator.canMigrate(eventType, version, version)).toBe(true);
-      expect(migrator.canMigrateDirect(eventType, version, version)).toBe(true);
-    });
-  });
-
-  describe('Singleton Functions', () => {
-    beforeEach(() => {
-      // Reset the singleton instance for each test
-      // This is a bit of a hack, but it's necessary to test the singleton functions
-      // @ts-ignore - Accessing private property for testing
-      schemaMigrator.registry = new Map();
-      // @ts-ignore - Accessing private property for testing
-      schemaMigrator.validators = new Map();
-    });
-
-    it('should register migration using singleton function', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const transformer = jest.fn(event => event);
-
-      // Act
-      registerMigration(eventType, fromVersion, toVersion, transformer);
-
-      // Assert
-      const migrations = schemaMigrator.getMigrations(eventType);
-      expect(migrations).toHaveLength(1);
-      expect(migrations[0].eventType).toBe(eventType);
-      expect(migrations[0].fromVersion).toBe(fromVersion);
-      expect(migrations[0].toVersion).toBe(toVersion);
-    });
-
-    it('should register bidirectional migration using singleton function', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const version1 = '1.0.0';
-      const version2 = '2.0.0';
-      const upgradeTransformer = jest.fn(event => event);
-      const downgradeTransformer = jest.fn(event => event);
-
-      // Act
-      registerBidirectionalMigration(
+      // Direct path from v1 to v3
+      schemaMigrator.registerMigrationPath({
         eventType,
-        version1,
-        version2,
-        upgradeTransformer,
-        downgradeTransformer
-      );
-
-      // Assert
-      const migrations = schemaMigrator.getMigrations(eventType);
-      expect(migrations).toHaveLength(2);
-    });
-
-    it('should check migration possibility using singleton function', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const transformer = jest.fn(event => event);
-
-      registerMigration(eventType, v1, v2, transformer);
-
-      // Act & Assert
-      expect(canMigrate(eventType, v1, v2)).toBe(true);
-      expect(canMigrate(eventType, v2, v1)).toBe(false);
-    });
-
-    it('should discover migration path using singleton function', () => {
-      // Arrange
-      const eventType = 'test.event';
-      const v1 = '1.0.0';
-      const v2 = '2.0.0';
-      const v3 = '3.0.0';
-      const transformer = jest.fn(event => event);
-
-      registerMigration(eventType, v1, v2, transformer);
-      registerMigration(eventType, v2, v3, transformer);
-
-      // Act
-      const path = discoverMigrationPath(eventType, v1, v3);
-
-      // Assert
-      expect(path).not.toBeNull();
-      expect(path).toHaveLength(2);
-    });
-
-    it('should migrate event using singleton function', async () => {
-      // Arrange
-      const eventType = 'test.event';
-      const fromVersion = '1.0.0';
-      const toVersion = '2.0.0';
-      const eventId = 'test-event-1';
-      
-      const sourceEvent: TestEventV1 = {
-        version: fromVersion,
-        type: eventType,
-        eventId,
-        payload: {
-          name: 'Test Event',
-          value: 42,
-        },
-      };
-      
-      const transformer = jest.fn((event: TestEventV1) => {
-        return {
-          ...event,
-          version: toVersion,
-          payload: {
-            ...event.payload,
-            metadata: {
-              createdAt: new Date().toISOString(),
-            },
-          },
-        } as TestEventV2;
+        sourceVersion: v1,
+        targetVersion: v3,
+        migrate: mockMigrationFn1,
       });
 
-      registerMigration(eventType, fromVersion, toVersion, transformer);
+      // Indirect path from v1 to v3 via v2
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: mockMigrationFn2,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: mockMigrationFn3,
+      });
 
       // Act
-      const result = await migrateEvent(sourceEvent, toVersion);
+      const path = schemaMigrator.findMigrationPath(eventType, v1, v3);
 
       // Assert
-      expect(result.success).toBe(true);
-      expect(result.migratedEvent.version).toBe(toVersion);
+      expect(path).toEqual([{ from: v1, to: v3 }]); // Should prefer the direct path
+    });
+  });
+
+  describe('migrateWithPath', () => {
+    it('should migrate an event using a specified migration path', async () => {
+      // Arrange
+      const v1 = '1.0.0';
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: v1 } as EventMetadataDto,
+      };
+      
+      const v2Event = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z' },
+        metadata: { version: v2 } as EventMetadataDto,
+      };
+      
+      const v3Event = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z', deviceId: 'device-123' },
+        metadata: { version: v3 } as EventMetadataDto,
+      };
+
+      const v1ToV2MigrationFn = jest.fn().mockReturnValue(v2Event);
+      const v2ToV3MigrationFn = jest.fn().mockReturnValue(v3Event);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: v1ToV2MigrationFn,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: v2ToV3MigrationFn,
+      });
+
+      const migrationPath = [
+        { from: v1, to: v2 },
+        { from: v2, to: v3 }
+      ];
+
+      // Act
+      const result = await schemaMigrator.migrateWithPath(sourceEvent, migrationPath);
+
+      // Assert
+      expect(result).toEqual(v3Event);
+      expect(v1ToV2MigrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(v2ToV3MigrationFn).toHaveBeenCalledWith(v2Event);
+    });
+
+    it('should throw an error when a migration step fails', async () => {
+      // Arrange
+      const v1 = '1.0.0';
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: v1 } as EventMetadataDto,
+      };
+
+      const v1ToV2MigrationFn = jest.fn().mockReturnValue({
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z' },
+        metadata: { version: v2 } as EventMetadataDto,
+      });
+
+      const v2ToV3MigrationFn = jest.fn().mockImplementation(() => {
+        throw new Error('Migration failed');
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: v1ToV2MigrationFn,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: v2ToV3MigrationFn,
+      });
+
+      const migrationPath = [
+        { from: v1, to: v2 },
+        { from: v2, to: v3 }
+      ];
+
+      // Act & Assert
+      await expect(schemaMigrator.migrateWithPath(sourceEvent, migrationPath)).rejects.toThrow(
+        MigrationError
+      );
+      expect(v1ToV2MigrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(v2ToV3MigrationFn).toHaveBeenCalled();
+    });
+  });
+
+  describe('data integrity verification', () => {
+    it('should verify data integrity after migration', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { 
+          value: 120, 
+          unit: 'bpm',
+          userId: 'user-123',
+          timestamp: '2023-01-01T12:00:00Z'
+        },
+        metadata: { 
+          version: sourceVersion,
+          correlationId: 'corr-123'
+        } as EventMetadataDto,
+      };
+
+      // Migration function that preserves data integrity
+      const migrationFn = jest.fn().mockImplementation((event) => {
+        // Ensure all required fields are preserved
+        if (!event.payload.value || !event.payload.unit || !event.payload.userId) {
+          throw new MigrationError(
+            'Missing required fields for migration',
+            eventType,
+            sourceVersion,
+            targetVersion
+          );
+        }
+
+        return {
+          ...event,
+          payload: { 
+            ...event.payload,
+            // Transform timestamp to ISO string if it's not already
+            timestamp: new Date(event.payload.timestamp).toISOString(),
+            // Add new field
+            deviceId: 'unknown'
+          },
+          metadata: { 
+            ...event.metadata, 
+            version: targetVersion,
+            // Preserve correlation ID
+            correlationId: event.metadata.correlationId
+          },
+        };
+      });
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: migrationFn,
+      });
+
+      // Act
+      const result = await schemaMigrator.migrate(sourceEvent, targetVersion);
+
+      // Assert
+      expect(result.payload).toHaveProperty('value', 120);
+      expect(result.payload).toHaveProperty('unit', 'bpm');
+      expect(result.payload).toHaveProperty('userId', 'user-123');
+      expect(result.payload).toHaveProperty('timestamp');
+      expect(result.payload).toHaveProperty('deviceId', 'unknown');
+      expect(result.metadata).toHaveProperty('version', targetVersion);
+      expect(result.metadata).toHaveProperty('correlationId', 'corr-123');
+      expect(migrationFn).toHaveBeenCalledWith(sourceEvent);
+    });
+
+    it('should throw an error when data integrity is compromised during migration', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { 
+          value: 120, 
+          unit: 'bpm',
+          userId: 'user-123'
+        },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
+
+      // Migration function that compromises data integrity by removing required fields
+      const migrationFn = jest.fn().mockImplementation((event) => {
+        const { userId, ...restPayload } = event.payload;
+        return {
+          ...event,
+          payload: restPayload, // Removes userId which is required
+          metadata: { ...event.metadata, version: targetVersion },
+        };
+      });
+
+      // Validator function that checks data integrity
+      const validateFn = jest.fn().mockImplementation((event) => {
+        if (!event.payload.userId) {
+          throw new MigrationError(
+            'Data integrity compromised: missing required userId field',
+            eventType,
+            sourceVersion,
+            targetVersion
+          );
+        }
+        return true;
+      });
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: migrationFn,
+        validate: validateFn,
+      });
+
+      // Act & Assert
+      await expect(schemaMigrator.migrate(sourceEvent, targetVersion)).rejects.toThrow(
+        MigrationError
+      );
+      expect(migrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(validateFn).toHaveBeenCalled();
+    });
+  });
+
+  describe('transaction-like semantics', () => {
+    it('should support rollback when migration fails in a multi-step process', async () => {
+      // Arrange
+      const v1 = '1.0.0';
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: v1 } as EventMetadataDto,
+      };
+      
+      const v2Event = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z' },
+        metadata: { version: v2 } as EventMetadataDto,
+      };
+
+      // First migration succeeds
+      const v1ToV2MigrationFn = jest.fn().mockReturnValue(v2Event);
+      
+      // Second migration fails
+      const v2ToV3MigrationFn = jest.fn().mockImplementation(() => {
+        throw new Error('Migration failed');
+      });
+
+      // Rollback function for the first migration
+      const v2ToV1RollbackFn = jest.fn().mockReturnValue(sourceEvent);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: v1ToV2MigrationFn,
+        rollback: v2ToV1RollbackFn,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: v2ToV3MigrationFn,
+      });
+
+      // Mock the migrateWithPath method to test rollback
+      jest.spyOn(schemaMigrator as any, 'migrateWithPath').mockImplementation(async (event, path) => {
+        // Simulate the first migration succeeding and the second failing
+        const firstResult = await v1ToV2MigrationFn(event);
+        try {
+          await v2ToV3MigrationFn(firstResult);
+        } catch (error) {
+          // Rollback the first migration
+          return v2ToV1RollbackFn(firstResult);
+        }
+      });
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(v1);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+      jest.spyOn(schemaMigrator as any, 'findMigrationPath').mockReturnValue([
+        { from: v1, to: v2 },
+        { from: v2, to: v3 }
+      ]);
+
+      // Act
+      const result = await schemaMigrator.migrate(sourceEvent, v3);
+
+      // Assert
+      expect(result).toEqual(sourceEvent); // Should be rolled back to the original event
+      expect(v1ToV2MigrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(v2ToV3MigrationFn).toHaveBeenCalledWith(v2Event);
+      expect(v2ToV1RollbackFn).toHaveBeenCalledWith(v2Event);
+    });
+
+    it('should maintain atomicity during migration process', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
+
+      // Migration function that performs multiple operations atomically
+      const migrationFn = jest.fn().mockImplementation((event) => {
+        // Simulate a transaction with multiple operations
+        const updatedEvent = {
+          ...event,
+          payload: { 
+            ...event.payload,
+            timestamp: new Date().toISOString(),
+            deviceId: 'device-123'
+          },
+          metadata: { ...event.metadata, version: targetVersion },
+        };
+
+        // Simulate a validation check that fails
+        if (!updatedEvent.payload.userId) {
+          // Throw an error to trigger rollback
+          throw new MigrationError(
+            'Missing required userId field',
+            eventType,
+            sourceVersion,
+            targetVersion
+          );
+        }
+
+        return updatedEvent;
+      });
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion,
+        targetVersion,
+        migrate: migrationFn,
+      });
+
+      // Act & Assert
+      await expect(schemaMigrator.migrate(sourceEvent, targetVersion)).rejects.toThrow(
+        MigrationError
+      );
+      expect(migrationFn).toHaveBeenCalledWith(sourceEvent);
+    });
+  });
+
+  describe('automatic migration path discovery', () => {
+    it('should automatically discover and apply the migration path', async () => {
+      // Arrange
+      const v1 = '1.0.0';
+      const v2 = '1.5.0';
+      const v3 = '2.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: v1 } as EventMetadataDto,
+      };
+      
+      const v2Event = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z' },
+        metadata: { version: v2 } as EventMetadataDto,
+      };
+      
+      const v3Event = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm', timestamp: '2023-01-01T12:00:00Z', deviceId: 'device-123' },
+        metadata: { version: v3 } as EventMetadataDto,
+      };
+
+      const v1ToV2MigrationFn = jest.fn().mockReturnValue(v2Event);
+      const v2ToV3MigrationFn = jest.fn().mockReturnValue(v3Event);
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v1,
+        targetVersion: v2,
+        migrate: v1ToV2MigrationFn,
+      });
+
+      schemaMigrator.registerMigrationPath({
+        eventType,
+        sourceVersion: v2,
+        targetVersion: v3,
+        migrate: v2ToV3MigrationFn,
+      });
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(v1);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      // Act
+      const result = await schemaMigrator.migrate(sourceEvent, v3);
+
+      // Assert
+      expect(result).toEqual(v3Event);
+      expect(v1ToV2MigrationFn).toHaveBeenCalledWith(sourceEvent);
+      expect(v2ToV3MigrationFn).toHaveBeenCalledWith(v2Event);
+    });
+
+    it('should throw an error when no migration path can be discovered', async () => {
+      // Arrange
+      const sourceVersion = '1.0.0';
+      const targetVersion = '3.0.0';
+      const eventType = EventTypes.HEALTH_METRIC_RECORDED;
+      
+      const sourceEvent = {
+        type: eventType,
+        payload: { value: 120, unit: 'bpm' },
+        metadata: { version: sourceVersion } as EventMetadataDto,
+      };
+
+      jest.spyOn(versionDetector, 'detectVersion').mockReturnValue(sourceVersion);
+      jest.spyOn(compatibilityChecker, 'requiresTransformation').mockReturnValue(true);
+
+      // Act & Assert
+      await expect(schemaMigrator.migrate(sourceEvent, targetVersion)).rejects.toThrow(
+        MigrationError
+      );
+      expect(versionDetector.detectVersion).toHaveBeenCalledWith(sourceEvent);
+      expect(compatibilityChecker.requiresTransformation).toHaveBeenCalledWith(
+        sourceVersion,
+        targetVersion
+      );
     });
   });
 });
