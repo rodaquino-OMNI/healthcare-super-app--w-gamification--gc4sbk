@@ -1,22 +1,15 @@
 /**
- * @file event-comparison.ts
- * @description Provides utilities for comparing events in test assertions with customizable matching logic and detailed error reporting.
- * This helper simplifies testing by offering granular control over event comparison, from precise equality to partial matching
- * or specific field validation, supporting both unit and integration testing of event processing.
+ * Event comparison utilities for testing event processing
+ * 
+ * This module provides utilities for comparing events in test assertions with
+ * customizable matching logic and detailed error reporting. It supports deep equality
+ * comparison, partial matching, journey-specific comparisons, and timestamp tolerance.
  */
 
 import { diff } from 'jest-diff';
-import { IBaseEvent } from '../../src/interfaces/base-event.interface';
-import {
-  JourneyEvent,
-  HealthJourneyEvent,
-  CareJourneyEvent,
-  PlanJourneyEvent,
-  isHealthJourneyEvent,
-  isCareJourneyEvent,
-  isPlanJourneyEvent,
-  JourneyType,
-} from '../../src/interfaces/journey-events.interface';
+import { BaseEventDto } from '../../src/dto/base-event.dto';
+import { EventTypesEnum } from '../../src/constants/event-types.enum';
+import { JourneyType } from '../../src/constants/journey-type.enum';
 
 /**
  * Options for event comparison
@@ -24,46 +17,45 @@ import {
 export interface EventComparisonOptions {
   /**
    * Fields to ignore during comparison
-   * @example ['eventId', 'timestamp', 'metadata']
    */
   ignoreFields?: string[];
-
+  
   /**
    * Whether to perform a partial match (only compare fields present in expected)
-   * @default false
    */
   partialMatch?: boolean;
-
+  
   /**
    * Tolerance in milliseconds for timestamp comparison
-   * @default 0 (exact match)
    */
   timestampTolerance?: number;
-
+  
   /**
    * Custom field comparators for specific fields
-   * @example { 'payload.value': (expected, actual) => Math.abs(expected - actual) < 0.001 }
    */
-  fieldComparators?: Record<string, (expected: any, actual: any) => boolean>;
-
+  fieldComparators?: Record<string, FieldComparator>;
+  
   /**
    * Whether to include a detailed diff in the error message
-   * @default true
    */
   includeDiff?: boolean;
-
-  /**
-   * Whether to perform a deep comparison of objects
-   * @default true
-   */
-  deep?: boolean;
-
-  /**
-   * Whether to ignore extra fields in the actual object
-   * @default false
-   */
-  ignoreExtraFields?: boolean;
 }
+
+/**
+ * Default comparison options
+ */
+export const DEFAULT_COMPARISON_OPTIONS: EventComparisonOptions = {
+  ignoreFields: [],
+  partialMatch: false,
+  timestampTolerance: 0,
+  fieldComparators: {},
+  includeDiff: true,
+};
+
+/**
+ * Field comparator function type
+ */
+export type FieldComparator = (expected: any, actual: any) => boolean;
 
 /**
  * Result of an event comparison
@@ -72,614 +64,370 @@ export interface EventComparisonResult {
   /**
    * Whether the comparison was successful
    */
-  success: boolean;
-
+  isEqual: boolean;
+  
   /**
-   * Error message if the comparison failed
+   * Error message if comparison failed
    */
-  message?: string;
-
+  errorMessage?: string;
+  
   /**
-   * Detailed diff between expected and actual
+   * Detailed diff if comparison failed and includeDiff is true
    */
   diff?: string;
-
+  
   /**
-   * List of mismatched fields
+   * Fields that failed comparison
    */
-  mismatchedFields?: string[];
-
-  /**
-   * Expected event
-   */
-  expected: IBaseEvent;
-
-  /**
-   * Actual event
-   */
-  actual: IBaseEvent;
+  failedFields?: string[];
 }
 
 /**
- * Default comparison options
+ * Compare two events for equality with customizable options
+ * 
+ * @param expected - The expected event
+ * @param actual - The actual event
+ * @param options - Comparison options
+ * @returns Comparison result
  */
-const DEFAULT_COMPARISON_OPTIONS: EventComparisonOptions = {
-  ignoreFields: [],
-  partialMatch: false,
-  timestampTolerance: 0,
-  fieldComparators: {},
-  includeDiff: true,
-  deep: true,
-  ignoreExtraFields: false,
+export function compareEvents(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
+  options: EventComparisonOptions = {}
+): EventComparisonResult {
+  const opts = { ...DEFAULT_COMPARISON_OPTIONS, ...options };
+  const failedFields: string[] = [];
+  
+  // Helper function to check if a field should be ignored
+  const shouldIgnoreField = (field: string): boolean => {
+    return opts.ignoreFields?.includes(field) || false;
+  };
+  
+  // Helper function to get nested property value
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((prev, curr) => {
+      return prev && prev[curr] !== undefined ? prev[curr] : undefined;
+    }, obj);
+  };
+  
+  // Helper function to compare fields
+  const compareField = (field: string, expectedValue: any, actualValue: any): boolean => {
+    // If there's a custom comparator for this field, use it
+    if (opts.fieldComparators && opts.fieldComparators[field]) {
+      return opts.fieldComparators[field](expectedValue, actualValue);
+    }
+    
+    // Special handling for timestamps
+    if (field.toLowerCase().includes('timestamp') && opts.timestampTolerance && opts.timestampTolerance > 0) {
+      const expectedDate = new Date(expectedValue).getTime();
+      const actualDate = new Date(actualValue).getTime();
+      return Math.abs(expectedDate - actualDate) <= opts.timestampTolerance;
+    }
+    
+    // Deep comparison for objects
+    if (expectedValue !== null && actualValue !== null && 
+        typeof expectedValue === 'object' && typeof actualValue === 'object') {
+      // Handle arrays
+      if (Array.isArray(expectedValue) && Array.isArray(actualValue)) {
+        if (expectedValue.length !== actualValue.length) {
+          return false;
+        }
+        
+        return expectedValue.every((val, idx) => {
+          return compareField(`${field}[${idx}]`, val, actualValue[idx]);
+        });
+      }
+      
+      // Handle objects
+      const expectedKeys = Object.keys(expectedValue);
+      const actualKeys = Object.keys(actualValue);
+      
+      if (!opts.partialMatch && expectedKeys.length !== actualKeys.length) {
+        return false;
+      }
+      
+      return expectedKeys.every(key => {
+        if (shouldIgnoreField(`${field}.${key}`)) {
+          return true;
+        }
+        
+        return compareField(`${field}.${key}`, expectedValue[key], actualValue[key]);
+      });
+    }
+    
+    // Simple value comparison
+    return expectedValue === actualValue;
+  };
+  
+  // Start comparison
+  let isEqual = true;
+  const expectedFields = Object.keys(expected);
+  
+  // For each field in the expected object
+  for (const field of expectedFields) {
+    if (shouldIgnoreField(field)) {
+      continue;
+    }
+    
+    const expectedValue = expected[field];
+    const actualValue = actual[field];
+    
+    // If the field doesn't exist in the actual object and we're not doing a partial match
+    if (actualValue === undefined && !opts.partialMatch) {
+      isEqual = false;
+      failedFields.push(field);
+      continue;
+    }
+    
+    // Compare the field values
+    const fieldIsEqual = compareField(field, expectedValue, actualValue);
+    if (!fieldIsEqual) {
+      isEqual = false;
+      failedFields.push(field);
+    }
+  }
+  
+  // Prepare result
+  const result: EventComparisonResult = { isEqual };
+  
+  if (!isEqual) {
+    result.failedFields = failedFields;
+    
+    // Create error message
+    let errorMessage = `Event comparison failed. Failed fields: ${failedFields.join(', ')}`;
+    result.errorMessage = errorMessage;
+    
+    // Add diff if requested
+    if (opts.includeDiff) {
+      result.diff = diff(expected, actual);
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Compare two events for partial equality (only fields in expected are compared)
+ * 
+ * @param expected - The expected event (partial)
+ * @param actual - The actual event
+ * @param options - Additional comparison options
+ * @returns Comparison result
+ */
+export function compareEventsPartial(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
+  options: Omit<EventComparisonOptions, 'partialMatch'> = {}
+): EventComparisonResult {
+  return compareEvents(expected, actual, { ...options, partialMatch: true });
+}
+
+/**
+ * Compare timestamps with tolerance
+ * 
+ * @param expected - Expected timestamp (Date, string, or number)
+ * @param actual - Actual timestamp (Date, string, or number)
+ * @param toleranceMs - Tolerance in milliseconds
+ * @returns Whether timestamps are equal within tolerance
+ */
+export function compareTimestamps(
+  expected: Date | string | number,
+  actual: Date | string | number,
+  toleranceMs: number = 1000
+): boolean {
+  const expectedMs = expected instanceof Date ? expected.getTime() : new Date(expected).getTime();
+  const actualMs = actual instanceof Date ? actual.getTime() : new Date(actual).getTime();
+  
+  return Math.abs(expectedMs - actualMs) <= toleranceMs;
+}
+
+/**
+ * Create a field comparator for timestamps with tolerance
+ * 
+ * @param toleranceMs - Tolerance in milliseconds
+ * @returns Field comparator function
+ */
+export function createTimestampComparator(toleranceMs: number = 1000): FieldComparator {
+  return (expected: any, actual: any) => compareTimestamps(expected, actual, toleranceMs);
+}
+
+/**
+ * Journey-specific comparison options for health events
+ */
+export const healthEventComparisonOptions: EventComparisonOptions = {
+  ignoreFields: ['metadata.correlationId', 'metadata.timestamp'],
+  timestampTolerance: 1000,
+  fieldComparators: {
+    'timestamp': createTimestampComparator(1000),
+    'payload.recordedAt': createTimestampComparator(1000),
+    'payload.metricValue': (expected, actual) => {
+      // For numeric health metrics, allow small differences
+      if (typeof expected === 'number' && typeof actual === 'number') {
+        return Math.abs(expected - actual) < 0.001;
+      }
+      return expected === actual;
+    }
+  }
 };
 
 /**
- * Compares two events for equality with customizable options
- * @param expected Expected event
- * @param actual Actual event
- * @param options Comparison options
+ * Journey-specific comparison options for care events
+ */
+export const careEventComparisonOptions: EventComparisonOptions = {
+  ignoreFields: ['metadata.correlationId', 'metadata.timestamp'],
+  timestampTolerance: 1000,
+  fieldComparators: {
+    'timestamp': createTimestampComparator(1000),
+    'payload.scheduledAt': createTimestampComparator(1000),
+    'payload.completedAt': createTimestampComparator(1000),
+  }
+};
+
+/**
+ * Journey-specific comparison options for plan events
+ */
+export const planEventComparisonOptions: EventComparisonOptions = {
+  ignoreFields: ['metadata.correlationId', 'metadata.timestamp'],
+  timestampTolerance: 1000,
+  fieldComparators: {
+    'timestamp': createTimestampComparator(1000),
+    'payload.submittedAt': createTimestampComparator(1000),
+    'payload.processedAt': createTimestampComparator(1000),
+    'payload.amount': (expected, actual) => {
+      // For currency amounts, allow small differences due to rounding
+      if (typeof expected === 'number' && typeof actual === 'number') {
+        return Math.abs(expected - actual) < 0.01;
+      }
+      return expected === actual;
+    }
+  }
+};
+
+/**
+ * Compare health journey events with health-specific comparison options
+ * 
+ * @param expected - Expected health event
+ * @param actual - Actual health event
+ * @param options - Additional comparison options
  * @returns Comparison result
  */
-export function compareEvents<T extends IBaseEvent = IBaseEvent>(
-  expected: T,
-  actual: T,
+export function compareHealthEvents(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
   options: EventComparisonOptions = {}
 ): EventComparisonResult {
-  // Merge options with defaults
-  const opts = { ...DEFAULT_COMPARISON_OPTIONS, ...options };
-
-  // Create copies of the events to avoid modifying the originals
-  const expectedCopy = JSON.parse(JSON.stringify(expected));
-  const actualCopy = JSON.parse(JSON.stringify(actual));
-
-  // Remove ignored fields
-  if (opts.ignoreFields && opts.ignoreFields.length > 0) {
-    removeFields(expectedCopy, opts.ignoreFields);
-    removeFields(actualCopy, opts.ignoreFields);
-  }
-
-  // Handle timestamp comparison with tolerance
-  if (opts.timestampTolerance && opts.timestampTolerance > 0) {
-    if (!compareTimestamps(expectedCopy.timestamp, actualCopy.timestamp, opts.timestampTolerance)) {
-      return createFailureResult(
-        expectedCopy,
-        actualCopy,
-        [`Timestamp difference exceeds tolerance of ${opts.timestampTolerance}ms`],
-        opts.includeDiff
-      );
-    }
-
-    // Remove timestamp from comparison since we've already checked it
-    delete expectedCopy.timestamp;
-    delete actualCopy.timestamp;
-  }
-
-  // Apply custom field comparators
-  const mismatchedFields: string[] = [];
-  if (opts.fieldComparators && Object.keys(opts.fieldComparators).length > 0) {
-    for (const [fieldPath, comparator] of Object.entries(opts.fieldComparators)) {
-      const expectedValue = getNestedValue(expectedCopy, fieldPath);
-      const actualValue = getNestedValue(actualCopy, fieldPath);
-
-      // Skip if the field doesn't exist in the expected object
-      if (expectedValue === undefined) continue;
-
-      // Apply the custom comparator
-      if (!comparator(expectedValue, actualValue)) {
-        mismatchedFields.push(fieldPath);
-      }
-
-      // Remove the field from both objects since we've already compared it
-      removeNestedField(expectedCopy, fieldPath);
-      removeNestedField(actualCopy, fieldPath);
-    }
-  }
-
-  // Perform the comparison
-  let isEqual: boolean;
-  if (opts.partialMatch) {
-    isEqual = comparePartial(expectedCopy, actualCopy, opts.deep);
-  } else if (opts.ignoreExtraFields) {
-    isEqual = compareIgnoringExtra(expectedCopy, actualCopy, opts.deep);
-  } else {
-    isEqual = compareDeep(expectedCopy, actualCopy);
-  }
-
-  // Return the result
-  if (isEqual && mismatchedFields.length === 0) {
+  // Verify this is a health event
+  if (actual.journey !== JourneyType.HEALTH) {
     return {
-      success: true,
-      expected,
-      actual,
+      isEqual: false,
+      errorMessage: `Expected a health event but got ${actual.journey}`,
+      failedFields: ['journey']
     };
-  } else {
-    return createFailureResult(
-      expected,
-      actual,
-      mismatchedFields,
-      opts.includeDiff
-    );
   }
-}
-
-/**
- * Compares two journey events with journey-specific options
- * @param expected Expected journey event
- * @param actual Actual journey event
- * @param options Comparison options
- * @returns Comparison result
- */
-export function compareJourneyEvents(
-  expected: JourneyEvent,
-  actual: JourneyEvent,
-  options: EventComparisonOptions = {}
-): EventComparisonResult {
-  // Verify that both events are of the same journey type
-  if (expected.journeyType !== actual.journeyType) {
-    return createFailureResult(
-      expected,
-      actual,
-      [`Journey type mismatch: expected ${expected.journeyType}, got ${actual.journeyType}`],
-      options.includeDiff ?? true
-    );
-  }
-
-  // Apply journey-specific comparison based on the journey type
-  if (isHealthJourneyEvent(expected) && isHealthJourneyEvent(actual)) {
-    return compareHealthJourneyEvents(expected, actual, options);
-  } else if (isCareJourneyEvent(expected) && isCareJourneyEvent(actual)) {
-    return compareCareJourneyEvents(expected, actual, options);
-  } else if (isPlanJourneyEvent(expected) && isPlanJourneyEvent(actual)) {
-    return comparePlanJourneyEvents(expected, actual, options);
-  } else {
-    // Fall back to generic event comparison
-    return compareEvents(expected, actual, options);
-  }
-}
-
-/**
- * Compares two health journey events
- * @param expected Expected health journey event
- * @param actual Actual health journey event
- * @param options Comparison options
- * @returns Comparison result
- */
-export function compareHealthJourneyEvents(
-  expected: HealthJourneyEvent,
-  actual: HealthJourneyEvent,
-  options: EventComparisonOptions = {}
-): EventComparisonResult {
-  // Default health journey comparison options
-  const healthOptions: EventComparisonOptions = {
-    // Ignore fields that might be different in tests
-    ignoreFields: [...(options.ignoreFields || []), 'metadata.traceId'],
-    // Add health-specific field comparators
-    fieldComparators: {
-      ...(options.fieldComparators || {}),
-      // Example: Allow small differences in health metric values
-      'payload.value': (expected, actual) => {
-        if (typeof expected === 'number' && typeof actual === 'number') {
-          return Math.abs(expected - actual) < 0.001;
-        }
-        return expected === actual;
-      },
-    },
-    ...options,
-  };
-
-  return compareEvents(expected, actual, healthOptions);
-}
-
-/**
- * Compares two care journey events
- * @param expected Expected care journey event
- * @param actual Actual care journey event
- * @param options Comparison options
- * @returns Comparison result
- */
-export function compareCareJourneyEvents(
-  expected: CareJourneyEvent,
-  actual: CareJourneyEvent,
-  options: EventComparisonOptions = {}
-): EventComparisonResult {
-  // Default care journey comparison options
-  const careOptions: EventComparisonOptions = {
-    // Ignore fields that might be different in tests
-    ignoreFields: [...(options.ignoreFields || []), 'metadata.traceId'],
-    // Add care-specific field comparators
-    fieldComparators: {
-      ...(options.fieldComparators || {}),
-      // Example: Compare appointment dates with tolerance
-      'payload.appointmentDate': (expected, actual) => {
-        return compareTimestamps(expected, actual, 60000); // 1 minute tolerance
-      },
-    },
-    ...options,
-  };
-
-  return compareEvents(expected, actual, careOptions);
-}
-
-/**
- * Compares two plan journey events
- * @param expected Expected plan journey event
- * @param actual Actual plan journey event
- * @param options Comparison options
- * @returns Comparison result
- */
-export function comparePlanJourneyEvents(
-  expected: PlanJourneyEvent,
-  actual: PlanJourneyEvent,
-  options: EventComparisonOptions = {}
-): EventComparisonResult {
-  // Default plan journey comparison options
-  const planOptions: EventComparisonOptions = {
-    // Ignore fields that might be different in tests
-    ignoreFields: [...(options.ignoreFields || []), 'metadata.traceId'],
-    // Add plan-specific field comparators
-    fieldComparators: {
-      ...(options.fieldComparators || {}),
-      // Example: Compare monetary values with small tolerance
-      'payload.amount': (expected, actual) => {
-        if (typeof expected === 'number' && typeof actual === 'number') {
-          return Math.abs(expected - actual) < 0.01; // 1 cent tolerance
-        }
-        return expected === actual;
-      },
-    },
-    ...options,
-  };
-
-  return compareEvents(expected, actual, planOptions);
-}
-
-/**
- * Creates a matcher for Jest that compares events
- * @param expected Expected event
- * @param options Comparison options
- * @returns Jest matcher result
- */
-export function toMatchEvent<T extends IBaseEvent = IBaseEvent>(
-  actual: T,
-  expected: T,
-  options: EventComparisonOptions = {}
-): { message: () => string; pass: boolean } {
-  const result = compareEvents(expected, actual, options);
-
-  return {
-    pass: result.success,
-    message: () => result.message || 'Events match',
-  };
-}
-
-/**
- * Creates a matcher for Jest that compares journey events
- * @param expected Expected journey event
- * @param options Comparison options
- * @returns Jest matcher result
- */
-export function toMatchJourneyEvent(
-  actual: JourneyEvent,
-  expected: JourneyEvent,
-  options: EventComparisonOptions = {}
-): { message: () => string; pass: boolean } {
-  const result = compareJourneyEvents(expected, actual, options);
-
-  return {
-    pass: result.success,
-    message: () => result.message || 'Journey events match',
-  };
-}
-
-/**
- * Creates a partial event matcher for Jest
- * @param expected Partial expected event
- * @returns Jest matcher result
- */
-export function toMatchEventPartially<T extends Partial<IBaseEvent> = Partial<IBaseEvent>>(
-  actual: IBaseEvent,
-  expected: T,
-  options: EventComparisonOptions = {}
-): { message: () => string; pass: boolean } {
-  const partialOptions: EventComparisonOptions = {
-    ...options,
-    partialMatch: true,
-  };
-
-  const result = compareEvents(expected as IBaseEvent, actual, partialOptions);
-
-  return {
-    pass: result.success,
-    message: () => result.message || 'Events match partially',
-  };
-}
-
-/**
- * Creates a matcher for Jest that compares event timestamps with tolerance
- * @param expected Expected event
- * @param toleranceMs Tolerance in milliseconds
- * @returns Jest matcher result
- */
-export function toMatchEventTimestamp(
-  actual: IBaseEvent,
-  expected: IBaseEvent,
-  toleranceMs: number = 1000
-): { message: () => string; pass: boolean } {
-  const timestampOptions: EventComparisonOptions = {
-    ignoreFields: ['eventId', 'payload', 'metadata', 'source', 'type', 'version'],
-    timestampTolerance: toleranceMs,
-  };
-
-  const result = compareEvents(expected, actual, timestampOptions);
-
-  return {
-    pass: result.success,
-    message: () => result.message || 'Event timestamps match within tolerance',
-  };
-}
-
-/**
- * Creates a matcher for Jest that compares event payloads
- * @param expected Expected event payload
- * @param options Comparison options
- * @returns Jest matcher result
- */
-export function toMatchEventPayload<T = unknown>(
-  actual: IBaseEvent<T>,
-  expected: T,
-  options: EventComparisonOptions = {}
-): { message: () => string; pass: boolean } {
-  const payloadOptions: EventComparisonOptions = {
-    ...options,
-    ignoreFields: [...(options.ignoreFields || []), 'eventId', 'timestamp', 'metadata', 'source', 'type', 'version'],
-  };
-
-  // Create a simplified event with just the payload for comparison
-  const expectedEvent = { payload: expected } as IBaseEvent<T>;
-  const actualEvent = { payload: actual.payload } as IBaseEvent<T>;
-
-  const result = compareEvents(expectedEvent, actualEvent, payloadOptions);
-
-  return {
-    pass: result.success,
-    message: () => result.message || 'Event payloads match',
-  };
-}
-
-// ===== HELPER FUNCTIONS =====
-
-/**
- * Removes fields from an object
- * @param obj Object to modify
- * @param fields Fields to remove
- */
-function removeFields(obj: any, fields: string[]): void {
-  if (!obj || typeof obj !== 'object') return;
-
-  for (const field of fields) {
-    if (field.includes('.')) {
-      // Handle nested fields
-      const [first, ...rest] = field.split('.');
-      if (obj[first] && typeof obj[first] === 'object') {
-        removeFields(obj[first], [rest.join('.')]);
-      }
-    } else {
-      // Handle top-level fields
-      delete obj[field];
-    }
-  }
-}
-
-/**
- * Removes a nested field from an object
- * @param obj Object to modify
- * @param fieldPath Path to the field (dot notation)
- */
-function removeNestedField(obj: any, fieldPath: string): void {
-  if (!obj || typeof obj !== 'object') return;
-
-  const parts = fieldPath.split('.');
-  const lastPart = parts.pop();
-
-  if (!lastPart) return;
-
-  let current = obj;
-  for (const part of parts) {
-    if (current[part] === undefined || current[part] === null) return;
-    current = current[part];
-  }
-
-  delete current[lastPart];
-}
-
-/**
- * Gets a nested value from an object
- * @param obj Object to get value from
- * @param fieldPath Path to the field (dot notation)
- * @returns The value at the specified path, or undefined if not found
- */
-function getNestedValue(obj: any, fieldPath: string): any {
-  if (!obj || typeof obj !== 'object') return undefined;
-
-  const parts = fieldPath.split('.');
-  let current = obj;
-
-  for (const part of parts) {
-    if (current[part] === undefined) return undefined;
-    current = current[part];
-  }
-
-  return current;
-}
-
-/**
- * Compares two timestamps with tolerance
- * @param expected Expected timestamp (ISO string)
- * @param actual Actual timestamp (ISO string)
- * @param toleranceMs Tolerance in milliseconds
- * @returns Whether the timestamps are within tolerance
- */
-function compareTimestamps(expected: string, actual: string, toleranceMs: number): boolean {
-  if (!expected || !actual) return expected === actual;
-
-  try {
-    const expectedDate = new Date(expected).getTime();
-    const actualDate = new Date(actual).getTime();
-    const difference = Math.abs(expectedDate - actualDate);
-
-    return difference <= toleranceMs;
-  } catch (error) {
-    // If parsing fails, fall back to string comparison
-    return expected === actual;
-  }
-}
-
-/**
- * Performs a deep comparison of two objects
- * @param expected Expected object
- * @param actual Actual object
- * @returns Whether the objects are deeply equal
- */
-function compareDeep(expected: any, actual: any): boolean {
-  // Handle primitive types
-  if (expected === actual) return true;
-  if (expected === null || actual === null) return expected === actual;
-  if (typeof expected !== 'object' || typeof actual !== 'object') return expected === actual;
-
-  // Handle arrays
-  if (Array.isArray(expected) && Array.isArray(actual)) {
-    if (expected.length !== actual.length) return false;
-    return expected.every((item, index) => compareDeep(item, actual[index]));
-  }
-
-  // Handle objects
-  const expectedKeys = Object.keys(expected);
-  const actualKeys = Object.keys(actual);
-
-  if (expectedKeys.length !== actualKeys.length) return false;
-
-  return expectedKeys.every(key => {
-    return actualKeys.includes(key) && compareDeep(expected[key], actual[key]);
-  });
-}
-
-/**
- * Performs a partial comparison of two objects
- * @param expected Expected object (subset)
- * @param actual Actual object
- * @param deep Whether to perform deep comparison
- * @returns Whether the actual object contains all expected properties with matching values
- */
-function comparePartial(expected: any, actual: any, deep: boolean = true): boolean {
-  // Handle primitive types
-  if (expected === actual) return true;
-  if (expected === null || actual === null) return expected === actual;
-  if (typeof expected !== 'object' || typeof actual !== 'object') return expected === actual;
-
-  // Handle arrays
-  if (Array.isArray(expected) && Array.isArray(actual)) {
-    if (expected.length > actual.length) return false;
-    return expected.every((item, index) => {
-      return deep ? compareDeep(item, actual[index]) : item === actual[index];
-    });
-  }
-
-  // Handle objects
-  return Object.keys(expected).every(key => {
-    if (!(key in actual)) return false;
-    return deep ? compareDeep(expected[key], actual[key]) : expected[key] === actual[key];
-  });
-}
-
-/**
- * Performs a comparison ignoring extra fields in the actual object
- * @param expected Expected object
- * @param actual Actual object
- * @param deep Whether to perform deep comparison
- * @returns Whether the actual object contains all expected properties with matching values
- */
-function compareIgnoringExtra(expected: any, actual: any, deep: boolean = true): boolean {
-  // Handle primitive types
-  if (expected === actual) return true;
-  if (expected === null || actual === null) return expected === actual;
-  if (typeof expected !== 'object' || typeof actual !== 'object') return expected === actual;
-
-  // Handle arrays
-  if (Array.isArray(expected) && Array.isArray(actual)) {
-    if (expected.length !== actual.length) return false;
-    return expected.every((item, index) => {
-      return deep ? compareDeep(item, actual[index]) : item === actual[index];
-    });
-  }
-
-  // Handle objects - only check keys from expected
-  return Object.keys(expected).every(key => {
-    if (!(key in actual)) return false;
-    return deep ? compareDeep(expected[key], actual[key]) : expected[key] === actual[key];
-  });
-}
-
-/**
- * Creates a failure result for event comparison
- * @param expected Expected event
- * @param actual Actual event
- * @param mismatchedFields List of mismatched fields
- * @param includeDiff Whether to include a detailed diff
- * @returns Failure result
- */
-function createFailureResult(
-  expected: any,
-  actual: any,
-  mismatchedFields: string[] = [],
-  includeDiff: boolean = true
-): EventComparisonResult {
-  let message = 'Event comparison failed';
-
-  if (mismatchedFields.length > 0) {
-    message += `\nMismatched fields: ${mismatchedFields.join(', ')}`;
-  }
-
-  let diffOutput: string | undefined;
-  if (includeDiff) {
-    diffOutput = diff(expected, actual, {
-      expand: false,
-      contextLines: 3,
-    });
-    message += `\n\nDiff: ${diffOutput}`;
-  }
-
-  return {
-    success: false,
-    message,
-    diff: diffOutput,
-    mismatchedFields,
+  
+  return compareEvents(
     expected,
     actual,
-  };
+    { ...healthEventComparisonOptions, ...options }
+  );
 }
 
 /**
- * Extends Jest's expect with custom event matchers
+ * Compare care journey events with care-specific comparison options
+ * 
+ * @param expected - Expected care event
+ * @param actual - Actual care event
+ * @param options - Additional comparison options
+ * @returns Comparison result
  */
-export function extendJestWithEventMatchers(): void {
-  expect.extend({
-    toMatchEvent,
-    toMatchJourneyEvent,
-    toMatchEventPartially,
-    toMatchEventTimestamp,
-    toMatchEventPayload,
-  });
+export function compareCareEvents(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
+  options: EventComparisonOptions = {}
+): EventComparisonResult {
+  // Verify this is a care event
+  if (actual.journey !== JourneyType.CARE) {
+    return {
+      isEqual: false,
+      errorMessage: `Expected a care event but got ${actual.journey}`,
+      failedFields: ['journey']
+    };
+  }
+  
+  return compareEvents(
+    expected,
+    actual,
+    { ...careEventComparisonOptions, ...options }
+  );
 }
 
-// Add type definitions for the custom matchers
-declare global {
-  namespace jest {
-    interface Matchers<R> {
-      toMatchEvent<T extends IBaseEvent>(expected: T, options?: EventComparisonOptions): R;
-      toMatchJourneyEvent(expected: JourneyEvent, options?: EventComparisonOptions): R;
-      toMatchEventPartially<T extends Partial<IBaseEvent>>(expected: T, options?: EventComparisonOptions): R;
-      toMatchEventTimestamp(expected: IBaseEvent, toleranceMs?: number): R;
-      toMatchEventPayload<T>(expected: T, options?: EventComparisonOptions): R;
-    }
+/**
+ * Compare plan journey events with plan-specific comparison options
+ * 
+ * @param expected - Expected plan event
+ * @param actual - Actual plan event
+ * @param options - Additional comparison options
+ * @returns Comparison result
+ */
+export function comparePlanEvents(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
+  options: EventComparisonOptions = {}
+): EventComparisonResult {
+  // Verify this is a plan event
+  if (actual.journey !== JourneyType.PLAN) {
+    return {
+      isEqual: false,
+      errorMessage: `Expected a plan event but got ${actual.journey}`,
+      failedFields: ['journey']
+    };
   }
+  
+  return compareEvents(
+    expected,
+    actual,
+    { ...planEventComparisonOptions, ...options }
+  );
+}
+
+/**
+ * Get journey-specific comparison options based on journey type
+ * 
+ * @param journeyType - The journey type
+ * @returns Appropriate comparison options for the journey
+ */
+export function getJourneyComparisonOptions(journeyType: JourneyType): EventComparisonOptions {
+  switch (journeyType) {
+    case JourneyType.HEALTH:
+      return healthEventComparisonOptions;
+    case JourneyType.CARE:
+      return careEventComparisonOptions;
+    case JourneyType.PLAN:
+      return planEventComparisonOptions;
+    default:
+      return DEFAULT_COMPARISON_OPTIONS;
+  }
+}
+
+/**
+ * Compare events automatically using journey-specific options
+ * 
+ * @param expected - Expected event
+ * @param actual - Actual event
+ * @param options - Additional comparison options
+ * @returns Comparison result
+ */
+export function compareEventsByJourney(
+  expected: Partial<BaseEventDto>,
+  actual: BaseEventDto,
+  options: EventComparisonOptions = {}
+): EventComparisonResult {
+  const journeyType = actual.journey as JourneyType;
+  const journeyOptions = getJourneyComparisonOptions(journeyType);
+  
+  return compareEvents(
+    expected,
+    actual,
+    { ...journeyOptions, ...options }
+  );
 }
