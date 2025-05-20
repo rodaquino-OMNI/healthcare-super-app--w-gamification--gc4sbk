@@ -1,645 +1,496 @@
 /**
  * Mock implementation of a Kafka consumer for unit testing.
- * This file simulates the behavior of a KafkaJS Consumer with methods for
+ * This class simulates the behavior of a KafkaJS Consumer with methods for
  * subscribing to topics, committing offsets, and processing messages.
- * It allows tests to trigger message consumption programmatically without
- * requiring a real Kafka connection.
  */
 
-import { EventEmitter } from 'events';
+import { Consumer, ConsumerRunConfig, ConsumerSubscribeTopics, EachBatchPayload, EachMessagePayload } from 'kafkajs';
 
 /**
- * Interface for the mock Kafka message
+ * Configuration options for the MockKafkaConsumer
  */
-export interface MockKafkaMessage {
-  key?: Buffer | string | null;
-  value: Buffer | string | null;
-  timestamp?: string;
-  size?: number;
-  attributes?: number;
-  offset?: string;
-  headers?: Record<string, any>;
-}
-
-/**
- * Interface for the mock Kafka batch
- */
-export interface MockKafkaBatch {
-  topic: string;
-  partition: number;
-  messages: MockKafkaMessage[];
-  highWatermark?: string;
-}
-
-/**
- * Interface for the mock Kafka message payload
- */
-export interface MockEachMessagePayload {
-  topic: string;
-  partition: number;
-  message: MockKafkaMessage;
-}
-
-/**
- * Interface for the mock Kafka batch payload
- */
-export interface MockEachBatchPayload {
-  batch: MockKafkaBatch;
-  resolveOffset: (offset: string) => void;
-  heartbeat: () => Promise<void>;
-  commitOffsetsIfNecessary: (offsets?: Record<string, any>) => Promise<void>;
-  uncommittedOffsets: () => Record<string, any>;
-  isRunning: () => boolean;
-  isStale: () => boolean;
-}
-
-/**
- * Interface for the mock Kafka consumer run options
- */
-export interface MockConsumerRunOptions {
-  eachMessage?: (payload: MockEachMessagePayload) => Promise<void>;
-  eachBatch?: (payload: MockEachBatchPayload) => Promise<void>;
-  autoCommit?: boolean;
-  autoCommitInterval?: number | null;
-  autoCommitThreshold?: number | null;
-  partitionsConsumedConcurrently?: number;
-}
-
-/**
- * Interface for the mock Kafka consumer subscribe options
- */
-export interface MockConsumerSubscribeOptions {
-  topic: string;
-  fromBeginning?: boolean;
-}
-
-/**
- * Interface for the mock Kafka consumer configuration
- */
-export interface MockConsumerConfig {
+export interface MockKafkaConsumerConfig {
+  /**
+   * Group ID for the consumer
+   */
   groupId: string;
-  metadataMaxAge?: number;
-  sessionTimeout?: number;
-  rebalanceTimeout?: number;
-  heartbeatInterval?: number;
-  maxBytesPerPartition?: number;
-  minBytes?: number;
-  maxBytes?: number;
-  maxWaitTimeInMs?: number;
-  retry?: RetryOptions;
-  allowAutoTopicCreation?: boolean;
-  maxInFlightRequests?: number;
-  readUncommitted?: boolean;
+  
+  /**
+   * Whether to simulate connection errors
+   */
+  simulateConnectionError?: boolean;
+  
+  /**
+   * Whether to simulate processing errors
+   */
+  simulateProcessingError?: boolean;
+  
+  /**
+   * Number of retries before succeeding (for testing retry mechanisms)
+   */
+  retriesBeforeSuccess?: number;
+  
+  /**
+   * Whether to track offset commits
+   */
+  trackOffsets?: boolean;
+  
+  /**
+   * Whether to use dead letter queue for failed messages
+   */
+  useDeadLetterQueue?: boolean;
 }
 
 /**
- * Interface for retry options
+ * Topic partition offset for commit tracking
  */
-export interface RetryOptions {
-  maxRetryTime?: number;
-  initialRetryTime?: number;
-  factor?: number;
-  multiplier?: number;
-  retries?: number;
-  restartOnFailure?: (error: Error) => Promise<boolean>;
+export interface TopicPartitionOffset {
+  topic: string;
+  partition: number;
+  offset: string;
 }
 
 /**
- * Interface for offset commit options
+ * Message structure for the mock consumer
  */
-export interface OffsetCommitOptions {
-  topics: Array<{
-    topic: string;
-    partitions: Array<{
-      partition: number;
-      offset: string;
-    }>;
-  }>;
+export interface MockMessage {
+  topic: string;
+  partition: number;
+  offset: string;
+  key?: Buffer;
+  value: Buffer;
+  headers?: Record<string, string>;
+  timestamp?: string;
 }
 
 /**
- * Mock implementation of a Kafka consumer for unit testing
+ * Mock implementation of a KafkaJS Consumer for unit testing
  */
-export class MockKafkaConsumer extends EventEmitter {
+export class MockKafkaConsumer implements Partial<Consumer> {
   private connected: boolean = false;
   private running: boolean = false;
-  private subscriptions: Map<string, { fromBeginning: boolean }> = new Map();
-  private pausedTopics: Set<string> = new Set();
-  private messageQueue: Map<string, MockKafkaMessage[]> = new Map();
-  private deadLetterQueue: Map<string, MockKafkaMessage[]> = new Map();
-  private committedOffsets: Map<string, Map<number, string>> = new Map();
-  private runOptions: MockConsumerRunOptions | null = null;
-  private shouldSimulateError: boolean = false;
-  private errorToSimulate: Error | null = null;
-  private retryCount: Map<string, number> = new Map();
-  private maxRetries: number = 3;
-  private retryBackoff: number = 100; // ms
-  private groupId: string;
-
-  /**
-   * Creates a new MockKafkaConsumer instance
-   * @param config - The consumer configuration
-   */
-  constructor(private config: MockConsumerConfig) {
-    super();
-    this.groupId = config.groupId;
-    
-    // Initialize retry options if provided
-    if (config.retry) {
-      this.maxRetries = config.retry.retries || this.maxRetries;
-      this.retryBackoff = config.retry.initialRetryTime || this.retryBackoff;
-    }
-  }
-
+  private subscriptions: Set<string> = new Set();
+  private pausedTopicPartitions: Array<{ topic: string; partitions?: number[] }> = [];
+  private messageHandler?: (payload: EachMessagePayload) => Promise<void>;
+  private batchHandler?: (payload: EachBatchPayload) => Promise<void>;
+  private messageQueue: MockMessage[] = [];
+  private committedOffsets: TopicPartitionOffset[] = [];
+  private retryCount: number = 0;
+  private deadLetterQueue: MockMessage[] = [];
+  private autoCommit: boolean = true;
+  
+  constructor(private config: MockKafkaConsumerConfig) {}
+  
   /**
    * Simulates connecting to Kafka
-   * @returns A promise that resolves when the connection is established
    */
   async connect(): Promise<void> {
-    if (this.connected) {
-      return;
+    if (this.config.simulateConnectionError) {
+      throw new Error('Simulated connection error');
     }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
+    
     this.connected = true;
-    this.emit('consumer.connect');
     return Promise.resolve();
   }
-
+  
   /**
    * Simulates disconnecting from Kafka
-   * @returns A promise that resolves when the connection is closed
    */
   async disconnect(): Promise<void> {
-    if (!this.connected) {
-      return;
-    }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
     this.connected = false;
     this.running = false;
-    this.emit('consumer.disconnect');
     return Promise.resolve();
   }
-
+  
   /**
-   * Simulates subscribing to a Kafka topic
-   * @param options - The subscription options
-   * @returns A promise that resolves when the subscription is complete
+   * Simulates subscribing to topics
    */
-  async subscribe(options: MockConsumerSubscribeOptions): Promise<void> {
+  async subscribe(subscription: ConsumerSubscribeTopics): Promise<void> {
     if (!this.connected) {
       throw new Error('Consumer not connected');
     }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
-    const { topic, fromBeginning = false } = options;
-    this.subscriptions.set(topic, { fromBeginning });
     
-    // Initialize message queue for this topic if it doesn't exist
-    if (!this.messageQueue.has(topic)) {
-      this.messageQueue.set(topic, []);
-    }
+    const { topics } = subscription;
+    topics.forEach(topic => this.subscriptions.add(topic));
     
-    // Initialize dead letter queue for this topic if it doesn't exist
-    if (!this.deadLetterQueue.has(topic)) {
-      this.deadLetterQueue.set(topic, []);
-    }
-
-    this.emit('consumer.subscribe', { topic, fromBeginning });
     return Promise.resolve();
   }
-
+  
   /**
-   * Simulates running the consumer with message handlers
-   * @param options - The consumer run options
-   * @returns A promise that resolves when the consumer is running
+   * Simulates starting the consumer
    */
-  async run(options: MockConsumerRunOptions): Promise<void> {
+  async run(config: ConsumerRunConfig): Promise<void> {
     if (!this.connected) {
       throw new Error('Consumer not connected');
     }
-
-    if (this.running) {
-      throw new Error('Consumer is already running');
-    }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
-    this.runOptions = options;
+    
     this.running = true;
-    this.emit('consumer.run', options);
+    this.messageHandler = config.eachMessage;
+    this.batchHandler = config.eachBatch;
+    this.autoCommit = config.autoCommit !== false;
+    
     return Promise.resolve();
   }
-
+  
   /**
-   * Simulates pausing consumption from specific topics
-   * @param topics - Array of topics to pause
+   * Simulates pausing consumption from topic partitions
    */
-  pause(topics: string[]): void {
+  pause(topicPartitions: Array<{ topic: string; partitions?: number[] }>): void {
     if (!this.running) {
-      throw new Error('Consumer is not running');
+      throw new Error('Consumer not running');
     }
-
-    topics.forEach(topic => {
-      if (this.subscriptions.has(topic)) {
-        this.pausedTopics.add(topic);
-      }
-    });
-
-    this.emit('consumer.pause', topics);
+    
+    this.pausedTopicPartitions = [
+      ...this.pausedTopicPartitions,
+      ...topicPartitions.filter(tp => 
+        this.subscriptions.has(tp.topic) && 
+        !this.pausedTopicPartitions.some(p => p.topic === tp.topic))
+    ];
   }
-
+  
   /**
-   * Returns the list of paused topics
-   * @returns Array of paused topic names
+   * Returns a list of paused topic partitions
    */
-  paused(): string[] {
-    return Array.from(this.pausedTopics);
+  paused(): Array<{ topic: string; partitions?: number[] }> {
+    return [...this.pausedTopicPartitions];
   }
-
+  
   /**
-   * Simulates resuming consumption from specific topics
-   * @param topics - Array of topics to resume
+   * Simulates resuming consumption from paused topic partitions
    */
-  resume(topics: string[]): void {
+  resume(topicPartitions: Array<{ topic: string; partitions?: number[] }>): void {
     if (!this.running) {
-      throw new Error('Consumer is not running');
+      throw new Error('Consumer not running');
     }
-
-    topics.forEach(topic => {
-      this.pausedTopics.delete(topic);
-    });
-
-    this.emit('consumer.resume', topics);
+    
+    this.pausedTopicPartitions = this.pausedTopicPartitions.filter(tp => 
+      !topicPartitions.some(p => p.topic === tp.topic));
   }
-
+  
   /**
    * Simulates committing offsets
-   * @param offsets - The offsets to commit
-   * @returns A promise that resolves when offsets are committed
    */
-  async commitOffsets(offsets: OffsetCommitOptions): Promise<void> {
+  async commitOffsets(topicPartitions: TopicPartitionOffset[]): Promise<void> {
     if (!this.connected) {
       throw new Error('Consumer not connected');
     }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
+    
+    if (this.config.trackOffsets) {
+      // Store committed offsets for verification in tests
+      this.committedOffsets = [
+        ...this.committedOffsets.filter(tp => 
+          !topicPartitions.some(p => p.topic === tp.topic && p.partition === tp.partition)),
+        ...topicPartitions
+      ];
     }
-
-    // Store committed offsets for verification in tests
-    for (const { topic, partitions } of offsets.topics) {
-      if (!this.committedOffsets.has(topic)) {
-        this.committedOffsets.set(topic, new Map());
-      }
-
-      const topicOffsets = this.committedOffsets.get(topic)!;
-      for (const { partition, offset } of partitions) {
-        topicOffsets.set(partition, offset);
-      }
-    }
-
-    this.emit('consumer.commit_offsets', offsets);
+    
     return Promise.resolve();
   }
-
+  
   /**
    * Simulates seeking to a specific offset
-   * @param topic - The topic to seek in
-   * @param partition - The partition to seek in
-   * @param offset - The offset to seek to
-   * @returns A promise that resolves when the seek is complete
    */
-  async seek({ topic, partition, offset }: { topic: string; partition: number; offset: string }): Promise<void> {
+  seek({ topic, partition, offset }: { topic: string; partition: number; offset: string }): void {
     if (!this.connected) {
       throw new Error('Consumer not connected');
     }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
-    if (!this.committedOffsets.has(topic)) {
-      this.committedOffsets.set(topic, new Map());
-    }
-
-    const topicOffsets = this.committedOffsets.get(topic)!;
-    topicOffsets.set(partition, offset);
-
-    this.emit('consumer.seek', { topic, partition, offset });
-    return Promise.resolve();
-  }
-
-  /**
-   * Simulates stopping the consumer
-   * @returns A promise that resolves when the consumer is stopped
-   */
-  async stop(): Promise<void> {
-    if (!this.running) {
-      return;
-    }
-
-    if (this.shouldSimulateError && this.errorToSimulate) {
-      throw this.errorToSimulate;
-    }
-
-    this.running = false;
-    this.emit('consumer.stop');
-    return Promise.resolve();
-  }
-
-  /**
-   * Configures the consumer to simulate an error
-   * @param error - The error to simulate
-   */
-  simulateError(error: Error): void {
-    this.shouldSimulateError = true;
-    this.errorToSimulate = error;
-  }
-
-  /**
-   * Stops simulating errors
-   */
-  stopSimulatingError(): void {
-    this.shouldSimulateError = false;
-    this.errorToSimulate = null;
-  }
-
-  /**
-   * Adds a message to the mock message queue for a specific topic
-   * @param topic - The topic to add the message to
-   * @param message - The message to add
-   */
-  addMessage(topic: string, message: MockKafkaMessage): void {
+    
     if (!this.subscriptions.has(topic)) {
       throw new Error(`Not subscribed to topic: ${topic}`);
     }
-
-    const messages = this.messageQueue.get(topic) || [];
-    messages.push(message);
-    this.messageQueue.set(topic, messages);
   }
-
+  
   /**
-   * Adds multiple messages to the mock message queue for a specific topic
-   * @param topic - The topic to add the messages to
-   * @param messages - The messages to add
+   * Adds a message to the mock message queue for processing
    */
-  addMessages(topic: string, messages: MockKafkaMessage[]): void {
-    for (const message of messages) {
-      this.addMessage(topic, message);
-    }
+  addMessage(message: MockMessage): void {
+    this.messageQueue.push(message);
   }
-
+  
   /**
-   * Processes the next message in the queue for a specific topic
-   * @param topic - The topic to process a message from
-   * @returns A promise that resolves when the message is processed
+   * Adds multiple messages to the mock message queue for processing
    */
-  async processNextMessage(topic: string): Promise<boolean> {
-    if (!this.running) {
-      throw new Error('Consumer is not running');
+  addMessages(messages: MockMessage[]): void {
+    this.messageQueue.push(...messages);
+  }
+  
+  /**
+   * Processes the next message in the queue
+   */
+  async processNextMessage(): Promise<boolean> {
+    if (!this.running || !this.messageHandler || this.messageQueue.length === 0) {
+      return false;
     }
-
-    if (!this.subscriptions.has(topic)) {
-      throw new Error(`Not subscribed to topic: ${topic}`);
+    
+    const message = this.messageQueue.shift();
+    if (!message) return false;
+    
+    // Check if topic is paused
+    if (this.pausedTopicPartitions.some(tp => tp.topic === message.topic)) {
+      // Put the message back in the queue
+      this.messageQueue.unshift(message);
+      return false;
     }
-
-    if (this.pausedTopics.has(topic)) {
-      return false; // Topic is paused, don't process messages
-    }
-
-    const messages = this.messageQueue.get(topic) || [];
-    if (messages.length === 0) {
-      return false; // No messages to process
-    }
-
-    const message = messages.shift()!;
-    this.messageQueue.set(topic, messages);
-
-    if (!this.runOptions) {
-      return false; // No handlers configured
-    }
-
+    
     try {
-      if (this.runOptions.eachMessage) {
-        const payload: MockEachMessagePayload = {
-          topic,
-          partition: 0, // Default partition for simplicity
-          message: {
-            ...message,
-            offset: message.offset || '0',
-          },
-        };
-
-        await this.runOptions.eachMessage(payload);
-      } else if (this.runOptions.eachBatch) {
-        const batch: MockKafkaBatch = {
-          topic,
-          partition: 0, // Default partition for simplicity
-          messages: [{
-            ...message,
-            offset: message.offset || '0',
-          }],
-          highWatermark: '1',
-        };
-
-        const payload: MockEachBatchPayload = {
-          batch,
-          resolveOffset: (offset: string) => {
-            // Implementation for resolving offset in tests
-            if (!this.committedOffsets.has(topic)) {
-              this.committedOffsets.set(topic, new Map());
-            }
-            this.committedOffsets.get(topic)!.set(0, offset);
-          },
-          heartbeat: async () => {
-            // Mock heartbeat implementation
-            this.emit('consumer.heartbeat', { groupId: this.groupId });
-            return Promise.resolve();
-          },
-          commitOffsetsIfNecessary: async (offsets?: Record<string, any>) => {
-            // Mock commit implementation
-            if (offsets) {
-              await this.commitOffsets({
-                topics: [{
-                  topic,
-                  partitions: [{
-                    partition: 0,
-                    offset: message.offset || '0',
-                  }],
-                }],
-              });
-            }
-            return Promise.resolve();
-          },
-          uncommittedOffsets: () => {
-            // Return mock uncommitted offsets
-            return {
-              topics: [{
-                topic,
-                partitions: [{
-                  partition: 0,
-                  offset: message.offset || '0',
-                }],
-              }],
-            };
-          },
-          isRunning: () => this.running,
-          isStale: () => false,
-        };
-
-        await this.runOptions.eachBatch(payload);
+      // Simulate processing error if configured
+      if (this.config.simulateProcessingError) {
+        if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
+          this.retryCount++;
+          throw new Error(`Simulated processing error (retry ${this.retryCount} of ${this.config.retriesBeforeSuccess})`);
+        } else if (!this.config.retriesBeforeSuccess) {
+          throw new Error('Simulated processing error');
+        }
       }
-
-      // Auto-commit if enabled
-      if (this.runOptions.autoCommit !== false) {
-        await this.commitOffsets({
-          topics: [{
-            topic,
-            partitions: [{
-              partition: 0,
-              offset: message.offset || '0',
-            }],
-          }],
-        });
+      
+      // Process the message
+      await this.messageHandler({
+        topic: message.topic,
+        partition: message.partition,
+        message: {
+          key: message.key,
+          value: message.value,
+          headers: message.headers ? 
+            Object.entries(message.headers).reduce((acc, [key, value]) => {
+              acc[key] = Buffer.from(value);
+              return acc;
+            }, {} as Record<string, Buffer>) : 
+            {},
+          timestamp: message.timestamp || Date.now().toString(),
+          offset: message.offset,
+          size: message.value.length,
+        },
+      });
+      
+      // Auto-commit the offset if enabled
+      if (this.autoCommit) {
+        await this.commitOffsets([{
+          topic: message.topic,
+          partition: message.partition,
+          offset: (parseInt(message.offset) + 1).toString(),
+        }]);
       }
-
-      // Reset retry count for successful processing
-      this.retryCount.delete(`${topic}-${message.offset}`);
-
+      
       return true;
     } catch (error) {
-      // Handle error with retry logic
-      const messageId = `${topic}-${message.offset}`;
-      const currentRetryCount = this.retryCount.get(messageId) || 0;
-
-      if (currentRetryCount < this.maxRetries) {
+      // Handle the error based on configuration
+      if (this.config.useDeadLetterQueue) {
+        this.deadLetterQueue.push(message);
+      } else if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
         // Put the message back in the queue for retry
-        const retryCount = currentRetryCount + 1;
-        this.retryCount.set(messageId, retryCount);
-
-        // Calculate exponential backoff delay
-        const delay = this.retryBackoff * Math.pow(2, currentRetryCount);
-
-        // Add the message back to the front of the queue after delay
-        setTimeout(() => {
-          const messages = this.messageQueue.get(topic) || [];
-          messages.unshift(message);
-          this.messageQueue.set(topic, messages);
-          
-          this.emit('consumer.retry', { 
-            topic, 
-            message, 
-            error, 
-            retryCount, 
-            delay 
-          });
-        }, delay);
-      } else {
-        // Move to dead letter queue after max retries
-        const dlqMessages = this.deadLetterQueue.get(topic) || [];
-        dlqMessages.push(message);
-        this.deadLetterQueue.set(topic, dlqMessages);
-        
-        this.emit('consumer.dead_letter', { 
-          topic, 
-          message, 
-          error 
-        });
+        this.messageQueue.unshift(message);
       }
-
-      // Re-throw the error for test assertions
+      
       throw error;
     }
   }
-
+  
   /**
-   * Processes all messages in the queue for a specific topic
-   * @param topic - The topic to process messages from
-   * @returns A promise that resolves when all messages are processed
+   * Processes all messages in the queue
    */
-  async processAllMessages(topic: string): Promise<number> {
-    if (!this.running) {
-      throw new Error('Consumer is not running');
-    }
-
+  async processAllMessages(): Promise<number> {
     let processedCount = 0;
-    let hasMore = true;
-
-    while (hasMore) {
+    
+    while (this.messageQueue.length > 0) {
       try {
-        hasMore = await this.processNextMessage(topic);
-        if (hasMore) {
-          processedCount++;
-        }
+        const processed = await this.processNextMessage();
+        if (processed) processedCount++;
       } catch (error) {
-        // Continue processing other messages even if one fails
-        hasMore = (this.messageQueue.get(topic)?.length || 0) > 0;
+        // If we're using retries, continue processing
+        if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
+          continue;
+        }
+        throw error;
       }
     }
-
+    
     return processedCount;
   }
-
+  
   /**
-   * Gets the committed offsets for verification in tests
-   * @returns The committed offsets map
+   * Processes messages in batches
    */
-  getCommittedOffsets(): Map<string, Map<number, string>> {
-    return this.committedOffsets;
+  async processBatch(batchSize: number = 10): Promise<number> {
+    if (!this.running || !this.batchHandler || this.messageQueue.length === 0) {
+      return 0;
+    }
+    
+    // Take a batch of messages from the queue
+    const batch = this.messageQueue.splice(0, batchSize);
+    if (batch.length === 0) return 0;
+    
+    // Group messages by topic and partition
+    const messagesByTopicPartition = batch.reduce((acc, message) => {
+      const key = `${message.topic}-${message.partition}`;
+      if (!acc[key]) {
+        acc[key] = {
+          topic: message.topic,
+          partition: message.partition,
+          messages: [],
+        };
+      }
+      
+      acc[key].messages.push({
+        key: message.key,
+        value: message.value,
+        headers: message.headers ? 
+          Object.entries(message.headers).reduce((acc, [key, value]) => {
+            acc[key] = Buffer.from(value);
+            return acc;
+          }, {} as Record<string, Buffer>) : 
+          {},
+        timestamp: message.timestamp || Date.now().toString(),
+        offset: message.offset,
+        size: message.value.length,
+      });
+      
+      return acc;
+    }, {} as Record<string, { topic: string; partition: number; messages: any[] }>);
+    
+    // Process each topic-partition batch
+    for (const key of Object.keys(messagesByTopicPartition)) {
+      const { topic, partition, messages } = messagesByTopicPartition[key];
+      
+      // Check if topic is paused
+      if (this.pausedTopicPartitions.some(tp => tp.topic === topic)) {
+        // Put the messages back in the queue
+        this.messageQueue.unshift(...batch.filter(m => m.topic === topic && m.partition === partition));
+        continue;
+      }
+      
+      try {
+        // Simulate processing error if configured
+        if (this.config.simulateProcessingError) {
+          if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
+            this.retryCount++;
+            throw new Error(`Simulated batch processing error (retry ${this.retryCount} of ${this.config.retriesBeforeSuccess})`);
+          } else if (!this.config.retriesBeforeSuccess) {
+            throw new Error('Simulated batch processing error');
+          }
+        }
+        
+        // Find the highest offset in the batch
+        const highWatermark = messages.reduce((max, msg) => {
+          const offset = parseInt(msg.offset);
+          return offset > max ? offset : max;
+        }, -1).toString();
+        
+        // Create batch payload
+        const batchPayload: EachBatchPayload = {
+          batch: {
+            topic,
+            partition,
+            highWatermark,
+            messages,
+          },
+          resolveOffset: (offset: string) => {
+            // Track resolved offsets for testing
+            if (this.config.trackOffsets) {
+              this.committedOffsets.push({
+                topic,
+                partition,
+                offset: (parseInt(offset) + 1).toString(),
+              });
+            }
+          },
+          heartbeat: async () => Promise.resolve(),
+          commitOffsetsIfNecessary: async () => {
+            if (this.autoCommit) {
+              await this.commitOffsets([{
+                topic,
+                partition,
+                offset: (parseInt(highWatermark) + 1).toString(),
+              }]);
+            }
+          },
+          uncommittedOffsets: () => ({
+            topics: [{
+              topic,
+              partitions: [{
+                partition,
+                offset: highWatermark,
+              }],
+            }],
+          }),
+          isRunning: () => this.running,
+          isStale: () => false,
+          pause: () => {
+            this.pause([{ topic, partitions: [partition] }]);
+            return () => this.resume([{ topic, partitions: [partition] }]);
+          },
+        };
+        
+        // Process the batch
+        await this.batchHandler(batchPayload);
+      } catch (error) {
+        // Handle the error based on configuration
+        if (this.config.useDeadLetterQueue) {
+          this.deadLetterQueue.push(...batch.filter(m => m.topic === topic && m.partition === partition));
+        } else if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
+          // Put the messages back in the queue for retry
+          this.messageQueue.unshift(...batch.filter(m => m.topic === topic && m.partition === partition));
+        }
+        
+        throw error;
+      }
+    }
+    
+    return batch.length;
   }
-
+  
   /**
-   * Gets the dead letter queue for verification in tests
-   * @returns The dead letter queue map
+   * Gets the committed offsets for testing verification
    */
-  getDeadLetterQueue(): Map<string, MockKafkaMessage[]> {
-    return this.deadLetterQueue;
+  getCommittedOffsets(): TopicPartitionOffset[] {
+    return [...this.committedOffsets];
   }
-
+  
   /**
-   * Gets the message queue for verification in tests
-   * @returns The message queue map
+   * Gets the dead letter queue for testing verification
    */
-  getMessageQueue(): Map<string, MockKafkaMessage[]> {
-    return this.messageQueue;
+  getDeadLetterQueue(): MockMessage[] {
+    return [...this.deadLetterQueue];
   }
-
+  
   /**
-   * Gets the retry counts for verification in tests
-   * @returns The retry count map
+   * Clears the dead letter queue
    */
-  getRetryCount(): Map<string, number> {
+  clearDeadLetterQueue(): void {
+    this.deadLetterQueue = [];
+  }
+  
+  /**
+   * Resets the retry count
+   */
+  resetRetryCount(): void {
+    this.retryCount = 0;
+  }
+  
+  /**
+   * Gets the current retry count
+   */
+  getRetryCount(): number {
     return this.retryCount;
   }
-
+  
   /**
-   * Clears all queues and state for fresh testing
+   * Gets the current message queue length
    */
-  reset(): void {
-    this.messageQueue.clear();
-    this.deadLetterQueue.clear();
-    this.committedOffsets.clear();
-    this.retryCount.clear();
-    this.pausedTopics.clear();
-    this.subscriptions.clear();
-    this.running = false;
-    this.connected = false;
-    this.shouldSimulateError = false;
-    this.errorToSimulate = null;
-    this.runOptions = null;
+  getQueueLength(): number {
+    return this.messageQueue.length;
+  }
+  
+  /**
+   * Checks if the consumer is connected
+   */
+  isConnected(): boolean {
+    return this.connected;
+  }
+  
+  /**
+   * Checks if the consumer is running
+   */
+  isRunning(): boolean {
+    return this.running;
   }
 }
