@@ -1,2544 +1,1259 @@
 /**
  * @file validation-events.ts
  * @description Provides event fixtures specifically designed for testing validation logic across different event types.
- * 
  * This file contains both valid and invalid event examples that exercise boundary conditions, required fields,
- * data type constraints, and business rules. These fixtures are essential for unit testing validation decorators,
- * ensuring validators reject improper data while accepting valid events across all journeys.
+ * data type constraints, and business rules.
+ * 
+ * These fixtures are essential for unit testing validation decorators, ensuring validators reject improper data
+ * while accepting valid events across all journeys.
+ *
+ * @module events/test/fixtures
  */
 
-import { EventTypes } from '../../src/dto/event-types.enum';
-import { BaseEventDto } from '../../src/dto/base-event.dto';
-import { ValidationSeverity } from '../../src/interfaces/event-validation.interface';
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../src/dto/event-metadata.dto';
+import { HealthMetricType, HealthGoalType, DeviceType, HealthInsightType } from '../../src/dto/health-event.dto';
 
-// ===================================================================
-// Helper Functions
-// ===================================================================
+// ===== VALID EVENT FIXTURES =====
 
 /**
- * Creates a base event with common properties
- * @param type Event type
- * @param userId User ID
- * @param journey Journey type
- * @param data Event data
- * @returns Base event object
+ * Collection of valid event fixtures that should pass all validation rules.
+ * These fixtures can be used as positive test cases for validation logic.
  */
-function createBaseEvent<T>(type: string, userId: string, journey: string, data: T): BaseEventDto<T> {
-  return {
-    type,
-    userId,
-    journey,
-    data,
-    timestamp: new Date().toISOString()
-  };
-}
-
-/**
- * Creates an invalid base event with missing or invalid properties
- * @param overrides Properties to override in the base event
- * @returns Invalid base event object
- */
-function createInvalidBaseEvent(overrides: Partial<BaseEventDto<any>> = {}): Partial<BaseEventDto<any>> {
-  // Start with a valid base event
-  const baseEvent = createBaseEvent(
-    EventTypes.HEALTH_METRIC_RECORDED,
-    '123e4567-e89b-12d3-a456-426614174000',
-    'health',
-    { metricType: 'heartRate', value: 75 }
-  );
-  
-  // Apply overrides
-  return { ...baseEvent, ...overrides };
-}
-
-// ===================================================================
-// Health Journey Event Fixtures
-// ===================================================================
-
-export namespace HealthEvents {
-  // Valid Health Metric Events
-  export const validHealthMetricEvents = {
+export const validEvents = {
+  /**
+   * Valid health journey events
+   */
+  health: {
     /**
-     * Valid heart rate metric event
+     * Valid health metric recorded event with all required fields
      */
-    heartRate: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
+    metricRecorded: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'health-service',
+          component: 'metric-processor'
+        }
+      }
+    },
+
+    /**
+     * Valid health goal achieved event with all required fields
+     */
+    goalAchieved: {
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        goalId: '7ba7b810-9dad-11d1-80b4-00c04fd430c8',
+        goalType: HealthGoalType.STEPS_TARGET,
+        targetValue: 10000,
+        achievedValue: 10250,
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '8ba7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'health-service',
+          component: 'goal-processor'
+        }
+      }
+    },
+
+    /**
+     * Valid device connected event with all required fields
+     */
+    deviceConnected: {
+      type: EventType.HEALTH_DEVICE_CONNECTED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        deviceId: '9ba7b810-9dad-11d1-80b4-00c04fd430c8',
+        deviceType: DeviceType.FITNESS_TRACKER,
+        connectionMethod: 'oauth',
+        connectedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'aba7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'health-service',
+          component: 'device-manager'
+        }
+      }
+    },
+
+    /**
+     * Valid health insight generated event with all required fields
+     */
+    insightGenerated: {
+      type: EventType.HEALTH_INSIGHT_GENERATED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        insightId: 'bba7b810-9dad-11d1-80b4-00c04fd430c8',
+        insightType: HealthInsightType.TREND_ANALYSIS,
+        metricType: HealthMetricType.BLOOD_PRESSURE,
+        description: 'Your blood pressure has been consistently improving over the past month.',
+        severity: 'info',
+        generatedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'cba7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'health-service',
+          component: 'insight-generator'
+        }
+      }
+    }
+  },
+
+  /**
+   * Valid care journey events
+   */
+  care: {
+    /**
+     * Valid appointment booked event with all required fields
+     */
+    appointmentBooked: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        appointmentId: 'dba7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: 'eba7b810-9dad-11d1-80b4-00c04fd430c8',
+        specialtyType: 'Cardiologia',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+        bookedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'fba7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'care-service',
+          component: 'appointment-scheduler'
+        }
+      }
+    },
+
+    /**
+     * Valid medication taken event with all required fields
+     */
+    medicationTaken: {
+      type: EventType.CARE_MEDICATION_TAKEN,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        medicationId: '0ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        medicationName: 'Atenolol',
+        dosage: '50mg',
+        takenAt: new Date().toISOString(),
+        adherence: 'on_time'
+      },
+      metadata: {
+        eventId: '1ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'care-service',
+          component: 'medication-tracker'
+        }
+      }
+    },
+
+    /**
+     * Valid telemedicine completed event with all required fields
+     */
+    telemedicineCompleted: {
+      type: EventType.CARE_TELEMEDICINE_COMPLETED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        sessionId: '2ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        appointmentId: '3ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: '4ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
+        endedAt: new Date().toISOString(),
+        duration: 30,
+        quality: 'good'
+      },
+      metadata: {
+        eventId: '5ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'care-service',
+          component: 'telemedicine-manager'
+        }
+      }
+    }
+  },
+
+  /**
+   * Valid plan journey events
+   */
+  plan: {
+    /**
+     * Valid claim submitted event with all required fields
+     */
+    claimSubmitted: {
+      type: EventType.PLAN_CLAIM_SUBMITTED,
+      journey: 'plan',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        claimId: '6ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        claimType: 'medical',
+        providerId: '7ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        serviceDate: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
+        amount: 250.00,
+        submittedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '8ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'plan-service',
+          component: 'claim-processor'
+        }
+      }
+    },
+
+    /**
+     * Valid benefit utilized event with all required fields
+     */
+    benefitUtilized: {
+      type: EventType.PLAN_BENEFIT_UTILIZED,
+      journey: 'plan',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        benefitId: '9ca7b810-9dad-11d1-80b4-00c04fd430c8',
+        benefitType: 'preventive',
+        providerId: 'aca7b810-9dad-11d1-80b4-00c04fd430c8',
+        utilizationDate: new Date().toISOString(),
+        savingsAmount: 150.00
+      },
+      metadata: {
+        eventId: 'bca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'plan-service',
+          component: 'benefit-tracker'
+        }
+      }
+    },
+
+    /**
+     * Valid reward redeemed event with all required fields
+     */
+    rewardRedeemed: {
+      type: EventType.PLAN_REWARD_REDEEMED,
+      journey: 'plan',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        rewardId: 'cca7b810-9dad-11d1-80b4-00c04fd430c8',
+        rewardType: 'gift_card',
+        pointsRedeemed: 1000,
+        value: 50.00,
+        redeemedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'dca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'plan-service',
+          component: 'reward-manager'
+        }
+      }
+    }
+  },
+
+  /**
+   * Valid gamification events
+   */
+  gamification: {
+    /**
+     * Valid points earned event with all required fields
+     */
+    pointsEarned: {
+      type: EventType.GAMIFICATION_POINTS_EARNED,
+      journey: 'gamification',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        sourceType: 'health',
+        sourceId: 'eca7b810-9dad-11d1-80b4-00c04fd430c8',
+        points: 50,
+        reason: 'Completed daily step goal',
+        earnedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'fca7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'gamification-engine',
+          component: 'point-calculator'
+        }
+      }
+    },
+
+    /**
+     * Valid achievement unlocked event with all required fields
+     */
+    achievementUnlocked: {
+      type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+      journey: 'gamification',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        achievementId: '0da7b810-9dad-11d1-80b4-00c04fd430c8',
+        achievementType: 'health-check-streak',
+        tier: 'silver',
+        points: 100,
+        unlockedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '1da7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'gamification-engine',
+          component: 'achievement-processor'
+        }
+      }
+    }
+  },
+
+  /**
+   * Valid user events
+   */
+  user: {
+    /**
+     * Valid user login event with all required fields
+     */
+    login: {
+      type: EventType.USER_LOGIN,
+      journey: 'user',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        loginMethod: 'password',
+        deviceType: 'mobile',
+        loginAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '2da7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'auth-service',
+          component: 'login-processor'
+        }
+      }
+    },
+
+    /**
+     * Valid user onboarding completed event with all required fields
+     */
+    onboardingCompleted: {
+      type: EventType.USER_ONBOARDING_COMPLETED,
+      journey: 'user',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        completedSteps: ['profile', 'preferences', 'health-assessment', 'plan-selection'],
+        selectedJourneys: ['health', 'care', 'plan'],
+        duration: 300, // 5 minutes in seconds
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '3da7b810-9dad-11d1-80b4-00c04fd430c8',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        version: {
+          major: '1',
+          minor: '0',
+          patch: '0'
+        },
+        origin: {
+          service: 'user-service',
+          component: 'onboarding-manager'
+        }
+      }
+    }
+  },
+
+  /**
+   * Valid events with edge case values that should still pass validation
+   */
+  edgeCases: {
+    /**
+     * Valid health metric with minimum acceptable heart rate
+     */
+    minHeartRate: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 30, // Minimum acceptable heart rate
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '4da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Valid health metric with maximum acceptable heart rate
+     */
+    maxHeartRate: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 220, // Maximum acceptable heart rate
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '5da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Valid event with minimal metadata
+     */
+    minimalMetadata: {
+      type: EventType.USER_LOGIN,
+      journey: 'user',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        loginMethod: 'password',
+        deviceType: 'mobile',
+        loginAt: new Date().toISOString()
+      },
+      metadata: {
+        timestamp: new Date()
+      }
+    }
+  }
+};
+
+// ===== INVALID EVENT FIXTURES =====
+
+/**
+ * Collection of invalid event fixtures that should fail validation.
+ * These fixtures can be used as negative test cases for validation logic.
+ */
+export const invalidEvents = {
+  /**
+   * Events with missing required fields
+   */
+  missingRequiredFields: {
+    /**
+     * Missing event type
+     */
+    missingType: {
+      // type is missing
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '6da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Missing journey
+     */
+    missingJourney: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      // journey is missing
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '7da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Missing user ID
+     */
+    missingUserId: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      // userId is missing
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '8da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Missing data
+     */
+    missingData: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      // data is missing
+      metadata: {
+        eventId: '9da7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Missing metadata
+     */
+    missingMetadata: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
         timestamp: new Date().toISOString(),
         source: 'manual'
       }
-    ),
-    
+      // metadata is missing
+    },
+
     /**
-     * Valid blood pressure metric event
+     * Missing required field in data (health metric)
      */
-    bloodPressure: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'bloodPressure',
-        systolic: 120,
-        diastolic: 80,
-        unit: 'mmHg',
-        timestamp: new Date().toISOString(),
-        source: 'device',
-        deviceId: 'device-123'
-      }
-    ),
-    
-    /**
-     * Valid weight metric event
-     */
-    weight: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'weight',
-        value: 70.5,
-        unit: 'kg',
-        timestamp: new Date().toISOString(),
-        source: 'device',
-        deviceId: 'scale-123'
-      }
-    ),
-    
-    /**
-     * Valid steps metric event
-     */
-    steps: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'steps',
-        value: 8500,
-        unit: 'steps',
-        timestamp: new Date().toISOString(),
-        source: 'device',
-        deviceId: 'watch-123'
-      }
-    ),
-    
-    /**
-     * Valid blood glucose metric event
-     */
-    bloodGlucose: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'bloodGlucose',
-        value: 95,
-        unit: 'mg/dL',
-        timestamp: new Date().toISOString(),
-        source: 'device',
-        deviceId: 'glucose-meter-123'
-      }
-    ),
-    
-    /**
-     * Valid sleep metric event
-     */
-    sleep: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'sleep',
-        value: 7.5,
-        unit: 'hours',
-        timestamp: new Date().toISOString(),
-        source: 'device',
-        deviceId: 'watch-123',
-        sleepQuality: 'good'
-      }
-    )
-  };
-  
-  // Invalid Health Metric Events
-  export const invalidHealthMetricEvents = {
-    /**
-     * Missing metric type
-     */
-    missingMetricType: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
+    missingMetricType: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
         // metricType is missing
         value: 75,
         unit: 'bpm',
         timestamp: new Date().toISOString(),
         source: 'manual'
+      },
+      metadata: {
+        eventId: 'ada7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
       }
-    ),
-    
+    },
+
+    /**
+     * Missing required field in data (appointment)
+     */
+    missingAppointmentId: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        // appointmentId is missing
+        providerId: 'bda7b810-9dad-11d1-80b4-00c04fd430c8',
+        specialtyType: 'Cardiologia',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        bookedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'cda7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    }
+  },
+
+  /**
+   * Events with incorrect data types
+   */
+  incorrectDataTypes: {
+    /**
+     * Incorrect type for event type (number instead of string)
+     */
+    numericEventType: {
+      type: 123, // Should be a string
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'dda7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Incorrect type for user ID (number instead of UUID string)
+     */
+    numericUserId: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: 12345, // Should be a UUID string
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'eda7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Incorrect type for metric value (string instead of number)
+     */
+    stringMetricValue: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: '75', // Should be a number
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'fda7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Incorrect type for timestamp (Date object instead of ISO string)
+     */
+    dateObjectTimestamp: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date(), // Should be an ISO string
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '0ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Incorrect type for metadata (string instead of object)
+     */
+    stringMetadata: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: 'invalid metadata' // Should be an object
+    },
+
+    /**
+     * Incorrect type for array field (string instead of array)
+     */
+    stringInsteadOfArray: {
+      type: EventType.USER_ONBOARDING_COMPLETED,
+      journey: 'user',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        completedSteps: 'profile,preferences', // Should be an array
+        selectedJourneys: ['health', 'care', 'plan'],
+        duration: 300,
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '1ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    }
+  },
+
+  /**
+   * Events with values outside acceptable ranges
+   */
+  outOfRangeValues: {
+    /**
+     * Heart rate below minimum acceptable value
+     */
+    heartRateTooLow: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 20, // Below minimum of 30
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '2ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Heart rate above maximum acceptable value
+     */
+    heartRateTooHigh: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 250, // Above maximum of 220
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '3ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Negative steps count
+     */
+    negativeSteps: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.STEPS,
+        value: -100, // Should be non-negative
+        unit: 'steps',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '4ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Unrealistically high steps count
+     */
+    tooManySteps: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.STEPS,
+        value: 200000, // Above maximum of 100000
+        unit: 'steps',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '5ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Negative duration for telemedicine session
+     */
+    negativeDuration: {
+      type: EventType.CARE_TELEMEDICINE_COMPLETED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        sessionId: '6ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        appointmentId: '7ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: '8ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        startedAt: new Date(Date.now() - 1800000).toISOString(),
+        endedAt: new Date().toISOString(),
+        duration: -30, // Should be positive
+        quality: 'good'
+      },
+      metadata: {
+        eventId: '9ea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Progress percentage above 100%
+     */
+    progressTooHigh: {
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        goalId: 'aea7b810-9dad-11d1-80b4-00c04fd430c8',
+        goalType: HealthGoalType.STEPS_TARGET,
+        progressPercentage: 120, // Should be max 100
+        targetValue: 10000,
+        achievedValue: 12000,
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'bea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    }
+  },
+
+  /**
+   * Events with invalid relationships between fields
+   */
+  invalidRelationships: {
+    /**
+     * End time before start time
+     */
+    endBeforeStart: {
+      type: EventType.CARE_TELEMEDICINE_COMPLETED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        sessionId: 'cea7b810-9dad-11d1-80b4-00c04fd430c8',
+        appointmentId: 'dea7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: 'eea7b810-9dad-11d1-80b4-00c04fd430c8',
+        startedAt: new Date().toISOString(), // Now
+        endedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
+        duration: 30,
+        quality: 'good'
+      },
+      metadata: {
+        eventId: 'fea7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Appointment scheduled in the past
+     */
+    appointmentInPast: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        appointmentId: '0fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: '1fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        specialtyType: 'Cardiologia',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+        bookedAt: new Date().toISOString() // Now
+      },
+      metadata: {
+        eventId: '2fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Achieved value less than target value for goal
+     */
+    achievedLessThanTarget: {
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        goalId: '3fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        goalType: HealthGoalType.STEPS_TARGET,
+        targetValue: 10000,
+        achievedValue: 9000, // Less than target
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: '4fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Mismatched unit for metric type
+     */
+    mismatchedUnit: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'kg', // Should be 'bpm' for heart rate
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '5fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    }
+  },
+
+  /**
+   * Events with invalid enum values
+   */
+  invalidEnumValues: {
+    /**
+     * Invalid journey name
+     */
+    invalidJourney: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'invalid_journey', // Not a valid journey
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '6fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
+    /**
+     * Invalid event type
+     */
+    invalidEventType: {
+      type: 'INVALID_EVENT_TYPE', // Not a valid event type
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '7fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
+      }
+    },
+
     /**
      * Invalid metric type
      */
-    invalidMetricType: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'invalidType', // Invalid metric type
+    invalidMetricType: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: 'INVALID_METRIC', // Not a valid metric type
         value: 75,
         unit: 'bpm',
         timestamp: new Date().toISOString(),
         source: 'manual'
+      },
+      metadata: {
+        eventId: '8fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
       }
-    ),
-    
-    /**
-     * Missing value
-     */
-    missingValue: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        // value is missing
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Invalid value type (string instead of number)
-     */
-    invalidValueType: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: '75', // String instead of number
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Physiologically implausible value
-     */
-    implausibleValue: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 300, // Implausible heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Missing unit
-     */
-    missingUnit: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 75,
-        // unit is missing
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Invalid unit for metric type
-     */
-    invalidUnit: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 75,
-        unit: 'kg', // Invalid unit for heart rate
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Invalid timestamp format
-     */
-    invalidTimestamp: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 75,
-        unit: 'bpm',
-        timestamp: '2023-04-01', // Invalid ISO format
-        source: 'manual'
-      }
-    ),
-    
-    /**
-     * Invalid source
-     */
-    invalidSource: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'invalid' // Invalid source
-      }
-    ),
-    
-    /**
-     * Device ID required but missing
-     */
-    missingDeviceId: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'device' // Device source requires deviceId
-        // deviceId is missing
-      }
-    )
-  };
-  
-  // Valid Health Goal Events
-  export const validHealthGoalEvents = {
-    /**
-     * Valid steps goal event
-     */
-    stepsGoal: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 10000,
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Valid weight goal event
-     */
-    weightGoal: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-124',
-        type: 'weight',
-        target: 70,
-        current: 75,
-        unit: 'kg',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
-        frequency: 'weekly'
-      }
-    ),
-    
-    /**
-     * Valid exercise goal event
-     */
-    exerciseGoal: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-125',
-        type: 'exercise',
-        target: 150,
-        unit: 'minutes',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-        frequency: 'weekly'
-      }
-    ),
-    
-    /**
-     * Valid sleep goal event
-     */
-    sleepGoal: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-126',
-        type: 'sleep',
-        target: 8,
-        unit: 'hours',
-        startDate: new Date().toISOString(),
-        frequency: 'daily'
-      }
-    )
-  };
-  
-  // Invalid Health Goal Events
-  export const invalidHealthGoalEvents = {
-    /**
-     * Missing goal type
-     */
-    missingType: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        // type is missing
-        target: 10000,
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Invalid goal type
-     */
-    invalidType: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'invalidType', // Invalid goal type
-        target: 10000,
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Missing target value
-     */
-    missingTarget: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        // target is missing
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Invalid target value (too low)
-     */
-    targetTooLow: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 100, // Too low for steps goal
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Invalid target value (too high)
-     */
-    targetTooHigh: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 100000, // Too high for steps goal
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Missing start date
-     */
-    missingStartDate: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 10000,
-        unit: 'steps',
-        // startDate is missing
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * End date before start date
-     */
-    endDateBeforeStartDate: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 10000,
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days in the past
-        frequency: 'daily'
-      }
-    ),
-    
-    /**
-     * Invalid frequency
-     */
-    invalidFrequency: createBaseEvent<any>(
-      EventTypes.HEALTH_GOAL_CREATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        goalId: 'goal-123',
-        type: 'steps',
-        target: 10000,
-        unit: 'steps',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        frequency: 'invalid' // Invalid frequency
-      }
-    )
-  };
-  
-  // Valid Device Connection Events
-  export const validDeviceEvents = {
-    /**
-     * Valid smartwatch connection event
-     */
-    smartwatch: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'smartwatch',
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
-    /**
-     * Valid blood pressure monitor connection event
-     */
-    bloodPressureMonitor: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-124',
-        deviceType: 'bloodPressureMonitor',
-        manufacturer: 'Omron',
-        model: 'M7 Intelli IT',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['bloodPressure']
-      }
-    ),
-    
-    /**
-     * Valid smart scale connection event
-     */
-    smartScale: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-125',
-        deviceType: 'smartScale',
-        manufacturer: 'Withings',
-        model: 'Body+',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['weight', 'bodyFat']
-      }
-    )
-  };
-  
-  // Invalid Device Connection Events
-  export const invalidDeviceEvents = {
-    /**
-     * Missing device ID
-     */
-    missingDeviceId: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        // deviceId is missing
-        deviceType: 'smartwatch',
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
-    /**
-     * Missing device type
-     */
-    missingDeviceType: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        // deviceType is missing
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
+    },
+
     /**
      * Invalid device type
      */
-    invalidDeviceType: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'invalidType', // Invalid device type
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
+    invalidDeviceType: {
+      type: EventType.HEALTH_DEVICE_CONNECTED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        deviceId: '9fa7b810-9dad-11d1-80b4-00c04fd430c8',
+        deviceType: 'INVALID_DEVICE', // Not a valid device type
+        connectionMethod: 'oauth',
+        connectedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'afa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
       }
-    ),
-    
-    /**
-     * Missing manufacturer
-     */
-    missingManufacturer: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'smartwatch',
-        // manufacturer is missing
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
-    /**
-     * Missing model
-     */
-    missingModel: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'smartwatch',
-        manufacturer: 'Apple',
-        // model is missing
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
-    /**
-     * Invalid connection status
-     */
-    invalidConnectionStatus: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'smartwatch',
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'invalid', // Invalid connection status
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: ['heartRate', 'steps', 'sleep']
-      }
-    ),
-    
-    /**
-     * Invalid permissions format
-     */
-    invalidPermissionsFormat: createBaseEvent<any>(
-      EventTypes.HEALTH_DEVICE_CONNECTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        deviceId: 'device-123',
-        deviceType: 'smartwatch',
-        manufacturer: 'Apple',
-        model: 'Watch Series 7',
-        connectionStatus: 'connected',
-        lastSyncTimestamp: new Date().toISOString(),
-        permissions: 'all' // Should be an array
-      }
-    )
-  };
-}
+    },
 
-// ===================================================================
-// Care Journey Event Fixtures
-// ===================================================================
-
-export namespace CareEvents {
-  // Valid Appointment Events
-  export const validAppointmentEvents = {
     /**
-     * Valid in-person appointment booking event
+     * Invalid appointment status
      */
-    inPersonAppointment: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-        duration: 30, // 30 minutes
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
+    invalidAppointmentStatus: {
+      type: EventType.CARE_APPOINTMENT_COMPLETED,
+      journey: 'care',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        appointmentId: 'bfa7b810-9dad-11d1-80b4-00c04fd430c8',
+        providerId: 'cfa7b810-9dad-11d1-80b4-00c04fd430c8',
+        status: 'INVALID_STATUS', // Not a valid appointment status
+        completedAt: new Date().toISOString()
+      },
+      metadata: {
+        eventId: 'dfa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date()
       }
-    ),
-    
-    /**
-     * Valid video appointment booking event
-     */
-    videoAppointment: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-124',
-        providerId: 'provider-124',
-        specialization: 'Dermatologia',
-        appointmentType: 'video',
-        dateTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days from now
-        duration: 15, // 15 minutes
-        reason: 'Skin rash follow-up',
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Valid phone appointment booking event
-     */
-    phoneAppointment: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-125',
-        providerId: 'provider-125',
-        specialization: 'Psiquiatria',
-        appointmentType: 'phone',
-        dateTime: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day from now
-        duration: 45, // 45 minutes
-        reason: 'Medication review',
-        status: 'scheduled'
-      }
-    )
-  };
-  
-  // Invalid Appointment Events
-  export const invalidAppointmentEvents = {
-    /**
-     * Missing provider ID
-     */
-    missingProviderId: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        // providerId is missing
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Missing specialization
-     */
-    missingSpecialization: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        // specialization is missing
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Invalid appointment type
-     */
-    invalidAppointmentType: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'invalid', // Invalid appointment type
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Past appointment date
-     */
-    pastAppointmentDate: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days in the past
-        duration: 30,
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Invalid duration (too short)
-     */
-    durationTooShort: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 2, // Too short
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Invalid duration (too long)
-     */
-    durationTooLong: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 240, // Too long
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Missing reason
-     */
-    missingReason: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        // reason is missing
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Missing location for in-person appointment
-     */
-    missingLocation: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        reason: 'Annual checkup',
-        // location is missing but required for in-person
-        status: 'scheduled'
-      }
-    ),
-    
-    /**
-     * Invalid status
-     */
-    invalidStatus: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 30,
-        reason: 'Annual checkup',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'invalid' // Invalid status
-      }
-    )
-  };
-  
-  // Valid Medication Events
-  export const validMedicationEvents = {
-    /**
-     * Valid medication added event
-     */
-    medicationAdded: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Valid medication taken event
-     */
-    medicationTaken: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_TAKEN,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        timestamp: new Date().toISOString(),
-        takenOnSchedule: true,
-        dosageTaken: '20mg'
-      }
-    ),
-    
-    /**
-     * Valid medication missed event
-     */
-    medicationMissed: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_MISSED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        scheduledTime: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-        reportedTimestamp: new Date().toISOString(),
-        reason: 'Forgot to take'
-      }
-    )
-  };
-  
-  // Invalid Medication Events
-  export const invalidMedicationEvents = {
-    /**
-     * Missing medication name
-     */
-    missingName: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        // name is missing
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid dosage format
-     */
-    invalidDosage: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: '20mg', // Should be an object
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid dosage amount (negative)
-     */
-    negativeDosage: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: -20, // Negative amount
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid dosage unit
-     */
-    invalidDosageUnit: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'invalid' // Invalid unit
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid frequency format
-     */
-    invalidFrequency: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: 'once daily', // Should be an object
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid frequency period
-     */
-    invalidFrequencyPeriod: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'invalid' // Invalid period
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * Invalid schedule time format
-     */
-    invalidScheduleTime: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '8pm', // Invalid time format
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    ),
-    
-    /**
-     * End date before start date
-     */
-    endDateBeforeStartDate: createBaseEvent<any>(
-      EventTypes.CARE_MEDICATION_ADDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        medicationId: 'med-123',
-        name: 'Atorvastatin',
-        dosage: {
-          amount: 20,
-          unit: 'mg'
-        },
-        frequency: {
-          times: 1,
-          period: 'day'
-        },
-        schedule: [
-          {
-            time: '20:00',
-            taken: false
-          }
-        ],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days in the past
-        instructions: 'Take with food',
-        prescribedBy: 'provider-123',
-        refillReminder: true
-      }
-    )
-  };
-  
-  // Valid Telemedicine Events
-  export const validTelemedicineEvents = {
-    /**
-     * Valid telemedicine session started event
-     */
-    sessionStarted: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        providerId: 'provider-123',
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'in-progress',
-        sessionType: 'video',
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'good'
-        }
-      }
-    ),
-    
-    /**
-     * Valid telemedicine session completed event
-     */
-    sessionCompleted: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        appointmentId: 'appt-123',
-        endTime: new Date().toISOString(),
-        duration: 15, // 15 minutes
-        connectionQuality: 'excellent'
-      }
-    )
-  };
-  
-  // Invalid Telemedicine Events
-  export const invalidTelemedicineEvents = {
-    /**
-     * Missing session ID
-     */
-    missingSessionId: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        // sessionId is missing
-        providerId: 'provider-123',
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'in-progress',
-        sessionType: 'video',
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'good'
-        }
-      }
-    ),
-    
-    /**
-     * Missing provider ID
-     */
-    missingProviderId: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        // providerId is missing
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'in-progress',
-        sessionType: 'video',
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'good'
-        }
-      }
-    ),
-    
-    /**
-     * Invalid session type
-     */
-    invalidSessionType: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        providerId: 'provider-123',
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'in-progress',
-        sessionType: 'invalid', // Invalid session type
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'good'
-        }
-      }
-    ),
-    
-    /**
-     * Invalid status
-     */
-    invalidStatus: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        providerId: 'provider-123',
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'invalid', // Invalid status
-        sessionType: 'video',
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'good'
-        }
-      }
-    ),
-    
-    /**
-     * Invalid connection quality
-     */
-    invalidConnectionQuality: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_STARTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        providerId: 'provider-123',
-        appointmentId: 'appt-123',
-        startTime: new Date().toISOString(),
-        status: 'in-progress',
-        sessionType: 'video',
-        technicalDetails: {
-          platform: 'Web',
-          browserInfo: 'Chrome 100.0.4896.127',
-          deviceInfo: 'Windows 10',
-          connectionQuality: 'invalid' // Invalid connection quality
-        }
-      }
-    ),
-    
-    /**
-     * Missing duration in completed event
-     */
-    missingDuration: createBaseEvent<any>(
-      EventTypes.CARE_TELEMEDICINE_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        sessionId: 'session-123',
-        appointmentId: 'appt-123',
-        endTime: new Date().toISOString(),
-        // duration is missing
-        connectionQuality: 'excellent'
-      }
-    )
-  };
-}
-
-// ===================================================================
-// Plan Journey Event Fixtures
-// ===================================================================
-
-export namespace PlanEvents {
-  // Valid Claim Events
-  export const validClaimEvents = {
-    /**
-     * Valid claim submission event
-     */
-    claimSubmitted: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Valid claim status update event
-     */
-    claimStatusUpdated: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_STATUS_UPDATED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        previousStatus: 'submitted',
-        newStatus: 'approved',
-        updateTimestamp: new Date().toISOString(),
-        reason: 'All documentation verified'
-      }
-    )
-  };
-  
-  // Invalid Claim Events
-  export const invalidClaimEvents = {
-    /**
-     * Missing service date
-     */
-    missingServiceDate: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        // serviceDate is missing
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Missing provider name
-     */
-    missingProviderName: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        // providerName is missing
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Missing service type
-     */
-    missingServiceType: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        // serviceType is missing
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Invalid amount format
-     */
-    invalidAmountFormat: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: 250.00, // Should be an object
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Negative amount
-     */
-    negativeAmount: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: -250.00, // Negative amount
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Invalid currency
-     */
-    invalidCurrency: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'XXX' // Invalid currency code
-        },
-        status: 'submitted',
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Invalid status
-     */
-    invalidStatus: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'invalid', // Invalid status
-        documents: [
-          {
-            documentId: 'doc-123',
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    ),
-    
-    /**
-     * Missing document ID in documents
-     */
-    missingDocumentId: createBaseEvent<any>(
-      EventTypes.PLAN_CLAIM_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        claimId: 'claim-123',
-        serviceDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        providerName: 'Dr. João Silva',
-        providerId: 'provider-123',
-        serviceType: 'Consulta Médica',
-        diagnosisCodes: ['J00'],
-        procedureCodes: ['99213'],
-        amount: {
-          total: 250.00,
-          covered: 200.00,
-          patientResponsibility: 50.00,
-          currency: 'BRL'
-        },
-        status: 'submitted',
-        documents: [
-          {
-            // documentId is missing
-            documentType: 'receipt',
-            uploadDate: new Date().toISOString()
-          }
-        ],
-        notes: 'Regular checkup'
-      }
-    )
-  };
-  
-  // Valid Benefit Events
-  export const validBenefitEvents = {
-    /**
-     * Valid benefit utilization event
-     */
-    benefitUtilized: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFIT_UTILIZED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitId: 'benefit-123',
-        benefitType: 'consultation',
-        category: 'medical',
-        utilizationTimestamp: new Date().toISOString(),
-        providerId: 'provider-123',
-        savingsAmount: 150.00
-      }
-    ),
-    
-    /**
-     * Valid benefits viewed event
-     */
-    benefitsViewed: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFITS_VIEWED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitCategories: ['medical', 'dental', 'vision'],
-        planId: 'plan-123',
-        viewTimestamp: new Date().toISOString(),
-        viewDuration: 120 // 2 minutes
-      }
-    )
-  };
-  
-  // Invalid Benefit Events
-  export const invalidBenefitEvents = {
-    /**
-     * Missing benefit type
-     */
-    missingBenefitType: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFIT_UTILIZED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitId: 'benefit-123',
-        // benefitType is missing
-        category: 'medical',
-        utilizationTimestamp: new Date().toISOString(),
-        providerId: 'provider-123',
-        savingsAmount: 150.00
-      }
-    ),
-    
-    /**
-     * Invalid benefit category
-     */
-    invalidCategory: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFIT_UTILIZED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitId: 'benefit-123',
-        benefitType: 'consultation',
-        category: 'invalid', // Invalid category
-        utilizationTimestamp: new Date().toISOString(),
-        providerId: 'provider-123',
-        savingsAmount: 150.00
-      }
-    ),
-    
-    /**
-     * Missing utilization timestamp
-     */
-    missingTimestamp: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFIT_UTILIZED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitId: 'benefit-123',
-        benefitType: 'consultation',
-        category: 'medical',
-        // utilizationTimestamp is missing
-        providerId: 'provider-123',
-        savingsAmount: 150.00
-      }
-    ),
-    
-    /**
-     * Negative savings amount
-     */
-    negativeSavings: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFIT_UTILIZED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitId: 'benefit-123',
-        benefitType: 'consultation',
-        category: 'medical',
-        utilizationTimestamp: new Date().toISOString(),
-        providerId: 'provider-123',
-        savingsAmount: -150.00 // Negative amount
-      }
-    ),
-    
-    /**
-     * Empty benefit categories array
-     */
-    emptyCategories: createBaseEvent<any>(
-      EventTypes.PLAN_BENEFITS_VIEWED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        benefitCategories: [], // Empty array
-        planId: 'plan-123',
-        viewTimestamp: new Date().toISOString(),
-        viewDuration: 120
-      }
-    )
-  };
-  
-  // Valid Plan Selection Events
-  export const validPlanEvents = {
-    /**
-     * Valid plan comparison event
-     */
-    planComparison: createBaseEvent<any>(
-      EventTypes.PLAN_COMPARISON_PERFORMED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        planIds: ['plan-123', 'plan-124', 'plan-125'],
-        comparisonTimestamp: new Date().toISOString(),
-        comparisonDuration: 300, // 5 minutes
-        selectedPlanId: 'plan-124'
-      }
-    ),
-    
-    /**
-     * Valid coverage viewed event
-     */
-    coverageViewed: createBaseEvent<any>(
-      EventTypes.PLAN_COVERAGE_VIEWED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        coverageType: 'medical',
-        planId: 'plan-123',
-        viewTimestamp: new Date().toISOString(),
-        viewDuration: 60 // 1 minute
-      }
-    )
-  };
-  
-  // Invalid Plan Selection Events
-  export const invalidPlanEvents = {
-    /**
-     * Empty plan IDs array
-     */
-    emptyPlanIds: createBaseEvent<any>(
-      EventTypes.PLAN_COMPARISON_PERFORMED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        planIds: [], // Empty array
-        comparisonTimestamp: new Date().toISOString(),
-        comparisonDuration: 300,
-        selectedPlanId: 'plan-124'
-      }
-    ),
-    
-    /**
-     * Selected plan not in compared plans
-     */
-    invalidSelectedPlan: createBaseEvent<any>(
-      EventTypes.PLAN_COMPARISON_PERFORMED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        planIds: ['plan-123', 'plan-124', 'plan-125'],
-        comparisonTimestamp: new Date().toISOString(),
-        comparisonDuration: 300,
-        selectedPlanId: 'plan-999' // Not in the compared plans
-      }
-    ),
-    
-    /**
-     * Missing coverage type
-     */
-    missingCoverageType: createBaseEvent<any>(
-      EventTypes.PLAN_COVERAGE_VIEWED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        // coverageType is missing
-        planId: 'plan-123',
-        viewTimestamp: new Date().toISOString(),
-        viewDuration: 60
-      }
-    ),
-    
-    /**
-     * Invalid coverage type
-     */
-    invalidCoverageType: createBaseEvent<any>(
-      EventTypes.PLAN_COVERAGE_VIEWED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'plan',
-      {
-        coverageType: 'invalid', // Invalid coverage type
-        planId: 'plan-123',
-        viewTimestamp: new Date().toISOString(),
-        viewDuration: 60
-      }
-    )
-  };
-}
-
-// ===================================================================
-// Cross-Journey Event Fixtures
-// ===================================================================
-
-export namespace CrossJourneyEvents {
-  // Valid Cross-Journey Events
-  export const validCrossJourneyEvents = {
-    /**
-     * Valid profile completed event
-     */
-    profileCompleted: createBaseEvent<any>(
-      EventTypes.USER_PROFILE_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      null, // No specific journey
-      {
-        completionTimestamp: new Date().toISOString(),
-        completedSections: ['personal', 'medical', 'insurance', 'preferences'],
-        profileCompleteness: 100
-      }
-    ),
-    
-    /**
-     * Valid journey onboarding completed event
-     */
-    onboardingCompleted: createBaseEvent<any>(
-      EventTypes.JOURNEY_ONBOARDING_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health', // Specific journey
-      {
-        journeyType: 'health',
-        completionTimestamp: new Date().toISOString(),
-        completedSteps: ['intro', 'goals', 'devices', 'notifications']
-      }
-    ),
-    
-    /**
-     * Valid feedback submitted event
-     */
-    feedbackSubmitted: createBaseEvent<any>(
-      EventTypes.USER_FEEDBACK_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care', // Specific journey
-      {
-        feedbackId: 'feedback-123',
-        featureType: 'appointment-booking',
-        journeyType: 'care',
-        rating: 4,
-        comments: 'Easy to use but could be faster',
-        submissionTimestamp: new Date().toISOString()
-      }
-    )
-  };
-  
-  // Invalid Cross-Journey Events
-  export const invalidCrossJourneyEvents = {
-    /**
-     * Missing completed sections
-     */
-    missingCompletedSections: createBaseEvent<any>(
-      EventTypes.USER_PROFILE_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      null,
-      {
-        completionTimestamp: new Date().toISOString(),
-        // completedSections is missing
-        profileCompleteness: 100
-      }
-    ),
-    
-    /**
-     * Invalid profile completeness (over 100%)
-     */
-    invalidCompleteness: createBaseEvent<any>(
-      EventTypes.USER_PROFILE_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      null,
-      {
-        completionTimestamp: new Date().toISOString(),
-        completedSections: ['personal', 'medical', 'insurance', 'preferences'],
-        profileCompleteness: 110 // Over 100%
-      }
-    ),
-    
-    /**
-     * Journey mismatch (journey in payload doesn't match journey in event)
-     */
-    journeyMismatch: createBaseEvent<any>(
-      EventTypes.JOURNEY_ONBOARDING_COMPLETED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        journeyType: 'care', // Mismatch with event journey
-        completionTimestamp: new Date().toISOString(),
-        completedSteps: ['intro', 'goals', 'devices', 'notifications']
-      }
-    ),
-    
-    /**
-     * Invalid rating (out of range)
-     */
-    invalidRating: createBaseEvent<any>(
-      EventTypes.USER_FEEDBACK_SUBMITTED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        feedbackId: 'feedback-123',
-        featureType: 'appointment-booking',
-        journeyType: 'care',
-        rating: 6, // Out of range (should be 1-5)
-        comments: 'Easy to use but could be faster',
-        submissionTimestamp: new Date().toISOString()
-      }
-    )
-  };
-}
-
-// ===================================================================
-// Base Event Validation Fixtures
-// ===================================================================
-
-/**
- * Valid base events for testing basic validation
- */
-export const validBaseEvents = {
-  /**
-   * Minimal valid event with all required fields
-   */
-  minimal: createBaseEvent<any>(
-    EventTypes.HEALTH_METRIC_RECORDED,
-    '123e4567-e89b-12d3-a456-426614174000',
-    'health',
-    { metricType: 'heartRate', value: 75 }
-  ),
-  
-  /**
-   * Complete valid event with all fields
-   */
-  complete: createBaseEvent<any>(
-    EventTypes.HEALTH_METRIC_RECORDED,
-    '123e4567-e89b-12d3-a456-426614174000',
-    'health',
-    {
-      metricType: 'heartRate',
-      value: 75,
-      unit: 'bpm',
-      timestamp: new Date().toISOString(),
-      source: 'manual'
     }
-  )
-};
+  },
 
-/**
- * Invalid base events for testing basic validation failures
- */
-export const invalidBaseEvents = {
   /**
-   * Missing event type
+   * Events with invalid metadata
    */
-  missingType: createInvalidBaseEvent({ type: undefined }),
-  
-  /**
-   * Empty event type
-   */
-  emptyType: createInvalidBaseEvent({ type: '' }),
-  
-  /**
-   * Missing user ID
-   */
-  missingUserId: createInvalidBaseEvent({ userId: undefined }),
-  
-  /**
-   * Invalid user ID format (not a UUID)
-   */
-  invalidUserId: createInvalidBaseEvent({ userId: 'not-a-uuid' }),
-  
-  /**
-   * Missing data
-   */
-  missingData: createInvalidBaseEvent({ data: undefined }),
-  
-  /**
-   * Invalid data (not an object)
-   */
-  invalidData: createInvalidBaseEvent({ data: 'not-an-object' }),
-  
-  /**
-   * Invalid journey
-   */
-  invalidJourney: createInvalidBaseEvent({ journey: 'invalid-journey' }),
-  
-  /**
-   * Missing timestamp
-   */
-  missingTimestamp: createInvalidBaseEvent({ timestamp: undefined }),
-  
-  /**
-   * Invalid timestamp format
-   */
-  invalidTimestamp: createInvalidBaseEvent({ timestamp: '2023-04-01' }) // Not ISO format
-};
+  invalidMetadata: {
+    /**
+     * Invalid event ID (not a UUID)
+     */
+    invalidEventId: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'not-a-uuid', // Not a valid UUID
+        timestamp: new Date()
+      }
+    },
 
-// ===================================================================
-// Validation Categories
-// ===================================================================
+    /**
+     * Invalid timestamp (string instead of Date)
+     */
+    invalidTimestamp: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'efa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: 'not-a-date' // Should be a Date object
+      }
+    },
 
-/**
- * Events organized by validation failure category for testing specific validation rules
- */
-export const validationCategories = {
-  /**
-   * Required field validation failures
-   */
-  requiredFields: {
-    missingType: invalidBaseEvents.missingType,
-    missingUserId: invalidBaseEvents.missingUserId,
-    missingData: invalidBaseEvents.missingData,
-    missingTimestamp: invalidBaseEvents.missingTimestamp,
-    missingMetricType: HealthEvents.invalidHealthMetricEvents.missingMetricType,
-    missingValue: HealthEvents.invalidHealthMetricEvents.missingValue,
-    missingProviderId: CareEvents.invalidAppointmentEvents.missingProviderId,
-    missingServiceDate: PlanEvents.invalidClaimEvents.missingServiceDate
-  },
-  
-  /**
-   * Data type validation failures
-   */
-  dataTypes: {
-    invalidUserId: invalidBaseEvents.invalidUserId,
-    invalidData: invalidBaseEvents.invalidData,
-    invalidTimestamp: invalidBaseEvents.invalidTimestamp,
-    invalidValueType: HealthEvents.invalidHealthMetricEvents.invalidValueType,
-    invalidDosage: CareEvents.invalidMedicationEvents.invalidDosage,
-    invalidAmountFormat: PlanEvents.invalidClaimEvents.invalidAmountFormat
-  },
-  
-  /**
-   * Enum/constant validation failures
-   */
-  enumValidation: {
-    invalidJourney: invalidBaseEvents.invalidJourney,
-    invalidMetricType: HealthEvents.invalidHealthMetricEvents.invalidMetricType,
-    invalidSource: HealthEvents.invalidHealthMetricEvents.invalidSource,
-    invalidAppointmentType: CareEvents.invalidAppointmentEvents.invalidAppointmentType,
-    invalidStatus: CareEvents.invalidAppointmentEvents.invalidStatus,
-    invalidSessionType: CareEvents.invalidTelemedicineEvents.invalidSessionType,
-    invalidCategory: PlanEvents.invalidBenefitEvents.invalidCategory,
-    invalidCoverageType: PlanEvents.invalidPlanEvents.invalidCoverageType
-  },
-  
-  /**
-   * Range validation failures
-   */
-  rangeValidation: {
-    implausibleValue: HealthEvents.invalidHealthMetricEvents.implausibleValue,
-    targetTooLow: HealthEvents.invalidHealthGoalEvents.targetTooLow,
-    targetTooHigh: HealthEvents.invalidHealthGoalEvents.targetTooHigh,
-    durationTooShort: CareEvents.invalidAppointmentEvents.durationTooShort,
-    durationTooLong: CareEvents.invalidAppointmentEvents.durationTooLong,
-    negativeDosage: CareEvents.invalidMedicationEvents.negativeDosage,
-    negativeAmount: PlanEvents.invalidClaimEvents.negativeAmount,
-    negativeSavings: PlanEvents.invalidBenefitEvents.negativeSavings,
-    invalidRating: CrossJourneyEvents.invalidCrossJourneyEvents.invalidRating
-  },
-  
-  /**
-   * Format validation failures
-   */
-  formatValidation: {
-    invalidTimestamp: invalidBaseEvents.invalidTimestamp,
-    invalidUnit: HealthEvents.invalidHealthMetricEvents.invalidUnit,
-    invalidDosageUnit: CareEvents.invalidMedicationEvents.invalidDosageUnit,
-    invalidScheduleTime: CareEvents.invalidMedicationEvents.invalidScheduleTime,
-    invalidCurrency: PlanEvents.invalidClaimEvents.invalidCurrency,
-    invalidPermissionsFormat: HealthEvents.invalidDeviceEvents.invalidPermissionsFormat
-  },
-  
-  /**
-   * Logical validation failures
-   */
-  logicalValidation: {
-    endDateBeforeStartDate: HealthEvents.invalidHealthGoalEvents.endDateBeforeStartDate,
-    pastAppointmentDate: CareEvents.invalidAppointmentEvents.pastAppointmentDate,
-    endDateBeforeStartDate: CareEvents.invalidMedicationEvents.endDateBeforeStartDate,
-    journeyMismatch: CrossJourneyEvents.invalidCrossJourneyEvents.journeyMismatch,
-    invalidSelectedPlan: PlanEvents.invalidPlanEvents.invalidSelectedPlan,
-    missingLocation: CareEvents.invalidAppointmentEvents.missingLocation
-  },
-  
-  /**
-   * Dependency validation failures (when one field depends on another)
-   */
-  dependencyValidation: {
-    missingDeviceId: HealthEvents.invalidHealthMetricEvents.missingDeviceId,
-    missingLocation: CareEvents.invalidAppointmentEvents.missingLocation,
-    missingDuration: CareEvents.invalidTelemedicineEvents.missingDuration,
-    emptyCategories: PlanEvents.invalidBenefitEvents.emptyCategories,
-    emptyPlanIds: PlanEvents.invalidPlanEvents.emptyPlanIds
+    /**
+     * Invalid version format
+     */
+    invalidVersionFormat: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: 'ffa7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date(),
+        version: {
+          major: 'one', // Should be a numeric string
+          minor: '0',
+          patch: '0'
+        }
+      }
+    },
+
+    /**
+     * Missing required field in origin
+     */
+    missingServiceInOrigin: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '550e8400-e29b-41d4-a716-446655440000',
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual'
+      },
+      metadata: {
+        eventId: '00a7b810-9dad-11d1-80b4-00c04fd430c8',
+        timestamp: new Date(),
+        origin: {
+          // service is missing
+          component: 'metric-processor'
+        }
+      }
+    }
   }
 };
 
-// ===================================================================
-// Boundary Test Cases
-// ===================================================================
+/**
+ * Helper function to create a valid event with custom overrides.
+ * Useful for creating test cases with specific variations.
+ * 
+ * @param baseEvent The base event to start with
+ * @param overrides Properties to override in the base event
+ * @returns A new event with the specified overrides
+ */
+export function createEventWithOverrides(baseEvent: any, overrides: any): any {
+  return {
+    ...JSON.parse(JSON.stringify(baseEvent)), // Deep clone
+    ...overrides,
+    // Handle nested overrides
+    data: overrides.data ? { ...baseEvent.data, ...overrides.data } : baseEvent.data,
+    metadata: overrides.metadata ? { ...baseEvent.metadata, ...overrides.metadata } : baseEvent.metadata
+  };
+}
 
 /**
- * Boundary test cases for testing edge conditions
+ * Helper function to create a batch of events for testing batch validation.
+ * 
+ * @param count Number of events to create
+ * @param baseEvent Base event to use as a template
+ * @param modifierFn Optional function to modify each event
+ * @returns Array of events
  */
-export const boundaryTestCases = {
-  /**
-   * Minimum valid values
-   */
-  minimumValues: {
-    heartRate: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 30, // Minimum valid heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    appointmentDuration: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 5, // Minimum valid duration
-        reason: 'Quick check',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    )
-  },
+export function createEventBatch(count: number, baseEvent: any, modifierFn?: (event: any, index: number) => any): any[] {
+  const batch = [];
   
-  /**
-   * Maximum valid values
-   */
-  maximumValues: {
-    heartRate: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 220, // Maximum valid heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
+  for (let i = 0; i < count; i++) {
+    const event = JSON.parse(JSON.stringify(baseEvent)); // Deep clone
     
-    appointmentDuration: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 180, // Maximum valid duration
-        reason: 'Comprehensive evaluation',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    )
-  },
-  
-  /**
-   * Just below minimum values (invalid)
-   */
-  belowMinimumValues: {
-    heartRate: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 29, // Just below minimum valid heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
+    // Generate a unique event ID for each event
+    if (event.metadata && event.metadata.eventId) {
+      event.metadata.eventId = `batch-${i}-${Date.now()}`;
+    }
     
-    appointmentDuration: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 4, // Just below minimum valid duration
-        reason: 'Quick check',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    )
-  },
-  
-  /**
-   * Just above maximum values (invalid)
-   */
-  aboveMaximumValues: {
-    heartRate: createBaseEvent<any>(
-      EventTypes.HEALTH_METRIC_RECORDED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'health',
-      {
-        metricType: 'heartRate',
-        value: 221, // Just above maximum valid heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-    ),
-    
-    appointmentDuration: createBaseEvent<any>(
-      EventTypes.CARE_APPOINTMENT_BOOKED,
-      '123e4567-e89b-12d3-a456-426614174000',
-      'care',
-      {
-        appointmentId: 'appt-123',
-        providerId: 'provider-123',
-        specialization: 'Cardiologia',
-        appointmentType: 'in-person',
-        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        duration: 181, // Just above maximum valid duration
-        reason: 'Comprehensive evaluation',
-        location: {
-          address: 'Av. Paulista, 1000',
-          city: 'São Paulo',
-          state: 'SP',
-          zipCode: '01310-100',
-          country: 'Brazil'
-        },
-        status: 'scheduled'
-      }
-    )
+    // Apply custom modifications if provided
+    if (modifierFn) {
+      const modifiedEvent = modifierFn(event, i);
+      batch.push(modifiedEvent);
+    } else {
+      batch.push(event);
+    }
   }
-};
+  
+  return batch;
+}
