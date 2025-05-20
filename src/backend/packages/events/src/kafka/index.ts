@@ -1,30 +1,41 @@
 /**
- * Kafka module for the AUSTA SuperApp.
+ * Kafka integration module for the AUSTA SuperApp.
  * 
- * This module provides services and utilities for event-driven communication
- * between microservices using Apache Kafka.
+ * This module provides a robust implementation of Kafka for event streaming
+ * between microservices, with support for:
+ * - Type-safe event production and consumption
+ * - Schema validation
+ * - Dead-letter queues
+ * - Retry mechanisms with exponential backoff
+ * - Distributed tracing
+ * - Journey-specific event processing
  * 
  * @module kafka
  */
 
-// Export the main module and service
-export * from './kafka.module';
-export * from './kafka.service';
+// Export the Kafka module
+export { KafkaModule } from './kafka.module';
 
-// Re-export interfaces and types
-export * from '../interfaces/kafka-message.interface';
-export * from '../interfaces/kafka-options.interface';
+// Export the Kafka service
+export { KafkaService } from './kafka.service';
 
-// Re-export errors
-export * from '../errors/kafka.errors';
-
-// Re-export constants
-export * from '../constants/topics.constants';
-export * from '../constants/errors.constants';
-export * from '../constants/tokens.constants';
-
-// Re-export schema registry
-export * from '../schema/schema-registry.service';
+// Re-export interfaces
+export { KafkaModuleOptions } from '../interfaces/kafka-options.interface';
+export { KafkaMessage } from '../interfaces/kafka-message.interface';
 
 // Re-export DTOs
-export * from '../dto/event-metadata.dto';
+export { EventMetadataDto, EventVersionDto } from '../dto/event-metadata.dto';
+
+// Re-export errors
+export {
+  KafkaError,
+  EventValidationError,
+  ProducerError,
+  ConsumerError,
+  MessageSerializationError,
+} from '../errors/kafka.errors';
+
+// Re-export constants
+export { ERROR_CODES, ERROR_MESSAGES } from '../constants/errors.constants';
+export { TOPICS } from '../constants/topics.constants';
+export { KAFKA_MODULE_OPTIONS, EVENT_SCHEMA_REGISTRY } from '../constants/tokens.constants';
