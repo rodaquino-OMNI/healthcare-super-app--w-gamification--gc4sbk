@@ -1,470 +1,308 @@
 /**
- * Factory functions for creating mock Kafka messages with appropriate structure for testing.
- * This file provides utilities to generate KafkaJS-compatible message objects with headers,
- * key, value, topic, partition, and timestamp. These mock messages can be used for both
- * producer and consumer testing.
+ * Mock Kafka Message Factory
+ * 
+ * This file provides factory functions for creating KafkaJS-compatible message objects
+ * for testing purposes. These mock messages can be used for both producer and consumer testing.
  */
 
 import { randomUUID } from 'crypto';
-import { mockJsonSerializer } from './mock-serializers';
 
 /**
- * Interface representing a KafkaJS message header
+ * Interface for Kafka message headers
  */
-export interface KafkaMessageHeaders {
-  [key: string]: Buffer;
+export interface IHeaders {
+  [key: string]: Buffer | string | undefined;
 }
 
 /**
- * Interface representing a KafkaJS message
+ * Interface for a Kafka message
  */
 export interface KafkaMessage {
-  /** Message key */
-  key: Buffer | string | null;
-  /** Message value/payload */
-  value: Buffer | string | null;
-  /** Message headers as key-value pairs */
-  headers: KafkaMessageHeaders;
-  /** Topic the message belongs to */
-  topic?: string;
-  /** Partition number */
-  partition?: number;
-  /** Message timestamp in milliseconds */
-  timestamp?: string;
-  /** Message offset in the partition */
-  offset?: string;
-  /** Whether this is a control record */
-  isControlRecord?: boolean;
-  /** Message attributes */
-  attributes?: number;
-  /** Kafka protocol version indicator */
-  magicByte?: number;
-  /** Batch context for the message */
-  batchContext?: Record<string, any>;
-}
-
-/**
- * Interface for batch context information
- */
-export interface BatchContext {
-  /** First timestamp in the batch */
-  firstTimestamp: string;
-  /** Maximum timestamp in the batch */
-  maxTimestamp: string;
-  /** Producer ID */
-  producerId: string;
-  /** Producer epoch */
-  producerEpoch: number;
-  /** First sequence in the batch */
-  firstSequence: number;
-  /** Base sequence */
-  baseSequence: number;
-  /** Batch size */
-  batchSize: number;
-  /** Partition leader epoch */
-  partitionLeaderEpoch: number;
-  /** Whether the batch is a control batch */
-  isControlBatch: boolean;
-}
-
-/**
- * Options for creating mock Kafka messages
- */
-export interface MockKafkaMessageOptions {
-  /** Message key */
   key?: Buffer | string | null;
-  /** Message value/payload */
-  value?: Buffer | string | null;
-  /** Message headers */
-  headers?: Record<string, string | Buffer>;
-  /** Topic the message belongs to */
-  topic?: string;
-  /** Partition number */
+  value: Buffer | string | null;
   partition?: number;
-  /** Message timestamp in milliseconds */
-  timestamp?: string | number;
-  /** Message offset in the partition */
-  offset?: string | number;
-  /** Whether to include tracing information in headers */
-  includeTracing?: boolean;
-  /** Correlation ID for tracing */
-  correlationId?: string;
-  /** Whether this is a control record */
-  isControlRecord?: boolean;
-  /** Message attributes */
+  offset?: string;
+  timestamp?: string;
+  size?: number;
   attributes?: number;
-  /** Kafka protocol version indicator */
-  magicByte?: number;
-  /** Batch context for the message */
-  batchContext?: Partial<BatchContext>;
+  headers?: IHeaders;
 }
 
 /**
- * Default options for mock Kafka messages
+ * Interface for a batch of Kafka messages
  */
-const DEFAULT_MESSAGE_OPTIONS: MockKafkaMessageOptions = {
-  key: null,
-  value: null,
-  headers: {},
-  topic: 'test-topic',
-  partition: 0,
-  timestamp: Date.now().toString(),
-  offset: '0',
-  includeTracing: true,
-  correlationId: randomUUID(),
-  isControlRecord: false,
-  attributes: 0,
-  magicByte: 2,
-};
+export interface KafkaBatch {
+  topic: string;
+  partition: number;
+  highWatermark?: string;
+  messages: KafkaMessage[];
+}
 
 /**
- * Creates a mock Kafka message with the specified options
+ * Interface for a Kafka message with error information
+ */
+export interface KafkaMessageWithError extends KafkaMessage {
+  errorCode?: number;
+  errorMessage?: string;
+}
+
+/**
+ * Creates a basic Kafka message with default values
  * 
- * @param options - Options for the mock message
+ * @param value - The message value
+ * @param key - Optional message key
  * @returns A KafkaJS-compatible message object
  */
-export function createMockKafkaMessage(options: MockKafkaMessageOptions = {}): KafkaMessage {
-  const opts = { ...DEFAULT_MESSAGE_OPTIONS, ...options };
-  
-  // Convert timestamp to string if it's a number
-  if (typeof opts.timestamp === 'number') {
-    opts.timestamp = opts.timestamp.toString();
-  }
-  
-  // Convert offset to string if it's a number
-  if (typeof opts.offset === 'number') {
-    opts.offset = opts.offset.toString();
-  }
-  
-  // Convert header values to Buffer
-  const headers: KafkaMessageHeaders = {};
-  if (opts.headers) {
-    for (const [key, value] of Object.entries(opts.headers)) {
-      headers[key] = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8');
-    }
-  }
-  
-  // Add tracing information to headers if requested
-  if (opts.includeTracing) {
-    const correlationId = opts.correlationId || randomUUID();
-    headers['correlation-id'] = Buffer.from(correlationId, 'utf8');
-    headers['trace-id'] = Buffer.from(randomUUID(), 'utf8');
-    headers['span-id'] = Buffer.from(randomUUID(), 'utf8');
-    headers['timestamp'] = Buffer.from(Date.now().toString(), 'utf8');
-  }
-  
-  // Create batch context if not provided
-  const batchContext: BatchContext = {
-    firstTimestamp: opts.timestamp || Date.now().toString(),
-    maxTimestamp: opts.timestamp || Date.now().toString(),
-    producerId: '1',
-    producerEpoch: 0,
-    firstSequence: 0,
-    baseSequence: 0,
-    batchSize: 1,
-    partitionLeaderEpoch: 0,
-    isControlBatch: false,
-    ...opts.batchContext,
+export function createMockMessage(value: string | Buffer | null, key?: string | Buffer | null): KafkaMessage {
+  return {
+    key: key || null,
+    value: value,
+    timestamp: new Date().toISOString(),
+    offset: '0',
+    size: typeof value === 'string' ? Buffer.from(value).length : (value ? value.length : 0),
+    attributes: 0,
+    headers: {},
   };
+}
+
+/**
+ * Creates a Kafka message with specified headers
+ * 
+ * @param value - The message value
+ * @param headers - Message headers as key-value pairs
+ * @param key - Optional message key
+ * @returns A KafkaJS-compatible message object with headers
+ */
+export function createMockMessageWithHeaders(
+  value: string | Buffer | null,
+  headers: Record<string, string | Buffer>,
+  key?: string | Buffer | null
+): KafkaMessage {
+  return {
+    ...createMockMessage(value, key),
+    headers: headers,
+  };
+}
+
+/**
+ * Creates a Kafka message with tracing information in headers
+ * 
+ * @param value - The message value
+ * @param key - Optional message key
+ * @param traceId - Optional trace ID (generates a random UUID if not provided)
+ * @param spanId - Optional span ID (generates a random UUID if not provided)
+ * @returns A KafkaJS-compatible message object with tracing headers
+ */
+export function createMockMessageWithTracing(
+  value: string | Buffer | null,
+  key?: string | Buffer | null,
+  traceId?: string,
+  spanId?: string
+): KafkaMessage {
+  const actualTraceId = traceId || randomUUID();
+  const actualSpanId = spanId || randomUUID();
+  
+  return createMockMessageWithHeaders(
+    value,
+    {
+      'x-trace-id': actualTraceId,
+      'x-span-id': actualSpanId,
+      'x-timestamp': new Date().toISOString(),
+    },
+    key
+  );
+}
+
+/**
+ * Creates a batch of Kafka messages
+ * 
+ * @param topic - The Kafka topic
+ * @param partition - The partition number
+ * @param messages - Array of message values
+ * @param keys - Optional array of message keys (must match messages length if provided)
+ * @returns A KafkaJS-compatible batch object
+ */
+export function createMockBatch(
+  topic: string,
+  partition: number,
+  messages: (string | Buffer | null)[],
+  keys?: (string | Buffer | null)[]
+): KafkaBatch {
+  return {
+    topic,
+    partition,
+    highWatermark: String(messages.length),
+    messages: messages.map((value, index) => {
+      const key = keys ? keys[index] : null;
+      return createMockMessage(value, key);
+    }),
+  };
+}
+
+/**
+ * Creates a batch of Kafka messages with tracing information
+ * 
+ * @param topic - The Kafka topic
+ * @param partition - The partition number
+ * @param messages - Array of message values
+ * @param keys - Optional array of message keys
+ * @returns A KafkaJS-compatible batch object with tracing headers
+ */
+export function createMockBatchWithTracing(
+  topic: string,
+  partition: number,
+  messages: (string | Buffer | null)[],
+  keys?: (string | Buffer | null)[]
+): KafkaBatch {
+  const traceId = randomUUID(); // Same trace ID for all messages in batch
   
   return {
-    key: opts.key,
-    value: opts.value,
-    headers,
-    topic: opts.topic,
-    partition: opts.partition,
-    timestamp: opts.timestamp,
-    offset: opts.offset,
-    isControlRecord: opts.isControlRecord,
-    attributes: opts.attributes,
-    magicByte: opts.magicByte,
-    batchContext,
+    topic,
+    partition,
+    highWatermark: String(messages.length),
+    messages: messages.map((value, index) => {
+      const key = keys ? keys[index] : null;
+      const spanId = randomUUID(); // Unique span ID for each message
+      return createMockMessageWithTracing(value, key, traceId, spanId);
+    }),
   };
 }
 
 /**
- * Creates a mock Kafka message with a string key and value
+ * Creates a Kafka message with error information
  * 
- * @param key - The message key
  * @param value - The message value
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object
+ * @param errorCode - The error code
+ * @param errorMessage - The error message
+ * @param key - Optional message key
+ * @returns A KafkaJS-compatible message object with error information
  */
-export function createMockStringMessage(
-  key: string,
-  value: string,
-  options: MockKafkaMessageOptions = {}
-): KafkaMessage {
-  return createMockKafkaMessage({
-    key,
-    value,
-    ...options,
-  });
+export function createMockMessageWithError(
+  value: string | Buffer | null,
+  errorCode: number,
+  errorMessage: string,
+  key?: string | Buffer | null
+): KafkaMessageWithError {
+  return {
+    ...createMockMessage(value, key),
+    errorCode,
+    errorMessage,
+  };
 }
 
 /**
- * Creates a mock Kafka message with a JSON object as the value
+ * Creates a serialized JSON Kafka message
  * 
- * @param value - The JSON object to use as the message value
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with serialized JSON value
+ * @param data - The data object to serialize
+ * @param key - Optional message key
+ * @returns A KafkaJS-compatible message with JSON serialized value
  */
-export function createMockJsonMessage<T = Record<string, any>>(
-  value: T,
-  options: MockKafkaMessageOptions = {}
+export function createMockJsonMessage<T>(
+  data: T,
+  key?: string | Buffer | null
 ): KafkaMessage {
-  const serialized = JSON.stringify(value);
-  return createMockKafkaMessage({
-    value: serialized,
-    headers: { 'content-type': 'application/json', ...options.headers },
-    ...options,
-  });
+  return createMockMessage(JSON.stringify(data), key);
 }
 
 /**
- * Creates a mock Kafka message with a serialized value using the provided serializer
+ * Creates a serialized JSON Kafka message with schema version in headers
  * 
- * @param value - The value to serialize
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with serialized value
+ * @param data - The data object to serialize
+ * @param schemaVersion - The schema version
+ * @param key - Optional message key
+ * @returns A KafkaJS-compatible message with JSON serialized value and schema version header
  */
-export function createMockSerializedMessage<T = Record<string, any>>(
-  value: T,
-  options: MockKafkaMessageOptions = {}
+export function createMockVersionedJsonMessage<T>(
+  data: T,
+  schemaVersion: string,
+  key?: string | Buffer | null
 ): KafkaMessage {
-  const serializationResult = mockJsonSerializer(value);
-  
-  if (!serializationResult.success || !serializationResult.data) {
-    throw new Error(`Failed to serialize message: ${serializationResult.error}`);
+  return createMockMessageWithHeaders(
+    JSON.stringify(data),
+    { 'schema-version': schemaVersion },
+    key
+  );
+}
+
+/**
+ * Deserializes a mock Kafka message value as JSON
+ * 
+ * @param message - The Kafka message
+ * @returns The deserialized JSON object
+ */
+export function deserializeMockJsonMessage<T>(message: KafkaMessage): T {
+  if (!message.value) {
+    throw new Error('Message value is null or undefined');
   }
   
-  return createMockKafkaMessage({
-    value: serializationResult.data,
-    headers: { 'content-type': 'application/json', ...options.headers },
-    ...options,
-  });
-}
-
-/**
- * Creates a batch of mock Kafka messages
- * 
- * @param count - The number of messages to create
- * @param baseOptions - Base options for all messages in the batch
- * @param valueGenerator - Function to generate values for each message
- * @returns An array of KafkaJS-compatible message objects
- */
-export function createMockMessageBatch(
-  count: number,
-  baseOptions: MockKafkaMessageOptions = {},
-  valueGenerator?: (index: number) => any
-): KafkaMessage[] {
-  const messages: KafkaMessage[] = [];
-  const batchId = randomUUID();
-  const timestamp = Date.now();
+  const valueStr = typeof message.value === 'string' 
+    ? message.value 
+    : message.value.toString('utf-8');
   
-  for (let i = 0; i < count; i++) {
-    const value = valueGenerator ? valueGenerator(i) : `message-${i}`;
-    
-    messages.push(
-      createMockKafkaMessage({
-        ...baseOptions,
-        value: typeof value === 'string' ? value : JSON.stringify(value),
-        offset: (baseOptions.offset ? Number(baseOptions.offset) : 0) + i,
-        timestamp: timestamp + i,
-        headers: {
-          ...baseOptions.headers,
-          'batch-id': batchId,
-          'batch-index': i.toString(),
-        },
-      })
-    );
-  }
-  
-  return messages;
+  return JSON.parse(valueStr) as T;
 }
 
 /**
- * Creates a mock Kafka message with a binary (Buffer) value
+ * Creates a mock Kafka message for a specific journey
  * 
- * @param value - The binary data to use as the message value
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with binary value
+ * @param journey - The journey name ('health', 'care', or 'plan')
+ * @param eventType - The event type
+ * @param payload - The event payload
+ * @param userId - The user ID
+ * @returns A KafkaJS-compatible message for the specified journey
  */
-export function createMockBinaryMessage(
-  value: Buffer | Uint8Array,
-  options: MockKafkaMessageOptions = {}
-): KafkaMessage {
-  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
-  
-  return createMockKafkaMessage({
-    value: buffer,
-    headers: { 'content-type': 'application/octet-stream', ...options.headers },
-    ...options,
-  });
-}
-
-/**
- * Creates a mock Kafka message for testing error scenarios
- * 
- * @param errorType - The type of error to simulate
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object configured for the error scenario
- */
-export function createMockErrorMessage(
-  errorType: 'invalid-key' | 'invalid-value' | 'missing-required-header' | 'corrupt-data' | 'schema-validation',
-  options: MockKafkaMessageOptions = {}
-): KafkaMessage {
-  switch (errorType) {
-    case 'invalid-key':
-      return createMockKafkaMessage({
-        key: Buffer.from([0xFF, 0xFE, 0xFD]), // Invalid UTF-8 sequence
-        value: 'test-value',
-        ...options,
-      });
-      
-    case 'invalid-value':
-      return createMockKafkaMessage({
-        key: 'test-key',
-        value: Buffer.from([0xFF, 0xFE, 0xFD]), // Invalid UTF-8 sequence
-        ...options,
-      });
-      
-    case 'missing-required-header':
-      // Create message without tracing headers
-      return createMockKafkaMessage({
-        key: 'test-key',
-        value: 'test-value',
-        includeTracing: false,
-        ...options,
-      });
-      
-    case 'corrupt-data':
-      // Create message with corrupt JSON
-      return createMockKafkaMessage({
-        key: 'test-key',
-        value: '{"corrupted":true,',
-        headers: { 'content-type': 'application/json', ...options.headers },
-        ...options,
-      });
-      
-    case 'schema-validation':
-      // Create message that will fail schema validation
-      return createMockKafkaMessage({
-        key: 'test-key',
-        value: JSON.stringify({ invalidField: 'value' }),
-        headers: { 
-          'content-type': 'application/json', 
-          'schema-version': '1.0.0',
-          ...options.headers 
-        },
-        ...options,
-      });
-      
-    default:
-      throw new Error(`Unknown error type: ${errorType}`);
-  }
-}
-
-/**
- * Creates a mock Kafka message with journey-specific event data
- * 
- * @param journey - The journey identifier
- * @param eventType - The type of event
- * @param eventData - The event data
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with journey event data
- */
-export function createMockJourneyEventMessage(
+export function createMockJourneyMessage(
   journey: 'health' | 'care' | 'plan',
   eventType: string,
-  eventData: Record<string, any>,
-  options: MockKafkaMessageOptions = {}
+  payload: Record<string, any>,
+  userId: string
 ): KafkaMessage {
-  const eventPayload = {
-    id: randomUUID(),
-    type: eventType,
-    userId: options.headers?.['user-id'] ? options.headers['user-id'].toString() : randomUUID(),
+  const eventData = {
+    eventId: randomUUID(),
     timestamp: new Date().toISOString(),
+    type: eventType,
     journey,
-    version: '1.0.0',
-    data: eventData,
+    userId,
+    payload,
   };
   
-  return createMockJsonMessage(eventPayload, {
-    topic: `${journey}-events`,
-    headers: {
-      'event-type': eventType,
-      'journey': journey,
-      ...options.headers,
+  return createMockMessageWithHeaders(
+    JSON.stringify(eventData),
+    {
+      'x-journey': journey,
+      'x-event-type': eventType,
+      'x-user-id': userId,
     },
-    ...options,
-  });
+    userId
+  );
 }
 
 /**
- * Creates a mock Kafka message with versioned event data for backward compatibility testing
+ * Creates a mock Kafka message that will fail schema validation
  * 
- * @param journey - The journey identifier
- * @param eventType - The type of event
- * @param eventData - The event data
- * @param version - The event schema version
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with versioned event data
+ * @param journey - The journey name
+ * @param eventType - The event type
+ * @param missingFields - Fields to omit from the standard schema
+ * @returns A KafkaJS-compatible message that will fail schema validation
  */
-export function createMockVersionedEventMessage(
+export function createMockInvalidSchemaMessage(
   journey: 'health' | 'care' | 'plan',
   eventType: string,
-  eventData: Record<string, any>,
-  version: string,
-  options: MockKafkaMessageOptions = {}
+  missingFields: string[]
 ): KafkaMessage {
-  const eventPayload = {
-    id: randomUUID(),
-    type: eventType,
-    userId: options.headers?.['user-id'] ? options.headers['user-id'].toString() : randomUUID(),
+  const eventData: Record<string, any> = {
+    eventId: randomUUID(),
     timestamp: new Date().toISOString(),
+    type: eventType,
     journey,
-    version,
-    data: eventData,
+    userId: randomUUID(),
+    payload: {},
   };
   
-  return createMockJsonMessage(eventPayload, {
-    topic: `${journey}-events`,
-    headers: {
-      'event-type': eventType,
-      'journey': journey,
-      'schema-version': version,
-      ...options.headers,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a mock Kafka message with tracing context for distributed tracing testing
- * 
- * @param parentTraceId - The parent trace ID
- * @param parentSpanId - The parent span ID
- * @param options - Additional options for the mock message
- * @returns A KafkaJS-compatible message object with tracing context
- */
-export function createMockTracedMessage(
-  parentTraceId: string,
-  parentSpanId: string,
-  options: MockKafkaMessageOptions = {}
-): KafkaMessage {
-  const spanId = randomUUID();
+  // Remove specified fields to make the message invalid
+  for (const field of missingFields) {
+    delete eventData[field];
+  }
   
-  return createMockKafkaMessage({
-    ...options,
-    includeTracing: false, // We'll add our own tracing headers
-    headers: {
-      'trace-id': parentTraceId,
-      'parent-span-id': parentSpanId,
-      'span-id': spanId,
-      'sampled': '1',
-      'timestamp': Date.now().toString(),
-      ...options.headers,
-    },
-  });
+  return createMockMessage(JSON.stringify(eventData));
 }
