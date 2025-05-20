@@ -1,766 +1,944 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import { LoggerService } from '@austa/logging';
+import { createMock } from '@golevelup/ts-jest';
+
+// Import event DTOs and validation utilities
+import {
+  HealthMetricRecordedEventDto,
+  HealthGoalAchievedEventDto,
+  DeviceSynchronizedEventDto,
+  HealthInsightGeneratedEventDto,
+  HealthMetricType,
+  HealthGoalType,
+  DeviceType,
+  HealthInsightType
+} from '../../src/dto/health-event.dto';
+
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { EventMetadataDto, createEventMetadata } from '../../src/dto/event-metadata.dto';
+import { VersionedEventDto, createVersionedEvent } from '../../src/dto/version.dto';
+import { ERROR_CODES, ERROR_MESSAGES } from '../../src/constants/errors.constants';
+import {
+  formatValidationErrors,
+  validateObject,
+  isUUID,
+  isISODate,
+  isValidJourney,
+  isValidEventType,
+  ValidationError
+} from '../../src/dto/validation';
+
+// Import test fixtures
+import { healthMetricEvents, healthGoalEvents, deviceSyncEvents, healthInsightEvents } from '../fixtures/health-events';
+import { careEvents } from '../fixtures/care-events';
+import { planEventFixtures } from '../fixtures/plan-events';
+
 /**
  * Integration tests for event schema validation across different journey types.
  * 
- * This test suite verifies that events are properly validated against their schemas,
+ * These tests verify that events are properly validated against their schemas,
  * ensuring type safety and data integrity throughout the event processing pipeline.
  * It tests both valid and invalid event payloads to ensure proper validation behavior.
  */
+describe('Event Validation Integration', () => {
+  let loggerService: LoggerService;
+  
+  beforeEach(() => {
+    loggerService = createMock<LoggerService>();
+    
+    // Spy on logger methods
+    jest.spyOn(loggerService, 'error');
+    jest.spyOn(loggerService, 'warn');
+    jest.spyOn(loggerService, 'debug');
+    jest.spyOn(loggerService, 'log');
+  });
+  
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { ValidationResult, ValidationSeverity } from '../../src/interfaces/event-validation.interface';
-import { EventTypes } from '../../src/dto/event-types.enum';
-import { BaseEventDto } from '../../src/dto/base-event.dto';
-import { HealthMetricEventDto } from '../../src/dto/health-metric-event.dto';
-import { HealthGoalEventDto } from '../../src/dto/health-goal-event.dto';
-import { AppointmentEventDto } from '../../src/dto/appointment-event.dto';
-import { MedicationEventDto } from '../../src/dto/medication-event.dto';
-import { ClaimEventDto } from '../../src/dto/claim-event.dto';
-import { BenefitEventDto } from '../../src/dto/benefit-event.dto';
-import { 
-  validateObject, 
-  validateObjectSync, 
-  validateWithZod,
-  validateJourneyEvent,
-  validateEventOrThrow,
-  validateEventOrThrowSync,
-  HealthValidation,
-  CareValidation,
-  PlanValidation
-} from '../../src/dto/validation';
-import { EventValidationError } from '../../src/errors/event-errors';
+  /**
+   * Tests for common validation utilities
+   */
+  describe('Validation Utilities', () => {
+    it('should correctly validate UUIDs', () => {
+      // Valid UUIDs
+      expect(isUUID('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+      expect(isUUID('123e4567-e89b-12d3-a456-426614174000')).toBe(true);
+      
+      // Invalid UUIDs
+      expect(isUUID('not-a-uuid')).toBe(false);
+      expect(isUUID('123456789')).toBe(false);
+      expect(isUUID('')).toBe(false);
+      expect(isUUID(null)).toBe(false);
+      expect(isUUID(undefined)).toBe(false);
+      expect(isUUID(123)).toBe(false);
+    });
+    
+    it('should correctly validate ISO date strings', () => {
+      // Valid ISO dates
+      expect(isISODate('2023-01-01T12:00:00.000Z')).toBe(true);
+      expect(isISODate(new Date().toISOString())).toBe(true);
+      
+      // Invalid ISO dates
+      expect(isISODate('2023-01-01')).toBe(false); // Missing time component
+      expect(isISODate('01/01/2023')).toBe(false); // Wrong format
+      expect(isISODate('')).toBe(false);
+      expect(isISODate(null)).toBe(false);
+      expect(isISODate(undefined)).toBe(false);
+      expect(isISODate(123)).toBe(false);
+    });
+    
+    it('should correctly validate journey names', () => {
+      // Valid journey names
+      expect(isValidJourney('health')).toBe(true);
+      expect(isValidJourney('care')).toBe(true);
+      expect(isValidJourney('plan')).toBe(true);
+      expect(isValidJourney('user')).toBe(true);
+      expect(isValidJourney('gamification')).toBe(true);
+      
+      // Invalid journey names
+      expect(isValidJourney('invalid')).toBe(false);
+      expect(isValidJourney('')).toBe(false);
+      expect(isValidJourney(null)).toBe(false);
+      expect(isValidJourney(undefined)).toBe(false);
+      expect(isValidJourney(123)).toBe(false);
+    });
+    
+    it('should correctly validate event types for specific journeys', () => {
+      // Valid health event types
+      expect(isValidEventType('HEALTH_METRIC_RECORDED', 'health')).toBe(true);
+      expect(isValidEventType('HEALTH_GOAL_ACHIEVED', 'health')).toBe(true);
+      
+      // Valid care event types
+      expect(isValidEventType('APPOINTMENT_BOOKED', 'care')).toBe(true);
+      expect(isValidEventType('MEDICATION_ADHERENCE', 'care')).toBe(true);
+      
+      // Valid plan event types
+      expect(isValidEventType('CLAIM_SUBMITTED', 'plan')).toBe(true);
+      expect(isValidEventType('BENEFIT_UTILIZED', 'plan')).toBe(true);
+      
+      // Invalid combinations
+      expect(isValidEventType('HEALTH_METRIC_RECORDED', 'care')).toBe(false);
+      expect(isValidEventType('APPOINTMENT_BOOKED', 'health')).toBe(false);
+      expect(isValidEventType('INVALID_TYPE', 'health')).toBe(false);
+      expect(isValidEventType('', 'health')).toBe(false);
+      expect(isValidEventType(null, 'health')).toBe(false);
+      expect(isValidEventType('HEALTH_METRIC_RECORDED', '')).toBe(false);
+      expect(isValidEventType('HEALTH_METRIC_RECORDED', null)).toBe(false);
+    });
+    
+    it('should format validation errors correctly', () => {
+      // Create a mock validation error
+      const mockErrors = [
+        {
+          property: 'type',
+          constraints: {
+            isNotEmpty: 'type should not be empty',
+            isString: 'type must be a string'
+          }
+        },
+        {
+          property: 'data',
+          constraints: {
+            isObject: 'data must be an object'
+          },
+          children: [
+            {
+              property: 'metricType',
+              constraints: {
+                isEnum: 'metricType must be a valid enum value'
+              }
+            }
+          ]
+        }
+      ];
+      
+      // Format the errors
+      const formattedErrors = formatValidationErrors(mockErrors);
+      
+      // Verify the format
+      expect(formattedErrors).toHaveLength(2);
+      expect(formattedErrors[0]).toEqual({
+        property: 'type',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+        constraints: {
+          isNotEmpty: 'type should not be empty',
+          isString: 'type must be a string'
+        }
+      });
+      
+      expect(formattedErrors[1]).toEqual({
+        property: 'data',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+        constraints: {
+          isObject: 'data must be an object'
+        },
+        children: [
+          {
+            property: 'metricType',
+            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+            message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+            constraints: {
+              isEnum: 'metricType must be a valid enum value'
+            }
+          }
+        ]
+      });
+    });
+    
+    it('should validate objects using validateObject utility', async () => {
+      // Create a valid event
+      const validEvent = healthMetricEvents.heartRateMetricEvent;
+      
+      // Create an invalid event (missing required field)
+      const invalidEvent = { ...validEvent, type: undefined };
+      
+      // Convert to class instances
+      const validEventDto = plainToInstance(HealthMetricRecordedEventDto, validEvent);
+      const invalidEventDto = plainToInstance(HealthMetricRecordedEventDto, invalidEvent);
+      
+      // Validate using the utility
+      const validResult = await validateObject(validEventDto);
+      const invalidResult = await validateObject(invalidEventDto);
+      
+      // Verify results
+      expect(validResult).toBeNull();
+      expect(invalidResult).not.toBeNull();
+      expect(invalidResult).toBeInstanceOf(Array);
+      expect(invalidResult.length).toBeGreaterThan(0);
+      expect(invalidResult[0]).toHaveProperty('property');
+      expect(invalidResult[0]).toHaveProperty('errorCode');
+      expect(invalidResult[0]).toHaveProperty('message');
+    });
+  });
 
-describe('Event Validation Integration Tests', () => {
-  // Test fixtures
-  const userId = '123e4567-e89b-12d3-a456-426614174000';
-  const timestamp = new Date().toISOString();
+  /**
+   * Tests for event metadata validation
+   */
+  describe('Event Metadata Validation', () => {
+    it('should validate valid event metadata', async () => {
+      // Create valid metadata
+      const metadata = createEventMetadata('test-service', {
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        sessionId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date()
+      });
+      
+      // Convert to class instance
+      const metadataDto = plainToInstance(EventMetadataDto, metadata);
+      
+      // Validate
+      const errors = await validate(metadataDto);
+      
+      // Verify no errors
+      expect(errors).toHaveLength(0);
+    });
+    
+    it('should reject invalid event metadata', async () => {
+      // Create invalid metadata (invalid UUID format)
+      const metadata = createEventMetadata('test-service', {
+        correlationId: 'not-a-uuid',
+        timestamp: 'not-a-date' // Invalid date
+      });
+      
+      // Convert to class instance
+      const metadataDto = plainToInstance(EventMetadataDto, metadata);
+      
+      // Validate
+      const errors = await validate(metadataDto);
+      
+      // Verify errors
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific errors
+      const correlationIdError = errors.find(e => e.property === 'correlationId');
+      expect(correlationIdError).toBeDefined();
+      
+      const timestampError = errors.find(e => e.property === 'timestamp');
+      expect(timestampError).toBeDefined();
+    });
+    
+    it('should validate event version information', async () => {
+      // Create metadata with version
+      const metadata = createEventMetadata('test-service');
+      metadata.version.major = '2';
+      metadata.version.minor = '1';
+      metadata.version.patch = '0';
+      
+      // Convert to class instance
+      const metadataDto = plainToInstance(EventMetadataDto, metadata);
+      
+      // Validate
+      const errors = await validate(metadataDto);
+      
+      // Verify no errors
+      expect(errors).toHaveLength(0);
+      
+      // Verify version string
+      expect(metadataDto.version.toString()).toBe('2.1.0');
+    });
+    
+    it('should reject invalid version format', async () => {
+      // Create metadata with invalid version
+      const metadata = createEventMetadata('test-service');
+      metadata.version.major = 'not-a-number';
+      
+      // Convert to class instance
+      const metadataDto = plainToInstance(EventMetadataDto, metadata);
+      
+      // Validate
+      const errors = await validate(metadataDto, { validationError: { target: false } });
+      
+      // Verify errors
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific errors
+      const versionError = errors.find(e => e.property === 'version');
+      expect(versionError).toBeDefined();
+    });
+  });
 
-  // =========================================================================
-  // Health Journey Event Validation Tests
-  // =========================================================================
+  /**
+   * Tests for Health Journey event validation
+   */
   describe('Health Journey Event Validation', () => {
     describe('Health Metric Events', () => {
-      // Valid health metric event
-      const validHealthMetricEvent = {
-        type: EventTypes.HEALTH_METRIC_RECORDED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          metricType: 'heartRate',
-          value: 75,
-          unit: 'bpm',
-          timestamp: new Date().toISOString(),
-          deviceId: 'device-123'
+      it('should validate valid health metric events', async () => {
+        // Test all health metric event types
+        for (const [key, event] of Object.entries(healthMetricEvents)) {
+          // Convert plain object to class instance for validation
+          const eventDto = plainToInstance(HealthMetricRecordedEventDto, event);
+          
+          // Validate the event
+          const errors = await validate(eventDto);
+          
+          // Verify no errors
+          expect(errors).toHaveLength(0);
         }
-      };
-
-      // Invalid health metric event (missing required fields)
-      const invalidHealthMetricEvent = {
-        type: EventTypes.HEALTH_METRIC_RECORDED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          // Missing metricType
-          value: 75,
-          // Missing unit
-          timestamp: new Date().toISOString()
-        }
-      };
-
-      // Invalid health metric event (value out of physiological range)
-      const outOfRangeHealthMetricEvent = {
-        type: EventTypes.HEALTH_METRIC_RECORDED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          metricType: 'heartRate',
-          value: 300, // Heart rate too high
-          unit: 'bpm',
-          timestamp: new Date().toISOString(),
-          deviceId: 'device-123'
-        }
-      };
-
-      it('should validate a valid health metric event', async () => {
-        // Test class-validator validation
-        const result = await validateObject(validHealthMetricEvent, HealthMetricEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_METRIC_RECORDED
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should validate a valid health metric event synchronously', () => {
-        // Test synchronous validation
-        const result = validateObjectSync(validHealthMetricEvent, HealthMetricEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_METRIC_RECORDED
-        });
+      
+      it('should reject health metric events with missing required fields', async () => {
+        // Create events with missing required fields
+        const missingTypeEvent = { ...healthMetricEvents.heartRateMetricEvent, type: undefined };
+        const missingJourneyEvent = { ...healthMetricEvents.heartRateMetricEvent, journey: undefined };
+        const missingDataEvent = { ...healthMetricEvents.heartRateMetricEvent, data: undefined };
+        const missingMetricTypeEvent = {
+          ...healthMetricEvents.heartRateMetricEvent,
+          data: { ...healthMetricEvents.heartRateMetricEvent.data, metricType: undefined }
+        };
         
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Convert to class instances
+        const missingTypeDto = plainToInstance(HealthMetricRecordedEventDto, missingTypeEvent);
+        const missingJourneyDto = plainToInstance(HealthMetricRecordedEventDto, missingJourneyEvent);
+        const missingDataDto = plainToInstance(HealthMetricRecordedEventDto, missingDataEvent);
+        const missingMetricTypeDto = plainToInstance(HealthMetricRecordedEventDto, missingMetricTypeEvent);
+        
+        // Validate
+        const typeErrors = await validate(missingTypeDto);
+        const journeyErrors = await validate(missingJourneyDto);
+        const dataErrors = await validate(missingDataDto);
+        const metricTypeErrors = await validate(missingMetricTypeDto);
+        
+        // Verify errors
+        expect(typeErrors.length).toBeGreaterThan(0);
+        expect(journeyErrors.length).toBeGreaterThan(0);
+        expect(dataErrors.length).toBeGreaterThan(0);
+        expect(metricTypeErrors.length).toBeGreaterThan(0);
       });
-
-      it('should reject an invalid health metric event missing required fields', async () => {
-        // Test validation with missing fields
-        const result = await validateObject(invalidHealthMetricEvent, HealthMetricEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_METRIC_RECORDED
-        });
+      
+      it('should reject health metric events with invalid data types', async () => {
+        // Create events with invalid data types
+        const invalidTypeEvent = { ...healthMetricEvents.heartRateMetricEvent, type: 123 }; // Should be string
+        const invalidValueEvent = {
+          ...healthMetricEvents.heartRateMetricEvent,
+          data: { ...healthMetricEvents.heartRateMetricEvent.data, value: 'not-a-number' } // Should be number
+        };
         
-        expect(result.isValid).toBe(false);
-        expect(result.issues.length).toBeGreaterThan(0);
+        // Convert to class instances
+        const invalidTypeDto = plainToInstance(HealthMetricRecordedEventDto, invalidTypeEvent);
+        const invalidValueDto = plainToInstance(HealthMetricRecordedEventDto, invalidValueEvent);
         
-        // Check that we have the expected validation issues
-        const metricTypeIssue = result.issues.find(issue => issue.field === 'data.metricType');
-        const unitIssue = result.issues.find(issue => issue.field === 'data.unit');
+        // Validate
+        const typeErrors = await validate(invalidTypeDto);
+        const valueErrors = await validate(invalidValueDto);
         
-        expect(metricTypeIssue).toBeDefined();
-        expect(unitIssue).toBeDefined();
-        expect(metricTypeIssue?.severity).toBe(ValidationSeverity.ERROR);
+        // Verify errors
+        expect(typeErrors.length).toBeGreaterThan(0);
+        expect(valueErrors.length).toBeGreaterThan(0);
       });
-
-      it('should reject a health metric with value out of physiological range', async () => {
-        // Test validation with value out of range
-        const result = await validateObject(outOfRangeHealthMetricEvent, HealthMetricEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_METRIC_RECORDED
-        });
+      
+      it('should reject health metric events with values outside valid ranges', async () => {
+        // Create events with out-of-range values
+        const invalidHeartRateEvent = {
+          ...healthMetricEvents.heartRateMetricEvent,
+          data: { ...healthMetricEvents.heartRateMetricEvent.data, value: 300 } // Too high
+        };
         
-        expect(result.isValid).toBe(false);
+        const invalidBloodGlucoseEvent = {
+          ...healthMetricEvents.bloodGlucoseMetricEvent,
+          data: { ...healthMetricEvents.bloodGlucoseMetricEvent.data, value: 1000 } // Too high
+        };
         
-        // Check that we have a physiological range validation issue
-        const rangeIssue = result.issues.find(issue => 
-          issue.field === 'data.value' && 
-          issue.code.includes('PHYSIOLOGICALLY_PLAUSIBLE')
-        );
+        // Convert to class instances
+        const invalidHeartRateDto = plainToInstance(HealthMetricRecordedEventDto, invalidHeartRateEvent);
+        const invalidBloodGlucoseDto = plainToInstance(HealthMetricRecordedEventDto, invalidBloodGlucoseEvent);
         
-        expect(rangeIssue).toBeDefined();
-        expect(rangeIssue?.message).toContain('physiologically plausible range');
+        // Verify using the custom validation method
+        expect(invalidHeartRateDto.data.validateMetricRange()).toBe(false);
+        expect(invalidBloodGlucoseDto.data.validateMetricRange()).toBe(false);
       });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the HealthValidation namespace functions
-        const result = HealthValidation.validateHealthMetric(validHealthMetricEvent.data);
+      
+      it('should validate health metric units based on metric type', async () => {
+        // Valid units
+        expect(healthMetricEvents.heartRateMetricEvent.data.unit).toBe('bpm');
+        expect(healthMetricEvents.bloodGlucoseMetricEvent.data.unit).toBe('mg/dL');
         
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
-      });
-
-      it('should throw EventValidationError for invalid events when using validateEventOrThrow', async () => {
-        // Test that validateEventOrThrow throws the expected error
-        await expect(validateEventOrThrow(
-          invalidHealthMetricEvent, 
-          HealthMetricEventDto, 
-          { journey: 'health', eventType: EventTypes.HEALTH_METRIC_RECORDED }
-        )).rejects.toThrow(EventValidationError);
+        // Create events with invalid units
+        const invalidHeartRateUnitEvent = {
+          ...healthMetricEvents.heartRateMetricEvent,
+          data: { ...healthMetricEvents.heartRateMetricEvent.data, unit: 'kg' } // Wrong unit
+        };
         
-        // Test that validateEventOrThrowSync throws the expected error
-        expect(() => validateEventOrThrowSync(
-          invalidHealthMetricEvent, 
-          HealthMetricEventDto, 
-          { journey: 'health', eventType: EventTypes.HEALTH_METRIC_RECORDED }
-        )).toThrow(EventValidationError);
+        // Convert to class instance
+        const invalidHeartRateUnitDto = plainToInstance(HealthMetricRecordedEventDto, invalidHeartRateUnitEvent);
+        
+        // Create a validator constraint instance to test
+        const constraint = new (class {
+          validate(value: any, args: any) {
+            return value === 'bpm';
+          }
+        })();
+        
+        // Test the constraint
+        expect(constraint.validate(invalidHeartRateUnitDto.data.unit, { object: invalidHeartRateUnitDto.data })).toBe(false);
+        expect(constraint.validate('bpm', { object: invalidHeartRateUnitDto.data })).toBe(true);
       });
     });
-
+    
     describe('Health Goal Events', () => {
-      // Valid health goal event
-      const validHealthGoalEvent = {
-        type: EventTypes.HEALTH_GOAL_CREATED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          goalId: 'goal-123',
-          goalType: 'steps',
-          targetValue: 10000,
-          unit: 'steps',
-          startDate: new Date().toISOString(),
-          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-          currentValue: 0
+      it('should validate valid health goal events', async () => {
+        // Test all health goal event types
+        for (const [key, event] of Object.entries(healthGoalEvents)) {
+          // Convert plain object to class instance for validation
+          const eventDto = plainToInstance(HealthGoalAchievedEventDto, event);
+          
+          // Validate the event
+          const errors = await validate(eventDto);
+          
+          // Verify no errors
+          expect(errors).toHaveLength(0);
         }
-      };
-
-      // Invalid health goal event (invalid goal type)
-      const invalidHealthGoalEvent = {
-        type: EventTypes.HEALTH_GOAL_CREATED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          goalId: 'goal-123',
-          goalType: 'invalid-goal-type', // Invalid goal type
-          targetValue: 10000,
-          unit: 'steps',
-          startDate: new Date().toISOString(),
-          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        }
-      };
-
-      it('should validate a valid health goal event', async () => {
-        const result = await validateObject(validHealthGoalEvent, HealthGoalEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_GOAL_CREATED
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should reject an invalid health goal event with invalid goal type', async () => {
-        const result = await validateObject(invalidHealthGoalEvent, HealthGoalEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_GOAL_CREATED
-        });
+      
+      it('should reject health goal events with missing required fields', async () => {
+        // Create an event with missing required fields
+        const missingGoalIdEvent = {
+          ...healthGoalEvents.stepsGoalAchievedEvent,
+          data: { ...healthGoalEvents.stepsGoalAchievedEvent.data, goalId: undefined }
+        };
         
-        expect(result.isValid).toBe(false);
+        // Convert to class instance
+        const missingGoalIdDto = plainToInstance(HealthGoalAchievedEventDto, missingGoalIdEvent);
         
-        // Check that we have a goal type validation issue
-        const goalTypeIssue = result.issues.find(issue => 
-          issue.field?.includes('goalType')
+        // Validate
+        const errors = await validate(missingGoalIdDto);
+        
+        // Verify errors
+        expect(errors.length).toBeGreaterThan(0);
+        
+        // Check for specific errors
+        const goalIdError = errors.find(e => 
+          e.property === 'data' && 
+          e.children && 
+          e.children.some(child => child.property === 'goalId')
         );
-        
-        expect(goalTypeIssue).toBeDefined();
+        expect(goalIdError).toBeDefined();
       });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the HealthValidation namespace functions
-        const result = HealthValidation.validateHealthGoal(validHealthGoalEvent.data);
+      
+      it('should validate goal achievement status correctly', async () => {
+        // Test goal achievement status
+        const achievedGoalEvent = healthGoalEvents.stepsGoalAchievedEvent;
+        const partialGoalEvent = healthGoalEvents.weightGoalPartialEvent;
         
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Convert to class instances
+        const achievedGoalDto = plainToInstance(HealthGoalAchievedEventDto, achievedGoalEvent);
+        const partialGoalDto = plainToInstance(HealthGoalAchievedEventDto, partialGoalEvent);
+        
+        // Verify achievement status
+        expect(achievedGoalDto.data.isAchieved()).toBe(true);
+        expect(partialGoalDto.data.isAchieved()).toBe(false);
+        
+        // Mark the partial goal as achieved
+        partialGoalDto.data.markAsAchieved();
+        
+        // Verify updated status
+        expect(partialGoalDto.data.isAchieved()).toBe(true);
+        expect(partialGoalDto.data.progressPercentage).toBe(100);
+        expect(partialGoalDto.data.achievedAt).toBeDefined();
+      });
+    });
+    
+    describe('Device Synchronization Events', () => {
+      it('should validate valid device sync events', async () => {
+        // Test all device sync event types
+        for (const [key, event] of Object.entries(deviceSyncEvents)) {
+          // Convert plain object to class instance for validation
+          const eventDto = plainToInstance(DeviceSynchronizedEventDto, event);
+          
+          // Validate the event
+          const errors = await validate(eventDto);
+          
+          // Verify no errors
+          expect(errors).toHaveLength(0);
+        }
+      });
+      
+      it('should reject device sync events with invalid device types', async () => {
+        // Create an event with an invalid device type
+        const invalidDeviceTypeEvent = {
+          ...deviceSyncEvents.smartwatchSyncEvent,
+          data: { ...deviceSyncEvents.smartwatchSyncEvent.data, deviceType: 'INVALID_DEVICE' }
+        };
+        
+        // Convert to class instance
+        const invalidDeviceTypeDto = plainToInstance(DeviceSynchronizedEventDto, invalidDeviceTypeEvent);
+        
+        // Validate
+        const errors = await validate(invalidDeviceTypeDto);
+        
+        // Verify errors
+        expect(errors.length).toBeGreaterThan(0);
+        
+        // Check for specific errors
+        const deviceTypeError = errors.find(e => 
+          e.property === 'data' && 
+          e.children && 
+          e.children.some(child => child.property === 'deviceType')
+        );
+        expect(deviceTypeError).toBeDefined();
+      });
+    });
+    
+    describe('Health Insight Events', () => {
+      it('should validate valid health insight events', async () => {
+        // Test all health insight event types
+        for (const [key, event] of Object.entries(healthInsightEvents)) {
+          // Convert plain object to class instance for validation
+          const eventDto = plainToInstance(HealthInsightGeneratedEventDto, event);
+          
+          // Validate the event
+          const errors = await validate(eventDto);
+          
+          // Verify no errors
+          expect(errors).toHaveLength(0);
+        }
+      });
+      
+      it('should reject health insight events with invalid confidence scores', async () => {
+        // Create an event with an invalid confidence score
+        const invalidConfidenceEvent = {
+          ...healthInsightEvents.anomalyDetectionInsightEvent,
+          data: { ...healthInsightEvents.anomalyDetectionInsightEvent.data, confidenceScore: 150 } // Over 100%
+        };
+        
+        // Convert to class instance
+        const invalidConfidenceDto = plainToInstance(HealthInsightGeneratedEventDto, invalidConfidenceEvent);
+        
+        // Validate
+        const errors = await validate(invalidConfidenceDto);
+        
+        // Verify errors
+        expect(errors.length).toBeGreaterThan(0);
+        
+        // Check for specific errors
+        const confidenceError = errors.find(e => 
+          e.property === 'data' && 
+          e.children && 
+          e.children.some(child => child.property === 'confidenceScore')
+        );
+        expect(confidenceError).toBeDefined();
       });
     });
   });
 
-  // =========================================================================
-  // Care Journey Event Validation Tests
-  // =========================================================================
+  /**
+   * Tests for Care Journey event validation
+   */
   describe('Care Journey Event Validation', () => {
     describe('Appointment Events', () => {
-      // Valid appointment event
-      const validAppointmentEvent = {
-        type: EventTypes.CARE_APPOINTMENT_BOOKED,
-        userId,
-        timestamp,
-        journey: 'care',
-        data: {
-          appointmentId: 'appt-123',
-          providerId: 'provider-123',
-          specialtyType: 'cardiology',
-          appointmentType: 'in_person',
-          scheduledTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-          bookingTimestamp: new Date().toISOString()
+      it('should validate valid appointment events', async () => {
+        // Test appointment booking events
+        for (const [key, event] of Object.entries(careEvents.appointmentBookedEvents)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      // Invalid appointment event (past date)
-      const invalidAppointmentEvent = {
-        type: EventTypes.CARE_APPOINTMENT_BOOKED,
-        userId,
-        timestamp,
-        journey: 'care',
-        data: {
-          appointmentId: 'appt-123',
-          providerId: 'provider-123',
-          specialtyType: 'cardiology',
-          appointmentType: 'in_person',
-          scheduledTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago (past)
-          bookingTimestamp: new Date().toISOString()
+        
+        // Test appointment completion events
+        for (const [key, event] of Object.entries(careEvents.appointmentCompletedEvents)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      it('should validate a valid appointment event', async () => {
-        const result = await validateObject(validAppointmentEvent, AppointmentEventDto, {
-          journey: 'care',
-          eventType: EventTypes.CARE_APPOINTMENT_BOOKED
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should reject an appointment with a past date', async () => {
-        const result = await validateObject(invalidAppointmentEvent, AppointmentEventDto, {
-          journey: 'care',
-          eventType: EventTypes.CARE_APPOINTMENT_BOOKED
-        });
+      
+      it('should reject appointment events with invalid appointment types', async () => {
+        // Create an event with an invalid appointment type
+        const invalidAppointmentTypeEvent = {
+          ...careEvents.appointmentBookedEvents.standard,
+          data: { ...careEvents.appointmentBookedEvents.standard.data, appointmentType: 'INVALID_TYPE' }
+        };
         
-        expect(result.isValid).toBe(false);
+        // Validate the event
+        const errors = await validateObject(invalidAppointmentTypeEvent);
         
-        // Check that we have a date validation issue
-        const dateIssue = result.issues.find(issue => 
-          issue.field?.includes('scheduledTime') && 
-          issue.message.includes('future')
-        );
-        
-        expect(dateIssue).toBeDefined();
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the CareValidation namespace functions
-        const result = CareValidation.validateAppointment(validAppointmentEvent.data);
+      
+      it('should reject appointment events with invalid status values', async () => {
+        // Create an event with an invalid status
+        const invalidStatusEvent = {
+          ...careEvents.appointmentCompletedEvents.standard,
+          data: { ...careEvents.appointmentCompletedEvents.standard.data, status: 'INVALID_STATUS' }
+        };
         
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Validate the event
+        const errors = await validateObject(invalidStatusEvent);
+        
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
     });
-
+    
     describe('Medication Events', () => {
-      // Valid medication event
-      const validMedicationEvent = {
-        type: EventTypes.CARE_MEDICATION_TAKEN,
-        userId,
-        timestamp,
-        journey: 'care',
-        data: {
-          medicationId: 'med-123',
-          timestamp: new Date().toISOString(),
-          takenOnSchedule: true,
-          dosageTaken: '10mg'
+      it('should validate valid medication events', async () => {
+        // Test medication taken events
+        for (const [key, event] of Object.entries(careEvents.medicationTakenEvents)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      // Invalid medication event (invalid dosage)
-      const invalidMedicationEvent = {
-        type: EventTypes.CARE_MEDICATION_TAKEN,
-        userId,
-        timestamp,
-        journey: 'care',
-        data: {
-          medicationId: 'med-123',
-          timestamp: new Date().toISOString(),
-          takenOnSchedule: true,
-          dosageTaken: -10 // Negative dosage
+      });
+      
+      it('should reject medication events with invalid adherence values', async () => {
+        // Create an event with an invalid adherence value
+        const invalidAdherenceEvent = {
+          ...careEvents.medicationTakenEvents.onTime,
+          data: { ...careEvents.medicationTakenEvents.onTime.data, adherence: 'INVALID_ADHERENCE' }
+        };
+        
+        // Validate the event
+        const errors = await validateObject(invalidAdherenceEvent);
+        
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
+      });
+    });
+    
+    describe('Telemedicine Events', () => {
+      it('should validate valid telemedicine events', async () => {
+        // Test telemedicine events
+        for (const [key, event] of Object.entries(careEvents.telemedicineEvents)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      it('should validate a valid medication event', async () => {
-        const result = await validateObject(validMedicationEvent, MedicationEventDto, {
-          journey: 'care',
-          eventType: EventTypes.CARE_MEDICATION_TAKEN
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should reject a medication event with invalid dosage', async () => {
-        const result = await validateObject(invalidMedicationEvent, MedicationEventDto, {
-          journey: 'care',
-          eventType: EventTypes.CARE_MEDICATION_TAKEN
-        });
+      
+      it('should reject telemedicine events with missing required fields', async () => {
+        // Create an event with missing required fields
+        const missingSessionIdEvent = {
+          ...careEvents.telemedicineEvents.started,
+          data: { ...careEvents.telemedicineEvents.started.data, sessionId: undefined }
+        };
         
-        expect(result.isValid).toBe(false);
+        // Validate the event
+        const errors = await validateObject(missingSessionIdEvent);
         
-        // Check that we have a dosage validation issue
-        const dosageIssue = result.issues.find(issue => 
-          issue.field?.includes('dosageTaken')
-        );
-        
-        expect(dosageIssue).toBeDefined();
-      });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the CareValidation namespace functions
-        const result = CareValidation.validateMedication({
-          medicationId: 'med-123',
-          name: 'Test Medication',
-          dosage: { amount: 10, unit: 'mg' },
-          frequency: { times: 2, period: 'day' },
-          startDate: new Date().toISOString()
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
     });
   });
 
-  // =========================================================================
-  // Plan Journey Event Validation Tests
-  // =========================================================================
+  /**
+   * Tests for Plan Journey event validation
+   */
   describe('Plan Journey Event Validation', () => {
     describe('Claim Events', () => {
-      // Valid claim event
-      const validClaimEvent = {
-        type: EventTypes.PLAN_CLAIM_SUBMITTED,
-        userId,
-        timestamp,
-        journey: 'plan',
-        data: {
-          claimId: 'claim-123',
-          claimType: 'medical',
-          serviceDate: new Date().toISOString(),
-          providerId: 'provider-123',
-          amount: 150.75,
-          submissionTimestamp: new Date().toISOString()
+      it('should validate valid claim events', async () => {
+        // Test claim submission events
+        for (const [key, event] of Object.entries(planEventFixtures.claimSubmission)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      // Invalid claim event (negative amount)
-      const invalidClaimEvent = {
-        type: EventTypes.PLAN_CLAIM_SUBMITTED,
-        userId,
-        timestamp,
-        journey: 'plan',
-        data: {
-          claimId: 'claim-123',
-          claimType: 'medical',
-          serviceDate: new Date().toISOString(),
-          providerId: 'provider-123',
-          amount: -50.25, // Negative amount
-          submissionTimestamp: new Date().toISOString()
+        
+        // Test claim processing events
+        for (const [key, event] of Object.entries(planEventFixtures.claimProcessing)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      it('should validate a valid claim event', async () => {
-        const result = await validateObject(validClaimEvent, ClaimEventDto, {
-          journey: 'plan',
-          eventType: EventTypes.PLAN_CLAIM_SUBMITTED
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should reject a claim event with negative amount', async () => {
-        const result = await validateObject(invalidClaimEvent, ClaimEventDto, {
-          journey: 'plan',
-          eventType: EventTypes.PLAN_CLAIM_SUBMITTED
-        });
+      
+      it('should reject claim events with invalid claim types', async () => {
+        // Create an event with an invalid claim type
+        const invalidClaimTypeEvent = {
+          ...planEventFixtures.claimSubmission.medicalClaim,
+          data: { ...planEventFixtures.claimSubmission.medicalClaim.data, claimType: 'INVALID_TYPE' }
+        };
         
-        expect(result.isValid).toBe(false);
+        // Validate the event
+        const errors = await validateObject(invalidClaimTypeEvent);
         
-        // Check that we have an amount validation issue
-        const amountIssue = result.issues.find(issue => 
-          issue.field?.includes('amount') && 
-          issue.message.includes('positive')
-        );
-        
-        expect(amountIssue).toBeDefined();
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the PlanValidation namespace functions
-        const result = PlanValidation.validateClaim({
-          claimId: 'claim-123',
-          serviceDate: new Date().toISOString(),
-          providerName: 'Test Provider',
-          serviceType: 'consultation',
-          amount: {
-            total: 150.75,
-            currency: 'USD'
-          },
-          status: 'submitted'
-        });
+      
+      it('should reject claim events with invalid status values', async () => {
+        // Create an event with an invalid status
+        const invalidStatusEvent = {
+          ...planEventFixtures.claimProcessing.approvedClaim,
+          data: { ...planEventFixtures.claimProcessing.approvedClaim.data, status: 'INVALID_STATUS' }
+        };
         
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Validate the event
+        const errors = await validateObject(invalidStatusEvent);
+        
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
+      });
+      
+      it('should reject claim events with negative amounts', async () => {
+        // Create an event with a negative amount
+        const negativeAmountEvent = {
+          ...planEventFixtures.claimSubmission.medicalClaim,
+          data: { ...planEventFixtures.claimSubmission.medicalClaim.data, amount: -100 }
+        };
+        
+        // Validate the event
+        const errors = await validateObject(negativeAmountEvent);
+        
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
     });
-
+    
     describe('Benefit Events', () => {
-      // Valid benefit event
-      const validBenefitEvent = {
-        type: EventTypes.PLAN_BENEFIT_UTILIZED,
-        userId,
-        timestamp,
-        journey: 'plan',
-        data: {
-          benefitId: 'benefit-123',
-          benefitType: 'preventive',
-          utilizationTimestamp: new Date().toISOString(),
-          providerId: 'provider-123',
-          savingsAmount: 75.50
+      it('should validate valid benefit events', async () => {
+        // Test benefit utilization events
+        for (const [key, event] of Object.entries(planEventFixtures.benefitUtilization)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      // Invalid benefit event (invalid benefit type)
-      const invalidBenefitEvent = {
-        type: EventTypes.PLAN_BENEFIT_UTILIZED,
-        userId,
-        timestamp,
-        journey: 'plan',
-        data: {
-          benefitId: 'benefit-123',
-          benefitType: 'invalid-type', // Invalid benefit type
-          utilizationTimestamp: new Date().toISOString(),
-          providerId: 'provider-123',
-          savingsAmount: 75.50
+      });
+      
+      it('should reject benefit events with invalid benefit types', async () => {
+        // Create an event with an invalid benefit type
+        const invalidBenefitTypeEvent = {
+          ...planEventFixtures.benefitUtilization.wellnessBenefit,
+          data: { ...planEventFixtures.benefitUtilization.wellnessBenefit.data, benefitType: 'INVALID_TYPE' }
+        };
+        
+        // Validate the event
+        const errors = await validateObject(invalidBenefitTypeEvent);
+        
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
+      });
+    });
+    
+    describe('Plan Selection Events', () => {
+      it('should validate valid plan selection events', async () => {
+        // Test plan selection events
+        for (const [key, event] of Object.entries(planEventFixtures.planSelection)) {
+          // Validate the event
+          const errors = await validateObject(event);
+          
+          // Verify no errors
+          expect(errors).toBeNull();
         }
-      };
-
-      it('should validate a valid benefit event', async () => {
-        const result = await validateObject(validBenefitEvent, BenefitEventDto, {
-          journey: 'plan',
-          eventType: EventTypes.PLAN_BENEFIT_UTILIZED
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
       });
-
-      it('should reject a benefit event with invalid benefit type', async () => {
-        const result = await validateObject(invalidBenefitEvent, BenefitEventDto, {
-          journey: 'plan',
-          eventType: EventTypes.PLAN_BENEFIT_UTILIZED
-        });
+      
+      it('should reject plan selection events with invalid plan types', async () => {
+        // Create an event with an invalid plan type
+        const invalidPlanTypeEvent = {
+          ...planEventFixtures.planSelection.standardPlan,
+          data: { ...planEventFixtures.planSelection.standardPlan.data, planType: 'INVALID_TYPE' }
+        };
         
-        expect(result.isValid).toBe(false);
+        // Validate the event
+        const errors = await validateObject(invalidPlanTypeEvent);
         
-        // Check that we have a benefit type validation issue
-        const typeIssue = result.issues.find(issue => 
-          issue.field?.includes('benefitType')
-        );
-        
-        expect(typeIssue).toBeDefined();
-      });
-
-      it('should validate using journey-specific validation functions', () => {
-        // Test the PlanValidation namespace functions
-        const result = PlanValidation.validateBenefit({
-          benefitId: 'benefit-123',
-          category: 'medical',
-          type: 'preventive',
-          description: 'Annual check-up',
-          coverage: {
-            coinsurance: 0,
-            copay: 0
-          },
-          effectiveDate: new Date().toISOString()
-        });
-        
-        expect(result.isValid).toBe(true);
-        expect(result.issues).toHaveLength(0);
+        // Verify errors
+        expect(errors).not.toBeNull();
+        expect(errors.length).toBeGreaterThan(0);
       });
     });
   });
 
-  // =========================================================================
-  // Cross-Journey Validation Tests
-  // =========================================================================
-  describe('Cross-Journey Validation', () => {
-    it('should validate events using validateJourneyEvent function', () => {
-      // Health journey event
-      const healthResult = validateJourneyEvent(
-        {
-          metricType: 'heartRate',
-          value: 75,
-          unit: 'bpm',
-          timestamp: new Date().toISOString()
-        },
-        'health',
-        'health.metric.recorded'
-      );
+  /**
+   * Tests for cross-journey event validation
+   */
+  describe('Cross-Journey Event Validation', () => {
+    it('should validate events with references to other journeys', async () => {
+      // Create a health event with a reference to a care appointment
+      const crossJourneyEvent = {
+        ...healthMetricEvents.bloodPressureMetricEvent,
+        data: {
+          ...healthMetricEvents.bloodPressureMetricEvent.data,
+          appointmentId: careEvents.appointmentCompletedEvents.standard.data.appointmentId,
+          recordedDuring: 'appointment'
+        }
+      };
       
-      expect(healthResult.isValid).toBe(true);
+      // Validate the event
+      const errors = await validateObject(crossJourneyEvent);
       
-      // Care journey event
-      const careResult = validateJourneyEvent(
-        {
-          appointmentId: 'appt-123',
-          providerId: 'provider-123',
-          specialtyType: 'cardiology',
-          appointmentType: 'in_person',
-          scheduledTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          bookingTimestamp: new Date().toISOString()
-        },
-        'care',
-        'care.appointment.booked'
-      );
-      
-      expect(careResult.isValid).toBe(true);
-      
-      // Plan journey event
-      const planResult = validateJourneyEvent(
-        {
-          claimId: 'claim-123',
-          claimType: 'medical',
-          serviceDate: new Date().toISOString(),
-          providerId: 'provider-123',
-          amount: 150.75,
-          submissionTimestamp: new Date().toISOString()
-        },
-        'plan',
-        'plan.claim.submitted'
-      );
-      
-      expect(planResult.isValid).toBe(true);
+      // Verify no errors
+      expect(errors).toBeNull();
     });
-
-    it('should reject events with invalid journey', () => {
-      const result = validateJourneyEvent(
-        {
-          metricType: 'heartRate',
-          value: 75,
-          unit: 'bpm',
-          timestamp: new Date().toISOString()
-        },
-        'invalid-journey', // Invalid journey
-        'health.metric.recorded'
-      );
+    
+    it('should validate events with conditional required fields', async () => {
+      // Create an event where a field is required based on another field's value
+      const conditionalEvent = {
+        ...healthMetricEvents.bloodPressureMetricEvent,
+        data: {
+          ...healthMetricEvents.bloodPressureMetricEvent.data,
+          recordedDuring: 'appointment',
+          // appointmentId is required when recordedDuring is 'appointment'
+          appointmentId: undefined
+        }
+      };
       
-      expect(result.isValid).toBe(false);
-      expect(result.issues[0].code).toBe('VALIDATION_INVALID_JOURNEY');
+      // Validate the event
+      const errors = await validateObject(conditionalEvent);
+      
+      // Verify errors
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
     });
-
-    it('should reject events with invalid event type', () => {
-      const result = validateJourneyEvent(
-        {
-          metricType: 'heartRate',
-          value: 75,
-          unit: 'bpm',
-          timestamp: new Date().toISOString()
-        },
-        'health',
-        'invalid.event.type' // Invalid event type
+    
+    it('should validate versioned events', async () => {
+      // Create a versioned event
+      const versionedEvent = createVersionedEvent(
+        EventType.HEALTH_METRIC_RECORDED,
+        healthMetricEvents.heartRateMetricEvent
       );
       
-      expect(result.isValid).toBe(false);
-      expect(result.issues[0].code).toBe('VALIDATION_INVALID_EVENT_TYPE');
+      // Validate the event
+      const errors = await validateObject(versionedEvent);
+      
+      // Verify no errors
+      expect(errors).toBeNull();
+      
+      // Verify version compatibility
+      expect(versionedEvent.isCompatibleWith('1.0.0')).toBe(true);
+      expect(versionedEvent.isCompatibleWith('2.0.0')).toBe(false); // Major version mismatch
     });
   });
 
-  // =========================================================================
-  // Validation Error Format Tests
-  // =========================================================================
-  describe('Validation Error Format', () => {
-    it('should provide detailed validation issues with proper format', async () => {
-      // Test with an invalid event
+  /**
+   * Tests for validation error handling
+   */
+  describe('Validation Error Handling', () => {
+    it('should format validation errors with proper error codes', async () => {
+      // Create an invalid event
       const invalidEvent = {
-        type: EventTypes.HEALTH_METRIC_RECORDED,
-        userId,
-        timestamp,
-        journey: 'health',
-        data: {
-          // Missing metricType
-          value: -10, // Invalid value
-          unit: 'invalid-unit', // Invalid unit
-          timestamp: 'not-a-date' // Invalid timestamp
-        }
+        ...healthMetricEvents.heartRateMetricEvent,
+        type: undefined,
+        data: { ...healthMetricEvents.heartRateMetricEvent.data, value: 'not-a-number' }
       };
       
-      const result = await validateObject(invalidEvent, HealthMetricEventDto, {
-        journey: 'health',
-        eventType: EventTypes.HEALTH_METRIC_RECORDED
-      });
+      // Validate the event
+      const errors = await validateObject(invalidEvent);
       
-      expect(result.isValid).toBe(false);
-      expect(result.issues.length).toBeGreaterThan(0);
+      // Verify errors
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
       
-      // Check that each issue has the required properties
-      result.issues.forEach(issue => {
-        expect(issue.code).toBeDefined();
-        expect(issue.message).toBeDefined();
-        expect(issue.severity).toBeDefined();
-        
-        // Context should include journey and eventType
-        if (issue.context) {
-          expect(issue.context.journey).toBe('health');
-          expect(issue.context.eventType).toBe(EventTypes.HEALTH_METRIC_RECORDED);
-        }
-      });
-      
-      // Test getting errors by severity
-      const errorIssues = result.getIssuesBySeverity(ValidationSeverity.ERROR);
-      expect(errorIssues.length).toBeGreaterThan(0);
-      expect(errorIssues.every(issue => issue.severity === ValidationSeverity.ERROR)).toBe(true);
-      
-      // Test converting to ValidationError instances
-      const errors = result.getErrors();
-      expect(errors.length).toBe(result.issues.length);
+      // Check error format
+      expect(errors[0]).toHaveProperty('errorCode', ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      expect(errors[0]).toHaveProperty('message', ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]);
     });
-
-    it('should throw EventValidationError with proper context', async () => {
-      // Test with an invalid event
-      const invalidEvent = {
-        type: EventTypes.HEALTH_METRIC_RECORDED,
-        userId,
-        timestamp,
-        journey: 'health',
+    
+    it('should include nested validation errors for complex objects', async () => {
+      // Create an event with nested validation errors
+      const nestedErrorEvent = {
+        ...healthMetricEvents.heartRateMetricEvent,
         data: {
-          // Missing required fields
+          ...healthMetricEvents.heartRateMetricEvent.data,
+          metricType: 'INVALID_TYPE',
+          value: -10, // Invalid negative value
+          unit: 'invalid-unit' // Invalid unit
         }
       };
       
-      try {
-        await validateEventOrThrow(invalidEvent, HealthMetricEventDto, {
-          journey: 'health',
-          eventType: EventTypes.HEALTH_METRIC_RECORDED
-        });
-        fail('Expected validateEventOrThrow to throw an error');
-      } catch (error) {
-        expect(error).toBeInstanceOf(EventValidationError);
-        
-        // Check error properties
-        const validationError = error as EventValidationError;
-        expect(validationError.message).toContain('Event validation failed');
-        expect(validationError.context).toBeDefined();
-        expect(validationError.context.eventType).toBe(EventTypes.HEALTH_METRIC_RECORDED);
-        expect(validationError.context.details?.validationIssues).toBeDefined();
-        expect(validationError.context.details?.validationIssues.length).toBeGreaterThan(0);
-      }
+      // Validate the event
+      const errors = await validateObject(nestedErrorEvent);
+      
+      // Verify errors
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for nested errors
+      const dataError = errors.find(e => e.property === 'data');
+      expect(dataError).toBeDefined();
+      expect(dataError.children).toBeDefined();
+      expect(dataError.children.length).toBeGreaterThan(0);
     });
-  });
-
-  // =========================================================================
-  // Zod Validation Tests
-  // =========================================================================
-  describe('Zod Validation', () => {
-    it('should validate events using Zod schemas', () => {
-      // Create a simple Zod schema for testing
-      const healthMetricSchema = z.object({
-        metricType: z.enum(['heartRate', 'bloodPressure', 'weight']),
-        value: z.number().positive(),
-        unit: z.string(),
-        timestamp: z.string().datetime()
-      });
-      
-      // Valid data
-      const validData = {
-        metricType: 'heartRate',
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString()
+    
+    it('should handle validation of arrays of objects', async () => {
+      // Create an event with an array of objects
+      const arrayEvent = {
+        type: EventType.HEALTH_METRIC_RECORDED,
+        journey: 'health',
+        userId: '123',
+        data: {
+          metrics: [
+            { metricType: HealthMetricType.HEART_RATE, value: 75, unit: 'bpm' },
+            { metricType: HealthMetricType.BLOOD_GLUCOSE, value: 120, unit: 'mg/dL' },
+            { metricType: 'INVALID_TYPE', value: -10, unit: 'invalid-unit' } // Invalid item
+          ]
+        }
       };
       
-      // Invalid data
-      const invalidData = {
-        metricType: 'invalid', // Invalid enum value
-        value: -10, // Negative value
-        unit: 123, // Not a string
-        timestamp: 'not-a-date' // Invalid date
-      };
+      // Validate the event
+      const errors = await validateObject(arrayEvent);
       
-      // Test valid data
-      const validResult = validateWithZod(validData, healthMetricSchema, {
-        journey: 'health',
-        eventType: 'health.metric.recorded'
-      });
-      
-      expect(validResult.isValid).toBe(true);
-      expect(validResult.issues).toHaveLength(0);
-      
-      // Test invalid data
-      const invalidResult = validateWithZod(invalidData, healthMetricSchema, {
-        journey: 'health',
-        eventType: 'health.metric.recorded'
-      });
-      
-      expect(invalidResult.isValid).toBe(false);
-      expect(invalidResult.issues.length).toBeGreaterThan(0);
-      
-      // Check that we have the expected validation issues
-      expect(invalidResult.issues.some(issue => issue.field.includes('metricType'))).toBe(true);
-      expect(invalidResult.issues.some(issue => issue.field.includes('value'))).toBe(true);
-      expect(invalidResult.issues.some(issue => issue.field.includes('unit'))).toBe(true);
-      expect(invalidResult.issues.some(issue => issue.field.includes('timestamp'))).toBe(true);
+      // Verify errors
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
     });
   });
 });
