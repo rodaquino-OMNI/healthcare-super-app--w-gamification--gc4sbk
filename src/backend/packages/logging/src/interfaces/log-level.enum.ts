@@ -1,43 +1,43 @@
 /**
  * Standardized log levels for the AUSTA SuperApp backend services.
- * Provides consistent log level definitions across all services to ensure
- * proper log filtering and prioritization.
+ * Provides consistent logging levels across all services to ensure
+ * proper log filtering and aggregation in centralized logging systems.
  */
 export enum LogLevel {
   /**
-   * Debug level for detailed troubleshooting information.
-   * Only used during development or when investigating specific issues.
+   * Debug information, useful for development and troubleshooting.
+   * Most verbose level, contains detailed information about application flow.
    */
   DEBUG = 0,
 
   /**
-   * Info level for general operational information.
-   * Used for normal application flow and successful operations.
+   * Informational messages that highlight the progress of the application.
+   * Normal operational messages that require no action.
    */
   INFO = 1,
 
   /**
-   * Warning level for potential issues that don't affect normal operation.
-   * Used for deprecated features, suboptimal usage, or potential future problems.
+   * Warning messages that indicate potential issues or unexpected behavior.
+   * The application can continue to function but requires attention.
    */
   WARN = 2,
 
   /**
-   * Error level for runtime errors that don't require immediate action.
-   * Used for handled exceptions, failed operations, or unexpected conditions.
+   * Error messages that indicate failures that should be investigated.
+   * The application can continue to function but with degraded capabilities.
    */
   ERROR = 3,
 
   /**
-   * Fatal level for critical errors that require immediate attention.
-   * Used for unrecoverable situations that may cause system failure.
+   * Critical failures that prevent the application from functioning properly.
+   * Requires immediate attention and intervention.
    */
   FATAL = 4,
 }
 
 /**
- * Type representing valid log level string names.
- * Used for configuration and API consistency.
+ * Type definition for log level string representation.
+ * Used for type safety when converting between string and enum values.
  */
 export type LogLevelString = keyof typeof LogLevel;
 
@@ -47,7 +47,7 @@ export type LogLevelString = keyof typeof LogLevel;
 export const LogLevelUtils = {
   /**
    * Converts a LogLevel enum value to its string representation.
-   * @param level The LogLevel enum value to convert
+   * @param level The LogLevel enum value
    * @returns The string representation of the log level
    */
   toString(level: LogLevel): LogLevelString {
@@ -55,9 +55,9 @@ export const LogLevelUtils = {
   },
 
   /**
-   * Converts a string representation to its corresponding LogLevel enum value.
+   * Converts a string to its corresponding LogLevel enum value.
    * @param levelString The string representation of the log level
-   * @returns The corresponding LogLevel enum value, or undefined if invalid
+   * @returns The LogLevel enum value or undefined if the string is not a valid log level
    */
   fromString(levelString: string): LogLevel | undefined {
     const normalizedString = levelString.toUpperCase();
@@ -75,7 +75,7 @@ export const LogLevelUtils = {
   },
 
   /**
-   * Returns all available log levels as an array of strings.
+   * Gets all log levels as an array of strings.
    * @returns Array of log level strings
    */
   getAllLevels(): LogLevelString[] {
@@ -85,8 +85,8 @@ export const LogLevelUtils = {
   },
 
   /**
-   * Returns all available log levels as an array of enum values.
-   * @returns Array of LogLevel enum values
+   * Gets all log levels as an array of enum values.
+   * @returns Array of log level enum values
    */
   getAllLevelValues(): LogLevel[] {
     return this.getAllLevels().map(
