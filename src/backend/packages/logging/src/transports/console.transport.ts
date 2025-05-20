@@ -1,39 +1,7 @@
+import { EventEmitter } from 'events';
 import { Transport } from '../interfaces/transport.interface';
-import { LogEntry } from '../interfaces/log-entry.interface';
 import { LogLevel } from '../interfaces/log-level.enum';
-import * as util from 'util';
-
-/**
- * Configuration options for the ConsoleTransport
- */
-export interface ConsoleTransportOptions {
-  /** Minimum log level to write to this transport */
-  level?: LogLevel;
-  /** Whether to use colors in the console output */
-  colorize?: boolean;
-  /** Whether to include timestamps in the output */
-  timestamp?: boolean;
-  /** Whether to batch log entries for better performance */
-  batching?: boolean;
-  /** Maximum number of log entries to batch before writing */
-  batchSize?: number;
-  /** Maximum time in milliseconds to wait before flushing the batch */
-  batchTimeout?: number;
-  /** Whether to include the log level in the output */
-  showLevel?: boolean;
-  /** Whether to include the context in the output */
-  showContext?: boolean;
-  /** Whether to pretty-print objects and errors */
-  prettyPrint?: boolean;
-  /** Whether to use stderr for error and fatal logs */
-  stderrLevels?: LogLevel[];
-  /** Whether to align log level labels for better readability */
-  alignLevel?: boolean;
-  /** Whether to include journey information in the output */
-  showJourney?: boolean;
-  /** Whether to include trace IDs in the output */
-  showTraceId?: boolean;
-}
+import { Formatter } from '../formatters/formatter.interface';
 
 /**
  * ANSI color codes for console output
@@ -46,16 +14,17 @@ enum ConsoleColors {
   Blink = '\x1b[5m',
   Reverse = '\x1b[7m',
   Hidden = '\x1b[8m',
-  
-  Black = '\x1b[30m',
-  Red = '\x1b[31m',
-  Green = '\x1b[32m',
-  Yellow = '\x1b[33m',
-  Blue = '\x1b[34m',
-  Magenta = '\x1b[35m',
-  Cyan = '\x1b[36m',
-  White = '\x1b[37m',
-  
+
+  FgBlack = '\x1b[30m',
+  FgRed = '\x1b[31m',
+  FgGreen = '\x1b[32m',
+  FgYellow = '\x1b[33m',
+  FgBlue = '\x1b[34m',
+  FgMagenta = '\x1b[35m',
+  FgCyan = '\x1b[36m',
+  FgWhite = '\x1b[37m',
+  FgGray = '\x1b[90m',
+
   BgBlack = '\x1b[40m',
   BgRed = '\x1b[41m',
   BgGreen = '\x1b[42m',
@@ -63,327 +32,262 @@ enum ConsoleColors {
   BgBlue = '\x1b[44m',
   BgMagenta = '\x1b[45m',
   BgCyan = '\x1b[46m',
-  BgWhite = '\x1b[47m'
+  BgWhite = '\x1b[47m',
+  BgGray = '\x1b[100m',
 }
 
 /**
- * ConsoleTransport implementation that writes log entries to the console with
- * support for colorized output, batching, and configurable formatting.
+ * Options for the ConsoleTransport
+ */
+export interface ConsoleTransportOptions {
+  /** Formatter to use for log entries */
+  formatter: Formatter;
+  /** Minimum log level to write */
+  minLevel?: LogLevel;
+  /** Whether to use colors in the output */
+  colorize?: boolean;
+  /** Whether to include timestamps in the output */
+  timestamp?: boolean;
+  /** Whether to pretty-print objects */
+  prettyPrint?: boolean;
+  /** Buffer size for batched writes */
+  bufferSize?: number;
+  /** Flush interval in milliseconds */
+  flushInterval?: number;
+  /** Whether to use stderr for error and fatal logs */
+  useStderr?: boolean;
+  /** Whether to include the log level in the output */
+  showLevel?: boolean;
+  /** Whether to include the context in the output */
+  showContext?: boolean;
+  /** Whether to include metadata in the output */
+  showMeta?: boolean;
+}
+
+/**
+ * Default options for the ConsoleTransport
+ */
+const DEFAULT_OPTIONS: Partial<ConsoleTransportOptions> = {
+  minLevel: LogLevel.DEBUG,
+  colorize: true,
+  timestamp: true,
+  prettyPrint: true,
+  bufferSize: 10, // Small buffer size for console output
+  flushInterval: 100, // Flush frequently for console output
+  useStderr: true,
+  showLevel: true,
+  showContext: true,
+  showMeta: true,
+};
+
+/**
+ * A transport that writes log entries to the console with support for
+ * colorized output, pretty-printing, and batching.
  * 
- * This transport is primarily used in development environments to provide
- * human-readable, colorized logs for debugging and local development.
+ * This transport is primarily intended for development environments where
+ * human-readable logs are more important than machine-parseable formats.
  * 
  * Features:
  * - Colorized output based on log levels
- * - Configurable formatting options
- * - Support for batching to improve performance
- * - Journey-specific context display
- * - Integration with distributed tracing
  * - Pretty-printing of objects and errors
+ * - Configurable formatting options
+ * - Batching support for improved performance
+ * - Console-specific error handling
+ * 
+ * @example
+ * ```typescript
+ * const textFormatter = new TextFormatter();
+ * const consoleTransport = new ConsoleTransport({
+ *   formatter: textFormatter,
+ *   colorize: true,
+ *   prettyPrint: true,
+ * });
+ * 
+ * const logger = new Logger({
+ *   transports: [consoleTransport],
+ *   level: LogLevel.DEBUG,
+ * });
+ * ```
  */
-export class ConsoleTransport implements Transport {
-  private options: Required<ConsoleTransportOptions>;
-  private batchedLogs: LogEntry[] = [];
-  private batchTimer: NodeJS.Timeout | null = null;
-  private initialized: boolean = false;
-  private shuttingDown: boolean = false;
+export class ConsoleTransport extends EventEmitter implements Transport {
+  private options: ConsoleTransportOptions;
+  private buffer: Array<{ level: LogLevel; message: string; meta?: Record<string, any> }> = [];
+  private flushTimer: NodeJS.Timeout | null = null;
+  private writing = false;
+  private closed = false;
 
   /**
    * Creates a new ConsoleTransport instance
-   * @param options Configuration options for the console transport
+   * @param options Options for the transport
    */
-  constructor(options?: ConsoleTransportOptions) {
-    this.options = {
-      level: (options?.level !== undefined) ? options.level : LogLevel.DEBUG,
-      colorize: options?.colorize !== false,
-      timestamp: options?.timestamp !== false,
-      batching: options?.batching || false,
-      batchSize: options?.batchSize || 10,
-      batchTimeout: options?.batchTimeout || 1000,
-      showLevel: options?.showLevel !== false,
-      showContext: options?.showContext !== false,
-      prettyPrint: options?.prettyPrint !== false,
-      stderrLevels: options?.stderrLevels || [LogLevel.ERROR, LogLevel.FATAL],
-      alignLevel: options?.alignLevel !== false,
-      showJourney: options?.showJourney !== false,
-      showTraceId: options?.showTraceId !== false
-    };
-
-    // Register process exit handlers to ensure proper cleanup
-    process.on('exit', () => this.cleanup());
-    process.on('SIGINT', () => this.cleanup());
-    process.on('SIGTERM', () => this.cleanup());
+  constructor(options: ConsoleTransportOptions) {
+    super();
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.startFlushTimer();
   }
 
   /**
-   * Initializes the transport
+   * Writes a log entry to the transport
+   * @param level Log level
+   * @param message Log message
+   * @param meta Additional metadata
    */
-  public async initialize(): Promise<void> {
-    if (this.initialized) {
-      return;
+  public async write(level: LogLevel, message: string, meta?: Record<string, any>): Promise<void> {
+    if (this.closed) {
+      throw new Error('Cannot write to closed transport');
     }
 
-    // No special initialization needed for console transport
-    this.initialized = true;
-  }
-
-  /**
-   * Writes a log entry to the console
-   * @param entry The log entry to write
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    // Skip if log level is below the configured level
-    if (entry.level < this.options.level) {
+    if (level < (this.options.minLevel || LogLevel.DEBUG)) {
       return;
-    }
-
-    // Ensure transport is initialized
-    if (!this.initialized) {
-      await this.initialize();
     }
 
     try {
-      if (this.options.batching) {
-        // Add to batch and schedule flush if needed
-        this.batchedLogs.push(entry);
-        
-        if (this.batchedLogs.length >= this.options.batchSize) {
-          this.flushBatch();
-        } else if (!this.batchTimer) {
-          // Start a timer to flush the batch after the timeout
-          this.batchTimer = setTimeout(() => this.flushBatch(), this.options.batchTimeout);
-        }
-      } else {
-        // Write immediately
-        this.writeToConsole(entry);
-      }
-    } catch (error) {
-      // Handle errors but don't throw to avoid crashing the application
-      console.error(`Error writing to console: ${error.message}`);
+      this.addToBuffer(level, message, meta);
+    } catch (err) {
+      this.emit('error', err);
     }
   }
 
   /**
-   * Cleans up resources used by the transport
+   * Closes the transport and flushes any pending writes
    */
-  public async cleanup(): Promise<void> {
-    if (this.shuttingDown) {
+  public async close(): Promise<void> {
+    if (this.closed) {
       return;
     }
 
-    this.shuttingDown = true;
+    this.closed = true;
+
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
 
     // Flush any remaining logs
-    if (this.batchedLogs.length > 0) {
-      this.flushBatch();
-    }
-
-    // Clear any timers
-    if (this.batchTimer) {
-      clearTimeout(this.batchTimer);
-      this.batchTimer = null;
-    }
-
-    this.initialized = false;
-    this.shuttingDown = false;
+    await this.flush();
   }
 
   /**
-   * Flushes the batch of log entries to the console
+   * Starts the flush timer
    */
-  private flushBatch(): void {
-    if (this.batchTimer) {
-      clearTimeout(this.batchTimer);
-      this.batchTimer = null;
+  private startFlushTimer(): void {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
     }
 
-    // Write all batched logs
-    for (const entry of this.batchedLogs) {
-      this.writeToConsole(entry);
-    }
-
-    // Clear the batch
-    this.batchedLogs = [];
+    this.flushTimer = setInterval(() => {
+      this.flush().catch((err) => {
+        this.emit('error', err);
+      });
+    }, this.options.flushInterval);
   }
 
   /**
-   * Writes a single log entry to the console
-   * @param entry The log entry to write
+   * Adds a log entry to the buffer
+   * @param level Log level
+   * @param message Log message
+   * @param meta Additional metadata
    */
-  private writeToConsole(entry: LogEntry): void {
-    // Determine whether to use stdout or stderr
-    const useStderr = this.options.stderrLevels.includes(entry.level);
-    const logMethod = useStderr ? console.error : console.log;
+  private addToBuffer(level: LogLevel, message: string, meta?: Record<string, any>): void {
+    this.buffer.push({ level, message, meta });
 
-    // Use the formatted message directly if available
-    if (entry.formattedMessage) {
-      if (this.options.colorize) {
-        const colorizedMessage = this.colorizeByLevel(entry.level, entry.formattedMessage);
-        logMethod(colorizedMessage);
-      } else {
-        logMethod(entry.formattedMessage);
-      }
+    // Flush if buffer exceeds size threshold
+    if (this.buffer.length >= (this.options.bufferSize || 10)) {
+      this.flush().catch((err) => {
+        this.emit('error', err);
+      });
+    }
+  }
+
+  /**
+   * Flushes the buffer to the console
+   */
+  private async flush(): Promise<void> {
+    if (this.writing || this.buffer.length === 0) {
       return;
     }
 
-    // Otherwise, format the message ourselves
-    let output = '';
+    this.writing = true;
+    const bufferToWrite = [...this.buffer];
+    this.buffer = [];
 
-    // Add timestamp if configured
-    if (this.options.timestamp) {
-      const timestamp = new Date().toISOString();
-      output += `[${timestamp}] `;
-    }
-
-    // Add log level if configured
-    if (this.options.showLevel) {
-      const levelStr = LogLevel[entry.level];
-      if (this.options.alignLevel) {
-        // Pad the level string to ensure consistent width
-        const paddedLevel = levelStr.padEnd(5, ' ');
-        output += `[${paddedLevel}] `;
-      } else {
-        output += `[${levelStr}] `;
-      }
-    }
-
-    // Add the message
-    output += entry.message;
-    
-    // Add journey information if available and configured
-    if (this.options.showJourney && entry.journey) {
-      output += ` [Journey: ${entry.journey}]`;
-    }
-    
-    // Add trace ID if available and configured
-    if (this.options.showTraceId && entry.traceId) {
-      output += ` [TraceID: ${entry.traceId}]`;
-    }
-
-    // Add context if available and configured
-    if (entry.context && this.options.showContext) {
-      let contextStr;
-      if (this.options.prettyPrint) {
-        // Use util.inspect for better object formatting
-        contextStr = util.inspect(entry.context, {
-          colors: this.options.colorize,
-          depth: 4,
-          compact: false
+    try {
+      for (const entry of bufferToWrite) {
+        const formattedLog = this.options.formatter.format({
+          level: entry.level,
+          message: entry.message,
+          timestamp: new Date(),
+          meta: entry.meta || {},
         });
-      } else {
-        contextStr = JSON.stringify(entry.context);
+
+        this.writeToConsole(entry.level, formattedLog);
       }
-      output += ` ${contextStr}`;
-    }
 
-    // Add metadata if available
-    if (entry.metadata) {
-      let metadataStr;
-      if (this.options.prettyPrint) {
-        metadataStr = util.inspect(entry.metadata, {
-          colors: this.options.colorize,
-          depth: 4,
-          compact: false
-        });
-      } else {
-        metadataStr = JSON.stringify(entry.metadata);
-      }
-      output += ` ${metadataStr}`;
+      this.emit('flush', bufferToWrite.length);
+    } catch (err) {
+      // Put the logs back in the buffer to try again later
+      this.buffer = [...bufferToWrite, ...this.buffer];
+      this.emit('error', new Error(`Failed to flush logs: ${err.message}`));
+    } finally {
+      this.writing = false;
     }
-
-    // Add error if available
-    if (entry.error) {
-      if (this.options.prettyPrint) {
-        output += '\n' + this.formatError(entry.error);
-      } else {
-        output += `\n${entry.error.stack || entry.error.message}`;
-      }
-    }
-
-    // Colorize if configured
-    if (this.options.colorize) {
-      output = this.colorizeByLevel(entry.level, output);
-    }
-
-    // Write to console
-    logMethod(output);
-  }
-  
-  /**
-   * Formats an error object for better readability
-   * @param error The error to format
-   * @returns Formatted error string
-   */
-  private formatError(error: Error): string {
-    if (!error) {
-      return '';
-    }
-    
-    let result = error.stack || error.toString();
-    
-    // Add cause if available (Node.js 16.9.0+)
-    if ('cause' in error && error.cause instanceof Error) {
-      result += '\nCaused by: ' + this.formatError(error.cause);
-    }
-    
-    return result;
   }
 
   /**
-   * Colorizes a message based on the log level
-   * @param level The log level
-   * @param message The message to colorize
-   * @returns The colorized message
+   * Writes a formatted log entry to the console with appropriate colors
+   * @param level Log level
+   * @param formattedLog Formatted log entry
    */
-  private colorizeByLevel(level: LogLevel, message: string): string {
-    let color: ConsoleColors;
-    let levelColor: ConsoleColors;
+  private writeToConsole(level: LogLevel, formattedLog: string | object): void {
+    // Convert object to string if necessary
+    const logString = typeof formattedLog === 'string'
+      ? formattedLog
+      : this.options.prettyPrint
+        ? JSON.stringify(formattedLog, null, 2)
+        : JSON.stringify(formattedLog);
 
-    // Set colors based on log level
+    // Apply colors based on log level if colorize is enabled
+    const colorizedLog = this.options.colorize
+      ? this.colorizeByLevel(level, logString)
+      : logString;
+
+    // Use stderr for ERROR and FATAL levels if useStderr is enabled
+    if (this.options.useStderr && (level === LogLevel.ERROR || level === LogLevel.FATAL)) {
+      console.error(colorizedLog);
+    } else {
+      console.log(colorizedLog);
+    }
+  }
+
+  /**
+   * Applies color to a log string based on its level
+   * @param level Log level
+   * @param logString Log string to colorize
+   * @returns Colorized log string
+   */
+  private colorizeByLevel(level: LogLevel, logString: string): string {
+    let color: string;
+
     switch (level) {
       case LogLevel.DEBUG:
-        color = ConsoleColors.Cyan;
-        levelColor = ConsoleColors.Bright + ConsoleColors.Cyan;
+        color = ConsoleColors.FgGray;
         break;
       case LogLevel.INFO:
-        color = ConsoleColors.Green;
-        levelColor = ConsoleColors.Bright + ConsoleColors.Green;
+        color = ConsoleColors.FgGreen;
         break;
       case LogLevel.WARN:
-        color = ConsoleColors.Yellow;
-        levelColor = ConsoleColors.Bright + ConsoleColors.Yellow;
+        color = ConsoleColors.FgYellow;
         break;
       case LogLevel.ERROR:
-        color = ConsoleColors.Red;
-        levelColor = ConsoleColors.Bright + ConsoleColors.Red;
+        color = ConsoleColors.FgRed;
         break;
       case LogLevel.FATAL:
-        color = ConsoleColors.Bright + ConsoleColors.Red;
-        levelColor = ConsoleColors.Bright + ConsoleColors.BgRed + ConsoleColors.White;
+        color = `${ConsoleColors.BgRed}${ConsoleColors.FgWhite}${ConsoleColors.Bright}`;
         break;
       default:
-        color = ConsoleColors.White;
-        levelColor = ConsoleColors.White;
+        color = ConsoleColors.Reset;
     }
 
-    // Highlight level labels with a brighter color
-    const levelRegex = /\[(DEBUG|INFO|WARN|ERROR|FATAL)\]/g;
-    const highlightedMessage = message.replace(levelRegex, (match) => {
-      return `${levelColor}${match}${ConsoleColors.Reset}${color}`;
-    });
-
-    // Highlight journey and trace information
-    const journeyRegex = /\[Journey: ([^\]]*)\]/g;
-    const traceRegex = /\[TraceID: ([^\]]*)\]/g;
-    
-    const journeyHighlighted = highlightedMessage.replace(journeyRegex, (match, journey) => {
-      return `${ConsoleColors.Bright + ConsoleColors.Magenta}[Journey: ${journey}]${ConsoleColors.Reset}${color}`;
-    });
-    
-    const traceHighlighted = journeyHighlighted.replace(traceRegex, (match, traceId) => {
-      return `${ConsoleColors.Bright + ConsoleColors.Blue}[TraceID: ${traceId}]${ConsoleColors.Reset}${color}`;
-    });
-
-    return `${color}${traceHighlighted}${ConsoleColors.Reset}`;
+    return `${color}${logString}${ConsoleColors.Reset}`;
   }
 }
