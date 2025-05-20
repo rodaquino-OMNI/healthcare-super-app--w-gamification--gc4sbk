@@ -1,488 +1,790 @@
 import { Span, SpanStatusCode } from '@opentelemetry/api';
-import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { strict as assert } from 'assert';
+import { JourneyContextInfo } from '../../src/interfaces/trace-context.interface';
+import { DEFAULT_SPAN_TIMEOUT_MS } from '../../src/constants/defaults';
 
 /**
- * Interface for span duration assertions
+ * Interface representing a span with its attributes and metadata for testing purposes.
  */
-export interface SpanDurationOptions {
-  /** Minimum acceptable duration in milliseconds */
-  min?: number;
-  /** Maximum acceptable duration in milliseconds */
-  max?: number;
-  /** Exact duration in milliseconds (takes precedence over min/max) */
-  exact?: number;
-  /** Tolerance percentage for exact matching (default: 0) */
-  tolerance?: number;
+export interface TestSpan extends Span {
+  attributes?: Record<string, any>;
+  status?: { code: SpanStatusCode };
+  events?: Array<{
+    name: string;
+    attributes?: Record<string, any>;
+    timestamp?: number;
+  }>;
+  links?: Array<{
+    context: any;
+    attributes?: Record<string, any>;
+  }>;
+  startTime?: number;
+  endTime?: number;
+  parentSpanId?: string;
+  children?: TestSpan[];
 }
 
 /**
- * Interface for span time assertions
+ * Options for span assertion functions.
  */
-export interface SpanTimeOptions {
-  /** Minimum acceptable time in milliseconds since epoch */
-  min?: number;
-  /** Maximum acceptable time in milliseconds since epoch */
-  max?: number;
-  /** Exact time in milliseconds since epoch (takes precedence over min/max) */
-  exact?: number;
-  /** Tolerance in milliseconds for exact matching (default: 0) */
-  tolerance?: number;
+export interface SpanAssertionOptions {
+  /** Whether to fail on missing attributes (default: true) */
+  failOnMissingAttributes?: boolean;
+  /** Whether to ignore additional attributes not specified in expected attributes (default: true) */
+  ignoreAdditionalAttributes?: boolean;
+  /** Custom error message prefix */
+  errorMessagePrefix?: string;
 }
 
 /**
- * Interface for journey-specific span assertions
+ * Options for span timing assertions.
  */
-export interface JourneySpanOptions {
-  /** User ID associated with the journey */
-  userId?: string;
-  /** Journey correlation ID */
-  correlationId?: string;
-  /** Additional journey-specific attributes to verify */
-  attributes?: Record<string, unknown>;
+export interface SpanTimingAssertionOptions {
+  /** Maximum allowed duration in milliseconds */
+  maxDurationMs?: number;
+  /** Minimum allowed duration in milliseconds */
+  minDurationMs?: number;
+  /** Custom error message prefix */
+  errorMessagePrefix?: string;
 }
 
 /**
- * Asserts that a span has all the specified attributes
+ * Default options for span assertions.
+ */
+const DEFAULT_ASSERTION_OPTIONS: SpanAssertionOptions = {
+  failOnMissingAttributes: true,
+  ignoreAdditionalAttributes: true,
+  errorMessagePrefix: 'Span assertion failed:',
+};
+
+/**
+ * Default options for span timing assertions.
+ */
+const DEFAULT_TIMING_ASSERTION_OPTIONS: SpanTimingAssertionOptions = {
+  maxDurationMs: DEFAULT_SPAN_TIMEOUT_MS,
+  minDurationMs: 0,
+  errorMessagePrefix: 'Span timing assertion failed:',
+};
+
+/**
+ * Asserts that a span has the expected attributes.
+ * 
  * @param span The span to check
- * @param attributes The attributes that should exist on the span
- * @param message Optional assertion message
+ * @param expectedAttributes The attributes that should be present on the span
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
 export function assertSpanHasAttributes(
-  span: Span | ReadableSpan,
-  attributes: Record<string, unknown>,
-  message?: string
+  span: TestSpan,
+  expectedAttributes: Record<string, any>,
+  options: SpanAssertionOptions = {}
 ): void {
-  const spanAttributes = getSpanAttributes(span);
-  const missingAttributes: string[] = [];
-  const mismatchedAttributes: Array<{ key: string; expected: unknown; actual: unknown }> = [];
-
-  Object.entries(attributes).forEach(([key, value]) => {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const spanAttributes = span.attributes || {};
+  
+  // Check if all expected attributes are present with correct values
+  for (const [key, expectedValue] of Object.entries(expectedAttributes)) {
     if (!(key in spanAttributes)) {
-      missingAttributes.push(key);
-    } else if (spanAttributes[key] !== value) {
-      mismatchedAttributes.push({
-        key,
-        expected: value,
-        actual: spanAttributes[key],
-      });
-    }
-  });
-
-  if (missingAttributes.length > 0 || mismatchedAttributes.length > 0) {
-    let errorMessage = message || 'Span is missing expected attributes';
-    
-    if (missingAttributes.length > 0) {
-      errorMessage += `\nMissing attributes: ${missingAttributes.join(', ')}`;
+      if (opts.failOnMissingAttributes) {
+        throw new Error(`${opts.errorMessagePrefix} Expected span to have attribute "${key}" but it was not found`);
+      }
+      continue;
     }
     
-    if (mismatchedAttributes.length > 0) {
-      errorMessage += '\nMismatched attributes:';
-      mismatchedAttributes.forEach(({ key, expected, actual }) => {
-        errorMessage += `\n  ${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`;
-      });
+    const actualValue = spanAttributes[key];
+    if (JSON.stringify(actualValue) !== JSON.stringify(expectedValue)) {
+      throw new Error(
+        `${opts.errorMessagePrefix} Expected span attribute "${key}" to be ${JSON.stringify(expectedValue)} but got ${JSON.stringify(actualValue)}`
+      );
     }
-    
-    assert.fail(errorMessage);
+  }
+  
+  // Optionally check if there are unexpected attributes
+  if (!opts.ignoreAdditionalAttributes) {
+    for (const key of Object.keys(spanAttributes)) {
+      if (!(key in expectedAttributes)) {
+        throw new Error(`${opts.errorMessagePrefix} Unexpected attribute "${key}" found on span`);
+      }
+    }
   }
 }
 
 /**
- * Asserts that a span has a specific attribute with the expected value
+ * Asserts that a span has a specific attribute with the expected value.
+ * 
  * @param span The span to check
- * @param key The attribute key
- * @param value The expected attribute value
- * @param message Optional assertion message
+ * @param attributeName The name of the attribute to check
+ * @param expectedValue The expected value of the attribute
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertSpanAttributeEquals(
-  span: Span | ReadableSpan,
-  key: string,
-  value: unknown,
-  message?: string
+export function assertSpanHasAttribute(
+  span: TestSpan,
+  attributeName: string,
+  expectedValue: any,
+  options: SpanAssertionOptions = {}
 ): void {
-  const spanAttributes = getSpanAttributes(span);
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const spanAttributes = span.attributes || {};
   
-  if (!(key in spanAttributes)) {
-    assert.fail(message || `Span is missing attribute: ${key}`);
+  if (!(attributeName in spanAttributes)) {
+    throw new Error(`${opts.errorMessagePrefix} Expected span to have attribute "${attributeName}" but it was not found`);
   }
   
-  assert.deepStrictEqual(
-    spanAttributes[key],
-    value,
-    message || `Span attribute ${key} has unexpected value`
-  );
+  const actualValue = spanAttributes[attributeName];
+  if (JSON.stringify(actualValue) !== JSON.stringify(expectedValue)) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span attribute "${attributeName}" to be ${JSON.stringify(expectedValue)} but got ${JSON.stringify(actualValue)}`
+    );
+  }
 }
 
 /**
- * Asserts that a span has a specific attribute
+ * Asserts that a span has the expected name.
+ * 
  * @param span The span to check
- * @param key The attribute key
- * @param message Optional assertion message
+ * @param expectedName The expected name of the span
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertSpanAttributeExists(
-  span: Span | ReadableSpan,
-  key: string,
-  message?: string
+export function assertSpanHasName(
+  span: TestSpan,
+  expectedName: string,
+  options: SpanAssertionOptions = {}
 ): void {
-  const spanAttributes = getSpanAttributes(span);
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
   
-  if (!(key in spanAttributes)) {
-    assert.fail(message || `Span is missing attribute: ${key}`);
+  if (span.name !== expectedName) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span name to be "${expectedName}" but got "${span.name}"`
+    );
   }
 }
 
 /**
- * Asserts that a span has a specific parent span
+ * Asserts that a span has the expected status.
+ * 
+ * @param span The span to check
+ * @param expectedStatus The expected status of the span
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanHasStatus(
+  span: TestSpan,
+  expectedStatus: SpanStatusCode,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const spanStatus = span.status?.code;
+  
+  if (spanStatus !== expectedStatus) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span status to be ${SpanStatusCode[expectedStatus]} but got ${spanStatus ? SpanStatusCode[spanStatus] : 'undefined'}`
+    );
+  }
+}
+
+/**
+ * Asserts that a span has an event with the expected name and attributes.
+ * 
+ * @param span The span to check
+ * @param eventName The expected name of the event
+ * @param expectedAttributes The expected attributes of the event (optional)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanHasEvent(
+  span: TestSpan,
+  eventName: string,
+  expectedAttributes?: Record<string, any>,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const events = span.events || [];
+  
+  const matchingEvents = events.filter(event => event.name === eventName);
+  
+  if (matchingEvents.length === 0) {
+    throw new Error(`${opts.errorMessagePrefix} Expected span to have event "${eventName}" but it was not found`);
+  }
+  
+  if (expectedAttributes) {
+    // Check if any of the matching events have the expected attributes
+    const eventWithMatchingAttributes = matchingEvents.find(event => {
+      const eventAttributes = event.attributes || {};
+      return Object.entries(expectedAttributes).every(([key, expectedValue]) => {
+        return key in eventAttributes && JSON.stringify(eventAttributes[key]) === JSON.stringify(expectedValue);
+      });
+    });
+    
+    if (!eventWithMatchingAttributes) {
+      throw new Error(
+        `${opts.errorMessagePrefix} Expected span to have event "${eventName}" with attributes ${JSON.stringify(expectedAttributes)} but no matching event was found`
+      );
+    }
+  }
+}
+
+/**
+ * Asserts that a span has an exception event with the expected attributes.
+ * 
+ * @param span The span to check
+ * @param expectedExceptionType The expected exception type (optional)
+ * @param expectedExceptionMessage The expected exception message (optional)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanHasException(
+  span: TestSpan,
+  expectedExceptionType?: string,
+  expectedExceptionMessage?: string,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const expectedAttributes: Record<string, any> = {};
+  
+  if (expectedExceptionType) {
+    expectedAttributes['exception.type'] = expectedExceptionType;
+  }
+  
+  if (expectedExceptionMessage) {
+    expectedAttributes['exception.message'] = expectedExceptionMessage;
+  }
+  
+  assertSpanHasEvent(span, 'exception', expectedAttributes, opts);
+  assertSpanHasStatus(span, SpanStatusCode.ERROR, opts);
+}
+
+/**
+ * Asserts that a span has the expected parent span.
+ * 
  * @param span The span to check
  * @param parentSpan The expected parent span
- * @param message Optional assertion message
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
 export function assertSpanHasParent(
-  span: ReadableSpan,
-  parentSpan: ReadableSpan,
-  message?: string
+  span: TestSpan,
+  parentSpan: TestSpan,
+  options: SpanAssertionOptions = {}
 ): void {
-  const parentSpanId = parentSpan.spanContext().spanId;
-  const spanParentId = span.parentSpanId;
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
   
-  if (!spanParentId) {
-    assert.fail(message || 'Span does not have a parent');
+  if (!span.parentSpanId) {
+    throw new Error(`${opts.errorMessagePrefix} Expected span to have a parent but it does not`);
   }
   
-  assert.strictEqual(
-    spanParentId,
-    parentSpanId,
-    message || 'Span has incorrect parent'
-  );
-}
-
-/**
- * Asserts that a span is a root span (has no parent)
- * @param span The span to check
- * @param message Optional assertion message
- */
-export function assertSpanIsRoot(
-  span: ReadableSpan,
-  message?: string
-): void {
-  assert.strictEqual(
-    span.parentSpanId,
-    undefined,
-    message || 'Span is not a root span'
-  );
-}
-
-/**
- * Asserts that a span's duration is within the expected range
- * @param span The span to check
- * @param options Duration constraints
- * @param message Optional assertion message
- */
-export function assertSpanDuration(
-  span: ReadableSpan,
-  options: SpanDurationOptions,
-  message?: string
-): void {
-  const { startTime, endTime } = span;
-  const durationNanos = endTime - startTime;
-  const durationMillis = durationNanos / 1000000;
+  const parentSpanId = parentSpan.spanContext?.().spanId;
   
-  if (options.exact !== undefined) {
-    const tolerance = options.tolerance || 0;
-    const lowerBound = options.exact * (1 - tolerance / 100);
-    const upperBound = options.exact * (1 + tolerance / 100);
-    
-    if (durationMillis < lowerBound || durationMillis > upperBound) {
-      assert.fail(
-        message || 
-        `Span duration ${durationMillis}ms is outside the expected exact duration ${options.exact}ms ±${tolerance}%`
-      );
-    }
-  } else {
-    if (options.min !== undefined && durationMillis < options.min) {
-      assert.fail(
-        message || 
-        `Span duration ${durationMillis}ms is less than minimum ${options.min}ms`
-      );
-    }
-    
-    if (options.max !== undefined && durationMillis > options.max) {
-      assert.fail(
-        message || 
-        `Span duration ${durationMillis}ms is greater than maximum ${options.max}ms`
-      );
-    }
+  if (span.parentSpanId !== parentSpanId) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have parent with ID "${parentSpanId}" but got "${span.parentSpanId}"`
+    );
   }
 }
 
 /**
- * Asserts that a span started within the expected time range
- * @param span The span to check
- * @param options Time constraints
- * @param message Optional assertion message
+ * Asserts that a span is a child of the expected parent span.
+ * 
+ * @param parentSpan The expected parent span
+ * @param childSpan The child span to check
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertSpanStartTime(
-  span: ReadableSpan,
-  options: SpanTimeOptions,
-  message?: string
+export function assertSpanHasChild(
+  parentSpan: TestSpan,
+  childSpan: TestSpan,
+  options: SpanAssertionOptions = {}
 ): void {
-  const startTimeMillis = span.startTime / 1000000;
+  assertSpanHasParent(childSpan, parentSpan, options);
+}
+
+/**
+ * Asserts that a span has the expected timing characteristics.
+ * 
+ * @param span The span to check
+ * @param options Options for the timing assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanTiming(
+  span: TestSpan,
+  options: SpanTimingAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_TIMING_ASSERTION_OPTIONS, ...options };
   
-  if (options.exact !== undefined) {
-    const tolerance = options.tolerance || 0;
-    const lowerBound = options.exact - tolerance;
-    const upperBound = options.exact + tolerance;
-    
-    if (startTimeMillis < lowerBound || startTimeMillis > upperBound) {
-      assert.fail(
-        message || 
-        `Span start time ${startTimeMillis}ms is outside the expected exact time ${options.exact}ms ±${tolerance}ms`
-      );
-    }
-  } else {
-    if (options.min !== undefined && startTimeMillis < options.min) {
-      assert.fail(
-        message || 
-        `Span start time ${startTimeMillis}ms is earlier than minimum ${options.min}ms`
-      );
-    }
-    
-    if (options.max !== undefined && startTimeMillis > options.max) {
-      assert.fail(
-        message || 
-        `Span start time ${startTimeMillis}ms is later than maximum ${options.max}ms`
-      );
-    }
+  if (!span.startTime || !span.endTime) {
+    throw new Error(`${opts.errorMessagePrefix} Span does not have start or end time`);
+  }
+  
+  const durationMs = span.endTime - span.startTime;
+  
+  if (opts.maxDurationMs !== undefined && durationMs > opts.maxDurationMs) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Span duration ${durationMs}ms exceeds maximum allowed ${opts.maxDurationMs}ms`
+    );
+  }
+  
+  if (opts.minDurationMs !== undefined && durationMs < opts.minDurationMs) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Span duration ${durationMs}ms is less than minimum required ${opts.minDurationMs}ms`
+    );
   }
 }
 
 /**
- * Asserts that a span ended within the expected time range
+ * Asserts that a span has completed (has an end time).
+ * 
  * @param span The span to check
- * @param options Time constraints
- * @param message Optional assertion message
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertSpanEndTime(
-  span: ReadableSpan,
-  options: SpanTimeOptions,
-  message?: string
+export function assertSpanIsComplete(
+  span: TestSpan,
+  options: SpanAssertionOptions = {}
 ): void {
-  const endTimeMillis = span.endTime / 1000000;
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
   
-  if (options.exact !== undefined) {
-    const tolerance = options.tolerance || 0;
-    const lowerBound = options.exact - tolerance;
-    const upperBound = options.exact + tolerance;
-    
-    if (endTimeMillis < lowerBound || endTimeMillis > upperBound) {
-      assert.fail(
-        message || 
-        `Span end time ${endTimeMillis}ms is outside the expected exact time ${options.exact}ms ±${tolerance}ms`
-      );
-    }
-  } else {
-    if (options.min !== undefined && endTimeMillis < options.min) {
-      assert.fail(
-        message || 
-        `Span end time ${endTimeMillis}ms is earlier than minimum ${options.min}ms`
-      );
-    }
-    
-    if (options.max !== undefined && endTimeMillis > options.max) {
-      assert.fail(
-        message || 
-        `Span end time ${endTimeMillis}ms is later than maximum ${options.max}ms`
-      );
-    }
+  if (!span.endTime) {
+    throw new Error(`${opts.errorMessagePrefix} Expected span to be complete but it has no end time`);
   }
 }
 
 /**
- * Asserts that a span has an error status
+ * Asserts that a span has the expected journey context attributes.
+ * 
  * @param span The span to check
- * @param message Optional assertion message
+ * @param expectedJourneyContext The expected journey context
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertSpanHasError(
-  span: ReadableSpan,
-  message?: string
+export function assertSpanHasJourneyContext(
+  span: TestSpan,
+  expectedJourneyContext: JourneyContextInfo,
+  options: SpanAssertionOptions = {}
 ): void {
-  assert.strictEqual(
-    span.status.code,
-    SpanStatusCode.ERROR,
-    message || 'Span does not have error status'
-  );
-}
-
-/**
- * Asserts that a span has a specific error type recorded in an event
- * @param span The span to check
- * @param errorType The expected error type
- * @param message Optional assertion message
- */
-export function assertSpanErrorType(
-  span: ReadableSpan,
-  errorType: string,
-  message?: string
-): void {
-  assertSpanHasError(span, 'Span does not have error status');
-  
-  const exceptionEvent = findExceptionEvent(span);
-  if (!exceptionEvent) {
-    assert.fail(message || 'Span does not have an exception event');
-  }
-  
-  const eventAttributes = exceptionEvent.attributes || {};
-  assert.strictEqual(
-    eventAttributes['exception.type'],
-    errorType,
-    message || `Span exception type does not match expected: ${errorType}`
-  );
-}
-
-/**
- * Asserts that a span has a specific error message recorded in an event
- * @param span The span to check
- * @param errorMessage The expected error message
- * @param message Optional assertion message
- */
-export function assertSpanErrorMessage(
-  span: ReadableSpan,
-  errorMessage: string,
-  message?: string
-): void {
-  assertSpanHasError(span, 'Span does not have error status');
-  
-  const exceptionEvent = findExceptionEvent(span);
-  if (!exceptionEvent) {
-    assert.fail(message || 'Span does not have an exception event');
-  }
-  
-  const eventAttributes = exceptionEvent.attributes || {};
-  assert.strictEqual(
-    eventAttributes['exception.message'],
-    errorMessage,
-    message || `Span exception message does not match expected: ${errorMessage}`
-  );
-}
-
-/**
- * Asserts that a span has the expected Health journey attributes
- * @param span The span to check
- * @param options Health journey specific options
- * @param message Optional assertion message
- */
-export function assertHealthJourneySpan(
-  span: Span | ReadableSpan,
-  options: JourneySpanOptions,
-  message?: string
-): void {
-  const expectedAttributes: Record<string, unknown> = {
-    'journey.type': 'health',
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const expectedAttributes: Record<string, any> = {
+    'journey.type': expectedJourneyContext.journeyType,
+    'journey.id': expectedJourneyContext.journeyId,
   };
   
-  if (options.userId) {
-    expectedAttributes['journey.user.id'] = options.userId;
+  if (expectedJourneyContext.userId) {
+    expectedAttributes['user.id'] = expectedJourneyContext.userId;
   }
   
-  if (options.correlationId) {
-    expectedAttributes['journey.correlation_id'] = options.correlationId;
+  if (expectedJourneyContext.sessionId) {
+    expectedAttributes['session.id'] = expectedJourneyContext.sessionId;
   }
   
-  if (options.attributes) {
-    Object.entries(options.attributes).forEach(([key, value]) => {
-      expectedAttributes[`journey.health.${key}`] = value;
-    });
+  if (expectedJourneyContext.requestId) {
+    expectedAttributes['request.id'] = expectedJourneyContext.requestId;
   }
   
-  assertSpanHasAttributes(span, expectedAttributes, message || 'Span is missing Health journey attributes');
+  assertSpanHasAttributes(span, expectedAttributes, opts);
 }
 
 /**
- * Asserts that a span has the expected Care journey attributes
+ * Asserts that a span has health journey context attributes.
+ * 
  * @param span The span to check
- * @param options Care journey specific options
- * @param message Optional assertion message
+ * @param journeyId The expected journey ID
+ * @param userId The expected user ID (optional)
+ * @param sessionId The expected session ID (optional)
+ * @param requestId The expected request ID (optional)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertCareJourneySpan(
-  span: Span | ReadableSpan,
-  options: JourneySpanOptions,
-  message?: string
+export function assertSpanHasHealthJourneyContext(
+  span: TestSpan,
+  journeyId: string,
+  userId?: string,
+  sessionId?: string,
+  requestId?: string,
+  options: SpanAssertionOptions = {}
 ): void {
-  const expectedAttributes: Record<string, unknown> = {
-    'journey.type': 'care',
-  };
-  
-  if (options.userId) {
-    expectedAttributes['journey.user.id'] = options.userId;
-  }
-  
-  if (options.correlationId) {
-    expectedAttributes['journey.correlation_id'] = options.correlationId;
-  }
-  
-  if (options.attributes) {
-    Object.entries(options.attributes).forEach(([key, value]) => {
-      expectedAttributes[`journey.care.${key}`] = value;
-    });
-  }
-  
-  assertSpanHasAttributes(span, expectedAttributes, message || 'Span is missing Care journey attributes');
+  assertSpanHasJourneyContext(
+    span,
+    {
+      journeyType: 'health',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    },
+    options
+  );
 }
 
 /**
- * Asserts that a span has the expected Plan journey attributes
+ * Asserts that a span has care journey context attributes.
+ * 
  * @param span The span to check
- * @param options Plan journey specific options
- * @param message Optional assertion message
+ * @param journeyId The expected journey ID
+ * @param userId The expected user ID (optional)
+ * @param sessionId The expected session ID (optional)
+ * @param requestId The expected request ID (optional)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-export function assertPlanJourneySpan(
-  span: Span | ReadableSpan,
-  options: JourneySpanOptions,
-  message?: string
+export function assertSpanHasCareJourneyContext(
+  span: TestSpan,
+  journeyId: string,
+  userId?: string,
+  sessionId?: string,
+  requestId?: string,
+  options: SpanAssertionOptions = {}
 ): void {
-  const expectedAttributes: Record<string, unknown> = {
-    'journey.type': 'plan',
-  };
-  
-  if (options.userId) {
-    expectedAttributes['journey.user.id'] = options.userId;
-  }
-  
-  if (options.correlationId) {
-    expectedAttributes['journey.correlation_id'] = options.correlationId;
-  }
-  
-  if (options.attributes) {
-    Object.entries(options.attributes).forEach(([key, value]) => {
-      expectedAttributes[`journey.plan.${key}`] = value;
-    });
-  }
-  
-  assertSpanHasAttributes(span, expectedAttributes, message || 'Span is missing Plan journey attributes');
+  assertSpanHasJourneyContext(
+    span,
+    {
+      journeyType: 'care',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    },
+    options
+  );
 }
 
 /**
- * Helper function to get span attributes regardless of span type
- * @param span The span to extract attributes from
- * @returns The span attributes as a record
+ * Asserts that a span has plan journey context attributes.
+ * 
+ * @param span The span to check
+ * @param journeyId The expected journey ID
+ * @param userId The expected user ID (optional)
+ * @param sessionId The expected session ID (optional)
+ * @param requestId The expected request ID (optional)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-function getSpanAttributes(span: Span | ReadableSpan): Record<string, unknown> {
-  if ('attributes' in span) {
-    // ReadableSpan from SDK
-    return span.attributes;
-  } else {
-    // Regular Span - we can't directly access attributes
-    // This is a limitation of the OpenTelemetry API
-    // In real tests, you should use ReadableSpan from the SDK
-    throw new Error('Cannot extract attributes from Span interface. Use ReadableSpan from SDK instead.');
+export function assertSpanHasPlanJourneyContext(
+  span: TestSpan,
+  journeyId: string,
+  userId?: string,
+  sessionId?: string,
+  requestId?: string,
+  options: SpanAssertionOptions = {}
+): void {
+  assertSpanHasJourneyContext(
+    span,
+    {
+      journeyType: 'plan',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    },
+    options
+  );
+}
+
+/**
+ * Asserts that a span has the expected trace ID.
+ * 
+ * @param span The span to check
+ * @param expectedTraceId The expected trace ID
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanHasTraceId(
+  span: TestSpan,
+  expectedTraceId: string,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const traceId = span.spanContext?.().traceId;
+  
+  if (traceId !== expectedTraceId) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have trace ID "${expectedTraceId}" but got "${traceId}"`
+    );
   }
 }
 
 /**
- * Helper function to find an exception event in a span
- * @param span The span to search for exception events
- * @returns The exception event or undefined if not found
+ * Asserts that a span has the expected span ID.
+ * 
+ * @param span The span to check
+ * @param expectedSpanId The expected span ID
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
  */
-function findExceptionEvent(span: ReadableSpan): { name: string; attributes?: Record<string, unknown> } | undefined {
-  return span.events.find(event => event.name === 'exception');
+export function assertSpanHasSpanId(
+  span: TestSpan,
+  expectedSpanId: string,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const spanId = span.spanContext?.().spanId;
+  
+  if (spanId !== expectedSpanId) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have span ID "${expectedSpanId}" but got "${spanId}"`
+    );
+  }
+}
+
+/**
+ * Asserts that a span is sampled (will be recorded).
+ * 
+ * @param span The span to check
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanIsSampled(
+  span: TestSpan,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  
+  if (!span.isRecording()) {
+    throw new Error(`${opts.errorMessagePrefix} Expected span to be sampled but it is not`);
+  }
+}
+
+/**
+ * Asserts that a span has the expected hierarchy of child spans.
+ * 
+ * @param rootSpan The root span to check
+ * @param expectedHierarchy The expected hierarchy of child spans (names or name patterns)
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanHierarchy(
+  rootSpan: TestSpan,
+  expectedHierarchy: Array<string | RegExp | Array<string | RegExp>>,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const children = rootSpan.children || [];
+  
+  // Check first level of hierarchy
+  for (const expected of expectedHierarchy) {
+    if (Array.isArray(expected)) {
+      // This is a nested hierarchy, find the matching child and check its children
+      const childName = expected[0];
+      const matchingChild = findMatchingSpan(children, childName);
+      
+      if (!matchingChild) {
+        throw new Error(
+          `${opts.errorMessagePrefix} Expected span to have child matching "${childName}" but none was found`
+        );
+      }
+      
+      // Check the nested hierarchy for this child
+      assertSpanHierarchy(matchingChild, expected.slice(1) as any, opts);
+    } else {
+      // This is a direct child, check if it exists
+      const matchingChild = findMatchingSpan(children, expected);
+      
+      if (!matchingChild) {
+        throw new Error(
+          `${opts.errorMessagePrefix} Expected span to have child matching "${expected}" but none was found`
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Helper function to find a span matching a name or pattern.
+ * 
+ * @param spans The spans to search
+ * @param nameOrPattern The name or pattern to match
+ * @returns The matching span or undefined if not found
+ */
+function findMatchingSpan(spans: TestSpan[], nameOrPattern: string | RegExp): TestSpan | undefined {
+  return spans.find(span => {
+    if (typeof nameOrPattern === 'string') {
+      return span.name === nameOrPattern;
+    } else {
+      return nameOrPattern.test(span.name);
+    }
+  });
+}
+
+/**
+ * Asserts that a span has the expected number of child spans.
+ * 
+ * @param span The span to check
+ * @param expectedCount The expected number of child spans
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanChildCount(
+  span: TestSpan,
+  expectedCount: number,
+  options: SpanAssertionOptions = {}
+): void {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const children = span.children || [];
+  
+  if (children.length !== expectedCount) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have ${expectedCount} children but got ${children.length}`
+    );
+  }
+}
+
+/**
+ * Asserts that a span has a child span with the expected name.
+ * 
+ * @param span The span to check
+ * @param expectedChildName The expected name of the child span
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ * @returns The matching child span
+ */
+export function assertSpanHasChildWithName(
+  span: TestSpan,
+  expectedChildName: string,
+  options: SpanAssertionOptions = {}
+): TestSpan {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const children = span.children || [];
+  
+  const matchingChild = children.find(child => child.name === expectedChildName);
+  
+  if (!matchingChild) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have child with name "${expectedChildName}" but none was found`
+    );
+  }
+  
+  return matchingChild;
+}
+
+/**
+ * Asserts that a span has a child span matching the expected name pattern.
+ * 
+ * @param span The span to check
+ * @param namePattern The expected name pattern of the child span
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ * @returns The matching child span
+ */
+export function assertSpanHasChildMatching(
+  span: TestSpan,
+  namePattern: RegExp,
+  options: SpanAssertionOptions = {}
+): TestSpan {
+  const opts = { ...DEFAULT_ASSERTION_OPTIONS, ...options };
+  const children = span.children || [];
+  
+  const matchingChild = children.find(child => namePattern.test(child.name));
+  
+  if (!matchingChild) {
+    throw new Error(
+      `${opts.errorMessagePrefix} Expected span to have child matching pattern ${namePattern} but none was found`
+    );
+  }
+  
+  return matchingChild;
+}
+
+/**
+ * Asserts that all spans in a trace have the expected journey context.
+ * 
+ * @param rootSpan The root span of the trace
+ * @param expectedJourneyContext The expected journey context
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertTraceHasJourneyContext(
+  rootSpan: TestSpan,
+  expectedJourneyContext: JourneyContextInfo,
+  options: SpanAssertionOptions = {}
+): void {
+  // Check the root span
+  assertSpanHasJourneyContext(rootSpan, expectedJourneyContext, options);
+  
+  // Check all child spans recursively
+  const children = rootSpan.children || [];
+  for (const child of children) {
+    assertTraceHasJourneyContext(child, expectedJourneyContext, options);
+  }
+}
+
+/**
+ * Asserts that a span and all its children have the expected trace ID.
+ * 
+ * @param rootSpan The root span of the trace
+ * @param expectedTraceId The expected trace ID
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertTraceHasTraceId(
+  rootSpan: TestSpan,
+  expectedTraceId: string,
+  options: SpanAssertionOptions = {}
+): void {
+  // Check the root span
+  assertSpanHasTraceId(rootSpan, expectedTraceId, options);
+  
+  // Check all child spans recursively
+  const children = rootSpan.children || [];
+  for (const child of children) {
+    assertTraceHasTraceId(child, expectedTraceId, options);
+  }
+}
+
+/**
+ * Asserts that a span has the expected performance characteristics.
+ * 
+ * @param span The span to check
+ * @param expectedMaxDurationMs The maximum allowed duration in milliseconds
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertSpanPerformance(
+  span: TestSpan,
+  expectedMaxDurationMs: number,
+  options: SpanTimingAssertionOptions = {}
+): void {
+  assertSpanTiming(span, { ...options, maxDurationMs: expectedMaxDurationMs });
+}
+
+/**
+ * Asserts that all spans in a trace meet the expected performance characteristics.
+ * 
+ * @param rootSpan The root span of the trace
+ * @param spanPerformanceMap Map of span name patterns to maximum allowed durations
+ * @param options Options for the assertion
+ * @throws Error if the assertion fails
+ */
+export function assertTracePerformance(
+  rootSpan: TestSpan,
+  spanPerformanceMap: Record<string | RegExp, number>,
+  options: SpanTimingAssertionOptions = {}
+): void {
+  // Check the root span if it has a matching pattern
+  checkSpanAgainstPerformanceMap(rootSpan, spanPerformanceMap, options);
+  
+  // Check all child spans recursively
+  const children = rootSpan.children || [];
+  for (const child of children) {
+    assertTracePerformance(child, spanPerformanceMap, options);
+  }
+}
+
+/**
+ * Helper function to check a span against a performance map.
+ * 
+ * @param span The span to check
+ * @param spanPerformanceMap Map of span name patterns to maximum allowed durations
+ * @param options Options for the assertion
+ */
+function checkSpanAgainstPerformanceMap(
+  span: TestSpan,
+  spanPerformanceMap: Record<string | RegExp, number>,
+  options: SpanTimingAssertionOptions = {}
+): void {
+  for (const [patternStr, maxDurationMs] of Object.entries(spanPerformanceMap)) {
+    const pattern = typeof patternStr === 'string' ? new RegExp(`^${patternStr}$`) : patternStr as RegExp;
+    
+    if (pattern.test(span.name)) {
+      assertSpanPerformance(span, maxDurationMs, options);
+      break;
+    }
+  }
 }
