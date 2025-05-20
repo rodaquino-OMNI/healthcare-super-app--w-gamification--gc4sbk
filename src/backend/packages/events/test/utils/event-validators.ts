@@ -1,1211 +1,666 @@
 /**
- * Event Validators
- * 
- * Provides validation utilities for testing event schema compliance, verifying required fields,
- * type-checking event data, and ensuring event integrity. This utility simplifies testing of
- * event schema validation with functions to validate events against expected formats, check
- * for required properties, and verify journey-specific event structures.
+ * @file event-validators.ts
+ * @description Provides validation utilities for testing event schema compliance, verifying required fields,
+ * type-checking event data, and ensuring event integrity. This utility simplifies testing of event schema
+ * validation with functions to validate events against expected formats, check for required properties,
+ * and verify journey-specific event structures.
+ *
+ * @module events/test/utils
  */
 
-import { validate } from 'class-validator';
+import { validate, validateSync, ValidationError } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { BaseEventDto } from '../../src/dto/base-event.dto';
-import { EventTypes } from '../../src/dto/event-types.enum';
-import { HealthMetricEventDto } from '../../src/dto/health-metric-event.dto';
-import { HealthGoalEventDto } from '../../src/dto/health-goal-event.dto';
-import { AppointmentEventDto } from '../../src/dto/appointment-event.dto';
-import { MedicationEventDto } from '../../src/dto/medication-event.dto';
-import { ClaimEventDto } from '../../src/dto/claim-event.dto';
-import { BenefitEventDto } from '../../src/dto/benefit-event.dto';
-import { HealthEventDto } from '../../src/dto/health-event.dto';
-import { CareEventDto } from '../../src/dto/care-event.dto';
-import { PlanEventDto } from '../../src/dto/plan-event.dto';
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { EventMetadataDto, EventVersionDto } from '../../src/dto/event-metadata.dto';
 
 /**
- * Interface for validation result
+ * Interface representing the basic structure of an event.
  */
-export interface ValidationResult {
+export interface BaseEvent {
+  type: EventType | string;
+  payload: Record<string, any>;
+  metadata?: EventMetadataDto;
+}
+
+/**
+ * Result of event validation containing validation status and any errors.
+ */
+export interface EventValidationResult {
   isValid: boolean;
-  errors: string[];
+  errors: ValidationError[] | string[];
 }
 
 /**
- * Interface for event type guard result
+ * Options for event validation.
  */
-export interface EventTypeGuardResult {
-  isValid: boolean;
-  expectedType: string;
-  actualType: string;
-  errors: string[];
+export interface EventValidationOptions {
+  /**
+   * Whether to check for required fields in the event payload based on event type.
+   * Default: true
+   */
+  checkRequiredFields?: boolean;
+  
+  /**
+   * Whether to validate event metadata.
+   * Default: true
+   */
+  validateMetadata?: boolean;
+  
+  /**
+   * Whether to validate event type.
+   * Default: true
+   */
+  validateEventType?: boolean;
+  
+  /**
+   * Whether to validate event payload structure.
+   * Default: true
+   */
+  validatePayload?: boolean;
+  
+  /**
+   * Whether to validate event timestamp.
+   * Default: false
+   */
+  validateTimestamp?: boolean;
+  
+  /**
+   * Maximum age of event in milliseconds for timestamp validation.
+   * Default: 60000 (1 minute)
+   */
+  maxEventAge?: number;
 }
 
 /**
- * Base event validator
- * Validates that an event conforms to the BaseEventDto schema
+ * Default validation options.
+ */
+const DEFAULT_VALIDATION_OPTIONS: EventValidationOptions = {
+  checkRequiredFields: true,
+  validateMetadata: true,
+  validateEventType: true,
+  validatePayload: true,
+  validateTimestamp: false,
+  maxEventAge: 60000, // 1 minute
+};
+
+/**
+ * Map of required fields for each event type.
+ */
+const REQUIRED_FIELDS: Record<EventType, string[]> = {
+  // Health Journey Events
+  [EventType.HEALTH_METRIC_RECORDED]: ['metricType', 'value', 'unit', 'timestamp'],
+  [EventType.HEALTH_GOAL_ACHIEVED]: ['goalId', 'goalType', 'targetValue', 'achievedValue', 'completedAt'],
+  [EventType.HEALTH_GOAL_CREATED]: ['goalId', 'goalType', 'targetValue', 'startValue', 'createdAt'],
+  [EventType.HEALTH_DEVICE_CONNECTED]: ['deviceId', 'deviceType', 'connectionMethod', 'connectedAt'],
+  [EventType.HEALTH_INSIGHT_GENERATED]: ['insightId', 'insightType', 'metricType', 'description', 'severity', 'generatedAt'],
+  [EventType.HEALTH_ASSESSMENT_COMPLETED]: ['assessmentId', 'assessmentType', 'score', 'completedAt'],
+  
+  // Care Journey Events
+  [EventType.CARE_APPOINTMENT_BOOKED]: ['appointmentId', 'providerId', 'specialtyType', 'appointmentType', 'scheduledAt', 'bookedAt'],
+  [EventType.CARE_APPOINTMENT_COMPLETED]: ['appointmentId', 'providerId', 'appointmentType', 'scheduledAt', 'completedAt'],
+  [EventType.CARE_MEDICATION_TAKEN]: ['medicationId', 'medicationName', 'dosage', 'takenAt'],
+  [EventType.CARE_TELEMEDICINE_STARTED]: ['sessionId', 'appointmentId', 'providerId', 'startedAt'],
+  [EventType.CARE_TELEMEDICINE_COMPLETED]: ['sessionId', 'appointmentId', 'providerId', 'startedAt', 'endedAt', 'duration'],
+  [EventType.CARE_PLAN_CREATED]: ['planId', 'providerId', 'planType', 'condition', 'startDate', 'createdAt'],
+  [EventType.CARE_PLAN_TASK_COMPLETED]: ['taskId', 'planId', 'taskType', 'completedAt'],
+  
+  // Plan Journey Events
+  [EventType.PLAN_CLAIM_SUBMITTED]: ['claimId', 'claimType', 'providerId', 'serviceDate', 'amount', 'submittedAt'],
+  [EventType.PLAN_CLAIM_PROCESSED]: ['claimId', 'status', 'amount', 'coveredAmount', 'processedAt'],
+  [EventType.PLAN_SELECTED]: ['planId', 'planType', 'coverageLevel', 'premium', 'startDate', 'selectedAt'],
+  [EventType.PLAN_BENEFIT_UTILIZED]: ['benefitId', 'benefitType', 'utilizationDate'],
+  [EventType.PLAN_REWARD_REDEEMED]: ['rewardId', 'rewardType', 'pointsRedeemed', 'value', 'redeemedAt'],
+  [EventType.PLAN_DOCUMENT_COMPLETED]: ['documentId', 'documentType', 'completedAt'],
+  
+  // Cross-Journey Events
+  [EventType.GAMIFICATION_POINTS_EARNED]: ['sourceType', 'sourceId', 'points', 'reason', 'earnedAt'],
+  [EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED]: ['achievementId', 'achievementType', 'tier', 'points', 'unlockedAt'],
+  [EventType.GAMIFICATION_LEVEL_UP]: ['previousLevel', 'newLevel', 'totalPoints', 'leveledUpAt'],
+  [EventType.GAMIFICATION_QUEST_COMPLETED]: ['questId', 'questType', 'difficulty', 'points', 'completedAt'],
+  
+  // User Events
+  [EventType.USER_PROFILE_COMPLETED]: ['completionPercentage', 'completedSections', 'completedAt'],
+  [EventType.USER_LOGIN]: ['loginMethod', 'deviceType', 'loginAt'],
+  [EventType.USER_ONBOARDING_COMPLETED]: ['completedSteps', 'selectedJourneys', 'completedAt'],
+  [EventType.USER_FEEDBACK_SUBMITTED]: ['feedbackType', 'rating', 'submittedAt'],
+};
+
+/**
+ * Type guards for checking if an object is a valid event.
  * 
- * @param event - The event to validate
- * @returns Validation result with isValid flag and any errors
+ * @param obj Object to check
+ * @returns True if the object is a valid event, false otherwise
  */
-export async function validateBaseEvent(event: any): Promise<ValidationResult> {
-  if (!event) {
-    return { isValid: false, errors: ['Event is null or undefined'] };
-  }
-
-  // Convert plain object to class instance for validation
-  const eventInstance = plainToInstance(BaseEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    // Format validation errors
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Check required fields
-  const requiredFields = ['type', 'userId', 'data', 'timestamp'];
-  const missingFields = requiredFields.filter(field => !event[field]);
-
-  if (missingFields.length > 0) {
-    return { 
-      isValid: false, 
-      errors: [`Missing required fields: ${missingFields.join(', ')}`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
+export function isEvent(obj: any): obj is BaseEvent {
+  return (
+    obj !== null &&
+    typeof obj === 'object' &&
+    'type' in obj &&
+    typeof obj.type === 'string' &&
+    'payload' in obj &&
+    typeof obj.payload === 'object'
+  );
 }
 
 /**
- * Validates that an event has the expected type
+ * Type guard for checking if an event is of a specific type.
  * 
- * @param event - The event to validate
- * @param expectedType - The expected event type
- * @returns Event type guard result
+ * @param event Event to check
+ * @param eventType Expected event type
+ * @returns True if the event is of the specified type, false otherwise
  */
-export function validateEventType(event: any, expectedType: EventTypes): EventTypeGuardResult {
-  if (!event) {
-    return { 
-      isValid: false, 
-      expectedType, 
-      actualType: 'undefined', 
-      errors: ['Event is null or undefined'] 
+export function isEventOfType(event: BaseEvent, eventType: EventType): boolean {
+  return event.type === eventType;
+}
+
+/**
+ * Type guard for checking if an event belongs to the Health journey.
+ * 
+ * @param event Event to check
+ * @returns True if the event belongs to the Health journey, false otherwise
+ */
+export function isHealthEvent(event: BaseEvent): boolean {
+  return Object.values(JourneyEvents.Health).includes(event.type as any);
+}
+
+/**
+ * Type guard for checking if an event belongs to the Care journey.
+ * 
+ * @param event Event to check
+ * @returns True if the event belongs to the Care journey, false otherwise
+ */
+export function isCareEvent(event: BaseEvent): boolean {
+  return Object.values(JourneyEvents.Care).includes(event.type as any);
+}
+
+/**
+ * Type guard for checking if an event belongs to the Plan journey.
+ * 
+ * @param event Event to check
+ * @returns True if the event belongs to the Plan journey, false otherwise
+ */
+export function isPlanEvent(event: BaseEvent): boolean {
+  return Object.values(JourneyEvents.Plan).includes(event.type as any);
+}
+
+/**
+ * Type guard for checking if an event is a Gamification event.
+ * 
+ * @param event Event to check
+ * @returns True if the event is a Gamification event, false otherwise
+ */
+export function isGamificationEvent(event: BaseEvent): boolean {
+  return Object.values(JourneyEvents.Gamification).includes(event.type as any);
+}
+
+/**
+ * Type guard for checking if an event is a User event.
+ * 
+ * @param event Event to check
+ * @returns True if the event is a User event, false otherwise
+ */
+export function isUserEvent(event: BaseEvent): boolean {
+  return Object.values(JourneyEvents.User).includes(event.type as any);
+}
+
+/**
+ * Validates an event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @param options Validation options
+ * @returns Promise resolving to validation result
+ */
+export async function validateEvent(
+  event: any,
+  options: EventValidationOptions = {}
+): Promise<EventValidationResult> {
+  const opts = { ...DEFAULT_VALIDATION_OPTIONS, ...options };
+  const errors: string[] = [];
+  
+  // Check if the object is an event
+  if (!isEvent(event)) {
+    return {
+      isValid: false,
+      errors: ['Invalid event structure: must have type and payload properties'],
     };
   }
-
-  if (!event.type) {
-    return { 
-      isValid: false, 
-      expectedType, 
-      actualType: 'undefined', 
-      errors: ['Event type is missing'] 
-    };
+  
+  // Validate event type
+  if (opts.validateEventType) {
+    const validEventTypes = Object.values(EventType);
+    if (!validEventTypes.includes(event.type as EventType)) {
+      errors.push(`Invalid event type: ${event.type}`);
+    }
   }
-
-  if (event.type !== expectedType) {
-    return { 
-      isValid: false, 
-      expectedType, 
-      actualType: event.type, 
-      errors: [`Expected event type ${expectedType}, but got ${event.type}`] 
-    };
+  
+  // Validate required fields
+  if (opts.checkRequiredFields && Object.values(EventType).includes(event.type as EventType)) {
+    const requiredFields = REQUIRED_FIELDS[event.type as EventType] || [];
+    for (const field of requiredFields) {
+      if (!(field in event.payload)) {
+        errors.push(`Missing required field in payload: ${field}`);
+      }
+    }
   }
-
-  return { 
-    isValid: true, 
-    expectedType, 
-    actualType: event.type, 
-    errors: [] 
+  
+  // Validate metadata
+  if (opts.validateMetadata && event.metadata) {
+    const metadataInstance = plainToInstance(EventMetadataDto, event.metadata);
+    const metadataErrors = await validate(metadataInstance);
+    
+    if (metadataErrors.length > 0) {
+      errors.push(
+        ...metadataErrors.map(
+          (error) => `Metadata validation error: ${formatValidationError(error)}`
+        )
+      );
+    }
+  }
+  
+  // Validate timestamp
+  if (opts.validateTimestamp && event.metadata?.timestamp) {
+    const timestamp = new Date(event.metadata.timestamp);
+    const now = new Date();
+    const maxAge = opts.maxEventAge || DEFAULT_VALIDATION_OPTIONS.maxEventAge;
+    
+    if (isNaN(timestamp.getTime())) {
+      errors.push('Invalid timestamp format');
+    } else if (timestamp > now) {
+      errors.push('Timestamp is in the future');
+    } else if (now.getTime() - timestamp.getTime() > maxAge) {
+      errors.push(`Event is too old: ${now.getTime() - timestamp.getTime()}ms (max: ${maxAge}ms)`);
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
   };
 }
 
 /**
- * Validates that an event belongs to the expected journey
+ * Synchronously validates an event against its expected schema.
  * 
- * @param event - The event to validate
- * @param expectedJourney - The expected journey ('health', 'care', or 'plan')
+ * @param event Event to validate
+ * @param options Validation options
  * @returns Validation result
  */
-export function validateEventJourney(event: any, expectedJourney: 'health' | 'care' | 'plan'): ValidationResult {
-  if (!event) {
-    return { isValid: false, errors: ['Event is null or undefined'] };
-  }
-
-  // If journey is explicitly set, check it
-  if (event.journey && event.journey !== expectedJourney) {
-    return { 
-      isValid: false, 
-      errors: [`Expected journey ${expectedJourney}, but got ${event.journey}`] 
+export function validateEventSync(
+  event: any,
+  options: EventValidationOptions = {}
+): EventValidationResult {
+  const opts = { ...DEFAULT_VALIDATION_OPTIONS, ...options };
+  const errors: string[] = [];
+  
+  // Check if the object is an event
+  if (!isEvent(event)) {
+    return {
+      isValid: false,
+      errors: ['Invalid event structure: must have type and payload properties'],
     };
   }
-
-  // If journey is not set, infer from event type
-  if (!event.journey && event.type) {
-    const eventType = event.type as string;
-    
-    // Check if event type matches expected journey
-    const journeyPrefix = {
-      'health': 'HEALTH_',
-      'care': 'CARE_',
-      'plan': 'PLAN_'
-    }[expectedJourney];
-
-    if (journeyPrefix && !eventType.startsWith(journeyPrefix)) {
-      return { 
-        isValid: false, 
-        errors: [`Event type ${eventType} does not belong to ${expectedJourney} journey`] 
-      };
+  
+  // Validate event type
+  if (opts.validateEventType) {
+    const validEventTypes = Object.values(EventType);
+    if (!validEventTypes.includes(event.type as EventType)) {
+      errors.push(`Invalid event type: ${event.type}`);
     }
   }
-
-  return { isValid: true, errors: [] };
+  
+  // Validate required fields
+  if (opts.checkRequiredFields && Object.values(EventType).includes(event.type as EventType)) {
+    const requiredFields = REQUIRED_FIELDS[event.type as EventType] || [];
+    for (const field of requiredFields) {
+      if (!(field in event.payload)) {
+        errors.push(`Missing required field in payload: ${field}`);
+      }
+    }
+  }
+  
+  // Validate metadata
+  if (opts.validateMetadata && event.metadata) {
+    const metadataInstance = plainToInstance(EventMetadataDto, event.metadata);
+    const metadataErrors = validateSync(metadataInstance);
+    
+    if (metadataErrors.length > 0) {
+      errors.push(
+        ...metadataErrors.map(
+          (error) => `Metadata validation error: ${formatValidationError(error)}`
+        )
+      );
+    }
+  }
+  
+  // Validate timestamp
+  if (opts.validateTimestamp && event.metadata?.timestamp) {
+    const timestamp = new Date(event.metadata.timestamp);
+    const now = new Date();
+    const maxAge = opts.maxEventAge || DEFAULT_VALIDATION_OPTIONS.maxEventAge;
+    
+    if (isNaN(timestamp.getTime())) {
+      errors.push('Invalid timestamp format');
+    } else if (timestamp > now) {
+      errors.push('Timestamp is in the future');
+    } else if (now.getTime() - timestamp.getTime() > maxAge) {
+      errors.push(`Event is too old: ${now.getTime() - timestamp.getTime()}ms (max: ${maxAge}ms)`);
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
 }
 
 /**
- * Validates timestamp format and sequence
+ * Validates an event's version against expected version constraints.
  * 
- * @param event - The event to validate
- * @param referenceTime - Optional reference time to compare against
- * @param shouldBeAfter - Whether the event timestamp should be after the reference time
+ * @param event Event to validate
+ * @param minVersion Minimum acceptable version (e.g., '1.0.0')
+ * @param maxVersion Maximum acceptable version (e.g., '2.0.0')
+ * @returns Validation result
+ */
+export function validateEventVersion(
+  event: BaseEvent,
+  minVersion: string,
+  maxVersion?: string
+): EventValidationResult {
+  if (!event.metadata?.version) {
+    return {
+      isValid: false,
+      errors: ['Event has no version information'],
+    };
+  }
+  
+  const eventVersion = event.metadata.version;
+  let versionStr: string;
+  
+  if (typeof eventVersion === 'string') {
+    versionStr = eventVersion;
+  } else if (eventVersion instanceof EventVersionDto) {
+    versionStr = eventVersion.toString();
+  } else if (typeof eventVersion === 'object' && 'major' in eventVersion && 'minor' in eventVersion && 'patch' in eventVersion) {
+    versionStr = `${eventVersion.major}.${eventVersion.minor}.${eventVersion.patch}`;
+  } else {
+    return {
+      isValid: false,
+      errors: ['Invalid version format'],
+    };
+  }
+  
+  // Parse versions
+  const eventVersionParts = versionStr.split('.').map(Number);
+  const minVersionParts = minVersion.split('.').map(Number);
+  const maxVersionParts = maxVersion ? maxVersion.split('.').map(Number) : undefined;
+  
+  // Check minimum version
+  for (let i = 0; i < 3; i++) {
+    if (eventVersionParts[i] < minVersionParts[i]) {
+      return {
+        isValid: false,
+        errors: [`Event version ${versionStr} is below minimum version ${minVersion}`],
+      };
+    } else if (eventVersionParts[i] > minVersionParts[i]) {
+      break;
+    }
+  }
+  
+  // Check maximum version if specified
+  if (maxVersionParts) {
+    for (let i = 0; i < 3; i++) {
+      if (eventVersionParts[i] > maxVersionParts[i]) {
+        return {
+          isValid: false,
+          errors: [`Event version ${versionStr} exceeds maximum version ${maxVersion}`],
+        };
+      } else if (eventVersionParts[i] < maxVersionParts[i]) {
+        break;
+      }
+    }
+  }
+  
+  return {
+    isValid: true,
+    errors: [],
+  };
+}
+
+/**
+ * Validates a health event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validateHealthEvent(event: BaseEvent): EventValidationResult {
+  if (!isHealthEvent(event)) {
+    return {
+      isValid: false,
+      errors: [`Event type ${event.type} is not a Health journey event`],
+    };
+  }
+  
+  return validateEventSync(event);
+}
+
+/**
+ * Validates a care event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validateCareEvent(event: BaseEvent): EventValidationResult {
+  if (!isCareEvent(event)) {
+    return {
+      isValid: false,
+      errors: [`Event type ${event.type} is not a Care journey event`],
+    };
+  }
+  
+  return validateEventSync(event);
+}
+
+/**
+ * Validates a plan event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validatePlanEvent(event: BaseEvent): EventValidationResult {
+  if (!isPlanEvent(event)) {
+    return {
+      isValid: false,
+      errors: [`Event type ${event.type} is not a Plan journey event`],
+    };
+  }
+  
+  return validateEventSync(event);
+}
+
+/**
+ * Validates a gamification event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validateGamificationEvent(event: BaseEvent): EventValidationResult {
+  if (!isGamificationEvent(event)) {
+    return {
+      isValid: false,
+      errors: [`Event type ${event.type} is not a Gamification event`],
+    };
+  }
+  
+  return validateEventSync(event);
+}
+
+/**
+ * Validates a user event against its expected schema.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validateUserEvent(event: BaseEvent): EventValidationResult {
+  if (!isUserEvent(event)) {
+    return {
+      isValid: false,
+      errors: [`Event type ${event.type} is not a User event`],
+    };
+  }
+  
+  return validateEventSync(event);
+}
+
+/**
+ * Validates that an event has all required fields for its type.
+ * 
+ * @param event Event to validate
+ * @returns Validation result
+ */
+export function validateRequiredFields(event: BaseEvent): EventValidationResult {
+  if (!Object.values(EventType).includes(event.type as EventType)) {
+    return {
+      isValid: false,
+      errors: [`Unknown event type: ${event.type}`],
+    };
+  }
+  
+  const requiredFields = REQUIRED_FIELDS[event.type as EventType] || [];
+  const missingFields = requiredFields.filter((field) => !(field in event.payload));
+  
+  if (missingFields.length > 0) {
+    return {
+      isValid: false,
+      errors: missingFields.map((field) => `Missing required field: ${field}`),
+    };
+  }
+  
+  return {
+    isValid: true,
+    errors: [],
+  };
+}
+
+/**
+ * Validates that an event's timestamp is within acceptable bounds.
+ * 
+ * @param event Event to validate
+ * @param maxAgeMs Maximum age of the event in milliseconds
  * @returns Validation result
  */
 export function validateEventTimestamp(
-  event: any, 
-  referenceTime?: Date | string,
-  shouldBeAfter: boolean = true
-): ValidationResult {
-  if (!event) {
-    return { isValid: false, errors: ['Event is null or undefined'] };
-  }
-
-  if (!event.timestamp) {
-    return { isValid: false, errors: ['Event timestamp is missing'] };
-  }
-
-  // Validate ISO format
-  const timestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
-  if (!timestampRegex.test(event.timestamp)) {
-    return { 
-      isValid: false, 
-      errors: [`Event timestamp ${event.timestamp} is not in ISO format`] 
-    };
-  }
-
-  // If reference time is provided, check sequence
-  if (referenceTime) {
-    const eventTime = new Date(event.timestamp).getTime();
-    const reference = typeof referenceTime === 'string' 
-      ? new Date(referenceTime).getTime() 
-      : referenceTime.getTime();
-
-    if (shouldBeAfter && eventTime <= reference) {
-      return { 
-        isValid: false, 
-        errors: [`Event timestamp ${event.timestamp} should be after ${referenceTime}`] 
-      };
-    }
-
-    if (!shouldBeAfter && eventTime >= reference) {
-      return { 
-        isValid: false, 
-        errors: [`Event timestamp ${event.timestamp} should be before ${referenceTime}`] 
-      };
-    }
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates that an event has all required data fields
- * 
- * @param event - The event to validate
- * @param requiredFields - Array of required field names in the data object
- * @returns Validation result
- */
-export function validateEventDataFields(event: any, requiredFields: string[]): ValidationResult {
-  if (!event) {
-    return { isValid: false, errors: ['Event is null or undefined'] };
-  }
-
-  if (!event.data) {
-    return { isValid: false, errors: ['Event data is missing'] };
-  }
-
-  const missingFields = requiredFields.filter(field => {
-    const value = event.data[field];
-    return value === undefined || value === null || value === '';
-  });
-
-  if (missingFields.length > 0) {
-    return { 
-      isValid: false, 
-      errors: [`Missing required data fields: ${missingFields.join(', ')}`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates numeric field ranges
- * 
- * @param event - The event to validate
- * @param fieldPath - Path to the numeric field (e.g., 'data.value')
- * @param min - Minimum allowed value (inclusive)
- * @param max - Maximum allowed value (inclusive)
- * @returns Validation result
- */
-export function validateNumericRange(
-  event: any, 
-  fieldPath: string, 
-  min?: number, 
-  max?: number
-): ValidationResult {
-  if (!event) {
-    return { isValid: false, errors: ['Event is null or undefined'] };
-  }
-
-  // Navigate to the field using the path
-  const pathParts = fieldPath.split('.');
-  let value = event;
-  
-  for (const part of pathParts) {
-    if (value === undefined || value === null) {
-      return { 
-        isValid: false, 
-        errors: [`Field path ${fieldPath} not found in event`] 
-      };
-    }
-    value = value[part];
-  }
-
-  if (typeof value !== 'number') {
-    return { 
-      isValid: false, 
-      errors: [`Field ${fieldPath} is not a number, got ${typeof value}`] 
-    };
-  }
-
-  if (min !== undefined && value < min) {
-    return { 
-      isValid: false, 
-      errors: [`Field ${fieldPath} value ${value} is less than minimum ${min}`] 
-    };
-  }
-
-  if (max !== undefined && value > max) {
-    return { 
-      isValid: false, 
-      errors: [`Field ${fieldPath} value ${value} is greater than maximum ${max}`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-// =========================================================================
-// HEALTH JOURNEY EVENT VALIDATORS
-// =========================================================================
-
-/**
- * Validates a health metric recorded event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateHealthMetricEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.HEALTH_METRIC_RECORDED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'health');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['metricType', 'value', 'unit', 'recordedAt'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(HealthMetricEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate metric value based on type
-  const { metricType, value } = event.data;
-  
-  switch (metricType) {
-    case 'HEART_RATE':
-      return validateNumericRange(event, 'data.value', 30, 220); // bpm
-    case 'BLOOD_PRESSURE_SYSTOLIC':
-      return validateNumericRange(event, 'data.value', 70, 250); // mmHg
-    case 'BLOOD_PRESSURE_DIASTOLIC':
-      return validateNumericRange(event, 'data.value', 40, 150); // mmHg
-    case 'BLOOD_GLUCOSE':
-      return validateNumericRange(event, 'data.value', 20, 600); // mg/dL
-    case 'WEIGHT':
-      return validateNumericRange(event, 'data.value', 1, 500); // kg
-    case 'STEPS':
-      return validateNumericRange(event, 'data.value', 0, 100000); // steps
-    case 'SLEEP':
-      return validateNumericRange(event, 'data.value', 0, 24); // hours
-    default:
-      // For unknown metric types, just ensure it's a number
-      if (typeof value !== 'number') {
-        return { 
-          isValid: false, 
-          errors: [`Metric value must be a number, got ${typeof value}`] 
-        };
-      }
-      return { isValid: true, errors: [] };
-  }
-}
-
-/**
- * Validates a health goal achieved event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateHealthGoalEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.HEALTH_GOAL_ACHIEVED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'health');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['goalId', 'goalType', 'targetValue', 'achievedValue', 'achievedAt'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(HealthGoalEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate that achieved value meets or exceeds target value
-  const { targetValue, achievedValue, goalType } = event.data;
-  
-  // For weight goals, achieved value should be less than or equal to target
-  if (goalType === 'WEIGHT' && achievedValue > targetValue) {
-    return { 
-      isValid: false, 
-      errors: [`For weight goals, achieved value (${achievedValue}) should be less than or equal to target value (${targetValue})`] 
+  event: BaseEvent,
+  maxAgeMs: number = 60000 // 1 minute
+): EventValidationResult {
+  if (!event.metadata?.timestamp) {
+    return {
+      isValid: false,
+      errors: ['Event has no timestamp'],
     };
   }
   
-  // For other goals, achieved value should be greater than or equal to target
-  if (goalType !== 'WEIGHT' && achievedValue < targetValue) {
-    return { 
-      isValid: false, 
-      errors: [`Achieved value (${achievedValue}) should be greater than or equal to target value (${targetValue})`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates a health device connected event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateHealthDeviceEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.HEALTH_DEVICE_CONNECTED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'health');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['deviceId', 'deviceType', 'manufacturer', 'model', 'connectedAt'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(HealthEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-// =========================================================================
-// CARE JOURNEY EVENT VALIDATORS
-// =========================================================================
-
-/**
- * Validates an appointment booked event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateAppointmentBookedEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.CARE_APPOINTMENT_BOOKED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'care');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['appointmentId', 'providerId', 'providerName', 'specialtyName', 'appointmentDate', 'appointmentType', 'status', 'bookedAt'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(AppointmentEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate that appointment date is in the future
-  const appointmentDate = new Date(event.data.appointmentDate);
+  const timestamp = new Date(event.metadata.timestamp);
   const now = new Date();
   
-  if (appointmentDate <= now) {
-    return { 
-      isValid: false, 
-      errors: [`Appointment date (${event.data.appointmentDate}) must be in the future`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates a medication taken event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateMedicationTakenEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.CARE_MEDICATION_TAKEN);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'care');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['medicationId', 'medicationName', 'dosage', 'takenAt', 'scheduledFor', 'adherence'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(MedicationEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate adherence value
-  const validAdherenceValues = ['ON_TIME', 'LATE', 'MISSED'];
-  if (!validAdherenceValues.includes(event.data.adherence)) {
-    return { 
-      isValid: false, 
-      errors: [`Invalid adherence value: ${event.data.adherence}. Must be one of: ${validAdherenceValues.join(', ')}`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates a telemedicine session event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateTelemedicineSessionEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type is one of the telemedicine event types
-  const validTypes = [
-    EventTypes.CARE_TELEMEDICINE_STARTED,
-    EventTypes.CARE_TELEMEDICINE_COMPLETED,
-    EventTypes.CARE_TELEMEDICINE_CANCELLED
-  ];
-  
-  if (!event.type || !validTypes.includes(event.type)) {
-    return { 
-      isValid: false, 
-      errors: [`Invalid telemedicine event type: ${event.type}. Must be one of: ${validTypes.join(', ')}`] 
-    };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'care');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields based on event type
-  let requiredFields = ['sessionId', 'providerId', 'status'];
-  
-  if (event.type === EventTypes.CARE_TELEMEDICINE_STARTED) {
-    requiredFields = [...requiredFields, 'startedAt'];
-  } else if (event.type === EventTypes.CARE_TELEMEDICINE_COMPLETED) {
-    requiredFields = [...requiredFields, 'startedAt', 'endedAt', 'duration'];
-  } else if (event.type === EventTypes.CARE_TELEMEDICINE_CANCELLED) {
-    requiredFields = [...requiredFields, 'reason'];
-  }
-  
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(CareEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // For completed sessions, validate that endedAt is after startedAt
-  if (event.type === EventTypes.CARE_TELEMEDICINE_COMPLETED) {
-    const startedAt = new Date(event.data.startedAt).getTime();
-    const endedAt = new Date(event.data.endedAt).getTime();
-    
-    if (endedAt <= startedAt) {
-      return { 
-        isValid: false, 
-        errors: [`Session end time (${event.data.endedAt}) must be after start time (${event.data.startedAt})`] 
-      };
-    }
-    
-    // Validate that duration matches the difference between start and end times
-    const durationMs = endedAt - startedAt;
-    const durationMinutes = Math.round(durationMs / (1000 * 60));
-    
-    if (Math.abs(durationMinutes - event.data.duration) > 1) { // Allow 1 minute difference for rounding
-      return { 
-        isValid: false, 
-        errors: [`Session duration (${event.data.duration} minutes) does not match the time difference between start and end (${durationMinutes} minutes)`] 
-      };
-    }
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-// =========================================================================
-// PLAN JOURNEY EVENT VALIDATORS
-// =========================================================================
-
-/**
- * Validates a claim submitted event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateClaimSubmittedEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.PLAN_CLAIM_SUBMITTED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'plan');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['claimId', 'claimType', 'amount', 'currency', 'serviceDate', 'submittedAt', 'status'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(ClaimEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate amount is positive
-  const amountResult = validateNumericRange(event, 'data.amount', 0.01);
-  if (!amountResult.isValid) {
-    return amountResult;
-  }
-
-  // Validate currency
-  const validCurrencies = ['BRL', 'USD', 'EUR'];
-  if (!validCurrencies.includes(event.data.currency)) {
-    return { 
-      isValid: false, 
-      errors: [`Invalid currency: ${event.data.currency}. Must be one of: ${validCurrencies.join(', ')}`] 
-    };
-  }
-
-  // Validate status is 'SUBMITTED'
-  if (event.data.status !== 'SUBMITTED') {
-    return { 
-      isValid: false, 
-      errors: [`Initial claim status must be 'SUBMITTED', got '${event.data.status}'`] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates a claim status updated event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateClaimStatusUpdatedEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.PLAN_CLAIM_STATUS_UPDATED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'plan');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['claimId', 'previousStatus', 'newStatus', 'updatedAt'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(ClaimEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate status transition
-  const { previousStatus, newStatus } = event.data;
-  
-  // Validate statuses
-  const validStatuses = ['SUBMITTED', 'UNDER_REVIEW', 'PENDING_INFORMATION', 'APPROVED', 'REJECTED'];
-  
-  if (!validStatuses.includes(previousStatus)) {
-    return { 
-      isValid: false, 
-      errors: [`Invalid previous status: ${previousStatus}. Must be one of: ${validStatuses.join(', ')}`] 
+  if (isNaN(timestamp.getTime())) {
+    return {
+      isValid: false,
+      errors: ['Invalid timestamp format'],
     };
   }
   
-  if (!validStatuses.includes(newStatus)) {
-    return { 
-      isValid: false, 
-      errors: [`Invalid new status: ${newStatus}. Must be one of: ${validStatuses.join(', ')}`] 
+  if (timestamp > now) {
+    return {
+      isValid: false,
+      errors: ['Timestamp is in the future'],
     };
   }
   
-  // Validate that status has actually changed
-  if (previousStatus === newStatus) {
-    return { 
-      isValid: false, 
-      errors: [`Status has not changed: ${previousStatus} -> ${newStatus}`] 
+  if (now.getTime() - timestamp.getTime() > maxAgeMs) {
+    return {
+      isValid: false,
+      errors: [`Event is too old: ${now.getTime() - timestamp.getTime()}ms (max: ${maxAgeMs}ms)`],
     };
   }
   
-  // Validate required fields based on new status
-  if (newStatus === 'APPROVED' && event.data.approvedAmount === undefined) {
-    return { 
-      isValid: false, 
-      errors: ['approvedAmount is required when status is APPROVED'] 
-    };
+  return {
+    isValid: true,
+    errors: [],
+  };
+}
+
+/**
+ * Creates an invalid event for testing validation failure scenarios.
+ * 
+ * @param eventType Type of event to create
+ * @param invalidations Object specifying which parts of the event to invalidate
+ * @returns An invalid event object
+ */
+export function createInvalidEvent(
+  eventType: EventType,
+  invalidations: {
+    missingFields?: string[];
+    invalidType?: boolean;
+    invalidMetadata?: boolean;
+    futureTimestamp?: boolean;
+    oldTimestamp?: boolean;
   }
+): BaseEvent {
+  const event: BaseEvent = {
+    type: invalidations.invalidType ? 'INVALID_TYPE' : eventType,
+    payload: {},
+    metadata: invalidations.invalidMetadata
+      ? { invalid: 'metadata' } as any
+      : new EventMetadataDto(),
+  };
   
-  if (newStatus === 'REJECTED' && !event.data.rejectionReason) {
-    return { 
-      isValid: false, 
-      errors: ['rejectionReason is required when status is REJECTED'] 
-    };
-  }
+  // Add all required fields except those specified as missing
+  const requiredFields = REQUIRED_FIELDS[eventType] || [];
+  const missingFields = invalidations.missingFields || [];
   
-  if (newStatus === 'PENDING_INFORMATION' && (!event.data.requiredInformation || !Array.isArray(event.data.requiredInformation) || event.data.requiredInformation.length === 0)) {
-    return { 
-      isValid: false, 
-      errors: ['requiredInformation array is required when status is PENDING_INFORMATION'] 
-    };
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-/**
- * Validates a benefit used event
- * 
- * @param event - The event to validate
- * @returns Validation result
- */
-export async function validateBenefitUsedEvent(event: any): Promise<ValidationResult> {
-  // Check base event structure
-  const baseResult = await validateBaseEvent(event);
-  if (!baseResult.isValid) {
-    return baseResult;
-  }
-
-  // Check event type
-  const typeResult = validateEventType(event, EventTypes.PLAN_BENEFIT_UTILIZED);
-  if (!typeResult.isValid) {
-    return { isValid: false, errors: typeResult.errors };
-  }
-
-  // Check journey
-  const journeyResult = validateEventJourney(event, 'plan');
-  if (!journeyResult.isValid) {
-    return journeyResult;
-  }
-
-  // Check required data fields
-  const requiredFields = ['benefitId', 'benefitType', 'usedAt', 'value'];
-  const fieldsResult = validateEventDataFields(event, requiredFields);
-  if (!fieldsResult.isValid) {
-    return fieldsResult;
-  }
-
-  // Convert to DTO for class-validator validation
-  const eventInstance = plainToInstance(BenefitEventDto, event);
-  const errors = await validate(eventInstance);
-
-  if (errors.length > 0) {
-    const formattedErrors = errors.map(error => {
-      const constraints = error.constraints || {};
-      return Object.values(constraints).join(', ');
-    });
-
-    return { isValid: false, errors: formattedErrors };
-  }
-
-  // Validate value is positive
-  const valueResult = validateNumericRange(event, 'data.value', 0);
-  if (!valueResult.isValid) {
-    return valueResult;
-  }
-
-  return { isValid: true, errors: [] };
-}
-
-// =========================================================================
-// TYPE GUARDS
-// =========================================================================
-
-/**
- * Type guard for health metric events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid health metric event
- */
-export function isHealthMetricEvent(event: any): event is HealthMetricEventDto {
-  return event?.type === EventTypes.HEALTH_METRIC_RECORDED;
-}
-
-/**
- * Type guard for health goal events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid health goal event
- */
-export function isHealthGoalEvent(event: any): event is HealthGoalEventDto {
-  return event?.type === EventTypes.HEALTH_GOAL_ACHIEVED;
-}
-
-/**
- * Type guard for appointment events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid appointment event
- */
-export function isAppointmentEvent(event: any): event is AppointmentEventDto {
-  return event?.type === EventTypes.CARE_APPOINTMENT_BOOKED ||
-         event?.type === EventTypes.CARE_APPOINTMENT_COMPLETED ||
-         event?.type === EventTypes.CARE_APPOINTMENT_CANCELLED;
-}
-
-/**
- * Type guard for medication events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid medication event
- */
-export function isMedicationEvent(event: any): event is MedicationEventDto {
-  return event?.type === EventTypes.CARE_MEDICATION_TAKEN ||
-         event?.type === EventTypes.CARE_MEDICATION_MISSED;
-}
-
-/**
- * Type guard for claim events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid claim event
- */
-export function isClaimEvent(event: any): event is ClaimEventDto {
-  return event?.type === EventTypes.PLAN_CLAIM_SUBMITTED ||
-         event?.type === EventTypes.PLAN_CLAIM_STATUS_UPDATED;
-}
-
-/**
- * Type guard for benefit events
- * 
- * @param event - The event to check
- * @returns True if the event is a valid benefit event
- */
-export function isBenefitEvent(event: any): event is BenefitEventDto {
-  return event?.type === EventTypes.PLAN_BENEFIT_UTILIZED;
-}
-
-/**
- * Type guard for health journey events
- * 
- * @param event - The event to check
- * @returns True if the event belongs to the health journey
- */
-export function isHealthJourneyEvent(event: any): boolean {
-  return event?.type?.startsWith('HEALTH_') || event?.journey === 'health';
-}
-
-/**
- * Type guard for care journey events
- * 
- * @param event - The event to check
- * @returns True if the event belongs to the care journey
- */
-export function isCareJourneyEvent(event: any): boolean {
-  return event?.type?.startsWith('CARE_') || event?.journey === 'care';
-}
-
-/**
- * Type guard for plan journey events
- * 
- * @param event - The event to check
- * @returns True if the event belongs to the plan journey
- */
-export function isPlanJourneyEvent(event: any): boolean {
-  return event?.type?.startsWith('PLAN_') || event?.journey === 'plan';
-}
-
-// =========================================================================
-// UTILITY FUNCTIONS FOR TESTING INVALID SCENARIOS
-// =========================================================================
-
-/**
- * Creates an invalid event by removing required fields
- * 
- * @param event - The base event to modify
- * @param fieldsToRemove - Array of field paths to remove (e.g., 'data.value')
- * @returns A copy of the event with specified fields removed
- */
-export function createInvalidEvent(event: any, fieldsToRemove: string[]): any {
-  // Create a deep copy of the event
-  const invalidEvent = JSON.parse(JSON.stringify(event));
-  
-  // Remove specified fields
-  for (const fieldPath of fieldsToRemove) {
-    const pathParts = fieldPath.split('.');
-    let current = invalidEvent;
-    
-    // Navigate to the parent object
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      if (current[pathParts[i]] === undefined) {
-        // Path doesn't exist, nothing to remove
-        break;
+  for (const field of requiredFields) {
+    if (!missingFields.includes(field)) {
+      // Add a dummy value based on field name
+      if (field.includes('Id')) {
+        event.payload[field] = 'test-id';
+      } else if (field.includes('Type')) {
+        event.payload[field] = 'test-type';
+      } else if (field.includes('value') || field.includes('amount') || field.includes('percentage')) {
+        event.payload[field] = 100;
+      } else if (field.includes('At') || field.includes('Date')) {
+        event.payload[field] = new Date().toISOString();
+      } else {
+        event.payload[field] = 'test-value';
       }
-      current = current[pathParts[i]];
-    }
-    
-    // Remove the field
-    const lastPart = pathParts[pathParts.length - 1];
-    if (current && current[lastPart] !== undefined) {
-      delete current[lastPart];
     }
   }
   
-  return invalidEvent;
-}
-
-/**
- * Creates an invalid event by modifying field values
- * 
- * @param event - The base event to modify
- * @param fieldModifications - Object mapping field paths to new values
- * @returns A copy of the event with specified fields modified
- */
-export function createModifiedEvent(event: any, fieldModifications: Record<string, any>): any {
-  // Create a deep copy of the event
-  const modifiedEvent = JSON.parse(JSON.stringify(event));
-  
-  // Apply modifications
-  for (const [fieldPath, newValue] of Object.entries(fieldModifications)) {
-    const pathParts = fieldPath.split('.');
-    let current = modifiedEvent;
-    
-    // Navigate to the parent object
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      if (current[pathParts[i]] === undefined) {
-        // Create the path if it doesn't exist
-        current[pathParts[i]] = {};
-      }
-      current = current[pathParts[i]];
-    }
-    
-    // Set the new value
-    const lastPart = pathParts[pathParts.length - 1];
-    current[lastPart] = newValue;
+  // Set timestamp if needed
+  if (invalidations.futureTimestamp) {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 1);
+    event.metadata.timestamp = futureDate;
+  } else if (invalidations.oldTimestamp) {
+    const oldDate = new Date();
+    oldDate.setFullYear(oldDate.getFullYear() - 1);
+    event.metadata.timestamp = oldDate;
   }
   
-  return modifiedEvent;
+  return event;
 }
 
 /**
- * Creates an event with an invalid timestamp
+ * Formats a validation error for display.
  * 
- * @param event - The base event to modify
- * @param invalidTimestamp - The invalid timestamp to set
- * @returns A copy of the event with an invalid timestamp
+ * @param error Validation error to format
+ * @returns Formatted error string
  */
-export function createEventWithInvalidTimestamp(event: any, invalidTimestamp: string): any {
-  return createModifiedEvent(event, { timestamp: invalidTimestamp });
-}
-
-/**
- * Creates an event with an invalid type
- * 
- * @param event - The base event to modify
- * @param invalidType - The invalid type to set
- * @returns A copy of the event with an invalid type
- */
-export function createEventWithInvalidType(event: any, invalidType: string): any {
-  return createModifiedEvent(event, { type: invalidType });
-}
-
-/**
- * Creates an event with an invalid journey
- * 
- * @param event - The base event to modify
- * @param invalidJourney - The invalid journey to set
- * @returns A copy of the event with an invalid journey
- */
-export function createEventWithInvalidJourney(event: any, invalidJourney: string): any {
-  return createModifiedEvent(event, { journey: invalidJourney });
-}
-
-/**
- * Creates an event with an invalid user ID
- * 
- * @param event - The base event to modify
- * @param invalidUserId - The invalid user ID to set
- * @returns A copy of the event with an invalid user ID
- */
-export function createEventWithInvalidUserId(event: any, invalidUserId: string): any {
-  return createModifiedEvent(event, { userId: invalidUserId });
-}
-
-/**
- * Creates an event with invalid data
- * 
- * @param event - The base event to modify
- * @param invalidData - The invalid data to set
- * @returns A copy of the event with invalid data
- */
-export function createEventWithInvalidData(event: any, invalidData: any): any {
-  return createModifiedEvent(event, { data: invalidData });
-}
-
-// Export all validators and utilities
-export const eventValidators = {
-  // Base validators
-  validateBaseEvent,
-  validateEventType,
-  validateEventJourney,
-  validateEventTimestamp,
-  validateEventDataFields,
-  validateNumericRange,
+function formatValidationError(error: ValidationError): string {
+  let result = `${error.property}: ${Object.values(error.constraints || {}).join(', ')}`;
   
-  // Health journey validators
-  validateHealthMetricEvent,
-  validateHealthGoalEvent,
-  validateHealthDeviceEvent,
+  if (error.children && error.children.length > 0) {
+    result += ` (${error.children.map(formatValidationError).join(', ')})`;
+  }
   
-  // Care journey validators
-  validateAppointmentBookedEvent,
-  validateMedicationTakenEvent,
-  validateTelemedicineSessionEvent,
-  
-  // Plan journey validators
-  validateClaimSubmittedEvent,
-  validateClaimStatusUpdatedEvent,
-  validateBenefitUsedEvent,
-  
-  // Type guards
-  isHealthMetricEvent,
-  isHealthGoalEvent,
-  isAppointmentEvent,
-  isMedicationEvent,
-  isClaimEvent,
-  isBenefitEvent,
-  isHealthJourneyEvent,
-  isCareJourneyEvent,
-  isPlanJourneyEvent,
-  
-  // Utilities for testing invalid scenarios
-  createInvalidEvent,
-  createModifiedEvent,
-  createEventWithInvalidTimestamp,
-  createEventWithInvalidType,
-  createEventWithInvalidJourney,
-  createEventWithInvalidUserId,
-  createEventWithInvalidData,
-};
-
-export default eventValidators;
+  return result;
+}

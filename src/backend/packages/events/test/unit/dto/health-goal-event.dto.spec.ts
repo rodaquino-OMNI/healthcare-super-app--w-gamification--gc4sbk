@@ -1,480 +1,493 @@
-import { Test } from '@nestjs/testing';
+/**
+ * @file health-goal-event.dto.spec.ts
+ * @description Unit tests for the HealthGoalEventDto classes that validate health goal events
+ * such as creation, progress updates, and achievement completion.
+ */
+
 import { validate } from 'class-validator';
-import { HealthGoalEventDto } from '../../../src/dto/health-goal-event.dto';
-import { GoalType, GoalStatus, GoalPeriod } from '@austa/interfaces/journey/health';
+import { plainToInstance } from 'class-transformer';
+import { 
+  HealthGoalData, 
+  HealthGoalAchievedEventDto,
+  HealthGoalType
+} from '../../../src/dto/health-event.dto';
 import { EventType } from '../../../src/dto/event-types.enum';
 
-describe('HealthGoalEventDto', () => {
-  describe('Goal Creation Validation', () => {
-    it('should validate a valid goal creation event', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_CREATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        currentValue: 0,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-        description: 'Daily step goal'
-      };
+describe('HealthGoalData', () => {
+  it('should validate a valid health goal data object', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      targetValue: 10000,
+      unit: 'steps',
+      progressPercentage: 75
+    };
 
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBe(0);
+  });
+
+  it('should fail validation when goalId is missing', async () => {
+    const goalData = {
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      targetValue: 10000,
+      unit: 'steps'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('goalId');
+    expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+  });
+
+  it('should fail validation when goalId is not a valid UUID', async () => {
+    const goalData = {
+      goalId: 'not-a-valid-uuid',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      targetValue: 10000,
+      unit: 'steps'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('goalId');
+    expect(errors[0].constraints).toHaveProperty('isUuid');
+  });
+
+  it('should fail validation when goalType is missing', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      description: 'Walk 10,000 steps daily',
+      targetValue: 10000,
+      unit: 'steps'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('goalType');
+    expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+  });
+
+  it('should fail validation when goalType is not a valid enum value', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: 'INVALID_GOAL_TYPE',
+      description: 'Walk 10,000 steps daily',
+      targetValue: 10000,
+      unit: 'steps'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('goalType');
+    expect(errors[0].constraints).toHaveProperty('isEnum');
+  });
+
+  it('should fail validation when description is missing', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      targetValue: 10000,
+      unit: 'steps'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('description');
+    expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+  });
+
+  it('should validate when optional fields are missing', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBe(0);
+  });
+
+  it('should fail validation when progressPercentage is out of range (0-100)', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      progressPercentage: 101 // Over 100%
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('progressPercentage');
+    expect(errors[0].constraints).toHaveProperty('max');
+
+    // Test with negative value
+    const negativeGoalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      progressPercentage: -5 // Negative percentage
+    };
+
+    const negativeHealthGoalData = plainToInstance(HealthGoalData, negativeGoalData);
+    const negativeErrors = await validate(negativeHealthGoalData);
+    
+    expect(negativeErrors.length).toBeGreaterThan(0);
+    expect(negativeErrors[0].property).toBe('progressPercentage');
+    expect(negativeErrors[0].constraints).toHaveProperty('min');
+  });
+
+  it('should validate when achievedAt is a valid date string', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      achievedAt: new Date().toISOString()
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBe(0);
+  });
+
+  it('should fail validation when achievedAt is not a valid date string', async () => {
+    const goalData = {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
+      description: 'Walk 10,000 steps daily',
+      achievedAt: 'not-a-date'
+    };
+
+    const healthGoalData = plainToInstance(HealthGoalData, goalData);
+    const errors = await validate(healthGoalData);
+    
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].property).toBe('achievedAt');
+    expect(errors[0].constraints).toHaveProperty('isDateString');
+  });
+
+  describe('isAchieved method', () => {
+    it('should return true when achievedAt is set', () => {
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      healthGoalData.achievedAt = new Date().toISOString();
+      
+      expect(healthGoalData.isAchieved()).toBe(true);
     });
 
-    it('should reject goal creation with invalid goal type', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_CREATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: 'INVALID_TYPE' as GoalType, // Invalid goal type
-        targetValue: 10000,
-        currentValue: 0,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        description: 'Daily step goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('isEnum');
+    it('should return true when progressPercentage is 100', () => {
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      healthGoalData.progressPercentage = 100;
+      
+      expect(healthGoalData.isAchieved()).toBe(true);
     });
 
-    it('should reject goal creation with negative target value', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_CREATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: -100, // Negative target value
-        currentValue: 0,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        description: 'Daily step goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('min');
+    it('should return false when progressPercentage is less than 100 and achievedAt is not set', () => {
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      healthGoalData.progressPercentage = 75;
+      
+      expect(healthGoalData.isAchieved()).toBe(false);
     });
 
-    it('should reject goal creation with end date before start date', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_CREATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        currentValue: 0,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-        description: 'Daily step goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('dateComparison');
+    it('should return false when progressPercentage is not set and achievedAt is not set', () => {
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      
+      expect(healthGoalData.isAchieved()).toBe(false);
     });
   });
 
-  describe('Goal Progress Validation', () => {
-    it('should validate a valid goal progress update event', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_PROGRESS_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        previousValue: 5000,
-        currentValue: 7500,
-        progressPercentage: 75,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        description: 'Daily step goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
+  describe('markAsAchieved method', () => {
+    it('should set achievedAt and progressPercentage to 100', () => {
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      healthGoalData.progressPercentage = 75;
+      
+      healthGoalData.markAsAchieved();
+      
+      expect(healthGoalData.progressPercentage).toBe(100);
+      expect(healthGoalData.achievedAt).toBeDefined();
+      expect(new Date(healthGoalData.achievedAt).getTime()).toBeLessThanOrEqual(new Date().getTime());
     });
 
-    it('should reject progress update with current value exceeding target for non-minimizing goals', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_PROGRESS_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        previousValue: 9000,
-        currentValue: 15000, // Exceeds target
-        progressPercentage: 150, // Exceeds 100%
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        description: 'Daily step goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('max');
-    });
-
-    it('should accept progress update with current value below target for minimizing goals', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_PROGRESS_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.WEIGHT, // Weight is a minimizing goal
-        targetValue: 70, // Target weight in kg
-        previousValue: 75,
-        currentValue: 72, // Progress toward target (lower is better)
-        progressPercentage: 60, // 60% progress toward target
-        period: GoalPeriod.WEEKLY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 604800000).toISOString(), // One week
-        description: 'Weekly weight goal'
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate progress percentage calculation', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_PROGRESS_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
+    it('should not change achievedAt if already set', () => {
+      const achievedDate = new Date(2023, 0, 1).toISOString();
       
-      // For a steps goal (maximizing - higher is better)
-      const stepsGoalData = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        previousValue: 5000,
-        currentValue: 7500,
-        progressPercentage: 75, // Correct percentage
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        description: 'Daily step goal'
-      };
+      const healthGoalData = new HealthGoalData();
+      healthGoalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
+      healthGoalData.goalType = HealthGoalType.STEPS_TARGET;
+      healthGoalData.description = 'Walk 10,000 steps daily';
+      healthGoalData.achievedAt = achievedDate;
       
-      goalEvent.data = stepsGoalData;
-      let errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
+      healthGoalData.markAsAchieved();
       
-      // Test with incorrect percentage
-      stepsGoalData.progressPercentage = 50; // Incorrect percentage
-      goalEvent.data = stepsGoalData;
-      errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('progressCalculation');
+      expect(healthGoalData.progressPercentage).toBe(100);
+      expect(healthGoalData.achievedAt).toBe(achievedDate);
     });
   });
+});
 
-  describe('Goal Achievement Validation', () => {
-    it('should validate a valid goal achievement event', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
+describe('HealthGoalAchievedEventDto', () => {
+  it('should validate a valid health goal achieved event', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      timestamp: new Date().toISOString(),
+      data: {
+        goalId: '123e4567-e89b-12d3-a456-426614174000',
+        goalType: HealthGoalType.STEPS_TARGET,
+        description: 'Walk 10,000 steps daily',
         targetValue: 10000,
-        currentValue: 10000,
+        unit: 'steps',
         progressPercentage: 100,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.COMPLETED,
-        startDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-        endDate: new Date().toISOString(), // Today
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50
-      };
+        achievedAt: new Date().toISOString()
+      }
+    };
 
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should reject achievement event with incomplete progress', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        currentValue: 9000, // Not complete
-        progressPercentage: 90, // Not 100%
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.COMPLETED, // Status says completed but progress doesn't match
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date().toISOString(),
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('achievementValidation');
-    });
-
-    it('should reject achievement event with incorrect status', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        currentValue: 10000, // Complete
-        progressPercentage: 100, // 100%
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.ACTIVE, // Should be COMPLETED
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date().toISOString(),
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('statusValidation');
-    });
-
-    it('should validate XP earned based on goal difficulty', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      
-      // Easy goal (daily)
-      const easyGoalData = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
-        targetValue: 10000,
-        currentValue: 10000,
-        progressPercentage: 100,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.COMPLETED,
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date().toISOString(),
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50 // Correct XP for daily goal
-      };
-      
-      goalEvent.data = easyGoalData;
-      let errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-      
-      // Medium goal (weekly)
-      const mediumGoalData = {
-        ...easyGoalData,
-        period: GoalPeriod.WEEKLY,
-        xpEarned: 150 // Correct XP for weekly goal
-      };
-      
-      goalEvent.data = mediumGoalData;
-      errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-      
-      // Hard goal (monthly)
-      const hardGoalData = {
-        ...easyGoalData,
-        period: GoalPeriod.MONTHLY,
-        xpEarned: 500 // Correct XP for monthly goal
-      };
-      
-      goalEvent.data = hardGoalData;
-      errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-      
-      // Incorrect XP for goal difficulty
-      const incorrectXpData = {
-        ...easyGoalData,
-        period: GoalPeriod.MONTHLY,
-        xpEarned: 50 // Incorrect XP for monthly goal
-      };
-      
-      goalEvent.data = incorrectXpData;
-      errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('xpValidation');
-    });
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent);
+    
+    expect(errors.length).toBe(0);
   });
 
-  describe('Cross-Journey Achievement Integration', () => {
-    it('should validate goal event with achievement data for gamification', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
+  it('should fail validation when type is not HEALTH_GOAL_ACHIEVED', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: 'INVALID_TYPE',
+      journey: 'health',
+      timestamp: new Date().toISOString(),
+      data: {
+        goalId: '123e4567-e89b-12d3-a456-426614174000',
+        goalType: HealthGoalType.STEPS_TARGET,
+        description: 'Walk 10,000 steps daily',
         targetValue: 10000,
-        currentValue: 10000,
+        unit: 'steps',
         progressPercentage: 100,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.COMPLETED,
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date().toISOString(),
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50,
-        achievementData: {
-          achievementType: 'steps-goal',
-          level: 1,
-          progress: 1,
-          streakCount: 1,
-          metadata: {
-            goalCount: 1,
-            totalSteps: 10000
-          }
-        }
-      };
+        achievedAt: new Date().toISOString()
+      }
+    };
 
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-    });
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent);
+    
+    expect(errors.length).toBeGreaterThan(0);
+  });
 
-    it('should validate goal streak events for multi-day achievements', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_STREAK_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalType: GoalType.STEPS,
-        currentStreakDays: 5,
-        previousStreakDays: 4,
-        longestStreak: 10,
-        achievementEligible: true,
-        achievementData: {
-          achievementType: 'health-check-streak',
-          level: 1,
-          progress: 5,
-          streakCount: 5,
-          metadata: {
-            goalType: 'STEPS',
-            streakDays: 5
-          }
-        }
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should reject streak event with invalid streak count', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_STREAK_UPDATED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalType: GoalType.STEPS,
-        currentStreakDays: 3, // Current streak
-        previousStreakDays: 5, // Previous streak higher than current
-        longestStreak: 10,
-        achievementEligible: true,
-        achievementData: {
-          achievementType: 'health-check-streak',
-          level: 1,
-          progress: 3,
-          streakCount: 3,
-          metadata: {
-            goalType: 'STEPS',
-            streakDays: 3
-          }
-        }
-      };
-
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('streakValidation');
-    });
-
-    it('should validate notification data for achievement events', async () => {
-      const goalEvent = new HealthGoalEventDto();
-      goalEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      goalEvent.type = EventType.HEALTH_GOAL_ACHIEVED;
-      goalEvent.timestamp = new Date().toISOString();
-      goalEvent.data = {
-        goalId: '123e4567-e89b-12d3-a456-426614174001',
-        goalType: GoalType.STEPS,
+  it('should fail validation when journey is not "health"', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'care', // Invalid journey for health goal
+      timestamp: new Date().toISOString(),
+      data: {
+        goalId: '123e4567-e89b-12d3-a456-426614174000',
+        goalType: HealthGoalType.STEPS_TARGET,
+        description: 'Walk 10,000 steps daily',
         targetValue: 10000,
-        currentValue: 10000,
+        unit: 'steps',
         progressPercentage: 100,
-        period: GoalPeriod.DAILY,
-        status: GoalStatus.COMPLETED,
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date().toISOString(),
-        completedDate: new Date().toISOString(),
-        description: 'Daily step goal',
-        achievementEligible: true,
-        xpEarned: 50,
-        achievementData: {
-          achievementType: 'steps-goal',
-          level: 1,
-          progress: 1,
-          streakCount: 1,
-          metadata: {
-            goalCount: 1,
-            totalSteps: 10000
-          }
-        },
-        notificationData: {
-          title: 'Goal Achieved!',
-          body: 'Congratulations! You reached your daily step goal of 10,000 steps.',
-          type: 'achievement',
-          priority: 'high',
-          data: {
-            achievementType: 'steps-goal',
-            xpEarned: 50,
-            iconUrl: 'https://assets.austa.com.br/achievements/steps-goal-1.png'
-          }
-        }
-      };
+        achievedAt: new Date().toISOString()
+      }
+    };
 
-      const errors = await validate(goalEvent);
-      expect(errors.length).toBe(0);
-    });
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent);
+    
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('should fail validation when data is missing required fields', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      timestamp: new Date().toISOString(),
+      data: {
+        // Missing goalId and other required fields
+        goalType: HealthGoalType.STEPS_TARGET
+      }
+    };
+
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent, { validationError: { target: false } });
+    
+    expect(errors.length).toBeGreaterThan(0);
+    // Check for nested validation errors
+    const dataErrors = errors.find(e => e.property === 'data');
+    expect(dataErrors).toBeDefined();
+  });
+
+  it('should validate when goal is achieved (progressPercentage = 100)', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      timestamp: new Date().toISOString(),
+      data: {
+        goalId: '123e4567-e89b-12d3-a456-426614174000',
+        goalType: HealthGoalType.STEPS_TARGET,
+        description: 'Walk 10,000 steps daily',
+        targetValue: 10000,
+        unit: 'steps',
+        progressPercentage: 100
+      }
+    };
+
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent);
+    
+    expect(errors.length).toBe(0);
+  });
+
+  it('should validate when goal is achieved (achievedAt is set)', async () => {
+    const eventData = {
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      journey: 'health',
+      timestamp: new Date().toISOString(),
+      data: {
+        goalId: '123e4567-e89b-12d3-a456-426614174000',
+        goalType: HealthGoalType.STEPS_TARGET,
+        description: 'Walk 10,000 steps daily',
+        targetValue: 10000,
+        unit: 'steps',
+        achievedAt: new Date().toISOString()
+      }
+    };
+
+    const healthGoalEvent = plainToInstance(HealthGoalAchievedEventDto, eventData);
+    const errors = await validate(healthGoalEvent);
+    
+    expect(errors.length).toBe(0);
+  });
+});
+
+// Integration tests with achievement processing system
+describe('Health Goal Achievement Integration', () => {
+  it('should correctly identify different goal types for achievement categorization', () => {
+    // Test for STEPS_TARGET goal type
+    const stepsGoal = new HealthGoalData();
+    stepsGoal.goalId = '123e4567-e89b-12d3-a456-426614174000';
+    stepsGoal.goalType = HealthGoalType.STEPS_TARGET;
+    stepsGoal.description = 'Walk 10,000 steps daily';
+    stepsGoal.targetValue = 10000;
+    stepsGoal.unit = 'steps';
+    
+    expect(stepsGoal.goalType).toBe(HealthGoalType.STEPS_TARGET);
+    
+    // Test for WEIGHT_TARGET goal type
+    const weightGoal = new HealthGoalData();
+    weightGoal.goalId = '123e4567-e89b-12d3-a456-426614174001';
+    weightGoal.goalType = HealthGoalType.WEIGHT_TARGET;
+    weightGoal.description = 'Reach target weight of 70kg';
+    weightGoal.targetValue = 70;
+    weightGoal.unit = 'kg';
+    
+    expect(weightGoal.goalType).toBe(HealthGoalType.WEIGHT_TARGET);
+    
+    // Test for SLEEP_DURATION goal type
+    const sleepGoal = new HealthGoalData();
+    sleepGoal.goalId = '123e4567-e89b-12d3-a456-426614174002';
+    sleepGoal.goalType = HealthGoalType.SLEEP_DURATION;
+    sleepGoal.description = 'Sleep 8 hours per night';
+    sleepGoal.targetValue = 8;
+    sleepGoal.unit = 'hours';
+    
+    expect(sleepGoal.goalType).toBe(HealthGoalType.SLEEP_DURATION);
+  });
+
+  it('should track progress accurately for goal achievement', () => {
+    const goal = new HealthGoalData();
+    goal.goalId = '123e4567-e89b-12d3-a456-426614174000';
+    goal.goalType = HealthGoalType.STEPS_TARGET;
+    goal.description = 'Walk 10,000 steps daily';
+    goal.targetValue = 10000;
+    goal.unit = 'steps';
+    goal.progressPercentage = 0;
+    
+    // Update progress to 50%
+    goal.progressPercentage = 50;
+    expect(goal.isAchieved()).toBe(false);
+    
+    // Update progress to 100%
+    goal.progressPercentage = 100;
+    expect(goal.isAchieved()).toBe(true);
+  });
+
+  it('should validate target values based on goal type', () => {
+    // Steps goal should have positive integer target
+    const stepsGoal = new HealthGoalData();
+    stepsGoal.goalId = '123e4567-e89b-12d3-a456-426614174000';
+    stepsGoal.goalType = HealthGoalType.STEPS_TARGET;
+    stepsGoal.description = 'Walk 10,000 steps daily';
+    stepsGoal.targetValue = 10000;
+    stepsGoal.unit = 'steps';
+    
+    expect(stepsGoal.targetValue).toBeGreaterThan(0);
+    expect(Number.isInteger(stepsGoal.targetValue)).toBe(true);
+    
+    // Weight goal should have positive number target
+    const weightGoal = new HealthGoalData();
+    weightGoal.goalId = '123e4567-e89b-12d3-a456-426614174001';
+    weightGoal.goalType = HealthGoalType.WEIGHT_TARGET;
+    weightGoal.description = 'Reach target weight of 70.5kg';
+    weightGoal.targetValue = 70.5;
+    weightGoal.unit = 'kg';
+    
+    expect(weightGoal.targetValue).toBeGreaterThan(0);
+  });
+
+  it('should recognize achievement completion for notification', () => {
+    const goal = new HealthGoalData();
+    goal.goalId = '123e4567-e89b-12d3-a456-426614174000';
+    goal.goalType = HealthGoalType.STEPS_TARGET;
+    goal.description = 'Walk 10,000 steps daily';
+    goal.targetValue = 10000;
+    goal.unit = 'steps';
+    goal.progressPercentage = 99;
+    
+    // Not achieved yet
+    expect(goal.isAchieved()).toBe(false);
+    
+    // Mark as achieved
+    goal.markAsAchieved();
+    
+    // Should be achieved now
+    expect(goal.isAchieved()).toBe(true);
+    expect(goal.progressPercentage).toBe(100);
+    expect(goal.achievedAt).toBeDefined();
   });
 });

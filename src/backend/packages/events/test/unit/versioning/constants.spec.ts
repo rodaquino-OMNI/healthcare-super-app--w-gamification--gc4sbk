@@ -1,255 +1,306 @@
-/**
- * Unit tests for versioning constants
- * 
- * These tests verify that all required constants are properly defined with the correct values.
- * Tests version identifiers, configuration defaults, and error message templates to ensure
- * consistency across the system.
- */
-
-import { jest } from '@jest/globals';
 import {
-  VERSION_CONSTANTS,
+  VERSION_LATEST,
+  VERSION_MIN_SUPPORTED,
   DEFAULT_VERSION_CONFIG,
+  VERSION_PATTERN,
   VERSION_ERROR_MESSAGES,
-  VERSION_COMPARISON,
-  SCHEMA_VERSION_CONSTANTS,
-  JOURNEY_EVENT_VERSIONS
+  VERSION_FIELD_NAME,
+  VERSION_HEADER_NAME,
+  DEFAULT_DETECTION_STRATEGIES,
+  MIGRATION_ERROR_MESSAGES,
+  TRANSFORMATION_ERROR_MESSAGES,
+  COMPATIBILITY_ERROR_MESSAGES
 } from '../../../src/versioning/constants';
 
 describe('Versioning Constants', () => {
-  describe('VERSION_CONSTANTS', () => {
-    it('should define all required version identifiers', () => {
-      // Check that all expected constants are defined
-      expect(VERSION_CONSTANTS.LATEST_VERSION).toBeDefined();
-      expect(VERSION_CONSTANTS.MINIMUM_SUPPORTED_VERSION).toBeDefined();
-      expect(VERSION_CONSTANTS.DEFAULT_VERSION).toBeDefined();
-      expect(VERSION_CONSTANTS.VERSION_FORMAT).toBeDefined();
-      expect(VERSION_CONSTANTS.VERSION_SEPARATOR).toBeDefined();
-      expect(VERSION_CONSTANTS.VERSION_FIELD).toBeDefined();
-      expect(VERSION_CONSTANTS.VERSION_HEADER).toBeDefined();
+  describe('Version Identifiers', () => {
+    it('should define VERSION_LATEST as a valid semantic version', () => {
+      expect(VERSION_LATEST).toBeDefined();
+      expect(typeof VERSION_LATEST).toBe('string');
+      expect(VERSION_LATEST).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
-    it('should have correct version values', () => {
-      // Verify the version values match the expected format
-      expect(VERSION_CONSTANTS.LATEST_VERSION).toBe('1.0.0');
-      expect(VERSION_CONSTANTS.MINIMUM_SUPPORTED_VERSION).toBe('1.0.0');
-      expect(VERSION_CONSTANTS.DEFAULT_VERSION).toBe('1.0.0');
-      expect(VERSION_CONSTANTS.VERSION_SEPARATOR).toBe('.');
-      expect(VERSION_CONSTANTS.VERSION_FIELD).toBe('version');
-      expect(VERSION_CONSTANTS.VERSION_HEADER).toBe('event-version');
+    it('should define VERSION_MIN_SUPPORTED as a valid semantic version', () => {
+      expect(VERSION_MIN_SUPPORTED).toBeDefined();
+      expect(typeof VERSION_MIN_SUPPORTED).toBe('string');
+      expect(VERSION_MIN_SUPPORTED).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
-    it('should have a valid version format pattern', () => {
-      // Test that the version format regex works correctly
-      const { VERSION_FORMAT } = VERSION_CONSTANTS;
-      
-      // Valid versions
-      expect(VERSION_FORMAT.test('1.0.0')).toBe(true);
-      expect(VERSION_FORMAT.test('0.1.0')).toBe(true);
-      expect(VERSION_FORMAT.test('10.20.30')).toBe(true);
-      
-      // Invalid versions
-      expect(VERSION_FORMAT.test('1.0')).toBe(false);
-      expect(VERSION_FORMAT.test('1.0.0.0')).toBe(false);
-      expect(VERSION_FORMAT.test('1.0.a')).toBe(false);
-      expect(VERSION_FORMAT.test('v1.0.0')).toBe(false);
-      expect(VERSION_FORMAT.test('1.0.0-alpha')).toBe(false);
+    it('should have VERSION_MIN_SUPPORTED be less than or equal to VERSION_LATEST', () => {
+      const latest = VERSION_LATEST.split('.').map(Number);
+      const minSupported = VERSION_MIN_SUPPORTED.split('.').map(Number);
+
+      // Compare major version
+      if (latest[0] !== minSupported[0]) {
+        expect(minSupported[0]).toBeLessThanOrEqual(latest[0]);
+        return;
+      }
+
+      // Compare minor version if major is the same
+      if (latest[1] !== minSupported[1]) {
+        expect(minSupported[1]).toBeLessThanOrEqual(latest[1]);
+        return;
+      }
+
+      // Compare patch version if major and minor are the same
+      expect(minSupported[2]).toBeLessThanOrEqual(latest[2]);
     });
 
-    it('should extract version components correctly', () => {
-      // Test that the regex captures the version components correctly
-      const { VERSION_FORMAT } = VERSION_CONSTANTS;
-      
-      const match = '2.3.4'.match(VERSION_FORMAT);
-      expect(match).not.toBeNull();
-      expect(match[1]).toBe('2'); // major
-      expect(match[2]).toBe('3'); // minor
-      expect(match[3]).toBe('4'); // patch
+    it('should have VERSION_FIELD_NAME defined as a string', () => {
+      expect(VERSION_FIELD_NAME).toBeDefined();
+      expect(typeof VERSION_FIELD_NAME).toBe('string');
+      expect(VERSION_FIELD_NAME.length).toBeGreaterThan(0);
+    });
+
+    it('should have VERSION_HEADER_NAME defined as a string', () => {
+      expect(VERSION_HEADER_NAME).toBeDefined();
+      expect(typeof VERSION_HEADER_NAME).toBe('string');
+      expect(VERSION_HEADER_NAME.length).toBeGreaterThan(0);
     });
   });
 
-  describe('DEFAULT_VERSION_CONFIG', () => {
-    it('should define all required configuration options', () => {
-      // Check that all expected configuration options are defined
-      expect(DEFAULT_VERSION_CONFIG.AUTO_UPGRADE_EVENTS).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.ALLOW_UNSUPPORTED_VERSIONS).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.VALIDATE_TRANSFORMED_EVENTS).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.THROW_ON_VERSION_DETECTION_FAILURE).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.PRESERVE_METADATA_ON_TRANSFORM).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.DEFAULT_DETECTION_STRATEGIES).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.MAX_TRANSFORMATION_STEPS).toBeDefined();
-      expect(DEFAULT_VERSION_CONFIG.USE_AUTO_FIELD_MAPPING).toBeDefined();
+  describe('Version Pattern', () => {
+    it('should define VERSION_PATTERN as a RegExp', () => {
+      expect(VERSION_PATTERN).toBeDefined();
+      expect(VERSION_PATTERN).toBeInstanceOf(RegExp);
     });
 
-    it('should have correct default values', () => {
-      // Verify the default values match the expected configuration
-      expect(DEFAULT_VERSION_CONFIG.AUTO_UPGRADE_EVENTS).toBe(true);
-      expect(DEFAULT_VERSION_CONFIG.ALLOW_UNSUPPORTED_VERSIONS).toBe(false);
-      expect(DEFAULT_VERSION_CONFIG.VALIDATE_TRANSFORMED_EVENTS).toBe(true);
-      expect(DEFAULT_VERSION_CONFIG.THROW_ON_VERSION_DETECTION_FAILURE).toBe(true);
-      expect(DEFAULT_VERSION_CONFIG.PRESERVE_METADATA_ON_TRANSFORM).toBe(true);
-      expect(DEFAULT_VERSION_CONFIG.MAX_TRANSFORMATION_STEPS).toBe(5);
-      expect(DEFAULT_VERSION_CONFIG.USE_AUTO_FIELD_MAPPING).toBe(true);
+    it('should validate valid semantic versions', () => {
+      const validVersions = [
+        '1.0.0',
+        '0.1.0',
+        '0.0.1',
+        '10.20.30',
+        '1.2.3'
+      ];
+
+      validVersions.forEach(version => {
+        expect(VERSION_PATTERN.test(version)).toBe(true);
+      });
     });
 
-    it('should have correct detection strategies', () => {
-      // Verify the detection strategies array
-      const { DEFAULT_DETECTION_STRATEGIES } = DEFAULT_VERSION_CONFIG;
-      
+    it('should reject invalid semantic versions', () => {
+      const invalidVersions = [
+        '1',
+        '1.0',
+        'a.b.c',
+        '1.0.0-alpha',  // Pre-release versions not supported
+        '1.0.0+build',  // Build metadata not supported
+        '01.1.1',       // Leading zeros not allowed
+        '1.01.1',
+        '1.1.01',
+        ' 1.0.0',       // Whitespace not allowed
+        '1.0.0 ',
+        'v1.0.0'        // 'v' prefix not allowed
+      ];
+
+      invalidVersions.forEach(version => {
+        expect(VERSION_PATTERN.test(version)).toBe(false);
+      });
+    });
+  });
+
+  describe('Default Configuration', () => {
+    it('should define DEFAULT_VERSION_CONFIG as an object', () => {
+      expect(DEFAULT_VERSION_CONFIG).toBeDefined();
+      expect(typeof DEFAULT_VERSION_CONFIG).toBe('object');
+      expect(DEFAULT_VERSION_CONFIG).not.toBeNull();
+    });
+
+    it('should include strictVersioning property', () => {
+      expect(DEFAULT_VERSION_CONFIG.strictVersioning).toBeDefined();
+      expect(typeof DEFAULT_VERSION_CONFIG.strictVersioning).toBe('boolean');
+    });
+
+    it('should include allowMissingVersion property', () => {
+      expect(DEFAULT_VERSION_CONFIG.allowMissingVersion).toBeDefined();
+      expect(typeof DEFAULT_VERSION_CONFIG.allowMissingVersion).toBe('boolean');
+    });
+
+    it('should include defaultVersion property', () => {
+      expect(DEFAULT_VERSION_CONFIG.defaultVersion).toBeDefined();
+      expect(typeof DEFAULT_VERSION_CONFIG.defaultVersion).toBe('string');
+      expect(DEFAULT_VERSION_CONFIG.defaultVersion).toMatch(VERSION_PATTERN);
+    });
+
+    it('should include autoUpgradeEvents property', () => {
+      expect(DEFAULT_VERSION_CONFIG.autoUpgradeEvents).toBeDefined();
+      expect(typeof DEFAULT_VERSION_CONFIG.autoUpgradeEvents).toBe('boolean');
+    });
+
+    it('should include detectionStrategies property as an array', () => {
+      expect(DEFAULT_VERSION_CONFIG.detectionStrategies).toBeDefined();
+      expect(Array.isArray(DEFAULT_VERSION_CONFIG.detectionStrategies)).toBe(true);
+      expect(DEFAULT_VERSION_CONFIG.detectionStrategies.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Detection Strategies', () => {
+    it('should define DEFAULT_DETECTION_STRATEGIES as an array', () => {
+      expect(DEFAULT_DETECTION_STRATEGIES).toBeDefined();
       expect(Array.isArray(DEFAULT_DETECTION_STRATEGIES)).toBe(true);
-      expect(DEFAULT_DETECTION_STRATEGIES.length).toBe(4);
-      expect(DEFAULT_DETECTION_STRATEGIES).toContain('explicit');
-      expect(DEFAULT_DETECTION_STRATEGIES).toContain('header');
-      expect(DEFAULT_DETECTION_STRATEGIES).toContain('structure');
-      expect(DEFAULT_DETECTION_STRATEGIES).toContain('fallback');
-      
-      // Check order of strategies (precedence)
-      expect(DEFAULT_DETECTION_STRATEGIES[0]).toBe('explicit');
-      expect(DEFAULT_DETECTION_STRATEGIES[DEFAULT_DETECTION_STRATEGIES.length - 1]).toBe('fallback');
+      expect(DEFAULT_DETECTION_STRATEGIES.length).toBeGreaterThan(0);
+    });
+
+    it('should include field-based detection strategy', () => {
+      expect(DEFAULT_DETECTION_STRATEGIES.some(strategy => 
+        strategy.name && strategy.name.toLowerCase().includes('field')
+      )).toBe(true);
+    });
+
+    it('should include header-based detection strategy', () => {
+      expect(DEFAULT_DETECTION_STRATEGIES.some(strategy => 
+        strategy.name && strategy.name.toLowerCase().includes('header')
+      )).toBe(true);
+    });
+
+    it('should include structure-based detection strategy', () => {
+      expect(DEFAULT_DETECTION_STRATEGIES.some(strategy => 
+        strategy.name && strategy.name.toLowerCase().includes('structure')
+      )).toBe(true);
+    });
+
+    it('should have detection strategies with detect functions', () => {
+      DEFAULT_DETECTION_STRATEGIES.forEach(strategy => {
+        expect(strategy.detect).toBeDefined();
+        expect(typeof strategy.detect).toBe('function');
+      });
     });
   });
 
-  describe('VERSION_ERROR_MESSAGES', () => {
-    it('should define all required error message templates', () => {
-      // Check that all expected error message templates are defined
-      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION_FORMAT).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.VERSION_NOT_DETECTED).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.UNSUPPORTED_VERSION).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.VERSION_TOO_NEW).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.NO_MIGRATION_PATH).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.MIGRATION_FAILED).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.VALIDATION_FAILED).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.MAX_TRANSFORMATION_STEPS_EXCEEDED).toBeDefined();
-      expect(VERSION_ERROR_MESSAGES.INCOMPATIBLE_VERSIONS).toBeDefined();
+  describe('Error Message Templates', () => {
+    it('should define VERSION_ERROR_MESSAGES as an object', () => {
+      expect(VERSION_ERROR_MESSAGES).toBeDefined();
+      expect(typeof VERSION_ERROR_MESSAGES).toBe('object');
+      expect(VERSION_ERROR_MESSAGES).not.toBeNull();
     });
 
-    it('should have correct template format with placeholders', () => {
-      // Verify that error messages contain expected placeholders
-      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION_FORMAT).toContain('{version}');
-      expect(VERSION_ERROR_MESSAGES.VERSION_NOT_DETECTED).toContain('{eventId}');
-      expect(VERSION_ERROR_MESSAGES.UNSUPPORTED_VERSION).toContain('{version}');
-      expect(VERSION_ERROR_MESSAGES.UNSUPPORTED_VERSION).toContain('{minVersion}');
-      expect(VERSION_ERROR_MESSAGES.VERSION_TOO_NEW).toContain('{version}');
-      expect(VERSION_ERROR_MESSAGES.VERSION_TOO_NEW).toContain('{latestVersion}');
-      expect(VERSION_ERROR_MESSAGES.NO_MIGRATION_PATH).toContain('{sourceVersion}');
-      expect(VERSION_ERROR_MESSAGES.NO_MIGRATION_PATH).toContain('{targetVersion}');
-      expect(VERSION_ERROR_MESSAGES.MIGRATION_FAILED).toContain('{sourceVersion}');
-      expect(VERSION_ERROR_MESSAGES.MIGRATION_FAILED).toContain('{targetVersion}');
-      expect(VERSION_ERROR_MESSAGES.MIGRATION_FAILED).toContain('{reason}');
-      expect(VERSION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toContain('{reason}');
-      expect(VERSION_ERROR_MESSAGES.VALIDATION_FAILED).toContain('{errors}');
-      expect(VERSION_ERROR_MESSAGES.MAX_TRANSFORMATION_STEPS_EXCEEDED).toContain('{steps}');
-      expect(VERSION_ERROR_MESSAGES.INCOMPATIBLE_VERSIONS).toContain('{sourceVersion}');
-      expect(VERSION_ERROR_MESSAGES.INCOMPATIBLE_VERSIONS).toContain('{targetVersion}');
+    it('should include detection failure message template', () => {
+      expect(VERSION_ERROR_MESSAGES.DETECTION_FAILED).toBeDefined();
+      expect(typeof VERSION_ERROR_MESSAGES.DETECTION_FAILED).toBe('string');
+      expect(VERSION_ERROR_MESSAGES.DETECTION_FAILED.length).toBeGreaterThan(10);
+      expect(VERSION_ERROR_MESSAGES.DETECTION_FAILED).toContain('{');
+      expect(VERSION_ERROR_MESSAGES.DETECTION_FAILED).toContain('}');
+    });
+
+    it('should include invalid version message template', () => {
+      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION).toBeDefined();
+      expect(typeof VERSION_ERROR_MESSAGES.INVALID_VERSION).toBe('string');
+      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION.length).toBeGreaterThan(10);
+      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION).toContain('{');
+      expect(VERSION_ERROR_MESSAGES.INVALID_VERSION).toContain('}');
+    });
+
+    it('should define COMPATIBILITY_ERROR_MESSAGES as an object', () => {
+      expect(COMPATIBILITY_ERROR_MESSAGES).toBeDefined();
+      expect(typeof COMPATIBILITY_ERROR_MESSAGES).toBe('object');
+      expect(COMPATIBILITY_ERROR_MESSAGES).not.toBeNull();
+    });
+
+    it('should include incompatible version message template', () => {
+      expect(COMPATIBILITY_ERROR_MESSAGES.INCOMPATIBLE_VERSION).toBeDefined();
+      expect(typeof COMPATIBILITY_ERROR_MESSAGES.INCOMPATIBLE_VERSION).toBe('string');
+      expect(COMPATIBILITY_ERROR_MESSAGES.INCOMPATIBLE_VERSION.length).toBeGreaterThan(10);
+      expect(COMPATIBILITY_ERROR_MESSAGES.INCOMPATIBLE_VERSION).toContain('{');
+      expect(COMPATIBILITY_ERROR_MESSAGES.INCOMPATIBLE_VERSION).toContain('}');
+    });
+
+    it('should define MIGRATION_ERROR_MESSAGES as an object', () => {
+      expect(MIGRATION_ERROR_MESSAGES).toBeDefined();
+      expect(typeof MIGRATION_ERROR_MESSAGES).toBe('object');
+      expect(MIGRATION_ERROR_MESSAGES).not.toBeNull();
+    });
+
+    it('should include migration path not found message template', () => {
+      expect(MIGRATION_ERROR_MESSAGES.PATH_NOT_FOUND).toBeDefined();
+      expect(typeof MIGRATION_ERROR_MESSAGES.PATH_NOT_FOUND).toBe('string');
+      expect(MIGRATION_ERROR_MESSAGES.PATH_NOT_FOUND.length).toBeGreaterThan(10);
+      expect(MIGRATION_ERROR_MESSAGES.PATH_NOT_FOUND).toContain('{');
+      expect(MIGRATION_ERROR_MESSAGES.PATH_NOT_FOUND).toContain('}');
+    });
+
+    it('should include migration failed message template', () => {
+      expect(MIGRATION_ERROR_MESSAGES.MIGRATION_FAILED).toBeDefined();
+      expect(typeof MIGRATION_ERROR_MESSAGES.MIGRATION_FAILED).toBe('string');
+      expect(MIGRATION_ERROR_MESSAGES.MIGRATION_FAILED.length).toBeGreaterThan(10);
+      expect(MIGRATION_ERROR_MESSAGES.MIGRATION_FAILED).toContain('{');
+      expect(MIGRATION_ERROR_MESSAGES.MIGRATION_FAILED).toContain('}');
+    });
+
+    it('should define TRANSFORMATION_ERROR_MESSAGES as an object', () => {
+      expect(TRANSFORMATION_ERROR_MESSAGES).toBeDefined();
+      expect(typeof TRANSFORMATION_ERROR_MESSAGES).toBe('object');
+      expect(TRANSFORMATION_ERROR_MESSAGES).not.toBeNull();
+    });
+
+    it('should include transformation failed message template', () => {
+      expect(TRANSFORMATION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toBeDefined();
+      expect(typeof TRANSFORMATION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toBe('string');
+      expect(TRANSFORMATION_ERROR_MESSAGES.TRANSFORMATION_FAILED.length).toBeGreaterThan(10);
+      expect(TRANSFORMATION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toContain('{');
+      expect(TRANSFORMATION_ERROR_MESSAGES.TRANSFORMATION_FAILED).toContain('}');
+    });
+  });
+
+  describe('Message Template Formatting', () => {
+    it('should have placeholders in error message templates', () => {
+      // Check that all error message templates have placeholders
+      Object.values(VERSION_ERROR_MESSAGES).forEach(template => {
+        expect(template).toMatch(/\{[\w.]+\}/);
+      });
+
+      Object.values(COMPATIBILITY_ERROR_MESSAGES).forEach(template => {
+        expect(template).toMatch(/\{[\w.]+\}/);
+      });
+
+      Object.values(MIGRATION_ERROR_MESSAGES).forEach(template => {
+        expect(template).toMatch(/\{[\w.]+\}/);
+      });
+
+      Object.values(TRANSFORMATION_ERROR_MESSAGES).forEach(template => {
+        expect(template).toMatch(/\{[\w.]+\}/);
+      });
     });
 
     it('should have descriptive error messages', () => {
-      // Verify that error messages are descriptive and clear
-      Object.values(VERSION_ERROR_MESSAGES).forEach(message => {
-        expect(typeof message).toBe('string');
-        expect(message.length).toBeGreaterThan(10); // Arbitrary minimum length for a descriptive message
+      // Check that all error messages are descriptive (not empty and have a minimum length)
+      Object.values(VERSION_ERROR_MESSAGES).forEach(template => {
+        expect(template.length).toBeGreaterThan(20);
+      });
+
+      Object.values(COMPATIBILITY_ERROR_MESSAGES).forEach(template => {
+        expect(template.length).toBeGreaterThan(20);
+      });
+
+      Object.values(MIGRATION_ERROR_MESSAGES).forEach(template => {
+        expect(template.length).toBeGreaterThan(20);
+      });
+
+      Object.values(TRANSFORMATION_ERROR_MESSAGES).forEach(template => {
+        expect(template.length).toBeGreaterThan(20);
       });
     });
   });
 
-  describe('VERSION_COMPARISON', () => {
-    it('should define all required comparison constants', () => {
-      // Check that all expected comparison constants are defined
-      expect(VERSION_COMPARISON.EQUAL).toBeDefined();
-      expect(VERSION_COMPARISON.GREATER).toBeDefined();
-      expect(VERSION_COMPARISON.LESS).toBeDefined();
-      expect(VERSION_COMPARISON.COMPATIBILITY_MODES).toBeDefined();
+  describe('Versioning Constants Integration', () => {
+    it('should have consistent version format across all constants', () => {
+      // All version strings should match the VERSION_PATTERN
+      expect(VERSION_LATEST).toMatch(VERSION_PATTERN);
+      expect(VERSION_MIN_SUPPORTED).toMatch(VERSION_PATTERN);
+      expect(DEFAULT_VERSION_CONFIG.defaultVersion).toMatch(VERSION_PATTERN);
     });
 
-    it('should have correct comparison values', () => {
-      // Verify the comparison values
-      expect(VERSION_COMPARISON.EQUAL).toBe(0);
-      expect(VERSION_COMPARISON.GREATER).toBe(1);
-      expect(VERSION_COMPARISON.LESS).toBe(-1);
+    it('should have detection strategies aligned with configuration defaults', () => {
+      // The default detection strategies should be the same as in the config
+      expect(DEFAULT_VERSION_CONFIG.detectionStrategies).toEqual(DEFAULT_DETECTION_STRATEGIES);
     });
 
-    it('should define all required compatibility modes', () => {
-      // Check that all expected compatibility modes are defined
-      const { COMPATIBILITY_MODES } = VERSION_COMPARISON;
+    it('should have error messages that reference relevant version fields', () => {
+      // Error messages should reference the version field name when appropriate
+      const versionFieldMessages = Object.values(VERSION_ERROR_MESSAGES)
+        .filter(msg => msg.includes(VERSION_FIELD_NAME));
       
-      expect(COMPATIBILITY_MODES.STRICT).toBeDefined();
-      expect(COMPATIBILITY_MODES.STANDARD).toBeDefined();
-      expect(COMPATIBILITY_MODES.RELAXED).toBeDefined();
-      
-      // Verify the mode values
-      expect(COMPATIBILITY_MODES.STRICT).toBe('strict');
-      expect(COMPATIBILITY_MODES.STANDARD).toBe('standard');
-      expect(COMPATIBILITY_MODES.RELAXED).toBe('relaxed');
-    });
-  });
-
-  describe('SCHEMA_VERSION_CONSTANTS', () => {
-    it('should define all required schema versioning constants', () => {
-      // Check that all expected schema versioning constants are defined
-      expect(SCHEMA_VERSION_CONSTANTS.REGISTRY_KEY_FORMAT).toBeDefined();
-      expect(SCHEMA_VERSION_CONSTANTS.DEFAULT_NAMESPACE).toBeDefined();
-      expect(SCHEMA_VERSION_CONSTANTS.COMPATIBILITY_MODES).toBeDefined();
-    });
-
-    it('should have correct schema registry values', () => {
-      // Verify the schema registry values
-      expect(SCHEMA_VERSION_CONSTANTS.REGISTRY_KEY_FORMAT).toBe('{eventType}@{version}');
-      expect(SCHEMA_VERSION_CONSTANTS.DEFAULT_NAMESPACE).toBe('austa.events');
-    });
-
-    it('should define all required schema compatibility modes', () => {
-      // Check that all expected schema compatibility modes are defined
-      const { COMPATIBILITY_MODES } = SCHEMA_VERSION_CONSTANTS;
-      
-      expect(COMPATIBILITY_MODES.BACKWARD).toBeDefined();
-      expect(COMPATIBILITY_MODES.FORWARD).toBeDefined();
-      expect(COMPATIBILITY_MODES.FULL).toBeDefined();
-      expect(COMPATIBILITY_MODES.NONE).toBeDefined();
-      
-      // Verify the mode values
-      expect(COMPATIBILITY_MODES.BACKWARD).toBe('BACKWARD');
-      expect(COMPATIBILITY_MODES.FORWARD).toBe('FORWARD');
-      expect(COMPATIBILITY_MODES.FULL).toBe('FULL');
-      expect(COMPATIBILITY_MODES.NONE).toBe('NONE');
-    });
-  });
-
-  describe('JOURNEY_EVENT_VERSIONS', () => {
-    it('should define versions for all journeys', () => {
-      // Check that all expected journeys have version definitions
-      expect(JOURNEY_EVENT_VERSIONS.HEALTH).toBeDefined();
-      expect(JOURNEY_EVENT_VERSIONS.CARE).toBeDefined();
-      expect(JOURNEY_EVENT_VERSIONS.PLAN).toBeDefined();
-      expect(JOURNEY_EVENT_VERSIONS.GAMIFICATION).toBeDefined();
-    });
-
-    it('should define latest and minimum supported versions for each journey', () => {
-      // Check that each journey has both latest and minimum supported versions
-      Object.values(JOURNEY_EVENT_VERSIONS).forEach(journey => {
-        expect(journey.LATEST).toBeDefined();
-        expect(journey.MINIMUM_SUPPORTED).toBeDefined();
-      });
-    });
-
-    it('should have valid semantic versions for all journeys', () => {
-      // Verify that all journey versions are valid semantic versions
-      const { VERSION_FORMAT } = VERSION_CONSTANTS;
-      
-      Object.values(JOURNEY_EVENT_VERSIONS).forEach(journey => {
-        expect(VERSION_FORMAT.test(journey.LATEST)).toBe(true);
-        expect(VERSION_FORMAT.test(journey.MINIMUM_SUPPORTED)).toBe(true);
-      });
-    });
-
-    it('should have consistent initial versions across journeys', () => {
-      // All journeys should start with the same version in this initial implementation
-      const initialVersion = '1.0.0';
-      
-      Object.values(JOURNEY_EVENT_VERSIONS).forEach(journey => {
-        expect(journey.LATEST).toBe(initialVersion);
-        expect(journey.MINIMUM_SUPPORTED).toBe(initialVersion);
-      });
+      expect(versionFieldMessages.length).toBeGreaterThan(0);
     });
   });
 });

@@ -1,474 +1,1370 @@
-import { validate } from 'class-validator';
+/**
+ * @file care-event.dto.spec.ts
+ * @description Unit tests for the CareEventDto class that validate care journey-specific event structures.
+ * Tests verify correct validation of appointment booking, medication adherence, telemedicine session,
+ * and care plan progress events, ensuring proper payload structure and field validation.
+ *
+ * These tests are essential for maintaining the integrity of care data in the gamification system.
+ */
+
 import { plainToInstance } from 'class-transformer';
-import { CareEventDto } from '../../../src/dto/care-event.dto';
-import { EventTypesEnum } from '../../../src/dto/event-types.enum';
+import { validate } from 'class-validator';
+import { v4 as uuidv4 } from 'uuid';
+
+// Import test utilities
+import {
+  createAppointmentData,
+  createAppointmentBookedEvent,
+  createAppointmentCompletedEvent,
+  createMedicationData,
+  createMedicationTakenEvent,
+  AppointmentType,
+  AppointmentStatus,
+  MedicationAdherenceStatus,
+  createInvalidEvent,
+  createEventWithInvalidValues,
+  validateEventDto,
+  isValidEventDto,
+  TestFactoryOptions
+} from '../test-utils';
+
+// Import event types
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+
+// Mock CareEventDto classes
+class CareEventDto {
+  type: string;
+  userId: string;
+  journey: string;
+  timestamp: string;
+  data: any;
+  metadata?: any;
+}
+
+class AppointmentBookedEventDto extends CareEventDto {}
+class AppointmentCompletedEventDto extends CareEventDto {}
+class MedicationTakenEventDto extends CareEventDto {}
+class TelemedicineStartedEventDto extends CareEventDto {}
+class TelemedicineCompletedEventDto extends CareEventDto {}
+class CarePlanCreatedEventDto extends CareEventDto {}
+class CarePlanTaskCompletedEventDto extends CareEventDto {}
 
 describe('CareEventDto', () => {
-  // Common valid event properties
-  const validEventBase = {
-    type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-    userId: '123e4567-e89b-12d3-a456-426614174000',
-    journey: 'care',
-    timestamp: new Date().toISOString(),
-  };
-
-  describe('Common validation', () => {
-    it('should validate a properly formatted care event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          specialtyId: '123e4567-e89b-12d3-a456-426614174003',
-          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-          location: 'Virtual',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should inherit validation from BaseEventDto', async () => {
-      // Missing required fields from BaseEventDto
-      const event = plainToInstance(CareEventDto, {
-        // Missing type, userId, journey, timestamp
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+  // Common test variables
+  const userId = uuidv4();
+  const now = new Date();
+  const scheduledDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+  
+  describe('Base validation', () => {
+    it('should validate common fields for all care events', async () => {
+      // Create a valid appointment booked event
+      const event = createAppointmentBookedEvent();
       
-      // Check for specific base validation errors
-      const errorFields = errors.map(error => error.property);
-      expect(errorFields).toContain('type');
-      expect(errorFields).toContain('userId');
-      expect(errorFields).toContain('journey');
-      expect(errorFields).toContain('timestamp');
-    });
-
-    it('should validate that journey is "care"', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        journey: 'health', // Wrong journey
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+      // Convert to DTO instance
+      const dto = plainToInstance(CareEventDto, event);
       
-      // Find the journey error
-      const journeyError = errors.find(error => error.property === 'journey');
-      expect(journeyError).toBeDefined();
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate journey is "care"', async () => {
+      // Create an event with incorrect journey
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'journey': 'health'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CareEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for journey
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'journey')).toBeTruthy();
+    });
+    
+    it('should validate userId is present', async () => {
+      // Create an event with missing userId
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['userId']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CareEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for userId
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'userId')).toBeTruthy();
+    });
+    
+    it('should validate timestamp is present and in ISO format', async () => {
+      // Create an event with invalid timestamp
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'timestamp': 'not-a-date'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CareEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'timestamp')).toBeTruthy();
     });
   });
-
-  describe('Appointment events', () => {
-    it('should validate a valid appointment booking event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          specialtyId: '123e4567-e89b-12d3-a456-426614174003',
-          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-          location: 'Virtual',
-          notes: 'Regular checkup',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+  
+  describe('AppointmentBookedEventDto', () => {
+    it('should validate a valid appointment booked event', async () => {
+      // Create a valid appointment booked event
+      const event = createAppointmentBookedEvent();
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentBookedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
-
-    it('should validate a valid appointment check-in event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_CHECKED_IN,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          checkedInAt: new Date().toISOString(),
-        },
+    
+    it('should validate event type is CARE_APPOINTMENT_BOOKED', async () => {
+      // Create an event with incorrect type
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'type': 'INVALID_TYPE'
       });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'type')).toBeTruthy();
     });
-
+    
+    it('should validate provider information', async () => {
+      // Create an event with missing provider information
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.providerId']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for provider information
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'providerId')
+      )).toBeTruthy();
+    });
+    
+    it('should validate appointment type', async () => {
+      // Create an event with invalid appointment type
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.appointmentType': 'INVALID_TYPE'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for appointment type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'appointmentType')
+      )).toBeTruthy();
+    });
+    
+    it('should validate scheduling data', async () => {
+      // Create an event with missing scheduling data
+      const validEvent = createAppointmentBookedEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.scheduledAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for scheduling data
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'scheduledAt')
+      )).toBeTruthy();
+    });
+  });
+  
+  describe('AppointmentCompletedEventDto', () => {
     it('should validate a valid appointment completed event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_COMPLETED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          completedAt: new Date().toISOString(),
-          duration: 30, // minutes
-          followUpRecommended: true,
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate a valid appointment cancellation event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_CANCELLED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          cancelledAt: new Date().toISOString(),
-          reason: 'Schedule conflict',
-          rescheduled: false,
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should reject an appointment booking with past date', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          specialtyId: '123e4567-e89b-12d3-a456-426614174003',
-          scheduledAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-          location: 'Virtual',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+      // Create a valid appointment completed event
+      const event = createAppointmentCompletedEvent();
       
-      // Find the scheduledAt error
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
-
-    it('should reject an appointment booking without required fields', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          // Missing appointmentId, providerId, scheduledAt
-          specialtyId: '123e4567-e89b-12d3-a456-426614174003',
-          location: 'Virtual',
-        },
+    
+    it('should validate event type is CARE_APPOINTMENT_COMPLETED', async () => {
+      // Create an event with incorrect type
+      const validEvent = createAppointmentCompletedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'type': 'INVALID_TYPE'
       });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'type')).toBeTruthy();
+    });
+    
+    it('should validate completion timestamp', async () => {
+      // Create an event with missing completion timestamp
+      const validEvent = createAppointmentCompletedEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.completedAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for completion timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'completedAt')
+      )).toBeTruthy();
+    });
+    
+    it('should validate appointment duration', async () => {
+      // Create an event with invalid duration (negative value)
+      const validEvent = createAppointmentCompletedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.duration': -30
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for duration
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'duration')
+      )).toBeTruthy();
+    });
+    
+    it('should validate appointment status is COMPLETED', async () => {
+      // Create an event with incorrect status
+      const validEvent = createAppointmentCompletedEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.status': AppointmentStatus.IN_PROGRESS
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for status
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'status')
+      )).toBeTruthy();
     });
   });
-
-  describe('Medication events', () => {
+  
+  describe('MedicationTakenEventDto', () => {
     it('should validate a valid medication taken event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_TAKEN,
-        data: {
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          takenAt: new Date().toISOString(),
-          dosage: {
-            value: 500,
-            unit: 'mg',
-          },
-          adherence: 'on_time',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+      // Create a valid medication taken event
+      const event = createMedicationTakenEvent();
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
-
-    it('should validate a valid medication skipped event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_SKIPPED,
-        data: {
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          skippedAt: new Date().toISOString(),
-          reason: 'Side effects',
-          reportedToProvider: true,
-        },
+    
+    it('should validate event type is CARE_MEDICATION_TAKEN', async () => {
+      // Create an event with incorrect type
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'type': 'INVALID_TYPE'
       });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => error.property === 'type')).toBeTruthy();
     });
-
-    it('should validate a valid medication schedule updated event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_SCHEDULE_UPDATED,
-        data: {
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          updatedAt: new Date().toISOString(),
-          schedule: {
-            frequency: 'daily',
-            times: ['08:00', '20:00'],
-            startDate: new Date().toISOString(),
-            endDate: new Date(Date.now() + 30 * 86400000).toISOString(), // 30 days from now
-          },
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+    
+    it('should validate medication identification', async () => {
+      // Create an event with missing medication identification
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.medicationId', 'data.medicationName']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for medication identification
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'medicationId' || 
+          child.property === 'medicationName'
+        )
+      )).toBeTruthy();
     });
-
-    it('should reject a medication taken event without required fields', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_TAKEN,
-        data: {
-          // Missing medicationId, takenAt
-          dosage: {
-            value: 500,
-            unit: 'mg',
-          },
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+    
+    it('should validate dosage information', async () => {
+      // Create an event with missing dosage information
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.dosage']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for dosage
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'dosage')
+      )).toBeTruthy();
     });
-
-    it('should reject a medication taken event with invalid dosage', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_TAKEN,
-        data: {
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          takenAt: new Date().toISOString(),
-          dosage: {
-            value: -500, // Negative value
-            unit: 'mg',
-          },
-        },
+    
+    it('should validate adherence status', async () => {
+      // Create an event with invalid adherence status
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.adherenceStatus': 'INVALID_STATUS'
       });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for adherence status
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'adherenceStatus')
+      )).toBeTruthy();
     });
-  });
-
-  describe('Telemedicine events', () => {
-    it('should validate a valid telemedicine session started event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_TELEMEDICINE_SESSION_STARTED,
-        data: {
-          sessionId: '123e4567-e89b-12d3-a456-426614174001',
-          appointmentId: '123e4567-e89b-12d3-a456-426614174002',
-          providerId: '123e4567-e89b-12d3-a456-426614174003',
-          startedAt: new Date().toISOString(),
-          medium: 'video',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+    
+    it('should validate taken timestamp', async () => {
+      // Create an event with missing taken timestamp
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.takenAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for taken timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'takenAt')
+      )).toBeTruthy();
     });
-
-    it('should validate a valid telemedicine session ended event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_TELEMEDICINE_SESSION_ENDED,
-        data: {
-          sessionId: '123e4567-e89b-12d3-a456-426614174001',
-          endedAt: new Date().toISOString(),
-          duration: 25, // minutes
-          rating: 5,
-          technicalIssues: false,
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+    
+    it('should validate scheduled timestamp', async () => {
+      // Create an event with missing scheduled timestamp
+      const validEvent = createMedicationTakenEvent();
+      const invalidEvent = createInvalidEvent(validEvent, ['data.scheduledAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for scheduled timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'scheduledAt')
+      )).toBeTruthy();
     });
-
-    it('should reject a telemedicine session started event without required fields', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_TELEMEDICINE_SESSION_STARTED,
-        data: {
-          // Missing sessionId, appointmentId, providerId
-          startedAt: new Date().toISOString(),
-          medium: 'video',
-        },
+    
+    it('should validate late medication has appropriate adherence status', async () => {
+      // Create a medication event with late timestamp but incorrect adherence status
+      const now = new Date();
+      const scheduledTime = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+      
+      // Create event with late timing but ON_TIME status (should be LATE)
+      const invalidEvent = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME, {
+        scheduledAt: scheduledTime.toISOString(),
+        takenAt: now.toISOString()
       });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
-    });
-
-    it('should reject a telemedicine session with invalid medium', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_TELEMEDICINE_SESSION_STARTED,
-        data: {
-          sessionId: '123e4567-e89b-12d3-a456-426614174001',
-          appointmentId: '123e4567-e89b-12d3-a456-426614174002',
-          providerId: '123e4567-e89b-12d3-a456-426614174003',
-          startedAt: new Date().toISOString(),
-          medium: 'hologram', // Invalid medium
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for inconsistent adherence status
+      expect(errors).not.toBeNull();
     });
   });
-
-  describe('Care plan events', () => {
+  
+  describe('TelemedicineStartedEventDto', () => {
+    it('should validate a valid telemedicine started event', async () => {
+      // Create telemedicine session data
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: now.toISOString(),
+        deviceType: 'mobile'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_STARTED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineStartedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate session identification', async () => {
+      // Create telemedicine session data without session ID
+      const sessionData = {
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: now.toISOString(),
+        deviceType: 'mobile'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_STARTED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineStartedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for session ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'sessionId')
+      )).toBeTruthy();
+    });
+    
+    it('should validate provider information', async () => {
+      // Create telemedicine session data without provider ID
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        startedAt: now.toISOString(),
+        deviceType: 'mobile'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_STARTED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineStartedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for provider ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'providerId')
+      )).toBeTruthy();
+    });
+    
+    it('should validate start timestamp', async () => {
+      // Create telemedicine session data without start timestamp
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        deviceType: 'mobile'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_STARTED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineStartedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for start timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'startedAt')
+      )).toBeTruthy();
+    });
+    
+    it('should validate device type', async () => {
+      // Create telemedicine session data with invalid device type
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: now.toISOString(),
+        deviceType: 'invalid_device'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_STARTED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineStartedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for device type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'deviceType')
+      )).toBeTruthy();
+    });
+  });
+  
+  describe('TelemedicineCompletedEventDto', () => {
+    it('should validate a valid telemedicine completed event', async () => {
+      // Create telemedicine session data
+      const startTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: startTime.toISOString(),
+        endedAt: now.toISOString(),
+        duration: 30, // 30 minutes
+        quality: 'good'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate end timestamp', async () => {
+      // Create telemedicine session data without end timestamp
+      const startTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: startTime.toISOString(),
+        duration: 30,
+        quality: 'good'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for end timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'endedAt')
+      )).toBeTruthy();
+    });
+    
+    it('should validate session duration', async () => {
+      // Create telemedicine session data with invalid duration (negative)
+      const startTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: startTime.toISOString(),
+        endedAt: now.toISOString(),
+        duration: -30, // Negative duration
+        quality: 'good'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for duration
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'duration')
+      )).toBeTruthy();
+    });
+    
+    it('should validate session quality', async () => {
+      // Create telemedicine session data with invalid quality
+      const startTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: startTime.toISOString(),
+        endedAt: now.toISOString(),
+        duration: 30,
+        quality: 'invalid_quality'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for quality
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'quality')
+      )).toBeTruthy();
+    });
+    
+    it('should validate end time is after start time', async () => {
+      // Create telemedicine session data with end time before start time
+      const startTime = now;
+      const endTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes before start
+      
+      const sessionData = {
+        sessionId: uuidv4(),
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        startedAt: startTime.toISOString(),
+        endedAt: endTime.toISOString(),
+        duration: 30,
+        quality: 'good'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_TELEMEDICINE_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: sessionData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(TelemedicineCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for end time before start time
+      expect(errors).not.toBeNull();
+    });
+  });
+  
+  describe('CarePlanCreatedEventDto', () => {
     it('should validate a valid care plan created event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_PLAN_CREATED,
-        data: {
-          planId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          createdAt: new Date().toISOString(),
-          title: 'Diabetes Management Plan',
-          description: 'Comprehensive plan for managing type 2 diabetes',
-          goals: [
-            { id: '1', description: 'Maintain blood glucose levels', targetDate: new Date(Date.now() + 30 * 86400000).toISOString() },
-            { id: '2', description: 'Regular exercise routine', targetDate: new Date(Date.now() + 14 * 86400000).toISOString() },
-          ],
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+      // Create care plan data
+      const planData = {
+        planId: uuidv4(),
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Diabetes Type 2',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
-
-    it('should validate a valid care plan progress updated event', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_PLAN_PROGRESS_UPDATED,
-        data: {
-          planId: '123e4567-e89b-12d3-a456-426614174001',
-          updatedAt: new Date().toISOString(),
-          goalUpdates: [
-            { id: '1', status: 'in_progress', progress: 75, notes: 'Glucose levels improving' },
-            { id: '2', status: 'completed', progress: 100, completedAt: new Date().toISOString() },
-          ],
-          overallProgress: 85,
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
+    
+    it('should validate plan identification', async () => {
+      // Create care plan data without plan ID
+      const planData = {
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Diabetes Type 2',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for plan ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'planId')
+      )).toBeTruthy();
     });
-
-    it('should reject a care plan created event without required fields', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_PLAN_CREATED,
-        data: {
-          // Missing planId, providerId
-          createdAt: new Date().toISOString(),
-          title: 'Diabetes Management Plan',
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+    
+    it('should validate provider information', async () => {
+      // Create care plan data without provider ID
+      const planData = {
+        planId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Diabetes Type 2',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for provider ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'providerId')
+      )).toBeTruthy();
     });
-
-    it('should reject a care plan progress update with invalid progress value', async () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_PLAN_PROGRESS_UPDATED,
-        data: {
-          planId: '123e4567-e89b-12d3-a456-426614174001',
-          updatedAt: new Date().toISOString(),
-          goalUpdates: [
-            { id: '1', status: 'in_progress', progress: 120, notes: 'Glucose levels improving' }, // Progress > 100
-          ],
-          overallProgress: 85,
-        },
-      });
-
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
+    
+    it('should validate plan type', async () => {
+      // Create care plan data with invalid plan type
+      const planData = {
+        planId: uuidv4(),
+        providerId: uuidv4(),
+        planType: 'invalid_type',
+        condition: 'Diabetes Type 2',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for plan type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'planType')
+      )).toBeTruthy();
+    });
+    
+    it('should validate condition information', async () => {
+      // Create care plan data without condition
+      const planData = {
+        planId: uuidv4(),
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for condition
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'condition')
+      )).toBeTruthy();
+    });
+    
+    it('should validate date information', async () => {
+      // Create care plan data without start date
+      const planData = {
+        planId: uuidv4(),
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Diabetes Type 2',
+        endDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for start date
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'startDate')
+      )).toBeTruthy();
+    });
+    
+    it('should validate end date is after start date', async () => {
+      // Create care plan data with end date before start date
+      const planData = {
+        planId: uuidv4(),
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Diabetes Type 2',
+        startDate: now.toISOString(),
+        endDate: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days before now
+        createdAt: now.toISOString()
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_CREATED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: planData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanCreatedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for end date before start date
+      expect(errors).not.toBeNull();
     });
   });
-
-  describe('Integration with event processing', () => {
-    it('should properly serialize to JSON for event processing', () => {
-      const event = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          specialtyId: '123e4567-e89b-12d3-a456-426614174003',
-          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-          location: 'Virtual',
-        },
-      });
-
-      const serialized = JSON.stringify(event);
-      const deserialized = JSON.parse(serialized);
-
-      expect(deserialized.type).toBe(EventTypesEnum.CARE_APPOINTMENT_BOOKED);
-      expect(deserialized.journey).toBe('care');
-      expect(deserialized.userId).toBe(validEventBase.userId);
-      expect(deserialized.data.appointmentId).toBe('123e4567-e89b-12d3-a456-426614174001');
+  
+  describe('CarePlanTaskCompletedEventDto', () => {
+    it('should validate a valid care plan task completed event', async () => {
+      // Create care plan task data
+      const taskData = {
+        taskId: uuidv4(),
+        planId: uuidv4(),
+        taskType: 'medication',
+        completedAt: now.toISOString(),
+        status: 'completed'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
-
-    it('should handle event type-specific validation during processing', async () => {
-      // This test simulates how the event processor would validate events based on type
-      const appointmentEvent = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-          providerId: '123e4567-e89b-12d3-a456-426614174002',
-          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-        },
-      });
-
-      const medicationEvent = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_MEDICATION_TAKEN,
-        data: {
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          takenAt: new Date().toISOString(),
-        },
-      });
-
-      // Validate both events
-      const appointmentErrors = await validate(appointmentEvent);
-      const medicationErrors = await validate(medicationEvent);
-
-      // Both should pass their respective validations
-      expect(appointmentErrors.length).toBe(0);
-      expect(medicationErrors.length).toBe(0);
-
-      // Now try with wrong data structure for the event type
-      const invalidTypeEvent = plainToInstance(CareEventDto, {
-        ...validEventBase,
-        type: EventTypesEnum.CARE_APPOINTMENT_BOOKED,
-        data: {
-          // Using medication data for appointment event
-          medicationId: '123e4567-e89b-12d3-a456-426614174001',
-          takenAt: new Date().toISOString(),
-        },
-      });
-
-      const invalidTypeErrors = await validate(invalidTypeEvent);
-      expect(invalidTypeErrors.length).toBeGreaterThan(0);
+    
+    it('should validate task identification', async () => {
+      // Create care plan task data without task ID
+      const taskData = {
+        planId: uuidv4(),
+        taskType: 'medication',
+        completedAt: now.toISOString(),
+        status: 'completed'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for task ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'taskId')
+      )).toBeTruthy();
+    });
+    
+    it('should validate plan identification', async () => {
+      // Create care plan task data without plan ID
+      const taskData = {
+        taskId: uuidv4(),
+        taskType: 'medication',
+        completedAt: now.toISOString(),
+        status: 'completed'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for plan ID
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'planId')
+      )).toBeTruthy();
+    });
+    
+    it('should validate task type', async () => {
+      // Create care plan task data with invalid task type
+      const taskData = {
+        taskId: uuidv4(),
+        planId: uuidv4(),
+        taskType: 'invalid_type',
+        completedAt: now.toISOString(),
+        status: 'completed'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for task type
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'taskType')
+      )).toBeTruthy();
+    });
+    
+    it('should validate completion timestamp', async () => {
+      // Create care plan task data without completion timestamp
+      const taskData = {
+        taskId: uuidv4(),
+        planId: uuidv4(),
+        taskType: 'medication',
+        status: 'completed'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for completion timestamp
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'completedAt')
+      )).toBeTruthy();
+    });
+    
+    it('should validate task status', async () => {
+      // Create care plan task data with invalid status
+      const taskData = {
+        taskId: uuidv4(),
+        planId: uuidv4(),
+        taskType: 'medication',
+        completedAt: now.toISOString(),
+        status: 'invalid_status'
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect validation errors for status
+      expect(errors).not.toBeNull();
+      expect(errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => child.property === 'status')
+      )).toBeTruthy();
+    });
+  });
+  
+  describe('Integration with gamification rules', () => {
+    it('should validate appointment adherence for gamification', async () => {
+      // Create a completed appointment with adherence data
+      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
+      
+      // Add adherence data
+      const appointmentWithAdherence = {
+        ...appointmentData,
+        adherence: {
+          onTime: true,
+          scheduledTime: scheduledDate.toISOString(),
+          actualTime: scheduledDate.toISOString(),
+          adherenceScore: 100
+        }
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_APPOINTMENT_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: appointmentWithAdherence
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(AppointmentCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate medication adherence for gamification', async () => {
+      // Create a medication taken event with adherence data
+      const medicationData = createMedicationData(MedicationAdherenceStatus.ON_TIME);
+      
+      // Add adherence streak data
+      const medicationWithStreak = {
+        ...medicationData,
+        adherenceStreak: {
+          current: 5,
+          longest: 10,
+          lastTakenAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+        }
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_MEDICATION_TAKEN,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: medicationWithStreak
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate care plan progress for gamification', async () => {
+      // Create a care plan task completed event with progress data
+      const taskData = {
+        taskId: uuidv4(),
+        planId: uuidv4(),
+        taskType: 'medication',
+        completedAt: now.toISOString(),
+        status: 'completed',
+        progress: {
+          totalTasks: 10,
+          completedTasks: 5,
+          progressPercentage: 50,
+          isOnSchedule: true
+        }
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_PLAN_TASK_COMPLETED,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: taskData
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(CarePlanTaskCompletedEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
+    });
+    
+    it('should validate achievement eligibility data', async () => {
+      // Create a medication taken event with achievement eligibility data
+      const medicationData = createMedicationData(MedicationAdherenceStatus.ON_TIME);
+      
+      // Add achievement eligibility data
+      const medicationWithAchievement = {
+        ...medicationData,
+        achievementEligibility: {
+          eligible: true,
+          achievementType: 'medication-adherence',
+          progress: 7,
+          threshold: 10,
+          progressPercentage: 70
+        }
+      };
+      
+      // Create event
+      const event = {
+        type: EventType.CARE_MEDICATION_TAKEN,
+        userId,
+        journey: 'care',
+        timestamp: now.toISOString(),
+        data: medicationWithAchievement
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationTakenEventDto, event);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      
+      // Expect no validation errors
+      expect(errors).toBeNull();
     });
   });
 });

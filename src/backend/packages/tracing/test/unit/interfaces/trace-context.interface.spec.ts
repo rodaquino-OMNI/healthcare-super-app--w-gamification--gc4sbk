@@ -1,1140 +1,934 @@
-import { Context } from '@opentelemetry/api';
-import {
-  ContextCarrier,
-  CreateTraceContextOptions,
-  ExtractTraceContextOptions,
-  InjectTraceContextOptions,
-  SerializedTraceContext,
-  TraceContext,
-} from '../../../src/interfaces/trace-context.interface';
-import {
-  GamificationContext,
-  HealthJourneyContext,
-  JourneyType,
-} from '../../../src/interfaces/journey-context.interface';
-import { SpanAttributes } from '../../../src/interfaces/span-attributes.interface';
-import { MockContext } from '../../../test/mocks/mock-context';
+import { Context, SpanContext, context, trace } from '@opentelemetry/api';
+import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
+import { KafkaMessage } from 'kafkajs';
+import { TraceContext, JourneyContextInfo } from '../../../src/interfaces/trace-context.interface';
+import { CONTEXT_EXTRACTION_FAILED, CONTEXT_INJECTION_FAILED, CONTEXT_PROPAGATION_FAILED } from '../../../src/constants/error-codes';
+import { SAMPLE_TRACE_ID, SAMPLE_SPAN_ID_1 } from '../../fixtures/mock-spans';
 
 /**
  * Mock implementation of the TraceContext interface for testing
  */
 class MockTraceContext implements TraceContext {
-  private mockContexts: Map<string, Context> = new Map();
-  private currentContext: Context | null = null;
-  private mockJourneyContexts: Map<string, any> = new Map();
-  private mockGamificationContexts: Map<string, any> = new Map();
-  private mockCorrelationIds: Map<string, any> = new Map();
-  private mockTraceIds: Map<string, string> = new Map();
-  private mockSpanIds: Map<string, string> = new Map();
-  private mockSampledFlags: Map<string, boolean> = new Map();
+  private ctx: Context;
+  private journeyContext?: JourneyContextInfo;
+  private attributes: Record<string, any> = {};
 
-  constructor() {
-    // Initialize with a default context
-    const defaultContext = new MockContext();
-    this.mockContexts.set('default', defaultContext);
-    this.currentContext = defaultContext;
-    
-    // Set default trace and span IDs
-    this.mockTraceIds.set('default', '0af7651916cd43dd8448eb211c80319c');
-    this.mockSpanIds.set('default', 'b7ad6b7169203331');
-    this.mockSampledFlags.set('default', true);
+  constructor(ctx?: Context, journeyContext?: JourneyContextInfo) {
+    this.ctx = ctx || context.active();
+    this.journeyContext = journeyContext;
   }
 
-  create(options?: CreateTraceContextOptions): Context {
-    const contextId = `context-${Date.now()}-${Math.random()}`;
-    const context = new MockContext();
-    
-    this.mockContexts.set(contextId, context);
-    
-    if (options?.journeyContext) {
-      this.mockJourneyContexts.set(contextId, options.journeyContext);
-    }
-    
-    if (options?.gamificationContext) {
-      this.mockGamificationContexts.set(contextId, options.gamificationContext);
-    }
-    
-    if (options?.correlationIds) {
-      this.mockCorrelationIds.set(contextId, options.correlationIds);
-    }
-    
-    // Generate trace and span IDs
-    const traceId = options?.forceNewTrace 
-      ? this.generateTraceId() 
-      : (options?.parentContext ? this.getTraceId(options.parentContext) : this.generateTraceId());
-    
-    this.mockTraceIds.set(contextId, traceId);
-    this.mockSpanIds.set(contextId, this.generateSpanId());
-    this.mockSampledFlags.set(contextId, true);
-    
-    return context;
+  getContext(): Context {
+    return this.ctx;
   }
 
-  extract(carrier: ContextCarrier, options?: ExtractTraceContextOptions): Context {
-    if (!carrier['traceparent'] && options?.ignoreInvalid !== true) {
-      throw new Error('Invalid carrier: missing traceparent');
-    }
-    
-    const contextId = `extracted-${Date.now()}-${Math.random()}`;
-    const context = new MockContext();
-    
-    this.mockContexts.set(contextId, context);
-    
-    // Extract trace and span IDs from traceparent
-    if (carrier['traceparent']) {
-      const parts = carrier['traceparent'].split('-');
-      if (parts.length === 4) {
-        this.mockTraceIds.set(contextId, parts[1]);
-        this.mockSpanIds.set(contextId, parts[2]);
-        this.mockSampledFlags.set(contextId, parts[3].charAt(0) === '1');
-      }
-    } else if (options?.createIfMissing) {
-      this.mockTraceIds.set(contextId, this.generateTraceId());
-      this.mockSpanIds.set(contextId, this.generateSpanId());
-      this.mockSampledFlags.set(contextId, true);
-    }
-    
-    // Extract journey context
-    if (carrier['journey-context']) {
-      try {
-        this.mockJourneyContexts.set(contextId, JSON.parse(carrier['journey-context']));
-      } catch (e) {
-        if (options?.defaultJourneyContext) {
-          this.mockJourneyContexts.set(contextId, options.defaultJourneyContext);
-        }
-      }
-    } else if (options?.defaultJourneyContext) {
-      this.mockJourneyContexts.set(contextId, options.defaultJourneyContext);
-    }
-    
-    // Extract gamification context
-    if (carrier['gamification-context']) {
-      try {
-        this.mockGamificationContexts.set(contextId, JSON.parse(carrier['gamification-context']));
-      } catch (e) {
-        if (options?.defaultGamificationContext) {
-          this.mockGamificationContexts.set(contextId, options.defaultGamificationContext);
-        }
-      }
-    } else if (options?.defaultGamificationContext) {
-      this.mockGamificationContexts.set(contextId, options.defaultGamificationContext);
-    }
-    
-    return context;
+  getSpanContext(): SpanContext | undefined {
+    return trace.getSpanContext(this.ctx);
   }
 
-  inject(context: Context, carrier: ContextCarrier, options?: InjectTraceContextOptions): ContextCarrier {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    // Inject trace and span IDs
-    const traceId = this.mockTraceIds.get(contextId) || this.generateTraceId();
-    const spanId = this.mockSpanIds.get(contextId) || this.generateSpanId();
-    const sampled = this.mockSampledFlags.get(contextId) ? '1' : '0';
-    
-    carrier['traceparent'] = `00-${traceId}-${spanId}-${sampled}0`;
-    
-    // Inject journey context if requested
-    if (options?.includeJourneyContext !== false) {
-      const journeyContext = this.mockJourneyContexts.get(contextId);
-      if (journeyContext) {
-        carrier['journey-context'] = JSON.stringify(journeyContext);
-      }
-    }
-    
-    // Inject gamification context if requested
-    if (options?.includeGamificationContext !== false) {
-      const gamificationContext = this.mockGamificationContexts.get(contextId);
-      if (gamificationContext) {
-        carrier['gamification-context'] = JSON.stringify(gamificationContext);
-      }
-    }
-    
-    // Add additional headers if provided
-    if (options?.additionalHeaders) {
-      Object.entries(options.additionalHeaders).forEach(([key, value]) => {
-        carrier[key] = value;
-      });
-    }
-    
-    return carrier;
+  getTraceId(): string | undefined {
+    return this.getSpanContext()?.traceId;
   }
 
-  serialize(context: Context): SerializedTraceContext {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
+  getSpanId(): string | undefined {
+    return this.getSpanContext()?.spanId;
+  }
+
+  getTraceFlags(): number | undefined {
+    return this.getSpanContext()?.traceFlags;
+  }
+
+  isSampled(): boolean {
+    const flags = this.getTraceFlags();
+    return flags !== undefined && (flags & 1) === 1;
+  }
+
+  extractFromHttpHeaders(headers: IncomingHttpHeaders): TraceContext {
+    // Mock implementation - in a real implementation, this would use OpenTelemetry propagation
+    if (!headers) {
+      throw new Error(CONTEXT_EXTRACTION_FAILED);
     }
-    
-    const traceId = this.mockTraceIds.get(contextId) || this.generateTraceId();
-    const spanId = this.mockSpanIds.get(contextId) || this.generateSpanId();
-    const sampled = this.mockSampledFlags.get(contextId) ? '1' : '0';
-    
-    const serialized: SerializedTraceContext = {
-      traceParent: `00-${traceId}-${spanId}-${sampled}0`,
+
+    // For testing, we'll create a mock context based on traceparent header
+    const traceparent = headers['traceparent'] as string;
+    if (!traceparent) {
+      return new MockTraceContext();
+    }
+
+    // Parse traceparent header (format: 00-traceId-spanId-flags)
+    const parts = traceparent.split('-');
+    if (parts.length !== 4) {
+      return new MockTraceContext();
+    }
+
+    const [, traceId, spanId, flags] = parts;
+    const spanContext: SpanContext = {
+      traceId,
+      spanId,
+      traceFlags: parseInt(flags, 16),
+      isRemote: true,
     };
-    
-    // Add journey context if available
-    const journeyContext = this.mockJourneyContexts.get(contextId);
-    if (journeyContext) {
-      serialized.journeyContext = JSON.stringify(journeyContext);
-    }
-    
-    // Add gamification context if available
-    const gamificationContext = this.mockGamificationContexts.get(contextId);
-    if (gamificationContext) {
-      serialized.gamificationContext = JSON.stringify(gamificationContext);
-    }
-    
-    // Add correlation IDs if available
-    const correlationIds = this.mockCorrelationIds.get(contextId);
-    if (correlationIds) {
-      serialized.correlationIds = correlationIds;
-    }
-    
-    return serialized;
+
+    const newCtx = trace.setSpanContext(context.active(), spanContext);
+    return new MockTraceContext(newCtx);
   }
 
-  deserialize(serialized: SerializedTraceContext): Context {
-    const contextId = `deserialized-${Date.now()}-${Math.random()}`;
-    const context = new MockContext();
-    
-    this.mockContexts.set(contextId, context);
-    
-    // Extract trace and span IDs from traceparent
-    if (serialized.traceParent) {
-      const parts = serialized.traceParent.split('-');
-      if (parts.length === 4) {
-        this.mockTraceIds.set(contextId, parts[1]);
-        this.mockSpanIds.set(contextId, parts[2]);
-        this.mockSampledFlags.set(contextId, parts[3].charAt(0) === '1');
-      }
+  injectIntoHttpHeaders(headers: OutgoingHttpHeaders): OutgoingHttpHeaders {
+    if (!headers) {
+      throw new Error(CONTEXT_INJECTION_FAILED);
     }
-    
-    // Deserialize journey context if available
-    if (serialized.journeyContext) {
-      try {
-        this.mockJourneyContexts.set(contextId, JSON.parse(serialized.journeyContext));
-      } catch (e) {
-        // Ignore parsing errors
-      }
-    }
-    
-    // Deserialize gamification context if available
-    if (serialized.gamificationContext) {
-      try {
-        this.mockGamificationContexts.set(contextId, JSON.parse(serialized.gamificationContext));
-      } catch (e) {
-        // Ignore parsing errors
-      }
-    }
-    
-    // Set correlation IDs if available
-    if (serialized.correlationIds) {
-      this.mockCorrelationIds.set(contextId, serialized.correlationIds);
-    }
-    
-    return context;
-  }
 
-  getCurrentContext(): Context {
-    return this.currentContext || this.mockContexts.get('default') as Context;
-  }
+    const spanContext = this.getSpanContext();
+    if (spanContext) {
+      // Format: 00-traceId-spanId-flags
+      const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-0${spanContext.traceFlags.toString(16)}`;
+      headers['traceparent'] = traceparent;
 
-  getTraceId(context: Context): string {
-    const contextId = this.getContextId(context);
-    return contextId ? (this.mockTraceIds.get(contextId) || '') : '';
-  }
-
-  getSpanId(context: Context): string {
-    const contextId = this.getContextId(context);
-    return contextId ? (this.mockSpanIds.get(contextId) || '') : '';
-  }
-
-  getJourneyContext(context: Context): any | undefined {
-    const contextId = this.getContextId(context);
-    return contextId ? this.mockJourneyContexts.get(contextId) : undefined;
-  }
-
-  getGamificationContext(context: Context): any | undefined {
-    const contextId = this.getContextId(context);
-    return contextId ? this.mockGamificationContexts.get(contextId) : undefined;
-  }
-
-  setJourneyContext(context: Context, journeyContext: any): Context {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    this.mockJourneyContexts.set(contextId, journeyContext);
-    return context;
-  }
-
-  setGamificationContext(context: Context, gamificationContext: any): Context {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    this.mockGamificationContexts.set(contextId, gamificationContext);
-    return context;
-  }
-
-  getCorrelationIds(context: Context): { requestId?: string; sessionId?: string; userId?: string; transactionId?: string; } | undefined {
-    const contextId = this.getContextId(context);
-    return contextId ? this.mockCorrelationIds.get(contextId) : undefined;
-  }
-
-  setCorrelationIds(context: Context, correlationIds: { requestId?: string; sessionId?: string; userId?: string; transactionId?: string; }): Context {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    this.mockCorrelationIds.set(contextId, correlationIds);
-    return context;
-  }
-
-  merge(target: Context, source: Context): Context {
-    const targetId = this.getContextId(target);
-    const sourceId = this.getContextId(source);
-    
-    if (!targetId || !sourceId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    // Merge journey contexts
-    const sourceJourneyContext = this.mockJourneyContexts.get(sourceId);
-    if (sourceJourneyContext) {
-      const targetJourneyContext = this.mockJourneyContexts.get(targetId) || {};
-      this.mockJourneyContexts.set(targetId, { ...targetJourneyContext, ...sourceJourneyContext });
-    }
-    
-    // Merge gamification contexts
-    const sourceGamificationContext = this.mockGamificationContexts.get(sourceId);
-    if (sourceGamificationContext) {
-      const targetGamificationContext = this.mockGamificationContexts.get(targetId) || {};
-      this.mockGamificationContexts.set(targetId, { ...targetGamificationContext, ...sourceGamificationContext });
-    }
-    
-    // Merge correlation IDs
-    const sourceCorrelationIds = this.mockCorrelationIds.get(sourceId);
-    if (sourceCorrelationIds) {
-      const targetCorrelationIds = this.mockCorrelationIds.get(targetId) || {};
-      this.mockCorrelationIds.set(targetId, { ...targetCorrelationIds, ...sourceCorrelationIds });
-    }
-    
-    return target;
-  }
-
-  clearCurrentContext(): void {
-    this.currentContext = null;
-  }
-
-  isSampled(context: Context): boolean {
-    const contextId = this.getContextId(context);
-    return contextId ? (this.mockSampledFlags.get(contextId) || false) : false;
-  }
-
-  isValid(context: Context): boolean {
-    const contextId = this.getContextId(context);
-    return !!contextId && !!this.mockTraceIds.get(contextId) && !!this.mockSpanIds.get(contextId);
-  }
-
-  createChildContext(parentContext: Context, name: string, attributes?: SpanAttributes): Context {
-    const parentId = this.getContextId(parentContext);
-    
-    if (!parentId) {
-      throw new Error('Invalid parent context: not created by this TraceContext instance');
-    }
-    
-    const childId = `child-${Date.now()}-${Math.random()}`;
-    const childContext = new MockContext();
-    
-    this.mockContexts.set(childId, childContext);
-    
-    // Inherit trace ID from parent, but generate new span ID
-    this.mockTraceIds.set(childId, this.mockTraceIds.get(parentId) || this.generateTraceId());
-    this.mockSpanIds.set(childId, this.generateSpanId());
-    this.mockSampledFlags.set(childId, this.mockSampledFlags.get(parentId) || false);
-    
-    // Inherit journey context from parent
-    const parentJourneyContext = this.mockJourneyContexts.get(parentId);
-    if (parentJourneyContext) {
-      this.mockJourneyContexts.set(childId, { ...parentJourneyContext });
-    }
-    
-    // Inherit gamification context from parent
-    const parentGamificationContext = this.mockGamificationContexts.get(parentId);
-    if (parentGamificationContext) {
-      this.mockGamificationContexts.set(childId, { ...parentGamificationContext });
-    }
-    
-    // Inherit correlation IDs from parent
-    const parentCorrelationIds = this.mockCorrelationIds.get(parentId);
-    if (parentCorrelationIds) {
-      this.mockCorrelationIds.set(childId, { ...parentCorrelationIds });
-    }
-    
-    return childContext;
-  }
-
-  propagateToExternalSystem(context: Context, format: string, carrier: ContextCarrier): ContextCarrier {
-    const contextId = this.getContextId(context);
-    
-    if (!contextId) {
-      throw new Error('Invalid context: not created by this TraceContext instance');
-    }
-    
-    const traceId = this.mockTraceIds.get(contextId) || this.generateTraceId();
-    const spanId = this.mockSpanIds.get(contextId) || this.generateSpanId();
-    const sampled = this.mockSampledFlags.get(contextId) ? '1' : '0';
-    
-    // Format-specific propagation
-    switch (format.toLowerCase()) {
-      case 'b3':
-        // B3 single header format
-        carrier['b3'] = `${traceId}-${spanId}-${sampled}`;
-        break;
-      case 'b3multi':
-        // B3 multi-header format
-        carrier['X-B3-TraceId'] = traceId;
-        carrier['X-B3-SpanId'] = spanId;
-        carrier['X-B3-Sampled'] = sampled;
-        break;
-      case 'jaeger':
-        // Jaeger format
-        carrier['uber-trace-id'] = `${traceId}:${spanId}:0:${sampled}`;
-        break;
-      case 'ot':
-        // OpenTracing format
-        carrier['ot-tracer-traceid'] = traceId;
-        carrier['ot-tracer-spanid'] = spanId;
-        carrier['ot-tracer-sampled'] = sampled;
-        break;
-      default:
-        // Default to W3C format
-        carrier['traceparent'] = `00-${traceId}-${spanId}-${sampled}0`;
-        break;
-    }
-    
-    return carrier;
-  }
-
-  extractFromExternalSystem(format: string, carrier: ContextCarrier): Context {
-    const contextId = `external-${Date.now()}-${Math.random()}`;
-    const context = new MockContext();
-    
-    this.mockContexts.set(contextId, context);
-    
-    let traceId = '';
-    let spanId = '';
-    let sampled = false;
-    
-    // Format-specific extraction
-    switch (format.toLowerCase()) {
-      case 'b3':
-        // B3 single header format
-        if (carrier['b3']) {
-          const parts = carrier['b3'].split('-');
-          if (parts.length >= 3) {
-            traceId = parts[0];
-            spanId = parts[1];
-            sampled = parts[2] === '1';
-          }
+      // Add journey context if available
+      if (this.journeyContext) {
+        headers['x-journey-type'] = this.journeyContext.journeyType;
+        headers['x-journey-id'] = this.journeyContext.journeyId;
+        
+        if (this.journeyContext.userId) {
+          headers['x-user-id'] = this.journeyContext.userId;
         }
-        break;
-      case 'b3multi':
-        // B3 multi-header format
-        traceId = carrier['X-B3-TraceId'] || '';
-        spanId = carrier['X-B3-SpanId'] || '';
-        sampled = carrier['X-B3-Sampled'] === '1';
-        break;
-      case 'jaeger':
-        // Jaeger format
-        if (carrier['uber-trace-id']) {
-          const parts = carrier['uber-trace-id'].split(':');
-          if (parts.length >= 4) {
-            traceId = parts[0];
-            spanId = parts[1];
-            sampled = parts[3] === '1';
-          }
+        
+        if (this.journeyContext.sessionId) {
+          headers['x-session-id'] = this.journeyContext.sessionId;
         }
-        break;
-      case 'ot':
-        // OpenTracing format
-        traceId = carrier['ot-tracer-traceid'] || '';
-        spanId = carrier['ot-tracer-spanid'] || '';
-        sampled = carrier['ot-tracer-sampled'] === '1';
-        break;
-      default:
-        // Default to W3C format
-        if (carrier['traceparent']) {
-          const parts = carrier['traceparent'].split('-');
-          if (parts.length === 4) {
-            traceId = parts[1];
-            spanId = parts[2];
-            sampled = parts[3].charAt(0) === '1';
-          }
+        
+        if (this.journeyContext.requestId) {
+          headers['x-request-id'] = this.journeyContext.requestId;
         }
-        break;
-    }
-    
-    if (traceId && spanId) {
-      this.mockTraceIds.set(contextId, traceId);
-      this.mockSpanIds.set(contextId, spanId);
-      this.mockSampledFlags.set(contextId, sampled);
-    } else {
-      throw new Error(`Invalid carrier for format ${format}: missing required trace information`);
-    }
-    
-    return context;
-  }
-
-  // Helper methods for the mock implementation
-  private getContextId(context: Context): string | undefined {
-    for (const [id, ctx] of this.mockContexts.entries()) {
-      if (ctx === context) {
-        return id;
       }
     }
-    return undefined;
+
+    return headers;
   }
 
-  private generateTraceId(): string {
-    return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  extractFromKafkaMessage(message: KafkaMessage): TraceContext {
+    if (!message || !message.headers) {
+      throw new Error(CONTEXT_EXTRACTION_FAILED);
+    }
+
+    // For testing, we'll create a mock context based on traceparent header
+    const traceparentBuffer = message.headers['traceparent'];
+    if (!traceparentBuffer) {
+      return new MockTraceContext();
+    }
+
+    const traceparent = traceparentBuffer instanceof Buffer 
+      ? traceparentBuffer.toString() 
+      : String(traceparentBuffer);
+
+    // Parse traceparent header (format: 00-traceId-spanId-flags)
+    const parts = traceparent.split('-');
+    if (parts.length !== 4) {
+      return new MockTraceContext();
+    }
+
+    const [, traceId, spanId, flags] = parts;
+    const spanContext: SpanContext = {
+      traceId,
+      spanId,
+      traceFlags: parseInt(flags, 16),
+      isRemote: true,
+    };
+
+    const newCtx = trace.setSpanContext(context.active(), spanContext);
+    
+    // Extract journey context if available
+    let journeyContext: JourneyContextInfo | undefined;
+    
+    const journeyTypeBuffer = message.headers['x-journey-type'];
+    const journeyIdBuffer = message.headers['x-journey-id'];
+    
+    if (journeyTypeBuffer && journeyIdBuffer) {
+      const journeyType = journeyTypeBuffer instanceof Buffer 
+        ? journeyTypeBuffer.toString() 
+        : String(journeyTypeBuffer);
+        
+      const journeyId = journeyIdBuffer instanceof Buffer 
+        ? journeyIdBuffer.toString() 
+        : String(journeyIdBuffer);
+      
+      if ((journeyType === 'health' || journeyType === 'care' || journeyType === 'plan') && journeyId) {
+        journeyContext = {
+          journeyType,
+          journeyId,
+        };
+        
+        const userIdBuffer = message.headers['x-user-id'];
+        if (userIdBuffer) {
+          journeyContext.userId = userIdBuffer instanceof Buffer 
+            ? userIdBuffer.toString() 
+            : String(userIdBuffer);
+        }
+        
+        const sessionIdBuffer = message.headers['x-session-id'];
+        if (sessionIdBuffer) {
+          journeyContext.sessionId = sessionIdBuffer instanceof Buffer 
+            ? sessionIdBuffer.toString() 
+            : String(sessionIdBuffer);
+        }
+        
+        const requestIdBuffer = message.headers['x-request-id'];
+        if (requestIdBuffer) {
+          journeyContext.requestId = requestIdBuffer instanceof Buffer 
+            ? requestIdBuffer.toString() 
+            : String(requestIdBuffer);
+        }
+      }
+    }
+    
+    return new MockTraceContext(newCtx, journeyContext);
   }
 
-  private generateSpanId(): string {
-    return Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  injectIntoKafkaMessage(message: KafkaMessage): KafkaMessage {
+    if (!message) {
+      throw new Error(CONTEXT_INJECTION_FAILED);
+    }
+
+    if (!message.headers) {
+      message.headers = {};
+    }
+
+    const spanContext = this.getSpanContext();
+    if (spanContext) {
+      // Format: 00-traceId-spanId-flags
+      const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-0${spanContext.traceFlags.toString(16)}`;
+      message.headers['traceparent'] = Buffer.from(traceparent);
+
+      // Add journey context if available
+      if (this.journeyContext) {
+        message.headers['x-journey-type'] = Buffer.from(this.journeyContext.journeyType);
+        message.headers['x-journey-id'] = Buffer.from(this.journeyContext.journeyId);
+        
+        if (this.journeyContext.userId) {
+          message.headers['x-user-id'] = Buffer.from(this.journeyContext.userId);
+        }
+        
+        if (this.journeyContext.sessionId) {
+          message.headers['x-session-id'] = Buffer.from(this.journeyContext.sessionId);
+        }
+        
+        if (this.journeyContext.requestId) {
+          message.headers['x-request-id'] = Buffer.from(this.journeyContext.requestId);
+        }
+      }
+    }
+
+    return message;
+  }
+
+  serialize(): string {
+    const spanContext = this.getSpanContext();
+    if (!spanContext) {
+      return '';
+    }
+
+    const serialized = {
+      traceId: spanContext.traceId,
+      spanId: spanContext.spanId,
+      traceFlags: spanContext.traceFlags,
+      isRemote: spanContext.isRemote,
+      journeyContext: this.journeyContext,
+      attributes: this.attributes,
+    };
+
+    return JSON.stringify(serialized);
+  }
+
+  deserialize(serialized: string): TraceContext {
+    if (!serialized) {
+      throw new Error(CONTEXT_PROPAGATION_FAILED);
+    }
+
+    try {
+      const parsed = JSON.parse(serialized);
+      const spanContext: SpanContext = {
+        traceId: parsed.traceId,
+        spanId: parsed.spanId,
+        traceFlags: parsed.traceFlags,
+        isRemote: parsed.isRemote || true,
+      };
+
+      const newCtx = trace.setSpanContext(context.active(), spanContext);
+      const traceContext = new MockTraceContext(newCtx, parsed.journeyContext);
+      
+      // Restore attributes
+      if (parsed.attributes) {
+        Object.entries(parsed.attributes).forEach(([key, value]) => {
+          traceContext.withAttributes({ [key]: value });
+        });
+      }
+      
+      return traceContext;
+    } catch (error) {
+      throw new Error(`${CONTEXT_PROPAGATION_FAILED}: ${error.message}`);
+    }
+  }
+
+  withJourneyContext(journeyContext: JourneyContextInfo): TraceContext {
+    return new MockTraceContext(this.ctx, journeyContext);
+  }
+
+  getJourneyContext(): JourneyContextInfo | undefined {
+    return this.journeyContext;
+  }
+
+  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'health',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'care',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'plan',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  getCorrelationInfo(): {
+    traceId: string | undefined;
+    spanId: string | undefined;
+    traceFlags: number | undefined;
+    isSampled: boolean;
+    journeyType?: 'health' | 'care' | 'plan';
+    journeyId?: string;
+    userId?: string;
+    sessionId?: string;
+    requestId?: string;
+  } {
+    return {
+      traceId: this.getTraceId(),
+      spanId: this.getSpanId(),
+      traceFlags: this.getTraceFlags(),
+      isSampled: this.isSampled(),
+      journeyType: this.journeyContext?.journeyType,
+      journeyId: this.journeyContext?.journeyId,
+      userId: this.journeyContext?.userId,
+      sessionId: this.journeyContext?.sessionId,
+      requestId: this.journeyContext?.requestId,
+    };
+  }
+
+  createLogContext(additionalContext?: Record<string, any>): Record<string, any> {
+    const correlationInfo = this.getCorrelationInfo();
+    return {
+      traceId: correlationInfo.traceId,
+      spanId: correlationInfo.spanId,
+      sampled: correlationInfo.isSampled,
+      journeyType: correlationInfo.journeyType,
+      journeyId: correlationInfo.journeyId,
+      userId: correlationInfo.userId,
+      sessionId: correlationInfo.sessionId,
+      requestId: correlationInfo.requestId,
+      ...this.attributes,
+      ...(additionalContext || {}),
+    };
+  }
+
+  withAttributes(attributes: Record<string, any>): TraceContext {
+    const newTraceContext = new MockTraceContext(this.ctx, this.journeyContext);
+    newTraceContext.attributes = { ...this.attributes, ...attributes };
+    return newTraceContext;
+  }
+
+  hasAttribute(key: string): boolean {
+    return key in this.attributes;
+  }
+
+  getAttribute(key: string): any {
+    return this.attributes[key];
   }
 }
 
+/**
+ * Helper function to create a mock TraceContext with a valid span context
+ */
+function createMockTraceContextWithSpan(): MockTraceContext {
+  const spanContext: SpanContext = {
+    traceId: SAMPLE_TRACE_ID,
+    spanId: SAMPLE_SPAN_ID_1,
+    traceFlags: 1, // Sampled
+    isRemote: false,
+  };
+  
+  const ctx = trace.setSpanContext(context.active(), spanContext);
+  return new MockTraceContext(ctx);
+}
+
 describe('TraceContext Interface', () => {
-  let traceContext: TraceContext;
-  
+  let traceContext: MockTraceContext;
+
   beforeEach(() => {
-    traceContext = new MockTraceContext();
+    traceContext = createMockTraceContextWithSpan();
   });
-  
-  describe('Context Creation', () => {
-    it('should create a new trace context with default options', () => {
-      const context = traceContext.create();
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBeTruthy();
-      expect(traceContext.getSpanId(context)).toBeTruthy();
-      expect(traceContext.isSampled(context)).toBe(true);
+
+  describe('Basic Context Operations', () => {
+    it('should retrieve the current context', () => {
+      const ctx = traceContext.getContext();
+      expect(ctx).toBeDefined();
     });
-    
-    it('should create a trace context with journey context', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        currentStep: 'metrics-view',
-        metrics: {
-          metricType: 'heart-rate',
-          timePeriod: 'daily',
-        },
-      };
-      
-      const context = traceContext.create({ journeyContext });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getJourneyContext(context)).toEqual(journeyContext);
+
+    it('should retrieve the current span context', () => {
+      const spanContext = traceContext.getSpanContext();
+      expect(spanContext).toBeDefined();
+      expect(spanContext?.traceId).toBe(SAMPLE_TRACE_ID);
+      expect(spanContext?.spanId).toBe(SAMPLE_SPAN_ID_1);
     });
-    
-    it('should create a trace context with gamification context', () => {
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
-        },
-      };
-      
-      const context = traceContext.create({ gamificationContext });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getGamificationContext(context)).toEqual(gamificationContext);
+
+    it('should retrieve the trace ID', () => {
+      const traceId = traceContext.getTraceId();
+      expect(traceId).toBe(SAMPLE_TRACE_ID);
     });
-    
-    it('should create a trace context with correlation IDs', () => {
-      const correlationIds = {
-        requestId: 'req-123',
-        sessionId: 'session-456',
-        userId: 'user-789',
-        transactionId: 'tx-abc',
-      };
-      
-      const context = traceContext.create({ correlationIds });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getCorrelationIds(context)).toEqual(correlationIds);
+
+    it('should retrieve the span ID', () => {
+      const spanId = traceContext.getSpanId();
+      expect(spanId).toBe(SAMPLE_SPAN_ID_1);
     });
-    
-    it('should inherit trace ID from parent context', () => {
-      const parentContext = traceContext.create();
-      const parentTraceId = traceContext.getTraceId(parentContext);
-      
-      const childContext = traceContext.create({ parentContext });
-      const childTraceId = traceContext.getTraceId(childContext);
-      
-      expect(childTraceId).toBe(parentTraceId);
-      expect(traceContext.getSpanId(childContext)).not.toBe(traceContext.getSpanId(parentContext));
+
+    it('should retrieve the trace flags', () => {
+      const traceFlags = traceContext.getTraceFlags();
+      expect(traceFlags).toBe(1); // Sampled
     });
-    
-    it('should force new trace ID when forceNewTrace is true', () => {
-      const parentContext = traceContext.create();
-      const parentTraceId = traceContext.getTraceId(parentContext);
-      
-      const childContext = traceContext.create({ parentContext, forceNewTrace: true });
-      const childTraceId = traceContext.getTraceId(childContext);
-      
-      expect(childTraceId).not.toBe(parentTraceId);
+
+    it('should check if the context is sampled', () => {
+      const isSampled = traceContext.isSampled();
+      expect(isSampled).toBe(true);
     });
   });
-  
-  describe('Context Extraction', () => {
-    it('should extract context from carrier with traceparent', () => {
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+
+  describe('HTTP Context Propagation', () => {
+    it('should extract context from HTTP headers', () => {
+      const headers: IncomingHttpHeaders = {
+        traceparent: `00-${SAMPLE_TRACE_ID}-${SAMPLE_SPAN_ID_1}-01`,
       };
-      
-      const context = traceContext.extract(carrier);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(traceContext.getSpanId(context)).toBe('b7ad6b7169203331');
-      expect(traceContext.isSampled(context)).toBe(true);
+
+      const extractedContext = traceContext.extractFromHttpHeaders(headers);
+      expect(extractedContext).toBeDefined();
+      expect(extractedContext.getTraceId()).toBe(SAMPLE_TRACE_ID);
+      expect(extractedContext.getSpanId()).toBe(SAMPLE_SPAN_ID_1);
+      expect(extractedContext.isSampled()).toBe(true);
     });
-    
-    it('should extract journey context from carrier', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        currentStep: 'metrics-view',
-      };
-      
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-        'journey-context': JSON.stringify(journeyContext),
-      };
-      
-      const context = traceContext.extract(carrier);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getJourneyContext(context)).toEqual(journeyContext);
+
+    it('should handle missing traceparent header', () => {
+      const headers: IncomingHttpHeaders = {};
+      const extractedContext = traceContext.extractFromHttpHeaders(headers);
+      expect(extractedContext).toBeDefined();
+      // Should create a new context without trace information
+      expect(extractedContext.getTraceId()).toBeUndefined();
     });
-    
-    it('should extract gamification context from carrier', () => {
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
-        },
-      };
-      
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-        'gamification-context': JSON.stringify(gamificationContext),
-      };
-      
-      const context = traceContext.extract(carrier);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getGamificationContext(context)).toEqual(gamificationContext);
+
+    it('should throw an error when headers are null', () => {
+      expect(() => {
+        traceContext.extractFromHttpHeaders(null as any);
+      }).toThrow(CONTEXT_EXTRACTION_FAILED);
     });
-    
-    it('should throw error for invalid carrier without ignoreInvalid option', () => {
-      const carrier: ContextCarrier = {};
-      
-      expect(() => traceContext.extract(carrier)).toThrow('Invalid carrier: missing traceparent');
+
+    it('should inject context into HTTP headers', () => {
+      const headers: OutgoingHttpHeaders = {};
+      const injectedHeaders = traceContext.injectIntoHttpHeaders(headers);
+
+      expect(injectedHeaders).toBeDefined();
+      expect(injectedHeaders.traceparent).toBeDefined();
+      expect(typeof injectedHeaders.traceparent).toBe('string');
+
+      const traceparent = injectedHeaders.traceparent as string;
+      expect(traceparent).toContain(SAMPLE_TRACE_ID);
+      expect(traceparent).toContain(SAMPLE_SPAN_ID_1);
     });
-    
-    it('should not throw error for invalid carrier with ignoreInvalid option', () => {
-      const carrier: ContextCarrier = {};
-      
-      expect(() => traceContext.extract(carrier, { ignoreInvalid: true })).not.toThrow();
+
+    it('should inject journey context into HTTP headers', () => {
+      const headers: OutgoingHttpHeaders = {};
+      const contextWithJourney = traceContext.withHealthJourney('journey-123', 'user-456', 'session-789', 'request-abc');
+      const injectedHeaders = contextWithJourney.injectIntoHttpHeaders(headers);
+
+      expect(injectedHeaders['x-journey-type']).toBe('health');
+      expect(injectedHeaders['x-journey-id']).toBe('journey-123');
+      expect(injectedHeaders['x-user-id']).toBe('user-456');
+      expect(injectedHeaders['x-session-id']).toBe('session-789');
+      expect(injectedHeaders['x-request-id']).toBe('request-abc');
     });
-    
-    it('should create new context if extraction fails and createIfMissing is true', () => {
-      const carrier: ContextCarrier = {};
-      
-      const context = traceContext.extract(carrier, { ignoreInvalid: true, createIfMissing: true });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBeTruthy();
-      expect(traceContext.getSpanId(context)).toBeTruthy();
-    });
-    
-    it('should use default journey context if not present in carrier', () => {
-      const defaultJourneyContext: HealthJourneyContext = {
-        journeyId: 'default-journey-123',
-        userId: 'default-user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
-      
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-      };
-      
-      const context = traceContext.extract(carrier, { defaultJourneyContext });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getJourneyContext(context)).toEqual(defaultJourneyContext);
+
+    it('should throw an error when headers are null for injection', () => {
+      expect(() => {
+        traceContext.injectIntoHttpHeaders(null as any);
+      }).toThrow(CONTEXT_INJECTION_FAILED);
     });
   });
-  
-  describe('Context Injection', () => {
-    it('should inject context into carrier with traceparent', () => {
-      const context = traceContext.create();
-      const carrier: ContextCarrier = {};
-      
-      const result = traceContext.inject(context, carrier);
-      
-      expect(result).toBe(carrier);
-      expect(result['traceparent']).toBeTruthy();
-      expect(result['traceparent']).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-[01]0$/);
-    });
-    
-    it('should inject journey context into carrier', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        currentStep: 'metrics-view',
-      };
-      
-      const context = traceContext.create({ journeyContext });
-      const carrier: ContextCarrier = {};
-      
-      const result = traceContext.inject(context, carrier, { includeJourneyContext: true });
-      
-      expect(result['journey-context']).toBeTruthy();
-      expect(JSON.parse(result['journey-context'])).toEqual(journeyContext);
-    });
-    
-    it('should inject gamification context into carrier', () => {
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
+
+  describe('Kafka Context Propagation', () => {
+    it('should extract context from Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {
+          traceparent: Buffer.from(`00-${SAMPLE_TRACE_ID}-${SAMPLE_SPAN_ID_1}-01`),
         },
       };
-      
-      const context = traceContext.create({ gamificationContext });
-      const carrier: ContextCarrier = {};
-      
-      const result = traceContext.inject(context, carrier, { includeGamificationContext: true });
-      
-      expect(result['gamification-context']).toBeTruthy();
-      expect(JSON.parse(result['gamification-context'])).toEqual(gamificationContext);
+
+      const extractedContext = traceContext.extractFromKafkaMessage(message);
+      expect(extractedContext).toBeDefined();
+      expect(extractedContext.getTraceId()).toBe(SAMPLE_TRACE_ID);
+      expect(extractedContext.getSpanId()).toBe(SAMPLE_SPAN_ID_1);
+      expect(extractedContext.isSampled()).toBe(true);
     });
-    
-    it('should not inject journey context when includeJourneyContext is false', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
+
+    it('should extract journey context from Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {
+          traceparent: Buffer.from(`00-${SAMPLE_TRACE_ID}-${SAMPLE_SPAN_ID_1}-01`),
+          'x-journey-type': Buffer.from('care'),
+          'x-journey-id': Buffer.from('journey-456'),
+          'x-user-id': Buffer.from('user-789'),
+          'x-session-id': Buffer.from('session-abc'),
+          'x-request-id': Buffer.from('request-def'),
+        },
       };
+
+      const extractedContext = traceContext.extractFromKafkaMessage(message);
+      expect(extractedContext).toBeDefined();
       
-      const context = traceContext.create({ journeyContext });
-      const carrier: ContextCarrier = {};
-      
-      const result = traceContext.inject(context, carrier, { includeJourneyContext: false });
-      
-      expect(result['journey-context']).toBeUndefined();
+      const journeyContext = extractedContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('care');
+      expect(journeyContext?.journeyId).toBe('journey-456');
+      expect(journeyContext?.userId).toBe('user-789');
+      expect(journeyContext?.sessionId).toBe('session-abc');
+      expect(journeyContext?.requestId).toBe('request-def');
     });
-    
-    it('should include additional headers in carrier', () => {
-      const context = traceContext.create();
-      const carrier: ContextCarrier = {};
-      const additionalHeaders = {
-        'custom-header-1': 'value-1',
-        'custom-header-2': 'value-2',
+
+    it('should handle missing traceparent header in Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {},
       };
-      
-      const result = traceContext.inject(context, carrier, { additionalHeaders });
-      
-      expect(result['custom-header-1']).toBe('value-1');
-      expect(result['custom-header-2']).toBe('value-2');
+
+      const extractedContext = traceContext.extractFromKafkaMessage(message);
+      expect(extractedContext).toBeDefined();
+      // Should create a new context without trace information
+      expect(extractedContext.getTraceId()).toBeUndefined();
     });
-    
-    it('should throw error for invalid context', () => {
-      const invalidContext = new MockContext();
-      const carrier: ContextCarrier = {};
+
+    it('should throw an error when message is null', () => {
+      expect(() => {
+        traceContext.extractFromKafkaMessage(null as any);
+      }).toThrow(CONTEXT_EXTRACTION_FAILED);
+    });
+
+    it('should inject context into Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {},
+      };
+
+      const injectedMessage = traceContext.injectIntoKafkaMessage(message);
+      expect(injectedMessage).toBeDefined();
+      expect(injectedMessage.headers).toBeDefined();
+      expect(injectedMessage.headers.traceparent).toBeDefined();
       
-      expect(() => traceContext.inject(invalidContext, carrier)).toThrow('Invalid context');
+      const traceparent = injectedMessage.headers.traceparent as Buffer;
+      expect(traceparent.toString()).toContain(SAMPLE_TRACE_ID);
+      expect(traceparent.toString()).toContain(SAMPLE_SPAN_ID_1);
+    });
+
+    it('should inject journey context into Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {},
+      };
+
+      const contextWithJourney = traceContext.withPlanJourney('journey-789', 'user-abc', 'session-def', 'request-ghi');
+      const injectedMessage = contextWithJourney.injectIntoKafkaMessage(message);
+
+      expect(injectedMessage.headers['x-journey-type']).toBeDefined();
+      expect((injectedMessage.headers['x-journey-type'] as Buffer).toString()).toBe('plan');
+      expect((injectedMessage.headers['x-journey-id'] as Buffer).toString()).toBe('journey-789');
+      expect((injectedMessage.headers['x-user-id'] as Buffer).toString()).toBe('user-abc');
+      expect((injectedMessage.headers['x-session-id'] as Buffer).toString()).toBe('session-def');
+      expect((injectedMessage.headers['x-request-id'] as Buffer).toString()).toBe('request-ghi');
+    });
+
+    it('should create headers if they do not exist', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+      };
+
+      const injectedMessage = traceContext.injectIntoKafkaMessage(message);
+      expect(injectedMessage.headers).toBeDefined();
+      expect(injectedMessage.headers.traceparent).toBeDefined();
+    });
+
+    it('should throw an error when message is null for injection', () => {
+      expect(() => {
+        traceContext.injectIntoKafkaMessage(null as any);
+      }).toThrow(CONTEXT_INJECTION_FAILED);
     });
   });
-  
+
   describe('Context Serialization and Deserialization', () => {
-    it('should serialize context to SerializedTraceContext', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
+    it('should serialize context to a string', () => {
+      const serialized = traceContext.serialize();
+      expect(serialized).toBeDefined();
+      expect(typeof serialized).toBe('string');
       
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
-        },
-      };
-      
-      const correlationIds = {
-        requestId: 'req-123',
-        sessionId: 'session-456',
-        userId: 'user-789',
-        transactionId: 'tx-abc',
-      };
-      
-      const context = traceContext.create({ journeyContext, gamificationContext, correlationIds });
-      
-      const serialized = traceContext.serialize(context);
-      
-      expect(serialized.traceParent).toBeTruthy();
-      expect(serialized.traceParent).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-[01]0$/);
-      expect(serialized.journeyContext).toBeTruthy();
-      expect(JSON.parse(serialized.journeyContext!)).toEqual(journeyContext);
-      expect(serialized.gamificationContext).toBeTruthy();
-      expect(JSON.parse(serialized.gamificationContext!)).toEqual(gamificationContext);
-      expect(serialized.correlationIds).toEqual(correlationIds);
+      const parsed = JSON.parse(serialized);
+      expect(parsed.traceId).toBe(SAMPLE_TRACE_ID);
+      expect(parsed.spanId).toBe(SAMPLE_SPAN_ID_1);
+      expect(parsed.traceFlags).toBe(1);
     });
-    
-    it('should deserialize context from SerializedTraceContext', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
+
+    it('should serialize context with journey information', () => {
+      const contextWithJourney = traceContext.withHealthJourney('journey-123', 'user-456');
+      const serialized = contextWithJourney.serialize();
       
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
-        },
-      };
-      
-      const correlationIds = {
-        requestId: 'req-123',
-        sessionId: 'session-456',
-        userId: 'user-789',
-        transactionId: 'tx-abc',
-      };
-      
-      const serialized: SerializedTraceContext = {
-        traceParent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-10',
-        journeyContext: JSON.stringify(journeyContext),
-        gamificationContext: JSON.stringify(gamificationContext),
-        correlationIds,
-      };
-      
-      const context = traceContext.deserialize(serialized);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(traceContext.getSpanId(context)).toBe('b7ad6b7169203331');
-      expect(traceContext.getJourneyContext(context)).toEqual(journeyContext);
-      expect(traceContext.getGamificationContext(context)).toEqual(gamificationContext);
-      expect(traceContext.getCorrelationIds(context)).toEqual(correlationIds);
+      const parsed = JSON.parse(serialized);
+      expect(parsed.journeyContext).toBeDefined();
+      expect(parsed.journeyContext.journeyType).toBe('health');
+      expect(parsed.journeyContext.journeyId).toBe('journey-123');
+      expect(parsed.journeyContext.userId).toBe('user-456');
     });
-    
-    it('should handle invalid journey context during deserialization', () => {
-      const serialized: SerializedTraceContext = {
-        traceParent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-10',
-        journeyContext: 'invalid-json',
-      };
-      
-      const context = traceContext.deserialize(serialized);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(traceContext.getSpanId(context)).toBe('b7ad6b7169203331');
-      expect(traceContext.getJourneyContext(context)).toBeUndefined();
-    });
-    
-    it('should throw error for invalid context during serialization', () => {
-      const invalidContext = new MockContext();
-      
-      expect(() => traceContext.serialize(invalidContext)).toThrow('Invalid context');
-    });
-  });
-  
-  describe('Context Getters and Setters', () => {
-    it('should get and set journey context', () => {
-      const context = traceContext.create();
-      
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
-      
-      traceContext.setJourneyContext(context, journeyContext);
-      
-      expect(traceContext.getJourneyContext(context)).toEqual(journeyContext);
-    });
-    
-    it('should get and set gamification context', () => {
-      const context = traceContext.create();
-      
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'health-metric-recorded',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 10,
-        },
-      };
-      
-      traceContext.setGamificationContext(context, gamificationContext);
-      
-      expect(traceContext.getGamificationContext(context)).toEqual(gamificationContext);
-    });
-    
-    it('should get and set correlation IDs', () => {
-      const context = traceContext.create();
-      
-      const correlationIds = {
-        requestId: 'req-123',
-        sessionId: 'session-456',
-        userId: 'user-789',
-        transactionId: 'tx-abc',
-      };
-      
-      traceContext.setCorrelationIds(context, correlationIds);
-      
-      expect(traceContext.getCorrelationIds(context)).toEqual(correlationIds);
-    });
-    
-    it('should throw error when setting journey context on invalid context', () => {
-      const invalidContext = new MockContext();
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
-      
-      expect(() => traceContext.setJourneyContext(invalidContext, journeyContext)).toThrow('Invalid context');
-    });
-  });
-  
-  describe('Context Merging', () => {
-    it('should merge two contexts', () => {
-      const targetJourneyContext: HealthJourneyContext = {
-        journeyId: 'target-journey-123',
-        userId: 'target-user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        currentStep: 'target-step',
-      };
-      
-      const sourceJourneyContext: HealthJourneyContext = {
-        journeyId: 'source-journey-123',
-        userId: 'source-user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        previousStep: 'source-step',
-      };
-      
-      const targetContext = traceContext.create({ journeyContext: targetJourneyContext });
-      const sourceContext = traceContext.create({ journeyContext: sourceJourneyContext });
-      
-      traceContext.merge(targetContext, sourceContext);
-      
-      const mergedJourneyContext = traceContext.getJourneyContext(targetContext);
-      
-      expect(mergedJourneyContext).toEqual({
-        ...targetJourneyContext,
-        ...sourceJourneyContext,
+
+    it('should serialize context with attributes', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
       });
+      const serialized = contextWithAttributes.serialize();
+      
+      const parsed = JSON.parse(serialized);
+      expect(parsed.attributes).toBeDefined();
+      expect(parsed.attributes['custom.attribute1']).toBe('value1');
+      expect(parsed.attributes['custom.attribute2']).toBe(42);
     });
-    
-    it('should throw error when merging invalid contexts', () => {
-      const validContext = traceContext.create();
-      const invalidContext = new MockContext();
-      
-      expect(() => traceContext.merge(validContext, invalidContext)).toThrow('Invalid context');
-      expect(() => traceContext.merge(invalidContext, validContext)).toThrow('Invalid context');
+
+    it('should return empty string when no span context is available', () => {
+      const emptyContext = new MockTraceContext();
+      const serialized = emptyContext.serialize();
+      expect(serialized).toBe('');
     });
-  });
-  
-  describe('Child Context Creation', () => {
-    it('should create child context with parent trace ID', () => {
-      const parentContext = traceContext.create();
-      const parentTraceId = traceContext.getTraceId(parentContext);
+
+    it('should deserialize context from a string', () => {
+      const serialized = traceContext.serialize();
+      const deserialized = traceContext.deserialize(serialized);
       
-      const childContext = traceContext.createChildContext(parentContext, 'child-operation');
-      
-      expect(traceContext.getTraceId(childContext)).toBe(parentTraceId);
-      expect(traceContext.getSpanId(childContext)).not.toBe(traceContext.getSpanId(parentContext));
+      expect(deserialized).toBeDefined();
+      expect(deserialized.getTraceId()).toBe(SAMPLE_TRACE_ID);
+      expect(deserialized.getSpanId()).toBe(SAMPLE_SPAN_ID_1);
+      expect(deserialized.isSampled()).toBe(true);
     });
-    
-    it('should inherit journey context in child context', () => {
-      const journeyContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
+
+    it('should deserialize context with journey information', () => {
+      const contextWithJourney = traceContext.withCareJourney('journey-456', 'user-789');
+      const serialized = contextWithJourney.serialize();
+      const deserialized = traceContext.deserialize(serialized);
       
-      const parentContext = traceContext.create({ journeyContext });
-      const childContext = traceContext.createChildContext(parentContext, 'child-operation');
-      
-      expect(traceContext.getJourneyContext(childContext)).toEqual(journeyContext);
+      const journeyContext = deserialized.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('care');
+      expect(journeyContext?.journeyId).toBe('journey-456');
+      expect(journeyContext?.userId).toBe('user-789');
     });
-    
-    it('should throw error when creating child from invalid parent context', () => {
-      const invalidContext = new MockContext();
+
+    it('should deserialize context with attributes', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
+      });
+      const serialized = contextWithAttributes.serialize();
+      const deserialized = traceContext.deserialize(serialized);
       
-      expect(() => traceContext.createChildContext(invalidContext, 'child-operation')).toThrow('Invalid parent context');
+      expect(deserialized.hasAttribute('custom.attribute1')).toBe(true);
+      expect(deserialized.getAttribute('custom.attribute1')).toBe('value1');
+      expect(deserialized.getAttribute('custom.attribute2')).toBe(42);
     });
-  });
-  
-  describe('External System Propagation', () => {
-    it('should propagate context to B3 format', () => {
-      const context = traceContext.create();
-      const carrier: ContextCarrier = {};
-      
-      traceContext.propagateToExternalSystem(context, 'b3', carrier);
-      
-      expect(carrier['b3']).toBeTruthy();
-      expect(carrier['b3']).toMatch(/^[a-f0-9]{32}-[a-f0-9]{16}-[01]$/);
+
+    it('should throw an error when serialized string is empty', () => {
+      expect(() => {
+        traceContext.deserialize('');
+      }).toThrow(CONTEXT_PROPAGATION_FAILED);
     });
-    
-    it('should propagate context to B3 multi-header format', () => {
-      const context = traceContext.create();
-      const carrier: ContextCarrier = {};
-      
-      traceContext.propagateToExternalSystem(context, 'b3multi', carrier);
-      
-      expect(carrier['X-B3-TraceId']).toBeTruthy();
-      expect(carrier['X-B3-SpanId']).toBeTruthy();
-      expect(carrier['X-B3-Sampled']).toBeTruthy();
-    });
-    
-    it('should propagate context to Jaeger format', () => {
-      const context = traceContext.create();
-      const carrier: ContextCarrier = {};
-      
-      traceContext.propagateToExternalSystem(context, 'jaeger', carrier);
-      
-      expect(carrier['uber-trace-id']).toBeTruthy();
-      expect(carrier['uber-trace-id']).toMatch(/^[a-f0-9]{32}:[a-f0-9]{16}:0:[01]$/);
-    });
-    
-    it('should extract context from B3 format', () => {
-      const carrier: ContextCarrier = {
-        'b3': '0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-1',
-      };
-      
-      const context = traceContext.extractFromExternalSystem('b3', carrier);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(traceContext.getSpanId(context)).toBe('b7ad6b7169203331');
-      expect(traceContext.isSampled(context)).toBe(true);
-    });
-    
-    it('should extract context from B3 multi-header format', () => {
-      const carrier: ContextCarrier = {
-        'X-B3-TraceId': '0af7651916cd43dd8448eb211c80319c',
-        'X-B3-SpanId': 'b7ad6b7169203331',
-        'X-B3-Sampled': '1',
-      };
-      
-      const context = traceContext.extractFromExternalSystem('b3multi', carrier);
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getTraceId(context)).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(traceContext.getSpanId(context)).toBe('b7ad6b7169203331');
-      expect(traceContext.isSampled(context)).toBe(true);
-    });
-    
-    it('should throw error for invalid carrier in external system extraction', () => {
-      const carrier: ContextCarrier = {};
-      
-      expect(() => traceContext.extractFromExternalSystem('b3', carrier)).toThrow('Invalid carrier for format b3');
+
+    it('should throw an error when serialized string is invalid JSON', () => {
+      expect(() => {
+        traceContext.deserialize('invalid-json');
+      }).toThrow(CONTEXT_PROPAGATION_FAILED);
     });
   });
-  
+
+  describe('Journey Context Operations', () => {
+    it('should add health journey context', () => {
+      const healthContext = traceContext.withHealthJourney('health-journey-123', 'user-456', 'session-789');
+      
+      const journeyContext = healthContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('health');
+      expect(journeyContext?.journeyId).toBe('health-journey-123');
+      expect(journeyContext?.userId).toBe('user-456');
+      expect(journeyContext?.sessionId).toBe('session-789');
+    });
+
+    it('should add care journey context', () => {
+      const careContext = traceContext.withCareJourney('care-journey-456', 'user-789', 'session-abc');
+      
+      const journeyContext = careContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('care');
+      expect(journeyContext?.journeyId).toBe('care-journey-456');
+      expect(journeyContext?.userId).toBe('user-789');
+      expect(journeyContext?.sessionId).toBe('session-abc');
+    });
+
+    it('should add plan journey context', () => {
+      const planContext = traceContext.withPlanJourney('plan-journey-789', 'user-abc', 'session-def');
+      
+      const journeyContext = planContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('plan');
+      expect(journeyContext?.journeyId).toBe('plan-journey-789');
+      expect(journeyContext?.userId).toBe('user-abc');
+      expect(journeyContext?.sessionId).toBe('session-def');
+    });
+
+    it('should add generic journey context', () => {
+      const journeyInfo: JourneyContextInfo = {
+        journeyType: 'health',
+        journeyId: 'custom-journey-123',
+        userId: 'user-custom',
+        sessionId: 'session-custom',
+        requestId: 'request-custom',
+      };
+      
+      const journeyContext = traceContext.withJourneyContext(journeyInfo);
+      const retrievedContext = journeyContext.getJourneyContext();
+      
+      expect(retrievedContext).toBeDefined();
+      expect(retrievedContext).toEqual(journeyInfo);
+    });
+  });
+
+  describe('Correlation and Logging', () => {
+    it('should get correlation info', () => {
+      const correlationInfo = traceContext.getCorrelationInfo();
+      
+      expect(correlationInfo).toBeDefined();
+      expect(correlationInfo.traceId).toBe(SAMPLE_TRACE_ID);
+      expect(correlationInfo.spanId).toBe(SAMPLE_SPAN_ID_1);
+      expect(correlationInfo.isSampled).toBe(true);
+    });
+
+    it('should get correlation info with journey context', () => {
+      const contextWithJourney = traceContext.withHealthJourney('journey-123', 'user-456', 'session-789', 'request-abc');
+      const correlationInfo = contextWithJourney.getCorrelationInfo();
+      
+      expect(correlationInfo.journeyType).toBe('health');
+      expect(correlationInfo.journeyId).toBe('journey-123');
+      expect(correlationInfo.userId).toBe('user-456');
+      expect(correlationInfo.sessionId).toBe('session-789');
+      expect(correlationInfo.requestId).toBe('request-abc');
+    });
+
+    it('should create log context', () => {
+      const logContext = traceContext.createLogContext();
+      
+      expect(logContext).toBeDefined();
+      expect(logContext.traceId).toBe(SAMPLE_TRACE_ID);
+      expect(logContext.spanId).toBe(SAMPLE_SPAN_ID_1);
+      expect(logContext.sampled).toBe(true);
+    });
+
+    it('should create log context with journey information', () => {
+      const contextWithJourney = traceContext.withCareJourney('journey-456', 'user-789');
+      const logContext = contextWithJourney.createLogContext();
+      
+      expect(logContext.journeyType).toBe('care');
+      expect(logContext.journeyId).toBe('journey-456');
+      expect(logContext.userId).toBe('user-789');
+    });
+
+    it('should create log context with additional context', () => {
+      const additionalContext = {
+        operation: 'test-operation',
+        duration: 123,
+        status: 'success',
+      };
+      
+      const logContext = traceContext.createLogContext(additionalContext);
+      
+      expect(logContext.operation).toBe('test-operation');
+      expect(logContext.duration).toBe(123);
+      expect(logContext.status).toBe('success');
+    });
+
+    it('should create log context with attributes', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
+      });
+      
+      const logContext = contextWithAttributes.createLogContext();
+      
+      expect(logContext['custom.attribute1']).toBe('value1');
+      expect(logContext['custom.attribute2']).toBe(42);
+    });
+  });
+
+  describe('Attribute Management', () => {
+    it('should add attributes to context', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
+      });
+      
+      expect(contextWithAttributes.hasAttribute('custom.attribute1')).toBe(true);
+      expect(contextWithAttributes.getAttribute('custom.attribute1')).toBe('value1');
+      expect(contextWithAttributes.getAttribute('custom.attribute2')).toBe(42);
+    });
+
+    it('should check if attribute exists', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+      });
+      
+      expect(contextWithAttributes.hasAttribute('custom.attribute1')).toBe(true);
+      expect(contextWithAttributes.hasAttribute('non.existent')).toBe(false);
+    });
+
+    it('should get attribute value', () => {
+      const contextWithAttributes = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
+        'custom.attribute3': true,
+        'custom.attribute4': { nested: 'object' },
+      });
+      
+      expect(contextWithAttributes.getAttribute('custom.attribute1')).toBe('value1');
+      expect(contextWithAttributes.getAttribute('custom.attribute2')).toBe(42);
+      expect(contextWithAttributes.getAttribute('custom.attribute3')).toBe(true);
+      expect(contextWithAttributes.getAttribute('custom.attribute4')).toEqual({ nested: 'object' });
+      expect(contextWithAttributes.getAttribute('non.existent')).toBeUndefined();
+    });
+
+    it('should merge attributes when adding multiple times', () => {
+      const context1 = traceContext.withAttributes({
+        'custom.attribute1': 'value1',
+        'custom.attribute2': 42,
+      });
+      
+      const context2 = context1.withAttributes({
+        'custom.attribute3': true,
+        'custom.attribute2': 100, // Override existing attribute
+      });
+      
+      expect(context2.getAttribute('custom.attribute1')).toBe('value1');
+      expect(context2.getAttribute('custom.attribute2')).toBe(100); // Should be overridden
+      expect(context2.getAttribute('custom.attribute3')).toBe(true);
+    });
+  });
+
   describe('Error Handling', () => {
-    it('should handle invalid journey context during extraction', () => {
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-        'journey-context': 'invalid-json',
-      };
+    it('should handle missing span context', () => {
+      const emptyContext = new MockTraceContext();
       
-      const defaultJourneyContext: HealthJourneyContext = {
-        journeyId: 'default-journey-123',
-        userId: 'default-user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-      };
-      
-      const context = traceContext.extract(carrier, { defaultJourneyContext });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getJourneyContext(context)).toEqual(defaultJourneyContext);
+      expect(emptyContext.getTraceId()).toBeUndefined();
+      expect(emptyContext.getSpanId()).toBeUndefined();
+      expect(emptyContext.getTraceFlags()).toBeUndefined();
+      expect(emptyContext.isSampled()).toBe(false);
     });
-    
-    it('should handle invalid gamification context during extraction', () => {
-      const carrier: ContextCarrier = {
-        'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-        'gamification-context': 'invalid-json',
+
+    it('should handle invalid traceparent format in HTTP headers', () => {
+      const headers: IncomingHttpHeaders = {
+        traceparent: 'invalid-format',
       };
-      
-      const defaultGamificationContext: GamificationContext = {
-        event: {
-          eventId: 'default-event-123',
-          eventType: 'default-event-type',
-          sourceJourney: JourneyType.HEALTH,
+
+      const extractedContext = traceContext.extractFromHttpHeaders(headers);
+      expect(extractedContext).toBeDefined();
+      // Should create a new context without trace information
+      expect(extractedContext.getTraceId()).toBeUndefined();
+    });
+
+    it('should handle invalid traceparent format in Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {
+          traceparent: Buffer.from('invalid-format'),
         },
       };
-      
-      const context = traceContext.extract(carrier, { defaultGamificationContext });
-      
-      expect(context).toBeDefined();
-      expect(traceContext.getGamificationContext(context)).toEqual(defaultGamificationContext);
+
+      const extractedContext = traceContext.extractFromKafkaMessage(message);
+      expect(extractedContext).toBeDefined();
+      // Should create a new context without trace information
+      expect(extractedContext.getTraceId()).toBeUndefined();
     });
-    
-    it('should validate context is valid', () => {
-      const validContext = traceContext.create();
-      const invalidContext = new MockContext();
-      
-      expect(traceContext.isValid(validContext)).toBe(true);
-      expect(traceContext.isValid(invalidContext)).toBe(false);
+
+    it('should handle missing headers in Kafka message', () => {
+      const message: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1672531200000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+      };
+
+      expect(() => {
+        traceContext.extractFromKafkaMessage(message);
+      }).toThrow(CONTEXT_EXTRACTION_FAILED);
     });
   });
 });

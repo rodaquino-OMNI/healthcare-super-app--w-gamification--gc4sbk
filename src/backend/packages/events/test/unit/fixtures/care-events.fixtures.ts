@@ -1,519 +1,1064 @@
-import { 
-  AppointmentBookedEventDto, 
-  AppointmentStatusUpdatedEventDto, 
-  MedicationTrackedEventDto, 
-  TelemedicineSessionEventDto, 
-  CarePlanProgressEventDto,
-  ProviderInfoDto,
-  LocationInfoDto,
-  AppointmentStatus,
-  CareProviderType,
-  MedicationAdherenceStatus,
-  TelemedicineSessionType,
-  CarePlanProgressStatus
-} from '../../../src/dto/care-event.dto';
-import { EventTypes } from '../../../src/dto/event-types.enum';
-
 /**
- * Test fixtures for Care journey events.
- * These fixtures provide realistic test data for validating care event processing,
- * with healthcare-related data for comprehensive event testing.
+ * @file care-events.fixtures.ts
+ * @description Provides test fixtures for Care journey events, including appointment booking,
+ * medication adherence, telemedicine sessions, and care plan progress updates. These fixtures
+ * contain realistic healthcare-related data essential for testing care event validation,
+ * processing, and integration with the gamification engine.
+ *
+ * @module events/test/unit/fixtures
  */
 
-// Common user IDs for test fixtures
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../../src/dto/event-metadata.dto';
+import { v4 as uuidv4 } from 'uuid';
+
+// Common user IDs for consistent testing
 const TEST_USER_IDS = {
-  standard: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
-  premium: '7ecdf2a8-45cc-4e34-b18b-3670979a4d1a',
-  family: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d'
+  standard: '550e8400-e29b-41d4-a716-446655440000',
+  premium: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+  family: '6ba7b811-9dad-11d1-80b4-00c04fd430c8',
+  senior: '6ba7b812-9dad-11d1-80b4-00c04fd430c8',
 };
 
-// Common provider IDs for test fixtures
+// Common provider IDs for consistent testing
 const TEST_PROVIDER_IDS = {
-  cardiologist: '5e8f8f8f-8f8f-8f8f-8f8f-8f8f8f8f8f8f',
-  dermatologist: '6f9f9f9f-9f9f-9f9f-9f9f-9f9f9f9f9f9f',
-  orthopedist: '7a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a',
-  pediatrician: '8b1b1b1b-1b1b-1b1b-1b1b-1b1b1b1b1b1b',
-  psychiatrist: '9c2c2c2c-2c2c-2c2c-2c2c-2c2c2c2c2c2c'
+  cardiologist: '7ca7b810-9dad-11d1-80b4-00c04fd430c8',
+  dermatologist: '7ca7b811-9dad-11d1-80b4-00c04fd430c8',
+  orthopedist: '7ca7b812-9dad-11d1-80b4-00c04fd430c8',
+  pediatrician: '7ca7b813-9dad-11d1-80b4-00c04fd430c8',
+  psychiatrist: '7ca7b814-9dad-11d1-80b4-00c04fd430c8',
+  generalPractitioner: '7ca7b815-9dad-11d1-80b4-00c04fd430c8',
+};
+
+// Common specialty types for consistent testing
+const TEST_SPECIALTY_TYPES = {
+  cardiology: 'Cardiologia',
+  dermatology: 'Dermatologia',
+  orthopedics: 'Ortopedia',
+  pediatrics: 'Pediatria',
+  psychiatry: 'Psiquiatria',
+  generalPractice: 'Clínica Geral',
 };
 
 /**
- * Provider information fixtures for use in appointment and telemedicine events
+ * Creates standard event metadata for care journey events.
+ * 
+ * @param options Optional overrides for metadata properties
+ * @returns EventMetadataDto instance with care journey defaults
  */
-export const providerInfoFixtures: Record<string, ProviderInfoDto> = {
+export function createCareEventMetadata(options: Partial<EventMetadataDto> = {}): EventMetadataDto {
+  const origin = new EventOriginDto();
+  origin.service = 'care-service';
+  origin.component = options.origin?.component || 'event-processor';
+  
+  const version = new EventVersionDto();
+  version.major = '1';
+  version.minor = '0';
+  version.patch = '0';
+  
+  return new EventMetadataDto({
+    eventId: uuidv4(),
+    correlationId: options.correlationId || uuidv4(),
+    timestamp: options.timestamp || new Date(),
+    origin,
+    version,
+    ...options,
+  });
+}
+
+/**
+ * Base interface for all care journey events.
+ */
+export interface BaseCareEvent {
+  type: EventType;
+  userId: string;
+  metadata: EventMetadataDto;
+}
+
+/**
+ * Interface for appointment booking event payload.
+ */
+export interface AppointmentBookedPayload {
+  appointmentId: string;
+  providerId: string;
+  specialtyType: string;
+  appointmentType: 'in_person' | 'telemedicine' | 'home_visit';
+  scheduledAt: string;
+  bookedAt: string;
+  reason?: string;
+  notes?: string;
+  isFirstVisit?: boolean;
+  insurancePlanId?: string;
+  locationId?: string;
+}
+
+/**
+ * Interface for appointment completed event payload.
+ */
+export interface AppointmentCompletedPayload {
+  appointmentId: string;
+  providerId: string;
+  appointmentType: 'in_person' | 'telemedicine' | 'home_visit';
+  scheduledAt: string;
+  completedAt: string;
+  duration: number; // in minutes
+  followUpRecommended?: boolean;
+  followUpTimeframe?: string;
+  diagnosisCodes?: string[];
+  prescriptionIds?: string[];
+  referralIds?: string[];
+}
+
+/**
+ * Interface for medication taken event payload.
+ */
+export interface MedicationTakenPayload {
+  medicationId: string;
+  medicationName: string;
+  dosage: string;
+  takenAt: string;
+  adherence: 'on_time' | 'late' | 'missed';
+  scheduledTime?: string;
+  sideEffects?: string[];
+  mood?: string;
+  symptoms?: string[];
+  notes?: string;
+}
+
+/**
+ * Interface for telemedicine started event payload.
+ */
+export interface TelemedicineStartedPayload {
+  sessionId: string;
+  appointmentId: string;
+  providerId: string;
+  startedAt: string;
+  deviceType: 'mobile' | 'web' | 'tablet';
+  connectionType?: string;
+  browserInfo?: string;
+  osInfo?: string;
+  networkQuality?: 'excellent' | 'good' | 'fair' | 'poor';
+  hasVideo?: boolean;
+  hasAudio?: boolean;
+}
+
+/**
+ * Interface for telemedicine completed event payload.
+ */
+export interface TelemedicineCompletedPayload {
+  sessionId: string;
+  appointmentId: string;
+  providerId: string;
+  startedAt: string;
+  endedAt: string;
+  duration: number; // in minutes
+  quality: 'excellent' | 'good' | 'fair' | 'poor';
+  disconnections?: number;
+  technicalIssues?: string[];
+  patientRating?: number;
+  providerRating?: number;
+  followUpScheduled?: boolean;
+}
+
+/**
+ * Interface for care plan created event payload.
+ */
+export interface CarePlanCreatedPayload {
+  planId: string;
+  providerId: string;
+  planType: 'chronic_condition' | 'recovery' | 'preventive' | 'mental_health' | 'maternity';
+  condition: string;
+  startDate: string;
+  endDate?: string;
+  createdAt: string;
+  goals?: string[];
+  taskCount?: number;
+  checkInFrequency?: string;
+  severity?: 'mild' | 'moderate' | 'severe';
+}
+
+/**
+ * Interface for care plan task completed event payload.
+ */
+export interface CarePlanTaskCompletedPayload {
+  taskId: string;
+  planId: string;
+  taskType: 'medication' | 'exercise' | 'appointment' | 'measurement' | 'education' | 'diet';
+  completedAt: string;
+  status: 'completed' | 'partially_completed' | 'skipped';
+  scheduledAt?: string;
+  difficulty?: 'easy' | 'moderate' | 'difficult';
+  patientNotes?: string;
+  measurementValue?: number;
+  measurementUnit?: string;
+  duration?: number; // in minutes
+}
+
+/**
+ * Appointment booking event fixtures for testing.
+ */
+export const appointmentBookedEvents = {
+  /**
+   * Valid appointment booking event for a cardiologist.
+   */
   cardiologist: {
-    id: TEST_PROVIDER_IDS.cardiologist,
-    name: 'Dr. Ana Cardoso',
-    type: CareProviderType.SPECIALIST,
-    specialization: 'Cardiologia'
-  },
+    type: JourneyEvents.Care.APPOINTMENT_BOOKED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.cardiologist,
+      specialtyType: TEST_SPECIALTY_TYPES.cardiology,
+      appointmentType: 'in_person',
+      scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days in future
+      bookedAt: new Date().toISOString(),
+      reason: 'Annual heart checkup',
+      notes: 'Patient has family history of heart disease',
+      isFirstVisit: false,
+      locationId: uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentBookedPayload },
+
+  /**
+   * Valid appointment booking event for a dermatologist.
+   */
   dermatologist: {
-    id: TEST_PROVIDER_IDS.dermatologist,
-    name: 'Dr. Paulo Pele',
-    type: CareProviderType.SPECIALIST,
-    specialization: 'Dermatologia'
-  },
-  orthopedist: {
-    id: TEST_PROVIDER_IDS.orthopedist,
-    name: 'Dr. Oscar Ossos',
-    type: CareProviderType.SPECIALIST,
-    specialization: 'Ortopedia'
-  },
-  pediatrician: {
-    id: TEST_PROVIDER_IDS.pediatrician,
-    name: 'Dra. Patrícia Criança',
-    type: CareProviderType.SPECIALIST,
-    specialization: 'Pediatria'
-  },
+    type: JourneyEvents.Care.APPOINTMENT_BOOKED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.dermatologist,
+      specialtyType: TEST_SPECIALTY_TYPES.dermatology,
+      appointmentType: 'in_person',
+      scheduledAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days in future
+      bookedAt: new Date().toISOString(),
+      reason: 'Skin rash evaluation',
+      isFirstVisit: true,
+      insurancePlanId: uuidv4(),
+      locationId: uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentBookedPayload },
+
+  /**
+   * Valid appointment booking event for a telemedicine session with a psychiatrist.
+   */
+  telePsychiatrist: {
+    type: JourneyEvents.Care.APPOINTMENT_BOOKED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.psychiatrist,
+      specialtyType: TEST_SPECIALTY_TYPES.psychiatry,
+      appointmentType: 'telemedicine',
+      scheduledAt: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day in future
+      bookedAt: new Date().toISOString(),
+      reason: 'Anxiety follow-up',
+      notes: 'Patient prefers video consultation',
+      isFirstVisit: false,
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentBookedPayload },
+
+  /**
+   * Valid appointment booking event for a home visit by a general practitioner.
+   */
+  homeVisit: {
+    type: JourneyEvents.Care.APPOINTMENT_BOOKED,
+    userId: TEST_USER_IDS.senior,
+    payload: {
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.generalPractitioner,
+      specialtyType: TEST_SPECIALTY_TYPES.generalPractice,
+      appointmentType: 'home_visit',
+      scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days in future
+      bookedAt: new Date().toISOString(),
+      reason: 'Mobility issues, unable to travel to clinic',
+      notes: 'Patient requires blood pressure monitoring',
+      isFirstVisit: false,
+      insurancePlanId: uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentBookedPayload },
+
+  /**
+   * Invalid appointment booking event missing required fields.
+   */
+  invalid: {
+    type: JourneyEvents.Care.APPOINTMENT_BOOKED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      appointmentId: uuidv4(),
+      // Missing providerId
+      specialtyType: TEST_SPECIALTY_TYPES.cardiology,
+      // Missing appointmentType
+      scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      // Missing bookedAt
+    } as any,
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  } as BaseCareEvent & { payload: Partial<AppointmentBookedPayload> },
+};
+
+/**
+ * Appointment completed event fixtures for testing.
+ */
+export const appointmentCompletedEvents = {
+  /**
+   * Valid appointment completed event for a cardiologist visit.
+   */
+  cardiologist: {
+    type: JourneyEvents.Care.APPOINTMENT_COMPLETED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      appointmentId: appointmentBookedEvents.cardiologist.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.cardiologist,
+      appointmentType: 'in_person',
+      scheduledAt: appointmentBookedEvents.cardiologist.payload.scheduledAt,
+      completedAt: new Date(new Date(appointmentBookedEvents.cardiologist.payload.scheduledAt).getTime() + 45 * 60 * 1000).toISOString(), // 45 minutes after scheduled time
+      duration: 45,
+      followUpRecommended: true,
+      followUpTimeframe: '6 months',
+      diagnosisCodes: ['I10', 'E78.5'], // Hypertension, Hyperlipidemia
+      prescriptionIds: [uuidv4(), uuidv4()],
+    },
+    metadata: createCareEventMetadata({
+      correlationId: appointmentBookedEvents.cardiologist.metadata.correlationId,
+      origin: { component: 'appointment-tracker' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentCompletedPayload },
+
+  /**
+   * Valid appointment completed event for a dermatologist visit.
+   */
+  dermatologist: {
+    type: JourneyEvents.Care.APPOINTMENT_COMPLETED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      appointmentId: appointmentBookedEvents.dermatologist.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.dermatologist,
+      appointmentType: 'in_person',
+      scheduledAt: appointmentBookedEvents.dermatologist.payload.scheduledAt,
+      completedAt: new Date(new Date(appointmentBookedEvents.dermatologist.payload.scheduledAt).getTime() + 30 * 60 * 1000).toISOString(), // 30 minutes after scheduled time
+      duration: 30,
+      followUpRecommended: true,
+      followUpTimeframe: '2 weeks',
+      diagnosisCodes: ['L30.9'], // Dermatitis, unspecified
+      prescriptionIds: [uuidv4()],
+    },
+    metadata: createCareEventMetadata({
+      correlationId: appointmentBookedEvents.dermatologist.metadata.correlationId,
+      origin: { component: 'appointment-tracker' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentCompletedPayload },
+
+  /**
+   * Valid appointment completed event for a telemedicine session with a psychiatrist.
+   */
+  telePsychiatrist: {
+    type: JourneyEvents.Care.APPOINTMENT_COMPLETED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      appointmentId: appointmentBookedEvents.telePsychiatrist.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.psychiatrist,
+      appointmentType: 'telemedicine',
+      scheduledAt: appointmentBookedEvents.telePsychiatrist.payload.scheduledAt,
+      completedAt: new Date(new Date(appointmentBookedEvents.telePsychiatrist.payload.scheduledAt).getTime() + 50 * 60 * 1000).toISOString(), // 50 minutes after scheduled time
+      duration: 50,
+      followUpRecommended: true,
+      followUpTimeframe: '1 month',
+      diagnosisCodes: ['F41.1'], // Generalized anxiety disorder
+      prescriptionIds: [uuidv4()],
+    },
+    metadata: createCareEventMetadata({
+      correlationId: appointmentBookedEvents.telePsychiatrist.metadata.correlationId,
+      origin: { component: 'appointment-tracker' }
+    }),
+  } as BaseCareEvent & { payload: AppointmentCompletedPayload },
+};
+
+/**
+ * Medication taken event fixtures for testing.
+ */
+export const medicationTakenEvents = {
+  /**
+   * Valid medication taken event for blood pressure medication.
+   */
+  bloodPressure: {
+    type: JourneyEvents.Care.MEDICATION_TAKEN,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      medicationId: uuidv4(),
+      medicationName: 'Losartan',
+      dosage: '50mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'on_time',
+      scheduledTime: new Date(new Date().setHours(8, 0, 0, 0)).toISOString(),
+      notes: 'Taken with breakfast',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  } as BaseCareEvent & { payload: MedicationTakenPayload },
+
+  /**
+   * Valid medication taken event for cholesterol medication.
+   */
+  cholesterol: {
+    type: JourneyEvents.Care.MEDICATION_TAKEN,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      medicationId: uuidv4(),
+      medicationName: 'Atorvastatina',
+      dosage: '20mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'on_time',
+      scheduledTime: new Date(new Date().setHours(20, 0, 0, 0)).toISOString(),
+      notes: 'Taken after dinner',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  } as BaseCareEvent & { payload: MedicationTakenPayload },
+
+  /**
+   * Valid medication taken event for anxiety medication, taken late.
+   */
+  anxietyLate: {
+    type: JourneyEvents.Care.MEDICATION_TAKEN,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      medicationId: uuidv4(),
+      medicationName: 'Escitalopram',
+      dosage: '10mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'late',
+      scheduledTime: new Date(new Date().setHours(new Date().getHours() - 3, 0, 0, 0)).toISOString(), // 3 hours ago
+      sideEffects: ['drowsiness', 'dry mouth'],
+      mood: 'anxious',
+      notes: 'Forgot to take in the morning',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  } as BaseCareEvent & { payload: MedicationTakenPayload },
+
+  /**
+   * Valid medication taken event for pain medication, missed dose.
+   */
+  painMissed: {
+    type: JourneyEvents.Care.MEDICATION_TAKEN,
+    userId: TEST_USER_IDS.senior,
+    payload: {
+      medicationId: uuidv4(),
+      medicationName: 'Paracetamol',
+      dosage: '500mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'missed',
+      scheduledTime: new Date(new Date().setDate(new Date().getDate() - 1)).toISOString(), // Yesterday
+      symptoms: ['pain', 'stiffness'],
+      notes: 'Missed yesterday's dose, taking now',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  } as BaseCareEvent & { payload: MedicationTakenPayload },
+
+  /**
+   * Valid medication taken event for antibiotic, with side effects.
+   */
+  antibioticWithSideEffects: {
+    type: JourneyEvents.Care.MEDICATION_TAKEN,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      medicationId: uuidv4(),
+      medicationName: 'Amoxicilina',
+      dosage: '500mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'on_time',
+      scheduledTime: new Date(new Date().setHours(12, 0, 0, 0)).toISOString(),
+      sideEffects: ['nausea', 'diarrhea'],
+      notes: 'Side effects are moderate',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  } as BaseCareEvent & { payload: MedicationTakenPayload },
+};
+
+/**
+ * Telemedicine started event fixtures for testing.
+ */
+export const telemedicineStartedEvents = {
+  /**
+   * Valid telemedicine started event for a psychiatrist session on mobile.
+   */
+  psychiatristMobile: {
+    type: JourneyEvents.Care.TELEMEDICINE_STARTED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      sessionId: uuidv4(),
+      appointmentId: appointmentBookedEvents.telePsychiatrist.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.psychiatrist,
+      startedAt: appointmentBookedEvents.telePsychiatrist.payload.scheduledAt,
+      deviceType: 'mobile',
+      connectionType: '4G',
+      osInfo: 'iOS 15.4',
+      networkQuality: 'good',
+      hasVideo: true,
+      hasAudio: true,
+    },
+    metadata: createCareEventMetadata({
+      correlationId: appointmentBookedEvents.telePsychiatrist.metadata.correlationId,
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineStartedPayload },
+
+  /**
+   * Valid telemedicine started event for a general practitioner session on web.
+   */
+  generalPractitionerWeb: {
+    type: JourneyEvents.Care.TELEMEDICINE_STARTED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      sessionId: uuidv4(),
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.generalPractitioner,
+      startedAt: new Date().toISOString(),
+      deviceType: 'web',
+      connectionType: 'WiFi',
+      browserInfo: 'Chrome 98.0.4758.102',
+      osInfo: 'Windows 11',
+      networkQuality: 'excellent',
+      hasVideo: true,
+      hasAudio: true,
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineStartedPayload },
+
+  /**
+   * Valid telemedicine started event for a dermatologist session on tablet with poor connection.
+   */
+  dermatologistTabletPoorConnection: {
+    type: JourneyEvents.Care.TELEMEDICINE_STARTED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      sessionId: uuidv4(),
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.dermatologist,
+      startedAt: new Date().toISOString(),
+      deviceType: 'tablet',
+      connectionType: 'WiFi',
+      osInfo: 'Android 12',
+      networkQuality: 'poor',
+      hasVideo: true,
+      hasAudio: false, // Audio issues
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineStartedPayload },
+
+  /**
+   * Valid telemedicine started event for a pediatrician session on web with audio only.
+   */
+  pediatricianWebAudioOnly: {
+    type: JourneyEvents.Care.TELEMEDICINE_STARTED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      sessionId: uuidv4(),
+      appointmentId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.pediatrician,
+      startedAt: new Date().toISOString(),
+      deviceType: 'web',
+      connectionType: 'WiFi',
+      browserInfo: 'Firefox 97.0',
+      osInfo: 'macOS 12.2',
+      networkQuality: 'fair',
+      hasVideo: false, // Video disabled
+      hasAudio: true,
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineStartedPayload },
+};
+
+/**
+ * Telemedicine completed event fixtures for testing.
+ */
+export const telemedicineCompletedEvents = {
+  /**
+   * Valid telemedicine completed event for a psychiatrist session.
+   */
   psychiatrist: {
-    id: TEST_PROVIDER_IDS.psychiatrist,
-    name: 'Dr. Miguel Mente',
-    type: CareProviderType.SPECIALIST,
-    specialization: 'Psiquiatria'
-  },
-  generalPractitioner: {
-    id: '1d3d3d3d-3d3d-3d3d-3d3d-3d3d3d3d3d3d',
-    name: 'Dra. Gabriela Geral',
-    type: CareProviderType.GENERAL_PRACTITIONER
-  },
-  nurse: {
-    id: '2e4e4e4e-4e4e-4e4e-4e4e-4e4e4e4e4e4e',
-    name: 'Enf. Natália Cuidado',
-    type: CareProviderType.NURSE
-  },
-  nutritionist: {
-    id: '3f5f5f5f-5f5f-5f5f-5f5f-5f5f5f5f5f5f',
-    name: 'Nut. Nina Nutrição',
-    type: CareProviderType.NUTRITIONIST
-  }
+    type: JourneyEvents.Care.TELEMEDICINE_COMPLETED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      sessionId: telemedicineStartedEvents.psychiatristMobile.payload.sessionId,
+      appointmentId: telemedicineStartedEvents.psychiatristMobile.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.psychiatrist,
+      startedAt: telemedicineStartedEvents.psychiatristMobile.payload.startedAt,
+      endedAt: new Date(new Date(telemedicineStartedEvents.psychiatristMobile.payload.startedAt).getTime() + 50 * 60 * 1000).toISOString(), // 50 minutes after start
+      duration: 50,
+      quality: 'good',
+      disconnections: 0,
+      patientRating: 4,
+      providerRating: 5,
+      followUpScheduled: true,
+    },
+    metadata: createCareEventMetadata({
+      correlationId: telemedicineStartedEvents.psychiatristMobile.metadata.correlationId,
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineCompletedPayload },
+
+  /**
+   * Valid telemedicine completed event for a general practitioner session with technical issues.
+   */
+  generalPractitionerWithIssues: {
+    type: JourneyEvents.Care.TELEMEDICINE_COMPLETED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      sessionId: telemedicineStartedEvents.generalPractitionerWeb.payload.sessionId,
+      appointmentId: telemedicineStartedEvents.generalPractitionerWeb.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.generalPractitioner,
+      startedAt: telemedicineStartedEvents.generalPractitionerWeb.payload.startedAt,
+      endedAt: new Date(new Date(telemedicineStartedEvents.generalPractitionerWeb.payload.startedAt).getTime() + 25 * 60 * 1000).toISOString(), // 25 minutes after start
+      duration: 25,
+      quality: 'fair',
+      disconnections: 2,
+      technicalIssues: ['video freezing', 'audio echo'],
+      patientRating: 3,
+      providerRating: 4,
+      followUpScheduled: false,
+    },
+    metadata: createCareEventMetadata({
+      correlationId: telemedicineStartedEvents.generalPractitionerWeb.metadata.correlationId,
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineCompletedPayload },
+
+  /**
+   * Valid telemedicine completed event for a dermatologist session with poor quality.
+   */
+  dermatologistPoorQuality: {
+    type: JourneyEvents.Care.TELEMEDICINE_COMPLETED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      sessionId: telemedicineStartedEvents.dermatologistTabletPoorConnection.payload.sessionId,
+      appointmentId: telemedicineStartedEvents.dermatologistTabletPoorConnection.payload.appointmentId,
+      providerId: TEST_PROVIDER_IDS.dermatologist,
+      startedAt: telemedicineStartedEvents.dermatologistTabletPoorConnection.payload.startedAt,
+      endedAt: new Date(new Date(telemedicineStartedEvents.dermatologistTabletPoorConnection.payload.startedAt).getTime() + 15 * 60 * 1000).toISOString(), // 15 minutes after start
+      duration: 15,
+      quality: 'poor',
+      disconnections: 4,
+      technicalIssues: ['connection lost', 'video not available', 'audio cutting out'],
+      patientRating: 2,
+      providerRating: 3,
+      followUpScheduled: true, // In-person follow-up needed due to poor connection
+    },
+    metadata: createCareEventMetadata({
+      correlationId: telemedicineStartedEvents.dermatologistTabletPoorConnection.metadata.correlationId,
+      origin: { component: 'telemedicine-service' }
+    }),
+  } as BaseCareEvent & { payload: TelemedicineCompletedPayload },
 };
 
 /**
- * Location information fixtures for use in appointment events
+ * Care plan created event fixtures for testing.
  */
-export const locationInfoFixtures: Record<string, LocationInfoDto> = {
-  mainClinic: {
-    name: 'Clínica AUSTA Central',
-    address: 'Av. Paulista, 1000, São Paulo, SP',
-    isVirtual: false
-  },
-  branchClinic: {
-    name: 'Clínica AUSTA Zona Sul',
-    address: 'Av. Ibirapuera, 500, São Paulo, SP',
-    isVirtual: false
-  },
-  hospital: {
-    name: 'Hospital AUSTA',
-    address: 'Rua Augusta, 1500, São Paulo, SP',
-    isVirtual: false
-  },
-  virtual: {
-    name: 'Consulta Virtual AUSTA',
-    isVirtual: true
-  }
+export const carePlanCreatedEvents = {
+  /**
+   * Valid care plan created event for hypertension management.
+   */
+  hypertension: {
+    type: JourneyEvents.Care.PLAN_CREATED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      planId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.cardiologist,
+      planType: 'chronic_condition',
+      condition: 'Hypertension',
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(), // 6 months in future
+      createdAt: new Date().toISOString(),
+      goals: ['Reduce blood pressure to below 130/80', 'Maintain regular medication schedule', 'Reduce sodium intake'],
+      taskCount: 12,
+      checkInFrequency: 'weekly',
+      severity: 'moderate',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-service' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanCreatedPayload },
+
+  /**
+   * Valid care plan created event for post-surgery recovery.
+   */
+  postSurgery: {
+    type: JourneyEvents.Care.PLAN_CREATED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      planId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.orthopedist,
+      planType: 'recovery',
+      condition: 'Post-knee surgery rehabilitation',
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 3 months in future
+      createdAt: new Date().toISOString(),
+      goals: ['Regain full range of motion', 'Return to normal walking without assistance', 'Strengthen supporting muscles'],
+      taskCount: 24,
+      checkInFrequency: 'twice-weekly',
+      severity: 'moderate',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-service' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanCreatedPayload },
+
+  /**
+   * Valid care plan created event for anxiety management.
+   */
+  anxiety: {
+    type: JourneyEvents.Care.PLAN_CREATED,
+    userId: TEST_USER_IDS.family,
+    payload: {
+      planId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.psychiatrist,
+      planType: 'mental_health',
+      condition: 'Generalized Anxiety Disorder',
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString(), // 4 months in future
+      createdAt: new Date().toISOString(),
+      goals: ['Reduce anxiety symptoms', 'Develop coping mechanisms', 'Establish regular mindfulness practice'],
+      taskCount: 18,
+      checkInFrequency: 'weekly',
+      severity: 'moderate',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-service' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanCreatedPayload },
+
+  /**
+   * Valid care plan created event for preventive health for seniors.
+   */
+  seniorPreventive: {
+    type: JourneyEvents.Care.PLAN_CREATED,
+    userId: TEST_USER_IDS.senior,
+    payload: {
+      planId: uuidv4(),
+      providerId: TEST_PROVIDER_IDS.generalPractitioner,
+      planType: 'preventive',
+      condition: 'Senior preventive health',
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year in future
+      createdAt: new Date().toISOString(),
+      goals: ['Complete all recommended screenings', 'Maintain physical activity', 'Monitor chronic conditions'],
+      taskCount: 15,
+      checkInFrequency: 'monthly',
+      severity: 'mild',
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-service' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanCreatedPayload },
 };
 
 /**
- * Appointment booking event fixtures
+ * Care plan task completed event fixtures for testing.
  */
-export const appointmentBookedEventFixtures: AppointmentBookedEventDto[] = [
-  // Standard in-person appointment
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
+export const carePlanTaskCompletedEvents = {
+  /**
+   * Valid care plan task completed event for medication task.
+   */
+  medication: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
     userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-15T10:30:00Z',
-    data: {
-      appointmentId: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
-      appointmentDate: '2023-05-20T14:00:00Z',
-      provider: providerInfoFixtures.cardiologist,
-      location: locationInfoFixtures.mainClinic,
-      reason: 'Consulta de rotina para acompanhamento cardíaco',
-      status: AppointmentStatus.SCHEDULED
-    }
-  },
-  // Telemedicine appointment
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.hypertension.payload.planId,
+      taskType: 'medication',
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scheduledAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(), // 1 hour ago
+      difficulty: 'easy',
+      patientNotes: 'Took medication with breakfast',
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.hypertension.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for exercise task.
+   */
+  exercise: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
     userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-16T09:15:00Z',
-    data: {
-      appointmentId: 'b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e',
-      appointmentDate: '2023-05-18T10:30:00Z',
-      provider: providerInfoFixtures.dermatologist,
-      location: locationInfoFixtures.virtual,
-      reason: 'Avaliação de lesão na pele',
-      status: AppointmentStatus.SCHEDULED
-    }
-  },
-  // Urgent appointment
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.postSurgery.payload.planId,
+      taskType: 'exercise',
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scheduledAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+      difficulty: 'moderate',
+      patientNotes: 'Completed all exercises, knee feels better today',
+      duration: 30, // 30 minutes
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.postSurgery.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for measurement task.
+   */
+  measurement: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.hypertension.payload.planId,
+      taskType: 'measurement',
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scheduledAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 minutes ago
+      difficulty: 'easy',
+      patientNotes: 'Blood pressure seems to be improving',
+      measurementValue: 135, // Systolic blood pressure
+      measurementUnit: 'mmHg',
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.hypertension.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for education task.
+   */
+  education: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
     userId: TEST_USER_IDS.family,
-    journey: 'care',
-    timestamp: '2023-05-16T16:45:00Z',
-    data: {
-      appointmentId: 'c3d4e5f6-a7b8-6c7d-0e1f-2a3b4c5d6e7f',
-      appointmentDate: '2023-05-17T09:00:00Z',
-      provider: providerInfoFixtures.pediatrician,
-      location: locationInfoFixtures.branchClinic,
-      reason: 'Febre alta e dor de garganta',
-      status: AppointmentStatus.SCHEDULED
-    }
-  }
-];
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.anxiety.payload.planId,
+      taskType: 'education',
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scheduledAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+      difficulty: 'easy',
+      patientNotes: 'Learned new breathing techniques for anxiety management',
+      duration: 15, // 15 minutes
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.anxiety.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for appointment task.
+   */
+  appointment: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
+    userId: TEST_USER_IDS.senior,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.seniorPreventive.payload.planId,
+      taskType: 'appointment',
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scheduledAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago
+      difficulty: 'moderate',
+      patientNotes: 'Completed annual checkup with Dr. Silva',
+      duration: 45, // 45 minutes
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.seniorPreventive.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for diet task, partially completed.
+   */
+  dietPartial: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
+    userId: TEST_USER_IDS.standard,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.hypertension.payload.planId,
+      taskType: 'diet',
+      completedAt: new Date().toISOString(),
+      status: 'partially_completed',
+      scheduledAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+      difficulty: 'difficult',
+      patientNotes: 'Followed low-sodium diet for most meals but had dinner at restaurant',
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.hypertension.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+
+  /**
+   * Valid care plan task completed event for exercise task, skipped.
+   */
+  exerciseSkipped: {
+    type: JourneyEvents.Care.PLAN_TASK_COMPLETED,
+    userId: TEST_USER_IDS.premium,
+    payload: {
+      taskId: uuidv4(),
+      planId: carePlanCreatedEvents.postSurgery.payload.planId,
+      taskType: 'exercise',
+      completedAt: new Date().toISOString(),
+      status: 'skipped',
+      scheduledAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+      difficulty: 'difficult',
+      patientNotes: 'Knee pain was too severe today, will try again tomorrow',
+    },
+    metadata: createCareEventMetadata({
+      correlationId: carePlanCreatedEvents.postSurgery.metadata.correlationId,
+      origin: { component: 'care-plan-tracker' }
+    }),
+  } as BaseCareEvent & { payload: CarePlanTaskCompletedPayload },
+};
 
 /**
- * Appointment status update event fixtures
- */
-export const appointmentStatusUpdatedEventFixtures: AppointmentStatusUpdatedEventDto[] = [
-  // Appointment checked in
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-20T13:55:00Z',
-    data: {
-      appointmentId: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
-      previousStatus: AppointmentStatus.SCHEDULED,
-      newStatus: AppointmentStatus.CHECKED_IN,
-      updatedAt: '2023-05-20T13:55:00Z'
-    }
-  },
-  // Appointment completed
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-20T14:45:00Z',
-    data: {
-      appointmentId: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
-      previousStatus: AppointmentStatus.CHECKED_IN,
-      newStatus: AppointmentStatus.COMPLETED,
-      notes: 'Consulta realizada com sucesso. Paciente deve retornar em 3 meses.',
-      updatedAt: '2023-05-20T14:45:00Z'
-    }
-  },
-  // Appointment cancelled
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
-    userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-17T18:30:00Z',
-    data: {
-      appointmentId: 'b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e',
-      previousStatus: AppointmentStatus.SCHEDULED,
-      newStatus: AppointmentStatus.CANCELLED,
-      notes: 'Paciente solicitou cancelamento por motivos pessoais.',
-      updatedAt: '2023-05-17T18:30:00Z'
-    }
-  },
-  // Appointment no-show
-  {
-    type: EventTypes.CARE_APPOINTMENT_BOOKED,
-    userId: TEST_USER_IDS.family,
-    journey: 'care',
-    timestamp: '2023-05-17T09:30:00Z',
-    data: {
-      appointmentId: 'c3d4e5f6-a7b8-6c7d-0e1f-2a3b4c5d6e7f',
-      previousStatus: AppointmentStatus.SCHEDULED,
-      newStatus: AppointmentStatus.NO_SHOW,
-      updatedAt: '2023-05-17T09:30:00Z'
-    }
-  }
-];
-
-/**
- * Medication tracking event fixtures
- */
-export const medicationTrackedEventFixtures: MedicationTrackedEventDto[] = [
-  // Medication taken on time
-  {
-    type: EventTypes.CARE_MEDICATION_TAKEN,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-15T08:00:00Z',
-    data: {
-      medicationId: 'd4e5f6a7-b8c9-7d8e-1f2a-3b4c5d6e7f8a',
-      medicationName: 'Losartana 50mg',
-      status: MedicationAdherenceStatus.TAKEN,
-      scheduledTime: '2023-05-15T08:00:00Z',
-      trackedAt: '2023-05-15T08:00:00Z'
-    }
-  },
-  // Medication taken late
-  {
-    type: EventTypes.CARE_MEDICATION_TAKEN,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-15T20:45:00Z',
-    data: {
-      medicationId: 'd4e5f6a7-b8c9-7d8e-1f2a-3b4c5d6e7f8a',
-      medicationName: 'Losartana 50mg',
-      status: MedicationAdherenceStatus.DELAYED,
-      scheduledTime: '2023-05-15T20:00:00Z',
-      trackedAt: '2023-05-15T20:45:00Z',
-      notes: 'Tomei com atraso devido a uma reunião de trabalho.'
-    }
-  },
-  // Medication skipped
-  {
-    type: EventTypes.CARE_MEDICATION_TAKEN,
-    userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-16T12:30:00Z',
-    data: {
-      medicationId: 'e5f6a7b8-c9d0-8e9f-2a3b-4c5d6e7f8a9b',
-      medicationName: 'Metformina 850mg',
-      status: MedicationAdherenceStatus.SKIPPED,
-      scheduledTime: '2023-05-16T12:00:00Z',
-      trackedAt: '2023-05-16T12:30:00Z',
-      notes: 'Pulei a dose por estar em jejum para exame de sangue.'
-    }
-  },
-  // Medication missed
-  {
-    type: EventTypes.CARE_MEDICATION_TAKEN,
-    userId: TEST_USER_IDS.family,
-    journey: 'care',
-    timestamp: '2023-05-17T09:00:00Z',
-    data: {
-      medicationId: 'f6a7b8c9-d0e1-9f0a-3b4c-5d6e7f8a9b0c',
-      medicationName: 'Amoxicilina 500mg',
-      status: MedicationAdherenceStatus.MISSED,
-      scheduledTime: '2023-05-16T22:00:00Z',
-      trackedAt: '2023-05-17T09:00:00Z',
-      notes: 'Esqueci de tomar a dose noturna.'
-    }
-  }
-];
-
-/**
- * Telemedicine session event fixtures
- */
-export const telemedicineSessionEventFixtures: TelemedicineSessionEventDto[] = [
-  // Video session started
-  {
-    type: EventTypes.CARE_TELEMEDICINE_STARTED,
-    userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-18T10:30:00Z',
-    data: {
-      sessionId: 'g7b8c9d0-e1f2-0a1b-4c5d-6e7f8a9b0c1d',
-      provider: providerInfoFixtures.dermatologist,
-      sessionType: TelemedicineSessionType.VIDEO,
-      startTime: '2023-05-18T10:30:00Z'
-    }
-  },
-  // Video session completed
-  {
-    type: EventTypes.CARE_TELEMEDICINE_COMPLETED,
-    userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-18T11:15:00Z',
-    data: {
-      sessionId: 'g7b8c9d0-e1f2-0a1b-4c5d-6e7f8a9b0c1d',
-      provider: providerInfoFixtures.dermatologist,
-      sessionType: TelemedicineSessionType.VIDEO,
-      startTime: '2023-05-18T10:30:00Z',
-      endTime: '2023-05-18T11:15:00Z',
-      durationMinutes: 45,
-      notes: 'Consulta realizada com sucesso. Receita enviada por e-mail.'
-    }
-  },
-  // Audio-only session
-  {
-    type: EventTypes.CARE_TELEMEDICINE_COMPLETED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-19T15:45:00Z',
-    data: {
-      sessionId: 'h8c9d0e1-f2a3-1b2c-5d6e-7f8a9b0c1d2e',
-      provider: providerInfoFixtures.generalPractitioner,
-      sessionType: TelemedicineSessionType.AUDIO,
-      startTime: '2023-05-19T15:15:00Z',
-      endTime: '2023-05-19T15:45:00Z',
-      durationMinutes: 30,
-      notes: 'Paciente com conexão instável de internet, consulta realizada apenas por áudio.'
-    }
-  },
-  // Chat session
-  {
-    type: EventTypes.CARE_TELEMEDICINE_COMPLETED,
-    userId: TEST_USER_IDS.family,
-    journey: 'care',
-    timestamp: '2023-05-20T09:30:00Z',
-    data: {
-      sessionId: 'i9d0e1f2-a3b4-2c3d-6e7f-8a9b0c1d2e3f',
-      provider: providerInfoFixtures.nurse,
-      sessionType: TelemedicineSessionType.CHAT,
-      startTime: '2023-05-20T09:00:00Z',
-      endTime: '2023-05-20T09:30:00Z',
-      durationMinutes: 30,
-      notes: 'Orientações de enfermagem fornecidas via chat.'
-    }
-  }
-];
-
-/**
- * Care plan progress event fixtures
- */
-export const carePlanProgressEventFixtures: CarePlanProgressEventDto[] = [
-  // Initial care plan with multiple items
-  {
-    type: EventTypes.CARE_PLAN_PROGRESS_UPDATED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-15T11:00:00Z',
-    data: {
-      carePlanId: 'j0e1f2a3-b4c5-3d4e-7f8a-9b0c1d2e3f4a',
-      items: [
-        {
-          itemId: 'k1f2a3b4-c5d6-4e5f-8a9b-0c1d2e3f4a5b',
-          title: 'Medir pressão arterial diariamente',
-          status: CarePlanProgressStatus.IN_PROGRESS,
-          progress: 30,
-          dueDate: '2023-06-15T23:59:59Z'
-        },
-        {
-          itemId: 'l2a3b4c5-d6e7-5f6a-9b0c-1d2e3f4a5b6c',
-          title: 'Realizar exame de sangue',
-          status: CarePlanProgressStatus.NOT_STARTED,
-          dueDate: '2023-05-30T23:59:59Z'
-        },
-        {
-          itemId: 'm3b4c5d6-e7f8-6a7b-0c1d-2e3f4a5b6c7d',
-          title: 'Consulta de retorno com cardiologista',
-          status: CarePlanProgressStatus.SCHEDULED,
-          dueDate: '2023-06-20T14:00:00Z'
-        }
-      ],
-      overallProgress: 10,
-      updatedAt: '2023-05-15T11:00:00Z'
-    }
-  },
-  // Progress update on care plan
-  {
-    type: EventTypes.CARE_PLAN_PROGRESS_UPDATED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-05-30T16:30:00Z',
-    data: {
-      carePlanId: 'j0e1f2a3-b4c5-3d4e-7f8a-9b0c1d2e3f4a',
-      items: [
-        {
-          itemId: 'k1f2a3b4-c5d6-4e5f-8a9b-0c1d2e3f4a5b',
-          title: 'Medir pressão arterial diariamente',
-          status: CarePlanProgressStatus.IN_PROGRESS,
-          progress: 65,
-          dueDate: '2023-06-15T23:59:59Z'
-        },
-        {
-          itemId: 'l2a3b4c5-d6e7-5f6a-9b0c-1d2e3f4a5b6c',
-          title: 'Realizar exame de sangue',
-          status: CarePlanProgressStatus.COMPLETED,
-          progress: 100,
-          dueDate: '2023-05-30T23:59:59Z',
-          notes: 'Exame realizado no laboratório AUSTA em 29/05/2023.'
-        },
-        {
-          itemId: 'm3b4c5d6-e7f8-6a7b-0c1d-2e3f4a5b6c7d',
-          title: 'Consulta de retorno com cardiologista',
-          status: CarePlanProgressStatus.SCHEDULED,
-          dueDate: '2023-06-20T14:00:00Z'
-        }
-      ],
-      overallProgress: 55,
-      updatedAt: '2023-05-30T16:30:00Z'
-    }
-  },
-  // Completed care plan
-  {
-    type: EventTypes.CARE_PLAN_PROGRESS_UPDATED,
-    userId: TEST_USER_IDS.standard,
-    journey: 'care',
-    timestamp: '2023-06-20T15:00:00Z',
-    data: {
-      carePlanId: 'j0e1f2a3-b4c5-3d4e-7f8a-9b0c1d2e3f4a',
-      items: [
-        {
-          itemId: 'k1f2a3b4-c5d6-4e5f-8a9b-0c1d2e3f4a5b',
-          title: 'Medir pressão arterial diariamente',
-          status: CarePlanProgressStatus.COMPLETED,
-          progress: 100,
-          dueDate: '2023-06-15T23:59:59Z',
-          notes: 'Paciente manteve registro diário por 30 dias consecutivos.'
-        },
-        {
-          itemId: 'l2a3b4c5-d6e7-5f6a-9b0c-1d2e3f4a5b6c',
-          title: 'Realizar exame de sangue',
-          status: CarePlanProgressStatus.COMPLETED,
-          progress: 100,
-          dueDate: '2023-05-30T23:59:59Z',
-          notes: 'Exame realizado no laboratório AUSTA em 29/05/2023.'
-        },
-        {
-          itemId: 'm3b4c5d6-e7f8-6a7b-0c1d-2e3f4a5b6c7d',
-          title: 'Consulta de retorno com cardiologista',
-          status: CarePlanProgressStatus.COMPLETED,
-          progress: 100,
-          dueDate: '2023-06-20T14:00:00Z',
-          notes: 'Consulta realizada com Dr. Ana Cardoso. Paciente apresentou melhora significativa.'
-        }
-      ],
-      overallProgress: 100,
-      updatedAt: '2023-06-20T15:00:00Z'
-    }
-  },
-  // Care plan with overdue items
-  {
-    type: EventTypes.CARE_PLAN_PROGRESS_UPDATED,
-    userId: TEST_USER_IDS.premium,
-    journey: 'care',
-    timestamp: '2023-05-25T10:00:00Z',
-    data: {
-      carePlanId: 'n4c5d6e7-f8a9-7b8c-1d2e-3f4a5b6c7d8e',
-      items: [
-        {
-          itemId: 'o5d6e7f8-a9b0-8c9d-2e3f-4a5b6c7d8e9f',
-          title: 'Aplicar medicação tópica 2x ao dia',
-          status: CarePlanProgressStatus.IN_PROGRESS,
-          progress: 50,
-          dueDate: '2023-06-10T23:59:59Z'
-        },
-        {
-          itemId: 'p6e7f8a9-b0c1-9d0e-3f4a-5b6c7d8e9f0a',
-          title: 'Evitar exposição solar',
-          status: CarePlanProgressStatus.IN_PROGRESS,
-          progress: 75,
-          dueDate: '2023-06-10T23:59:59Z'
-        },
-        {
-          itemId: 'q7f8a9b0-c1d2-0e1f-4a5b-6c7d8e9f0a1b',
-          title: 'Realizar biópsia de pele',
-          status: CarePlanProgressStatus.OVERDUE,
-          progress: 0,
-          dueDate: '2023-05-20T23:59:59Z',
-          notes: 'Paciente não compareceu ao procedimento agendado.'
-        }
-      ],
-      overallProgress: 40,
-      updatedAt: '2023-05-25T10:00:00Z'
-    }
-  }
-];
-
-/**
- * All care event fixtures combined for easy export
+ * Comprehensive collection of all care journey event fixtures.
  */
 export const careEventFixtures = {
-  appointmentBooked: appointmentBookedEventFixtures,
-  appointmentStatusUpdated: appointmentStatusUpdatedEventFixtures,
-  medicationTracked: medicationTrackedEventFixtures,
-  telemedicineSession: telemedicineSessionEventFixtures,
-  carePlanProgress: carePlanProgressEventFixtures,
-  providerInfo: providerInfoFixtures,
-  locationInfo: locationInfoFixtures
+  appointmentBooked: appointmentBookedEvents,
+  appointmentCompleted: appointmentCompletedEvents,
+  medicationTaken: medicationTakenEvents,
+  telemedicineStarted: telemedicineStartedEvents,
+  telemedicineCompleted: telemedicineCompletedEvents,
+  carePlanCreated: carePlanCreatedEvents,
+  carePlanTaskCompleted: carePlanTaskCompletedEvents,
 };
+
+/**
+ * Creates a custom appointment booking event with the specified overrides.
+ * 
+ * @param overrides Properties to override in the default appointment booking event
+ * @returns A customized appointment booking event
+ */
+export function createAppointmentBookedEvent(overrides: Partial<AppointmentBookedPayload> = {}): BaseCareEvent & { payload: AppointmentBookedPayload } {
+  const baseEvent = { ...appointmentBookedEvents.cardiologist };
+  return {
+    ...baseEvent,
+    payload: {
+      ...baseEvent.payload,
+      ...overrides,
+      appointmentId: overrides.appointmentId || uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'appointment-scheduler' }
+    }),
+  };
+}
+
+/**
+ * Creates a custom medication taken event with the specified overrides.
+ * 
+ * @param overrides Properties to override in the default medication taken event
+ * @returns A customized medication taken event
+ */
+export function createMedicationTakenEvent(overrides: Partial<MedicationTakenPayload> = {}): BaseCareEvent & { payload: MedicationTakenPayload } {
+  const baseEvent = { ...medicationTakenEvents.bloodPressure };
+  return {
+    ...baseEvent,
+    payload: {
+      ...baseEvent.payload,
+      ...overrides,
+      medicationId: overrides.medicationId || uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'medication-tracker' }
+    }),
+  };
+}
+
+/**
+ * Creates a custom telemedicine started event with the specified overrides.
+ * 
+ * @param overrides Properties to override in the default telemedicine started event
+ * @returns A customized telemedicine started event
+ */
+export function createTelemedicineStartedEvent(overrides: Partial<TelemedicineStartedPayload> = {}): BaseCareEvent & { payload: TelemedicineStartedPayload } {
+  const baseEvent = { ...telemedicineStartedEvents.psychiatristMobile };
+  return {
+    ...baseEvent,
+    payload: {
+      ...baseEvent.payload,
+      ...overrides,
+      sessionId: overrides.sessionId || uuidv4(),
+      appointmentId: overrides.appointmentId || uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'telemedicine-service' }
+    }),
+  };
+}
+
+/**
+ * Creates a custom care plan created event with the specified overrides.
+ * 
+ * @param overrides Properties to override in the default care plan created event
+ * @returns A customized care plan created event
+ */
+export function createCarePlanCreatedEvent(overrides: Partial<CarePlanCreatedPayload> = {}): BaseCareEvent & { payload: CarePlanCreatedPayload } {
+  const baseEvent = { ...carePlanCreatedEvents.hypertension };
+  return {
+    ...baseEvent,
+    payload: {
+      ...baseEvent.payload,
+      ...overrides,
+      planId: overrides.planId || uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-service' }
+    }),
+  };
+}
+
+/**
+ * Creates a custom care plan task completed event with the specified overrides.
+ * 
+ * @param overrides Properties to override in the default care plan task completed event
+ * @returns A customized care plan task completed event
+ */
+export function createCarePlanTaskCompletedEvent(overrides: Partial<CarePlanTaskCompletedPayload> = {}): BaseCareEvent & { payload: CarePlanTaskCompletedPayload } {
+  const baseEvent = { ...carePlanTaskCompletedEvents.medication };
+  return {
+    ...baseEvent,
+    payload: {
+      ...baseEvent.payload,
+      ...overrides,
+      taskId: overrides.taskId || uuidv4(),
+    },
+    metadata: createCareEventMetadata({
+      origin: { component: 'care-plan-tracker' }
+    }),
+  };
+}
 
 export default careEventFixtures;

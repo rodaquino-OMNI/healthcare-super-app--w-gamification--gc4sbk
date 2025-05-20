@@ -1,148 +1,98 @@
 /**
- * @file Tracing Test Utilities
- * @description Centralized export barrel for all tracing test utilities used across the AUSTA SuperApp.
- * This file provides a clean, organized API for accessing test utilities related to distributed tracing,
- * simplifying imports across unit, integration, and e2e tests.
+ * @file Barrel file that exports all tracing test utilities
+ * 
+ * This file provides a centralized import point for all tracing test utilities,
+ * organized by functional category. It simplifies imports across unit, integration,
+ * and e2e tests by exposing a clean, organized API for all tracing test utilities.
+ * 
+ * The AUSTA SuperApp uses distributed tracing to track requests as they flow through
+ * different journey services (Health, Care, and Plan). These utilities facilitate testing
+ * of tracing functionality across all levels of the test pyramid:
+ * 
+ * - Unit tests: Mock tracing services and span verification
+ * - Integration tests: Trace context propagation between components
+ * - E2E tests: Full trace verification across service boundaries
+ * 
+ * @module tracing/test/utils
  */
 
 /**
- * Span Capture Utilities
- * @module SpanCapture
- */
-export * from './span-capture.utils';
-
-/**
- * Test Module Configuration Utilities
- * @module TestModule
+ * Module setup utilities for configuring NestJS test modules with tracing
+ * 
+ * These utilities help bootstrap NestJS test modules with properly configured tracing
+ * for different test scenarios. They provide functions to create test modules with
+ * real or mock TracingService, configure test-specific tracing options, and integrate
+ * with LoggerService for correlation testing.
+ * 
+ * Common usage:
+ * ```typescript
+ * // Create a test module with mock tracing
+ * const moduleRef = await createTestingModuleWithTracing({
+ *   imports: [YourModule],
+ *   mockTracing: true
+ * });
+ * 
+ * // Create a test module with journey-specific tracing
+ * const healthModuleRef = await createHealthJourneyTestingModule({
+ *   imports: [HealthMetricsModule]
+ * });
+ * ```
+ * 
+ * @category Module Setup
  */
 export * from './test-module.utils';
 
 /**
- * Trace Context Manipulation Utilities
- * @module TraceContext
- */
-export * from './trace-context.utils';
-
-/**
- * Span Assertion Utilities
- * @module SpanAssertion
+ * Span assertion utilities for verifying span content and structure
+ * 
+ * These utilities provide custom assertions for verifying span content, attributes,
+ * and structure in tests. They include functions to assert that spans contain expected
+ * attributes, follow the correct hierarchy, include proper context information, and
+ * maintain parent-child relationships.
+ * 
+ * Common usage:
+ * ```typescript
+ * // Assert span contains expected attributes
+ * assertSpanAttributes(span, {
+ *   'journey.type': 'health',
+ *   'operation.name': 'fetchMetrics'
+ * });
+ * 
+ * // Verify parent-child relationship
+ * assertTraceHierarchy(parentSpan, childSpan);
+ * 
+ * // Verify span timing meets performance requirements
+ * assertSpanTiming(span, { maxDuration: 100 });
+ * ```
+ * 
+ * @category Assertions
  */
 export * from './span-assertion.utils';
 
 /**
- * Mock Tracer Implementation
- * @module MockTracer
+ * Mock tracer utilities for unit testing with simulated tracing
+ * 
+ * These utilities provide a configurable mock implementation of TracingService for
+ * isolated unit testing. They include a fully-featured mock tracer that simulates
+ * OpenTelemetry span creation, context propagation, and span lifecycle management
+ * without requiring actual OpenTelemetry infrastructure.
+ * 
+ * The mock tracer captures spans and provides inspection capabilities for verifying
+ * traced operations, making it ideal for unit testing components that depend on
+ * TracingService without external dependencies.
+ * 
+ * Common usage:
+ * ```typescript
+ * // Create a mock tracing service
+ * const mockTracingService = createMockTracingService();
+ * 
+ * // Get captured spans after test execution
+ * const spans = mockTracingService.getRecordedSpans();
+ * 
+ * // Create a journey-specific mock tracer
+ * const careJourneyTracer = createCareJourneyMockTracer();
+ * ```
+ * 
+ * @category Mocks
  */
 export * from './mock-tracer.utils';
-
-/**
- * Convenience re-exports of commonly used utilities grouped by functional category
- * to reduce the need for multiple imports and improve code organization.
- */
-
-/**
- * Mocking utilities for tracing components
- * @namespace Mocks
- */
-export namespace Mocks {
-  /**
-   * Re-export mock tracer utilities for easy access
-   */
-  export * from './mock-tracer.utils';
-
-  /**
-   * Re-export test module utilities for easy access
-   */
-  export * from './test-module.utils';
-}
-
-/**
- * Assertion utilities for verifying tracing behavior
- * @namespace Assertions
- */
-export namespace Assertions {
-  /**
-   * Re-export span assertion utilities for easy access
-   */
-  export * from './span-assertion.utils';
-
-  /**
-   * Re-export span capture utilities for easy access
-   */
-  export * from './span-capture.utils';
-}
-
-/**
- * Context utilities for manipulating trace context in tests
- * @namespace Context
- */
-export namespace Context {
-  /**
-   * Re-export trace context utilities for easy access
-   */
-  export * from './trace-context.utils';
-}
-
-/**
- * Journey-specific tracing utilities
- * @namespace Journey
- */
-export namespace Journey {
-  /**
-   * Health journey tracing utilities
-   * @namespace Health
-   */
-  export namespace Health {
-    // Re-export health journey specific utilities from each module
-    // This avoids the need to import from multiple files when testing health journey tracing
-  }
-
-  /**
-   * Care journey tracing utilities
-   * @namespace Care
-   */
-  export namespace Care {
-    // Re-export care journey specific utilities from each module
-    // This avoids the need to import from multiple files when testing care journey tracing
-  }
-
-  /**
-   * Plan journey tracing utilities
-   * @namespace Plan
-   */
-  export namespace Plan {
-    // Re-export plan journey specific utilities from each module
-    // This avoids the need to import from multiple files when testing plan journey tracing
-  }
-}
-
-/**
- * Common test constants for tracing
- * @namespace Constants
- */
-export namespace Constants {
-  /**
-   * Default test service name used in tracing tests
-   */
-  export const TEST_SERVICE_NAME = 'austa-test-service';
-
-  /**
-   * Default test trace ID used in tracing tests
-   */
-  export const TEST_TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
-
-  /**
-   * Default test span ID used in tracing tests
-   */
-  export const TEST_SPAN_ID = 'b7ad6b7169203331';
-
-  /**
-   * Default test correlation ID used in tracing tests
-   */
-  export const TEST_CORRELATION_ID = 'corr-1234-5678-9abc-def0';
-
-  /**
-   * Default test user ID used in tracing tests
-   */
-  export const TEST_USER_ID = 'user-1234-5678-9abc-def0';
-}

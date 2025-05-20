@@ -1,129 +1,62 @@
 /**
- * Interface defining configuration options for the OpenTelemetry tracing system.
- * This interface provides a standardized way to configure tracing across all services
- * and supports journey-specific configuration parameters.
+ * Configuration options for the TracingModule.
  */
-export interface TracingOptions {
+export interface TracingModuleOptions {
   /**
-   * The name of the service. This is used to identify the service in traces.
-   * Required for proper trace attribution.
+   * The name of the service to be used in traces.
+   * If not provided, defaults to the value in constants/defaults.ts
    */
-  serviceName: string;
+  serviceName?: string;
 
   /**
-   * Optional version of the service. Used for tracking traces across different
-   * versions of the same service.
+   * Whether to disable tracing entirely.
+   * Useful for testing environments or when tracing should be conditionally enabled.
    */
-  serviceVersion?: string;
+  disabled?: boolean;
 
   /**
-   * Optional sampling rate between 0 and 1. Determines what percentage of traces
-   * will be sampled. Default is 1 (all traces are sampled).
+   * Configuration for journey-specific tracing context.
    */
-  samplingRatio?: number;
+  journeyContext?: {
+    /**
+     * Whether to include journey information in trace spans.
+     * Defaults to true.
+     */
+    enabled?: boolean;
+
+    /**
+     * List of journey types to be tracked in traces.
+     * If not provided, all journeys will be tracked.
+     */
+    journeyTypes?: ('health' | 'care' | 'plan')[];
+  };
 
   /**
-   * Optional journey identifier. When specified, adds journey context to all traces
-   * from this service. Useful for tracking operations across journey boundaries.
+   * Configuration for trace sampling.
    */
-  journeyContext?: 'health' | 'care' | 'plan' | string;
+  sampling?: {
+    /**
+     * The sampling ratio (0.0 to 1.0) for traces.
+     * 1.0 means all traces are sampled, 0.0 means no traces are sampled.
+     * Defaults to 1.0 in development and 0.1 in production.
+     */
+    ratio?: number;
+  };
 
   /**
-   * Optional configuration for the OpenTelemetry exporter.
+   * Configuration for trace exporting.
    */
-  exporter?: ExporterOptions;
+  exporter?: {
+    /**
+     * The type of exporter to use.
+     * Defaults to 'console' in development and 'otlp' in production.
+     */
+    type?: 'console' | 'otlp' | 'jaeger' | 'zipkin';
 
-  /**
-   * Optional additional resource attributes to add to all spans.
-   * These can be used to add metadata to traces for better filtering and analysis.
-   */
-  resourceAttributes?: Record<string, string | number | boolean | Array<string>>;
-
-  /**
-   * Optional configuration for span processors.
-   */
-  spanProcessor?: SpanProcessorOptions;
-
-  /**
-   * Optional flag to enable or disable debug logging for the tracing system.
-   * Default is false.
-   */
-  enableDebug?: boolean;
-}
-
-/**
- * Configuration options for OpenTelemetry exporters.
- */
-export interface ExporterOptions {
-  /**
-   * The type of exporter to use.
-   */
-  type: 'console' | 'otlp' | 'jaeger' | 'zipkin' | 'datadog' | string;
-
-  /**
-   * Optional endpoint URL for the exporter.
-   * Not applicable for console exporter.
-   */
-  endpoint?: string;
-
-  /**
-   * Optional headers to include with exporter requests.
-   * Useful for authentication and other metadata.
-   */
-  headers?: Record<string, string>;
-
-  /**
-   * Optional timeout in milliseconds for exporter requests.
-   */
-  timeoutMillis?: number;
-
-  /**
-   * Optional secure connection flag. Default is true.
-   */
-  secure?: boolean;
-
-  /**
-   * Optional certificate path for secure connections.
-   */
-  certPath?: string;
-
-  /**
-   * Optional protocol to use with the OTLP exporter.
-   * Only applicable when type is 'otlp'.
-   */
-  protocol?: 'http/json' | 'http/protobuf' | 'grpc';
-}
-
-/**
- * Configuration options for OpenTelemetry span processors.
- */
-export interface SpanProcessorOptions {
-  /**
-   * The type of span processor to use.
-   */
-  type: 'simple' | 'batch' | string;
-
-  /**
-   * Optional batch size for the batch span processor.
-   * Only applicable when type is 'batch'.
-   */
-  batchSize?: number;
-
-  /**
-   * Optional maximum queue size for the batch span processor.
-   * Only applicable when type is 'batch'.
-   */
-  maxQueueSize?: number;
-
-  /**
-   * Optional scheduling delay in milliseconds for the batch span processor.
-   * Only applicable when type is 'batch'.
-   */
-  scheduledDelayMillis?: number;
-
-  /**
-   * Optional export timeout in milliseconds for the batch span processor.
-   * Only applicable when type is 'batch'.
-   */
-  exportTimeoutMillis?: number;
+    /**
+     * The endpoint for the exporter.
+     * Only applicable for 'otlp', 'jaeger', and 'zipkin' exporters.
+     */
+    endpoint?: string;
+  };
 }

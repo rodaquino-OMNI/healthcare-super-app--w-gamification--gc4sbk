@@ -1,788 +1,347 @@
-/**
- * @file Tracing Collector for E2E Tests
- * 
- * This utility captures and analyzes OpenTelemetry traces emitted during e2e tests.
- * It provides an in-memory trace collector that intercepts spans and exposes methods
- * to query and validate trace data. This component is crucial for verifying trace
- * relationships, span attributes, and context propagation in a multi-service environment.
- */
-
-import {
-  Context,
-  Span,
-  SpanKind,
-  SpanStatus,
-  SpanStatusCode,
-  trace,
-  Tracer,
-  TracerProvider,
-} from '@opentelemetry/api';
-import {
-  InMemorySpanExporter,
-  ReadableSpan,
-  SimpleSpanProcessor,
-  SpanExporter,
-} from '@opentelemetry/sdk-trace-base';
-import { JourneyContext, SpanAttributes } from '../../src/interfaces';
+import { Context, SpanStatusCode, trace } from '@opentelemetry/api';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
 /**
- * Options for configuring the TracingCollector
- */
-export interface TracingCollectorOptions {
-  /** Name of the service being tested */
-  serviceName?: string;
-  /** Whether to automatically clear spans after each test */
-  autoClearSpans?: boolean;
-  /** Custom span exporter to use instead of the default InMemorySpanExporter */
-  customExporter?: SpanExporter;
-}
-
-/**
- * Filter options for querying spans
- */
-export interface SpanQueryOptions {
-  /** Filter by trace ID */
-  traceId?: string;
-  /** Filter by span name */
-  name?: string;
-  /** Filter by span kind */
-  kind?: SpanKind;
-  /** Filter by parent span ID */
-  parentSpanId?: string;
-  /** Filter by attribute key-value pairs */
-  attributes?: Record<string, any>;
-  /** Filter by journey context */
-  journeyContext?: Partial<JourneyContext>;
-  /** Filter by status code */
-  statusCode?: SpanStatusCode;
-  /** Filter by service name */
-  serviceName?: string;
-  /** Filter by minimum duration in milliseconds */
-  minDurationMs?: number;
-  /** Filter by maximum duration in milliseconds */
-  maxDurationMs?: number;
-  /** Filter by time range (start time) */
-  startTimeRange?: {
-    start: number;
-    end: number;
-  };
-  /** Filter by time range (end time) */
-  endTimeRange?: {
-    start: number;
-    end: number;
-  };
-}
-
-/**
- * Span relationship types for validation
- */
-export enum SpanRelationship {
-  PARENT_CHILD = 'parent-child',
-  FOLLOWS_FROM = 'follows-from',
-  SIBLING = 'sibling',
-}
-
-/**
- * Result of a trace validation
- */
-export interface TraceValidationResult {
-  /** Whether the validation passed */
-  valid: boolean;
-  /** Error message if validation failed */
-  error?: string;
-  /** Spans that were validated */
-  spans?: ReadableSpan[];
-  /** Additional context about the validation */
-  context?: Record<string, any>;
-}
-
-/**
- * A utility for capturing and analyzing OpenTelemetry traces during e2e tests.
- * 
- * This class provides an in-memory trace collector that intercepts spans and
- * exposes methods to query and validate trace data. It's designed to be used
- * in end-to-end tests to verify trace relationships, span attributes, and
- * context propagation in a multi-service environment.
+ * TracingCollector is a utility for capturing and analyzing OpenTelemetry traces during e2e tests.
+ * It provides an in-memory trace collector that intercepts spans and exposes methods to query
+ * and validate trace data. This component is crucial for verifying trace relationships,
+ * span attributes, and context propagation in a multi-service environment.
  */
 export class TracingCollector {
-  private readonly exporter: InMemorySpanExporter;
-  private readonly processor: SimpleSpanProcessor;
-  private readonly tracerProvider: TracerProvider;
-  private readonly tracer: Tracer;
-  private readonly serviceName: string;
-  private readonly autoClearSpans: boolean;
+  private exporter: InMemorySpanExporter;
+  private provider: NodeTracerProvider;
+  private processor: SimpleSpanProcessor | BatchSpanProcessor;
+  private isInitialized = false;
 
   /**
-   * Creates a new TracingCollector instance
-   * 
-   * @param options Configuration options for the collector
+   * Creates a new TracingCollector instance.
+   * @param useBatchProcessor Whether to use BatchSpanProcessor (true) or SimpleSpanProcessor (false)
+   * @param serviceName The name of the service being tested
    */
-  constructor(options: TracingCollectorOptions = {}) {
-    this.serviceName = options.serviceName || 'test-service';
-    this.autoClearSpans = options.autoClearSpans !== false;
+  constructor(useBatchProcessor = false, private serviceName = 'test-service') {
+    this.exporter = new InMemorySpanExporter();
+    this.provider = new NodeTracerProvider();
     
-    // Use the provided exporter or create a new InMemorySpanExporter
-    this.exporter = options.customExporter as InMemorySpanExporter || new InMemorySpanExporter();
-    
-    // Create a simple span processor that will send spans to the exporter
-    this.processor = new SimpleSpanProcessor(this.exporter);
-    
-    // Create a tracer provider and register the processor
-    this.tracerProvider = trace.getTracerProvider() as TracerProvider;
-    this.tracerProvider.addSpanProcessor(this.processor);
-    
-    // Get a tracer from the provider
-    this.tracer = this.tracerProvider.getTracer(this.serviceName);
+    if (useBatchProcessor) {
+      this.processor = new BatchSpanProcessor(this.exporter);
+    } else {
+      this.processor = new SimpleSpanProcessor(this.exporter);
+    }
   }
 
   /**
-   * Gets all spans collected by the exporter
-   * 
-   * @returns Array of collected spans
+   * Initializes the tracing collector and registers it as the global tracer provider.
+   * This method must be called before any spans are created.
    */
-  public getSpans(): ReadableSpan[] {
-    return this.exporter.getFinishedSpans();
+  initialize(): void {
+    if (this.isInitialized) {
+      return;
+    }
+
+    this.provider.addSpanProcessor(this.processor);
+    this.provider.register();
+    this.isInitialized = true;
   }
 
   /**
-   * Clears all collected spans
+   * Shuts down the tracing collector and cleans up resources.
+   * This should be called after tests are complete.
    */
-  public clearSpans(): void {
+  async shutdown(): Promise<void> {
+    if (!this.isInitialized) {
+      return;
+    }
+
+    await this.provider.shutdown();
+    this.isInitialized = false;
+  }
+
+  /**
+   * Clears all collected spans from memory.
+   */
+  reset(): void {
     this.exporter.reset();
   }
 
   /**
-   * Gets spans that match the specified query options
-   * 
-   * @param options Query options to filter spans
-   * @returns Array of spans that match the query
+   * Gets all spans that have been collected.
+   * @returns Array of collected spans
    */
-  public querySpans(options: SpanQueryOptions = {}): ReadableSpan[] {
-    let spans = this.getSpans();
-
-    // Filter by trace ID
-    if (options.traceId) {
-      spans = spans.filter(span => span.spanContext().traceId === options.traceId);
-    }
-
-    // Filter by span name
-    if (options.name) {
-      spans = spans.filter(span => span.name === options.name);
-    }
-
-    // Filter by span kind
-    if (options.kind !== undefined) {
-      spans = spans.filter(span => span.kind === options.kind);
-    }
-
-    // Filter by parent span ID
-    if (options.parentSpanId) {
-      spans = spans.filter(span => span.parentSpanId === options.parentSpanId);
-    }
-
-    // Filter by attributes
-    if (options.attributes) {
-      spans = spans.filter(span => {
-        return Object.entries(options.attributes || {}).every(([key, value]) => {
-          return span.attributes[key] !== undefined && 
-                 this.compareAttributeValues(span.attributes[key], value);
-        });
-      });
-    }
-
-    // Filter by journey context
-    if (options.journeyContext) {
-      spans = spans.filter(span => {
-        const journeyAttrs = this.extractJourneyContext(span.attributes);
-        if (!journeyAttrs) return false;
-        
-        return Object.entries(options.journeyContext || {}).every(([key, value]) => {
-          return journeyAttrs[key as keyof JourneyContext] === value;
-        });
-      });
-    }
-
-    // Filter by status code
-    if (options.statusCode !== undefined) {
-      spans = spans.filter(span => span.status.code === options.statusCode);
-    }
-
-    // Filter by service name
-    if (options.serviceName) {
-      spans = spans.filter(span => {
-        return span.resource.attributes['service.name'] === options.serviceName;
-      });
-    }
-
-    // Filter by duration
-    if (options.minDurationMs !== undefined) {
-      spans = spans.filter(span => {
-        const durationMs = (span.endTime.getTime() - span.startTime.getTime());
-        return durationMs >= options.minDurationMs!;
-      });
-    }
-
-    if (options.maxDurationMs !== undefined) {
-      spans = spans.filter(span => {
-        const durationMs = (span.endTime.getTime() - span.startTime.getTime());
-        return durationMs <= options.maxDurationMs!;
-      });
-    }
-
-    // Filter by start time range
-    if (options.startTimeRange) {
-      spans = spans.filter(span => {
-        const startTime = span.startTime.getTime();
-        return startTime >= options.startTimeRange!.start && 
-               startTime <= options.startTimeRange!.end;
-      });
-    }
-
-    // Filter by end time range
-    if (options.endTimeRange) {
-      spans = spans.filter(span => {
-        const endTime = span.endTime.getTime();
-        return endTime >= options.endTimeRange!.start && 
-               endTime <= options.endTimeRange!.end;
-      });
-    }
-
-    return spans;
+  getSpans(): ReadableSpan[] {
+    return this.exporter.getFinishedSpans();
   }
 
   /**
-   * Gets a specific span by its span ID
-   * 
-   * @param spanId The ID of the span to retrieve
+   * Gets spans that match the specified trace ID.
+   * @param traceId The trace ID to filter by
+   * @returns Array of spans with the specified trace ID
+   */
+  getSpansByTraceId(traceId: string): ReadableSpan[] {
+    return this.getSpans().filter(span => span.spanContext().traceId === traceId);
+  }
+
+  /**
+   * Gets a span by its span ID.
+   * @param spanId The span ID to find
    * @returns The span with the specified ID, or undefined if not found
    */
-  public getSpanById(spanId: string): ReadableSpan | undefined {
+  getSpanById(spanId: string): ReadableSpan | undefined {
     return this.getSpans().find(span => span.spanContext().spanId === spanId);
   }
 
   /**
-   * Gets all spans for a specific trace
-   * 
-   * @param traceId The ID of the trace to retrieve spans for
-   * @returns Array of spans belonging to the specified trace
+   * Gets spans that match the specified name.
+   * @param name The span name to filter by
+   * @returns Array of spans with the specified name
    */
-  public getTraceSpans(traceId: string): ReadableSpan[] {
-    return this.querySpans({ traceId });
+  getSpansByName(name: string): ReadableSpan[] {
+    return this.getSpans().filter(span => span.name === name);
   }
 
   /**
-   * Gets the root span for a specific trace
-   * 
-   * @param traceId The ID of the trace to retrieve the root span for
-   * @returns The root span of the trace, or undefined if not found
+   * Gets spans that have a specific attribute with a specific value.
+   * @param key The attribute key to filter by
+   * @param value The attribute value to filter by
+   * @returns Array of spans with the specified attribute value
    */
-  public getTraceRootSpan(traceId: string): ReadableSpan | undefined {
-    const traceSpans = this.getTraceSpans(traceId);
-    return traceSpans.find(span => !span.parentSpanId);
+  getSpansByAttribute(key: string, value: any): ReadableSpan[] {
+    return this.getSpans().filter(span => {
+      const attrValue = span.attributes[key];
+      return attrValue !== undefined && attrValue === value;
+    });
   }
 
   /**
-   * Gets all child spans for a specific span
-   * 
+   * Gets the root spans (spans without a parent) for each trace.
+   * @returns Array of root spans
+   */
+  getRootSpans(): ReadableSpan[] {
+    return this.getSpans().filter(span => !span.parentSpanId);
+  }
+
+  /**
+   * Gets all child spans of a specific parent span.
    * @param parentSpanId The ID of the parent span
    * @returns Array of child spans
    */
-  public getChildSpans(parentSpanId: string): ReadableSpan[] {
-    return this.querySpans({ parentSpanId });
+  getChildSpans(parentSpanId: string): ReadableSpan[] {
+    return this.getSpans().filter(span => span.parentSpanId === parentSpanId);
   }
 
   /**
-   * Validates that a trace contains the expected spans
-   * 
-   * @param traceId The ID of the trace to validate
-   * @param expectedSpanNames Array of expected span names in the trace
-   * @returns Validation result
+   * Verifies that a span has the expected attributes.
+   * @param span The span to check
+   * @param expectedAttributes Map of expected attribute key-value pairs
+   * @returns True if the span has all expected attributes with matching values
    */
-  public validateTraceContainsSpans(traceId: string, expectedSpanNames: string[]): TraceValidationResult {
-    const traceSpans = this.getTraceSpans(traceId);
-    const spanNames = traceSpans.map(span => span.name);
-    
-    const missingSpans = expectedSpanNames.filter(name => !spanNames.includes(name));
-    
-    if (missingSpans.length > 0) {
-      return {
-        valid: false,
-        error: `Trace is missing expected spans: ${missingSpans.join(', ')}`,
-        spans: traceSpans,
-        context: { expectedSpanNames, actualSpanNames: spanNames }
-      };
-    }
-    
-    return {
-      valid: true,
-      spans: traceSpans,
-      context: { expectedSpanNames, actualSpanNames: spanNames }
-    };
-  }
-
-  /**
-   * Validates that spans have the expected relationship
-   * 
-   * @param spanId1 ID of the first span
-   * @param spanId2 ID of the second span
-   * @param relationship Expected relationship between the spans
-   * @returns Validation result
-   */
-  public validateSpanRelationship(
-    spanId1: string,
-    spanId2: string,
-    relationship: SpanRelationship
-  ): TraceValidationResult {
-    const span1 = this.getSpanById(spanId1);
-    const span2 = this.getSpanById(spanId2);
-    
-    if (!span1 || !span2) {
-      return {
-        valid: false,
-        error: `One or both spans not found: ${!span1 ? spanId1 : ''} ${!span2 ? spanId2 : ''}`,
-        context: { spanId1, spanId2, relationship }
-      };
-    }
-    
-    // Check if spans are from the same trace
-    if (span1.spanContext().traceId !== span2.spanContext().traceId) {
-      return {
-        valid: false,
-        error: 'Spans are from different traces',
-        spans: [span1, span2],
-        context: { spanId1, spanId2, relationship }
-      };
-    }
-    
-    switch (relationship) {
-      case SpanRelationship.PARENT_CHILD:
-        if (span2.parentSpanId === span1.spanContext().spanId) {
-          return { valid: true, spans: [span1, span2] };
-        }
-        return {
-          valid: false,
-          error: 'Span2 is not a child of Span1',
-          spans: [span1, span2],
-          context: { spanId1, spanId2, relationship }
-        };
-        
-      case SpanRelationship.SIBLING:
-        if (span1.parentSpanId && 
-            span1.parentSpanId === span2.parentSpanId) {
-          return { valid: true, spans: [span1, span2] };
-        }
-        return {
-          valid: false,
-          error: 'Spans are not siblings',
-          spans: [span1, span2],
-          context: { spanId1, spanId2, relationship }
-        };
-        
-      case SpanRelationship.FOLLOWS_FROM:
-        // This is a simplified check for follows-from relationship
-        // In a real implementation, you would check for the actual follows-from links
-        if (span1.endTime.getTime() <= span2.startTime.getTime()) {
-          return { valid: true, spans: [span1, span2] };
-        }
-        return {
-          valid: false,
-          error: 'Span2 does not follow from Span1',
-          spans: [span1, span2],
-          context: { spanId1, spanId2, relationship }
-        };
-        
-      default:
-        return {
-          valid: false,
-          error: `Unknown relationship type: ${relationship}`,
-          spans: [span1, span2],
-          context: { spanId1, spanId2, relationship }
-        };
-    }
-  }
-
-  /**
-   * Validates that a span has the expected attributes
-   * 
-   * @param spanId ID of the span to validate
-   * @param expectedAttributes Expected attributes on the span
-   * @returns Validation result
-   */
-  public validateSpanAttributes(
-    spanId: string,
-    expectedAttributes: Record<string, any>
-  ): TraceValidationResult {
-    const span = this.getSpanById(spanId);
-    
-    if (!span) {
-      return {
-        valid: false,
-        error: `Span not found: ${spanId}`,
-        context: { spanId, expectedAttributes }
-      };
-    }
-    
-    const missingAttributes: string[] = [];
-    const mismatchedAttributes: Record<string, { expected: any; actual: any }> = {};
-    
-    Object.entries(expectedAttributes).forEach(([key, expectedValue]) => {
-      if (span.attributes[key] === undefined) {
-        missingAttributes.push(key);
-      } else if (!this.compareAttributeValues(span.attributes[key], expectedValue)) {
-        mismatchedAttributes[key] = {
-          expected: expectedValue,
-          actual: span.attributes[key]
-        };
+  verifySpanAttributes(span: ReadableSpan, expectedAttributes: Record<string, any>): boolean {
+    for (const [key, value] of Object.entries(expectedAttributes)) {
+      if (span.attributes[key] !== value) {
+        return false;
       }
-    });
-    
-    if (missingAttributes.length > 0 || Object.keys(mismatchedAttributes).length > 0) {
-      let error = '';
-      
-      if (missingAttributes.length > 0) {
-        error += `Missing attributes: ${missingAttributes.join(', ')}. `;
-      }
-      
-      if (Object.keys(mismatchedAttributes).length > 0) {
-        error += 'Mismatched attribute values: ' + 
-          Object.entries(mismatchedAttributes)
-            .map(([key, { expected, actual }]) => 
-              `${key} (expected: ${JSON.stringify(expected)}, actual: ${JSON.stringify(actual)})`
-            )
-            .join(', ');
-      }
-      
-      return {
-        valid: false,
-        error,
-        spans: [span],
-        context: { spanId, expectedAttributes, missingAttributes, mismatchedAttributes }
-      };
     }
-    
-    return {
-      valid: true,
-      spans: [span],
-      context: { spanId, expectedAttributes }
-    };
+    return true;
   }
 
   /**
-   * Validates that a trace has the expected structure
-   * 
-   * @param traceId ID of the trace to validate
-   * @param expectedStructure Expected structure of the trace
-   * @returns Validation result
+   * Verifies that a span has the expected status.
+   * @param span The span to check
+   * @param expectedStatus The expected status code
+   * @param expectedMessage The expected status message (optional)
+   * @returns True if the span has the expected status
    */
-  public validateTraceStructure(
-    traceId: string,
-    expectedStructure: {
-      rootSpan: { name: string; attributes?: Record<string, any> };
-      childSpans: Array<{ name: string; parentName: string; attributes?: Record<string, any> }>;
+  verifySpanStatus(
+    span: ReadableSpan, 
+    expectedStatus: SpanStatusCode, 
+    expectedMessage?: string
+  ): boolean {
+    const status = span.status;
+    if (status.code !== expectedStatus) {
+      return false;
     }
-  ): TraceValidationResult {
-    const traceSpans = this.getTraceSpans(traceId);
-    
-    if (traceSpans.length === 0) {
-      return {
-        valid: false,
-        error: `Trace not found: ${traceId}`,
-        context: { traceId, expectedStructure }
-      };
+    if (expectedMessage !== undefined && status.message !== expectedMessage) {
+      return false;
     }
-    
+    return true;
+  }
+
+  /**
+   * Verifies that a trace has the expected structure of parent-child relationships.
+   * @param traceId The trace ID to check
+   * @param expectedHierarchy An object describing the expected hierarchy
+   * @returns True if the trace matches the expected hierarchy
+   */
+  verifyTraceHierarchy(traceId: string, expectedHierarchy: TraceHierarchy): boolean {
+    const spans = this.getSpansByTraceId(traceId);
+    if (spans.length === 0) {
+      return false;
+    }
+
     // Find the root span
-    const rootSpan = this.getTraceRootSpan(traceId);
-    
+    const rootSpan = spans.find(span => !span.parentSpanId);
     if (!rootSpan) {
-      return {
-        valid: false,
-        error: 'No root span found in trace',
-        spans: traceSpans,
-        context: { traceId, expectedStructure }
-      };
+      return false;
     }
-    
-    // Validate root span name
-    if (rootSpan.name !== expectedStructure.rootSpan.name) {
-      return {
-        valid: false,
-        error: `Root span name mismatch: expected '${expectedStructure.rootSpan.name}', got '${rootSpan.name}'`,
-        spans: [rootSpan],
-        context: { traceId, expectedStructure }
-      };
+
+    return this.verifyHierarchyNode(rootSpan, expectedHierarchy, spans);
+  }
+
+  /**
+   * Helper method to recursively verify a node in the trace hierarchy.
+   * @param span The current span to check
+   * @param expectedNode The expected node configuration
+   * @param allSpans All spans in the trace
+   * @returns True if the hierarchy matches the expected structure
+   */
+  private verifyHierarchyNode(
+    span: ReadableSpan, 
+    expectedNode: TraceHierarchy, 
+    allSpans: ReadableSpan[]
+  ): boolean {
+    // Verify the span name matches
+    if (expectedNode.name && span.name !== expectedNode.name) {
+      return false;
     }
+
+    // Verify attributes if specified
+    if (expectedNode.attributes && 
+        !this.verifySpanAttributes(span, expectedNode.attributes)) {
+      return false;
+    }
+
+    // Verify status if specified
+    if (expectedNode.status && 
+        !this.verifySpanStatus(span, expectedNode.status.code, expectedNode.status.message)) {
+      return false;
+    }
+
+    // If no children are expected, we're done
+    if (!expectedNode.children || expectedNode.children.length === 0) {
+      return true;
+    }
+
+    // Find all child spans of the current span
+    const childSpans = allSpans.filter(s => s.parentSpanId === span.spanContext().spanId);
     
-    // Validate root span attributes if specified
-    if (expectedStructure.rootSpan.attributes) {
-      const rootAttrValidation = this.validateSpanAttributes(
-        rootSpan.spanContext().spanId,
-        expectedStructure.rootSpan.attributes
+    // If the number of children doesn't match, fail
+    if (childSpans.length !== expectedNode.children.length) {
+      return false;
+    }
+
+    // Verify each child recursively
+    for (const expectedChild of expectedNode.children) {
+      // Find a matching child span
+      const matchingChild = childSpans.find(childSpan => 
+        !expectedChild.name || childSpan.name === expectedChild.name
       );
-      
-      if (!rootAttrValidation.valid) {
-        return {
-          valid: false,
-          error: `Root span attribute validation failed: ${rootAttrValidation.error}`,
-          spans: rootAttrValidation.spans,
-          context: { traceId, expectedStructure, rootAttrValidation }
-        };
+
+      if (!matchingChild) {
+        return false;
+      }
+
+      // Verify the child hierarchy
+      if (!this.verifyHierarchyNode(matchingChild, expectedChild, allSpans)) {
+        return false;
       }
     }
+
+    return true;
+  }
+
+  /**
+   * Verifies that context propagation is working correctly between spans.
+   * @param parentSpanId The ID of the parent span
+   * @param childSpanId The ID of the child span
+   * @returns True if context was properly propagated
+   */
+  verifyContextPropagation(parentSpanId: string, childSpanId: string): boolean {
+    const parentSpan = this.getSpanById(parentSpanId);
+    const childSpan = this.getSpanById(childSpanId);
+
+    if (!parentSpan || !childSpan) {
+      return false;
+    }
+
+    // Verify trace ID is the same
+    if (parentSpan.spanContext().traceId !== childSpan.spanContext().traceId) {
+      return false;
+    }
+
+    // Verify parent-child relationship
+    if (childSpan.parentSpanId !== parentSpan.spanContext().spanId) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Creates a test span for use in tests.
+   * @param name The name of the span
+   * @param attributes Optional attributes to add to the span
+   * @param parentContext Optional parent context
+   * @returns The created span's context
+   */
+  createTestSpan(
+    name: string, 
+    attributes?: Record<string, any>, 
+    parentContext?: Context
+  ): Context {
+    const tracer = trace.getTracer(this.serviceName);
+    const ctx = parentContext || trace.context();
+    const span = tracer.startSpan(name, {}, ctx);
+
+    if (attributes) {
+      for (const [key, value] of Object.entries(attributes)) {
+        span.setAttribute(key, value);
+      }
+    }
+
+    span.end();
+    return trace.setSpan(ctx, span);
+  }
+
+  /**
+   * Waits for spans to be exported and available for querying.
+   * This is useful when using BatchSpanProcessor which may delay exporting.
+   * @param timeoutMs Maximum time to wait in milliseconds
+   * @param expectedCount Optional number of spans to wait for
+   * @returns Promise that resolves when spans are available or timeout is reached
+   */
+  async waitForSpans(timeoutMs = 1000, expectedCount?: number): Promise<void> {
+    const startTime = Date.now();
     
-    // Validate child spans
-    for (const expectedChild of expectedStructure.childSpans) {
-      // Find the parent span by name
-      const parentSpan = traceSpans.find(span => span.name === expectedChild.parentName);
-      
-      if (!parentSpan) {
-        return {
-          valid: false,
-          error: `Parent span not found: ${expectedChild.parentName}`,
-          spans: traceSpans,
-          context: { traceId, expectedStructure, childSpan: expectedChild }
-        };
-      }
-      
-      // Find the child span by name
-      const childSpan = traceSpans.find(span => 
-        span.name === expectedChild.name && 
-        span.parentSpanId === parentSpan.spanContext().spanId
-      );
-      
-      if (!childSpan) {
-        return {
-          valid: false,
-          error: `Child span not found: ${expectedChild.name} (parent: ${expectedChild.parentName})`,
-          spans: traceSpans,
-          context: { traceId, expectedStructure, childSpan: expectedChild }
-        };
-      }
-      
-      // Validate child span attributes if specified
-      if (expectedChild.attributes) {
-        const childAttrValidation = this.validateSpanAttributes(
-          childSpan.spanContext().spanId,
-          expectedChild.attributes
-        );
-        
-        if (!childAttrValidation.valid) {
-          return {
-            valid: false,
-            error: `Child span attribute validation failed for ${expectedChild.name}: ${childAttrValidation.error}`,
-            spans: childAttrValidation.spans,
-            context: { traceId, expectedStructure, childSpan: expectedChild, childAttrValidation }
-          };
+    while (Date.now() - startTime < timeoutMs) {
+      if (expectedCount !== undefined) {
+        if (this.getSpans().length >= expectedCount) {
+          return;
         }
+      } else if (this.getSpans().length > 0) {
+        return;
       }
-    }
-    
-    return {
-      valid: true,
-      spans: traceSpans,
-      context: { traceId, expectedStructure }
-    };
-  }
-
-  /**
-   * Validates that a trace contains spans from multiple services
-   * 
-   * @param traceId ID of the trace to validate
-   * @param expectedServices Array of expected service names in the trace
-   * @returns Validation result
-   */
-  public validateTraceAcrossServices(
-    traceId: string,
-    expectedServices: string[]
-  ): TraceValidationResult {
-    const traceSpans = this.getTraceSpans(traceId);
-    
-    if (traceSpans.length === 0) {
-      return {
-        valid: false,
-        error: `Trace not found: ${traceId}`,
-        context: { traceId, expectedServices }
-      };
-    }
-    
-    // Extract service names from spans
-    const services = new Set<string>();
-    
-    traceSpans.forEach(span => {
-      const serviceName = span.resource.attributes['service.name'];
-      if (typeof serviceName === 'string') {
-        services.add(serviceName);
-      }
-    });
-    
-    // Check if all expected services are present
-    const missingServices = expectedServices.filter(service => !services.has(service));
-    
-    if (missingServices.length > 0) {
-      return {
-        valid: false,
-        error: `Trace is missing spans from services: ${missingServices.join(', ')}`,
-        spans: traceSpans,
-        context: { traceId, expectedServices, actualServices: Array.from(services) }
-      };
-    }
-    
-    return {
-      valid: true,
-      spans: traceSpans,
-      context: { traceId, expectedServices, actualServices: Array.from(services) }
-    };
-  }
-
-  /**
-   * Validates that a trace contains the expected journey context
-   * 
-   * @param traceId ID of the trace to validate
-   * @param expectedJourneyContext Expected journey context in the trace
-   * @returns Validation result
-   */
-  public validateTraceJourneyContext(
-    traceId: string,
-    expectedJourneyContext: Partial<JourneyContext>
-  ): TraceValidationResult {
-    const traceSpans = this.getTraceSpans(traceId);
-    
-    if (traceSpans.length === 0) {
-      return {
-        valid: false,
-        error: `Trace not found: ${traceId}`,
-        context: { traceId, expectedJourneyContext }
-      };
-    }
-    
-    // Check if any span has the expected journey context
-    const spansWithContext = traceSpans.filter(span => {
-      const journeyContext = this.extractJourneyContext(span.attributes);
-      if (!journeyContext) return false;
       
-      return Object.entries(expectedJourneyContext).every(([key, value]) => {
-        return journeyContext[key as keyof JourneyContext] === value;
-      });
-    });
-    
-    if (spansWithContext.length === 0) {
-      return {
-        valid: false,
-        error: 'No spans found with the expected journey context',
-        spans: traceSpans,
-        context: { traceId, expectedJourneyContext }
-      };
+      // Wait a short time before checking again
+      await new Promise(resolve => setTimeout(resolve, 10));
     }
-    
-    return {
-      valid: true,
-      spans: spansWithContext,
-      context: { traceId, expectedJourneyContext }
-    };
-  }
-
-  /**
-   * Creates a test span for use in tests
-   * 
-   * @param name Name of the span
-   * @param options Options for creating the span
-   * @returns The created span
-   */
-  public createTestSpan(
-    name: string,
-    options: {
-      kind?: SpanKind;
-      attributes?: SpanAttributes;
-      parentContext?: Context;
-    } = {}
-  ): Span {
-    return this.tracer.startSpan(
-      name,
-      {
-        kind: options.kind || SpanKind.INTERNAL,
-        attributes: options.attributes,
-      },
-      options.parentContext
-    );
-  }
-
-  /**
-   * Extracts journey context from span attributes
-   * 
-   * @param attributes Span attributes
-   * @returns Journey context or undefined if not found
-   */
-  private extractJourneyContext(attributes: SpanAttributes): JourneyContext | undefined {
-    // Check if journey context attributes exist
-    if (!attributes['austa.journey.name']) {
-      return undefined;
-    }
-    
-    // Extract journey context from attributes
-    return {
-      journeyName: attributes['austa.journey.name'] as string,
-      userId: attributes['austa.journey.user_id'] as string,
-      sessionId: attributes['austa.journey.session_id'] as string,
-      feature: attributes['austa.journey.feature'] as string,
-      step: attributes['austa.journey.step'] as string,
-    };
-  }
-
-  /**
-   * Compares attribute values for equality
-   * 
-   * @param actual Actual attribute value
-   * @param expected Expected attribute value
-   * @returns Whether the values are equal
-   */
-  private compareAttributeValues(actual: any, expected: any): boolean {
-    // Handle arrays
-    if (Array.isArray(actual) && Array.isArray(expected)) {
-      if (actual.length !== expected.length) return false;
-      return actual.every((val, idx) => this.compareAttributeValues(val, expected[idx]));
-    }
-    
-    // Handle objects
-    if (typeof actual === 'object' && actual !== null && 
-        typeof expected === 'object' && expected !== null) {
-      const actualKeys = Object.keys(actual);
-      const expectedKeys = Object.keys(expected);
-      
-      if (actualKeys.length !== expectedKeys.length) return false;
-      
-      return actualKeys.every(key => 
-        expected.hasOwnProperty(key) && 
-        this.compareAttributeValues(actual[key], expected[key])
-      );
-    }
-    
-    // Handle primitive values
-    return actual === expected;
-  }
-
-  /**
-   * Resets the collector, clearing all spans if autoClearSpans is enabled
-   */
-  public reset(): void {
-    if (this.autoClearSpans) {
-      this.clearSpans();
-    }
-  }
-
-  /**
-   * Shuts down the collector, flushing any pending spans
-   */
-  public async shutdown(): Promise<void> {
-    await this.processor.shutdown();
   }
 }
 
 /**
- * Creates a new TracingCollector instance with default options
- * 
- * @param options Configuration options for the collector
- * @returns A new TracingCollector instance
+ * Interface describing the expected hierarchy of a trace.
  */
-export function createTracingCollector(options: TracingCollectorOptions = {}): TracingCollector {
-  return new TracingCollector(options);
+export interface TraceHierarchy {
+  /** Expected span name (optional) */
+  name?: string;
+  /** Expected span attributes (optional) */
+  attributes?: Record<string, any>;
+  /** Expected span status (optional) */
+  status?: {
+    code: SpanStatusCode;
+    message?: string;
+  };
+  /** Expected child spans (optional) */
+  children?: TraceHierarchy[];
 }

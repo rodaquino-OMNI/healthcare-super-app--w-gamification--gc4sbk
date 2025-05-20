@@ -1,196 +1,103 @@
-import { DynamicModule, Global, Module, Provider, Type } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Module, DynamicModule, Provider, Global } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from '@austa/logging';
+import { TracingModule } from '@austa/tracing';
 import { KafkaService } from './kafka.service';
-import { KafkaProducer } from './kafka.producer';
-import { KAFKA_MODULE_OPTIONS } from './kafka.constants';
-import { KafkaModuleAsyncOptions, KafkaModuleOptions, KafkaOptionsFactory } from './kafka.interfaces';
+import { EventSchemaRegistry } from '../schema/schema-registry.service';
+import { KAFKA_MODULE_OPTIONS, EVENT_SCHEMA_REGISTRY } from '../constants/tokens.constants';
+import { KafkaModuleOptions } from '../interfaces/kafka-options.interface';
 
 /**
- * Module that provides Kafka integration for event streaming and asynchronous communication.
+ * Module for Kafka integration in the AUSTA SuperApp.
  * 
- * This module serves as the entry point for Kafka integration in any NestJS application
- * within the AUSTA SuperApp, providing connection management, event production, and
- * consumption capabilities with consistent configuration and error handling.
- * 
- * Key capabilities supported:
- * - Publishing events from all journey services to appropriate topics
- * - Consuming events for processing in the gamification engine
- * - Reliable message delivery with error handling and retries
- * - Distributed tracing of message flow for observability
- * - Journey-specific event processing and routing
- * 
- * @example
- * // Static registration with direct options
- * @Module({
- *   imports: [
- *     KafkaModule.register({
- *       clientId: 'my-service',
- *       brokers: ['localhost:9092'],
- *       groupId: 'my-service-group',
- *     }),
- *   ],
- * })
- * export class AppModule {}
+ * This module provides the KafkaService for producing and consuming events,
+ * with support for schema validation, dead-letter queues, and distributed tracing.
  */
-@Module({})
+@Module({
+  imports: [
+    ConfigModule,
+    LoggerModule,
+    TracingModule,
+  ],
+  providers: [KafkaService],
+  exports: [KafkaService],
+})
 export class KafkaModule {
   /**
-   * Register the Kafka module with static options
+   * Registers the KafkaModule with the provided options.
    * 
-   * @param options Configuration options for the Kafka client
-   * @param global Whether the module should be registered as global (default: true)
-   * @returns A dynamic module that can be imported into other modules
-   * 
-   * @example
-   * KafkaModule.register({
-   *   clientId: 'my-service',
-   *   brokers: ['localhost:9092'],
-   *   groupId: 'my-service-group',
-   * })
+   * @param options - Configuration options for the Kafka module
+   * @returns A dynamic module configuration
    */
-  static register(options: KafkaModuleOptions, global = true): DynamicModule {
-    const providers = [
+  static register(options?: KafkaModuleOptions): DynamicModule {
+    const providers: Provider[] = [
       {
         provide: KAFKA_MODULE_OPTIONS,
-        useValue: options,
+        useValue: options || {},
       },
-      KafkaService,
-      KafkaProducer,
     ];
 
-    return {
-      module: KafkaModule,
-      global,
-      imports: [ConfigModule],
-      providers,
-      exports: [KafkaService, KafkaProducer],
-    };
-  }
-
-  /**
-   * Register the Kafka module with async options using a factory
-   * 
-   * @param options Async configuration options for the Kafka client
-   * @param global Whether the module should be registered as global (default: true)
-   * @returns A dynamic module that can be imported into other modules
-   * 
-   * @example
-   * KafkaModule.registerAsync({
-   *   imports: [ConfigModule],
-   *   useFactory: (configService: ConfigService) => ({
-   *     clientId: configService.get('KAFKA_CLIENT_ID'),
-   *     brokers: configService.get('KAFKA_BROKERS').split(','),
-   *     groupId: configService.get('KAFKA_GROUP_ID'),
-   *   }),
-   *   inject: [ConfigService],
-   * })
-   */
-  static registerAsync(options: KafkaModuleAsyncOptions, global = true): DynamicModule {
-    const providers = [
-      ...this.createAsyncProviders(options),
-      KafkaService,
-      KafkaProducer,
-    ];
-
-    return {
-      module: KafkaModule,
-      global,
-      imports: options.imports || [],
-      providers,
-      exports: [KafkaService, KafkaProducer],
-    };
-  }
-
-  /**
-   * Create async providers for the Kafka module
-   * 
-   * @param options Async configuration options for the Kafka client
-   * @returns An array of providers for the Kafka module
-   * @private
-   */
-  private static createAsyncProviders(options: KafkaModuleAsyncOptions): Provider[] {
-    if (options.useExisting || options.useFactory) {
-      return [this.createAsyncOptionsProvider(options)];
+    // Add schema registry if enabled
+    if (options?.enableSchemaValidation) {
+      providers.push({
+        provide: EVENT_SCHEMA_REGISTRY,
+        useClass: EventSchemaRegistry,
+      });
     }
 
-    const useClass = options.useClass as Type<KafkaOptionsFactory>;
-    return [
-      this.createAsyncOptionsProvider(options),
-      {
-        provide: useClass,
-        useClass,
-      },
-    ];
+    return {
+      module: KafkaModule,
+      providers,
+      exports: [KafkaService],
+    };
   }
 
   /**
-   * Create an async options provider for the Kafka module
+   * Registers the KafkaModule as a global module with the provided options.
    * 
-   * @param options Async configuration options for the Kafka client
-   * @returns A provider for the Kafka module options
-   * @private
+   * @param options - Configuration options for the Kafka module
+   * @returns A dynamic module configuration
    */
-  private static createAsyncOptionsProvider(options: KafkaModuleAsyncOptions): Provider {
-    if (options.useFactory) {
-      return {
+  static registerGlobal(options?: KafkaModuleOptions): DynamicModule {
+    const module = this.register(options);
+    return {
+      ...module,
+      global: true,
+    };
+  }
+
+  /**
+   * Registers the KafkaModule asynchronously with factory providers.
+   * 
+   * @param options - Async options for configuring the Kafka module
+   * @returns A dynamic module configuration
+   */
+  static registerAsync(options: {
+    imports?: any[];
+    useFactory: (...args: any[]) => Promise<KafkaModuleOptions> | KafkaModuleOptions;
+    inject?: any[];
+    global?: boolean;
+  }): DynamicModule {
+    const providers: Provider[] = [
+      {
         provide: KAFKA_MODULE_OPTIONS,
         useFactory: options.useFactory,
         inject: options.inject || [],
-      };
-    }
-
-    const inject = [
-      (options.useClass || options.useExisting) as Type<KafkaOptionsFactory>,
+      },
     ];
 
-    return {
-      provide: KAFKA_MODULE_OPTIONS,
-      useFactory: async (optionsFactory: KafkaOptionsFactory) =>
-        await optionsFactory.createKafkaOptions(),
-      inject,
-    };
-  }
+    // Add schema registry provider
+    providers.push({
+      provide: EVENT_SCHEMA_REGISTRY,
+      useClass: EventSchemaRegistry,
+    });
 
-  /**
-   * Register the Kafka module for a specific journey service
-   * 
-   * This method is a convenience wrapper around registerAsync that configures
-   * the Kafka module with journey-specific settings.
-   * 
-   * @param journeyName The name of the journey service (e.g., 'health', 'care', 'plan')
-   * @param options Additional configuration options for the Kafka client
-   * @param global Whether the module should be registered as global (default: true)
-   * @returns A dynamic module that can be imported into other modules
-   * 
-   * @example
-   * KafkaModule.forJourney('health', {
-   *   additionalBrokers: ['kafka-broker-2:9092'],
-   *   customOptions: { ... },
-   * })
-   */
-  static forJourney(
-    journeyName: string,
-    options: Partial<KafkaModuleOptions> = {},
-    global = true,
-  ): DynamicModule {
-    return this.registerAsync(
-      {
-        imports: [ConfigModule],
-        inject: [ConfigService],
-        useFactory: (configService: ConfigService) => {
-          const baseClientId = configService.get('KAFKA_CLIENT_ID') || 'austa';
-          const baseBrokers = configService.get('KAFKA_BROKERS')?.split(',') || ['localhost:9092'];
-          const baseGroupId = configService.get('KAFKA_GROUP_ID') || 'austa-group';
-          
-          return {
-            clientId: `${baseClientId}-${journeyName}`,
-            brokers: [...baseBrokers, ...(options.brokers || [])],
-            groupId: `${baseGroupId}-${journeyName}`,
-            ...options,
-          };
-        },
-      },
-      global,
-    );
+    return {
+      module: KafkaModule,
+      imports: options.imports || [],
+      providers,
+      exports: [KafkaService, EVENT_SCHEMA_REGISTRY],
+      global: options.global,
+    };
   }
 }

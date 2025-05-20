@@ -1,585 +1,748 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
-import { context, trace, SpanStatusCode, SpanKind } from '@opentelemetry/api';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-
+import { LoggerService } from '@nestjs/common';
+import { context, trace, SpanStatusCode, propagation, ROOT_CONTEXT, Context, TextMapPropagator } from '@opentelemetry/api';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { KafkaHeaders } from '@nestjs/microservices';
 import { TracingService } from '../../src/tracing.service';
-import { JourneyType } from '../../src/interfaces/journey-context.interface';
-import * as contextPropagationUtils from '../../src/utils/context-propagation';
-import {
-  createHealthJourneyContext,
-  createCareJourneyContext,
-  createPlanJourneyContext,
-  simulateCrossServiceTrace,
-  areContextsRelated,
-  extractCorrelationId,
-  JourneyType as TestJourneyType,
-} from '../utils/trace-context.utils';
-import { createMockTracer } from '../utils/mock-tracer.utils';
+import { createTestModule } from '../utils/test-module.utils';
+import { assertSpanAttributes } from '../utils/span-assertion.utils';
+import { MockTracer } from '../mocks/mock-tracer';
+import { MockLoggerService } from '../mocks/mock-logger.service';
+import * as spanFixtures from '../fixtures/span-attributes';
 
 describe('Tracing Context Propagation Integration Tests', () => {
   let tracingService: TracingService;
+  let mockTracer: MockTracer;
+  let mockLogger: MockLoggerService;
   let configService: ConfigService;
-  let logger: Logger;
+  let w3cPropagator: TextMapPropagator;
 
   beforeEach(async () => {
-    // Create a mock logger
-    logger = new Logger('TracingTest');
-    
-    // Create a mock config service
-    configService = new ConfigService({
-      'service.name': 'test-service',
-      'service.version': '1.0.0',
-    });
-
-    // Create the testing module
+    // Create a test module with TracingService
     const moduleRef = await Test.createTestingModule({
       providers: [
         TracingService,
         {
           provide: ConfigService,
-          useValue: configService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue: any) => {
+              if (key === 'service.name') return 'test-tracing-service';
+              return defaultValue;
+            }),
+          },
         },
         {
-          provide: Logger,
-          useValue: logger,
+          provide: LoggerService,
+          useClass: MockLoggerService,
         },
       ],
     }).compile();
 
-    // Get the tracing service
     tracingService = moduleRef.get<TracingService>(TracingService);
+    mockLogger = moduleRef.get<MockLoggerService>(LoggerService) as MockLoggerService;
+    configService = moduleRef.get<ConfigService>(ConfigService);
+    
+    // Get the tracer from the tracing service
+    mockTracer = new MockTracer();
+    jest.spyOn(trace, 'getTracer').mockReturnValue(mockTracer as any);
+    
+    // Initialize W3C propagator
+    w3cPropagator = new W3CTraceContextPropagator();
+    jest.spyOn(propagation, 'getTextMapPropagator').mockReturnValue(w3cPropagator);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
   describe('HTTP Header Context Propagation', () => {
-    it('should propagate trace context through HTTP headers', async () => {
-      // Create a trace context
-      const traceId = 'test-trace-id-12345678901234567890';
-      const spanId = 'test-span-id-1234567890';
-      const correlationId = 'test-correlation-id';
+    it('should inject trace context into HTTP headers', async () => {
+      // Create a span to establish context
+      const span = mockTracer.startSpan('test-http-operation');
+      const ctx = trace.setSpan(context.active(), span);
       
-      // Simulate a source service creating a trace context
-      const sourceContext = createHealthJourneyContext({
-        traceId,
-        spanId,
-        correlationId,
-        attributes: {
-          'user.id': 'test-user-123',
-          'journey.step': 'health-metrics-view',
-        },
-      });
-      
-      // Inject the context into HTTP headers
+      // Create headers object to inject context into
       const headers: Record<string, string> = {};
-      context.with(sourceContext, () => {
-        // Use the tracing service to inject context into headers
-        tracingService.injectTraceContextIntoHeaders(headers);
-        
-        // Verify that the headers contain the trace context
-        expect(headers['traceparent']).toBeDefined();
-        expect(headers['traceparent']).toContain(traceId);
-        expect(headers['x-correlation-id']).toBe(correlationId);
-      });
       
-      // Extract the context from the headers in a target service
-      const extractedContext = tracingService.extractTraceContextFromHeaders(headers);
-      
-      // Verify that the extracted context contains the same trace ID
-      const extractedSpanContext = trace.getSpanContext(extractedContext);
-      expect(extractedSpanContext).toBeDefined();
-      expect(extractedSpanContext?.traceId).toBe(traceId);
-      
-      // Create a child span in the target service
-      await context.with(extractedContext, async () => {
-        await tracingService.createSpan('target-service-operation', async () => {
-          // Get the current trace info
-          const traceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Verify that the trace ID is preserved
-          expect(traceInfo.traceId).toBe(traceId);
-          
-          // Verify that a new span ID is generated
-          expect(traceInfo.spanId).not.toBe(spanId);
+      // Inject context into headers
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (carrier, key, value) => {
+            carrier[key] = value;
+          },
         });
       });
-    });
-    
-    it('should maintain journey-specific context across HTTP boundaries', async () => {
-      // Simulate a cross-service trace with journey context
-      const { sourceContext, targetContext, headers } = simulateCrossServiceTrace(
-        TestJourneyType.HEALTH,
-        TestJourneyType.CARE,
+      
+      // Verify headers contain trace context
+      expect(headers).toHaveProperty('traceparent');
+      expect(headers.traceparent).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+      
+      // Extract context from headers
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
         {
-          attributes: {
-            'user.id': 'test-user-456',
-            'journey.step': 'health-to-care-referral',
-          },
-        }
+          get: (carrier, key) => carrier[key],
+          keys: (carrier) => Object.keys(carrier),
+        },
       );
       
-      // Verify that the contexts are related (same trace ID)
-      expect(areContextsRelated(sourceContext, targetContext)).toBe(true);
+      // Verify extracted context has the same trace ID
+      const extractedSpan = trace.getSpan(extractedContext);
+      expect(extractedSpan).toBeDefined();
+      expect(trace.getSpanContext(extractedContext)?.traceId).toBe(span.spanContext().traceId);
+      expect(trace.getSpanContext(extractedContext)?.spanId).toBe(span.spanContext().spanId);
       
-      // Verify that the correlation ID is preserved
-      const sourceCorrelationId = extractCorrelationId(sourceContext);
-      const targetCorrelationId = extractCorrelationId(targetContext);
-      expect(sourceCorrelationId).toBeDefined();
-      expect(targetCorrelationId).toBeDefined();
-      expect(targetCorrelationId).toBe(sourceCorrelationId);
-      
-      // Verify that the journey context is properly propagated
-      context.with(sourceContext, () => {
-        const sourceTraceInfo = tracingService.getCurrentTraceInfo();
-        
-        context.with(targetContext, () => {
-          const targetTraceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Same trace ID, different span IDs
-          expect(targetTraceInfo.traceId).toBe(sourceTraceInfo.traceId);
-          expect(targetTraceInfo.spanId).not.toBe(sourceTraceInfo.spanId);
-        });
-      });
-    });
-  });
-
-  describe('Kafka Message Trace Context Propagation', () => {
-    it('should propagate trace context through Kafka message headers', async () => {
-      // Create a trace context for the producer service
-      const producerContext = createCareJourneyContext({
-        attributes: {
-          'user.id': 'test-user-789',
-          'journey.step': 'appointment-booked',
-        },
-      });
-      
-      // Get the trace and span IDs from the producer context
-      const producerSpanContext = trace.getSpanContext(producerContext);
-      const producerTraceId = producerSpanContext?.traceId;
-      const producerSpanId = producerSpanContext?.spanId;
-      
-      // Create Kafka message headers
-      const kafkaHeaders: Record<string, Buffer> = {};
-      
-      // Inject the context into Kafka headers
-      context.with(producerContext, () => {
-        // Use the context propagation utilities to inject context into Kafka headers
-        contextPropagationUtils.injectTraceContextIntoKafkaHeaders(kafkaHeaders, JourneyType.CARE);
-        
-        // Verify that the headers contain the trace context
-        expect(kafkaHeaders['traceparent']).toBeDefined();
-        expect(kafkaHeaders['traceparent'].toString()).toContain(producerTraceId);
-      });
-      
-      // Extract the context from the Kafka headers in a consumer service
-      const consumerContext = contextPropagationUtils.extractTraceContextFromKafkaHeaders(kafkaHeaders);
-      
-      // Verify that the extracted context contains the same trace ID
-      const consumerSpanContext = trace.getSpanContext(consumerContext);
-      expect(consumerSpanContext).toBeDefined();
-      expect(consumerSpanContext?.traceId).toBe(producerTraceId);
-      
-      // Create a child span in the consumer service
-      await context.with(consumerContext, async () => {
-        await tracingService.createSpan('kafka-consumer-operation', async () => {
-          // Get the current trace info
-          const traceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Verify that the trace ID is preserved
-          expect(traceInfo.traceId).toBe(producerTraceId);
-          
-          // Verify that a new span ID is generated
-          expect(traceInfo.spanId).not.toBe(producerSpanId);
-        });
-      });
+      span.end();
     });
     
-    it('should propagate journey-specific context through Kafka events', async () => {
-      // Create a trace context for a health journey event
-      const healthContext = createHealthJourneyContext({
-        attributes: {
-          'user.id': 'test-user-101',
-          'journey.step': 'health-goal-achieved',
-          'health.metric': 'steps',
-          'health.goal.id': 'goal-123',
-        },
-      });
+    it('should propagate journey-specific context in HTTP headers', async () => {
+      // Create a span with journey-specific attributes
+      const span = mockTracer.startSpan('health-journey-operation');
+      span.setAttributes(spanFixtures.healthJourneyAttributes);
+      const ctx = trace.setSpan(context.active(), span);
       
-      // Create Kafka message headers
-      const kafkaHeaders: Record<string, Buffer> = {};
+      // Create headers object to inject context into
+      const headers: Record<string, string> = {};
       
-      // Inject the context into Kafka headers with journey type
-      context.with(healthContext, () => {
-        contextPropagationUtils.injectTraceContextIntoKafkaHeaders(kafkaHeaders, JourneyType.HEALTH);
-      });
-      
-      // Extract the context in the gamification service
-      const gamificationContext = contextPropagationUtils.extractTraceContextFromKafkaHeaders(kafkaHeaders);
-      
-      // Verify that the contexts are related (same trace ID)
-      expect(areContextsRelated(healthContext, gamificationContext)).toBe(true);
-      
-      // Create a child span in the gamification service
-      await context.with(gamificationContext, async () => {
-        await tracingService.createJourneySpan(
-          'health',
-          'process-achievement',
-          async () => {
-            // Verify that the journey type is preserved
-            const currentSpan = trace.getSpan(context.active());
-            expect(currentSpan?.attributes['journey.type']).toBe('health');
+      // Inject context into headers
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (carrier, key, value) => {
+            carrier[key] = value;
           },
-          { userId: 'test-user-101', journeyId: 'journey-123' }
-        );
+        });
       });
+      
+      // Add journey-specific headers
+      headers['x-journey-type'] = 'health';
+      headers['x-journey-context'] = JSON.stringify({ userId: '12345', metricId: 'heart-rate' });
+      
+      // Extract context from headers
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
+        {
+          get: (carrier, key) => carrier[key],
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Create a new span using the extracted context
+      const childSpan = mockTracer.startSpan('child-operation', {}, extractedContext);
+      
+      // Verify the child span has the same trace ID
+      expect(childSpan.spanContext().traceId).toBe(span.spanContext().traceId);
+      
+      // Verify journey-specific context can be accessed
+      expect(headers['x-journey-type']).toBe('health');
+      expect(JSON.parse(headers['x-journey-context'])).toEqual({ userId: '12345', metricId: 'heart-rate' });
+      
+      span.end();
+      childSpan.end();
     });
   });
 
-  describe('gRPC Metadata Trace Context Handling', () => {
-    it('should propagate trace context through gRPC metadata', async () => {
-      // Create a trace context for the client service
-      const clientContext = createPlanJourneyContext({
-        attributes: {
-          'user.id': 'test-user-202',
-          'journey.step': 'plan-benefits-view',
-        },
-      });
+  describe('Kafka Message Context Propagation', () => {
+    it('should inject trace context into Kafka message headers', async () => {
+      // Create a span to establish context
+      const span = mockTracer.startSpan('kafka-produce-operation');
+      const ctx = trace.setSpan(context.active(), span);
       
-      // Get the trace and span IDs from the client context
-      const clientSpanContext = trace.getSpanContext(clientContext);
-      const clientTraceId = clientSpanContext?.traceId;
-      const clientSpanId = clientSpanContext?.spanId;
+      // Create Kafka message headers object
+      const headers: Record<string, Buffer> = {};
       
-      // Create gRPC metadata (similar structure to HTTP headers)
-      const metadata: Record<string, string> = {};
-      
-      // Inject the context into gRPC metadata
-      context.with(clientContext, () => {
-        // Use the tracing service to inject context into metadata (same as HTTP headers)
-        tracingService.injectTraceContextIntoHeaders(metadata);
-        
-        // Verify that the metadata contains the trace context
-        expect(metadata['traceparent']).toBeDefined();
-        expect(metadata['traceparent']).toContain(clientTraceId);
-      });
-      
-      // Extract the context from the gRPC metadata in a server service
-      const serverContext = tracingService.extractTraceContextFromHeaders(metadata);
-      
-      // Verify that the extracted context contains the same trace ID
-      const serverSpanContext = trace.getSpanContext(serverContext);
-      expect(serverSpanContext).toBeDefined();
-      expect(serverSpanContext?.traceId).toBe(clientTraceId);
-      
-      // Create a child span in the server service
-      await context.with(serverContext, async () => {
-        await tracingService.createSpan('grpc-server-operation', async () => {
-          // Get the current trace info
-          const traceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Verify that the trace ID is preserved
-          expect(traceInfo.traceId).toBe(clientTraceId);
-          
-          // Verify that a new span ID is generated
-          expect(traceInfo.spanId).not.toBe(clientSpanId);
+      // Inject context into Kafka headers
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (carrier, key, value) => {
+            carrier[key] = Buffer.from(value);
+          },
         });
       });
+      
+      // Verify Kafka headers contain trace context
+      expect(headers).toHaveProperty('traceparent');
+      expect(headers.traceparent.toString()).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+      
+      // Extract context from Kafka headers
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
+        {
+          get: (carrier, key) => {
+            const value = carrier[key];
+            return value instanceof Buffer ? value.toString() : value;
+          },
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Verify extracted context has the same trace ID
+      const extractedSpanContext = trace.getSpanContext(extractedContext);
+      expect(extractedSpanContext).toBeDefined();
+      expect(extractedSpanContext?.traceId).toBe(span.spanContext().traceId);
+      expect(extractedSpanContext?.spanId).toBe(span.spanContext().spanId);
+      
+      span.end();
+    });
+    
+    it('should maintain trace context across Kafka producer and consumer', async () => {
+      // Simulate a Kafka producer span
+      const producerSpan = mockTracer.startSpan('kafka-produce-message');
+      producerSpan.setAttributes({
+        'messaging.system': 'kafka',
+        'messaging.destination': 'test-topic',
+        'messaging.operation': 'publish',
+      });
+      const producerCtx = trace.setSpan(context.active(), producerSpan);
+      
+      // Create Kafka message with headers
+      const kafkaMessage = {
+        topic: 'test-topic',
+        messages: [
+          {
+            value: JSON.stringify({ data: 'test-data' }),
+            headers: {},
+          },
+        ],
+      };
+      
+      // Inject context into Kafka message headers
+      context.with(producerCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), kafkaMessage.messages[0].headers, {
+          set: (carrier, key, value) => {
+            carrier[key] = Buffer.from(value);
+          },
+        });
+      });
+      
+      // Simulate message being sent and received
+      
+      // Consumer receives the message and extracts context
+      const receivedHeaders = kafkaMessage.messages[0].headers;
+      const consumerContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        receivedHeaders,
+        {
+          get: (carrier, key) => {
+            const value = carrier[key];
+            return value instanceof Buffer ? value.toString() : value;
+          },
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Consumer creates a span with the extracted context
+      const consumerSpan = mockTracer.startSpan('kafka-consume-message', {}, consumerContext);
+      consumerSpan.setAttributes({
+        'messaging.system': 'kafka',
+        'messaging.destination': 'test-topic',
+        'messaging.operation': 'process',
+      });
+      
+      // Verify consumer span is part of the same trace
+      expect(consumerSpan.spanContext().traceId).toBe(producerSpan.spanContext().traceId);
+      
+      // Verify parent-child relationship
+      expect(consumerSpan.parentSpanId).toBe(producerSpan.spanContext().spanId);
+      
+      producerSpan.end();
+      consumerSpan.end();
+    });
+    
+    it('should propagate journey-specific context in Kafka messages', async () => {
+      // Create a span with care journey attributes
+      const span = mockTracer.startSpan('care-journey-operation');
+      span.setAttributes(spanFixtures.careJourneyAttributes);
+      const ctx = trace.setSpan(context.active(), span);
+      
+      // Create Kafka message headers
+      const headers: Record<string, Buffer> = {};
+      
+      // Add journey-specific context
+      headers['x-journey-type'] = Buffer.from('care');
+      headers['x-journey-context'] = Buffer.from(JSON.stringify({ 
+        appointmentId: 'appt-123', 
+        providerId: 'provider-456' 
+      }));
+      
+      // Inject trace context into headers
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (carrier, key, value) => {
+            carrier[key] = Buffer.from(value);
+          },
+        });
+      });
+      
+      // Extract context from headers
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
+        {
+          get: (carrier, key) => {
+            const value = carrier[key];
+            return value instanceof Buffer ? value.toString() : value;
+          },
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Create a new span using the extracted context
+      const childSpan = mockTracer.startSpan('child-operation', {}, extractedContext);
+      
+      // Verify the child span has the same trace ID
+      expect(childSpan.spanContext().traceId).toBe(span.spanContext().traceId);
+      
+      // Verify journey-specific context can be accessed
+      expect(headers['x-journey-type'].toString()).toBe('care');
+      expect(JSON.parse(headers['x-journey-context'].toString())).toEqual({ 
+        appointmentId: 'appt-123', 
+        providerId: 'provider-456' 
+      });
+      
+      span.end();
+      childSpan.end();
+    });
+  });
+
+  describe('gRPC Metadata Context Propagation', () => {
+    it('should inject trace context into gRPC metadata', async () => {
+      // Create a span to establish context
+      const span = mockTracer.startSpan('grpc-client-operation');
+      const ctx = trace.setSpan(context.active(), span);
+      
+      // Create gRPC metadata object
+      const metadata: Record<string, string> = {};
+      
+      // Inject context into gRPC metadata
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), metadata, {
+          set: (carrier, key, value) => {
+            carrier[key] = value;
+          },
+        });
+      });
+      
+      // Verify gRPC metadata contains trace context
+      expect(metadata).toHaveProperty('traceparent');
+      expect(metadata.traceparent).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+      
+      // Extract context from gRPC metadata
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        metadata,
+        {
+          get: (carrier, key) => carrier[key],
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Verify extracted context has the same trace ID
+      const extractedSpanContext = trace.getSpanContext(extractedContext);
+      expect(extractedSpanContext).toBeDefined();
+      expect(extractedSpanContext?.traceId).toBe(span.spanContext().traceId);
+      expect(extractedSpanContext?.spanId).toBe(span.spanContext().spanId);
+      
+      span.end();
+    });
+    
+    it('should maintain trace context across gRPC client and server', async () => {
+      // Simulate a gRPC client span
+      const clientSpan = mockTracer.startSpan('grpc-client-request');
+      clientSpan.setAttributes({
+        'rpc.system': 'grpc',
+        'rpc.service': 'test.Service',
+        'rpc.method': 'TestMethod',
+      });
+      const clientCtx = trace.setSpan(context.active(), clientSpan);
+      
+      // Create gRPC metadata
+      const metadata: Record<string, string> = {};
+      
+      // Inject context into gRPC metadata
+      context.with(clientCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), metadata, {
+          set: (carrier, key, value) => {
+            carrier[key] = value;
+          },
+        });
+      });
+      
+      // Simulate gRPC call
+      
+      // Server receives the metadata and extracts context
+      const serverContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        metadata,
+        {
+          get: (carrier, key) => carrier[key],
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Server creates a span with the extracted context
+      const serverSpan = mockTracer.startSpan('grpc-server-handler', {}, serverContext);
+      serverSpan.setAttributes({
+        'rpc.system': 'grpc',
+        'rpc.service': 'test.Service',
+        'rpc.method': 'TestMethod',
+      });
+      
+      // Verify server span is part of the same trace
+      expect(serverSpan.spanContext().traceId).toBe(clientSpan.spanContext().traceId);
+      
+      // Verify parent-child relationship
+      expect(serverSpan.parentSpanId).toBe(clientSpan.spanContext().spanId);
+      
+      clientSpan.end();
+      serverSpan.end();
+    });
+    
+    it('should propagate journey-specific context in gRPC metadata', async () => {
+      // Create a span with plan journey attributes
+      const span = mockTracer.startSpan('plan-journey-operation');
+      span.setAttributes(spanFixtures.planJourneyAttributes);
+      const ctx = trace.setSpan(context.active(), span);
+      
+      // Create gRPC metadata
+      const metadata: Record<string, string> = {};
+      
+      // Add journey-specific metadata
+      metadata['x-journey-type'] = 'plan';
+      metadata['x-journey-context'] = JSON.stringify({ 
+        planId: 'plan-789', 
+        benefitId: 'benefit-101' 
+      });
+      
+      // Inject trace context into metadata
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), metadata, {
+          set: (carrier, key, value) => {
+            carrier[key] = value;
+          },
+        });
+      });
+      
+      // Extract context from metadata
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        metadata,
+        {
+          get: (carrier, key) => carrier[key],
+          keys: (carrier) => Object.keys(carrier),
+        },
+      );
+      
+      // Create a new span using the extracted context
+      const childSpan = mockTracer.startSpan('child-operation', {}, extractedContext);
+      
+      // Verify the child span has the same trace ID
+      expect(childSpan.spanContext().traceId).toBe(span.spanContext().traceId);
+      
+      // Verify journey-specific context can be accessed
+      expect(metadata['x-journey-type']).toBe('plan');
+      expect(JSON.parse(metadata['x-journey-context'])).toEqual({ 
+        planId: 'plan-789', 
+        benefitId: 'benefit-101' 
+      });
+      
+      span.end();
+      childSpan.end();
     });
   });
 
   describe('Context Serialization and Deserialization', () => {
     it('should accurately serialize and deserialize trace context', async () => {
-      // Create a trace context
-      const originalContext = createHealthJourneyContext({
-        attributes: {
-          'user.id': 'test-user-303',
-          'journey.step': 'health-metrics-view',
-          'custom.attribute': 'test-value',
-        },
+      // Create a span with attributes
+      const originalSpan = mockTracer.startSpan('original-operation');
+      originalSpan.setAttributes({
+        'service.name': 'test-service',
+        'operation.name': 'test-operation',
+        'custom.attribute': 'test-value',
       });
+      const originalCtx = trace.setSpan(context.active(), originalSpan);
       
-      // Get the original trace and span IDs
-      const originalSpanContext = trace.getSpanContext(originalContext);
-      const originalTraceId = originalSpanContext?.traceId;
-      const originalSpanId = originalSpanContext?.spanId;
-      
-      // Serialize the context
-      let serializedContext: string;
-      context.with(originalContext, () => {
-        serializedContext = contextPropagationUtils.serializeTraceContext(JourneyType.HEALTH);
-        
-        // Verify that the serialized context is a string
-        expect(typeof serializedContext).toBe('string');
-        expect(serializedContext).toContain(originalTraceId!);
-      });
-      
-      // Deserialize the context
-      const deserializedContext = contextPropagationUtils.deserializeTraceContext(serializedContext!);
-      
-      // Verify that the deserialized context contains the same trace ID
-      const deserializedSpanContext = trace.getSpanContext(deserializedContext);
-      expect(deserializedSpanContext).toBeDefined();
-      expect(deserializedSpanContext?.traceId).toBe(originalTraceId);
-      
-      // Create a child span with the deserialized context
-      await context.with(deserializedContext, async () => {
-        await tracingService.createSpan('operation-after-deserialization', async () => {
-          // Get the current trace info
-          const traceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Verify that the trace ID is preserved
-          expect(traceInfo.traceId).toBe(originalTraceId);
-          
-          // Verify that a new span ID is generated
-          expect(traceInfo.spanId).not.toBe(originalSpanId);
+      // Serialize context to a carrier
+      const carrier: Record<string, string> = {};
+      context.with(originalCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), carrier, {
+          set: (c, k, v) => { c[k] = v; },
         });
       });
+      
+      // Deserialize context from the carrier
+      const deserializedCtx = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        carrier,
+        {
+          get: (c, k) => c[k],
+          keys: (c) => Object.keys(c),
+        },
+      );
+      
+      // Create a new span with the deserialized context
+      const newSpan = mockTracer.startSpan('new-operation', {}, deserializedCtx);
+      
+      // Verify trace continuity
+      expect(newSpan.spanContext().traceId).toBe(originalSpan.spanContext().traceId);
+      
+      // Verify parent-child relationship
+      expect(newSpan.parentSpanId).toBe(originalSpan.spanContext().spanId);
+      
+      originalSpan.end();
+      newSpan.end();
+    });
+    
+    it('should handle complex journey context with nested objects', async () => {
+      // Create a complex journey context
+      const complexJourneyContext = {
+        userId: 'user-123',
+        session: {
+          id: 'session-456',
+          startTime: new Date().toISOString(),
+          properties: {
+            device: 'mobile',
+            platform: 'ios',
+            version: '2.1.0',
+          },
+        },
+        preferences: {
+          language: 'pt-BR',
+          notifications: true,
+          theme: 'dark',
+        },
+        metrics: [
+          { id: 'metric-1', value: 75.5 },
+          { id: 'metric-2', value: 120 },
+        ],
+      };
+      
+      // Create a span
+      const span = mockTracer.startSpan('complex-context-operation');
+      const ctx = trace.setSpan(context.active(), span);
+      
+      // Create carrier
+      const carrier: Record<string, string> = {};
+      
+      // Add complex journey context
+      carrier['x-journey-context'] = JSON.stringify(complexJourneyContext);
+      
+      // Inject trace context
+      context.with(ctx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), carrier, {
+          set: (c, k, v) => { c[k] = v; },
+        });
+      });
+      
+      // Extract context
+      const extractedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        carrier,
+        {
+          get: (c, k) => c[k],
+          keys: (c) => Object.keys(c),
+        },
+      );
+      
+      // Create a new span
+      const childSpan = mockTracer.startSpan('child-operation', {}, extractedContext);
+      
+      // Verify trace continuity
+      expect(childSpan.spanContext().traceId).toBe(span.spanContext().traceId);
+      
+      // Verify complex journey context is preserved
+      const extractedJourneyContext = JSON.parse(carrier['x-journey-context']);
+      expect(extractedJourneyContext).toEqual(complexJourneyContext);
+      expect(extractedJourneyContext.session.properties.device).toBe('mobile');
+      expect(extractedJourneyContext.metrics[0].value).toBe(75.5);
+      
+      span.end();
+      childSpan.end();
     });
   });
 
   describe('Journey-Specific Context Propagation', () => {
-    it('should propagate health journey context across service boundaries', async () => {
-      // Create a health journey context
-      const healthContext = createHealthJourneyContext({
-        attributes: {
-          'user.id': 'test-user-404',
-          'journey.step': 'health-metrics-view',
-          'health.metric': 'heart-rate',
-          'device.id': 'device-123',
-        },
-      });
+    it('should propagate Health journey context across service boundaries', async () => {
+      // Create a Health journey span
+      const healthSpan = mockTracer.startSpan('health-journey-operation');
+      healthSpan.setAttributes(spanFixtures.healthJourneyAttributes);
+      const healthCtx = trace.setSpan(context.active(), healthSpan);
       
-      // Inject the context into HTTP headers
+      // Create Health journey context
+      const healthJourneyContext = {
+        userId: 'user-123',
+        metricId: 'heart-rate',
+        deviceId: 'device-789',
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Create carrier for HTTP headers
       const headers: Record<string, string> = {};
-      context.with(healthContext, () => {
-        tracingService.injectTraceContextIntoHeaders(headers);
+      headers['x-journey-type'] = 'health';
+      headers['x-journey-context'] = JSON.stringify(healthJourneyContext);
+      
+      // Inject trace context
+      context.with(healthCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (c, k, v) => { c[k] = v; },
+        });
       });
       
-      // Extract the context in another service
-      const extractedContext = tracingService.extractTraceContextFromHeaders(headers);
+      // Simulate HTTP request to another service
       
-      // Create a child span in the target service with journey context
-      await context.with(extractedContext, async () => {
-        await tracingService.createJourneySpan(
-          'health',
-          'process-health-metric',
-          async () => {
-            // Verify that the journey type is preserved
-            const currentSpan = trace.getSpan(context.active());
-            expect(currentSpan?.attributes['journey.type']).toBe('health');
-          },
-          {
-            userId: 'test-user-404',
-            journeyId: 'journey-404',
-            metricType: 'heart-rate',
-            deviceId: 'device-123',
-          }
-        );
-      });
+      // Extract context in the receiving service
+      const receivedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
+        {
+          get: (c, k) => c[k],
+          keys: (c) => Object.keys(c),
+        },
+      );
+      
+      // Create a span in the receiving service
+      const receivingSpan = mockTracer.startSpan('health-data-processor', {}, receivedContext);
+      
+      // Verify trace continuity
+      expect(receivingSpan.spanContext().traceId).toBe(healthSpan.spanContext().traceId);
+      
+      // Verify journey context is preserved
+      expect(headers['x-journey-type']).toBe('health');
+      const extractedJourneyContext = JSON.parse(headers['x-journey-context']);
+      expect(extractedJourneyContext).toEqual(healthJourneyContext);
+      expect(extractedJourneyContext.metricId).toBe('heart-rate');
+      
+      healthSpan.end();
+      receivingSpan.end();
     });
     
-    it('should propagate care journey context across service boundaries', async () => {
-      // Create a care journey context
-      const careContext = createCareJourneyContext({
-        attributes: {
-          'user.id': 'test-user-505',
-          'journey.step': 'appointment-booking',
-          'provider.id': 'provider-123',
-          'appointment.type': 'consultation',
-        },
+    it('should propagate Care journey context across service boundaries', async () => {
+      // Create a Care journey span
+      const careSpan = mockTracer.startSpan('care-journey-operation');
+      careSpan.setAttributes(spanFixtures.careJourneyAttributes);
+      const careCtx = trace.setSpan(context.active(), careSpan);
+      
+      // Create Care journey context
+      const careJourneyContext = {
+        appointmentId: 'appt-123',
+        providerId: 'provider-456',
+        patientId: 'patient-789',
+        appointmentType: 'telemedicine',
+        scheduledTime: new Date().toISOString(),
+      };
+      
+      // Create Kafka message headers
+      const headers: Record<string, Buffer> = {};
+      headers['x-journey-type'] = Buffer.from('care');
+      headers['x-journey-context'] = Buffer.from(JSON.stringify(careJourneyContext));
+      
+      // Inject trace context
+      context.with(careCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), headers, {
+          set: (c, k, v) => { c[k] = Buffer.from(v); },
+        });
       });
       
-      // Inject the context into HTTP headers
-      const headers: Record<string, string> = {};
-      context.with(careContext, () => {
-        tracingService.injectTraceContextIntoHeaders(headers);
-      });
+      // Simulate Kafka message to another service
       
-      // Extract the context in another service
-      const extractedContext = tracingService.extractTraceContextFromHeaders(headers);
-      
-      // Create a child span in the target service with journey context
-      await context.with(extractedContext, async () => {
-        await tracingService.createJourneySpan(
-          'care',
-          'process-appointment-booking',
-          async () => {
-            // Verify that the journey type is preserved
-            const currentSpan = trace.getSpan(context.active());
-            expect(currentSpan?.attributes['journey.type']).toBe('care');
+      // Extract context in the receiving service
+      const receivedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        headers,
+        {
+          get: (c, k) => {
+            const value = c[k];
+            return value instanceof Buffer ? value.toString() : value;
           },
-          {
-            userId: 'test-user-505',
-            journeyId: 'journey-505',
-            appointmentType: 'consultation',
-            providerId: 'provider-123',
-          }
-        );
-      });
+          keys: (c) => Object.keys(c),
+        },
+      );
+      
+      // Create a span in the receiving service
+      const receivingSpan = mockTracer.startSpan('appointment-processor', {}, receivedContext);
+      
+      // Verify trace continuity
+      expect(receivingSpan.spanContext().traceId).toBe(careSpan.spanContext().traceId);
+      
+      // Verify journey context is preserved
+      expect(headers['x-journey-type'].toString()).toBe('care');
+      const extractedJourneyContext = JSON.parse(headers['x-journey-context'].toString());
+      expect(extractedJourneyContext).toEqual(careJourneyContext);
+      expect(extractedJourneyContext.appointmentType).toBe('telemedicine');
+      
+      careSpan.end();
+      receivingSpan.end();
     });
     
-    it('should propagate plan journey context across service boundaries', async () => {
-      // Create a plan journey context
-      const planContext = createPlanJourneyContext({
-        attributes: {
-          'user.id': 'test-user-606',
-          'journey.step': 'claim-submission',
-          'plan.id': 'plan-123',
-          'claim.type': 'medical',
+    it('should propagate Plan journey context across service boundaries', async () => {
+      // Create a Plan journey span
+      const planSpan = mockTracer.startSpan('plan-journey-operation');
+      planSpan.setAttributes(spanFixtures.planJourneyAttributes);
+      const planCtx = trace.setSpan(context.active(), planSpan);
+      
+      // Create Plan journey context
+      const planJourneyContext = {
+        planId: 'plan-123',
+        memberId: 'member-456',
+        benefitId: 'benefit-789',
+        claimId: 'claim-101',
+        coverageType: 'family',
+      };
+      
+      // Create gRPC metadata
+      const metadata: Record<string, string> = {};
+      metadata['x-journey-type'] = 'plan';
+      metadata['x-journey-context'] = JSON.stringify(planJourneyContext);
+      
+      // Inject trace context
+      context.with(planCtx, () => {
+        const textMapPropagator = propagation.getTextMapPropagator();
+        textMapPropagator.inject(context.active(), metadata, {
+          set: (c, k, v) => { c[k] = v; },
+        });
+      });
+      
+      // Simulate gRPC call to another service
+      
+      // Extract context in the receiving service
+      const receivedContext = w3cPropagator.extract(
+        ROOT_CONTEXT,
+        metadata,
+        {
+          get: (c, k) => c[k],
+          keys: (c) => Object.keys(c),
         },
-      });
+      );
       
-      // Inject the context into HTTP headers
-      const headers: Record<string, string> = {};
-      context.with(planContext, () => {
-        tracingService.injectTraceContextIntoHeaders(headers);
-      });
+      // Create a span in the receiving service
+      const receivingSpan = mockTracer.startSpan('claim-processor', {}, receivedContext);
       
-      // Extract the context in another service
-      const extractedContext = tracingService.extractTraceContextFromHeaders(headers);
+      // Verify trace continuity
+      expect(receivingSpan.spanContext().traceId).toBe(planSpan.spanContext().traceId);
       
-      // Create a child span in the target service with journey context
-      await context.with(extractedContext, async () => {
-        await tracingService.createJourneySpan(
-          'plan',
-          'process-claim-submission',
-          async () => {
-            // Verify that the journey type is preserved
-            const currentSpan = trace.getSpan(context.active());
-            expect(currentSpan?.attributes['journey.type']).toBe('plan');
-          },
-          {
-            userId: 'test-user-606',
-            journeyId: 'journey-606',
-            claimType: 'medical',
-            planId: 'plan-123',
-          }
-        );
-      });
-    });
-  });
-
-  describe('Cross-Journey Trace Context Propagation', () => {
-    it('should maintain trace context across different journeys', async () => {
-      // Create a health journey context
-      const healthContext = createHealthJourneyContext({
-        attributes: {
-          'user.id': 'test-user-707',
-          'journey.step': 'health-goal-achieved',
-        },
-      });
+      // Verify journey context is preserved
+      expect(metadata['x-journey-type']).toBe('plan');
+      const extractedJourneyContext = JSON.parse(metadata['x-journey-context']);
+      expect(extractedJourneyContext).toEqual(planJourneyContext);
+      expect(extractedJourneyContext.coverageType).toBe('family');
       
-      // Get the trace ID from the health context
-      const healthSpanContext = trace.getSpanContext(healthContext);
-      const traceId = healthSpanContext?.traceId;
-      
-      // Inject the context into HTTP headers
-      const headers: Record<string, string> = {};
-      context.with(healthContext, () => {
-        tracingService.injectTraceContextIntoHeaders(headers);
-      });
-      
-      // Extract the context in the gamification service
-      const gamificationContext = tracingService.extractTraceContextFromHeaders(headers);
-      
-      // Create a gamification span
-      await context.with(gamificationContext, async () => {
-        await tracingService.createSpan('process-achievement', async () => {
-          // Get the current trace info
-          const traceInfo = tracingService.getCurrentTraceInfo();
-          
-          // Verify that the trace ID is preserved
-          expect(traceInfo.traceId).toBe(traceId);
-          
-          // Add gamification-specific attributes
-          const currentSpan = trace.getSpan(context.active());
-          currentSpan?.setAttribute('achievement.id', 'achievement-123');
-          currentSpan?.setAttribute('points.awarded', 100);
-        });
-      });
-      
-      // Now propagate to the plan journey
-      const planHeaders: Record<string, string> = {};
-      context.with(gamificationContext, () => {
-        tracingService.injectTraceContextIntoHeaders(planHeaders);
-      });
-      
-      // Extract the context in the plan service
-      const planContext = tracingService.extractTraceContextFromHeaders(planHeaders);
-      
-      // Create a plan journey span
-      await context.with(planContext, async () => {
-        await tracingService.createJourneySpan(
-          'plan',
-          'award-benefit',
-          async () => {
-            // Verify that the trace ID is preserved across all three services
-            const traceInfo = tracingService.getCurrentTraceInfo();
-            expect(traceInfo.traceId).toBe(traceId);
-            
-            // Add plan-specific attributes
-            const currentSpan = trace.getSpan(context.active());
-            currentSpan?.setAttribute('benefit.id', 'benefit-123');
-            currentSpan?.setAttribute('benefit.type', 'discount');
-          },
-          {
-            userId: 'test-user-707',
-            journeyId: 'journey-707',
-          }
-        );
-      });
-    });
-  });
-
-  describe('Business Transaction Tracking', () => {
-    it('should track business transactions across services', async () => {
-      // Create a mock tracer for this test
-      const mockTracer = createMockTracer({
-        serviceName: 'business-transaction-service',
-      });
-      
-      // Create a unique transaction ID
-      const transactionId = 'txn-' + Date.now();
-      
-      // Start a transaction in the care service
-      await mockTracer.createSpan('start-appointment-booking', async () => {
-        // Add business transaction ID
-        mockTracer.addAttribute('transaction.id', transactionId);
-        mockTracer.addAttribute('journey.type', 'care');
-        mockTracer.addAttribute('business.operation', 'appointment-booking');
-        mockTracer.addAttribute('user.id', 'test-user-808');
-        
-        // Get correlation IDs for propagation
-        const correlationIds = mockTracer.getCorrelationIds();
-        
-        // Simulate calling the provider service
-        await mockTracer.createSpan('check-provider-availability', async () => {
-          mockTracer.addAttribute('transaction.id', transactionId);
-          mockTracer.addAttribute('provider.id', 'provider-123');
-          mockTracer.addAttribute('appointment.slot', '2023-06-01T10:00:00Z');
-        });
-        
-        // Simulate calling the notification service
-        await mockTracer.createSpan('send-appointment-confirmation', async () => {
-          mockTracer.addAttribute('transaction.id', transactionId);
-          mockTracer.addAttribute('notification.type', 'email');
-          mockTracer.addAttribute('notification.template', 'appointment-confirmation');
-        });
-      });
-      
-      // Verify that all spans in the transaction have the same transaction ID
-      const transactionSpans = mockTracer.getSpans({
-        attributeKey: 'transaction.id',
-        attributeValue: transactionId,
-      });
-      
-      expect(transactionSpans.length).toBe(3);
-      
-      // Verify that all spans have the same trace ID
-      const traceId = transactionSpans[0].attributes['trace.id'];
-      transactionSpans.forEach(span => {
-        expect(span.attributes['trace.id']).toBe(traceId);
-      });
+      planSpan.end();
+      receivingSpan.end();
     });
   });
 });

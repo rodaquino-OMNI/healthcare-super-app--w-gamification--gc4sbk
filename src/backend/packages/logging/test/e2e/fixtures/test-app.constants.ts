@@ -1,220 +1,447 @@
 /**
- * Constants used for configuring the test NestJS application in e2e tests.
- * These constants allow tests to be run with different configurations to verify
+ * @file test-app.constants.ts
+ * @description Constants used by the test-app.module.ts for configuring the test NestJS application
+ * used in e2e tests. These constants allow tests to be run with different configurations to verify
  * logging behavior across development, staging, and production environments.
  */
 
 import { LogLevel } from '../../../src/interfaces/log-level.enum';
+import { FormatterType, TransportType, LoggerConfig } from '../../../src/interfaces/log-config.interface';
 
 /**
- * Environment types supported in the test application
+ * Service information for test application
+ */
+export const TEST_SERVICE_INFO = {
+  name: 'test-logging-service',
+  version: '1.0.0',
+  description: 'Test service for logging e2e tests',
+};
+
+/**
+ * Environment names for testing different configurations
  */
 export enum TestEnvironment {
   DEVELOPMENT = 'development',
   STAGING = 'staging',
   PRODUCTION = 'production',
+  TEST = 'test',
 }
-
-/**
- * Service information for context enrichment
- */
-export const TEST_SERVICE_INFO = {
-  name: 'test-logging-service',
-  version: '1.0.0',
-  nodeEnv: process.env.NODE_ENV || 'test',
-};
 
 /**
  * Journey types for testing journey-specific logging
  */
-export enum TestJourney {
+export enum JourneyType {
   HEALTH = 'health',
   CARE = 'care',
   PLAN = 'plan',
 }
 
 /**
- * Log level configuration by environment
+ * Base logger configuration for tests
+ * This provides a foundation that can be extended for specific test scenarios
  */
-export const LOG_LEVELS_BY_ENV = {
-  [TestEnvironment.DEVELOPMENT]: LogLevel.DEBUG,
-  [TestEnvironment.STAGING]: LogLevel.INFO,
-  [TestEnvironment.PRODUCTION]: LogLevel.WARN,
+export const BASE_LOGGER_CONFIG: LoggerConfig = {
+  level: LogLevel.INFO,
+  formatter: FormatterType.JSON,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: true,
+        prettyPrint: true,
+        timestamp: true,
+      },
+    },
+  ],
+  context: {
+    application: 'austa-superapp',
+    service: TEST_SERVICE_INFO.name,
+    version: TEST_SERVICE_INFO.version,
+    environment: TestEnvironment.TEST,
+    additional: {
+      testing: true,
+    },
+  },
+  enableTracing: true,
+  redactSensitiveData: true,
+  sensitiveFields: ['password', 'token', 'secret', 'authorization', 'cookie'],
+  maxObjectDepth: 5,
+  handleExceptions: true,
+  exitOnError: false,
+  silent: false,
 };
 
 /**
- * Transport types available for testing
+ * Development environment logger configuration
  */
-export enum TestTransportType {
-  CONSOLE = 'console',
-  FILE = 'file',
-  CLOUDWATCH = 'cloudwatch',
-  NONE = 'none',
-}
-
-/**
- * Default transport configuration for each environment
- */
-export const DEFAULT_TRANSPORTS_BY_ENV = {
-  [TestEnvironment.DEVELOPMENT]: [TestTransportType.CONSOLE],
-  [TestEnvironment.STAGING]: [TestTransportType.CONSOLE, TestTransportType.FILE],
-  [TestEnvironment.PRODUCTION]: [TestTransportType.CONSOLE, TestTransportType.CLOUDWATCH],
+export const DEVELOPMENT_LOGGER_CONFIG: LoggerConfig = {
+  ...BASE_LOGGER_CONFIG,
+  level: LogLevel.DEBUG,
+  formatter: FormatterType.TEXT,
+  context: {
+    ...BASE_LOGGER_CONFIG.context,
+    environment: TestEnvironment.DEVELOPMENT,
+  },
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: true,
+        prettyPrint: true,
+        timestamp: true,
+      },
+    },
+    {
+      type: TransportType.FILE,
+      file: {
+        filename: './logs/test-dev.log',
+        maxSize: 1024 * 1024, // 1MB
+        maxFiles: 3,
+        compress: false,
+        append: true,
+      },
+    },
+  ],
+  journeys: {
+    health: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Minha Saúde',
+      },
+    },
+    care: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Cuidar-me Agora',
+      },
+    },
+    plan: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Meu Plano & Benefícios',
+      },
+    },
+  },
 };
 
 /**
- * Formatter types available for testing
+ * Staging environment logger configuration
  */
-export enum TestFormatterType {
-  JSON = 'json',
-  TEXT = 'text',
-  CLOUDWATCH = 'cloudwatch',
-}
-
-/**
- * Default formatter configuration for each environment
- */
-export const DEFAULT_FORMATTERS_BY_ENV = {
-  [TestEnvironment.DEVELOPMENT]: TestFormatterType.TEXT,
-  [TestEnvironment.STAGING]: TestFormatterType.JSON,
-  [TestEnvironment.PRODUCTION]: TestFormatterType.CLOUDWATCH,
+export const STAGING_LOGGER_CONFIG: LoggerConfig = {
+  ...BASE_LOGGER_CONFIG,
+  level: LogLevel.INFO,
+  formatter: FormatterType.JSON,
+  context: {
+    ...BASE_LOGGER_CONFIG.context,
+    environment: TestEnvironment.STAGING,
+  },
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: true,
+      },
+    },
+    {
+      type: TransportType.FILE,
+      file: {
+        filename: './logs/test-staging.log',
+        maxSize: 5 * 1024 * 1024, // 5MB
+        maxFiles: 5,
+        compress: true,
+        append: true,
+      },
+    },
+    {
+      type: TransportType.CLOUDWATCH,
+      cloudWatch: {
+        region: 'us-east-1',
+        logGroupName: '/austa-superapp/test-logging-service',
+        logStreamName: 'staging',
+        retries: 3,
+        batchSize: 10000,
+        flushInterval: 1000,
+      },
+    },
+  ],
+  journeys: {
+    health: {
+      level: LogLevel.INFO,
+      context: {
+        journeyName: 'Minha Saúde',
+      },
+    },
+    care: {
+      level: LogLevel.INFO,
+      context: {
+        journeyName: 'Cuidar-me Agora',
+      },
+    },
+    plan: {
+      level: LogLevel.INFO,
+      context: {
+        journeyName: 'Meu Plano & Benefícios',
+      },
+    },
+  },
 };
 
 /**
- * Feature flags for conditional logging behavior tests
+ * Production environment logger configuration
+ */
+export const PRODUCTION_LOGGER_CONFIG: LoggerConfig = {
+  ...BASE_LOGGER_CONFIG,
+  level: LogLevel.WARN,
+  formatter: FormatterType.JSON,
+  context: {
+    ...BASE_LOGGER_CONFIG.context,
+    environment: TestEnvironment.PRODUCTION,
+  },
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.ERROR,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: true,
+      },
+    },
+    {
+      type: TransportType.CLOUDWATCH,
+      cloudWatch: {
+        region: 'us-east-1',
+        logGroupName: '/austa-superapp/test-logging-service',
+        logStreamName: 'production',
+        retries: 5,
+        batchSize: 10000,
+        flushInterval: 1000,
+      },
+    },
+  ],
+  redactSensitiveData: true,
+  sensitiveFields: [
+    'password',
+    'token',
+    'secret',
+    'authorization',
+    'cookie',
+    'ssn',
+    'creditCard',
+    'healthId',
+  ],
+  maxObjectDepth: 3,
+  handleExceptions: true,
+  exitOnError: true,
+  journeys: {
+    health: {
+      level: LogLevel.WARN,
+      context: {
+        journeyName: 'Minha Saúde',
+      },
+    },
+    care: {
+      level: LogLevel.WARN,
+      context: {
+        journeyName: 'Cuidar-me Agora',
+      },
+    },
+    plan: {
+      level: LogLevel.WARN,
+      context: {
+        journeyName: 'Meu Plano & Benefícios',
+      },
+    },
+  },
+};
+
+/**
+ * Test-specific logger configuration with memory transport for assertions
+ */
+export const TEST_LOGGER_CONFIG: LoggerConfig = {
+  ...BASE_LOGGER_CONFIG,
+  level: LogLevel.DEBUG,
+  formatter: FormatterType.JSON,
+  context: {
+    ...BASE_LOGGER_CONFIG.context,
+    environment: TestEnvironment.TEST,
+    additional: {
+      testing: true,
+      testSuite: 'e2e',
+    },
+  },
+  // In-memory transport is handled by the LoggerModule.forRoot({ useTestTransport: true })
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: true,
+      },
+    },
+  ],
+  silent: false, // Ensure logs are captured for assertions
+  journeys: {
+    health: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Minha Saúde',
+      },
+    },
+    care: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Cuidar-me Agora',
+      },
+    },
+    plan: {
+      level: LogLevel.DEBUG,
+      context: {
+        journeyName: 'Meu Plano & Benefícios',
+      },
+    },
+  },
+};
+
+/**
+ * Feature flags for testing conditional logging behavior
  */
 export const TEST_FEATURE_FLAGS = {
   enableTracing: true,
-  enableRequestLogging: true,
-  enableResponseLogging: true,
-  enableErrorLogging: true,
-  enableSanitization: true,
   enableJourneyContext: true,
-  enablePerformanceLogging: true,
+  enableCloudWatchTransport: false,
+  enableFileTransport: true,
+  enableRedaction: true,
+  enableExceptionHandling: true,
 };
 
 /**
- * Test file transport configuration
- */
-export const TEST_FILE_TRANSPORT_CONFIG = {
-  directory: './logs',
-  filename: 'test-app-%DATE%.log',
-  datePattern: 'YYYY-MM-DD',
-  maxSize: '20m',
-  maxFiles: '14d',
-  zippedArchive: true,
-};
-
-/**
- * Test CloudWatch transport configuration
- */
-export const TEST_CLOUDWATCH_TRANSPORT_CONFIG = {
-  logGroupName: '/austa/test-logging',
-  logStreamName: 'test-stream-{date}',
-  awsRegion: 'us-east-1',
-  messageFormatter: TestFormatterType.CLOUDWATCH,
-  retentionInDays: 14,
-};
-
-/**
- * Test environment variables for different test scenarios
+ * Environment variables for different test scenarios
  */
 export const TEST_ENV_VARS = {
-  [TestEnvironment.DEVELOPMENT]: {
+  development: {
+    NODE_ENV: TestEnvironment.DEVELOPMENT,
     LOG_LEVEL: 'debug',
     LOG_FORMAT: 'text',
-    LOG_TRANSPORTS: 'console',
-    ENABLE_REQUEST_LOGGING: 'true',
-    ENABLE_RESPONSE_LOGGING: 'true',
+    LOG_TRANSPORTS: 'console,file',
     ENABLE_TRACING: 'true',
+    ENABLE_CLOUDWATCH: 'false',
+    SERVICE_NAME: TEST_SERVICE_INFO.name,
+    SERVICE_VERSION: TEST_SERVICE_INFO.version,
   },
-  [TestEnvironment.STAGING]: {
+  staging: {
+    NODE_ENV: TestEnvironment.STAGING,
     LOG_LEVEL: 'info',
     LOG_FORMAT: 'json',
-    LOG_TRANSPORTS: 'console,file',
-    ENABLE_REQUEST_LOGGING: 'true',
-    ENABLE_RESPONSE_LOGGING: 'true',
+    LOG_TRANSPORTS: 'console,file,cloudwatch',
     ENABLE_TRACING: 'true',
+    ENABLE_CLOUDWATCH: 'true',
+    SERVICE_NAME: TEST_SERVICE_INFO.name,
+    SERVICE_VERSION: TEST_SERVICE_INFO.version,
+    AWS_REGION: 'us-east-1',
+    CLOUDWATCH_LOG_GROUP: '/austa-superapp/test-logging-service',
+    CLOUDWATCH_LOG_STREAM: 'staging',
   },
-  [TestEnvironment.PRODUCTION]: {
+  production: {
+    NODE_ENV: TestEnvironment.PRODUCTION,
     LOG_LEVEL: 'warn',
     LOG_FORMAT: 'json',
     LOG_TRANSPORTS: 'console,cloudwatch',
-    ENABLE_REQUEST_LOGGING: 'false',
-    ENABLE_RESPONSE_LOGGING: 'false',
     ENABLE_TRACING: 'true',
+    ENABLE_CLOUDWATCH: 'true',
+    SERVICE_NAME: TEST_SERVICE_INFO.name,
+    SERVICE_VERSION: TEST_SERVICE_INFO.version,
+    AWS_REGION: 'us-east-1',
+    CLOUDWATCH_LOG_GROUP: '/austa-superapp/test-logging-service',
+    CLOUDWATCH_LOG_STREAM: 'production',
+    EXIT_ON_ERROR: 'true',
+  },
+  test: {
+    NODE_ENV: TestEnvironment.TEST,
+    LOG_LEVEL: 'debug',
+    LOG_FORMAT: 'json',
+    LOG_TRANSPORTS: 'console',
+    ENABLE_TRACING: 'true',
+    ENABLE_CLOUDWATCH: 'false',
+    SERVICE_NAME: TEST_SERVICE_INFO.name,
+    SERVICE_VERSION: TEST_SERVICE_INFO.version,
+    CAPTURE_LOGS_FOR_TESTING: 'true',
+    SILENT_LOGS: 'false',
   },
 };
 
 /**
- * Journey-specific log level overrides for testing
+ * Test data for journey-specific logging
  */
-export const JOURNEY_LOG_LEVEL_OVERRIDES = {
-  [TestJourney.HEALTH]: {
-    [TestEnvironment.DEVELOPMENT]: LogLevel.DEBUG,
-    [TestEnvironment.STAGING]: LogLevel.DEBUG,
-    [TestEnvironment.PRODUCTION]: LogLevel.INFO,
+export const TEST_JOURNEY_DATA = {
+  health: {
+    journeyId: 'health-journey-123',
+    journeyName: 'Minha Saúde',
+    userId: 'user-123',
+    metrics: ['steps', 'heartRate', 'sleep'],
+    devices: ['fitbit', 'appleHealth'],
+    goals: ['10000 steps', '8 hours sleep'],
   },
-  [TestJourney.CARE]: {
-    [TestEnvironment.DEVELOPMENT]: LogLevel.DEBUG,
-    [TestEnvironment.STAGING]: LogLevel.INFO,
-    [TestEnvironment.PRODUCTION]: LogLevel.INFO,
+  care: {
+    journeyId: 'care-journey-456',
+    journeyName: 'Cuidar-me Agora',
+    userId: 'user-456',
+    appointments: ['checkup', 'specialist'],
+    providers: ['dr-smith', 'dr-jones'],
+    medications: ['medication-1', 'medication-2'],
   },
-  [TestJourney.PLAN]: {
-    [TestEnvironment.DEVELOPMENT]: LogLevel.DEBUG,
-    [TestEnvironment.STAGING]: LogLevel.INFO,
-    [TestEnvironment.PRODUCTION]: LogLevel.WARN,
+  plan: {
+    journeyId: 'plan-journey-789',
+    journeyName: 'Meu Plano & Benefícios',
+    userId: 'user-789',
+    planId: 'premium-plan',
+    benefits: ['dental', 'vision', 'wellness'],
+    claims: ['claim-1', 'claim-2'],
   },
 };
 
 /**
- * Sample context data for testing context enrichment
+ * Test data for error scenarios
  */
-export const TEST_CONTEXT_DATA = {
-  requestId: 'test-request-123',
-  userId: 'test-user-456',
-  sessionId: 'test-session-789',
-  journeyId: 'test-journey-abc',
-  traceId: 'test-trace-def',
-  spanId: 'test-span-ghi',
+export const TEST_ERROR_DATA = {
+  validation: {
+    type: 'validation',
+    message: 'Validation failed',
+    details: { field: 'testField', error: 'Invalid value' },
+  },
+  business: {
+    type: 'business',
+    message: 'Business rule violation',
+    details: { rule: 'businessRule', context: 'operation' },
+  },
+  technical: {
+    type: 'technical',
+    message: 'Internal server error',
+    details: { component: 'database', operation: 'query' },
+  },
+  external: {
+    type: 'external',
+    message: 'External service unavailable',
+    details: { service: 'payment-gateway', endpoint: '/process' },
+  },
+  http: {
+    type: 'http',
+    message: 'HTTP exception',
+    status: 400,
+    details: { path: '/api/test', method: 'GET' },
+  },
 };
 
 /**
- * Test application configuration for different environments
+ * Test data for trace contexts
  */
-export const TEST_APP_CONFIG = {
-  [TestEnvironment.DEVELOPMENT]: {
-    service: TEST_SERVICE_INFO,
-    environment: TestEnvironment.DEVELOPMENT,
-    logLevel: LOG_LEVELS_BY_ENV[TestEnvironment.DEVELOPMENT],
-    transports: DEFAULT_TRANSPORTS_BY_ENV[TestEnvironment.DEVELOPMENT],
-    formatter: DEFAULT_FORMATTERS_BY_ENV[TestEnvironment.DEVELOPMENT],
-    features: TEST_FEATURE_FLAGS,
-    journeyOverrides: JOURNEY_LOG_LEVEL_OVERRIDES,
-  },
-  [TestEnvironment.STAGING]: {
-    service: TEST_SERVICE_INFO,
-    environment: TestEnvironment.STAGING,
-    logLevel: LOG_LEVELS_BY_ENV[TestEnvironment.STAGING],
-    transports: DEFAULT_TRANSPORTS_BY_ENV[TestEnvironment.STAGING],
-    formatter: DEFAULT_FORMATTERS_BY_ENV[TestEnvironment.STAGING],
-    features: {
-      ...TEST_FEATURE_FLAGS,
-      enablePerformanceLogging: false,
-    },
-    journeyOverrides: JOURNEY_LOG_LEVEL_OVERRIDES,
-  },
-  [TestEnvironment.PRODUCTION]: {
-    service: TEST_SERVICE_INFO,
-    environment: TestEnvironment.PRODUCTION,
-    logLevel: LOG_LEVELS_BY_ENV[TestEnvironment.PRODUCTION],
-    transports: DEFAULT_TRANSPORTS_BY_ENV[TestEnvironment.PRODUCTION],
-    formatter: DEFAULT_FORMATTERS_BY_ENV[TestEnvironment.PRODUCTION],
-    features: {
-      ...TEST_FEATURE_FLAGS,
-      enableRequestLogging: false,
-      enableResponseLogging: false,
-      enablePerformanceLogging: false,
-    },
-    journeyOverrides: JOURNEY_LOG_LEVEL_OVERRIDES,
-  },
+export const TEST_TRACE_DATA = {
+  traceId: '1234567890abcdef1234567890abcdef',
+  spanId: 'abcdef1234567890',
+  parentSpanId: '1234567890abcdef',
+  serviceName: TEST_SERVICE_INFO.name,
+  operationName: 'test-operation',
 };

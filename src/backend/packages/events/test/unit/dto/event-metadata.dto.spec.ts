@@ -1,8 +1,9 @@
 /**
  * @file event-metadata.dto.spec.ts
- * @description Unit tests for the EventMetadataDto class that validate the metadata structure used across all journey events.
- * Tests verify origin validation, version format, correlation ID structure, and additional context property validation.
- * These tests ensure consistent metadata handling across services and provide the foundation for event correlation and debugging.
+ * @description Unit tests for the EventMetadataDto class that validate the metadata structure
+ * used across all journey events. Tests verify origin validation, version format, correlation ID
+ * structure, and additional context property validation. These tests ensure consistent metadata
+ * handling across services and provide the foundation for event correlation and debugging.
  */
 
 import { validate } from 'class-validator';
@@ -11,705 +12,516 @@ import { v4 as uuidv4 } from 'uuid';
 
 import {
   EventMetadataDto,
-  ErrorMetadataDto,
-  Journey,
-  EventSource,
+  EventOriginDto,
+  EventVersionDto,
   createEventMetadata,
-  createJourneyMetadata,
-  createErrorMetadata
+  createCorrelatedEventMetadata,
+  extractCorrelationContext
 } from '../../../src/dto/event-metadata.dto';
 
-describe('EventMetadataDto', () => {
-  describe('constructor', () => {
-    it('should create an empty metadata object when no parameters are provided', () => {
-      const metadata = new EventMetadataDto();
-      expect(metadata).toBeDefined();
-      expect(metadata.correlationId).toBeUndefined();
-      expect(metadata.traceId).toBeUndefined();
-      expect(metadata.userId).toBeUndefined();
-      expect(metadata.journey).toBeUndefined();
-      expect(metadata.source).toBeUndefined();
-      expect(metadata.timestamp).toBeUndefined();
-      expect(metadata.context).toBeUndefined();
-      expect(metadata.error).toBeUndefined();
-    });
+import { createTestEventMetadata } from './test-utils';
 
-    it('should create a metadata object with provided values', () => {
-      const correlationId = uuidv4();
-      const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
-      const userId = 'user-123';
-      const journey = Journey.HEALTH;
-      const source = EventSource.HEALTH_SERVICE;
-      const timestamp = new Date().toISOString();
-      const context = { requestId: 'req-456' };
-
-      const metadata = new EventMetadataDto({
-        correlationId,
-        traceId,
-        userId,
-        journey,
-        source,
-        timestamp,
-        context
-      });
-
-      expect(metadata.correlationId).toBe(correlationId);
-      expect(metadata.traceId).toBe(traceId);
-      expect(metadata.userId).toBe(userId);
-      expect(metadata.journey).toBe(journey);
-      expect(metadata.source).toBe(source);
-      expect(metadata.timestamp).toBe(timestamp);
-      expect(metadata.context).toEqual(context);
-      expect(metadata.error).toBeUndefined();
-    });
-  });
-
+describe('EventVersionDto', () => {
   describe('validation', () => {
-    it('should validate a valid metadata object', async () => {
-      const correlationId = uuidv4();
-      const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
-      const userId = 'user-123';
-      const journey = Journey.HEALTH;
-      const source = EventSource.HEALTH_SERVICE;
-      const timestamp = new Date().toISOString();
-      const context = { requestId: 'req-456' };
+    it('should validate a valid version', async () => {
+      const version = new EventVersionDto();
+      version.major = '1';
+      version.minor = '0';
+      version.patch = '0';
 
-      const metadata = new EventMetadataDto({
-        correlationId,
-        traceId,
-        userId,
-        journey,
-        source,
-        timestamp,
-        context
-      });
-
-      const errors = await validate(metadata);
+      const errors = await validate(version);
       expect(errors.length).toBe(0);
     });
 
-    it('should validate an empty metadata object', async () => {
-      const metadata = new EventMetadataDto();
-      const errors = await validate(metadata);
-      expect(errors.length).toBe(0);
+    it('should reject non-numeric major version', async () => {
+      const version = new EventVersionDto();
+      version.major = 'a';
+      version.minor = '0';
+      version.patch = '0';
+
+      const errors = await validate(version);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('matches');
     });
 
-    it('should fail validation for invalid correlationId format', async () => {
-      const metadata = new EventMetadataDto({
-        correlationId: 'not-a-uuid'
-      });
+    it('should reject non-numeric minor version', async () => {
+      const version = new EventVersionDto();
+      version.major = '1';
+      version.minor = 'a';
+      version.patch = '0';
 
-      const errors = await validate(metadata);
+      const errors = await validate(version);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('correlationId');
-      expect(errors[0].constraints).toHaveProperty('isUuid');
+      expect(errors[0].constraints).toHaveProperty('matches');
     });
 
-    it('should fail validation for invalid journey value', async () => {
-      const metadata = plainToInstance(EventMetadataDto, {
-        journey: 'invalid-journey'
-      });
+    it('should reject non-numeric patch version', async () => {
+      const version = new EventVersionDto();
+      version.major = '1';
+      version.minor = '0';
+      version.patch = 'a';
 
-      const errors = await validate(metadata);
+      const errors = await validate(version);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('journey');
-      expect(errors[0].constraints).toHaveProperty('isEnum');
+      expect(errors[0].constraints).toHaveProperty('matches');
     });
 
-    it('should fail validation for invalid source value', async () => {
-      const metadata = plainToInstance(EventMetadataDto, {
-        source: 'invalid-source'
-      });
-
-      const errors = await validate(metadata);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('source');
-      expect(errors[0].constraints).toHaveProperty('isEnum');
-    });
-
-    it('should fail validation for invalid timestamp format', async () => {
-      const metadata = new EventMetadataDto({
-        timestamp: 'not-an-iso-date'
-      });
-
-      const errors = await validate(metadata);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('timestamp');
-      expect(errors[0].constraints).toHaveProperty('isIso8601');
-    });
-
-    it('should fail validation for non-object context', async () => {
-      const metadata = new EventMetadataDto({
-        context: 'not-an-object' as any
-      });
-
-      const errors = await validate(metadata);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('context');
-      expect(errors[0].constraints).toHaveProperty('isObject');
+    it('should use default values if not provided', () => {
+      const version = new EventVersionDto();
+      expect(version.major).toBe('1');
+      expect(version.minor).toBe('0');
+      expect(version.patch).toBe('0');
     });
   });
 
-  describe('with methods', () => {
-    let baseMetadata: EventMetadataDto;
+  describe('toString', () => {
+    it('should return the version as a string in semver format', () => {
+      const version = new EventVersionDto();
+      version.major = '2';
+      version.minor = '3';
+      version.patch = '4';
 
-    beforeEach(() => {
-      baseMetadata = new EventMetadataDto({
-        userId: 'user-123',
-        source: EventSource.HEALTH_SERVICE
-      });
-    });
-
-    it('should create a new instance with additional metadata using with()', () => {
-      const additionalMetadata = {
-        correlationId: uuidv4(),
-        traceId: '4bf92f3577b34da6a3ce929d0e0e4736'
-      };
-
-      const newMetadata = baseMetadata.with(additionalMetadata);
-
-      // Should be a new instance
-      expect(newMetadata).not.toBe(baseMetadata);
-
-      // Should have original properties
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-
-      // Should have new properties
-      expect(newMetadata.correlationId).toBe(additionalMetadata.correlationId);
-      expect(newMetadata.traceId).toBe(additionalMetadata.traceId);
-    });
-
-    it('should merge context objects when both exist', () => {
-      const metadataWithContext = new EventMetadataDto({
-        userId: 'user-123',
-        context: { requestId: 'req-456' }
-      });
-
-      const newMetadata = metadataWithContext.with({
-        context: { sessionId: 'session-789' }
-      });
-
-      expect(newMetadata.context).toEqual({
-        requestId: 'req-456',
-        sessionId: 'session-789'
-      });
-    });
-
-    it('should add correlation ID using withCorrelation()', () => {
-      const correlationId = uuidv4();
-      const newMetadata = baseMetadata.withCorrelation(correlationId);
-
-      expect(newMetadata.correlationId).toBe(correlationId);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should add trace ID using withTracing()', () => {
-      const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
-      const newMetadata = baseMetadata.withTracing(traceId);
-
-      expect(newMetadata.traceId).toBe(traceId);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should add user ID using withUser()', () => {
-      const metadataWithoutUser = new EventMetadataDto({
-        source: EventSource.HEALTH_SERVICE
-      });
-
-      const userId = 'new-user-456';
-      const newMetadata = metadataWithoutUser.withUser(userId);
-
-      expect(newMetadata.userId).toBe(userId);
-      expect(newMetadata.source).toBe(metadataWithoutUser.source);
-    });
-
-    it('should add journey using withJourney()', () => {
-      const journey = Journey.CARE;
-      const newMetadata = baseMetadata.withJourney(journey);
-
-      expect(newMetadata.journey).toBe(journey);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should add source using withSource()', () => {
-      const metadataWithoutSource = new EventMetadataDto({
-        userId: 'user-123'
-      });
-
-      const source = EventSource.CARE_SERVICE;
-      const newMetadata = metadataWithoutSource.withSource(source);
-
-      expect(newMetadata.source).toBe(source);
-      expect(newMetadata.userId).toBe(metadataWithoutSource.userId);
-    });
-
-    it('should add error using withError() with ErrorMetadataDto', () => {
-      const error = new ErrorMetadataDto({
-        message: 'Test error',
-        name: 'TestError',
-        code: 'TEST_ERROR'
-      });
-
-      const newMetadata = baseMetadata.withError(error);
-
-      expect(newMetadata.error).toBeDefined();
-      expect(newMetadata.error).toBe(error);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should add error using withError() with Error object', () => {
-      const error = new Error('Test error');
-      error.name = 'TestError';
-
-      const newMetadata = baseMetadata.withError(error);
-
-      expect(newMetadata.error).toBeDefined();
-      expect(newMetadata.error).toBeInstanceOf(ErrorMetadataDto);
-      expect(newMetadata.error.message).toBe(error.message);
-      expect(newMetadata.error.name).toBe(error.name);
-      expect(newMetadata.error.stack).toBe(error.stack);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should add context using withContext()', () => {
-      const context = { requestId: 'req-456' };
-      const newMetadata = baseMetadata.withContext(context);
-
-      expect(newMetadata.context).toEqual(context);
-      expect(newMetadata.userId).toBe(baseMetadata.userId);
-      expect(newMetadata.source).toBe(baseMetadata.source);
-    });
-
-    it('should merge context when using withContext() with existing context', () => {
-      const metadataWithContext = new EventMetadataDto({
-        userId: 'user-123',
-        context: { requestId: 'req-456' }
-      });
-
-      const additionalContext = { sessionId: 'session-789' };
-      const newMetadata = metadataWithContext.withContext(additionalContext);
-
-      expect(newMetadata.context).toEqual({
-        requestId: 'req-456',
-        sessionId: 'session-789'
-      });
-      expect(newMetadata.userId).toBe(metadataWithContext.userId);
+      expect(version.toString()).toBe('2.3.4');
     });
   });
 
-  describe('static methods', () => {
-    describe('fromObject', () => {
-      it('should create metadata from a valid object', () => {
-        const correlationId = uuidv4();
-        const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
-        const userId = 'user-123';
-        const journey = Journey.HEALTH;
-        const source = EventSource.HEALTH_SERVICE;
-        const timestamp = new Date().toISOString();
-        const context = { requestId: 'req-456' };
-        const error = { message: 'Test error', name: 'TestError' };
+  describe('fromString', () => {
+    it('should create a version from a valid version string', () => {
+      const version = EventVersionDto.fromString('2.3.4');
 
-        const obj = {
-          correlationId,
-          traceId,
-          userId,
-          journey,
-          source,
-          timestamp,
-          context,
-          error
-        };
+      expect(version).toBeInstanceOf(EventVersionDto);
+      expect(version.major).toBe('2');
+      expect(version.minor).toBe('3');
+      expect(version.patch).toBe('4');
+    });
 
-        const metadata = EventMetadataDto.fromObject(obj);
+    it('should handle partial version strings', () => {
+      const version1 = EventVersionDto.fromString('2');
+      expect(version1.major).toBe('2');
+      expect(version1.minor).toBe('0');
+      expect(version1.patch).toBe('0');
 
-        expect(metadata).toBeInstanceOf(EventMetadataDto);
-        expect(metadata.correlationId).toBe(correlationId);
-        expect(metadata.traceId).toBe(traceId);
-        expect(metadata.userId).toBe(userId);
-        expect(metadata.journey).toBe(journey);
-        expect(metadata.source).toBe(source);
-        expect(metadata.timestamp).toBe(timestamp);
-        expect(metadata.context).toEqual(context);
-        expect(metadata.error).toBeInstanceOf(ErrorMetadataDto);
-        expect(metadata.error.message).toBe(error.message);
-        expect(metadata.error.name).toBe(error.name);
-      });
+      const version2 = EventVersionDto.fromString('2.3');
+      expect(version2.major).toBe('2');
+      expect(version2.minor).toBe('3');
+      expect(version2.patch).toBe('0');
+    });
 
-      it('should handle partial objects', () => {
-        const obj = {
-          correlationId: uuidv4(),
-          userId: 'user-123'
-        };
-
-        const metadata = EventMetadataDto.fromObject(obj);
-
-        expect(metadata).toBeInstanceOf(EventMetadataDto);
-        expect(metadata.correlationId).toBe(obj.correlationId);
-        expect(metadata.userId).toBe(obj.userId);
-        expect(metadata.traceId).toBeUndefined();
-        expect(metadata.journey).toBeUndefined();
-        expect(metadata.source).toBeUndefined();
-        expect(metadata.timestamp).toBeUndefined();
-        expect(metadata.context).toBeUndefined();
-        expect(metadata.error).toBeUndefined();
-      });
-
-      it('should ignore invalid journey values', () => {
-        const obj = {
-          journey: 'invalid-journey'
-        };
-
-        const metadata = EventMetadataDto.fromObject(obj);
-
-        expect(metadata).toBeInstanceOf(EventMetadataDto);
-        expect(metadata.journey).toBeUndefined();
-      });
-
-      it('should ignore invalid source values', () => {
-        const obj = {
-          source: 'invalid-source'
-        };
-
-        const metadata = EventMetadataDto.fromObject(obj);
-
-        expect(metadata).toBeInstanceOf(EventMetadataDto);
-        expect(metadata.source).toBeUndefined();
-      });
-
-      it('should handle empty objects', () => {
-        const metadata = EventMetadataDto.fromObject({});
-
-        expect(metadata).toBeInstanceOf(EventMetadataDto);
-        expect(metadata.correlationId).toBeUndefined();
-        expect(metadata.traceId).toBeUndefined();
-        expect(metadata.userId).toBeUndefined();
-        expect(metadata.journey).toBeUndefined();
-        expect(metadata.source).toBeUndefined();
-        expect(metadata.timestamp).toBeUndefined();
-        expect(metadata.context).toBeUndefined();
-        expect(metadata.error).toBeUndefined();
-      });
+    it('should handle invalid version strings by using defaults', () => {
+      const version = EventVersionDto.fromString('invalid');
+      expect(version.major).toBe('1');
+      expect(version.minor).toBe('0');
+      expect(version.patch).toBe('0');
     });
   });
 });
 
-describe('ErrorMetadataDto', () => {
-  describe('constructor', () => {
-    it('should create an error metadata object with provided values', () => {
-      const message = 'Test error';
-      const name = 'TestError';
-      const code = 'TEST_ERROR';
-      const stack = 'Error: Test error\n    at Test.function';
-      const details = { param: 'value' };
-
-      const errorMetadata = new ErrorMetadataDto({
-        message,
-        name,
-        code,
-        stack,
-        details
-      });
-
-      expect(errorMetadata.message).toBe(message);
-      expect(errorMetadata.name).toBe(name);
-      expect(errorMetadata.code).toBe(code);
-      expect(errorMetadata.stack).toBe(stack);
-      expect(errorMetadata.details).toEqual(details);
-    });
-  });
-
+describe('EventOriginDto', () => {
   describe('validation', () => {
-    it('should validate a valid error metadata object', async () => {
-      const errorMetadata = new ErrorMetadataDto({
-        message: 'Test error',
-        name: 'TestError',
-        code: 'TEST_ERROR',
-        stack: 'Error: Test error\n    at Test.function',
-        details: { param: 'value' }
-      });
+    it('should validate a valid origin with required fields', async () => {
+      const origin = new EventOriginDto();
+      origin.service = 'test-service';
 
-      const errors = await validate(errorMetadata);
+      const errors = await validate(origin);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation for missing message', async () => {
-      const errorMetadata = new ErrorMetadataDto({
-        message: '',
-        name: 'TestError'
-      });
+    it('should reject an origin without a service name', async () => {
+      const origin = new EventOriginDto();
+      // service is not set
 
-      const errors = await validate(errorMetadata);
+      const errors = await validate(origin);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('message');
       expect(errors[0].constraints).toHaveProperty('isNotEmpty');
     });
 
-    it('should fail validation for non-object details', async () => {
-      const errorMetadata = new ErrorMetadataDto({
-        message: 'Test error',
-        details: 'not-an-object' as any
+    it('should validate an origin with all optional fields', async () => {
+      const origin = new EventOriginDto();
+      origin.service = 'test-service';
+      origin.instance = 'test-instance-1';
+      origin.component = 'test-component';
+      origin.context = 'user-initiated';
+
+      const errors = await validate(origin);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject an origin with non-string fields', async () => {
+      const origin = plainToInstance(EventOriginDto, {
+        service: 'test-service',
+        instance: 123, // Should be a string
+        component: 'test-component'
       });
 
-      const errors = await validate(errorMetadata);
+      const errors = await validate(origin);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('details');
-      expect(errors[0].constraints).toHaveProperty('isObject');
-    });
-  });
-
-  describe('static methods', () => {
-    describe('fromObject', () => {
-      it('should create error metadata from a valid object', () => {
-        const obj = {
-          message: 'Test error',
-          name: 'TestError',
-          code: 'TEST_ERROR',
-          stack: 'Error: Test error\n    at Test.function',
-          details: { param: 'value' }
-        };
-
-        const errorMetadata = ErrorMetadataDto.fromObject(obj);
-
-        expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-        expect(errorMetadata.message).toBe(obj.message);
-        expect(errorMetadata.name).toBe(obj.name);
-        expect(errorMetadata.code).toBe(obj.code);
-        expect(errorMetadata.stack).toBe(obj.stack);
-        expect(errorMetadata.details).toEqual(obj.details);
-      });
-
-      it('should use "Unknown error" as default message when missing', () => {
-        const obj = {
-          name: 'TestError',
-          code: 'TEST_ERROR'
-        };
-
-        const errorMetadata = ErrorMetadataDto.fromObject(obj);
-
-        expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-        expect(errorMetadata.message).toBe('Unknown error');
-        expect(errorMetadata.name).toBe(obj.name);
-        expect(errorMetadata.code).toBe(obj.code);
-      });
-
-      it('should handle partial objects', () => {
-        const obj = {
-          message: 'Test error'
-        };
-
-        const errorMetadata = ErrorMetadataDto.fromObject(obj);
-
-        expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-        expect(errorMetadata.message).toBe(obj.message);
-        expect(errorMetadata.name).toBeUndefined();
-        expect(errorMetadata.code).toBeUndefined();
-        expect(errorMetadata.stack).toBeUndefined();
-        expect(errorMetadata.details).toBeUndefined();
-      });
-    });
-
-    describe('fromError', () => {
-      it('should create error metadata from a standard Error object', () => {
-        const error = new Error('Test error');
-        error.name = 'TestError';
-
-        const errorMetadata = ErrorMetadataDto.fromError(error);
-
-        expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-        expect(errorMetadata.message).toBe(error.message);
-        expect(errorMetadata.name).toBe(error.name);
-        expect(errorMetadata.stack).toBe(error.stack);
-      });
-
-      it('should handle custom error properties', () => {
-        class CustomError extends Error {
-          code: string;
-
-          constructor(message: string, code: string) {
-            super(message);
-            this.name = 'CustomError';
-            this.code = code;
-          }
-        }
-
-        const error = new CustomError('Custom error', 'CUSTOM_ERROR');
-        const errorMetadata = ErrorMetadataDto.fromError(error);
-
-        expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-        expect(errorMetadata.message).toBe(error.message);
-        expect(errorMetadata.name).toBe(error.name);
-        expect(errorMetadata.stack).toBe(error.stack);
-        // Note: code is not automatically copied because it's not a standard Error property
-        expect(errorMetadata.code).toBeUndefined();
-      });
+      expect(errors[0].constraints).toHaveProperty('isString');
     });
   });
 });
 
-describe('Factory Functions', () => {
+describe('EventMetadataDto', () => {
+  describe('validation', () => {
+    it('should validate a minimal metadata object', async () => {
+      const metadata = new EventMetadataDto();
+      
+      const errors = await validate(metadata);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate a complete metadata object', async () => {
+      const metadata = new EventMetadataDto();
+      metadata.eventId = uuidv4();
+      metadata.correlationId = uuidv4();
+      metadata.parentEventId = uuidv4();
+      metadata.sessionId = 'session-123';
+      metadata.requestId = 'request-456';
+      metadata.timestamp = new Date();
+      metadata.version = new EventVersionDto();
+      metadata.origin = new EventOriginDto();
+      metadata.origin.service = 'test-service';
+      metadata.context = { additionalInfo: 'test' };
+
+      const errors = await validate(metadata);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject an invalid UUID for eventId', async () => {
+      const metadata = new EventMetadataDto();
+      metadata.eventId = 'not-a-uuid';
+
+      const errors = await validate(metadata);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('isUuid');
+    });
+
+    it('should validate nested objects', async () => {
+      const metadata = new EventMetadataDto();
+      metadata.version = new EventVersionDto();
+      metadata.version.major = 'not-a-number'; // Invalid
+      
+      metadata.origin = new EventOriginDto();
+      // Missing required service field
+
+      const errors = await validate(metadata, { validationError: { target: false } });
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Find the version validation error
+      const versionErrors = errors.find(e => e.property === 'version');
+      expect(versionErrors).toBeDefined();
+      expect(versionErrors.children.length).toBeGreaterThan(0);
+      
+      // Find the origin validation error
+      const originErrors = errors.find(e => e.property === 'origin');
+      expect(originErrors).toBeDefined();
+      expect(originErrors.children.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('constructor', () => {
+    it('should create a metadata object with default values', () => {
+      const metadata = new EventMetadataDto();
+      
+      expect(metadata.timestamp).toBeInstanceOf(Date);
+      expect(metadata.version).toBeInstanceOf(EventVersionDto);
+      expect(metadata.version.major).toBe('1');
+      expect(metadata.version.minor).toBe('0');
+      expect(metadata.version.patch).toBe('0');
+    });
+
+    it('should create a metadata object with provided values', () => {
+      const now = new Date();
+      const version = new EventVersionDto();
+      version.major = '2';
+      version.minor = '0';
+      version.patch = '0';
+      
+      const metadata = new EventMetadataDto({
+        eventId: 'e52889e4-2d69-4e9c-9c3e-5d7b8d173a0e',
+        correlationId: 'c52889e4-2d69-4e9c-9c3e-5d7b8d173a0e',
+        timestamp: now,
+        version: version
+      });
+      
+      expect(metadata.eventId).toBe('e52889e4-2d69-4e9c-9c3e-5d7b8d173a0e');
+      expect(metadata.correlationId).toBe('c52889e4-2d69-4e9c-9c3e-5d7b8d173a0e');
+      expect(metadata.timestamp).toBe(now);
+      expect(metadata.version).toBe(version);
+      expect(metadata.version.major).toBe('2');
+    });
+
+    it('should set default timestamp if not provided', () => {
+      const beforeCreation = new Date();
+      const metadata = new EventMetadataDto({});
+      const afterCreation = new Date();
+      
+      expect(metadata.timestamp).toBeInstanceOf(Date);
+      expect(metadata.timestamp.getTime()).toBeGreaterThanOrEqual(beforeCreation.getTime());
+      expect(metadata.timestamp.getTime()).toBeLessThanOrEqual(afterCreation.getTime());
+    });
+
+    it('should set default version if not provided', () => {
+      const metadata = new EventMetadataDto({});
+      
+      expect(metadata.version).toBeInstanceOf(EventVersionDto);
+      expect(metadata.version.major).toBe('1');
+      expect(metadata.version.minor).toBe('0');
+      expect(metadata.version.patch).toBe('0');
+    });
+  });
+
+  describe('with', () => {
+    it('should create a copy with specified changes', () => {
+      const original = new EventMetadataDto();
+      original.eventId = uuidv4();
+      original.correlationId = 'original-correlation-id';
+      original.sessionId = 'original-session-id';
+      
+      const modified = original.with({
+        correlationId: 'new-correlation-id',
+        requestId: 'new-request-id'
+      });
+      
+      // Original should be unchanged
+      expect(original.correlationId).toBe('original-correlation-id');
+      expect(original.requestId).toBeUndefined();
+      
+      // Modified should have new values
+      expect(modified.eventId).toBe(original.eventId); // Unchanged
+      expect(modified.correlationId).toBe('new-correlation-id'); // Changed
+      expect(modified.sessionId).toBe('original-session-id'); // Unchanged
+      expect(modified.requestId).toBe('new-request-id'); // Added
+    });
+  });
+
+  describe('createChildMetadata', () => {
+    it('should create child metadata with inherited correlation context', () => {
+      const parent = new EventMetadataDto();
+      parent.eventId = 'parent-event-id';
+      parent.correlationId = 'correlation-id';
+      parent.sessionId = 'session-id';
+      parent.requestId = 'request-id';
+      parent.origin = new EventOriginDto();
+      parent.origin.service = 'test-service';
+      
+      const child = parent.createChildMetadata();
+      
+      expect(child.correlationId).toBe('correlation-id');
+      expect(child.parentEventId).toBe('parent-event-id');
+      expect(child.sessionId).toBe('session-id');
+      expect(child.requestId).toBe('request-id');
+      expect(child.origin).toBe(parent.origin);
+      expect(child.eventId).not.toBe(parent.eventId);
+    });
+
+    it('should use provided parentEventId if specified', () => {
+      const parent = new EventMetadataDto();
+      parent.eventId = 'parent-event-id';
+      parent.correlationId = 'correlation-id';
+      
+      const child = parent.createChildMetadata('custom-parent-id');
+      
+      expect(child.parentEventId).toBe('custom-parent-id');
+    });
+  });
+});
+
+describe('Helper Functions', () => {
   describe('createEventMetadata', () => {
-    it('should create metadata with correlation ID', () => {
-      const correlationId = uuidv4();
-      const metadata = createEventMetadata(correlationId);
-
+    it('should create metadata with the specified service origin', () => {
+      const metadata = createEventMetadata('test-service');
+      
       expect(metadata).toBeInstanceOf(EventMetadataDto);
-      expect(metadata.correlationId).toBe(correlationId);
+      expect(metadata.origin).toBeDefined();
+      expect(metadata.origin.service).toBe('test-service');
     });
 
-    it('should create metadata with correlation ID and additional metadata', () => {
-      const correlationId = uuidv4();
-      const userId = 'user-123';
-      const source = EventSource.HEALTH_SERVICE;
-
-      const metadata = createEventMetadata(correlationId, {
-        userId,
-        source
+    it('should merge additional origin properties', () => {
+      const metadata = createEventMetadata('test-service', {
+        origin: {
+          component: 'test-component',
+          instance: 'test-instance'
+        }
       });
-
-      expect(metadata).toBeInstanceOf(EventMetadataDto);
-      expect(metadata.correlationId).toBe(correlationId);
-      expect(metadata.userId).toBe(userId);
-      expect(metadata.source).toBe(source);
+      
+      expect(metadata.origin.service).toBe('test-service');
+      expect(metadata.origin.component).toBe('test-component');
+      expect(metadata.origin.instance).toBe('test-instance');
     });
 
-    it('should create metadata without correlation ID', () => {
-      const userId = 'user-123';
-      const metadata = createEventMetadata(undefined, { userId });
-
-      expect(metadata).toBeInstanceOf(EventMetadataDto);
-      expect(metadata.correlationId).toBeUndefined();
-      expect(metadata.userId).toBe(userId);
+    it('should include additional metadata options', () => {
+      const correlationId = uuidv4();
+      const metadata = createEventMetadata('test-service', {
+        correlationId,
+        sessionId: 'test-session',
+        context: { additionalInfo: 'test' }
+      });
+      
+      expect(metadata.correlationId).toBe(correlationId);
+      expect(metadata.sessionId).toBe('test-session');
+      expect(metadata.context).toEqual({ additionalInfo: 'test' });
     });
   });
 
-  describe('createJourneyMetadata', () => {
-    it('should create metadata with journey', () => {
-      const journey = Journey.HEALTH;
-      const metadata = createJourneyMetadata(journey);
-
+  describe('createCorrelatedEventMetadata', () => {
+    it('should create metadata with correlation ID and service', () => {
+      const correlationId = uuidv4();
+      const metadata = createCorrelatedEventMetadata(correlationId, 'test-service');
+      
       expect(metadata).toBeInstanceOf(EventMetadataDto);
-      expect(metadata.journey).toBe(journey);
+      expect(metadata.correlationId).toBe(correlationId);
+      expect(metadata.origin).toBeDefined();
+      expect(metadata.origin.service).toBe('test-service');
     });
 
-    it('should create metadata with journey and additional metadata', () => {
-      const journey = Journey.CARE;
-      const userId = 'user-123';
-      const source = EventSource.CARE_SERVICE;
-
-      const metadata = createJourneyMetadata(journey, {
-        userId,
-        source
+    it('should include additional metadata options', () => {
+      const correlationId = uuidv4();
+      const metadata = createCorrelatedEventMetadata(correlationId, 'test-service', {
+        sessionId: 'test-session',
+        requestId: 'test-request',
+        context: { additionalInfo: 'test' }
       });
-
-      expect(metadata).toBeInstanceOf(EventMetadataDto);
-      expect(metadata.journey).toBe(journey);
-      expect(metadata.userId).toBe(userId);
-      expect(metadata.source).toBe(source);
+      
+      expect(metadata.correlationId).toBe(correlationId);
+      expect(metadata.origin.service).toBe('test-service');
+      expect(metadata.sessionId).toBe('test-session');
+      expect(metadata.requestId).toBe('test-request');
+      expect(metadata.context).toEqual({ additionalInfo: 'test' });
     });
   });
 
-  describe('createErrorMetadata', () => {
-    it('should create error metadata from Error object', () => {
-      const error = new Error('Test error');
-      error.name = 'TestError';
-
-      const errorMetadata = createErrorMetadata(error);
-
-      expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-      expect(errorMetadata.message).toBe(error.message);
-      expect(errorMetadata.name).toBe(error.name);
-      expect(errorMetadata.stack).toBe(error.stack);
+  describe('extractCorrelationContext', () => {
+    it('should extract correlation context from metadata', () => {
+      const metadata = new EventMetadataDto();
+      metadata.correlationId = 'correlation-id';
+      metadata.sessionId = 'session-id';
+      metadata.requestId = 'request-id';
+      
+      const context = extractCorrelationContext(metadata);
+      
+      expect(context).toEqual({
+        correlationId: 'correlation-id',
+        sessionId: 'session-id',
+        requestId: 'request-id'
+      });
     });
 
-    it('should create error metadata with additional details', () => {
-      const error = new Error('Test error');
-      const details = { requestId: 'req-123', userId: 'user-456' };
-
-      const errorMetadata = createErrorMetadata(error, details);
-
-      expect(errorMetadata).toBeInstanceOf(ErrorMetadataDto);
-      expect(errorMetadata.message).toBe(error.message);
-      expect(errorMetadata.details).toEqual(details);
+    it('should handle missing correlation properties', () => {
+      const metadata = new EventMetadataDto();
+      metadata.correlationId = 'correlation-id';
+      // sessionId and requestId are not set
+      
+      const context = extractCorrelationContext(metadata);
+      
+      expect(context).toEqual({
+        correlationId: 'correlation-id',
+        sessionId: undefined,
+        requestId: undefined
+      });
     });
   });
 });
 
 describe('Integration with Distributed Tracing', () => {
-  it('should support correlation IDs for request tracing', () => {
-    // Simulate incoming request with correlation ID
+  it('should support correlation ID propagation across services', () => {
+    // Simulate a request coming into the first service
+    const requestId = 'req-' + uuidv4().substring(0, 8);
     const correlationId = uuidv4();
-    const incomingMetadata = createEventMetadata(correlationId, {
-      source: EventSource.API_GATEWAY
+    
+    // First service creates event metadata
+    const serviceAMetadata = createCorrelatedEventMetadata(correlationId, 'service-a', {
+      requestId
     });
-
-    // Simulate passing correlation ID to downstream service
-    const healthServiceMetadata = incomingMetadata.withSource(EventSource.HEALTH_SERVICE);
-    expect(healthServiceMetadata.correlationId).toBe(correlationId);
-    expect(healthServiceMetadata.source).toBe(EventSource.HEALTH_SERVICE);
-
-    // Simulate passing correlation ID to another downstream service
-    const gamificationMetadata = healthServiceMetadata.withSource(EventSource.GAMIFICATION_ENGINE);
-    expect(gamificationMetadata.correlationId).toBe(correlationId);
-    expect(gamificationMetadata.source).toBe(EventSource.GAMIFICATION_ENGINE);
+    
+    // Event is processed and a new event is created in service B
+    const context = extractCorrelationContext(serviceAMetadata);
+    const serviceBMetadata = createEventMetadata('service-b', {
+      ...context,
+      parentEventId: serviceAMetadata.eventId
+    });
+    
+    // Event is processed and a new event is created in service C
+    const serviceCMetadata = serviceBMetadata.createChildMetadata();
+    
+    // Verify correlation context is maintained
+    expect(serviceBMetadata.correlationId).toBe(correlationId);
+    expect(serviceBMetadata.requestId).toBe(requestId);
+    expect(serviceBMetadata.parentEventId).toBe(serviceAMetadata.eventId);
+    
+    expect(serviceCMetadata.correlationId).toBe(correlationId);
+    expect(serviceCMetadata.requestId).toBe(requestId);
+    expect(serviceCMetadata.parentEventId).toBe(serviceBMetadata.eventId);
   });
 
-  it('should support OpenTelemetry trace IDs', () => {
-    // Simulate incoming request with trace ID
-    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
-    const incomingMetadata = new EventMetadataDto({
-      traceId,
-      source: EventSource.API_GATEWAY
-    });
-
-    // Simulate passing trace ID to downstream service
-    const healthServiceMetadata = incomingMetadata.withSource(EventSource.HEALTH_SERVICE);
-    expect(healthServiceMetadata.traceId).toBe(traceId);
-
-    // Simulate adding correlation ID while preserving trace ID
-    const correlationId = uuidv4();
-    const enhancedMetadata = healthServiceMetadata.withCorrelation(correlationId);
-    expect(enhancedMetadata.traceId).toBe(traceId);
-    expect(enhancedMetadata.correlationId).toBe(correlationId);
+  it('should support event chains with parent-child relationships', () => {
+    // Create a root event
+    const rootMetadata = createEventMetadata('root-service');
+    rootMetadata.eventId = 'root-event-id';
+    rootMetadata.correlationId = 'correlation-id';
+    
+    // Create a chain of child events
+    const child1Metadata = rootMetadata.createChildMetadata();
+    child1Metadata.eventId = 'child1-event-id';
+    
+    const child2Metadata = child1Metadata.createChildMetadata();
+    child2Metadata.eventId = 'child2-event-id';
+    
+    const child3Metadata = child2Metadata.createChildMetadata();
+    child3Metadata.eventId = 'child3-event-id';
+    
+    // Verify parent-child relationships
+    expect(child1Metadata.parentEventId).toBe('root-event-id');
+    expect(child2Metadata.parentEventId).toBe('child1-event-id');
+    expect(child3Metadata.parentEventId).toBe('child2-event-id');
+    
+    // Verify correlation ID is maintained
+    expect(child1Metadata.correlationId).toBe('correlation-id');
+    expect(child2Metadata.correlationId).toBe('correlation-id');
+    expect(child3Metadata.correlationId).toBe('correlation-id');
   });
 
-  it('should support error propagation with context', () => {
-    // Simulate initial metadata
+  it('should support complex event processing scenarios', () => {
+    // Simulate a user request that triggers multiple events across services
+    const requestId = 'req-' + uuidv4().substring(0, 8);
+    const sessionId = 'session-' + uuidv4().substring(0, 8);
     const correlationId = uuidv4();
-    const userId = 'user-123';
-    const metadata = createEventMetadata(correlationId, {
-      userId,
-      source: EventSource.HEALTH_SERVICE
+    
+    // API Gateway receives request and creates initial metadata
+    const gatewayMetadata = createCorrelatedEventMetadata(correlationId, 'api-gateway', {
+      requestId,
+      sessionId
     });
-
-    // Simulate error occurring
-    const error = new Error('Database connection failed');
-    const errorContext = { 
-      dbHost: 'db.example.com',
-      operation: 'fetchHealthMetrics'
-    };
-
-    // Add error and context to metadata
-    const errorMetadata = metadata
-      .withError(error)
-      .withContext(errorContext);
-
-    // Verify error information is preserved
-    expect(errorMetadata.correlationId).toBe(correlationId);
-    expect(errorMetadata.userId).toBe(userId);
-    expect(errorMetadata.error).toBeDefined();
-    expect(errorMetadata.error.message).toBe(error.message);
-    expect(errorMetadata.context).toEqual(errorContext);
-
-    // Simulate passing to error handling service
-    const notificationMetadata = errorMetadata.withSource(EventSource.NOTIFICATION_SERVICE);
-    expect(notificationMetadata.error).toBeDefined();
-    expect(notificationMetadata.error.message).toBe(error.message);
-    expect(notificationMetadata.context).toEqual(errorContext);
+    gatewayMetadata.eventId = 'gateway-event-id';
+    
+    // Health service processes request and generates events
+    const healthMetadata = gatewayMetadata.createChildMetadata();
+    healthMetadata.eventId = 'health-event-id';
+    healthMetadata.origin = new EventOriginDto();
+    healthMetadata.origin.service = 'health-service';
+    healthMetadata.origin.component = 'metric-processor';
+    
+    // Gamification service processes health event
+    const gamificationMetadata = healthMetadata.createChildMetadata();
+    gamificationMetadata.eventId = 'gamification-event-id';
+    gamificationMetadata.origin = new EventOriginDto();
+    gamificationMetadata.origin.service = 'gamification-service';
+    
+    // Notification service sends achievement notification
+    const notificationMetadata = gamificationMetadata.createChildMetadata();
+    notificationMetadata.eventId = 'notification-event-id';
+    notificationMetadata.origin = new EventOriginDto();
+    notificationMetadata.origin.service = 'notification-service';
+    
+    // Verify the event chain
+    expect(healthMetadata.parentEventId).toBe('gateway-event-id');
+    expect(gamificationMetadata.parentEventId).toBe('health-event-id');
+    expect(notificationMetadata.parentEventId).toBe('gamification-event-id');
+    
+    // All events should have the same correlation context
+    [gatewayMetadata, healthMetadata, gamificationMetadata, notificationMetadata].forEach(metadata => {
+      expect(metadata.correlationId).toBe(correlationId);
+      expect(metadata.requestId).toBe(requestId);
+      expect(metadata.sessionId).toBe(sessionId);
+    });
   });
 });

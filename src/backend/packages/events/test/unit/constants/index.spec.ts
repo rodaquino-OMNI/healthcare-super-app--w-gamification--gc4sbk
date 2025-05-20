@@ -1,205 +1,275 @@
-/**
- * Unit tests for the constants barrel file
- * 
- * These tests verify that all constants modules are correctly exported and accessible.
- * This ensures that consumers of the events package can properly import constants
- * with the expected structure and that no exports are missing or incorrectly named.
- */
-
-import * as Constants from '../../../src/constants';
+import * as constants from '../../../src/constants';
+import * as configConstants from '../../../src/constants/config.constants';
+import * as errorConstants from '../../../src/constants/errors.constants';
+import * as topicConstants from '../../../src/constants/topics.constants';
 
 describe('Constants Barrel Exports', () => {
-  describe('Namespace Exports', () => {
-    it('should export ErrorConstants namespace', () => {
-      expect(Constants.ErrorConstants).toBeDefined();
-      expect(typeof Constants.ErrorConstants).toBe('object');
+  describe('Config Constants', () => {
+    it('should export all config constants', () => {
+      // Check that all config constants are exported from the barrel
+      Object.keys(configConstants).forEach(key => {
+        expect(constants).toHaveProperty(key);
+        expect(constants[key]).toBe(configConstants[key]);
+      });
     });
 
-    it('should export SerializationConstants namespace', () => {
-      expect(Constants.SerializationConstants).toBeDefined();
-      expect(typeof Constants.SerializationConstants).toBe('object');
+    it('should export CONSUMER_GROUP_PREFIX', () => {
+      expect(constants.CONSUMER_GROUP_PREFIX).toBeDefined();
+      expect(typeof constants.CONSUMER_GROUP_PREFIX).toBe('string');
+      expect(constants.CONSUMER_GROUP_PREFIX).toBe('austa-');
     });
 
-    it('should export ConfigConstants namespace', () => {
-      expect(Constants.ConfigConstants).toBeDefined();
-      expect(typeof Constants.ConfigConstants).toBe('object');
+    it('should export CONSUMER_GROUPS with all service groups', () => {
+      expect(constants.CONSUMER_GROUPS).toBeDefined();
+      expect(constants.CONSUMER_GROUPS.HEALTH_SERVICE).toBe('austa-health-service');
+      expect(constants.CONSUMER_GROUPS.CARE_SERVICE).toBe('austa-care-service');
+      expect(constants.CONSUMER_GROUPS.PLAN_SERVICE).toBe('austa-plan-service');
+      expect(constants.CONSUMER_GROUPS.GAMIFICATION_ENGINE).toBe('austa-gamification-engine');
+      expect(constants.CONSUMER_GROUPS.NOTIFICATION_SERVICE).toBe('austa-notification-service');
     });
 
-    it('should export HeaderConstants namespace', () => {
-      expect(Constants.HeaderConstants).toBeDefined();
-      expect(typeof Constants.HeaderConstants).toBe('object');
+    it('should export batch size constants', () => {
+      expect(constants.DEFAULT_BATCH_SIZE).toBeDefined();
+      expect(constants.DEFAULT_MIN_BATCH_SIZE).toBeDefined();
+      expect(constants.DEFAULT_MAX_BATCH_SIZE).toBeDefined();
+      expect(constants.DEFAULT_BATCH_SIZE).toBe(500);
+      expect(constants.DEFAULT_MIN_BATCH_SIZE).toBe(10);
+      expect(constants.DEFAULT_MAX_BATCH_SIZE).toBe(5000);
     });
 
-    it('should export TypeConstants namespace', () => {
-      expect(Constants.TypeConstants).toBeDefined();
-      expect(typeof Constants.TypeConstants).toBe('object');
+    it('should export retry-related constants', () => {
+      expect(constants.DEFAULT_RETRY_ATTEMPTS).toBeDefined();
+      expect(constants.DEFAULT_RETRY_DELAY).toBeDefined();
+      expect(constants.DEFAULT_MAX_RETRY_DELAY).toBeDefined();
+      expect(constants.DEFAULT_RETRY_JITTER).toBeDefined();
+      expect(constants.DEFAULT_RETRY_ATTEMPTS).toBe(5);
+      expect(constants.DEFAULT_RETRY_DELAY).toBe(1000);
+      expect(constants.DEFAULT_MAX_RETRY_DELAY).toBe(30000);
+      expect(constants.DEFAULT_RETRY_JITTER).toBe(0.2);
     });
 
-    it('should export TopicConstants namespace', () => {
-      expect(Constants.TopicConstants).toBeDefined();
-      expect(typeof Constants.TopicConstants).toBe('object');
-    });
-  });
-
-  describe('Direct Journey Constant Exports', () => {
-    it('should export JOURNEY_IDS constant', () => {
-      expect(Constants.JOURNEY_IDS).toBeDefined();
-      expect(Constants.JOURNEY_IDS.HEALTH).toBe('health');
-      expect(Constants.JOURNEY_IDS.CARE).toBe('care');
-      expect(Constants.JOURNEY_IDS.PLAN).toBe('plan');
+    it('should export circuit breaker constants', () => {
+      expect(constants.DEFAULT_CIRCUIT_BREAKER_THRESHOLD).toBeDefined();
+      expect(constants.DEFAULT_CIRCUIT_BREAKER_RESET_TIMEOUT).toBeDefined();
+      expect(constants.DEFAULT_CIRCUIT_BREAKER_THRESHOLD).toBe(5);
+      expect(constants.DEFAULT_CIRCUIT_BREAKER_RESET_TIMEOUT).toBe(30000);
     });
 
-    it('should export JOURNEY_NAMES constant', () => {
-      expect(Constants.JOURNEY_NAMES).toBeDefined();
-      expect(Constants.JOURNEY_NAMES.HEALTH).toBe('Minha Saúde');
-      expect(Constants.JOURNEY_NAMES.CARE).toBe('Cuidar-me Agora');
-      expect(Constants.JOURNEY_NAMES.PLAN).toBe('Meu Plano & Benefícios');
-    });
-
-    it('should export JOURNEY_COLORS constant', () => {
-      expect(Constants.JOURNEY_COLORS).toBeDefined();
-      expect(Constants.JOURNEY_COLORS.HEALTH).toHaveProperty('primary');
-      expect(Constants.JOURNEY_COLORS.CARE).toHaveProperty('primary');
-      expect(Constants.JOURNEY_COLORS.PLAN).toHaveProperty('primary');
-    });
-
-    it('should export JOURNEY_ICONS constant', () => {
-      expect(Constants.JOURNEY_ICONS).toBeDefined();
-      expect(Constants.JOURNEY_ICONS.HEALTH).toBe('heart-pulse');
-      expect(Constants.JOURNEY_ICONS.CARE).toBe('medical-bag');
-      expect(Constants.JOURNEY_ICONS.PLAN).toBe('shield-account');
-    });
-
-    it('should export JOURNEY_ROUTES constant', () => {
-      expect(Constants.JOURNEY_ROUTES).toBeDefined();
-      expect(Constants.JOURNEY_ROUTES.HEALTH).toBe('/health');
-      expect(Constants.JOURNEY_ROUTES.CARE).toBe('/care');
-      expect(Constants.JOURNEY_ROUTES.PLAN).toBe('/plan');
-    });
-
-    it('should export DEFAULT_JOURNEY constant', () => {
-      expect(Constants.DEFAULT_JOURNEY).toBeDefined();
-      expect(Constants.DEFAULT_JOURNEY).toBe(Constants.JOURNEY_IDS.HEALTH);
-    });
-
-    it('should export JOURNEY_ORDER constant', () => {
-      expect(Constants.JOURNEY_ORDER).toBeDefined();
-      expect(Array.isArray(Constants.JOURNEY_ORDER)).toBe(false); // It's a readonly array-like object
-      expect(Constants.JOURNEY_ORDER[0]).toBe(Constants.JOURNEY_IDS.HEALTH);
-      expect(Constants.JOURNEY_ORDER[1]).toBe(Constants.JOURNEY_IDS.CARE);
-      expect(Constants.JOURNEY_ORDER[2]).toBe(Constants.JOURNEY_IDS.PLAN);
-    });
-
-    it('should export JOURNEY_CONFIG constant', () => {
-      expect(Constants.JOURNEY_CONFIG).toBeDefined();
-      expect(Constants.JOURNEY_CONFIG[Constants.JOURNEY_IDS.HEALTH]).toHaveProperty('name');
-      expect(Constants.JOURNEY_CONFIG[Constants.JOURNEY_IDS.HEALTH]).toHaveProperty('color');
-      expect(Constants.JOURNEY_CONFIG[Constants.JOURNEY_IDS.HEALTH]).toHaveProperty('icon');
-      expect(Constants.JOURNEY_CONFIG[Constants.JOURNEY_IDS.HEALTH]).toHaveProperty('route');
+    it('should export TTL constants for different priority levels', () => {
+      expect(constants.DEFAULT_TTL_HIGH_PRIORITY).toBeDefined();
+      expect(constants.DEFAULT_TTL_MEDIUM_PRIORITY).toBeDefined();
+      expect(constants.DEFAULT_TTL_LOW_PRIORITY).toBeDefined();
+      expect(constants.DEFAULT_TTL_HIGH_PRIORITY).toBe(180000);
+      expect(constants.DEFAULT_TTL_MEDIUM_PRIORITY).toBe(1800000);
+      expect(constants.DEFAULT_TTL_LOW_PRIORITY).toBe(43200000);
     });
   });
 
-  describe('getAllConstants Function', () => {
-    it('should export getAllConstants function', () => {
-      expect(Constants.getAllConstants).toBeDefined();
-      expect(typeof Constants.getAllConstants).toBe('function');
+  describe('Error Constants', () => {
+    it('should export all error constants', () => {
+      // Check that all error constants are exported from the barrel
+      Object.keys(errorConstants).forEach(key => {
+        expect(constants).toHaveProperty(key);
+        expect(constants[key]).toBe(errorConstants[key]);
+      });
     });
 
-    it('should return all constants when called', () => {
-      const allConstants = Constants.getAllConstants();
-      expect(allConstants).toBeDefined();
-      expect(allConstants.ErrorConstants).toBeDefined();
-      expect(allConstants.SerializationConstants).toBeDefined();
-      expect(allConstants.ConfigConstants).toBeDefined();
-      expect(allConstants.HeaderConstants).toBeDefined();
-      expect(allConstants.TypeConstants).toBeDefined();
-      expect(allConstants.TopicConstants).toBeDefined();
-      expect(allConstants.JourneyConstants).toBeDefined();
+    it('should export ERROR_CODES with all error categories', () => {
+      expect(constants.ERROR_CODES).toBeDefined();
+      
+      // Initialization errors
+      expect(constants.ERROR_CODES.INITIALIZATION_FAILED).toBe('KAFKA_001');
+      
+      // Producer errors
+      expect(constants.ERROR_CODES.PRODUCER_CONNECTION_FAILED).toBe('KAFKA_101');
+      expect(constants.ERROR_CODES.PRODUCER_SEND_FAILED).toBe('KAFKA_102');
+      expect(constants.ERROR_CODES.PRODUCER_BATCH_FAILED).toBe('KAFKA_103');
+      expect(constants.ERROR_CODES.PRODUCER_TRANSACTION_FAILED).toBe('KAFKA_104');
+      
+      // Consumer errors
+      expect(constants.ERROR_CODES.CONSUMER_CONNECTION_FAILED).toBe('KAFKA_201');
+      expect(constants.ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED).toBe('KAFKA_202');
+      expect(constants.ERROR_CODES.CONSUMER_GROUP_ERROR).toBe('KAFKA_203');
+      expect(constants.ERROR_CODES.CONSUMER_PROCESSING_FAILED).toBe('KAFKA_204');
+      
+      // Message errors
+      expect(constants.ERROR_CODES.MESSAGE_SERIALIZATION_FAILED).toBe('KAFKA_301');
+      expect(constants.ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED).toBe('KAFKA_302');
+      
+      // Schema errors
+      expect(constants.ERROR_CODES.SCHEMA_VALIDATION_FAILED).toBe('KAFKA_401');
+      expect(constants.ERROR_CODES.SCHEMA_VALIDATION_ERROR).toBe('KAFKA_402');
+      expect(constants.ERROR_CODES.SCHEMA_NOT_FOUND).toBe('KAFKA_403');
+      
+      // Dead-letter queue errors
+      expect(constants.ERROR_CODES.DLQ_SEND_FAILED).toBe('KAFKA_501');
+      
+      // Retry errors
+      expect(constants.ERROR_CODES.RETRY_EXHAUSTED).toBe('KAFKA_601');
+      expect(constants.ERROR_CODES.RETRY_FAILED).toBe('KAFKA_602');
+    });
+
+    it('should export ERROR_MESSAGES with corresponding messages for all error codes', () => {
+      expect(constants.ERROR_MESSAGES).toBeDefined();
+      
+      // Check that all error codes have corresponding messages
+      Object.keys(constants.ERROR_CODES).forEach(codeKey => {
+        const code = constants.ERROR_CODES[codeKey];
+        expect(constants.ERROR_MESSAGES[code]).toBeDefined();
+        expect(typeof constants.ERROR_MESSAGES[code]).toBe('string');
+      });
+    });
+
+    it('should export ERROR_SEVERITY with severity levels for all error codes', () => {
+      expect(constants.ERROR_SEVERITY).toBeDefined();
+      
+      // Check that all error codes have corresponding severity levels
+      Object.keys(constants.ERROR_CODES).forEach(codeKey => {
+        const code = constants.ERROR_CODES[codeKey];
+        expect(constants.ERROR_SEVERITY[code]).toBeDefined();
+        expect(['CRITICAL', 'ERROR', 'WARNING', 'INFO']).toContain(constants.ERROR_SEVERITY[code]);
+      });
+    });
+
+    it('should export HTTP_STATUS_CODES with status codes for all error codes', () => {
+      expect(constants.HTTP_STATUS_CODES).toBeDefined();
+      
+      // Check that all error codes have corresponding HTTP status codes
+      Object.keys(constants.ERROR_CODES).forEach(codeKey => {
+        const code = constants.ERROR_CODES[codeKey];
+        expect(constants.HTTP_STATUS_CODES[code]).toBeDefined();
+        expect(typeof constants.HTTP_STATUS_CODES[code]).toBe('number');
+        expect(constants.HTTP_STATUS_CODES[code]).toBeGreaterThanOrEqual(400);
+        expect(constants.HTTP_STATUS_CODES[code]).toBeLessThanOrEqual(599);
+      });
     });
   });
 
-  describe('Type Safety', () => {
-    it('should maintain type safety for JOURNEY_IDS', () => {
-      // This is a type-level test that will fail at compile time if types are incorrect
-      type HealthJourneyId = typeof Constants.JOURNEY_IDS.HEALTH;
-      const healthId: HealthJourneyId = 'health';
-      expect(healthId).toBe(Constants.JOURNEY_IDS.HEALTH);
-
-      // @ts-expect-error - This should fail type checking
-      const invalidHealthId: HealthJourneyId = 'invalid';
+  describe('Topic Constants', () => {
+    it('should export all topic constants', () => {
+      // Check that all topic constants are exported from the barrel
+      Object.keys(topicConstants).forEach(key => {
+        expect(constants).toHaveProperty(key);
+        expect(constants[key]).toBe(topicConstants[key]);
+      });
     });
 
-    it('should maintain type safety for JOURNEY_COLORS', () => {
-      // This is a type-level test that will fail at compile time if types are incorrect
-      type HealthColorScheme = typeof Constants.JOURNEY_COLORS.HEALTH;
-      const healthColors: HealthColorScheme = {
-        primary: '#0ACF83',
-        secondary: '#05A66A',
-        accent: '#00875A',
-        background: '#F0FFF4',
-      };
-      expect(healthColors).toEqual(Constants.JOURNEY_COLORS.HEALTH);
-
-      // @ts-expect-error - This should fail type checking due to missing properties
-      const invalidHealthColors: HealthColorScheme = { primary: '#0ACF83' };
-    });
-  });
-
-  describe('Negative Tests', () => {
-    it('should not expose internal implementation details', () => {
-      // @ts-expect-error - This should fail type checking
-      expect(Constants._internalHelper).toBeUndefined();
-      // @ts-expect-error - This should fail type checking
-      expect(Constants.privateFunction).toBeUndefined();
+    it('should export TOPICS with all journey namespaces', () => {
+      expect(constants.TOPICS).toBeDefined();
+      expect(constants.TOPICS.HEALTH).toBeDefined();
+      expect(constants.TOPICS.CARE).toBeDefined();
+      expect(constants.TOPICS.PLAN).toBeDefined();
+      expect(constants.TOPICS.USER).toBeDefined();
+      expect(constants.TOPICS.GAMIFICATION).toBeDefined();
+      expect(constants.TOPICS.NOTIFICATIONS).toBeDefined();
+      expect(constants.TOPICS.DEAD_LETTER).toBeDefined();
     });
 
-    it('should not allow modification of constants', () => {
-      expect(() => {
-        // @ts-expect-error - This should fail type checking
-        Constants.JOURNEY_IDS.HEALTH = 'modified';
-      }).toThrow();
-
-      expect(() => {
-        // @ts-expect-error - This should fail type checking
-        Constants.JOURNEY_COLORS.HEALTH.primary = 'modified';
-      }).toThrow();
+    it('should export health journey topics', () => {
+      expect(constants.TOPICS.HEALTH.EVENTS).toBe('health.events');
+      expect(constants.TOPICS.HEALTH.METRICS).toBe('health.metrics');
+      expect(constants.TOPICS.HEALTH.GOALS).toBe('health.goals');
+      expect(constants.TOPICS.HEALTH.DEVICES).toBe('health.devices');
     });
 
-    it('should not expose non-existent constants', () => {
-      // @ts-expect-error - This should fail type checking
-      expect(Constants.NON_EXISTENT_CONSTANT).toBeUndefined();
+    it('should export care journey topics', () => {
+      expect(constants.TOPICS.CARE.EVENTS).toBe('care.events');
+      expect(constants.TOPICS.CARE.APPOINTMENTS).toBe('care.appointments');
+      expect(constants.TOPICS.CARE.MEDICATIONS).toBe('care.medications');
+      expect(constants.TOPICS.CARE.TELEMEDICINE).toBe('care.telemedicine');
     });
 
-    it('should not expose non-existent namespaces', () => {
-      // @ts-expect-error - This should fail type checking
-      expect(Constants.NonExistentNamespace).toBeUndefined();
+    it('should export plan journey topics', () => {
+      expect(constants.TOPICS.PLAN.EVENTS).toBe('plan.events');
+      expect(constants.TOPICS.PLAN.CLAIMS).toBe('plan.claims');
+      expect(constants.TOPICS.PLAN.BENEFITS).toBe('plan.benefits');
+      expect(constants.TOPICS.PLAN.SELECTION).toBe('plan.selection');
+    });
+
+    it('should export user topics', () => {
+      expect(constants.TOPICS.USER.EVENTS).toBe('user.events');
+      expect(constants.TOPICS.USER.PROFILE).toBe('user.profile');
+      expect(constants.TOPICS.USER.PREFERENCES).toBe('user.preferences');
+    });
+
+    it('should export gamification topics', () => {
+      expect(constants.TOPICS.GAMIFICATION.EVENTS).toBe('game.events');
+      expect(constants.TOPICS.GAMIFICATION.ACHIEVEMENTS).toBe('game.achievements');
+      expect(constants.TOPICS.GAMIFICATION.REWARDS).toBe('game.rewards');
+      expect(constants.TOPICS.GAMIFICATION.LEADERBOARD).toBe('game.leaderboard');
+    });
+
+    it('should export notification topics', () => {
+      expect(constants.TOPICS.NOTIFICATIONS.EVENTS).toBe('notification.events');
+      expect(constants.TOPICS.NOTIFICATIONS.PUSH).toBe('notification.push');
+      expect(constants.TOPICS.NOTIFICATIONS.EMAIL).toBe('notification.email');
+      expect(constants.TOPICS.NOTIFICATIONS.SMS).toBe('notification.sms');
+    });
+
+    it('should export dead letter queue topic', () => {
+      expect(constants.TOPICS.DEAD_LETTER).toBe('dead-letter');
     });
   });
 
   describe('Backward Compatibility', () => {
-    it('should maintain backward compatibility for required exports', () => {
-      // These are the critical exports that must be maintained for backward compatibility
-      const requiredExports = [
-        'ErrorConstants',
-        'SerializationConstants',
-        'ConfigConstants',
-        'HeaderConstants',
-        'TypeConstants',
-        'TopicConstants',
-        'JOURNEY_IDS',
-        'JOURNEY_NAMES',
-        'JOURNEY_COLORS',
-        'JOURNEY_ICONS',
-        'JOURNEY_ROUTES',
-        'DEFAULT_JOURNEY',
-        'JOURNEY_ORDER',
-        'JOURNEY_CONFIG',
-        'getAllConstants',
-      ];
+    it('should maintain backward compatibility for critical constants', () => {
+      // Config constants
+      expect(constants.CONSUMER_GROUP_PREFIX).toBeDefined();
+      expect(constants.CONSUMER_GROUPS).toBeDefined();
+      expect(constants.DEFAULT_RETRY_ATTEMPTS).toBeDefined();
+      
+      // Error constants
+      expect(constants.ERROR_CODES).toBeDefined();
+      expect(constants.ERROR_MESSAGES).toBeDefined();
+      
+      // Topic constants
+      expect(constants.TOPICS).toBeDefined();
+      expect(constants.TOPICS.HEALTH).toBeDefined();
+      expect(constants.TOPICS.CARE).toBeDefined();
+      expect(constants.TOPICS.PLAN).toBeDefined();
+    });
+  });
 
-      requiredExports.forEach(exportName => {
-        expect(Constants).toHaveProperty(exportName);
-      });
+  describe('Type Safety', () => {
+    it('should maintain correct types for all constants', () => {
+      // Config constants types
+      expect(typeof constants.CONSUMER_GROUP_PREFIX).toBe('string');
+      expect(typeof constants.CONSUMER_GROUPS).toBe('object');
+      expect(typeof constants.DEFAULT_BATCH_SIZE).toBe('number');
+      expect(typeof constants.DEFAULT_RETRY_ATTEMPTS).toBe('number');
+      
+      // Error constants types
+      expect(typeof constants.ERROR_CODES).toBe('object');
+      expect(typeof constants.ERROR_MESSAGES).toBe('object');
+      expect(typeof constants.ERROR_SEVERITY).toBe('object');
+      expect(typeof constants.HTTP_STATUS_CODES).toBe('object');
+      
+      // Topic constants types
+      expect(typeof constants.TOPICS).toBe('object');
+      expect(typeof constants.TOPICS.HEALTH).toBe('object');
+      expect(typeof constants.TOPICS.HEALTH.EVENTS).toBe('string');
+    });
+  });
+
+  describe('Negative Tests', () => {
+    it('should not expose non-existent constants', () => {
+      expect(constants['NON_EXISTENT_CONSTANT']).toBeUndefined();
+    });
+
+    it('should not have naming collisions between different constant modules', () => {
+      // Create sets of keys from each constants module
+      const configKeys = new Set(Object.keys(configConstants));
+      const errorKeys = new Set(Object.keys(errorConstants));
+      const topicKeys = new Set(Object.keys(topicConstants));
+      
+      // Check for intersections between sets
+      const configErrorIntersection = [...configKeys].filter(key => errorKeys.has(key));
+      const configTopicIntersection = [...configKeys].filter(key => topicKeys.has(key));
+      const errorTopicIntersection = [...errorKeys].filter(key => topicKeys.has(key));
+      
+      expect(configErrorIntersection).toHaveLength(0);
+      expect(configTopicIntersection).toHaveLength(0);
+      expect(errorTopicIntersection).toHaveLength(0);
     });
   });
 });

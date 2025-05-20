@@ -1,464 +1,374 @@
-/**
- * @file kafka.types.spec.ts
- * @description Unit tests for Kafka type definitions, focusing on type correctness,
- * compatibility with KafkaJS library, and integration with application types.
- */
+import { describe, it, expect } from 'jest';
+import { Kafka, Producer, Consumer, CompressionTypes, Message, KafkaMessage } from 'kafkajs';
 
-import { describe, it, expect } from '@jest/globals';
-import { Consumer, Producer, KafkaMessage, IHeaders, RecordMetadata, Kafka } from 'kafkajs';
+// Import our custom types that extend or use KafkaJS types
+import { KafkaEvent } from '../../../src/kafka/kafka.types';
+import { EventType } from '../../../src/dto/event-types.enum';
+import { BaseEvent } from '../../../src/interfaces/base-event.interface';
 
-// Import types from kafka.types.ts
-import {
-  EventJourney,
-  EventProcessingStatus,
-  KafkaErrorType,
-  RetryPolicy,
-  KafkaHeaders,
-  TypedKafkaMessage,
-  KafkaConsumerConfig,
-  KafkaProducerConfig,
-  KafkaRetryConfig,
-  KafkaDeadLetterConfig,
-  KafkaValidationConfig,
-  KafkaSerializerConfig,
-  KafkaDeserializerConfig,
-  KafkaTypedPayload,
-  KafkaTypedBatch,
-  KafkaSendResult,
-  VersionedKafkaEvent,
-  KafkaMessageHandler,
-  KafkaBatchHandler,
-  KafkaMessageValidator,
-  KafkaMessageTransformer,
-  KafkaErrorHandler,
-  KafkaSerializer,
-  KafkaDeserializer,
-  KafkaMessageFactory,
-  TypedKafkaConsumer,
-  TypedKafkaProducer,
-  KafkaCircuitBreaker,
-  KafkaHealthStatus,
-  KafkaMetrics,
-  KafkaTopicAdmin,
-  KafkaConnectionFactory
-} from '../../../src/kafka/kafka.types';
+// Import mock implementations for testing
+import { 
+  mockKafkaProducer,
+  mockKafkaConsumer,
+  mockJourneyEvent,
+  mockKafkaMessage
+} from './mocks';
 
-// Import interfaces from event interfaces
-import { IBaseEvent } from '../../../src/interfaces/base-event.interface';
-import { EventVersion, VersionCompatibility } from '../../../src/interfaces/event-versioning.interface';
-import { ValidationResult } from '../../../src/interfaces/event-validation.interface';
-
-describe('Kafka Types', () => {
+describe('Kafka Type Definitions', () => {
   /**
-   * Type compatibility tests
-   * 
-   * These tests verify that our custom types are compatible with the KafkaJS library types.
-   * They don't execute any code but will fail at compile time if the types are incompatible.
+   * Test suite for verifying the completeness and correctness of Kafka type definitions
+   * These tests ensure that our type system correctly represents Kafka concepts and
+   * integrates properly with the KafkaJS library.
    */
-  describe('Type Compatibility', () => {
-    it('should have TypedKafkaMessage compatible with KafkaMessage', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type AssertCompatible<T extends KafkaMessage> = T;
-      type Test = AssertCompatible<TypedKafkaMessage<unknown>>;
-    });
-
-    it('should have TypedKafkaConsumer compatible with Consumer', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type AssertCompatible<T extends Consumer> = T;
-      type Test = AssertCompatible<TypedKafkaConsumer<unknown>>;
-    });
-
-    it('should have TypedKafkaProducer compatible with Producer', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type AssertCompatible<T extends Producer> = T;
-      type Test = AssertCompatible<TypedKafkaProducer<unknown>>;
-    });
-  });
-
-  /**
-   * Type completeness tests
-   * 
-   * These tests verify that our types include all required properties and methods.
-   */
-  describe('Type Completeness', () => {
-    it('should have KafkaHeaders with all required header fields', () => {
-      // Type assertion test - will fail at compile time if properties are missing
-      type RequiredHeaders = {
-        'event-id'?: string;
-        'correlation-id'?: string;
-        'trace-id'?: string;
-        'user-id'?: string;
-        'event-type'?: string;
-        'event-version'?: string;
-        'event-journey'?: EventJourney;
-        'event-source'?: string;
-        'event-timestamp'?: string;
-        'retry-count'?: string;
-        'dead-letter'?: string;
+  
+  describe('KafkaJS Core Types', () => {
+    it('should have correct Kafka client type definition', () => {
+      // Type verification for Kafka client configuration
+      const kafkaConfig: ConstructorParameters<typeof Kafka>[0] = {
+        clientId: 'test-client',
+        brokers: ['localhost:9092'],
+        ssl: false,
+        sasl: undefined,
+        connectionTimeout: 1000,
+        requestTimeout: 30000,
       };
       
-      type AssertContainsAll<T extends RequiredHeaders> = T;
-      type Test = AssertContainsAll<KafkaHeaders>;
+      // Create a Kafka instance to verify the type is correct
+      const kafka = new Kafka(kafkaConfig);
+      
+      // Verify that the Kafka instance has the expected methods
+      expect(typeof kafka.producer).toBe('function');
+      expect(typeof kafka.consumer).toBe('function');
+      expect(typeof kafka.admin).toBe('function');
     });
 
-    it('should have KafkaConsumerConfig with all required configuration options', () => {
-      // Type assertion test - will fail at compile time if properties are missing
-      type RequiredConfig = {
-        groupId: string;
-        topics: string[];
-        fromBeginning?: boolean;
-        autoCommit?: boolean;
+    it('should have correct Producer type definition', () => {
+      // Type verification for Producer configuration
+      const producerConfig: Parameters<typeof Kafka.prototype.producer>[0] = {
+        createPartitioner: undefined,
+        retry: {
+          initialRetryTime: 100,
+          retries: 8
+        },
+        metadataMaxAge: 300000,
+        allowAutoTopicCreation: true,
+        transactionTimeout: 60000,
+        idempotent: false
       };
       
-      type AssertContainsAll<T extends RequiredConfig> = T;
-      type Test = AssertContainsAll<KafkaConsumerConfig>;
+      // Create a mock producer to verify the type is correct
+      const producer: Producer = mockKafkaProducer();
+      
+      // Verify that the producer has the expected methods
+      expect(typeof producer.connect).toBe('function');
+      expect(typeof producer.disconnect).toBe('function');
+      expect(typeof producer.send).toBe('function');
+      expect(typeof producer.sendBatch).toBe('function');
+      expect(typeof producer.transaction).toBe('function');
     });
 
-    it('should have KafkaProducerConfig with all required configuration options', () => {
-      // Type assertion test - will fail at compile time if properties are missing
-      type RequiredConfig = {
-        clientId?: string;
-        acks?: number;
-        timeout?: number;
-        compression?: 'none' | 'gzip' | 'snappy' | 'lz4';
+    it('should have correct Consumer type definition', () => {
+      // Type verification for Consumer configuration
+      const consumerConfig: Parameters<typeof Kafka.prototype.consumer>[0] = {
+        groupId: 'test-group',
+        partitionAssigners: [],
+        sessionTimeout: 30000,
+        rebalanceTimeout: 60000,
+        heartbeatInterval: 3000,
+        metadataMaxAge: 300000,
+        allowAutoTopicCreation: true,
+        maxBytesPerPartition: 1048576,
+        minBytes: 1,
+        maxBytes: 10485760,
+        maxWaitTimeInMs: 5000,
       };
       
-      type AssertContainsAll<T extends RequiredConfig> = T;
-      type Test = AssertContainsAll<KafkaProducerConfig>;
-    });
-  });
-
-  /**
-   * Enum value tests
-   * 
-   * These tests verify that our enums include all required values.
-   */
-  describe('Enum Values', () => {
-    it('should have EventJourney with all journey types', () => {
-      // Runtime test to verify enum values
-      expect(EventJourney.HEALTH).toBe('health');
-      expect(EventJourney.CARE).toBe('care');
-      expect(EventJourney.PLAN).toBe('plan');
-      expect(EventJourney.GAMIFICATION).toBe('gamification');
-      expect(EventJourney.SYSTEM).toBe('system');
+      // Create a mock consumer to verify the type is correct
+      const consumer: Consumer = mockKafkaConsumer();
       
-      // Type test to verify enum completeness
-      type ExpectedJourneys = 'health' | 'care' | 'plan' | 'gamification' | 'system';
-      type ActualJourneys = `${EventJourney}`;
-      type AssertEqual<T extends ExpectedJourneys, U extends T> = U;
-      type Test = AssertEqual<ExpectedJourneys, ActualJourneys>;
+      // Verify that the consumer has the expected methods
+      expect(typeof consumer.connect).toBe('function');
+      expect(typeof consumer.disconnect).toBe('function');
+      expect(typeof consumer.subscribe).toBe('function');
+      expect(typeof consumer.run).toBe('function');
+      expect(typeof consumer.stop).toBe('function');
+      expect(typeof consumer.seek).toBe('function');
+      expect(typeof consumer.pause).toBe('function');
+      expect(typeof consumer.resume).toBe('function');
     });
 
-    it('should have EventProcessingStatus with all status types', () => {
-      // Runtime test to verify enum values
-      expect(EventProcessingStatus.PENDING).toBe('pending');
-      expect(EventProcessingStatus.PROCESSING).toBe('processing');
-      expect(EventProcessingStatus.COMPLETED).toBe('completed');
-      expect(EventProcessingStatus.FAILED).toBe('failed');
-      expect(EventProcessingStatus.RETRYING).toBe('retrying');
-      expect(EventProcessingStatus.DEAD_LETTERED).toBe('dead_lettered');
-      
-      // Type test to verify enum completeness
-      type ExpectedStatuses = 'pending' | 'processing' | 'completed' | 'failed' | 'retrying' | 'dead_lettered';
-      type ActualStatuses = `${EventProcessingStatus}`;
-      type AssertEqual<T extends ExpectedStatuses, U extends T> = U;
-      type Test = AssertEqual<ExpectedStatuses, ActualStatuses>;
-    });
-
-    it('should have RetryPolicy with all policy types', () => {
-      // Runtime test to verify enum values
-      expect(RetryPolicy.NONE).toBe('none');
-      expect(RetryPolicy.LINEAR).toBe('linear');
-      expect(RetryPolicy.EXPONENTIAL).toBe('exponential');
-      expect(RetryPolicy.CUSTOM).toBe('custom');
-      
-      // Type test to verify enum completeness
-      type ExpectedPolicies = 'none' | 'linear' | 'exponential' | 'custom';
-      type ActualPolicies = `${RetryPolicy}`;
-      type AssertEqual<T extends ExpectedPolicies, U extends T> = U;
-      type Test = AssertEqual<ExpectedPolicies, ActualPolicies>;
-    });
-  });
-
-  /**
-   * Generic type tests
-   * 
-   * These tests verify that our generic types work correctly with different type parameters.
-   */
-  describe('Generic Types', () => {
-    it('should have TypedKafkaMessage preserve payload type', () => {
-      // Type assertion test - will fail at compile time if type is not preserved
-      type StringMessage = TypedKafkaMessage<string>;
-      type NumberMessage = TypedKafkaMessage<number>;
-      type ObjectMessage = TypedKafkaMessage<{id: string; data: any}>;
-      
-      type AssertString<T extends TypedKafkaMessage<string>> = T;
-      type AssertNumber<T extends TypedKafkaMessage<number>> = T;
-      type AssertObject<T extends TypedKafkaMessage<{id: string; data: any}>> = T;
-      
-      type TestString = AssertString<StringMessage>;
-      type TestNumber = AssertNumber<NumberMessage>;
-      type TestObject = AssertObject<ObjectMessage>;
-    });
-
-    it('should have TypedKafkaConsumer preserve payload type', () => {
-      // Type assertion test - will fail at compile time if type is not preserved
-      type StringConsumer = TypedKafkaConsumer<string>;
-      type NumberConsumer = TypedKafkaConsumer<number>;
-      type ObjectConsumer = TypedKafkaConsumer<{id: string; data: any}>;
-      
-      // Verify that the run method accepts the correct payload type
-      type VerifyStringConsumer<T extends {
-        run(options: {
-          eachMessage?: (payload: {
-            topic: string;
-            partition: number;
-            message: TypedKafkaMessage<string>;
-          }) => Promise<void>;
-        }): Promise<void>;
-      }> = T;
-      
-      type TestString = VerifyStringConsumer<StringConsumer>;
-    });
-
-    it('should have TypedKafkaProducer preserve payload type', () => {
-      // Type assertion test - will fail at compile time if type is not preserved
-      type StringProducer = TypedKafkaProducer<string>;
-      type NumberProducer = TypedKafkaProducer<number>;
-      type ObjectProducer = TypedKafkaProducer<{id: string; data: any}>;
-      
-      // Verify that the send method accepts the correct payload type
-      type VerifyStringProducer<T extends {
-        send(record: KafkaTypedBatch<string>): Promise<RecordMetadata[]>;
-      }> = T;
-      
-      type TestString = VerifyStringProducer<StringProducer>;
-    });
-  });
-
-  /**
-   * Journey-specific type tests
-   * 
-   * These tests verify that our types work correctly with journey-specific data.
-   */
-  describe('Journey-Specific Types', () => {
-    // Define journey-specific event types for testing
-    interface HealthEvent extends IBaseEvent<{metricId: string; value: number}> {
-      source: 'health-service';
-      type: 'health.metric.recorded';
-    }
-
-    interface CareEvent extends IBaseEvent<{appointmentId: string; status: string}> {
-      source: 'care-service';
-      type: 'care.appointment.booked';
-    }
-
-    interface PlanEvent extends IBaseEvent<{claimId: string; amount: number}> {
-      source: 'plan-service';
-      type: 'plan.claim.submitted';
-    }
-
-    it('should support health journey events', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type HealthKafkaMessage = TypedKafkaMessage<HealthEvent['payload']>;
-      type HealthKafkaPayload = KafkaTypedPayload<HealthEvent['payload']>;
-      
-      // Verify that the health event payload has the correct structure
-      type VerifyHealthPayload<T extends {metricId: string; value: number}> = T;
-      type TestHealth = VerifyHealthPayload<HealthEvent['payload']>;
-    });
-
-    it('should support care journey events', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type CareKafkaMessage = TypedKafkaMessage<CareEvent['payload']>;
-      type CareKafkaPayload = KafkaTypedPayload<CareEvent['payload']>;
-      
-      // Verify that the care event payload has the correct structure
-      type VerifyCarePayload<T extends {appointmentId: string; status: string}> = T;
-      type TestCare = VerifyCarePayload<CareEvent['payload']>;
-    });
-
-    it('should support plan journey events', () => {
-      // Type assertion test - will fail at compile time if incompatible
-      type PlanKafkaMessage = TypedKafkaMessage<PlanEvent['payload']>;
-      type PlanKafkaPayload = KafkaTypedPayload<PlanEvent['payload']>;
-      
-      // Verify that the plan event payload has the correct structure
-      type VerifyPlanPayload<T extends {claimId: string; amount: number}> = T;
-      type TestPlan = VerifyPlanPayload<PlanEvent['payload']>;
-    });
-  });
-
-  /**
-   * Versioning type tests
-   * 
-   * These tests verify that our versioning types work correctly.
-   */
-  describe('Versioning Types', () => {
-    it('should support versioned events', () => {
-      // Define a mock versioned event for testing
-      type MockVersionedEvent = VersionedKafkaEvent<{data: string}>;
-      
-      // Verify that the versioned event has the correct structure
-      type VerifyVersionedEvent<T extends {
-        version: EventVersion;
-        isCompatible(requiredVersion: EventVersion): boolean;
-        upgradeToVersion(targetVersion: EventVersion): VersionedKafkaEvent<{data: string}>;
-      }> = T;
-      
-      type Test = VerifyVersionedEvent<MockVersionedEvent>;
-    });
-
-    it('should support event version compatibility checks', () => {
-      // Verify that the version compatibility enum has the correct values
-      type ExpectedCompatibility = 'COMPATIBLE' | 'BACKWARD_COMPATIBLE' | 'FORWARD_COMPATIBLE' | 'INCOMPATIBLE';
-      type ActualCompatibility = `${VersionCompatibility}`;
-      type AssertEqual<T extends ExpectedCompatibility, U extends T> = U;
-      type Test = AssertEqual<ExpectedCompatibility, ActualCompatibility>;
-    });
-  });
-
-  /**
-   * Validation type tests
-   * 
-   * These tests verify that our validation types work correctly.
-   */
-  describe('Validation Types', () => {
-    it('should support message validation', () => {
-      // Define a mock validator function for testing
-      const mockValidator: KafkaMessageValidator<{id: string}> = async (message) => {
-        return {
-          isValid: true,
-          issues: [],
-          getErrors: () => [],
-          getIssuesBySeverity: () => [],
-          hasIssuesWithSeverity: () => false
-        };
+    it('should have correct Message type definition', () => {
+      // Type verification for Message
+      const message: Message = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: Date.now().toString(),
+        headers: {
+          'correlation-id': 'test-correlation-id',
+          'source-service': 'test-service'
+        },
+        partition: 0
       };
       
-      // Verify that the validation result has the correct structure
-      type VerifyValidationResult<T extends {
-        isValid: boolean;
-        issues: any[];
-        getErrors(): any[];
-        getIssuesBySeverity(severity: any): any[];
-        hasIssuesWithSeverity(severity: any): boolean;
-      }> = T;
-      
-      type Test = VerifyValidationResult<ValidationResult>;
-    });
-  });
-
-  /**
-   * Error handling type tests
-   * 
-   * These tests verify that our error handling types work correctly.
-   */
-  describe('Error Handling Types', () => {
-    it('should have KafkaErrorType with all error types', () => {
-      // Runtime test to verify enum values
-      expect(KafkaErrorType.CONNECTION).toBe('connection_error');
-      expect(KafkaErrorType.AUTHENTICATION).toBe('authentication_error');
-      expect(KafkaErrorType.AUTHORIZATION).toBe('authorization_error');
-      expect(KafkaErrorType.BROKER).toBe('broker_error');
-      expect(KafkaErrorType.TIMEOUT).toBe('timeout_error');
-      expect(KafkaErrorType.SERIALIZATION).toBe('serialization_error');
-      expect(KafkaErrorType.VALIDATION).toBe('validation_error');
-      expect(KafkaErrorType.PROCESSING).toBe('processing_error');
-      expect(KafkaErrorType.UNKNOWN).toBe('unknown_error');
-      
-      // Type test to verify enum completeness
-      type ExpectedErrors = 'connection_error' | 'authentication_error' | 'authorization_error' | 
-                           'broker_error' | 'timeout_error' | 'serialization_error' | 
-                           'validation_error' | 'processing_error' | 'unknown_error';
-      type ActualErrors = `${KafkaErrorType}`;
-      type AssertEqual<T extends ExpectedErrors, U extends T> = U;
-      type Test = AssertEqual<ExpectedErrors, ActualErrors>;
+      // Verify message structure
+      expect(message.key).toBeInstanceOf(Buffer);
+      expect(message.value).toBeInstanceOf(Buffer);
+      expect(typeof message.timestamp).toBe('string');
+      expect(typeof message.headers).toBe('object');
     });
 
-    it('should support error handling callbacks', () => {
-      // Define a mock error handler for testing
-      const mockErrorHandler: KafkaErrorHandler = async (error, topic, partition, offset) => {
-        // Mock implementation
+    it('should have correct KafkaMessage type definition', () => {
+      // Type verification for KafkaMessage (consumed message)
+      const kafkaMessage: KafkaMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from('test-value'),
+        timestamp: '1622548800000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {
+          'correlation-id': Buffer.from('test-correlation-id'),
+          'source-service': Buffer.from('test-service')
+        }
       };
       
-      // Verify that the error handler has the correct signature
-      type VerifyErrorHandler<T extends (
-        error: Error,
-        topic?: string,
-        partition?: number,
-        offset?: string
-      ) => Promise<void>> = T;
-      
-      type Test = VerifyErrorHandler<KafkaErrorHandler>;
+      // Verify KafkaMessage structure
+      expect(kafkaMessage.key).toBeInstanceOf(Buffer);
+      expect(kafkaMessage.value).toBeInstanceOf(Buffer);
+      expect(typeof kafkaMessage.timestamp).toBe('string');
+      expect(typeof kafkaMessage.offset).toBe('string');
+      expect(typeof kafkaMessage.headers).toBe('object');
+    });
+
+    it('should have correct CompressionTypes enum', () => {
+      // Verify CompressionTypes enum values
+      expect(CompressionTypes.None).toBe(0);
+      expect(CompressionTypes.GZIP).toBe(1);
+      expect(CompressionTypes.Snappy).toBe(2);
+      expect(CompressionTypes.LZ4).toBe(3);
+      expect(CompressionTypes.ZSTD).toBe(4);
     });
   });
 
-  /**
-   * Circuit breaker type tests
-   * 
-   * These tests verify that our circuit breaker types work correctly.
-   */
-  describe('Circuit Breaker Types', () => {
-    it('should support circuit breaker pattern', () => {
-      // Verify that the circuit breaker has the correct structure
-      type VerifyCircuitBreaker<T extends {
-        isOpen(): boolean;
-        isClosed(): boolean;
-        isHalfOpen(): boolean;
-        open(): void;
-        close(): void;
-        halfOpen(): void;
-        execute<T>(fn: () => Promise<T>): Promise<T>;
-      }> = T;
+  describe('Custom Kafka Event Types', () => {
+    it('should correctly extend BaseEvent with Kafka-specific properties', () => {
+      // Create a KafkaEvent instance
+      const kafkaEvent: KafkaEvent<any> = {
+        eventId: 'test-event-id',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test-service',
+        type: EventType.HEALTH_METRIC_RECORDED,
+        payload: { metricValue: 120 },
+        topic: 'health.events',
+        partition: 0,
+        offset: '0',
+        headers: {
+          'correlation-id': 'test-correlation-id'
+        }
+      };
       
-      type Test = VerifyCircuitBreaker<KafkaCircuitBreaker>;
+      // Verify KafkaEvent structure
+      expect(kafkaEvent.eventId).toBeDefined();
+      expect(kafkaEvent.timestamp).toBeDefined();
+      expect(kafkaEvent.version).toBeDefined();
+      expect(kafkaEvent.source).toBeDefined();
+      expect(kafkaEvent.type).toBeDefined();
+      expect(kafkaEvent.payload).toBeDefined();
+      expect(kafkaEvent.topic).toBeDefined();
+      expect(kafkaEvent.partition).toBeDefined();
+      expect(kafkaEvent.offset).toBeDefined();
+      expect(kafkaEvent.headers).toBeDefined();
+    });
+
+    it('should allow conversion between BaseEvent and KafkaEvent', () => {
+      // Create a BaseEvent
+      const baseEvent: BaseEvent<any> = {
+        eventId: 'test-event-id',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test-service',
+        type: EventType.HEALTH_METRIC_RECORDED,
+        payload: { metricValue: 120 }
+      };
+      
+      // Convert to KafkaEvent
+      const kafkaEvent: KafkaEvent<any> = {
+        ...baseEvent,
+        topic: 'health.events',
+        partition: 0,
+        offset: '0',
+        headers: {
+          'correlation-id': 'test-correlation-id'
+        }
+      };
+      
+      // Verify conversion
+      expect(kafkaEvent.eventId).toBe(baseEvent.eventId);
+      expect(kafkaEvent.timestamp).toBe(baseEvent.timestamp);
+      expect(kafkaEvent.version).toBe(baseEvent.version);
+      expect(kafkaEvent.source).toBe(baseEvent.source);
+      expect(kafkaEvent.type).toBe(baseEvent.type);
+      expect(kafkaEvent.payload).toBe(baseEvent.payload);
     });
   });
 
-  /**
-   * Health and metrics type tests
-   * 
-   * These tests verify that our health and metrics types work correctly.
-   */
-  describe('Health and Metrics Types', () => {
-    it('should support health status reporting', () => {
-      // Verify that the health status has the correct structure
-      type VerifyHealthStatus<T extends {
-        isHealthy: boolean;
-        details: {
-          connected: boolean;
-          brokers: {
-            id: number;
-            host: string;
-            port: number;
-            connected: boolean;
-          }[];
-          lastError?: {
-            message: string;
-            type: KafkaErrorType;
-            timestamp: Date;
-          };
-        };
-      }> = T;
+  describe('Journey-Specific Event Types', () => {
+    it('should validate Health journey event types', () => {
+      // Create a Health journey event
+      const healthEvent = mockJourneyEvent('health');
       
-      type Test = VerifyHealthStatus<KafkaHealthStatus>;
+      // Verify event structure
+      expect(healthEvent.eventId).toBeDefined();
+      expect(healthEvent.timestamp).toBeDefined();
+      expect(healthEvent.version).toBeDefined();
+      expect(healthEvent.source).toBeDefined();
+      expect(healthEvent.type).toBeDefined();
+      expect(healthEvent.payload).toBeDefined();
+      
+      // Verify health-specific properties
+      expect([EventType.HEALTH_METRIC_RECORDED, EventType.HEALTH_GOAL_ACHIEVED, 
+              EventType.HEALTH_DEVICE_CONNECTED, EventType.HEALTH_INSIGHT_GENERATED])
+        .toContain(healthEvent.type);
     });
 
-    it('should support metrics reporting', () => {
-      // Verify that the metrics has the correct structure
-      type VerifyMetrics<T extends {
-        messagesProduced: number;
-        messagesConsumed: number;
-        errors: number;
-        retries: number;
-        deadLetters: number;
-        avgProcessingTimeMs: number;
-        avgBatchSizeBytes: number;
-        lastProcessedTimestamp?: Date;
-      }> = T;
+    it('should validate Care journey event types', () => {
+      // Create a Care journey event
+      const careEvent = mockJourneyEvent('care');
       
-      type Test = VerifyMetrics<KafkaMetrics>;
+      // Verify event structure
+      expect(careEvent.eventId).toBeDefined();
+      expect(careEvent.timestamp).toBeDefined();
+      expect(careEvent.version).toBeDefined();
+      expect(careEvent.source).toBeDefined();
+      expect(careEvent.type).toBeDefined();
+      expect(careEvent.payload).toBeDefined();
+      
+      // Verify care-specific properties
+      expect([EventType.CARE_APPOINTMENT_BOOKED, EventType.CARE_MEDICATION_TAKEN, 
+              EventType.CARE_TELEMEDICINE_COMPLETED, EventType.CARE_PLAN_UPDATED])
+        .toContain(careEvent.type);
+    });
+
+    it('should validate Plan journey event types', () => {
+      // Create a Plan journey event
+      const planEvent = mockJourneyEvent('plan');
+      
+      // Verify event structure
+      expect(planEvent.eventId).toBeDefined();
+      expect(planEvent.timestamp).toBeDefined();
+      expect(planEvent.version).toBeDefined();
+      expect(planEvent.source).toBeDefined();
+      expect(planEvent.type).toBeDefined();
+      expect(planEvent.payload).toBeDefined();
+      
+      // Verify plan-specific properties
+      expect([EventType.PLAN_CLAIM_SUBMITTED, EventType.PLAN_BENEFIT_USED, 
+              EventType.PLAN_SELECTED, EventType.PLAN_DOCUMENT_UPLOADED])
+        .toContain(planEvent.type);
+    });
+  });
+
+  describe('Cross-Service Type Consistency', () => {
+    it('should ensure consistent message format between producer and consumer', () => {
+      // Create a message to be sent by producer
+      const producerMessage: Message = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from(JSON.stringify({
+          eventId: 'test-event-id',
+          timestamp: new Date().toISOString(),
+          version: '1.0.0',
+          source: 'test-service',
+          type: EventType.HEALTH_METRIC_RECORDED,
+          payload: { metricValue: 120 }
+        })),
+        headers: {
+          'correlation-id': 'test-correlation-id',
+          'event-type': EventType.HEALTH_METRIC_RECORDED,
+          'source-service': 'test-service',
+          'event-version': '1.0.0'
+        }
+      };
+      
+      // Simulate message received by consumer
+      const consumerMessage: KafkaMessage = {
+        key: producerMessage.key,
+        value: producerMessage.value,
+        timestamp: Date.now().toString(),
+        size: producerMessage.value.length,
+        attributes: 0,
+        offset: '0',
+        headers: Object.entries(producerMessage.headers).reduce((acc, [key, value]) => {
+          acc[key] = Buffer.from(value);
+          return acc;
+        }, {} as Record<string, Buffer>)
+      };
+      
+      // Verify message consistency
+      expect(consumerMessage.key).toEqual(producerMessage.key);
+      expect(consumerMessage.value).toEqual(producerMessage.value);
+      
+      // Verify headers consistency (accounting for Buffer conversion)
+      Object.entries(producerMessage.headers).forEach(([key, value]) => {
+        expect(consumerMessage.headers[key]).toBeDefined();
+        expect(consumerMessage.headers[key].toString()).toBe(value);
+      });
+    });
+
+    it('should ensure consistent event schema across services', () => {
+      // Create events from different journeys
+      const healthEvent = mockJourneyEvent('health');
+      const careEvent = mockJourneyEvent('care');
+      const planEvent = mockJourneyEvent('plan');
+      
+      // Verify common structure across all events
+      [healthEvent, careEvent, planEvent].forEach(event => {
+        expect(event.eventId).toBeDefined();
+        expect(event.timestamp).toBeDefined();
+        expect(event.version).toBeDefined();
+        expect(event.source).toBeDefined();
+        expect(event.type).toBeDefined();
+        expect(event.payload).toBeDefined();
+      });
+      
+      // Verify that events can be converted to KafkaEvents
+      const healthKafkaEvent: KafkaEvent<any> = {
+        ...healthEvent,
+        topic: 'health.events',
+        partition: 0,
+        offset: '0',
+        headers: { 'correlation-id': 'test-correlation-id' }
+      };
+      
+      const careKafkaEvent: KafkaEvent<any> = {
+        ...careEvent,
+        topic: 'care.events',
+        partition: 0,
+        offset: '0',
+        headers: { 'correlation-id': 'test-correlation-id' }
+      };
+      
+      const planKafkaEvent: KafkaEvent<any> = {
+        ...planEvent,
+        topic: 'plan.events',
+        partition: 0,
+        offset: '0',
+        headers: { 'correlation-id': 'test-correlation-id' }
+      };
+      
+      // Verify KafkaEvent structure consistency
+      [healthKafkaEvent, careKafkaEvent, planKafkaEvent].forEach(event => {
+        expect(event.eventId).toBeDefined();
+        expect(event.timestamp).toBeDefined();
+        expect(event.version).toBeDefined();
+        expect(event.source).toBeDefined();
+        expect(event.type).toBeDefined();
+        expect(event.payload).toBeDefined();
+        expect(event.topic).toBeDefined();
+        expect(event.partition).toBeDefined();
+        expect(event.offset).toBeDefined();
+        expect(event.headers).toBeDefined();
+      });
     });
   });
 });

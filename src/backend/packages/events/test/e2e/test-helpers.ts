@@ -1,943 +1,662 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { Kafka, Consumer, Producer, KafkaMessage, ProducerRecord } from 'kafkajs';
 import { PrismaClient } from '@prisma/client';
-import { Kafka, Producer, Consumer, KafkaMessage } from 'kafkajs';
+import { PrismaService } from 'src/backend/shared/src/database/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
-import { setTimeout as sleep } from 'timers/promises';
-
-// Import interfaces from the events package
-import { IEvent } from '../../src/interfaces/base-event.interface';
-import { KafkaEvent } from '../../src/interfaces/kafka-event.interface';
-import { IEventHandler } from '../../src/interfaces/event-handler.interface';
-import { IEventResponse } from '../../src/interfaces/event-response.interface';
-import { EventVersion } from '../../src/interfaces/event-versioning.interface';
-
-// Import Kafka utilities
-import { KafkaService } from '../../src/kafka/kafka.service';
-import { KafkaProducer } from '../../src/kafka/kafka.producer';
-import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { EventType } from '../../src/dto/event-types.enum';
+import { JourneyType } from '../../src/dto/journey-types.enum';
+import { AppModule } from 'src/backend/gamification-engine/src/app.module';
+import { EventMetadataDto } from '../../src/dto/event-metadata.dto';
 
 /**
- * Configuration options for test environment
+ * Configuration for test environment
  */
-export interface TestEnvironmentOptions {
-  /** Modules to import for the test */
-  imports?: any[];
-  /** Providers to register for the test */
-  providers?: any[];
-  /** Controllers to register for the test */
-  controllers?: any[];
-  /** Kafka topics to create for the test */
-  topics?: string[];
-  /** Database schema to use for the test */
-  databaseSchema?: string;
-  /** Whether to enable Kafka for the test */
-  enableKafka?: boolean;
-  /** Whether to enable database for the test */
-  enableDatabase?: boolean;
-  /** Custom initialization function */
-  onInit?: (app: INestApplication) => Promise<void>;
-  /** Custom cleanup function */
-  onCleanup?: (app: INestApplication) => Promise<void>;
+export interface TestEnvironmentConfig {
+  /** Kafka broker addresses */
+  kafkaBrokers: string[];
+  /** Test consumer group ID */
+  consumerGroupId: string;
+  /** Topics to subscribe to */
+  topics: string[];
+  /** Database connection URL */
+  databaseUrl: string;
+  /** Test timeout in milliseconds */
+  testTimeout?: number;
+  /** Maximum retry attempts */
+  maxRetries?: number;
+  /** Retry delay in milliseconds */
+  retryDelay?: number;
 }
 
 /**
- * Test environment context containing all resources for the test
+ * Default test environment configuration
  */
-export interface TestEnvironmentContext {
-  /** NestJS application instance */
-  app: INestApplication;
-  /** Kafka producer for sending test events */
-  producer?: Producer;
-  /** Kafka consumer for receiving test events */
-  consumer?: Consumer;
-  /** Prisma client for database operations */
-  prisma?: PrismaClient;
-  /** Kafka service instance */
-  kafkaService?: KafkaService;
-  /** Test module reference */
-  moduleRef?: TestingModule;
-  /** Cleanup function to call when test is complete */
-  cleanup: () => Promise<void>;
-}
-
-/**
- * Default test environment options
- */
-const defaultTestOptions: TestEnvironmentOptions = {
-  imports: [],
-  providers: [],
-  controllers: [],
-  topics: [],
-  databaseSchema: 'test',
-  enableKafka: true,
-  enableDatabase: true,
+export const DEFAULT_TEST_CONFIG: TestEnvironmentConfig = {
+  kafkaBrokers: ['localhost:9092'],
+  consumerGroupId: `test-group-${uuidv4()}`,
+  topics: ['health-events', 'care-events', 'plan-events', 'gamification-events'],
+  databaseUrl: process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/austa_test',
+  testTimeout: 30000,
+  maxRetries: 5,
+  retryDelay: 1000,
 };
 
 /**
- * Creates an isolated test environment for event testing
- * 
- * @param options - Configuration options for the test environment
- * @returns Test environment context with all resources
+ * Test event with metadata
  */
-export async function createTestEnvironment(
-  options: TestEnvironmentOptions = {}
-): Promise<TestEnvironmentContext> {
-  // Merge options with defaults
-  const testOptions = { ...defaultTestOptions, ...options };
-  
-  // Resources to clean up
-  const cleanupFunctions: Array<() => Promise<void>> = [];
-  
-  // Create a unique test ID for isolation
-  const testId = uuidv4();
-  console.log(`Creating test environment with ID: ${testId}`);
-  
-  // Set up test module
-  const moduleRef = await Test.createTestingModule({
-    imports: testOptions.imports || [],
-    controllers: testOptions.controllers || [],
-    providers: testOptions.providers || [],
-  }).compile();
-  
-  // Create NestJS application
-  const app = moduleRef.createNestApplication();
-  await app.init();
-  
-  // Add app cleanup
-  cleanupFunctions.push(async () => {
-    await app.close();
-    console.log(`Closed NestJS application for test ${testId}`);
-  });
-  
-  // Create test context
-  const context: TestEnvironmentContext = {
-    app,
-    moduleRef,
-    cleanup: async () => {
-      console.log(`Cleaning up test environment ${testId}`);
-      for (const cleanupFn of cleanupFunctions.reverse()) {
-        await cleanupFn();
-      }
-    },
-  };
-  
-  // Set up Kafka if enabled
-  if (testOptions.enableKafka) {
-    await setupKafkaForTest(context, testOptions, testId, cleanupFunctions);
-  }
-  
-  // Set up database if enabled
-  if (testOptions.enableDatabase) {
-    await setupDatabaseForTest(context, testOptions, testId, cleanupFunctions);
-  }
-  
-  // Run custom initialization if provided
-  if (testOptions.onInit) {
-    await testOptions.onInit(app);
-  }
-  
-  return context;
+export interface TestEvent<T = any> {
+  type: EventType;
+  journey: JourneyType;
+  userId: string;
+  data: T;
+  metadata?: EventMetadataDto;
 }
 
 /**
- * Sets up Kafka for testing
+ * Test environment for event end-to-end testing
  */
-async function setupKafkaForTest(
-  context: TestEnvironmentContext,
-  options: TestEnvironmentOptions,
-  testId: string,
-  cleanupFunctions: Array<() => Promise<void>>
-): Promise<void> {
-  console.log(`Setting up Kafka for test ${testId}`);
-  
-  // Create Kafka client with test-specific group ID
-  const kafka = new Kafka({
-    clientId: `test-client-${testId}`,
-    brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
-    retry: {
-      initialRetryTime: 100,
-      retries: 3,
-    },
-  });
-  
-  // Create producer
-  const producer = kafka.producer();
-  await producer.connect();
-  context.producer = producer;
-  
-  // Add producer cleanup
-  cleanupFunctions.push(async () => {
-    await producer.disconnect();
-    console.log(`Disconnected Kafka producer for test ${testId}`);
-  });
-  
-  // Create consumer with test-specific group ID
-  const consumer = kafka.consumer({ groupId: `test-group-${testId}` });
-  await consumer.connect();
-  context.consumer = consumer;
-  
-  // Add consumer cleanup
-  cleanupFunctions.push(async () => {
-    await consumer.disconnect();
-    console.log(`Disconnected Kafka consumer for test ${testId}`);
-  });
-  
-  // Create topics if specified
-  if (options.topics && options.topics.length > 0) {
-    const admin = kafka.admin();
-    await admin.connect();
+export class TestEnvironment {
+  private app: INestApplication;
+  private kafka: Kafka;
+  private producer: Producer;
+  private consumer: Consumer;
+  private prisma: PrismaClient;
+  private prismaService: PrismaService;
+  private config: TestEnvironmentConfig;
+  private consumedMessages: KafkaMessage[] = [];
+  private isConsuming = false;
+
+  /**
+   * Creates a new test environment
+   * @param config - Test environment configuration
+   */
+  constructor(config: Partial<TestEnvironmentConfig> = {}) {
+    this.config = { ...DEFAULT_TEST_CONFIG, ...config };
+  }
+
+  /**
+   * Sets up the test environment
+   */
+  async setup(): Promise<void> {
+    // Create Kafka client
+    this.kafka = new Kafka({
+      clientId: `test-client-${uuidv4()}`,
+      brokers: this.config.kafkaBrokers,
+    });
+
+    // Create producer
+    this.producer = this.kafka.producer();
+    await this.producer.connect();
+
+    // Create consumer
+    this.consumer = this.kafka.consumer({ groupId: this.config.consumerGroupId });
+    await this.consumer.connect();
     
-    try {
-      await admin.createTopics({
-        topics: options.topics.map(topic => ({
-          topic,
-          numPartitions: 1,
-          replicationFactor: 1,
-        })),
-      });
-      console.log(`Created Kafka topics for test ${testId}: ${options.topics.join(', ')}`);
-    } catch (error) {
-      // Topics might already exist, which is fine
-      console.warn(`Error creating topics: ${error.message}`);
+    for (const topic of this.config.topics) {
+      await this.consumer.subscribe({ topic, fromBeginning: true });
     }
-    
-    await admin.disconnect();
-  }
-  
-  // Try to get KafkaService from the application
-  try {
-    context.kafkaService = app.get(KafkaService);
-  } catch (error) {
-    console.warn(`KafkaService not available in test module: ${error.message}`);
-  }
-}
 
-/**
- * Sets up database for testing
- */
-async function setupDatabaseForTest(
-  context: TestEnvironmentContext,
-  options: TestEnvironmentOptions,
-  testId: string,
-  cleanupFunctions: Array<() => Promise<void>>
-): Promise<void> {
-  console.log(`Setting up database for test ${testId}`);
-  
-  // Create a test-specific schema name if not provided
-  const schemaName = options.databaseSchema || `test_${testId.replace(/-/g, '_')}`;
-  
-  // Create Prisma client with test schema
-  const prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: `${process.env.DATABASE_URL}?schema=${schemaName}`,
-      },
-    },
-  });
-  
-  // Connect to database
-  await prisma.$connect();
-  context.prisma = prisma;
-  
-  // Create schema
-  try {
-    await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-    console.log(`Created database schema ${schemaName} for test ${testId}`);
-  } catch (error) {
-    console.error(`Error creating schema: ${error.message}`);
-    throw error;
-  }
-  
-  // Add database cleanup
-  cleanupFunctions.push(async () => {
-    // Drop schema
-    try {
-      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-      console.log(`Dropped database schema ${schemaName} for test ${testId}`);
-    } catch (error) {
-      console.error(`Error dropping schema: ${error.message}`);
-    }
-    
-    // Disconnect from database
-    await prisma.$disconnect();
-    console.log(`Disconnected from database for test ${testId}`);
-  });
-}
-
-/**
- * Options for publishing a test event
- */
-export interface PublishEventOptions {
-  /** Topic to publish to */
-  topic: string;
-  /** Event key (optional) */
-  key?: string;
-  /** Headers to include with the event */
-  headers?: Record<string, string>;
-  /** Partition to publish to (optional) */
-  partition?: number;
-  /** Whether to wait for acknowledgement */
-  waitForAck?: boolean;
-}
-
-/**
- * Publishes a test event to Kafka
- * 
- * @param context - Test environment context
- * @param event - Event to publish
- * @param options - Publishing options
- * @returns Promise that resolves when the event is published
- */
-export async function publishTestEvent<T extends IEvent>(
-  context: TestEnvironmentContext,
-  event: T,
-  options: PublishEventOptions
-): Promise<void> {
-  if (!context.producer) {
-    throw new Error('Kafka producer not available in test context');
-  }
-  
-  const { topic, key, headers, partition, waitForAck = true } = options;
-  
-  // Prepare message
-  const message = {
-    key: key || event.eventId,
-    value: JSON.stringify(event),
-    headers: headers || {},
-  };
-  
-  // Add partition if specified
-  const topicMessages = partition !== undefined
-    ? [{ ...message, partition }]
-    : [message];
-  
-  // Publish message
-  const result = await context.producer.send({
-    topic,
-    messages: topicMessages,
-  });
-  
-  console.log(`Published test event ${event.eventId} to ${topic}`);
-  
-  // Wait for acknowledgement if requested
-  if (waitForAck) {
-    await sleep(100); // Small delay to ensure event is processed
-  }
-  
-  return result;
-}
-
-/**
- * Options for consuming test events
- */
-export interface ConsumeEventOptions {
-  /** Topic to consume from */
-  topic: string;
-  /** Group ID for the consumer (optional) */
-  groupId?: string;
-  /** Maximum number of events to consume */
-  maxEvents?: number;
-  /** Timeout in milliseconds */
-  timeout?: number;
-  /** Event filter predicate */
-  filter?: (event: IEvent) => boolean;
-}
-
-/**
- * Consumes events from Kafka for testing
- * 
- * @param context - Test environment context
- * @param options - Consumption options
- * @returns Promise that resolves with consumed events
- */
-export async function consumeTestEvents<T extends IEvent>(
-  context: TestEnvironmentContext,
-  options: ConsumeEventOptions
-): Promise<T[]> {
-  if (!context.consumer) {
-    throw new Error('Kafka consumer not available in test context');
-  }
-  
-  const {
-    topic,
-    groupId = `test-group-${uuidv4()}`,
-    maxEvents = 1,
-    timeout = 5000,
-    filter = () => true,
-  } = options;
-  
-  const events: T[] = [];
-  let timeoutId: NodeJS.Timeout;
-  
-  // Create a promise that resolves when events are consumed or timeout occurs
-  const consumePromise = new Promise<T[]>(async (resolve, reject) => {
-    try {
-      // Subscribe to topic
-      await context.consumer.subscribe({ topic, fromBeginning: true });
-      
-      // Set timeout
-      timeoutId = setTimeout(() => {
-        console.log(`Timeout reached while consuming events from ${topic}`);
-        resolve(events);
-      }, timeout);
-      
-      // Start consuming
-      await context.consumer.run({
-        eachMessage: async ({ topic, partition, message }) => {
-          try {
-            if (!message.value) return;
-            
-            // Parse event
-            const event = JSON.parse(message.value.toString()) as T;
-            
-            // Apply filter
-            if (filter(event)) {
-              events.push(event);
-              console.log(`Consumed test event ${event.eventId} from ${topic}`);
-              
-              // Check if we've reached the maximum number of events
-              if (events.length >= maxEvents) {
-                clearTimeout(timeoutId);
-                resolve(events);
-              }
-            }
-          } catch (error) {
-            console.error(`Error processing message: ${error.message}`);
-          }
+    // Setup database
+    this.prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: this.config.databaseUrl,
         },
-      });
-    } catch (error) {
-      clearTimeout(timeoutId);
-      reject(error);
-    }
-  });
-  
-  // Wait for events or timeout
-  const result = await consumePromise;
-  
-  // Stop consuming
-  await context.consumer.stop();
-  
-  return result;
-}
-
-/**
- * Options for waiting for an event
- */
-export interface WaitForEventOptions {
-  /** Topic to consume from */
-  topic: string;
-  /** Timeout in milliseconds */
-  timeout?: number;
-  /** Event filter predicate */
-  filter?: (event: IEvent) => boolean;
-  /** Whether to throw an error if timeout is reached */
-  throwOnTimeout?: boolean;
-}
-
-/**
- * Waits for a specific event to be published
- * 
- * @param context - Test environment context
- * @param options - Wait options
- * @returns Promise that resolves with the event or null if timeout is reached
- */
-export async function waitForEvent<T extends IEvent>(
-  context: TestEnvironmentContext,
-  options: WaitForEventOptions
-): Promise<T | null> {
-  const {
-    topic,
-    timeout = 5000,
-    filter = () => true,
-    throwOnTimeout = false,
-  } = options;
-  
-  const events = await consumeTestEvents<T>(context, {
-    topic,
-    maxEvents: 1,
-    timeout,
-    filter,
-  });
-  
-  if (events.length === 0) {
-    if (throwOnTimeout) {
-      throw new Error(`Timeout reached while waiting for event on topic ${topic}`);
-    }
-    return null;
-  }
-  
-  return events[0];
-}
-
-/**
- * Creates a test event with default values
- * 
- * @param type - Event type
- * @param payload - Event payload
- * @param overrides - Optional overrides for event properties
- * @returns Test event
- */
-export function createTestEvent<T>(
-  type: string,
-  payload: T,
-  overrides: Partial<IEvent> = {}
-): IEvent & { payload: T } {
-  return {
-    eventId: uuidv4(),
-    timestamp: new Date().toISOString(),
-    version: '1.0.0' as EventVersion,
-    source: 'test',
-    type,
-    payload,
-    metadata: {},
-    ...overrides,
-  };
-}
-
-/**
- * Compares two events for equality
- * 
- * @param actual - Actual event
- * @param expected - Expected event
- * @param options - Comparison options
- * @returns Whether the events are equal
- */
-export function compareEvents(
-  actual: IEvent,
-  expected: IEvent,
-  options: {
-    ignoreTimestamp?: boolean;
-    ignoreEventId?: boolean;
-    ignoreMetadata?: boolean;
-    customComparators?: Record<string, (a: any, b: any) => boolean>;
-  } = {}
-): boolean {
-  const {
-    ignoreTimestamp = true,
-    ignoreEventId = true,
-    ignoreMetadata = true,
-    customComparators = {},
-  } = options;
-  
-  // Check type
-  if (actual.type !== expected.type) {
-    return false;
-  }
-  
-  // Check version
-  if (actual.version !== expected.version) {
-    return false;
-  }
-  
-  // Check source
-  if (actual.source !== expected.source) {
-    return false;
-  }
-  
-  // Check event ID if not ignored
-  if (!ignoreEventId && actual.eventId !== expected.eventId) {
-    return false;
-  }
-  
-  // Check timestamp if not ignored
-  if (!ignoreTimestamp && actual.timestamp !== expected.timestamp) {
-    return false;
-  }
-  
-  // Check payload using deep equality or custom comparators
-  if (!comparePayloads(actual.payload, expected.payload, customComparators)) {
-    return false;
-  }
-  
-  // Check metadata if not ignored
-  if (!ignoreMetadata && !comparePayloads(actual.metadata, expected.metadata, customComparators)) {
-    return false;
-  }
-  
-  return true;
-}
-
-/**
- * Compares two payloads for deep equality
- */
-function comparePayloads(
-  actual: any,
-  expected: any,
-  customComparators: Record<string, (a: any, b: any) => boolean> = {}
-): boolean {
-  // Handle null/undefined
-  if (actual === expected) {
-    return true;
-  }
-  
-  // Handle one side null/undefined
-  if (actual == null || expected == null) {
-    return false;
-  }
-  
-  // Handle different types
-  if (typeof actual !== typeof expected) {
-    return false;
-  }
-  
-  // Handle arrays
-  if (Array.isArray(actual) && Array.isArray(expected)) {
-    if (actual.length !== expected.length) {
-      return false;
-    }
+      },
+    });
     
-    return actual.every((item, index) => comparePayloads(item, expected[index], customComparators));
+    this.prismaService = new PrismaService();
+    await this.prismaService.cleanDatabase();
+
+    // Create NestJS application
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    this.app = moduleFixture.createNestApplication();
+    await this.app.init();
+
+    // Start consuming messages
+    this.startConsuming();
   }
-  
-  // Handle objects
-  if (typeof actual === 'object' && typeof expected === 'object') {
-    const actualKeys = Object.keys(actual);
-    const expectedKeys = Object.keys(expected);
+
+  /**
+   * Tears down the test environment
+   */
+  async teardown(): Promise<void> {
+    // Stop consuming messages
+    this.isConsuming = false;
     
-    // Check if keys match
-    if (actualKeys.length !== expectedKeys.length ||
-        !actualKeys.every(key => expectedKeys.includes(key))) {
-      return false;
-    }
+    // Disconnect from Kafka
+    await this.consumer.disconnect();
+    await this.producer.disconnect();
     
-    // Check each property
-    return actualKeys.every(key => {
-      // Use custom comparator if available
-      if (customComparators[key]) {
-        return customComparators[key](actual[key], expected[key]);
-      }
-      
-      // Otherwise use recursive comparison
-      return comparePayloads(actual[key], expected[key], customComparators);
+    // Clean up database
+    await this.prismaService.cleanDatabase();
+    await this.prisma.$disconnect();
+    
+    // Close NestJS application
+    await this.app.close();
+  }
+
+  /**
+   * Starts consuming messages from Kafka
+   */
+  private async startConsuming(): Promise<void> {
+    this.isConsuming = true;
+    
+    await this.consumer.run({
+      eachMessage: async ({ topic, partition, message }) => {
+        if (this.isConsuming) {
+          this.consumedMessages.push(message);
+        }
+      },
     });
   }
-  
-  // Handle primitives
-  return actual === expected;
-}
 
-/**
- * Database seeding utilities for tests
- */
-export class TestDatabaseSeeder {
-  constructor(private readonly prisma: PrismaClient) {}
-  
   /**
-   * Cleans the database by truncating all tables
+   * Publishes an event to Kafka
+   * @param event - The event to publish
+   * @param topic - The topic to publish to
+   * @returns The published message
    */
-  async cleanDatabase(): Promise<void> {
-    // Get all table names from the current schema
-    const tables = await this.getTables();
-    
-    // Disable foreign key checks
-    await this.prisma.$executeRawUnsafe('SET session_replication_role = replica;');
-    
-    try {
-      // Truncate each table
-      for (const table of tables) {
-        await this.prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE;`);
-      }
-      
-      console.log(`Cleaned ${tables.length} tables`);
-    } finally {
-      // Re-enable foreign key checks
-      await this.prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
-    }
-  }
-  
-  /**
-   * Gets all table names in the current schema
-   */
-  private async getTables(): Promise<string[]> {
-    const schemaName = await this.getCurrentSchema();
-    
-    const result = await this.prisma.$queryRawUnsafe<Array<{ tablename: string }>>(`
-      SELECT tablename FROM pg_tables 
-      WHERE schemaname = '${schemaName}'
-    `);
-    
-    return result.map(row => row.tablename);
-  }
-  
-  /**
-   * Gets the current schema name
-   */
-  private async getCurrentSchema(): Promise<string> {
-    const result = await this.prisma.$queryRawUnsafe<Array<{ current_schema: string }>>(
-      'SELECT current_schema();'
-    );
-    
-    return result[0].current_schema;
-  }
-  
-  /**
-   * Seeds test users
-   */
-  async seedTestUsers(): Promise<any[]> {
-    const users = [
-      {
-        name: 'Test User',
-        email: 'test@example.com',
-        password: 'password', // In a real implementation, this would be hashed
-      },
-      {
-        name: 'Admin User',
-        email: 'admin@example.com',
-        password: 'password', // In a real implementation, this would be hashed
-      },
-    ];
-    
-    const createdUsers = [];
-    
-    for (const user of users) {
-      const createdUser = await this.prisma.user.upsert({
-        where: { email: user.email },
-        update: user,
-        create: user,
-      });
-      
-      createdUsers.push(createdUser);
-    }
-    
-    return createdUsers;
-  }
-  
-  /**
-   * Seeds test events
-   */
-  async seedTestEvents(count: number = 5): Promise<any[]> {
-    const events = [];
-    
-    for (let i = 0; i < count; i++) {
-      const event = {
-        eventId: uuidv4(),
-        type: `test-event-${i}`,
-        source: 'test',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        payload: { data: `Test data ${i}` },
-        metadata: { test: true },
-      };
-      
-      const createdEvent = await this.prisma.event.create({
-        data: {
-          id: event.eventId,
-          type: event.type,
-          source: event.source,
-          version: event.version,
-          timestamp: new Date(event.timestamp),
-          payload: event.payload as any,
-          metadata: event.metadata as any,
+  async publishEvent<T = any>(event: TestEvent<T>, topic: string): Promise<void> {
+    const message: ProducerRecord = {
+      topic,
+      messages: [
+        {
+          key: event.userId,
+          value: JSON.stringify(event),
+          headers: {
+            'correlation-id': uuidv4(),
+            'event-type': event.type,
+            'journey': event.journey,
+          },
         },
-      });
+      ],
+    };
+
+    await this.producer.send(message);
+  }
+
+  /**
+   * Waits for a specific event to be consumed
+   * @param eventType - The event type to wait for
+   * @param userId - The user ID to filter by
+   * @param timeout - The timeout in milliseconds
+   * @returns The consumed event or null if timeout
+   */
+  async waitForEvent<T = any>(
+    eventType: EventType,
+    userId?: string,
+    timeout = this.config.testTimeout
+  ): Promise<TestEvent<T> | null> {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      const message = this.findMessage(eventType, userId);
       
-      events.push(createdEvent);
+      if (message) {
+        const event = JSON.parse(message.value.toString()) as TestEvent<T>;
+        return event;
+      }
+      
+      // Wait a bit before checking again
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
-    return events;
+    return null;
   }
-  
+
   /**
-   * Seeds journey-specific test data
+   * Finds a message in the consumed messages
+   * @param eventType - The event type to find
+   * @param userId - The user ID to filter by
+   * @returns The found message or undefined
    */
-  async seedJourneyData(journey: 'health' | 'care' | 'plan'): Promise<void> {
-    switch (journey) {
-      case 'health':
-        await this.seedHealthJourneyData();
-        break;
-      case 'care':
-        await this.seedCareJourneyData();
-        break;
-      case 'plan':
-        await this.seedPlanJourneyData();
-        break;
-    }
+  private findMessage(eventType: EventType, userId?: string): KafkaMessage | undefined {
+    return this.consumedMessages.find(message => {
+      if (!message.value) return false;
+      
+      try {
+        const event = JSON.parse(message.value.toString()) as TestEvent;
+        
+        if (event.type !== eventType) return false;
+        if (userId && event.userId !== userId) return false;
+        
+        return true;
+      } catch (error) {
+        return false;
+      }
+    });
   }
-  
+
   /**
-   * Seeds health journey test data
+   * Clears all consumed messages
    */
-  private async seedHealthJourneyData(): Promise<void> {
-    // Seed health metric types
-    const metricTypes = [
-      { name: 'HEART_RATE', unit: 'bpm', normalRangeMin: 60, normalRangeMax: 100 },
-      { name: 'BLOOD_PRESSURE', unit: 'mmHg', normalRangeMin: null, normalRangeMax: null },
-      { name: 'BLOOD_GLUCOSE', unit: 'mg/dL', normalRangeMin: 70, normalRangeMax: 100 },
-      { name: 'STEPS', unit: 'steps', normalRangeMin: 5000, normalRangeMax: null },
-    ];
-    
-    for (const metricType of metricTypes) {
-      await this.prisma.healthMetricType.upsert({
-        where: { name: metricType.name },
-        update: {},
-        create: metricType,
-      });
-    }
-    
-    console.log(`Seeded ${metricTypes.length} health metric types`);
+  clearConsumedMessages(): void {
+    this.consumedMessages = [];
   }
-  
+
   /**
-   * Seeds care journey test data
+   * Gets all consumed messages
+   * @returns All consumed messages
    */
-  private async seedCareJourneyData(): Promise<void> {
-    // Seed provider specialties
-    const specialties = [
-      { name: 'Cardiologia', description: 'Especialista em coração e sistema cardiovascular' },
-      { name: 'Dermatologia', description: 'Especialista em pele, cabelo e unhas' },
-      { name: 'Ortopedia', description: 'Especialista em sistema músculo-esquelético' },
-    ];
-    
-    for (const specialty of specialties) {
-      await this.prisma.providerSpecialty.upsert({
-        where: { name: specialty.name },
-        update: {},
-        create: specialty,
-      });
-    }
-    
-    console.log(`Seeded ${specialties.length} provider specialties`);
+  getConsumedMessages(): KafkaMessage[] {
+    return [...this.consumedMessages];
   }
-  
+
   /**
-   * Seeds plan journey test data
+   * Gets the NestJS application
+   * @returns The NestJS application
    */
-  private async seedPlanJourneyData(): Promise<void> {
-    // Seed plan types
-    const planTypes = [
-      { name: 'Básico', description: 'Plano com cobertura básica' },
-      { name: 'Standard', description: 'Plano com cobertura intermediária' },
-      { name: 'Premium', description: 'Plano com cobertura ampla' },
-    ];
-    
-    for (const planType of planTypes) {
-      await this.prisma.insurancePlanType.upsert({
-        where: { name: planType.name },
-        update: {},
-        create: planType,
-      });
-    }
-    
-    console.log(`Seeded ${planTypes.length} insurance plan types`);
+  getApp(): INestApplication {
+    return this.app;
+  }
+
+  /**
+   * Gets the Prisma client
+   * @returns The Prisma client
+   */
+  getPrisma(): PrismaClient {
+    return this.prisma;
+  }
+
+  /**
+   * Gets the Kafka producer
+   * @returns The Kafka producer
+   */
+  getProducer(): Producer {
+    return this.producer;
+  }
+
+  /**
+   * Gets the Kafka consumer
+   * @returns The Kafka consumer
+   */
+  getConsumer(): Consumer {
+    return this.consumer;
   }
 }
 
 /**
- * Retry options for test operations
+ * Creates a test user in the database
+ * @param prisma - The Prisma client
+ * @param overrides - Optional overrides for user properties
+ * @returns The created user
  */
-export interface RetryOptions {
-  /** Maximum number of attempts */
-  maxAttempts?: number;
-  /** Delay between attempts in milliseconds */
-  delay?: number;
-  /** Whether to use exponential backoff */
-  exponentialBackoff?: boolean;
-  /** Backoff factor for exponential backoff */
-  backoffFactor?: number;
-  /** Condition to retry */
-  retryCondition?: (error: Error) => boolean;
+export async function createTestUser(prisma: PrismaClient, overrides: Partial<any> = {}): Promise<any> {
+  return prisma.user.create({
+    data: {
+      name: `Test User ${uuidv4()}`,
+      email: `test-${uuidv4()}@austa.com.br`,
+      password: 'Password123!',
+      phone: '+5511999999999',
+      cpf: Math.floor(Math.random() * 100000000000).toString().padStart(11, '0'),
+      ...overrides,
+    },
+  });
 }
 
 /**
- * Retries an operation with configurable retry policy
- * 
- * @param operation - Operation to retry
- * @param options - Retry options
- * @returns Promise that resolves with the operation result
+ * Creates test health metrics in the database
+ * @param prisma - The Prisma client
+ * @param userId - The user ID
+ * @param count - The number of metrics to create
+ * @returns The created metrics
  */
-export async function retryOperation<T>(
-  operation: () => Promise<T>,
-  options: RetryOptions = {}
+export async function createTestHealthMetrics(prisma: PrismaClient, userId: string, count = 5): Promise<any[]> {
+  const metrics = [];
+  
+  // Get available metric types
+  const metricTypes = await prisma.healthMetricType.findMany();
+  
+  if (metricTypes.length === 0) {
+    throw new Error('No health metric types found in the database. Please run the seed script first.');
+  }
+  
+  // Create metrics
+  for (let i = 0; i < count; i++) {
+    const metricType = metricTypes[Math.floor(Math.random() * metricTypes.length)];
+    
+    const metric = await prisma.healthMetric.create({
+      data: {
+        userId,
+        typeId: metricType.id,
+        value: Math.floor(Math.random() * 100).toString(),
+        recordedAt: new Date(),
+      },
+    });
+    
+    metrics.push(metric);
+  }
+  
+  return metrics;
+}
+
+/**
+ * Creates a test appointment in the database
+ * @param prisma - The Prisma client
+ * @param userId - The user ID
+ * @param overrides - Optional overrides for appointment properties
+ * @returns The created appointment
+ */
+export async function createTestAppointment(prisma: PrismaClient, userId: string, overrides: Partial<any> = {}): Promise<any> {
+  // Get a random specialty
+  const specialties = await prisma.providerSpecialty.findMany();
+  
+  if (specialties.length === 0) {
+    throw new Error('No provider specialties found in the database. Please run the seed script first.');
+  }
+  
+  const specialty = specialties[Math.floor(Math.random() * specialties.length)];
+  
+  // Create a provider
+  const provider = await prisma.provider.create({
+    data: {
+      name: `Dr. Test ${uuidv4()}`,
+      specialtyId: specialty.id,
+      email: `provider-${uuidv4()}@austa.com.br`,
+      phone: '+5511888888888',
+    },
+  });
+  
+  // Create an appointment
+  return prisma.appointment.create({
+    data: {
+      userId,
+      providerId: provider.id,
+      scheduledAt: new Date(Date.now() + 86400000), // Tomorrow
+      status: 'SCHEDULED',
+      notes: 'Test appointment created for e2e testing',
+      ...overrides,
+    },
+  });
+}
+
+/**
+ * Creates a test insurance claim in the database
+ * @param prisma - The Prisma client
+ * @param userId - The user ID
+ * @param overrides - Optional overrides for claim properties
+ * @returns The created claim
+ */
+export async function createTestClaim(prisma: PrismaClient, userId: string, overrides: Partial<any> = {}): Promise<any> {
+  // Get a random claim type
+  const claimTypes = await prisma.claimType.findMany();
+  
+  if (claimTypes.length === 0) {
+    throw new Error('No claim types found in the database. Please run the seed script first.');
+  }
+  
+  const claimType = claimTypes[Math.floor(Math.random() * claimTypes.length)];
+  
+  // Create a claim
+  return prisma.insuranceClaim.create({
+    data: {
+      userId,
+      typeId: claimType.id,
+      amount: Math.floor(Math.random() * 1000) + 100,
+      status: 'SUBMITTED',
+      submittedAt: new Date(),
+      description: 'Test claim created for e2e testing',
+      ...overrides,
+    },
+  });
+}
+
+/**
+ * Asserts that an event has the expected properties
+ * @param event - The event to assert
+ * @param expectedType - The expected event type
+ * @param expectedJourney - The expected journey type
+ * @param expectedUserId - The expected user ID
+ * @throws Error if the assertion fails
+ */
+export function assertEvent(
+  event: TestEvent | null,
+  expectedType: EventType,
+  expectedJourney: JourneyType,
+  expectedUserId: string
+): void {
+  if (!event) {
+    throw new Error(`Expected event of type ${expectedType} but received null`);
+  }
+  
+  if (event.type !== expectedType) {
+    throw new Error(`Expected event type ${expectedType} but received ${event.type}`);
+  }
+  
+  if (event.journey !== expectedJourney) {
+    throw new Error(`Expected journey ${expectedJourney} but received ${event.journey}`);
+  }
+  
+  if (event.userId !== expectedUserId) {
+    throw new Error(`Expected user ID ${expectedUserId} but received ${event.userId}`);
+  }
+}
+
+/**
+ * Retries a function until it succeeds or reaches the maximum number of retries
+ * @param fn - The function to retry
+ * @param maxRetries - The maximum number of retries
+ * @param delay - The delay between retries in milliseconds
+ * @returns The result of the function
+ * @throws The last error encountered
+ */
+export async function retry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 5,
+  delay = 1000
 ): Promise<T> {
-  const {
-    maxAttempts = 3,
-    delay = 100,
-    exponentialBackoff = true,
-    backoffFactor = 2,
-    retryCondition = () => true,
-  } = options;
+  let lastError: Error;
   
-  let attempt = 0;
-  let currentDelay = delay;
-  
-  while (attempt < maxAttempts) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await operation();
+      return await fn();
     } catch (error) {
-      attempt++;
+      lastError = error;
+      console.log(`Retry attempt ${attempt}/${maxRetries} failed: ${error.message}`);
       
-      // Check if we should retry
-      if (attempt >= maxAttempts || !retryCondition(error)) {
-        throw error;
-      }
-      
-      // Wait before retrying
-      console.log(`Retry attempt ${attempt}/${maxAttempts} after ${currentDelay}ms`);
-      await sleep(currentDelay);
-      
-      // Calculate next delay with exponential backoff if enabled
-      if (exponentialBackoff) {
-        currentDelay *= backoffFactor;
+      if (attempt < maxRetries) {
+        // Wait before retrying with exponential backoff
+        const backoffDelay = delay * Math.pow(2, attempt - 1);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
     }
   }
   
-  // This should never be reached due to the throw in the catch block
-  throw new Error('Retry operation failed');
+  throw lastError;
 }
 
 /**
- * Waits for a condition to be true with timeout
- * 
- * @param condition - Condition to check
- * @param options - Wait options
- * @returns Promise that resolves when the condition is true
+ * Waits for a condition to be true
+ * @param condition - The condition function
+ * @param timeout - The timeout in milliseconds
+ * @param interval - The interval between checks in milliseconds
+ * @returns True if the condition was met, false if timeout
  */
 export async function waitForCondition(
   condition: () => Promise<boolean> | boolean,
-  options: {
-    timeout?: number;
-    interval?: number;
-    timeoutMessage?: string;
-  } = {}
-): Promise<void> {
-  const {
-    timeout = 5000,
-    interval = 100,
-    timeoutMessage = 'Timeout waiting for condition',
-  } = options;
-  
+  timeout = 30000,
+  interval = 100
+): Promise<boolean> {
   const startTime = Date.now();
   
   while (Date.now() - startTime < timeout) {
     if (await condition()) {
-      return;
+      return true;
     }
     
-    await sleep(interval);
+    await new Promise(resolve => setTimeout(resolve, interval));
   }
   
-  throw new Error(timeoutMessage);
+  return false;
 }
 
 /**
- * Creates a mock event handler for testing
- * 
- * @param eventType - Type of events to handle
- * @param handler - Handler function
- * @returns Mock event handler
+ * Creates a random event for testing
+ * @param type - The event type
+ * @param journey - The journey type
+ * @param userId - The user ID
+ * @param data - The event data
+ * @returns A test event
  */
-export function createMockEventHandler<T extends IEvent>(
-  eventType: string,
-  handler: (event: T) => Promise<IEventResponse> | IEventResponse
-): IEventHandler<T> {
+export function createTestEvent<T = any>(
+  type: EventType,
+  journey: JourneyType,
+  userId: string,
+  data: T
+): TestEvent<T> {
   return {
-    handle: async (event: T) => {
-      return await handler(event);
+    type,
+    journey,
+    userId,
+    data,
+    metadata: {
+      correlationId: uuidv4(),
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      source: 'e2e-test',
     },
-    canHandle: (event: T) => event.type === eventType,
-    getEventType: () => eventType,
   };
+}
+
+/**
+ * Seeds the database with test data
+ * @param prisma - The Prisma client
+ */
+export async function seedTestDatabase(prisma: PrismaClient): Promise<void> {
+  // Create permissions
+  const permissions = [
+    { name: 'health:metrics:read', description: 'View health metrics' },
+    { name: 'health:metrics:write', description: 'Record health metrics' },
+    { name: 'care:appointments:read', description: 'View appointments' },
+    { name: 'care:appointments:write', description: 'Manage appointments' },
+    { name: 'plan:claims:read', description: 'View claims' },
+    { name: 'plan:claims:write', description: 'Submit and manage claims' },
+    { name: 'game:achievements:read', description: 'View achievements' },
+  ];
+  
+  for (const permission of permissions) {
+    await prisma.permission.upsert({
+      where: { name: permission.name },
+      update: {},
+      create: permission,
+    });
+  }
+  
+  // Create roles
+  const userRole = await prisma.role.upsert({
+    where: { name: 'User' },
+    update: {},
+    create: {
+      name: 'User',
+      description: 'Standard user with access to all journeys',
+      isDefault: true,
+      journey: null,
+    },
+  });
+  
+  // Connect permissions to role
+  const permissionRecords = await prisma.permission.findMany({
+    where: {
+      name: {
+        in: permissions.map(p => p.name),
+      },
+    },
+  });
+  
+  await prisma.role.update({
+    where: { id: userRole.id },
+    data: {
+      permissions: {
+        connect: permissionRecords.map(p => ({ id: p.id })),
+      },
+    },
+  });
+  
+  // Create health metric types if they don't exist
+  const metricTypes = [
+    { name: 'HEART_RATE', unit: 'bpm', normalRangeMin: 60, normalRangeMax: 100 },
+    { name: 'BLOOD_PRESSURE', unit: 'mmHg', normalRangeMin: null, normalRangeMax: null },
+    { name: 'BLOOD_GLUCOSE', unit: 'mg/dL', normalRangeMin: 70, normalRangeMax: 100 },
+    { name: 'STEPS', unit: 'steps', normalRangeMin: 5000, normalRangeMax: null },
+    { name: 'WEIGHT', unit: 'kg', normalRangeMin: null, normalRangeMax: null },
+  ];
+
+  for (const metricType of metricTypes) {
+    await prisma.healthMetricType.upsert({
+      where: { name: metricType.name },
+      update: {},
+      create: metricType,
+    });
+  }
+  
+  // Create provider specialties if they don't exist
+  const specialties = [
+    { name: 'Cardiologia', description: 'Especialista em coração e sistema cardiovascular' },
+    { name: 'Dermatologia', description: 'Especialista em pele, cabelo e unhas' },
+    { name: 'Ortopedia', description: 'Especialista em sistema músculo-esquelético' },
+  ];
+  
+  for (const specialty of specialties) {
+    await prisma.providerSpecialty.upsert({
+      where: { name: specialty.name },
+      update: {},
+      create: specialty,
+    });
+  }
+  
+  // Create claim types if they don't exist
+  const claimTypes = [
+    { name: 'Consulta Médica', description: 'Reembolso para consulta médica' },
+    { name: 'Exame', description: 'Reembolso para exames médicos' },
+    { name: 'Terapia', description: 'Reembolso para sessões terapêuticas' },
+  ];
+  
+  for (const claimType of claimTypes) {
+    await prisma.claimType.upsert({
+      where: { name: claimType.name },
+      update: {},
+      create: claimType,
+    });
+  }
+  
+  // Create achievement types if they don't exist
+  const achievementTypes = [
+    { 
+      name: 'health-check-streak', 
+      title: 'Monitor de Saúde', 
+      description: 'Registre suas métricas de saúde por dias consecutivos',
+      journey: 'health',
+      icon: 'heart-pulse',
+      levels: 3
+    },
+    { 
+      name: 'appointment-keeper', 
+      title: 'Compromisso com a Saúde', 
+      description: 'Compareça às consultas agendadas',
+      journey: 'care',
+      icon: 'calendar-check',
+      levels: 3
+    },
+    { 
+      name: 'claim-master', 
+      title: 'Mestre em Reembolsos', 
+      description: 'Submeta solicitações de reembolso completas',
+      journey: 'plan',
+      icon: 'receipt',
+      levels: 3
+    },
+  ];
+  
+  for (const achievement of achievementTypes) {
+    await prisma.achievementType.upsert({
+      where: { name: achievement.name },
+      update: {},
+      create: achievement,
+    });
+  }
 }

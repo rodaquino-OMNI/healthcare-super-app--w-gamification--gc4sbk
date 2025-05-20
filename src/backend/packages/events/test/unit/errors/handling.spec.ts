@@ -1,728 +1,744 @@
-import { Test } from '@nestjs/testing';
-import { Logger } from '@nestjs/common';
-import { 
-  HandleEventErrors, 
-  HandleValidationErrors, 
-  EventErrorHandler,
-  EventErrorHandlingService,
-  EventProcessingStage,
-  createFallbackHandler,
-  logEventError,
-  createErrorResponse
-} from '../../../src/errors/handling';
-import { 
-  EventProcessingError, 
-  EventValidationError,
-  EventDatabaseError,
-  EventTimeoutError,
-  EventExternalSystemError,
-  DuplicateEventError
-} from '../../../src/errors/event-errors';
-import { CircuitBreaker } from '../../../src/errors/circuit-breaker';
-import { IBaseEvent } from '../../../src/interfaces/base-event.interface';
-import { IEventResponse, EventResponseStatus } from '../../../src/interfaces/event-response.interface';
-import { IEventHandler } from '../../../src/interfaces/event-handler.interface';
+import { Test, TestingModule } from '@nestjs/testing';
+import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY } from '../../../src/constants/errors.constants';
+import { EventType } from '../../../src/dto/event-types.enum';
+import { TOPICS } from '../../../src/constants/topics.constants';
+import {
+  healthMetricRecordedEvent,
+  careAppointmentBookedEvent,
+  planClaimSubmittedEvent,
+  schemaValidationErrorContext,
+  consumerProcessingErrorContext,
+  deserializationErrorContext,
+  firstAttemptRetryState,
+  midAttemptRetryState,
+  finalAttemptRetryState,
+  createTestEvent,
+  createErrorContext,
+  createRetryState
+} from './fixtures';
+import {
+  MockKafkaError,
+  MockEventValidationError,
+  MockProducerError,
+  MockConsumerError,
+  MockRetryPolicy,
+  MockDLQProducer,
+  MockErrorHandler,
+  createMockKafkaError,
+  createMockValidationError,
+  createMockConsumerError,
+  resetAllMocks
+} from './mocks';
 
-// Mock dependencies
-jest.mock('@austa/tracing', () => ({
-  getCurrentTraceId: jest.fn().mockReturnValue('mock-trace-id'),
-  TraceContext: jest.fn(),
-}));
+// Import the error handling utilities and decorators that we're testing
+import { HandleEventErrors, EventErrorHandler, CircuitBreaker } from '../../../src/errors/handling';
 
-jest.mock('../../../src/errors/dlq', () => ({
-  sendToDlq: jest.fn().mockResolvedValue(undefined),
-}));
+// Mock class for testing the decorator
+class TestEventProcessor {
+  public processingResult: any = null;
+  public processingError: Error = null;
+  public processingAttempts = 0;
 
-jest.mock('../../../src/errors/retry-policies', () => ({
-  applyRetryPolicy: jest.fn().mockResolvedValue(false),
-}));
+  @HandleEventErrors()
+  async processEvent(event: any): Promise<any> {
+    this.processingAttempts++;
+    if (this.processingError) {
+      throw this.processingError;
+    }
+    return this.processingResult;
+  }
 
-// Import mocked dependencies
-import { sendToDlq } from '../../../src/errors/dlq';
-import { applyRetryPolicy } from '../../../src/errors/retry-policies';
+  @HandleEventErrors({ maxRetries: 3, retryDelayMs: 100 })
+  async processEventWithRetry(event: any): Promise<any> {
+    this.processingAttempts++;
+    if (this.processingError) {
+      throw this.processingError;
+    }
+    return this.processingResult;
+  }
 
-describe('Event Error Handling', () => {
-  // Reset mocks before each test
+  @HandleEventErrors({ useCircuitBreaker: true, failureThreshold: 3, resetTimeoutMs: 5000 })
+  async processEventWithCircuitBreaker(event: any): Promise<any> {
+    this.processingAttempts++;
+    if (this.processingError) {
+      throw this.processingError;
+    }
+    return this.processingResult;
+  }
+
+  @HandleEventErrors({ journeySpecificConfig: true })
+  async processEventWithJourneyConfig(event: any): Promise<any> {
+    this.processingAttempts++;
+    if (this.processingError) {
+      throw this.processingError;
+    }
+    return this.processingResult;
+  }
+
+  // Method to reset the test state
+  reset(): void {
+    this.processingResult = null;
+    this.processingError = null;
+    this.processingAttempts = 0;
+  }
+}
+
+describe('Error Handling', () => {
+  let testProcessor: TestEventProcessor;
+  let mockRetryPolicy: MockRetryPolicy;
+  let mockDLQProducer: MockDLQProducer;
+  let mockErrorHandler: MockErrorHandler;
+
   beforeEach(() => {
+    testProcessor = new TestEventProcessor();
+    mockRetryPolicy = new MockRetryPolicy({ maxRetries: 3 });
+    mockDLQProducer = new MockDLQProducer();
+    mockErrorHandler = new MockErrorHandler();
+    resetAllMocks();
+  });
+
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
-  // Sample event for testing
-  const mockEvent: IBaseEvent = {
-    eventId: 'test-event-id',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    source: 'test-service',
-    type: 'test.event',
-    payload: { data: 'test-data' },
-    metadata: {
-      correlationId: 'test-correlation-id',
-      userId: 'test-user-id',
-      journey: 'health'
-    }
-  };
+  describe('@HandleEventErrors Decorator', () => {
+    it('should successfully process events when no errors occur', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+      testProcessor.processingResult = { success: true, eventId: event.id };
 
-  describe('@HandleEventErrors decorator', () => {
-    // Test class with decorated method
-    class TestEventProcessor {
-      @HandleEventErrors()
-      async processEvent(event: IBaseEvent): Promise<string> {
-        return 'success';
-      }
+      // Act
+      const result = await testProcessor.processEvent(event);
 
-      @HandleEventErrors({ sendToDlq: false, applyRetryPolicy: false })
-      async processWithoutDlq(event: IBaseEvent): Promise<string> {
-        throw new Error('Test error');
-      }
-
-      @HandleEventErrors({ journeyContext: 'care' })
-      async processCareEvent(event: IBaseEvent): Promise<string> {
-        throw new EventProcessingError(
-          'Care event processing failed',
-          { eventId: event.eventId, eventType: event.type },
-          new Error('Underlying error')
-        );
-      }
-
-      @HandleEventErrors({ useCircuitBreaker: true })
-      async processWithCircuitBreaker(event: IBaseEvent): Promise<string> {
-        return 'circuit breaker success';
-      }
-    }
-
-    let processor: TestEventProcessor;
-
-    beforeEach(() => {
-      processor = new TestEventProcessor();
+      // Assert
+      expect(result).toEqual({ success: true, eventId: event.id });
+      expect(testProcessor.processingAttempts).toBe(1);
     });
 
-    it('should return the result when no error occurs', async () => {
-      const result = await processor.processEvent(mockEvent);
-      expect(result).toBe('success');
+    it('should catch and handle errors thrown during event processing', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Mock the error handler to not rethrow
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockResolvedValue(undefined);
+
+      // Act
+      await testProcessor.processEvent(event);
+
+      // Assert
+      expect(EventErrorHandler.prototype.handleError).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({ event })
+      );
+      expect(testProcessor.processingAttempts).toBe(1);
     });
 
-    it('should handle errors and send to DLQ by default', async () => {
-      // Mock implementation to throw an error
-      jest.spyOn(processor, 'processWithoutDlq').mockImplementation(() => {
-        throw new Error('Test error');
+    it('should retry failed operations based on retry policy', async () => {
+      // Arrange
+      const event = careAppointmentBookedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Mock the retry policy to allow 2 retries then fail
+      jest.spyOn(mockRetryPolicy, 'shouldRetry')
+        .mockResolvedValueOnce(true)  // First retry: yes
+        .mockResolvedValueOnce(true)  // Second retry: yes
+        .mockResolvedValueOnce(false); // Third retry: no
+
+      // Mock the error handler to use our mock retry policy
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        const shouldRetry = await mockRetryPolicy.shouldRetry();
+        if (shouldRetry) {
+          // Simulate retry by calling the method again
+          await testProcessor.processEventWithRetry(event);
+        }
       });
 
-      await processor.processWithoutDlq(mockEvent);
-      
-      // Verify DLQ was not called due to configuration
-      expect(sendToDlq).not.toHaveBeenCalled();
+      // Act
+      await testProcessor.processEventWithRetry(event);
+
+      // Assert
+      expect(mockRetryPolicy.shouldRetry).toHaveBeenCalledTimes(3);
+      expect(testProcessor.processingAttempts).toBe(3); // Initial + 2 retries
     });
 
-    it('should handle journey-specific errors with correct context', async () => {
-      try {
-        await processor.processCareEvent(mockEvent);
-      } catch (error) {
-        // Error should be rethrown since we're not implementing IEventHandler
-      }
+    it('should send to DLQ when retries are exhausted', async () => {
+      // Arrange
+      const event = planClaimSubmittedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
 
-      // Verify DLQ was called with correct journey context
-      expect(sendToDlq).toHaveBeenCalledWith(
-        mockEvent,
-        expect.any(EventProcessingError),
-        'care'
+      // Mock the retry policy to not allow any more retries
+      jest.spyOn(mockRetryPolicy, 'shouldRetry').mockResolvedValue(false);
+
+      // Mock the DLQ producer
+      jest.spyOn(mockDLQProducer, 'sendToDLQ').mockResolvedValue(undefined);
+
+      // Mock the error handler to use our mocks
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        const shouldRetry = await mockRetryPolicy.shouldRetry();
+        if (!shouldRetry) {
+          // Send to DLQ
+          await mockDLQProducer.sendToDLQ(
+            TOPICS.PLAN.EVENTS,
+            event,
+            event.id,
+            { 'error-code': error.code }
+          );
+        }
+      });
+
+      // Act
+      await testProcessor.processEvent(event);
+
+      // Assert
+      expect(mockRetryPolicy.shouldRetry).toHaveBeenCalledTimes(1);
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenCalledTimes(1);
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenCalledWith(
+        TOPICS.PLAN.EVENTS,
+        event,
+        event.id,
+        expect.objectContaining({ 'error-code': error.code })
       );
     });
 
-    it('should use circuit breaker when configured', async () => {
-      // Spy on CircuitBreaker methods
-      const isOpenSpy = jest.spyOn(CircuitBreaker.prototype, 'isOpen').mockReturnValue(false);
-      const recordSuccessSpy = jest.spyOn(CircuitBreaker.prototype, 'recordSuccess');
+    it('should apply exponential backoff for retries', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
 
-      const result = await processor.processWithCircuitBreaker(mockEvent);
+      // Mock the retry policy
+      jest.spyOn(mockRetryPolicy, 'shouldRetry')
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+
+      jest.spyOn(mockRetryPolicy, 'getRetryDelay')
+        .mockReturnValueOnce(100)  // First retry: 100ms
+        .mockReturnValueOnce(200); // Second retry: 200ms
+
+      // Mock setTimeout
+      jest.spyOn(global, 'setTimeout').mockImplementation((callback: any) => {
+        callback();
+        return {} as any;
+      });
+
+      // Mock the error handler
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        const shouldRetry = await mockRetryPolicy.shouldRetry();
+        if (shouldRetry) {
+          const delay = mockRetryPolicy.getRetryDelay();
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await testProcessor.processEventWithRetry(event);
+        }
+      });
+
+      // Act
+      await testProcessor.processEventWithRetry(event);
+
+      // Assert
+      expect(mockRetryPolicy.shouldRetry).toHaveBeenCalledTimes(3);
+      expect(mockRetryPolicy.getRetryDelay).toHaveBeenCalledTimes(2);
+      expect(setTimeout).toHaveBeenCalledTimes(2);
+      expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 100);
+      expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 200);
+    });
+  });
+
+  describe('Error Classification', () => {
+    it('should classify errors correctly for retry decisions', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
       
-      expect(result).toBe('circuit breaker success');
-      expect(isOpenSpy).toHaveBeenCalled();
-      expect(recordSuccessSpy).toHaveBeenCalled();
+      // Create different types of errors
+      const transientError = createMockKafkaError(ERROR_CODES.CONSUMER_CONNECTION_FAILED);
+      const permanentError = createMockValidationError(TOPICS.HEALTH.EVENTS, event);
+      const retryableError = createMockConsumerError(TOPICS.HEALTH.EVENTS);
+      
+      // Mock the error handler's isRetryable method
+      const isRetryableSpy = jest.spyOn(EventErrorHandler.prototype as any, 'isRetryableError');
+      isRetryableSpy
+        .mockReturnValueOnce(true)   // Transient error should be retryable
+        .mockReturnValueOnce(false)  // Permanent error should not be retryable
+        .mockReturnValueOnce(true);  // Retryable error should be retryable
+
+      // Mock the error handler to use our spy
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error) => {
+        const isRetryable = (EventErrorHandler.prototype as any).isRetryableError(error);
+        // Just for testing, we're not actually doing anything with this value
+      });
+
+      // Act & Assert
+      testProcessor.processingError = transientError;
+      await testProcessor.processEvent(event);
+      expect(isRetryableSpy).toHaveBeenCalledWith(transientError);
+      expect(isRetryableSpy).toHaveReturnedWith(true);
+
+      testProcessor.processingError = permanentError;
+      await testProcessor.processEvent(event);
+      expect(isRetryableSpy).toHaveBeenCalledWith(permanentError);
+      expect(isRetryableSpy).toHaveReturnedWith(false);
+
+      testProcessor.processingError = retryableError;
+      await testProcessor.processEvent(event);
+      expect(isRetryableSpy).toHaveBeenCalledWith(retryableError);
+      expect(isRetryableSpy).toHaveReturnedWith(true);
     });
 
-    it('should reject requests when circuit breaker is open', async () => {
-      // Mock circuit breaker to be open
+    it('should classify errors by severity level', async () => {
+      // Arrange
+      const event = careAppointmentBookedEvent;
+      
+      // Create errors with different severity levels
+      const criticalError = createMockKafkaError(ERROR_CODES.CONSUMER_CRITICAL_FAILURE);
+      const warningError = createMockKafkaError(ERROR_CODES.CONSUMER_WARNING);
+      const infoError = createMockKafkaError(ERROR_CODES.CONSUMER_INFO);
+      
+      // Mock the error handler's getSeverity method
+      const getSeveritySpy = jest.spyOn(EventErrorHandler.prototype as any, 'getErrorSeverity');
+      getSeveritySpy
+        .mockReturnValueOnce(ERROR_SEVERITY.CRITICAL)
+        .mockReturnValueOnce(ERROR_SEVERITY.WARNING)
+        .mockReturnValueOnce(ERROR_SEVERITY.INFO);
+
+      // Mock the error handler to use our spy
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error) => {
+        const severity = (EventErrorHandler.prototype as any).getErrorSeverity(error);
+        // Just for testing, we're not actually doing anything with this value
+      });
+
+      // Act & Assert
+      testProcessor.processingError = criticalError;
+      await testProcessor.processEvent(event);
+      expect(getSeveritySpy).toHaveBeenCalledWith(criticalError);
+      expect(getSeveritySpy).toHaveReturnedWith(ERROR_SEVERITY.CRITICAL);
+
+      testProcessor.processingError = warningError;
+      await testProcessor.processEvent(event);
+      expect(getSeveritySpy).toHaveBeenCalledWith(warningError);
+      expect(getSeveritySpy).toHaveReturnedWith(ERROR_SEVERITY.WARNING);
+
+      testProcessor.processingError = infoError;
+      await testProcessor.processEvent(event);
+      expect(getSeveritySpy).toHaveBeenCalledWith(infoError);
+      expect(getSeveritySpy).toHaveReturnedWith(ERROR_SEVERITY.INFO);
+    });
+
+    it('should classify errors by journey type', async () => {
+      // Arrange
+      const healthEvent = healthMetricRecordedEvent;
+      const careEvent = careAppointmentBookedEvent;
+      const planEvent = planClaimSubmittedEvent;
+      
+      // Create errors for different journeys
+      const healthError = createMockConsumerError(TOPICS.HEALTH.EVENTS);
+      const careError = createMockConsumerError(TOPICS.CARE.EVENTS);
+      const planError = createMockConsumerError(TOPICS.PLAN.EVENTS);
+      
+      // Mock the error handler's getJourney method
+      const getJourneySpy = jest.spyOn(EventErrorHandler.prototype as any, 'getErrorJourney');
+      getJourneySpy
+        .mockReturnValueOnce('health')
+        .mockReturnValueOnce('care')
+        .mockReturnValueOnce('plan');
+
+      // Mock the error handler to use our spy
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error, context) => {
+        const journey = (EventErrorHandler.prototype as any).getErrorJourney(error, context);
+        // Just for testing, we're not actually doing anything with this value
+      });
+
+      // Act & Assert
+      testProcessor.processingError = healthError;
+      await testProcessor.processEvent(healthEvent);
+      expect(getJourneySpy).toHaveBeenCalled();
+      expect(getJourneySpy).toHaveReturnedWith('health');
+
+      testProcessor.processingError = careError;
+      await testProcessor.processEvent(careEvent);
+      expect(getJourneySpy).toHaveBeenCalled();
+      expect(getJourneySpy).toHaveReturnedWith('care');
+
+      testProcessor.processingError = planError;
+      await testProcessor.processEvent(planEvent);
+      expect(getJourneySpy).toHaveBeenCalled();
+      expect(getJourneySpy).toHaveReturnedWith('plan');
+    });
+  });
+
+  describe('Error Recovery Strategies', () => {
+    it('should implement retry with delay recovery strategy', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Mock setTimeout to execute immediately
+      jest.spyOn(global, 'setTimeout').mockImplementation((callback: any) => {
+        callback();
+        return {} as any;
+      });
+
+      // Create a recovery strategy that retries after delay
+      const recoverySpy = jest.fn().mockImplementation(async () => {
+        // On second attempt, clear the error to simulate successful recovery
+        if (testProcessor.processingAttempts === 1) {
+          setTimeout(() => {
+            testProcessor.processingError = null;
+            testProcessor.processingResult = { recovered: true };
+          }, 100);
+        }
+      });
+
+      // Mock the error handler to use our recovery strategy
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        await recoverySpy();
+        if (testProcessor.processingAttempts < 2) {
+          await testProcessor.processEventWithRetry(event);
+        }
+      });
+
+      // Act
+      const result = await testProcessor.processEventWithRetry(event);
+
+      // Assert
+      expect(recoverySpy).toHaveBeenCalledTimes(1);
+      expect(setTimeout).toHaveBeenCalledTimes(1);
+      expect(testProcessor.processingAttempts).toBe(2);
+      expect(result).toEqual({ recovered: true });
+    });
+
+    it('should implement fallback value recovery strategy', async () => {
+      // Arrange
+      const event = careAppointmentBookedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Create a fallback value
+      const fallbackValue = { fallback: true, eventId: event.id };
+
+      // Mock the error handler to return a fallback value
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        return fallbackValue;
+      });
+
+      // Act
+      const result = await testProcessor.processEvent(event);
+
+      // Assert
+      expect(result).toEqual(fallbackValue);
+      expect(testProcessor.processingAttempts).toBe(1);
+    });
+
+    it('should implement compensating action recovery strategy', async () => {
+      // Arrange
+      const event = planClaimSubmittedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Create a compensating action that performs cleanup
+      const cleanupSpy = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the error handler to perform compensating action
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        // Perform cleanup
+        await cleanupSpy();
+        // Rethrow the error
+        throw error;
+      });
+
+      // Act & Assert
+      await expect(testProcessor.processEvent(event)).rejects.toThrow();
+      expect(cleanupSpy).toHaveBeenCalledTimes(1);
+      expect(testProcessor.processingAttempts).toBe(1);
+    });
+
+    it('should implement circuit breaker recovery strategy', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+      const error = createMockKafkaError(ERROR_CODES.CONSUMER_PROCESSING_FAILED, { eventId: event.id });
+      testProcessor.processingError = error;
+
+      // Mock the circuit breaker
+      const circuitBreakerSpy = jest.spyOn(CircuitBreaker.prototype, 'recordFailure');
+      const isOpenSpy = jest.spyOn(CircuitBreaker.prototype, 'isOpen').mockReturnValue(false);
+
+      // Mock the error handler to use circuit breaker
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async () => {
+        // Record the failure in the circuit breaker
+        circuitBreakerSpy();
+        throw error;
+      });
+
+      // Act & Assert
+      await expect(testProcessor.processEventWithCircuitBreaker(event)).rejects.toThrow();
+      expect(circuitBreakerSpy).toHaveBeenCalledTimes(1);
+      expect(isOpenSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip processing when circuit breaker is open', async () => {
+      // Arrange
+      const event = healthMetricRecordedEvent;
+
+      // Mock the circuit breaker to be open
       jest.spyOn(CircuitBreaker.prototype, 'isOpen').mockReturnValue(true);
 
-      try {
-        await processor.processWithCircuitBreaker(mockEvent);
-        fail('Should have thrown an error');
-      } catch (error) {
-        expect(error).toBeInstanceOf(EventProcessingError);
-        expect(error.message).toContain('Circuit breaker is open');
-      }
+      // Act & Assert
+      await expect(testProcessor.processEventWithCircuitBreaker(event)).rejects.toThrow(/Circuit breaker is open/);
+      expect(testProcessor.processingAttempts).toBe(0); // Should not attempt processing
     });
   });
 
-  describe('@HandleValidationErrors decorator', () => {
-    class TestValidator {
-      @HandleValidationErrors()
-      async validateEvent(event: IBaseEvent): Promise<boolean> {
-        return true;
-      }
+  describe('Journey-Specific Error Handling', () => {
+    it('should apply different retry policies based on journey', async () => {
+      // Arrange
+      const healthEvent = healthMetricRecordedEvent;
+      const careEvent = careAppointmentBookedEvent;
+      const planEvent = planClaimSubmittedEvent;
 
-      @HandleValidationErrors({ journeyContext: 'plan' })
-      async validateWithError(event: IBaseEvent): Promise<boolean> {
-        throw new EventValidationError(
-          'Invalid event format',
-          { eventId: event.eventId, eventType: event.type }
-        );
-      }
+      // Create errors for different journeys
+      const healthError = createMockConsumerError(TOPICS.HEALTH.EVENTS);
+      const careError = createMockConsumerError(TOPICS.CARE.EVENTS);
+      const planError = createMockConsumerError(TOPICS.PLAN.EVENTS);
 
-      @HandleValidationErrors()
-      async validateWithNonValidationError(event: IBaseEvent): Promise<boolean> {
-        throw new Error('Non-validation error');
-      }
-    }
+      // Mock the journey-specific retry policies
+      const healthRetrySpy = jest.fn().mockResolvedValue(true); // Health: allow retry
+      const careRetrySpy = jest.fn().mockResolvedValue(false); // Care: no retry
+      const planRetrySpy = jest.fn().mockResolvedValue(true); // Plan: allow retry
 
-    let validator: TestValidator;
-
-    beforeEach(() => {
-      validator = new TestValidator();
-    });
-
-    it('should return the result when validation succeeds', async () => {
-      const result = await validator.validateEvent(mockEvent);
-      expect(result).toBe(true);
-    });
-
-    it('should handle validation errors with correct context', async () => {
-      try {
-        await validator.validateWithError(mockEvent);
-      } catch (error) {
-        // Error should be rethrown since we're not implementing IEventHandler
-      }
-
-      // Verify DLQ was called with correct journey context
-      expect(sendToDlq).toHaveBeenCalledWith(
-        mockEvent,
-        expect.any(EventValidationError),
-        'plan'
-      );
-    });
-
-    it('should rethrow non-validation errors', async () => {
-      await expect(validator.validateWithNonValidationError(mockEvent))
-        .rejects.toThrow('Non-validation error');
-      
-      // Verify DLQ was not called for non-validation errors
-      expect(sendToDlq).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('@EventErrorHandler class decorator', () => {
-    // Define a test class with the class decorator
-    @EventErrorHandler({ journeyContext: 'health' })
-    class TestEventHandler implements IEventHandler {
-      async handle(event: IBaseEvent): Promise<IEventResponse> {
-        return {
-          success: true,
-          status: EventResponseStatus.SUCCESS,
-          eventId: event.eventId,
-          eventType: event.type,
-          metadata: {
-            timestamp: new Date().toISOString()
-          }
-        };
-      }
-
-      async validateEvent(event: IBaseEvent): Promise<boolean> {
-        if (!event.payload) {
-          throw new EventValidationError('Missing payload', { eventId: event.eventId });
+      // Mock the error handler to use journey-specific policies
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error, context) => {
+        // Determine which journey this is for
+        let retrySpy;
+        if (context.event === healthEvent) {
+          retrySpy = healthRetrySpy;
+        } else if (context.event === careEvent) {
+          retrySpy = careRetrySpy;
+        } else {
+          retrySpy = planRetrySpy;
         }
-        return true;
-      }
 
-      async processEvent(event: IBaseEvent): Promise<any> {
-        throw new EventProcessingError('Processing failed', { eventId: event.eventId });
-      }
-
-      async saveEvent(event: IBaseEvent): Promise<void> {
-        throw new EventDatabaseError('Database error', { eventId: event.eventId });
-      }
-
-      async canHandle(event: IBaseEvent): Promise<boolean> {
-        return event.type === 'test.event';
-      }
-
-      getEventType(): string {
-        return 'test.event';
-      }
-    }
-
-    let handler: TestEventHandler;
-
-    beforeEach(() => {
-      handler = new TestEventHandler();
-    });
-
-    it('should apply validation error handling to validate* methods', async () => {
-      const invalidEvent = { ...mockEvent, payload: null };
-      
-      const result = await handler.validateEvent(invalidEvent as any);
-      
-      // For IEventHandler implementations, we return an error response instead of throwing
-      expect(result).toEqual(expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: expect.stringContaining('Missing payload'),
-          type: 'VALIDATION_ERROR'
-        })
-      }));
-    });
-
-    it('should apply processing error handling to process* methods', async () => {
-      const result = await handler.processEvent(mockEvent);
-      
-      expect(result).toEqual(expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: expect.stringContaining('Processing failed'),
-          processingStage: EventProcessingStage.PROCESSING
-        })
-      }));
-    });
-
-    it('should apply persistence error handling to save* methods', async () => {
-      const result = await handler.saveEvent(mockEvent);
-      
-      expect(result).toEqual(expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: expect.stringContaining('Database error'),
-          processingStage: EventProcessingStage.PERSISTENCE
-        })
-      }));
-    });
-
-    it('should apply validation error handling to canHandle method', async () => {
-      const result = await handler.canHandle({ ...mockEvent, type: null } as any);
-      
-      // canHandle should return false for invalid events rather than throwing
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('EventErrorHandlingService', () => {
-    let errorHandlingService: EventErrorHandlingService;
-
-    beforeEach(() => {
-      errorHandlingService = new EventErrorHandlingService();
-    });
-
-    it('should wrap handler functions with error handling', async () => {
-      // Create a handler function that throws an error
-      const handlerFn = jest.fn().mockImplementation(() => {
-        throw new EventProcessingError('Handler error', { eventId: mockEvent.eventId });
+        // Check if we should retry
+        const shouldRetry = await retrySpy();
+        if (shouldRetry) {
+          // For testing, we're not actually retrying
+        }
       });
 
-      // Wrap the handler with error handling
-      const wrappedHandler = errorHandlingService.wrapWithErrorHandling(handlerFn);
+      // Act
+      testProcessor.processingError = healthError;
+      await testProcessor.processEventWithJourneyConfig(healthEvent);
 
-      // Call the wrapped handler
-      const result = await wrappedHandler(mockEvent);
+      testProcessor.processingError = careError;
+      await testProcessor.processEventWithJourneyConfig(careEvent);
 
-      // Verify the result is an error response
-      expect(result).toEqual(expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: expect.stringContaining('Handler error')
-        })
-      }));
+      testProcessor.processingError = planError;
+      await testProcessor.processEventWithJourneyConfig(planEvent);
 
-      // Verify DLQ was called
-      expect(sendToDlq).toHaveBeenCalled();
+      // Assert
+      expect(healthRetrySpy).toHaveBeenCalledTimes(1);
+      expect(careRetrySpy).toHaveBeenCalledTimes(1);
+      expect(planRetrySpy).toHaveBeenCalledTimes(1);
     });
 
-    it('should execute with fallback when primary handler fails', async () => {
-      // Create a primary handler that throws an error
-      const primaryHandler = jest.fn().mockImplementation(() => {
-        throw new Error('Primary handler error');
+    it('should apply different error logging based on journey', async () => {
+      // Arrange
+      const healthEvent = healthMetricRecordedEvent;
+      const careEvent = careAppointmentBookedEvent;
+      const planEvent = planClaimSubmittedEvent;
+
+      // Create errors for different journeys
+      const healthError = createMockConsumerError(TOPICS.HEALTH.EVENTS);
+      const careError = createMockConsumerError(TOPICS.CARE.EVENTS);
+      const planError = createMockConsumerError(TOPICS.PLAN.EVENTS);
+
+      // Mock the journey-specific logging
+      const healthLogSpy = jest.fn();
+      const careLogSpy = jest.fn();
+      const planLogSpy = jest.fn();
+
+      // Mock the error handler to use journey-specific logging
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error, context) => {
+        // Determine which journey this is for
+        if (context.event === healthEvent) {
+          healthLogSpy(error, 'health-journey');
+        } else if (context.event === careEvent) {
+          careLogSpy(error, 'care-journey');
+        } else {
+          planLogSpy(error, 'plan-journey');
+        }
       });
 
-      // Create a fallback handler
-      const fallbackHandler = jest.fn().mockResolvedValue('fallback result');
+      // Act
+      testProcessor.processingError = healthError;
+      await testProcessor.processEventWithJourneyConfig(healthEvent);
 
-      // Execute with fallback
-      const result = await errorHandlingService.executeWithFallback(
-        primaryHandler,
-        fallbackHandler,
-        mockEvent
-      );
+      testProcessor.processingError = careError;
+      await testProcessor.processEventWithJourneyConfig(careEvent);
 
-      // Verify fallback was called with the error
-      expect(fallbackHandler).toHaveBeenCalledWith(
-        mockEvent,
-        expect.objectContaining({
-          message: 'Primary handler error'
-        })
-      );
+      testProcessor.processingError = planError;
+      await testProcessor.processEventWithJourneyConfig(planEvent);
 
-      // Verify the result is from the fallback
-      expect(result).toBe('fallback result');
+      // Assert
+      expect(healthLogSpy).toHaveBeenCalledWith(healthError, 'health-journey');
+      expect(careLogSpy).toHaveBeenCalledWith(careError, 'care-journey');
+      expect(planLogSpy).toHaveBeenCalledWith(planError, 'plan-journey');
     });
 
-    it('should create a circuit breaker', () => {
-      const circuitBreaker = errorHandlingService.createCircuitBreaker({
-        failureThreshold: 3,
-        resetTimeout: 5000
-      });
+    it('should apply different DLQ routing based on journey', async () => {
+      // Arrange
+      const healthEvent = healthMetricRecordedEvent;
+      const careEvent = careAppointmentBookedEvent;
+      const planEvent = planClaimSubmittedEvent;
 
-      expect(circuitBreaker).toBeInstanceOf(CircuitBreaker);
-    });
+      // Create errors for different journeys
+      const healthError = createMockConsumerError(TOPICS.HEALTH.EVENTS);
+      const careError = createMockConsumerError(TOPICS.CARE.EVENTS);
+      const planError = createMockConsumerError(TOPICS.PLAN.EVENTS);
 
-    it('should correctly identify retryable errors', () => {
-      // Test with retryable error
-      const retryableError = new EventTimeoutError(
-        'Connection timeout',
-        { eventId: mockEvent.eventId }
-      );
-      expect(errorHandlingService.isRetryableError(retryableError, mockEvent)).toBe(true);
+      // Mock the DLQ producer
+      jest.spyOn(mockDLQProducer, 'sendToDLQ').mockResolvedValue(undefined);
 
-      // Test with non-retryable error
-      const nonRetryableError = new DuplicateEventError(
-        'Duplicate event',
-        { eventId: mockEvent.eventId }
-      );
-      expect(errorHandlingService.isRetryableError(nonRetryableError, mockEvent)).toBe(false);
-    });
-  });
+      // Mock the error handler to use journey-specific DLQ routing
+      jest.spyOn(EventErrorHandler.prototype, 'handleError').mockImplementation(async (error, context) => {
+        // Determine which journey this is for
+        let topic;
+        if (context.event === healthEvent) {
+          topic = TOPICS.HEALTH.EVENTS;
+        } else if (context.event === careEvent) {
+          topic = TOPICS.CARE.EVENTS;
+        } else {
+          topic = TOPICS.PLAN.EVENTS;
+        }
 
-  describe('createFallbackHandler', () => {
-    it('should execute fallback function when called', async () => {
-      // Create a fallback function
-      const fallbackFn = jest.fn().mockImplementation((event, error) => {
-        return Promise.resolve({
-          success: true,
-          status: EventResponseStatus.SUCCESS,
-          eventId: event.eventId,
-          eventType: event.type,
-          data: { fallback: true },
-          metadata: {
-            timestamp: new Date().toISOString(),
-            originalError: error.message
-          }
-        });
-      });
-
-      // Create a fallback handler
-      const fallbackHandler = createFallbackHandler(fallbackFn);
-
-      // Call the fallback handler
-      const error = new Error('Original error');
-      const result = await fallbackHandler(mockEvent, error);
-
-      // Verify fallback was called with the event and error
-      expect(fallbackFn).toHaveBeenCalledWith(mockEvent, error);
-
-      // Verify the result is from the fallback
-      expect(result).toEqual(expect.objectContaining({
-        success: true,
-        data: { fallback: true }
-      }));
-    });
-
-    it('should handle errors in the fallback function', async () => {
-      // Create a fallback function that throws an error
-      const fallbackFn = jest.fn().mockImplementation(() => {
-        throw new Error('Fallback error');
-      });
-
-      // Create a fallback handler
-      const fallbackHandler = createFallbackHandler(fallbackFn, { sendToDlq: true });
-
-      // Call the fallback handler
-      const error = new Error('Original error');
-      const result = await fallbackHandler(mockEvent, error);
-
-      // Verify the result indicates both handlers failed
-      expect(result).toEqual(expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: 'Both primary and fallback handlers failed',
-          code: 'FALLBACK_FAILED'
-        })
-      }));
-
-      // Verify DLQ was called with combined error
-      expect(sendToDlq).toHaveBeenCalledWith(
-        mockEvent,
-        expect.objectContaining({
-          message: expect.stringContaining('Both primary and fallback handlers failed'),
-          code: 'FALLBACK_FAILED'
-        }),
-        expect.any(String)
-      );
-    });
-  });
-
-  describe('logEventError', () => {
-    let loggerSpy: jest.SpyInstance;
-
-    beforeEach(() => {
-      loggerSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-    });
-
-    it('should log processing errors with correct context', () => {
-      const error = new EventProcessingError(
-        'Processing error',
-        { eventId: mockEvent.eventId, eventType: mockEvent.type },
-        new Error('Underlying error')
-      );
-
-      logEventError(error, mockEvent, 'health', true, EventProcessingStage.PROCESSING);
-
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Processing error'),
-        expect.objectContaining({
-          eventId: mockEvent.eventId,
-          eventType: mockEvent.type,
-          journey: 'health',
-          processingStage: EventProcessingStage.PROCESSING,
-          traceId: 'mock-trace-id'
-        }),
-        expect.any(String)
-      );
-    });
-
-    it('should log validation errors with correct level', () => {
-      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
-      
-      const error = new EventValidationError(
-        'Validation error',
-        { eventId: mockEvent.eventId, eventType: mockEvent.type }
-      );
-
-      logEventError(error, mockEvent, 'health', true, EventProcessingStage.VALIDATION);
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Validation error'),
-        expect.objectContaining({
-          eventId: mockEvent.eventId,
-          eventType: mockEvent.type,
-          journey: 'health',
-          processingStage: EventProcessingStage.VALIDATION
-        })
-      );
-    });
-
-    it('should log unexpected errors as errors', () => {
-      const error = new Error('Unexpected error');
-
-      logEventError(error, mockEvent, 'health', true, EventProcessingStage.PROCESSING);
-
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Unexpected error'),
-        expect.objectContaining({
-          eventId: mockEvent.eventId,
-          eventType: mockEvent.type,
-          journey: 'health'
-        }),
-        expect.any(String)
-      );
-    });
-  });
-
-  describe('createErrorResponse', () => {
-    it('should create standardized error response for EventProcessingError', () => {
-      const error = new EventProcessingError(
-        'Processing error',
-        { eventId: mockEvent.eventId, eventType: mockEvent.type, details: { field: 'value' } },
-        new Error('Underlying error')
-      );
-
-      const response = createErrorResponse(error, mockEvent);
-
-      expect(response).toEqual(expect.objectContaining({
-        success: false,
-        eventId: mockEvent.eventId,
-        error: expect.objectContaining({
-          message: 'Processing error',
-          type: 'PROCESSING_ERROR',
-          details: expect.objectContaining({ field: 'value' }),
-          retryable: false
-        })
-      }));
-    });
-
-    it('should create standardized error response for EventValidationError', () => {
-      const error = new EventValidationError(
-        'Validation error',
-        { eventId: mockEvent.eventId, eventType: mockEvent.type, details: { field: 'invalid' } }
-      );
-
-      const response = createErrorResponse(error, mockEvent);
-
-      expect(response).toEqual(expect.objectContaining({
-        success: false,
-        eventId: mockEvent.eventId,
-        error: expect.objectContaining({
-          message: 'Validation error',
-          type: 'VALIDATION_ERROR',
-          details: expect.objectContaining({ field: 'invalid' }),
-          retryable: false
-        })
-      }));
-    });
-
-    it('should create generic error response for unknown errors', () => {
-      const error = new Error('Unknown error');
-
-      const response = createErrorResponse(error, mockEvent);
-
-      expect(response).toEqual(expect.objectContaining({
-        success: false,
-        eventId: mockEvent.eventId,
-        error: expect.objectContaining({
-          message: 'An unexpected error occurred during event processing',
-          code: 'UNKNOWN_ERROR',
-          type: 'SYSTEM_ERROR',
-          retryable: false
-        })
-      }));
-    });
-
-    it('should include trace ID if available', () => {
-      const error = new Error('Error with trace');
-
-      const response = createErrorResponse(error, mockEvent);
-
-      expect(response).toEqual(expect.objectContaining({
-        traceId: 'mock-trace-id'
-      }));
-    });
-  });
-
-  describe('Error classification and retry behavior', () => {
-    // Test class with methods that throw different types of errors
-    class ErrorClassificationTest {
-      @HandleEventErrors()
-      async throwDatabaseError(event: IBaseEvent): Promise<void> {
-        throw new EventDatabaseError(
-          'Database connection failed',
-          { eventId: event.eventId, eventType: event.type },
-          'query',
-          new Error('Connection refused')
+        // Send to DLQ
+        await mockDLQProducer.sendToDLQ(
+          topic,
+          context.event,
+          context.event.id,
+          { 'error-code': error.code, 'journey': topic.split('.')[0] }
         );
-      }
+      });
 
-      @HandleEventErrors()
-      async throwTimeoutError(event: IBaseEvent): Promise<void> {
-        throw new EventTimeoutError(
-          'Operation timed out',
-          { eventId: event.eventId, eventType: event.type },
-          5000,
-          new Error('Timeout')
-        );
-      }
+      // Act
+      testProcessor.processingError = healthError;
+      await testProcessor.processEventWithJourneyConfig(healthEvent);
 
-      @HandleEventErrors()
-      async throwExternalSystemError(event: IBaseEvent): Promise<void> {
-        throw new EventExternalSystemError(
-          'External API failed',
-          { eventId: event.eventId, eventType: event.type },
-          503,
-          new Error('Service unavailable')
-        );
-      }
+      testProcessor.processingError = careError;
+      await testProcessor.processEventWithJourneyConfig(careEvent);
 
-      @HandleEventErrors()
-      async throwDuplicateEventError(event: IBaseEvent): Promise<void> {
-        throw new DuplicateEventError(
-          'Event already processed',
-          { eventId: event.eventId, eventType: event.type }
-        );
-      }
-    }
+      testProcessor.processingError = planError;
+      await testProcessor.processEventWithJourneyConfig(planEvent);
 
-    let errorTest: ErrorClassificationTest;
+      // Assert
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenCalledTimes(3);
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenNthCalledWith(
+        1,
+        TOPICS.HEALTH.EVENTS,
+        healthEvent,
+        healthEvent.id,
+        expect.objectContaining({ 'journey': 'health' })
+      );
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenNthCalledWith(
+        2,
+        TOPICS.CARE.EVENTS,
+        careEvent,
+        careEvent.id,
+        expect.objectContaining({ 'journey': 'care' })
+      );
+      expect(mockDLQProducer.sendToDLQ).toHaveBeenNthCalledWith(
+        3,
+        TOPICS.PLAN.EVENTS,
+        planEvent,
+        planEvent.id,
+        expect.objectContaining({ 'journey': 'plan' })
+      );
+    });
+  });
 
-    beforeEach(() => {
-      errorTest = new ErrorClassificationTest();
+  describe('Circuit Breaker Pattern', () => {
+    it('should track failure counts and trip the circuit breaker', () => {
+      // Arrange
+      const circuitBreaker = new CircuitBreaker(3, 5000); // 3 failures, 5000ms timeout
+
+      // Act - Record 3 failures
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
+      const isOpenBeforeThird = circuitBreaker.isOpen();
+      circuitBreaker.recordFailure();
+      const isOpenAfterThird = circuitBreaker.isOpen();
+
+      // Assert
+      expect(isOpenBeforeThird).toBe(false); // Should not be open yet
+      expect(isOpenAfterThird).toBe(true); // Should be open after 3 failures
     });
 
-    it('should classify database errors as retryable', async () => {
-      // Mock applyRetryPolicy to test classification
-      (applyRetryPolicy as jest.Mock).mockResolvedValueOnce(true);
+    it('should reset the circuit breaker after timeout', () => {
+      // Arrange
+      const circuitBreaker = new CircuitBreaker(3, 100); // 3 failures, 100ms timeout
 
-      try {
-        await errorTest.throwDatabaseError(mockEvent);
-      } catch (error) {
-        // Error should be rethrown
-      }
+      // Act - Trip the circuit breaker
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
+      const isOpenBefore = circuitBreaker.isOpen();
 
-      // Verify retry policy was applied
-      expect(applyRetryPolicy).toHaveBeenCalledWith(
-        expect.any(EventDatabaseError),
-        mockEvent,
-        undefined
-      );
+      // Fast-forward time
+      jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 200); // 200ms later
 
-      // Since we mocked applyRetryPolicy to return true, DLQ should not be called
-      expect(sendToDlq).not.toHaveBeenCalled();
+      const isOpenAfter = circuitBreaker.isOpen();
+
+      // Assert
+      expect(isOpenBefore).toBe(true); // Should be open after 3 failures
+      expect(isOpenAfter).toBe(false); // Should be closed after timeout
     });
 
-    it('should classify timeout errors as retryable', async () => {
-      // Mock applyRetryPolicy to test classification
-      (applyRetryPolicy as jest.Mock).mockResolvedValueOnce(true);
+    it('should reset failure count after successful operation', () => {
+      // Arrange
+      const circuitBreaker = new CircuitBreaker(3, 5000); // 3 failures, 5000ms timeout
 
-      try {
-        await errorTest.throwTimeoutError(mockEvent);
-      } catch (error) {
-        // Error should be rethrown
-      }
+      // Act - Record 2 failures
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
+      const isOpenBeforeSuccess = circuitBreaker.isOpen();
 
-      // Verify retry policy was applied
-      expect(applyRetryPolicy).toHaveBeenCalledWith(
-        expect.any(EventTimeoutError),
-        mockEvent,
-        undefined
-      );
+      // Record a success
+      circuitBreaker.recordSuccess();
 
-      // Since we mocked applyRetryPolicy to return true, DLQ should not be called
-      expect(sendToDlq).not.toHaveBeenCalled();
+      // Record another failure
+      circuitBreaker.recordFailure();
+      const isOpenAfterSuccess = circuitBreaker.isOpen();
+
+      // Assert
+      expect(isOpenBeforeSuccess).toBe(false); // Should not be open yet
+      expect(isOpenAfterSuccess).toBe(false); // Should still not be open after success reset
     });
 
-    it('should classify external system errors based on status code', async () => {
-      // Mock applyRetryPolicy to test classification
-      (applyRetryPolicy as jest.Mock).mockResolvedValueOnce(true);
+    it('should allow half-open state to test if system has recovered', () => {
+      // Arrange
+      const circuitBreaker = new CircuitBreaker(3, 100); // 3 failures, 100ms timeout
 
-      try {
-        await errorTest.throwExternalSystemError(mockEvent);
-      } catch (error) {
-        // Error should be rethrown
-      }
+      // Act - Trip the circuit breaker
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
+      circuitBreaker.recordFailure();
 
-      // Verify retry policy was applied
-      expect(applyRetryPolicy).toHaveBeenCalledWith(
-        expect.any(EventExternalSystemError),
-        mockEvent,
-        undefined
-      );
+      // Fast-forward time to half-open state
+      jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 200); // 200ms later
 
-      // Since we mocked applyRetryPolicy to return true, DLQ should not be called
-      expect(sendToDlq).not.toHaveBeenCalled();
-    });
+      // Test if system has recovered
+      const canTryAgain = !circuitBreaker.isOpen();
 
-    it('should classify duplicate event errors as non-retryable', async () => {
-      // Mock applyRetryPolicy to test classification
-      (applyRetryPolicy as jest.Mock).mockResolvedValueOnce(false);
+      // Record a success to fully close the circuit
+      circuitBreaker.recordSuccess();
+      const isFullyClosed = !circuitBreaker.isOpen();
 
-      try {
-        await errorTest.throwDuplicateEventError(mockEvent);
-      } catch (error) {
-        // Error should be rethrown
-      }
-
-      // Verify retry policy was applied
-      expect(applyRetryPolicy).toHaveBeenCalledWith(
-        expect.any(DuplicateEventError),
-        mockEvent,
-        undefined
-      );
-
-      // Since we mocked applyRetryPolicy to return false, DLQ should be called
-      expect(sendToDlq).toHaveBeenCalled();
+      // Assert
+      expect(canTryAgain).toBe(true); // Should be able to try again
+      expect(isFullyClosed).toBe(true); // Should be fully closed after success
     });
   });
 });

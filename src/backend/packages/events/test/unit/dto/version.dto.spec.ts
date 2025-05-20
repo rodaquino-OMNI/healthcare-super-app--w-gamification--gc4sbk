@@ -6,867 +6,573 @@
  * allowing the system to handle older event versions while supporting new fields and validation rules.
  */
 
-import { validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
-
 import {
-  EventVersionDto,
   VersionedEventDto,
-  IsValidSemVerConstraint,
-  createVersionedEvent,
-  extractPayload,
-  extractVersion,
-  extractType,
-  extractMetadata,
-} from '../../../src/dto/version.dto';
-
-import {
-  EventVersion,
-  VersionCompatibility,
-  parseVersion,
-  versionToString,
   compareVersions,
-} from '../../../src/interfaces/event-versioning.interface';
+  isVersionCompatible,
+  registerVersionMigration,
+  createVersionedEvent,
+  upgradeEventPayload,
+  createVersionFromString,
+  getLatestVersion,
+  canMigrate,
+  registerMigrationChain,
+  versionMigrations
+} from '../../../src/dto/version.dto';
+import { EventVersionDto } from '../../../src/dto/event-metadata.dto';
 
-describe('EventVersionDto', () => {
-  describe('constructor', () => {
-    it('should create a version with default values (1.0.0)', () => {
-      const version = new EventVersionDto();
-      expect(version.major).toBe(1);
-      expect(version.minor).toBe(0);
-      expect(version.patch).toBe(0);
-    });
-
-    it('should create a version with custom values', () => {
-      const version = new EventVersionDto(2, 3, 4);
-      expect(version.major).toBe(2);
-      expect(version.minor).toBe(3);
-      expect(version.patch).toBe(4);
-    });
-  });
-
-  describe('toString', () => {
-    it('should convert version to string in format "major.minor.patch"', () => {
-      const version = new EventVersionDto(2, 3, 4);
-      expect(version.toString()).toBe('2.3.4');
-    });
-
-    it('should handle single-digit versions correctly', () => {
-      const version = new EventVersionDto(1, 0, 0);
-      expect(version.toString()).toBe('1.0.0');
-    });
-  });
-
-  describe('fromString', () => {
-    it('should create a version from a valid version string', () => {
-      const version = EventVersionDto.fromString('2.3.4');
-      expect(version.major).toBe(2);
-      expect(version.minor).toBe(3);
-      expect(version.patch).toBe(4);
-    });
-
-    it('should throw an error for invalid version strings', () => {
-      expect(() => EventVersionDto.fromString('invalid')).toThrow();
-      expect(() => EventVersionDto.fromString('1.2')).toThrow();
-      expect(() => EventVersionDto.fromString('1.2.3.4')).toThrow();
-      expect(() => EventVersionDto.fromString('-1.2.3')).toThrow();
-    });
-  });
-
-  describe('compareWith', () => {
-    it('should return COMPATIBLE for identical versions', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 3);
-      expect(v1.compareWith(v2)).toBe(VersionCompatibility.COMPATIBLE);
-    });
-
-    it('should return COMPATIBLE for versions with same major and minor but different patch', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 4);
-      expect(v1.compareWith(v2)).toBe(VersionCompatibility.COMPATIBLE);
-    });
-
-    it('should return BACKWARD_COMPATIBLE when source has lower minor version', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 3, 0);
-      expect(v1.compareWith(v2)).toBe(VersionCompatibility.BACKWARD_COMPATIBLE);
-    });
-
-    it('should return FORWARD_COMPATIBLE when source has higher minor version', () => {
-      const v1 = new EventVersionDto(1, 3, 0);
-      const v2 = new EventVersionDto(1, 2, 0);
-      expect(v1.compareWith(v2)).toBe(VersionCompatibility.FORWARD_COMPATIBLE);
-    });
-
-    it('should return INCOMPATIBLE when major versions differ', () => {
-      const v1 = new EventVersionDto(1, 0, 0);
-      const v2 = new EventVersionDto(2, 0, 0);
-      expect(v1.compareWith(v2)).toBe(VersionCompatibility.INCOMPATIBLE);
-      expect(v2.compareWith(v1)).toBe(VersionCompatibility.INCOMPATIBLE);
-    });
-  });
-
-  describe('isCompatibleWith', () => {
-    it('should return true for identical versions', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 3);
-      expect(v1.isCompatibleWith(v2)).toBe(true);
-    });
-
-    it('should return true for versions with same major and minor but different patch', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 4);
-      expect(v1.isCompatibleWith(v2)).toBe(true);
-    });
-
-    it('should return true when source has lower minor version (backward compatible)', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 3, 0);
-      expect(v1.isCompatibleWith(v2)).toBe(true);
-    });
-
-    it('should return false when source has higher minor version (forward compatible)', () => {
-      const v1 = new EventVersionDto(1, 3, 0);
-      const v2 = new EventVersionDto(1, 2, 0);
-      expect(v1.isCompatibleWith(v2)).toBe(false);
-    });
-
-    it('should return false when major versions differ (incompatible)', () => {
-      const v1 = new EventVersionDto(1, 0, 0);
-      const v2 = new EventVersionDto(2, 0, 0);
-      expect(v1.isCompatibleWith(v2)).toBe(false);
-      expect(v2.isCompatibleWith(v1)).toBe(false);
-    });
-  });
-
-  describe('isGreaterThan', () => {
-    it('should return true when major version is greater', () => {
-      const v1 = new EventVersionDto(2, 0, 0);
-      const v2 = new EventVersionDto(1, 9, 9);
-      expect(v1.isGreaterThan(v2)).toBe(true);
-    });
-
-    it('should return false when major version is less', () => {
-      const v1 = new EventVersionDto(1, 9, 9);
-      const v2 = new EventVersionDto(2, 0, 0);
-      expect(v1.isGreaterThan(v2)).toBe(false);
-    });
-
-    it('should return true when major versions are equal but minor version is greater', () => {
-      const v1 = new EventVersionDto(1, 2, 0);
-      const v2 = new EventVersionDto(1, 1, 9);
-      expect(v1.isGreaterThan(v2)).toBe(true);
-    });
-
-    it('should return false when major versions are equal but minor version is less', () => {
-      const v1 = new EventVersionDto(1, 1, 9);
-      const v2 = new EventVersionDto(1, 2, 0);
-      expect(v1.isGreaterThan(v2)).toBe(false);
-    });
-
-    it('should return true when major and minor versions are equal but patch version is greater', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 2);
-      expect(v1.isGreaterThan(v2)).toBe(true);
-    });
-
-    it('should return false when major and minor versions are equal but patch version is less', () => {
-      const v1 = new EventVersionDto(1, 2, 2);
-      const v2 = new EventVersionDto(1, 2, 3);
-      expect(v1.isGreaterThan(v2)).toBe(false);
-    });
-
-    it('should return false when versions are identical', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 3);
-      expect(v1.isGreaterThan(v2)).toBe(false);
-    });
-  });
-
-  describe('isEqual', () => {
-    it('should return true when versions are identical', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 3);
-      expect(v1.isEqual(v2)).toBe(true);
-    });
-
-    it('should return false when major versions differ', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(2, 2, 3);
-      expect(v1.isEqual(v2)).toBe(false);
-    });
-
-    it('should return false when minor versions differ', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 3, 3);
-      expect(v1.isEqual(v2)).toBe(false);
-    });
-
-    it('should return false when patch versions differ', () => {
-      const v1 = new EventVersionDto(1, 2, 3);
-      const v2 = new EventVersionDto(1, 2, 4);
-      expect(v1.isEqual(v2)).toBe(false);
-    });
-  });
-
-  describe('validation', () => {
-    it('should validate a valid version', async () => {
-      const version = new EventVersionDto(1, 2, 3);
-      const errors = await validate(version);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should fail validation for negative major version', async () => {
-      const version = new EventVersionDto(-1, 2, 3);
-      const errors = await validate(version);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('major');
-      expect(errors[0].constraints).toHaveProperty('min');
-    });
-
-    it('should fail validation for negative minor version', async () => {
-      const version = new EventVersionDto(1, -2, 3);
-      const errors = await validate(version);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('minor');
-      expect(errors[0].constraints).toHaveProperty('min');
-    });
-
-    it('should fail validation for negative patch version', async () => {
-      const version = new EventVersionDto(1, 2, -3);
-      const errors = await validate(version);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('patch');
-      expect(errors[0].constraints).toHaveProperty('min');
-    });
-
-    it('should fail validation for non-integer major version', async () => {
-      const version = new EventVersionDto(1.5, 2, 3);
-      const errors = await validate(version);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('major');
-      expect(errors[0].constraints).toHaveProperty('isInt');
-    });
+// Clear all registered migrations before each test
+beforeEach(() => {
+  // Clear the versionMigrations object
+  Object.keys(versionMigrations).forEach(key => {
+    delete versionMigrations[key];
   });
 });
 
-describe('IsValidSemVerConstraint', () => {
-  const validator = new IsValidSemVerConstraint();
+describe('Version Comparison and Compatibility', () => {
+  describe('compareVersions', () => {
+    it('should return 0 for identical versions', () => {
+      expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
+      expect(compareVersions('2.3.1', '2.3.1')).toBe(0);
+    });
 
-  it('should validate a valid version object', () => {
-    expect(validator.validate({ major: 1, minor: 2, patch: 3 })).toBe(true);
+    it('should return -1 when first version is lower', () => {
+      expect(compareVersions('1.0.0', '2.0.0')).toBe(-1); // Major version lower
+      expect(compareVersions('1.0.0', '1.1.0')).toBe(-1); // Minor version lower
+      expect(compareVersions('1.0.0', '1.0.1')).toBe(-1); // Patch version lower
+      expect(compareVersions('1.2.3', '1.2.4')).toBe(-1); // Patch version lower
+    });
+
+    it('should return 1 when first version is higher', () => {
+      expect(compareVersions('2.0.0', '1.0.0')).toBe(1); // Major version higher
+      expect(compareVersions('1.1.0', '1.0.0')).toBe(1); // Minor version higher
+      expect(compareVersions('1.0.1', '1.0.0')).toBe(1); // Patch version higher
+      expect(compareVersions('2.2.3', '1.9.9')).toBe(1); // Major version higher, despite minor/patch
+    });
   });
 
-  it('should reject null or undefined', () => {
-    expect(validator.validate(null)).toBe(false);
-    expect(validator.validate(undefined)).toBe(false);
-  });
+  describe('isVersionCompatible', () => {
+    it('should return true for identical versions', () => {
+      expect(isVersionCompatible('1.0.0', '1.0.0')).toBe(true);
+      expect(isVersionCompatible('2.3.1', '2.3.1')).toBe(true);
+    });
 
-  it('should reject non-object values', () => {
-    expect(validator.validate('1.2.3')).toBe(false);
-    expect(validator.validate(123)).toBe(false);
-  });
+    it('should return true when current version has higher minor version', () => {
+      expect(isVersionCompatible('1.2.0', '1.1.0')).toBe(true);
+      expect(isVersionCompatible('1.5.0', '1.0.0')).toBe(true);
+    });
 
-  it('should reject objects with missing properties', () => {
-    expect(validator.validate({ major: 1, minor: 2 })).toBe(false);
-    expect(validator.validate({ major: 1, patch: 3 })).toBe(false);
-    expect(validator.validate({ minor: 2, patch: 3 })).toBe(false);
-  });
+    it('should return true when current version has higher patch version', () => {
+      expect(isVersionCompatible('1.1.2', '1.1.1')).toBe(true);
+      expect(isVersionCompatible('1.1.5', '1.1.0')).toBe(true);
+    });
 
-  it('should reject objects with non-numeric properties', () => {
-    expect(validator.validate({ major: '1', minor: 2, patch: 3 })).toBe(false);
-    expect(validator.validate({ major: 1, minor: '2', patch: 3 })).toBe(false);
-    expect(validator.validate({ major: 1, minor: 2, patch: '3' })).toBe(false);
-  });
+    it('should return true when current version has higher minor and patch version', () => {
+      expect(isVersionCompatible('1.2.3', '1.1.0')).toBe(true);
+    });
 
-  it('should reject objects with negative values', () => {
-    expect(validator.validate({ major: -1, minor: 2, patch: 3 })).toBe(false);
-    expect(validator.validate({ major: 1, minor: -2, patch: 3 })).toBe(false);
-    expect(validator.validate({ major: 1, minor: 2, patch: -3 })).toBe(false);
-  });
+    it('should return false when major versions differ', () => {
+      expect(isVersionCompatible('2.0.0', '1.0.0')).toBe(false);
+      expect(isVersionCompatible('1.0.0', '2.0.0')).toBe(false);
+    });
 
-  it('should provide a default error message', () => {
-    expect(validator.defaultMessage()).toContain('semantic versioning');
+    it('should return false when current minor version is lower', () => {
+      expect(isVersionCompatible('1.0.0', '1.1.0')).toBe(false);
+      expect(isVersionCompatible('1.1.0', '1.2.0')).toBe(false);
+    });
+
+    it('should return false when minor versions match but current patch is lower', () => {
+      expect(isVersionCompatible('1.1.0', '1.1.1')).toBe(false);
+      expect(isVersionCompatible('1.1.1', '1.1.2')).toBe(false);
+    });
   });
 });
 
 describe('VersionedEventDto', () => {
-  const testType = 'TEST_EVENT';
-  const testPayload = { data: 'test data' };
-  const testVersion = new EventVersionDto(2, 1, 0);
-  const testMetadata = { source: 'test', correlationId: '123' };
-
   describe('constructor', () => {
-    it('should create a versioned event with all properties', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toBe(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(testVersion.major);
-      expect(event.version.minor).toBe(testVersion.minor);
-      expect(event.version.patch).toBe(testVersion.patch);
-      expect(event.metadata).toBe(testMetadata);
+    it('should create a versioned event with default version 1.0.0', () => {
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      
+      expect(event.eventType).toBe('TEST_EVENT');
+      expect(event.payload).toEqual({ data: 'test' });
+      expect(event.version).toBeDefined();
+      expect(event.version.major).toBe('1');
+      expect(event.version.minor).toBe('0');
+      expect(event.version.patch).toBe('0');
     });
 
-    it('should create a versioned event with default version (1.0.0)', () => {
-      const event = new VersionedEventDto(testType, testPayload);
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toBe(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(1);
-      expect(event.version.minor).toBe(0);
-      expect(event.version.patch).toBe(0);
-      expect(event.metadata).toBeUndefined();
+    it('should create a versioned event with custom version', () => {
+      const version = new EventVersionDto();
+      version.major = '2';
+      version.minor = '1';
+      version.patch = '3';
+      
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
+      
+      expect(event.eventType).toBe('TEST_EVENT');
+      expect(event.payload).toEqual({ data: 'test' });
+      expect(event.version).toBe(version);
+      expect(event.getVersionString()).toBe('2.1.3');
     });
   });
 
-  describe('withPayload', () => {
-    it('should create a new event with updated payload', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const newPayload = { data: 'new data' };
-      const newEvent = event.withPayload(newPayload);
-
-      // New event should have updated payload
-      expect(newEvent).not.toBe(event); // Should be a new instance
-      expect(newEvent.payload).toBe(newPayload);
+  describe('getVersionString', () => {
+    it('should return the version as a string in semver format', () => {
+      const version = new EventVersionDto();
+      version.major = '2';
+      version.minor = '1';
+      version.patch = '3';
       
-      // Other properties should remain the same
-      expect(newEvent.type).toBe(testType);
-      expect(newEvent.version.major).toBe(testVersion.major);
-      expect(newEvent.version.minor).toBe(testVersion.minor);
-      expect(newEvent.version.patch).toBe(testVersion.patch);
-      expect(newEvent.metadata).toBe(testMetadata);
-    });
-
-    it('should create a new event with updated payload and version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const newPayload = { data: 'new data' };
-      const newVersion = new EventVersionDto(2, 2, 0);
-      const newEvent = event.withPayload(newPayload, newVersion);
-
-      // New event should have updated payload and version
-      expect(newEvent).not.toBe(event); // Should be a new instance
-      expect(newEvent.payload).toBe(newPayload);
-      expect(newEvent.version.major).toBe(newVersion.major);
-      expect(newEvent.version.minor).toBe(newVersion.minor);
-      expect(newEvent.version.patch).toBe(newVersion.patch);
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
       
-      // Other properties should remain the same
-      expect(newEvent.type).toBe(testType);
-      expect(newEvent.metadata).toBe(testMetadata);
-    });
-  });
-
-  describe('withVersion', () => {
-    it('should create a new event with updated version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const newVersion = new EventVersionDto(3, 0, 0);
-      const newEvent = event.withVersion(newVersion);
-
-      // New event should have updated version
-      expect(newEvent).not.toBe(event); // Should be a new instance
-      expect(newEvent.version.major).toBe(newVersion.major);
-      expect(newEvent.version.minor).toBe(newVersion.minor);
-      expect(newEvent.version.patch).toBe(newVersion.patch);
-      
-      // Other properties should remain the same
-      expect(newEvent.type).toBe(testType);
-      expect(newEvent.payload).toBe(testPayload);
-      expect(newEvent.metadata).toBe(testMetadata);
-    });
-  });
-
-  describe('withMetadata', () => {
-    it('should create a new event with updated metadata', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const newMetadata = { source: 'new source', correlationId: '456' };
-      const newEvent = event.withMetadata(newMetadata);
-
-      // New event should have updated metadata
-      expect(newEvent).not.toBe(event); // Should be a new instance
-      expect(newEvent.metadata).toEqual(newMetadata);
-      
-      // Other properties should remain the same
-      expect(newEvent.type).toBe(testType);
-      expect(newEvent.payload).toBe(testPayload);
-      expect(newEvent.version.major).toBe(testVersion.major);
-      expect(newEvent.version.minor).toBe(testVersion.minor);
-      expect(newEvent.version.patch).toBe(testVersion.patch);
-    });
-
-    it('should merge metadata when updating an event with existing metadata', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        { source: 'test', correlationId: '123' }
-      );
-      const additionalMetadata = { traceId: 'abc' };
-      const newEvent = event.withMetadata(additionalMetadata);
-
-      // New event should have merged metadata
-      expect(newEvent.metadata).toEqual({
-        source: 'test',
-        correlationId: '123',
-        traceId: 'abc'
-      });
-    });
-
-    it('should create metadata when updating an event without existing metadata', () => {
-      const event = new VersionedEventDto(testType, testPayload, testVersion);
-      const newMetadata = { source: 'test' };
-      const newEvent = event.withMetadata(newMetadata);
-
-      expect(newEvent.metadata).toEqual(newMetadata);
-    });
-  });
-
-  describe('fromObject', () => {
-    it('should create a versioned event from a valid object', () => {
-      const obj = {
-        type: testType,
-        payload: testPayload,
-        version: { major: 2, minor: 1, patch: 0 },
-        metadata: testMetadata
-      };
-
-      const event = VersionedEventDto.fromObject(obj);
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toEqual(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(2);
-      expect(event.version.minor).toBe(1);
-      expect(event.version.patch).toBe(0);
-      expect(event.metadata).toEqual(testMetadata);
-    });
-
-    it('should create a versioned event with default version when version is missing', () => {
-      const obj = {
-        type: testType,
-        payload: testPayload,
-        metadata: testMetadata
-      };
-
-      const event = VersionedEventDto.fromObject(obj);
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toEqual(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(1);
-      expect(event.version.minor).toBe(0);
-      expect(event.version.patch).toBe(0);
-      expect(event.metadata).toEqual(testMetadata);
-    });
-
-    it('should create a versioned event from an object with version as string', () => {
-      const obj = {
-        type: testType,
-        payload: testPayload,
-        version: '2.1.0',
-        metadata: testMetadata
-      };
-
-      const event = VersionedEventDto.fromObject(obj);
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toEqual(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(2);
-      expect(event.version.minor).toBe(1);
-      expect(event.version.patch).toBe(0);
-      expect(event.metadata).toEqual(testMetadata);
-    });
-
-    it('should throw an error for invalid objects', () => {
-      expect(() => VersionedEventDto.fromObject(null)).toThrow('Invalid event object');
-      expect(() => VersionedEventDto.fromObject({})).toThrow('valid type property');
-      expect(() => VersionedEventDto.fromObject({ type: 'TEST' })).toThrow('valid payload property');
+      expect(event.getVersionString()).toBe('2.1.3');
     });
   });
 
   describe('isCompatibleWith', () => {
-    it('should return true when event version is compatible with target version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
-      );
-      const targetVersion = { major: 1, minor: 1, patch: 0 };
-
-      expect(event.isCompatibleWith(targetVersion)).toBe(true);
+    it('should return true when event version is compatible with required version', () => {
+      const version = new EventVersionDto();
+      version.major = '1';
+      version.minor = '2';
+      version.patch = '3';
+      
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
+      
+      expect(event.isCompatibleWith('1.1.0')).toBe(true);
+      expect(event.isCompatibleWith('1.2.0')).toBe(true);
+      expect(event.isCompatibleWith('1.2.2')).toBe(true);
+      expect(event.isCompatibleWith('1.0.0')).toBe(true);
     });
 
-    it('should return false when event version is incompatible with target version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
-      );
-      const targetVersion = { major: 2, minor: 0, patch: 0 };
-
-      expect(event.isCompatibleWith(targetVersion)).toBe(false);
-    });
-  });
-
-  describe('needsUpgrade', () => {
-    it('should return true when target version is greater than event version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
-      );
-      const targetVersion = { major: 1, minor: 1, patch: 0 };
-
-      expect(event.needsUpgrade(targetVersion)).toBe(true);
-    });
-
-    it('should return false when target version is equal to event version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
-      );
-      const targetVersion = { major: 1, minor: 0, patch: 0 };
-
-      expect(event.needsUpgrade(targetVersion)).toBe(false);
-    });
-
-    it('should return false when target version is less than event version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 1, 0)
-      );
-      const targetVersion = { major: 1, minor: 0, patch: 0 };
-
-      expect(event.needsUpgrade(targetVersion)).toBe(false);
+    it('should return false when event version is not compatible with required version', () => {
+      const version = new EventVersionDto();
+      version.major = '1';
+      version.minor = '2';
+      version.patch = '3';
+      
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
+      
+      expect(event.isCompatibleWith('2.0.0')).toBe(false);
+      expect(event.isCompatibleWith('1.3.0')).toBe(false);
+      expect(event.isCompatibleWith('1.2.4')).toBe(false);
     });
   });
 
-  describe('needsDowngrade', () => {
-    it('should return true when event version is greater than target version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 1, 0)
-      );
-      const targetVersion = { major: 1, minor: 0, patch: 0 };
-
-      expect(event.needsDowngrade(targetVersion)).toBe(true);
+  describe('migrateToVersion', () => {
+    it('should return the same instance if already at target version', () => {
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      const migrated = event.migrateToVersion('1.0.0');
+      
+      expect(migrated).toBe(event);
     });
 
-    it('should return false when event version is equal to target version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
+    it('should throw an error if no migrations are registered for the event type', () => {
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      
+      expect(() => event.migrateToVersion('1.1.0')).toThrow(
+        'No migrations registered for event type: TEST_EVENT'
       );
-      const targetVersion = { major: 1, minor: 0, patch: 0 };
-
-      expect(event.needsDowngrade(targetVersion)).toBe(false);
     });
 
-    it('should return false when event version is less than target version', () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        new EventVersionDto(1, 0, 0)
-      );
-      const targetVersion = { major: 1, minor: 1, patch: 0 };
-
-      expect(event.needsDowngrade(targetVersion)).toBe(false);
-    });
-  });
-
-  describe('validation', () => {
-    it('should validate a valid versioned event', async () => {
-      const event = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const errors = await validate(event);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should fail validation for missing type', async () => {
-      const event = new VersionedEventDto(
-        '',
-        testPayload,
-        testVersion,
-        testMetadata
-      );
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('type');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
-    });
-
-    it('should fail validation for invalid version', async () => {
-      // Create an invalid version object that will fail the IsValidSemVerConstraint
-      const invalidVersion = { major: -1, minor: 0, patch: 0 } as EventVersionDto;
-      const event = plainToInstance(VersionedEventDto, {
-        type: testType,
-        payload: testPayload,
-        version: invalidVersion,
-        metadata: testMetadata
+    it('should apply a direct migration if available', () => {
+      // Register a migration from 1.0.0 to 1.1.0
+      registerVersionMigration('TEST_EVENT', '1.0.0', '1.1.0', (oldData) => {
+        return { ...oldData, newField: 'added' };
       });
       
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('version');
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      const migrated = event.migrateToVersion('1.1.0');
+      
+      expect(migrated).not.toBe(event); // Should be a new instance
+      expect(migrated.eventType).toBe('TEST_EVENT');
+      expect(migrated.getVersionString()).toBe('1.1.0');
+      expect(migrated.payload).toEqual({ data: 'test', newField: 'added' });
     });
 
-    it('should fail validation for non-object payload', async () => {
-      const event = new VersionedEventDto(
-        testType,
-        'not an object' as any,
-        testVersion,
-        testMetadata
+    it('should find and apply a migration path if no direct migration exists', () => {
+      // Register migrations to create a path from 1.0.0 to 1.2.0
+      registerVersionMigration('TEST_EVENT', '1.0.0', '1.1.0', (oldData) => {
+        return { ...oldData, field1: 'added' };
+      });
+      
+      registerVersionMigration('TEST_EVENT', '1.1.0', '1.2.0', (oldData) => {
+        return { ...oldData, field2: 'also added' };
+      });
+      
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      const migrated = event.migrateToVersion('1.2.0');
+      
+      expect(migrated.getVersionString()).toBe('1.2.0');
+      expect(migrated.payload).toEqual({
+        data: 'test',
+        field1: 'added',
+        field2: 'also added'
+      });
+    });
+
+    it('should throw an error if no migration path exists', () => {
+      // Register a migration that doesn't create a path to the target
+      registerVersionMigration('TEST_EVENT', '1.0.0', '1.1.0', (oldData) => {
+        return { ...oldData, field1: 'added' };
+      });
+      
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
+      
+      expect(() => event.migrateToVersion('2.0.0')).toThrow(
+        'No migration path exists from version 1.0.0 to 2.0.0 for event type: TEST_EVENT'
       );
-      const errors = await validate(event);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('payload');
-      expect(errors[0].constraints).toHaveProperty('isObject');
     });
   });
 });
 
-describe('Utility Functions', () => {
-  const testType = 'TEST_EVENT';
-  const testPayload = { data: 'test data' };
-  const testVersion = new EventVersionDto(2, 1, 0);
-  const testMetadata = { source: 'test', correlationId: '123' };
-  let testEvent: VersionedEventDto;
+describe('Migration Registration and Execution', () => {
+  describe('registerVersionMigration', () => {
+    it('should register a migration function for a specific event type and version', () => {
+      registerVersionMigration('TEST_EVENT', '1.0.0', '1.1.0', (oldData) => {
+        return { ...oldData, newField: 'added' };
+      });
+      
+      expect(versionMigrations['TEST_EVENT']).toBeDefined();
+      expect(versionMigrations['TEST_EVENT']['1.0.0->1.1.0']).toBeDefined();
+      expect(typeof versionMigrations['TEST_EVENT']['1.0.0->1.1.0']).toBe('function');
+    });
 
-  beforeEach(() => {
-    testEvent = new VersionedEventDto(
-      testType,
-      testPayload,
-      testVersion,
-      testMetadata
-    );
+    it('should allow registering multiple migrations for the same event type', () => {
+      registerVersionMigration('TEST_EVENT', '1.0.0', '1.1.0', (oldData) => {
+        return { ...oldData, field1: 'added' };
+      });
+      
+      registerVersionMigration('TEST_EVENT', '1.1.0', '1.2.0', (oldData) => {
+        return { ...oldData, field2: 'also added' };
+      });
+      
+      expect(Object.keys(versionMigrations['TEST_EVENT'])).toHaveLength(2);
+      expect(versionMigrations['TEST_EVENT']['1.0.0->1.1.0']).toBeDefined();
+      expect(versionMigrations['TEST_EVENT']['1.1.0->1.2.0']).toBeDefined();
+    });
   });
 
+  describe('registerMigrationChain', () => {
+    it('should register multiple migrations at once', () => {
+      registerMigrationChain('TEST_EVENT', [
+        {
+          fromVersion: '1.0.0',
+          toVersion: '1.1.0',
+          migrationFn: (oldData) => ({ ...oldData, field1: 'added' })
+        },
+        {
+          fromVersion: '1.1.0',
+          toVersion: '1.2.0',
+          migrationFn: (oldData) => ({ ...oldData, field2: 'also added' })
+        },
+        {
+          fromVersion: '1.2.0',
+          toVersion: '2.0.0',
+          migrationFn: (oldData) => ({
+            newFormat: true,
+            data: oldData.data,
+            fields: {
+              field1: oldData.field1,
+              field2: oldData.field2
+            }
+          })
+        }
+      ]);
+      
+      expect(Object.keys(versionMigrations['TEST_EVENT'])).toHaveLength(3);
+      expect(versionMigrations['TEST_EVENT']['1.0.0->1.1.0']).toBeDefined();
+      expect(versionMigrations['TEST_EVENT']['1.1.0->1.2.0']).toBeDefined();
+      expect(versionMigrations['TEST_EVENT']['1.2.0->2.0.0']).toBeDefined();
+    });
+  });
+
+  describe('Migration Path Finding', () => {
+    beforeEach(() => {
+      // Set up a complex migration graph
+      registerMigrationChain('TEST_EVENT', [
+        { fromVersion: '1.0.0', toVersion: '1.1.0', migrationFn: (d) => d },
+        { fromVersion: '1.1.0', toVersion: '1.2.0', migrationFn: (d) => d },
+        { fromVersion: '1.0.0', toVersion: '2.0.0', migrationFn: (d) => d }, // Direct path
+        { fromVersion: '1.2.0', toVersion: '2.0.0', migrationFn: (d) => d },
+        { fromVersion: '2.0.0', toVersion: '2.1.0', migrationFn: (d) => d },
+        { fromVersion: '2.1.0', toVersion: '3.0.0', migrationFn: (d) => d },
+      ]);
+    });
+
+    it('should find a direct migration path when available', () => {
+      const event = createVersionedEvent('TEST_EVENT', { data: 'test' });
+      const migrated = event.migrateToVersion('2.0.0');
+      
+      // Should use the direct path from 1.0.0 to 2.0.0
+      expect(migrated.getVersionString()).toBe('2.0.0');
+    });
+
+    it('should find the shortest migration path when multiple paths exist', () => {
+      // Create a versioned event at version 1.1.0
+      const version = createVersionFromString('1.1.0');
+      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
+      
+      // Spy on the migration functions to see which ones are called
+      const spy1 = jest.spyOn(versionMigrations['TEST_EVENT']['1.1.0->1.2.0'], 'apply');
+      const spy2 = jest.spyOn(versionMigrations['TEST_EVENT']['1.2.0->2.0.0'], 'apply');
+      
+      const migrated = event.migrateToVersion('2.0.0');
+      
+      // Should use the path 1.1.0 -> 1.2.0 -> 2.0.0
+      expect(migrated.getVersionString()).toBe('2.0.0');
+      expect(spy1).toHaveBeenCalled();
+      expect(spy2).toHaveBeenCalled();
+    });
+
+    it('should find a multi-step migration path when needed', () => {
+      const event = createVersionedEvent('TEST_EVENT', { data: 'test' });
+      const migrated = event.migrateToVersion('3.0.0');
+      
+      // Should find the path from 1.0.0 to 3.0.0
+      expect(migrated.getVersionString()).toBe('3.0.0');
+    });
+  });
+});
+
+describe('Helper Functions', () => {
   describe('createVersionedEvent', () => {
-    it('should create a versioned event with all properties', () => {
-      const event = createVersionedEvent(
-        testType,
-        testPayload,
-        testVersion,
-        testMetadata
+    it('should create a versioned event with default version 1.0.0', () => {
+      const event = createVersionedEvent('TEST_EVENT', { data: 'test' });
+      
+      expect(event.eventType).toBe('TEST_EVENT');
+      expect(event.payload).toEqual({ data: 'test' });
+      expect(event.getVersionString()).toBe('1.0.0');
+    });
+  });
+
+  describe('upgradeEventPayload', () => {
+    beforeEach(() => {
+      registerMigrationChain('TEST_EVENT', [
+        {
+          fromVersion: '1.0.0',
+          toVersion: '1.1.0',
+          migrationFn: (oldData) => ({ ...oldData, field1: 'added' })
+        },
+        {
+          fromVersion: '1.1.0',
+          toVersion: '2.0.0',
+          migrationFn: (oldData) => ({
+            newFormat: true,
+            data: oldData.data,
+            field1: oldData.field1
+          })
+        }
+      ]);
+    });
+
+    it('should upgrade a payload to the target version', () => {
+      const payload = { data: 'test' };
+      const upgraded = upgradeEventPayload('TEST_EVENT', payload, '1.0.0', '2.0.0');
+      
+      expect(upgraded).toEqual({
+        newFormat: true,
+        data: 'test',
+        field1: 'added'
+      });
+    });
+
+    it('should throw an error if no migration path exists', () => {
+      const payload = { data: 'test' };
+      
+      expect(() => {
+        upgradeEventPayload('TEST_EVENT', payload, '1.0.0', '3.0.0');
+      }).toThrow(
+        'No migration path exists from version 1.0.0 to 3.0.0 for event type: TEST_EVENT'
       );
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toBe(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(testVersion.major);
-      expect(event.version.minor).toBe(testVersion.minor);
-      expect(event.version.patch).toBe(testVersion.patch);
-      expect(event.metadata).toBe(testMetadata);
-    });
-
-    it('should create a versioned event with default version', () => {
-      const event = createVersionedEvent(testType, testPayload);
-
-      expect(event.type).toBe(testType);
-      expect(event.payload).toBe(testPayload);
-      expect(event.version).toBeInstanceOf(EventVersionDto);
-      expect(event.version.major).toBe(1);
-      expect(event.version.minor).toBe(0);
-      expect(event.version.patch).toBe(0);
-      expect(event.metadata).toBeUndefined();
     });
   });
 
-  describe('extractPayload', () => {
-    it('should extract the payload from a versioned event', () => {
-      const payload = extractPayload(testEvent);
-      expect(payload).toBe(testPayload);
+  describe('createVersionFromString', () => {
+    it('should create a version object from a version string', () => {
+      const version = createVersionFromString('2.3.4');
+      
+      expect(version).toBeInstanceOf(EventVersionDto);
+      expect(version.major).toBe('2');
+      expect(version.minor).toBe('3');
+      expect(version.patch).toBe('4');
+    });
+
+    it('should handle partial version strings', () => {
+      const version1 = createVersionFromString('2');
+      expect(version1.major).toBe('2');
+      expect(version1.minor).toBe('0');
+      expect(version1.patch).toBe('0');
+      
+      const version2 = createVersionFromString('2.3');
+      expect(version2.major).toBe('2');
+      expect(version2.minor).toBe('3');
+      expect(version2.patch).toBe('0');
     });
   });
 
-  describe('extractVersion', () => {
-    it('should extract the version from a versioned event', () => {
-      const version = extractVersion(testEvent);
-      expect(version).toBe(testEvent.version);
-      expect(version.major).toBe(testVersion.major);
-      expect(version.minor).toBe(testVersion.minor);
-      expect(version.patch).toBe(testVersion.patch);
+  describe('getLatestVersion', () => {
+    it('should return 1.0.0 if no migrations are registered', () => {
+      expect(getLatestVersion('UNKNOWN_EVENT')).toBe('1.0.0');
+    });
+
+    it('should find the latest version from registered migrations', () => {
+      registerMigrationChain('TEST_EVENT', [
+        { fromVersion: '1.0.0', toVersion: '1.1.0', migrationFn: (d) => d },
+        { fromVersion: '1.1.0', toVersion: '2.0.0', migrationFn: (d) => d },
+        { fromVersion: '2.0.0', toVersion: '2.1.0', migrationFn: (d) => d },
+      ]);
+      
+      expect(getLatestVersion('TEST_EVENT')).toBe('2.1.0');
     });
   });
 
-  describe('extractType', () => {
-    it('should extract the type from a versioned event', () => {
-      const type = extractType(testEvent);
-      expect(type).toBe(testType);
-    });
-  });
-
-  describe('extractMetadata', () => {
-    it('should extract the metadata from a versioned event', () => {
-      const metadata = extractMetadata(testEvent);
-      expect(metadata).toBe(testMetadata);
+  describe('canMigrate', () => {
+    beforeEach(() => {
+      registerMigrationChain('TEST_EVENT', [
+        { fromVersion: '1.0.0', toVersion: '1.1.0', migrationFn: (d) => d },
+        { fromVersion: '1.1.0', toVersion: '2.0.0', migrationFn: (d) => d },
+      ]);
     });
 
-    it('should return an empty object when metadata is undefined', () => {
-      const eventWithoutMetadata = new VersionedEventDto(
-        testType,
-        testPayload,
-        testVersion
-      );
-      const metadata = extractMetadata(eventWithoutMetadata);
-      expect(metadata).toEqual({});
+    it('should return true if a migration path exists', () => {
+      expect(canMigrate('TEST_EVENT', '1.0.0', '2.0.0')).toBe(true);
+    });
+
+    it('should return false if no migration path exists', () => {
+      expect(canMigrate('TEST_EVENT', '1.0.0', '3.0.0')).toBe(false);
+    });
+
+    it('should return false for unknown event types', () => {
+      expect(canMigrate('UNKNOWN_EVENT', '1.0.0', '2.0.0')).toBe(false);
     });
   });
 });
 
 describe('Integration with Event Processing', () => {
-  // Test event types for different journeys
-  const healthEventType = 'HEALTH_METRIC_RECORDED';
-  const careEventType = 'APPOINTMENT_BOOKED';
-  const planEventType = 'CLAIM_SUBMITTED';
-
-  // Test payloads for different journeys
-  const healthPayload = { metricType: 'HEART_RATE', value: 75, unit: 'bpm' };
-  const carePayload = { providerId: '123', appointmentDate: '2023-05-15T10:00:00Z' };
-  const planPayload = { claimType: 'Consulta Médica', amount: 250.0 };
-
-  it('should support versioning for health journey events', () => {
-    // Create a health event with version 1.0.0
-    const v1Event = createVersionedEvent(
-      healthEventType,
-      healthPayload,
-      new EventVersionDto(1, 0, 0)
-    );
-
-    // Create a health event with version 1.1.0 (added new fields)
-    const v1_1Payload = { ...healthPayload, source: 'manual', timestamp: new Date().toISOString() };
-    const v1_1Event = createVersionedEvent(
-      healthEventType,
-      v1_1Payload,
-      new EventVersionDto(1, 1, 0)
-    );
-
-    // Verify compatibility
-    expect(v1Event.isCompatibleWith(v1_1Event.version)).toBe(true);
-    expect(v1_1Event.isCompatibleWith(v1Event.version)).toBe(false); // Forward compatibility not supported
-
-    // Verify upgrade/downgrade needs
-    expect(v1Event.needsUpgrade(v1_1Event.version)).toBe(true);
-    expect(v1_1Event.needsDowngrade(v1Event.version)).toBe(true);
-  });
-
-  it('should support versioning for care journey events', () => {
-    // Create a care event with version 1.0.0
-    const v1Event = createVersionedEvent(
-      careEventType,
-      carePayload,
-      new EventVersionDto(1, 0, 0)
-    );
-
-    // Create a care event with version 2.0.0 (breaking changes)
-    const v2Payload = { 
-      provider: { id: '123', name: 'Dr. Smith' }, // Changed structure
-      schedule: { startTime: '2023-05-15T10:00:00Z', duration: 30 } // Changed field names
+  // Define a sample event type for testing
+  interface UserCreatedEvent {
+    userId: string;
+    email: string;
+    createdAt: string;
+    preferences?: {
+      language?: string;
+      notifications?: boolean;
     };
-    const v2Event = createVersionedEvent(
-      careEventType,
-      v2Payload,
-      new EventVersionDto(2, 0, 0)
-    );
+  }
 
-    // Verify incompatibility
-    expect(v1Event.isCompatibleWith(v2Event.version)).toBe(false);
-    expect(v2Event.isCompatibleWith(v1Event.version)).toBe(false);
-
-    // Verify upgrade/downgrade needs
-    expect(v1Event.needsUpgrade(v2Event.version)).toBe(true);
-    expect(v2Event.needsDowngrade(v1Event.version)).toBe(true);
+  beforeEach(() => {
+    // Register migrations for the USER_CREATED event
+    registerMigrationChain<UserCreatedEvent>('USER_CREATED', [
+      {
+        // v1.0.0 to v1.1.0: Add preferences object with default language
+        fromVersion: '1.0.0',
+        toVersion: '1.1.0',
+        migrationFn: (oldData) => ({
+          ...oldData,
+          preferences: { language: 'pt-BR' }
+        })
+      },
+      {
+        // v1.1.0 to v2.0.0: Restructure the event with nested preferences
+        fromVersion: '1.1.0',
+        toVersion: '2.0.0',
+        migrationFn: (oldData) => ({
+          ...oldData,
+          preferences: {
+            ...oldData.preferences,
+            notifications: true
+          }
+        })
+      }
+    ]);
   });
 
-  it('should support versioning for plan journey events', () => {
-    // Create a plan event with version 1.0.0
-    const v1Event = createVersionedEvent(
-      planEventType,
-      planPayload,
-      new EventVersionDto(1, 0, 0)
-    );
+  it('should process events with different versions correctly', () => {
+    // Create events with different versions
+    const v1Event = createVersionedEvent<UserCreatedEvent>('USER_CREATED', {
+      userId: '123',
+      email: 'user@example.com',
+      createdAt: new Date().toISOString()
+    });
 
-    // Create a plan event with version 1.0.1 (patch update, no schema changes)
-    const v1_0_1Event = createVersionedEvent(
-      planEventType,
-      planPayload,
-      new EventVersionDto(1, 0, 1)
-    );
+    const v11Version = createVersionFromString('1.1.0');
+    const v11Event = new VersionedEventDto<UserCreatedEvent>('USER_CREATED', {
+      userId: '456',
+      email: 'another@example.com',
+      createdAt: new Date().toISOString(),
+      preferences: { language: 'en-US' }
+    }, v11Version);
 
-    // Verify compatibility
-    expect(v1Event.isCompatibleWith(v1_0_1Event.version)).toBe(true);
-    expect(v1_0_1Event.isCompatibleWith(v1Event.version)).toBe(true);
+    // Simulate an event processor that requires v2.0.0
+    function processEvent(event: VersionedEventDto<UserCreatedEvent>): UserCreatedEvent {
+      const requiredVersion = '2.0.0';
+      
+      if (!event.isCompatibleWith(requiredVersion)) {
+        return event.migrateToVersion(requiredVersion).payload;
+      }
+      
+      return event.payload;
+    }
 
-    // Verify no upgrade/downgrade needs for patch versions
-    expect(v1Event.needsUpgrade(v1_0_1Event.version)).toBe(true); // Still technically an upgrade
-    expect(v1_0_1Event.needsDowngrade(v1Event.version)).toBe(true); // Still technically a downgrade
+    // Process the events
+    const processedV1 = processEvent(v1Event);
+    const processedV11 = processEvent(v11Event);
+
+    // Verify the results
+    expect(processedV1.preferences).toBeDefined();
+    expect(processedV1.preferences.language).toBe('pt-BR');
+    expect(processedV1.preferences.notifications).toBe(true);
+
+    expect(processedV11.preferences).toBeDefined();
+    expect(processedV11.preferences.language).toBe('en-US');
+    expect(processedV11.preferences.notifications).toBe(true);
   });
 
-  it('should demonstrate a complete version migration scenario', () => {
-    // Original event (v1.0.0)
-    const originalEvent = createVersionedEvent(
-      healthEventType,
-      { metricType: 'HEART_RATE', value: 75 }, // Missing unit in v1.0.0
-      new EventVersionDto(1, 0, 0)
-    );
+  it('should handle complex migration scenarios with multiple paths', () => {
+    // Add a direct migration from v1.0.0 to v2.0.0
+    registerVersionMigration<UserCreatedEvent>('USER_CREATED', '1.0.0', '2.0.0', (oldData) => ({
+      ...oldData,
+      preferences: {
+        language: 'pt-BR',
+        notifications: true,
+        directMigration: true // Special flag to indicate direct migration
+      }
+    }));
 
-    // Check if upgrade is needed to v1.1.0
-    const targetVersion = new EventVersionDto(1, 1, 0);
-    const needsUpgrade = originalEvent.needsUpgrade(targetVersion);
-    expect(needsUpgrade).toBe(true);
+    // Create a v1.0.0 event
+    const v1Event = createVersionedEvent<UserCreatedEvent>('USER_CREATED', {
+      userId: '123',
+      email: 'user@example.com',
+      createdAt: new Date().toISOString()
+    });
 
-    // Simulate upgrade to v1.1.0 (adding required unit field)
-    const upgradedEvent = originalEvent.withPayload(
-      { ...originalEvent.payload, unit: 'bpm' },
-      targetVersion
-    );
+    // Migrate directly to v2.0.0
+    const migratedEvent = v1Event.migrateToVersion('2.0.0');
 
-    // Verify upgraded event
-    expect(upgradedEvent.version.major).toBe(1);
-    expect(upgradedEvent.version.minor).toBe(1);
-    expect(upgradedEvent.version.patch).toBe(0);
-    expect(upgradedEvent.payload).toHaveProperty('unit', 'bpm');
+    // Verify that the direct migration was used
+    expect(migratedEvent.payload.preferences).toBeDefined();
+    expect(migratedEvent.payload.preferences.directMigration).toBe(true);
+  });
+
+  it('should maintain data integrity during migrations', () => {
+    // Create a v1.0.0 event with specific data
+    const originalEvent = createVersionedEvent<UserCreatedEvent>('USER_CREATED', {
+      userId: 'user-123',
+      email: 'test@example.com',
+      createdAt: '2023-01-01T12:00:00Z'
+    });
+
+    // Migrate to v2.0.0
+    const migratedEvent = originalEvent.migrateToVersion('2.0.0');
+
+    // Verify that the original data is preserved
+    expect(migratedEvent.payload.userId).toBe('user-123');
+    expect(migratedEvent.payload.email).toBe('test@example.com');
+    expect(migratedEvent.payload.createdAt).toBe('2023-01-01T12:00:00Z');
     
-    // Verify original event is unchanged
-    expect(originalEvent.version.major).toBe(1);
-    expect(originalEvent.version.minor).toBe(0);
-    expect(originalEvent.version.patch).toBe(0);
-    expect(originalEvent.payload).not.toHaveProperty('unit');
+    // And new data is added correctly
+    expect(migratedEvent.payload.preferences).toBeDefined();
+    expect(migratedEvent.payload.preferences.language).toBe('pt-BR');
+    expect(migratedEvent.payload.preferences.notifications).toBe(true);
   });
 });

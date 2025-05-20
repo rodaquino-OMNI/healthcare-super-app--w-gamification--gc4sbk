@@ -1,448 +1,332 @@
 /**
  * @file event-metadata.dto.ts
- * @description Defines standardized event metadata structure used across all journey events in the AUSTA SuperApp.
- * This DTO includes properties for event origin, version, correlation IDs, and additional context that enables
- * robust event tracking, debugging, and reconciliation. It ensures consistent metadata handling across services
- * and provides the foundation for distributed tracing and event correlation.
+ * @description Defines standardized event metadata structure used across all journey events
+ * in the AUSTA SuperApp. This DTO includes properties for event origin, version, correlation IDs,
+ * and additional context that enables robust event tracking, debugging, and reconciliation.
+ *
+ * Example usage:
+ * 
+ * ```typescript
+ * // Create event metadata with correlation ID for distributed tracing
+ * const metadata = new EventMetadataDto();
+ * metadata.correlationId = '550e8400-e29b-41d4-a716-446655440000';
+ * metadata.origin = {
+ *   service: 'health-service',
+ *   instance: 'health-service-pod-1234',
+ *   component: 'metric-processor'
+ * };
+ * 
+ * // Add the metadata to an event
+ * const event = {
+ *   type: 'HEALTH_METRIC_RECORDED',
+ *   payload: { ... },
+ *   metadata
+ * };
+ * ```
+ *
+ * @module events/dto
  */
 
 import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
-  IsUUID,
-  IsEnum,
-  ValidateNested,
+  IsDate,
+  IsNotEmpty,
   IsObject,
-  IsISO8601,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateNested,
+  Matches
 } from 'class-validator';
 
 /**
- * Enum representing the available journeys in the AUSTA SuperApp.
- * Used to categorize events and provide journey-specific context.
+ * Data Transfer Object for event version information.
+ * 
+ * Follows semantic versioning principles with major, minor, and patch components.
+ * This enables proper version tracking and compatibility checking for event schemas.
  */
-export enum Journey {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
+export class EventVersionDto {
+  /**
+   * Major version number. Incremented for breaking changes.
+   * Events with different major versions are considered incompatible.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d+$/, { message: 'Major version must be a numeric string' })
+  major: string = '1';
+
+  /**
+   * Minor version number. Incremented for backward-compatible feature additions.
+   * Events with the same major version but different minor versions are compatible
+   * if the consumer's expected minor version is less than or equal to the event's minor version.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d+$/, { message: 'Minor version must be a numeric string' })
+  minor: string = '0';
+
+  /**
+   * Patch version number. Incremented for backward-compatible bug fixes.
+   * Events with the same major and minor versions but different patch versions
+   * are fully compatible.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d+$/, { message: 'Patch version must be a numeric string' })
+  patch: string = '0';
+
+  /**
+   * Returns the full version string in semver format (major.minor.patch).
+   */
+  toString(): string {
+    return `${this.major}.${this.minor}.${this.patch}`;
+  }
+
+  /**
+   * Creates a new EventVersionDto from a version string.
+   * 
+   * @param versionStr Version string in 'major.minor.patch' format
+   * @returns A new EventVersionDto instance
+   */
+  static fromString(versionStr: string): EventVersionDto {
+    const version = new EventVersionDto();
+    const parts = versionStr.split('.');
+    
+    if (parts.length >= 1) version.major = parts[0];
+    if (parts.length >= 2) version.minor = parts[1];
+    if (parts.length >= 3) version.patch = parts[2];
+    
+    return version;
+  }
 }
 
 /**
- * Enum representing the possible sources of events in the system.
- * Used to identify which service or component generated an event.
+ * Data Transfer Object for event origin information.
+ * 
+ * Tracks the source of events for debugging, monitoring, and auditing purposes.
+ * This information is critical for distributed tracing and error investigation.
  */
-export enum EventSource {
-  // Services
-  API_GATEWAY = 'api-gateway',
-  AUTH_SERVICE = 'auth-service',
-  HEALTH_SERVICE = 'health-service',
-  CARE_SERVICE = 'care-service',
-  PLAN_SERVICE = 'plan-service',
-  GAMIFICATION_ENGINE = 'gamification-engine',
-  NOTIFICATION_SERVICE = 'notification-service',
-  
-  // Clients
-  WEB_CLIENT = 'web-client',
-  MOBILE_CLIENT = 'mobile-client',
-  
-  // External
-  EXTERNAL_INTEGRATION = 'external-integration',
-  SCHEDULED_TASK = 'scheduled-task',
+export class EventOriginDto {
+  /**
+   * Name of the service that generated the event (e.g., 'health-service', 'care-service').
+   */
+  @IsString()
+  @IsNotEmpty()
+  service: string;
+
+  /**
+   * Unique identifier for the service instance (e.g., pod name, container ID).
+   */
+  @IsString()
+  @IsOptional()
+  instance?: string;
+
+  /**
+   * Specific component within the service that generated the event (e.g., 'metric-processor').
+   */
+  @IsString()
+  @IsOptional()
+  component?: string;
+
+  /**
+   * Additional context about the event origin (e.g., 'scheduled-task', 'user-initiated').
+   */
+  @IsString()
+  @IsOptional()
+  context?: string;
 }
 
 /**
- * DTO for event metadata that provides additional context and tracking information for events.
- * This class is used to standardize metadata across all events in the system, enabling
- * consistent tracking, debugging, and correlation of events across services.
+ * Data Transfer Object for event metadata.
+ * 
+ * Provides standardized metadata for all events in the AUSTA SuperApp, enabling
+ * robust event tracking, debugging, and reconciliation across services.
  */
 export class EventMetadataDto {
   /**
-   * Correlation ID for tracking related events across services.
-   * This ID should be preserved across service boundaries to maintain the event chain.
-   * 
-   * @example "abc123def456"
+   * Unique identifier for the event.
+   * Automatically generated if not provided.
+   */
+  @IsUUID(4)
+  @IsOptional()
+  eventId?: string;
+
+  /**
+   * Correlation ID for distributed tracing.
+   * Used to track related events across multiple services.
    */
   @IsString()
-  @IsUUID(4)
   @IsOptional()
   correlationId?: string;
 
   /**
-   * Trace ID for distributed tracing (OpenTelemetry compatible).
-   * Used for end-to-end tracing of requests across multiple services.
-   * 
-   * @example "4bf92f3577b34da6a3ce929d0e0e4736"
+   * Parent event ID for event chains.
+   * Used to track causal relationships between events.
    */
   @IsString()
   @IsOptional()
-  traceId?: string;
+  parentEventId?: string;
 
   /**
-   * User ID associated with this event, if applicable.
-   * Identifies which user triggered or is affected by this event.
-   * 
-   * @example "user-123456"
+   * User session ID associated with the event.
+   * Used to correlate events with user sessions.
    */
   @IsString()
   @IsOptional()
-  userId?: string;
+  sessionId?: string;
 
   /**
-   * Journey context for the event (health, care, plan).
-   * Identifies which journey this event belongs to for proper routing and processing.
-   * 
-   * @example "health", "care", "plan"
+   * Request ID associated with the event.
+   * Used to correlate events with API requests.
    */
-  @IsEnum(Journey)
+  @IsString()
   @IsOptional()
-  journey?: Journey;
-
-  /**
-   * The service or component that originated this event.
-   * Used for debugging and auditing purposes.
-   * 
-   * @example "health-service", "mobile-client"
-   */
-  @IsEnum(EventSource)
-  @IsOptional()
-  source?: EventSource;
+  requestId?: string;
 
   /**
    * Timestamp when the event was created.
-   * ISO 8601 format with timezone information.
-   * 
-   * @example "2023-04-15T14:32:17.123Z"
+   * Automatically set to the current time if not provided.
    */
-  @IsISO8601()
+  @IsDate()
+  @Type(() => Date)
   @IsOptional()
-  timestamp?: string;
+  timestamp?: Date = new Date();
 
   /**
-   * Additional context information relevant to the event.
-   * Can contain any serializable data that provides more context.
+   * Version information for the event schema.
+   */
+  @IsObject()
+  @ValidateNested()
+  @Type(() => EventVersionDto)
+  @IsOptional()
+  version?: EventVersionDto = new EventVersionDto();
+
+  /**
+   * Origin information for the event.
+   */
+  @IsObject()
+  @ValidateNested()
+  @Type(() => EventOriginDto)
+  @IsOptional()
+  origin?: EventOriginDto;
+
+  /**
+   * Additional context for the event.
+   * Can contain any JSON-serializable data.
    */
   @IsObject()
   @IsOptional()
-  context?: Record<string, unknown>;
+  context?: Record<string, any>;
 
   /**
-   * Error information if this event represents or contains an error.
-   * Used for error tracking and debugging.
-   */
-  @ValidateNested()
-  @Type(() => ErrorMetadataDto)
-  @IsOptional()
-  error?: ErrorMetadataDto;
-
-  /**
-   * Creates a new EventMetadataDto instance.
+   * Creates a new EventMetadataDto with default values.
    * 
-   * @param metadata - Optional initial metadata values
+   * @param defaults Default values to apply
    */
-  constructor(metadata?: Partial<EventMetadataDto>) {
-    if (metadata) {
-      Object.assign(this, metadata);
+  constructor(defaults?: Partial<EventMetadataDto>) {
+    if (defaults) {
+      Object.assign(this, defaults);
+    }
+
+    // Set default timestamp if not provided
+    if (!this.timestamp) {
+      this.timestamp = new Date();
+    }
+
+    // Set default version if not provided
+    if (!this.version) {
+      this.version = new EventVersionDto();
     }
   }
 
   /**
-   * Creates a new EventMetadataDto with the same properties as this one,
-   * but with additional or overridden properties.
+   * Creates a copy of this metadata with the specified changes.
    * 
-   * @param additionalMetadata - The metadata to add or override
+   * @param changes Changes to apply to the copy
    * @returns A new EventMetadataDto instance
    */
-  with(additionalMetadata: Partial<EventMetadataDto>): EventMetadataDto {
+  with(changes: Partial<EventMetadataDto>): EventMetadataDto {
     return new EventMetadataDto({
       ...this,
-      ...additionalMetadata,
-      // Merge context objects if both exist
-      context: this.context && additionalMetadata.context
-        ? { ...this.context, ...additionalMetadata.context }
-        : additionalMetadata.context || this.context,
+      ...changes,
     });
   }
 
   /**
-   * Adds correlation information to the metadata.
+   * Creates metadata for a child event that inherits correlation context.
    * 
-   * @param correlationId - The correlation ID to add
-   * @returns A new EventMetadataDto instance with the correlation ID
+   * @param parentEventId ID of the parent event (defaults to this event's ID)
+   * @returns A new EventMetadataDto instance with inherited context
    */
-  withCorrelation(correlationId: string): EventMetadataDto {
-    return this.with({ correlationId });
-  }
-
-  /**
-   * Adds tracing information to the metadata.
-   * 
-   * @param traceId - The trace ID to add
-   * @returns A new EventMetadataDto instance with the trace ID
-   */
-  withTracing(traceId: string): EventMetadataDto {
-    return this.with({ traceId });
-  }
-
-  /**
-   * Adds user information to the metadata.
-   * 
-   * @param userId - The user ID to add
-   * @returns A new EventMetadataDto instance with the user ID
-   */
-  withUser(userId: string): EventMetadataDto {
-    return this.with({ userId });
-  }
-
-  /**
-   * Adds journey information to the metadata.
-   * 
-   * @param journey - The journey to add
-   * @returns A new EventMetadataDto instance with the journey
-   */
-  withJourney(journey: Journey): EventMetadataDto {
-    return this.with({ journey });
-  }
-
-  /**
-   * Adds source information to the metadata.
-   * 
-   * @param source - The source to add
-   * @returns A new EventMetadataDto instance with the source
-   */
-  withSource(source: EventSource): EventMetadataDto {
-    return this.with({ source });
-  }
-
-  /**
-   * Adds error information to the metadata.
-   * 
-   * @param error - The error information to add
-   * @returns A new EventMetadataDto instance with the error information
-   */
-  withError(error: ErrorMetadataDto | Error): EventMetadataDto {
-    const errorMetadata = error instanceof ErrorMetadataDto
-      ? error
-      : new ErrorMetadataDto({
-          message: error.message,
-          name: error.name,
-          stack: error.stack,
-        });
-    
-    return this.with({ error: errorMetadata });
-  }
-
-  /**
-   * Adds context information to the metadata.
-   * 
-   * @param context - The context to add
-   * @returns A new EventMetadataDto instance with the merged context
-   */
-  withContext(context: Record<string, unknown>): EventMetadataDto {
-    return this.with({
-      context: this.context ? { ...this.context, ...context } : context,
-    });
-  }
-
-  /**
-   * Creates a new EventMetadataDto from a plain object.
-   * 
-   * @param obj - The object to create the DTO from
-   * @returns A new EventMetadataDto instance
-   */
-  static fromObject(obj: Record<string, unknown>): EventMetadataDto {
-    const metadata = new EventMetadataDto();
-    
-    if (typeof obj.correlationId === 'string') {
-      metadata.correlationId = obj.correlationId;
-    }
-    
-    if (typeof obj.traceId === 'string') {
-      metadata.traceId = obj.traceId;
-    }
-    
-    if (typeof obj.userId === 'string') {
-      metadata.userId = obj.userId;
-    }
-    
-    if (obj.journey && Object.values(Journey).includes(obj.journey as Journey)) {
-      metadata.journey = obj.journey as Journey;
-    }
-    
-    if (obj.source && Object.values(EventSource).includes(obj.source as EventSource)) {
-      metadata.source = obj.source as EventSource;
-    }
-    
-    if (typeof obj.timestamp === 'string') {
-      metadata.timestamp = obj.timestamp;
-    }
-    
-    if (obj.context && typeof obj.context === 'object') {
-      metadata.context = obj.context as Record<string, unknown>;
-    }
-    
-    if (obj.error && typeof obj.error === 'object') {
-      metadata.error = ErrorMetadataDto.fromObject(obj.error as Record<string, unknown>);
-    }
-    
-    return metadata;
-  }
-}
-
-/**
- * DTO for error metadata that provides structured error information for events.
- * This class is used to standardize error reporting across all events in the system.
- */
-export class ErrorMetadataDto {
-  /**
-   * The error message.
-   */
-  @IsString()
-  message: string;
-
-  /**
-   * The name or type of the error.
-   */
-  @IsString()
-  @IsOptional()
-  name?: string;
-
-  /**
-   * The error code, if applicable.
-   * Used for categorizing and identifying specific error types.
-   */
-  @IsString()
-  @IsOptional()
-  code?: string;
-
-  /**
-   * The error stack trace, if available.
-   * Used for debugging purposes.
-   */
-  @IsString()
-  @IsOptional()
-  stack?: string;
-
-  /**
-   * Additional details about the error.
-   * Can contain any serializable data that provides more context.
-   */
-  @IsObject()
-  @IsOptional()
-  details?: Record<string, unknown>;
-
-  /**
-   * Creates a new ErrorMetadataDto instance.
-   * 
-   * @param error - Optional initial error values
-   */
-  constructor(error?: Partial<ErrorMetadataDto>) {
-    if (error) {
-      Object.assign(this, error);
-    }
-  }
-
-  /**
-   * Creates a new ErrorMetadataDto from a plain object.
-   * 
-   * @param obj - The object to create the DTO from
-   * @returns A new ErrorMetadataDto instance
-   */
-  static fromObject(obj: Record<string, unknown>): ErrorMetadataDto {
-    const error = new ErrorMetadataDto();
-    
-    if (typeof obj.message === 'string') {
-      error.message = obj.message;
-    } else {
-      error.message = 'Unknown error';
-    }
-    
-    if (typeof obj.name === 'string') {
-      error.name = obj.name;
-    }
-    
-    if (typeof obj.code === 'string') {
-      error.code = obj.code;
-    }
-    
-    if (typeof obj.stack === 'string') {
-      error.stack = obj.stack;
-    }
-    
-    if (obj.details && typeof obj.details === 'object') {
-      error.details = obj.details as Record<string, unknown>;
-    }
-    
-    return error;
-  }
-
-  /**
-   * Creates a new ErrorMetadataDto from a standard Error object.
-   * 
-   * @param error - The Error object to create the DTO from
-   * @returns A new ErrorMetadataDto instance
-   */
-  static fromError(error: Error): ErrorMetadataDto {
-    return new ErrorMetadataDto({
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
+  createChildMetadata(parentEventId?: string): EventMetadataDto {
+    return new EventMetadataDto({
+      correlationId: this.correlationId,
+      parentEventId: parentEventId || this.eventId,
+      sessionId: this.sessionId,
+      requestId: this.requestId,
+      origin: this.origin,
+      version: this.version,
     });
   }
 }
 
 /**
- * Factory function to create event metadata with correlation ID.
+ * Creates event metadata with the specified service origin.
  * 
- * @param correlationId - The correlation ID to include
- * @param additionalMetadata - Additional metadata to include
+ * @param service Name of the service generating the event
+ * @param options Additional metadata options
  * @returns A new EventMetadataDto instance
  */
 export function createEventMetadata(
-  correlationId?: string,
-  additionalMetadata?: Partial<EventMetadataDto>
+  service: string,
+  options: Partial<EventMetadataDto> = {}
 ): EventMetadataDto {
-  const metadata = new EventMetadataDto(additionalMetadata);
+  const origin = new EventOriginDto();
+  origin.service = service;
   
-  if (correlationId) {
-    metadata.correlationId = correlationId;
+  if (options.origin) {
+    Object.assign(origin, options.origin);
   }
   
-  return metadata;
-}
-
-/**
- * Factory function to create event metadata for a specific journey.
- * 
- * @param journey - The journey this event belongs to
- * @param additionalMetadata - Additional metadata to include
- * @returns A new EventMetadataDto instance
- */
-export function createJourneyMetadata(
-  journey: Journey,
-  additionalMetadata?: Partial<EventMetadataDto>
-): EventMetadataDto {
   return new EventMetadataDto({
-    journey,
-    ...additionalMetadata,
+    ...options,
+    origin,
   });
 }
 
 /**
- * Factory function to create error metadata from an Error object.
+ * Creates event metadata with correlation ID for distributed tracing.
  * 
- * @param error - The Error object to create metadata from
- * @param additionalDetails - Additional error details to include
- * @returns A new ErrorMetadataDto instance
+ * @param correlationId Correlation ID for distributed tracing
+ * @param service Name of the service generating the event
+ * @param options Additional metadata options
+ * @returns A new EventMetadataDto instance
  */
-export function createErrorMetadata(
-  error: Error,
-  additionalDetails?: Record<string, unknown>
-): ErrorMetadataDto {
-  const errorMetadata = ErrorMetadataDto.fromError(error);
-  
-  if (additionalDetails) {
-    errorMetadata.details = additionalDetails;
-  }
-  
-  return errorMetadata;
+export function createCorrelatedEventMetadata(
+  correlationId: string,
+  service: string,
+  options: Partial<EventMetadataDto> = {}
+): EventMetadataDto {
+  return createEventMetadata(service, {
+    ...options,
+    correlationId,
+  });
+}
+
+/**
+ * Extracts correlation context from existing metadata for propagation.
+ * 
+ * @param metadata Source metadata to extract correlation context from
+ * @returns Object containing correlation context properties
+ */
+export function extractCorrelationContext(metadata: EventMetadataDto): {
+  correlationId?: string;
+  sessionId?: string;
+  requestId?: string;
+} {
+  return {
+    correlationId: metadata.correlationId,
+    sessionId: metadata.sessionId,
+    requestId: metadata.requestId,
+  };
 }

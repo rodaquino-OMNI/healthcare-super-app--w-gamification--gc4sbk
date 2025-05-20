@@ -1,411 +1,409 @@
 /**
- * Comprehensive enum of all event types supported by the AUSTA SuperApp.
+ * Enum of all supported event types in the AUSTA SuperApp.
  * 
- * This enum centralizes all event type constants, providing type-safe references
- * to event types across health, care, and plan journeys. Events are organized by
- * journey and category to improve code organization and maintainability.
+ * This enum provides type-safe references to event types across health, care, and plan journeys.
+ * It ensures consistent naming, prevents typos, enables autocomplete, and facilitates static
+ * analysis of event processing logic.
  * 
- * Using this enum instead of string literals ensures consistent naming,
- * prevents typos, enables autocomplete, and facilitates static analysis
- * of event processing logic.
+ * Events are categorized by journey and event category to make the codebase more maintainable
+ * and reduce errors in event handling.
  */
-export enum EventTypes {
-  // =========================================================================
-  // HEALTH JOURNEY EVENTS
-  // =========================================================================
+export enum EventType {
+  // ===== HEALTH JOURNEY EVENTS =====
   
   /**
-   * Triggered when a user records a new health metric (weight, blood pressure, etc.)
+   * Triggered when a user records a new health metric.
    * 
-   * Payload includes:
-   * - metricType: string (e.g., 'weight', 'blood_pressure', 'heart_rate')
+   * Payload structure:
+   * - metricType: string (e.g., 'blood_pressure', 'weight', 'steps', 'heart_rate')
    * - value: number
    * - unit: string
-   * - timestamp: ISO date string
-   * - deviceId?: string (optional source device identifier)
+   * - timestamp: ISO string
+   * - source: string (e.g., 'manual', 'device', 'integration')
    */
   HEALTH_METRIC_RECORDED = 'HEALTH_METRIC_RECORDED',
   
   /**
-   * Triggered when a user connects a new health tracking device
+   * Triggered when a user achieves a health goal.
    * 
-   * Payload includes:
-   * - deviceId: string
-   * - deviceType: string
-   * - manufacturer: string
-   * - model: string
-   * - connectionTimestamp: ISO date string
-   */
-  HEALTH_DEVICE_CONNECTED = 'HEALTH_DEVICE_CONNECTED',
-  
-  /**
-   * Triggered when a user disconnects a health tracking device
-   * 
-   * Payload includes:
-   * - deviceId: string
-   * - disconnectionTimestamp: ISO date string
-   * - reason?: string (optional reason for disconnection)
-   */
-  HEALTH_DEVICE_DISCONNECTED = 'HEALTH_DEVICE_DISCONNECTED',
-  
-  /**
-   * Triggered when a user creates a new health goal
-   * 
-   * Payload includes:
+   * Payload structure:
    * - goalId: string
-   * - goalType: string (e.g., 'weight_loss', 'steps', 'exercise_minutes')
+   * - goalType: string (e.g., 'steps', 'weight_loss', 'sleep')
    * - targetValue: number
-   * - unit: string
-   * - startDate: ISO date string
-   * - endDate: ISO date string
-   * - currentValue?: number (optional starting value)
-   */
-  HEALTH_GOAL_CREATED = 'HEALTH_GOAL_CREATED',
-  
-  /**
-   * Triggered when a user updates progress toward a health goal
-   * 
-   * Payload includes:
-   * - goalId: string
-   * - previousValue: number
-   * - newValue: number
-   * - percentComplete: number
-   * - updateTimestamp: ISO date string
-   */
-  HEALTH_GOAL_UPDATED = 'HEALTH_GOAL_UPDATED',
-  
-  /**
-   * Triggered when a user achieves a health goal
-   * 
-   * Payload includes:
-   * - goalId: string
-   * - goalType: string
    * - achievedValue: number
-   * - targetValue: number
-   * - achievementTimestamp: ISO date string
-   * - daysToAchieve: number
+   * - completedAt: ISO string
    */
   HEALTH_GOAL_ACHIEVED = 'HEALTH_GOAL_ACHIEVED',
   
   /**
-   * Triggered when a user syncs health data from an external source
+   * Triggered when a user creates a new health goal.
    * 
-   * Payload includes:
-   * - sourceType: string (e.g., 'apple_health', 'google_fit', 'fitbit')
-   * - dataTypes: string[] (types of data synced)
-   * - recordCount: number (number of records synced)
-   * - syncTimestamp: ISO date string
+   * Payload structure:
+   * - goalId: string
+   * - goalType: string
+   * - targetValue: number
+   * - startValue: number
+   * - deadline: ISO string (optional)
+   * - createdAt: ISO string
    */
-  HEALTH_DATA_SYNCED = 'HEALTH_DATA_SYNCED',
+  HEALTH_GOAL_CREATED = 'HEALTH_GOAL_CREATED',
   
   /**
-   * Triggered when a user views their health insights dashboard
+   * Triggered when a user connects a health device or wearable.
    * 
-   * Payload includes:
-   * - viewTimestamp: ISO date string
-   * - insightTypes: string[] (types of insights viewed)
-   * - deviceType: string (device used to view insights)
+   * Payload structure:
+   * - deviceId: string
+   * - deviceType: string (e.g., 'fitbit', 'apple_watch', 'glucose_monitor')
+   * - connectionMethod: string (e.g., 'oauth', 'bluetooth')
+   * - connectedAt: ISO string
    */
-  HEALTH_INSIGHTS_VIEWED = 'HEALTH_INSIGHTS_VIEWED',
+  HEALTH_DEVICE_CONNECTED = 'HEALTH_DEVICE_CONNECTED',
   
   /**
-   * Triggered when a new health insight is generated for a user
+   * Triggered when a health insight is generated for a user.
    * 
-   * Payload includes:
+   * Payload structure:
    * - insightId: string
-   * - insightType: string
+   * - insightType: string (e.g., 'trend', 'anomaly', 'recommendation')
+   * - metricType: string
+   * - description: string
    * - severity: string (e.g., 'info', 'warning', 'critical')
-   * - relatedMetrics: string[]
-   * - generationTimestamp: ISO date string
+   * - generatedAt: ISO string
    */
   HEALTH_INSIGHT_GENERATED = 'HEALTH_INSIGHT_GENERATED',
   
-  // =========================================================================
-  // CARE JOURNEY EVENTS
-  // =========================================================================
+  /**
+   * Triggered when a user completes a health assessment.
+   * 
+   * Payload structure:
+   * - assessmentId: string
+   * - assessmentType: string (e.g., 'general_health', 'mental_health', 'nutrition')
+   * - score: number
+   * - completedAt: ISO string
+   * - duration: number (in seconds)
+   */
+  HEALTH_ASSESSMENT_COMPLETED = 'HEALTH_ASSESSMENT_COMPLETED',
+  
+  // ===== CARE JOURNEY EVENTS =====
   
   /**
-   * Triggered when a user books a medical appointment
+   * Triggered when a user books a medical appointment.
    * 
-   * Payload includes:
+   * Payload structure:
    * - appointmentId: string
    * - providerId: string
    * - specialtyType: string
    * - appointmentType: string (e.g., 'in_person', 'telemedicine')
-   * - scheduledTime: ISO date string
-   * - bookingTimestamp: ISO date string
+   * - scheduledAt: ISO string
+   * - bookedAt: ISO string
    */
   CARE_APPOINTMENT_BOOKED = 'CARE_APPOINTMENT_BOOKED',
   
   /**
-   * Triggered when a user cancels a medical appointment
+   * Triggered when a user completes a medical appointment.
    * 
-   * Payload includes:
-   * - appointmentId: string
-   * - cancellationTimestamp: ISO date string
-   * - reason?: string (optional reason for cancellation)
-   * - rescheduled: boolean (whether appointment was rescheduled)
-   */
-  CARE_APPOINTMENT_CANCELLED = 'CARE_APPOINTMENT_CANCELLED',
-  
-  /**
-   * Triggered when a user completes a medical appointment
-   * 
-   * Payload includes:
+   * Payload structure:
    * - appointmentId: string
    * - providerId: string
-   * - completionTimestamp: ISO date string
+   * - appointmentType: string
+   * - scheduledAt: ISO string
+   * - completedAt: ISO string
    * - duration: number (in minutes)
-   * - followUpRequired: boolean
    */
   CARE_APPOINTMENT_COMPLETED = 'CARE_APPOINTMENT_COMPLETED',
   
   /**
-   * Triggered when a user adds a medication to their profile
+   * Triggered when a user logs taking medication.
    * 
-   * Payload includes:
+   * Payload structure:
    * - medicationId: string
    * - medicationName: string
    * - dosage: string
-   * - frequency: string
-   * - startDate: ISO date string
-   * - endDate?: ISO date string (optional end date)
-   * - prescribedBy?: string (optional provider ID)
-   */
-  CARE_MEDICATION_ADDED = 'CARE_MEDICATION_ADDED',
-  
-  /**
-   * Triggered when a user logs taking a medication
-   * 
-   * Payload includes:
-   * - medicationId: string
-   * - timestamp: ISO date string
-   * - takenOnSchedule: boolean
-   * - dosageTaken: string
+   * - takenAt: ISO string
+   * - adherence: string (e.g., 'on_time', 'late', 'missed')
    */
   CARE_MEDICATION_TAKEN = 'CARE_MEDICATION_TAKEN',
   
   /**
-   * Triggered when a user misses a scheduled medication
+   * Triggered when a user starts a telemedicine session.
    * 
-   * Payload includes:
-   * - medicationId: string
-   * - scheduledTime: ISO date string
-   * - reportedTimestamp: ISO date string
-   * - reason?: string (optional reason for missing)
-   */
-  CARE_MEDICATION_MISSED = 'CARE_MEDICATION_MISSED',
-  
-  /**
-   * Triggered when a user starts a telemedicine session
-   * 
-   * Payload includes:
+   * Payload structure:
    * - sessionId: string
    * - appointmentId: string
    * - providerId: string
-   * - startTimestamp: ISO date string
-   * - deviceType: string
-   * - connectionType: string (e.g., 'wifi', 'cellular')
+   * - startedAt: ISO string
+   * - deviceType: string (e.g., 'mobile', 'web')
    */
   CARE_TELEMEDICINE_STARTED = 'CARE_TELEMEDICINE_STARTED',
   
   /**
-   * Triggered when a user completes a telemedicine session
+   * Triggered when a user completes a telemedicine session.
    * 
-   * Payload includes:
+   * Payload structure:
    * - sessionId: string
    * - appointmentId: string
-   * - endTimestamp: ISO date string
+   * - providerId: string
+   * - startedAt: ISO string
+   * - endedAt: ISO string
    * - duration: number (in minutes)
-   * - connectionQuality: string (e.g., 'excellent', 'good', 'poor')
+   * - quality: string (e.g., 'excellent', 'good', 'poor')
    */
   CARE_TELEMEDICINE_COMPLETED = 'CARE_TELEMEDICINE_COMPLETED',
   
   /**
-   * Triggered when a user searches for a healthcare provider
+   * Triggered when a care plan is created for a user.
    * 
-   * Payload includes:
-   * - searchTimestamp: ISO date string
-   * - specialtyType?: string (optional specialty filter)
-   * - locationData?: object (optional location filter)
-   * - insuranceFilter?: string (optional insurance filter)
-   * - resultCount: number
-   */
-  CARE_PROVIDER_SEARCHED = 'CARE_PROVIDER_SEARCHED',
-  
-  /**
-   * Triggered when a user views a provider's profile
-   * 
-   * Payload includes:
+   * Payload structure:
+   * - planId: string
    * - providerId: string
-   * - specialtyType: string
-   * - viewTimestamp: ISO date string
-   * - viewDuration?: number (optional time spent viewing profile in seconds)
+   * - planType: string (e.g., 'chronic_condition', 'recovery', 'preventive')
+   * - condition: string
+   * - startDate: ISO string
+   * - endDate: ISO string (optional)
+   * - createdAt: ISO string
    */
-  CARE_PROVIDER_VIEWED = 'CARE_PROVIDER_VIEWED',
-  
-  // =========================================================================
-  // PLAN JOURNEY EVENTS
-  // =========================================================================
+  CARE_PLAN_CREATED = 'CARE_PLAN_CREATED',
   
   /**
-   * Triggered when a user submits an insurance claim
+   * Triggered when a user completes a care plan task.
    * 
-   * Payload includes:
+   * Payload structure:
+   * - taskId: string
+   * - planId: string
+   * - taskType: string (e.g., 'medication', 'exercise', 'appointment')
+   * - completedAt: ISO string
+   * - status: string (e.g., 'completed', 'partially_completed')
+   */
+  CARE_PLAN_TASK_COMPLETED = 'CARE_PLAN_TASK_COMPLETED',
+  
+  // ===== PLAN JOURNEY EVENTS =====
+  
+  /**
+   * Triggered when a user submits an insurance claim.
+   * 
+   * Payload structure:
    * - claimId: string
-   * - claimType: string (e.g., 'medical', 'dental', 'vision')
-   * - serviceDate: ISO date string
+   * - claimType: string (e.g., 'medical', 'dental', 'vision', 'pharmacy')
    * - providerId: string
+   * - serviceDate: ISO string
    * - amount: number
-   * - submissionTimestamp: ISO date string
+   * - submittedAt: ISO string
    */
   PLAN_CLAIM_SUBMITTED = 'PLAN_CLAIM_SUBMITTED',
   
   /**
-   * Triggered when an insurance claim status changes
+   * Triggered when an insurance claim is processed.
    * 
-   * Payload includes:
+   * Payload structure:
    * - claimId: string
-   * - previousStatus: string
-   * - newStatus: string (e.g., 'submitted', 'under_review', 'approved', 'denied')
-   * - updateTimestamp: ISO date string
-   * - reason?: string (optional reason for status change)
+   * - status: string (e.g., 'approved', 'denied', 'partial')
+   * - amount: number
+   * - coveredAmount: number
+   * - processedAt: ISO string
    */
-  PLAN_CLAIM_STATUS_UPDATED = 'PLAN_CLAIM_STATUS_UPDATED',
+  PLAN_CLAIM_PROCESSED = 'PLAN_CLAIM_PROCESSED',
   
   /**
-   * Triggered when a user views their insurance coverage details
+   * Triggered when a user selects a new insurance plan.
    * 
-   * Payload includes:
-   * - coverageType: string (e.g., 'medical', 'dental', 'vision')
+   * Payload structure:
    * - planId: string
-   * - viewTimestamp: ISO date string
-   * - viewDuration?: number (optional time spent viewing in seconds)
+   * - planType: string (e.g., 'health', 'dental', 'vision')
+   * - coverageLevel: string (e.g., 'individual', 'family')
+   * - premium: number
+   * - startDate: ISO string
+   * - selectedAt: ISO string
    */
-  PLAN_COVERAGE_VIEWED = 'PLAN_COVERAGE_VIEWED',
+  PLAN_SELECTED = 'PLAN_SELECTED',
   
   /**
-   * Triggered when a user views their insurance benefits
+   * Triggered when a user utilizes an insurance benefit.
    * 
-   * Payload includes:
-   * - benefitCategories: string[] (categories of benefits viewed)
-   * - planId: string
-   * - viewTimestamp: ISO date string
-   * - viewDuration?: number (optional time spent viewing in seconds)
-   */
-  PLAN_BENEFITS_VIEWED = 'PLAN_BENEFITS_VIEWED',
-  
-  /**
-   * Triggered when a user utilizes an insurance benefit
-   * 
-   * Payload includes:
+   * Payload structure:
    * - benefitId: string
-   * - benefitType: string
-   * - utilizationTimestamp: ISO date string
-   * - providerId?: string (optional provider associated with benefit)
-   * - savingsAmount?: number (optional amount saved by using benefit)
+   * - benefitType: string (e.g., 'wellness', 'preventive', 'specialist')
+   * - providerId: string (optional)
+   * - utilizationDate: ISO string
+   * - savingsAmount: number (optional)
    */
   PLAN_BENEFIT_UTILIZED = 'PLAN_BENEFIT_UTILIZED',
   
   /**
-   * Triggered when a user compares insurance plans
+   * Triggered when a user redeems reward points.
    * 
-   * Payload includes:
-   * - planIds: string[] (IDs of plans being compared)
-   * - comparisonTimestamp: ISO date string
-   * - comparisonDuration?: number (optional time spent comparing in seconds)
-   * - selectedPlanId?: string (optional ID of plan selected after comparison)
+   * Payload structure:
+   * - rewardId: string
+   * - rewardType: string (e.g., 'gift_card', 'premium_discount', 'merchandise')
+   * - pointsRedeemed: number
+   * - value: number
+   * - redeemedAt: ISO string
    */
-  PLAN_COMPARISON_PERFORMED = 'PLAN_COMPARISON_PERFORMED',
+  PLAN_REWARD_REDEEMED = 'PLAN_REWARD_REDEEMED',
   
   /**
-   * Triggered when a user uploads a document related to their insurance
+   * Triggered when a user completes a plan-related document.
    * 
-   * Payload includes:
+   * Payload structure:
    * - documentId: string
-   * - documentType: string (e.g., 'receipt', 'medical_record', 'prescription')
-   * - relatedEntityId?: string (optional ID of related entity like a claim)
-   * - uploadTimestamp: ISO date string
-   * - fileSize: number (in bytes)
+   * - documentType: string (e.g., 'enrollment', 'consent', 'authorization')
+   * - completedAt: ISO string
    */
-  PLAN_DOCUMENT_UPLOADED = 'PLAN_DOCUMENT_UPLOADED',
+  PLAN_DOCUMENT_COMPLETED = 'PLAN_DOCUMENT_COMPLETED',
+  
+  // ===== CROSS-JOURNEY EVENTS =====
   
   /**
-   * Triggered when a user downloads a document related to their insurance
+   * Triggered when a user earns achievement points.
    * 
-   * Payload includes:
-   * - documentId: string
-   * - documentType: string
-   * - downloadTimestamp: ISO date string
+   * Payload structure:
+   * - achievementId: string (optional)
+   * - sourceType: string (e.g., 'health', 'care', 'plan')
+   * - sourceId: string
+   * - points: number
+   * - reason: string
+   * - earnedAt: ISO string
    */
-  PLAN_DOCUMENT_DOWNLOADED = 'PLAN_DOCUMENT_DOWNLOADED',
-  
-  // =========================================================================
-  // CROSS-JOURNEY EVENTS
-  // =========================================================================
+  GAMIFICATION_POINTS_EARNED = 'GAMIFICATION_POINTS_EARNED',
   
   /**
-   * Triggered when a user completes their profile setup
+   * Triggered when a user unlocks an achievement.
    * 
-   * Payload includes:
-   * - completionTimestamp: ISO date string
-   * - completedSections: string[] (sections of profile completed)
-   * - profileCompleteness: number (percentage of profile completed)
+   * Payload structure:
+   * - achievementId: string
+   * - achievementType: string
+   * - tier: string (e.g., 'bronze', 'silver', 'gold')
+   * - points: number
+   * - unlockedAt: ISO string
+   */
+  GAMIFICATION_ACHIEVEMENT_UNLOCKED = 'GAMIFICATION_ACHIEVEMENT_UNLOCKED',
+  
+  /**
+   * Triggered when a user levels up in the gamification system.
+   * 
+   * Payload structure:
+   * - previousLevel: number
+   * - newLevel: number
+   * - totalPoints: number
+   * - leveledUpAt: ISO string
+   */
+  GAMIFICATION_LEVEL_UP = 'GAMIFICATION_LEVEL_UP',
+  
+  /**
+   * Triggered when a user completes a quest or challenge.
+   * 
+   * Payload structure:
+   * - questId: string
+   * - questType: string
+   * - difficulty: string (e.g., 'easy', 'medium', 'hard')
+   * - points: number
+   * - completedAt: ISO string
+   */
+  GAMIFICATION_QUEST_COMPLETED = 'GAMIFICATION_QUEST_COMPLETED',
+  
+  // ===== USER EVENTS =====
+  
+  /**
+   * Triggered when a user completes their profile.
+   * 
+   * Payload structure:
+   * - completionPercentage: number
+   * - completedSections: string[]
+   * - completedAt: ISO string
    */
   USER_PROFILE_COMPLETED = 'USER_PROFILE_COMPLETED',
   
   /**
-   * Triggered when a user updates their profile information
+   * Triggered when a user logs in to the application.
    * 
-   * Payload includes:
-   * - updateTimestamp: ISO date string
-   * - updatedFields: string[] (fields that were updated)
+   * Payload structure:
+   * - loginMethod: string (e.g., 'password', 'sso', 'biometric')
+   * - deviceType: string (e.g., 'mobile', 'web')
+   * - loginAt: ISO string
    */
-  USER_PROFILE_UPDATED = 'USER_PROFILE_UPDATED',
+  USER_LOGIN = 'USER_LOGIN',
   
   /**
-   * Triggered when a user completes a journey-specific onboarding flow
+   * Triggered when a user completes the onboarding process.
    * 
-   * Payload includes:
-   * - journeyType: string (e.g., 'health', 'care', 'plan')
-   * - completionTimestamp: ISO date string
-   * - completedSteps: string[] (steps completed in onboarding)
+   * Payload structure:
+   * - completedSteps: string[]
+   * - selectedJourneys: string[]
+   * - duration: number (in seconds)
+   * - completedAt: ISO string
    */
-  JOURNEY_ONBOARDING_COMPLETED = 'JOURNEY_ONBOARDING_COMPLETED',
+  USER_ONBOARDING_COMPLETED = 'USER_ONBOARDING_COMPLETED',
   
   /**
-   * Triggered when a user provides feedback on any feature
+   * Triggered when a user provides feedback.
    * 
-   * Payload includes:
-   * - feedbackId: string
-   * - featureType: string
-   * - journeyType: string (e.g., 'health', 'care', 'plan')
+   * Payload structure:
+   * - feedbackType: string (e.g., 'app', 'journey', 'feature')
    * - rating: number
-   * - comments?: string (optional text feedback)
-   * - submissionTimestamp: ISO date string
+   * - comments: string (optional)
+   * - submittedAt: ISO string
    */
-  USER_FEEDBACK_SUBMITTED = 'USER_FEEDBACK_SUBMITTED',
+  USER_FEEDBACK_SUBMITTED = 'USER_FEEDBACK_SUBMITTED'
+}
+
+/**
+ * Namespace containing event type groupings by journey.
+ * This provides an alternative way to access event types organized by journey.
+ */
+export namespace JourneyEvents {
+  /**
+   * Health journey event types.
+   */
+  export enum Health {
+    METRIC_RECORDED = EventType.HEALTH_METRIC_RECORDED,
+    GOAL_ACHIEVED = EventType.HEALTH_GOAL_ACHIEVED,
+    GOAL_CREATED = EventType.HEALTH_GOAL_CREATED,
+    DEVICE_CONNECTED = EventType.HEALTH_DEVICE_CONNECTED,
+    INSIGHT_GENERATED = EventType.HEALTH_INSIGHT_GENERATED,
+    ASSESSMENT_COMPLETED = EventType.HEALTH_ASSESSMENT_COMPLETED
+  }
   
   /**
-   * Triggered when a user shares content from the app
-   * 
-   * Payload includes:
-   * - contentType: string (type of content shared)
-   * - contentId: string
-   * - shareMethod: string (e.g., 'email', 'sms', 'social')
-   * - shareTimestamp: ISO date string
+   * Care journey event types.
    */
-  CONTENT_SHARED = 'CONTENT_SHARED',
+  export enum Care {
+    APPOINTMENT_BOOKED = EventType.CARE_APPOINTMENT_BOOKED,
+    APPOINTMENT_COMPLETED = EventType.CARE_APPOINTMENT_COMPLETED,
+    MEDICATION_TAKEN = EventType.CARE_MEDICATION_TAKEN,
+    TELEMEDICINE_STARTED = EventType.CARE_TELEMEDICINE_STARTED,
+    TELEMEDICINE_COMPLETED = EventType.CARE_TELEMEDICINE_COMPLETED,
+    PLAN_CREATED = EventType.CARE_PLAN_CREATED,
+    PLAN_TASK_COMPLETED = EventType.CARE_PLAN_TASK_COMPLETED
+  }
   
   /**
-   * Triggered when a user completes a survey
-   * 
-   * Payload includes:
-   * - surveyId: string
-   * - surveyType: string
-   * - completionTimestamp: ISO date string
-   * - questionCount: number
-   * - timeToComplete: number (in seconds)
+   * Plan journey event types.
    */
-  SURVEY_COMPLETED = 'SURVEY_COMPLETED'
+  export enum Plan {
+    CLAIM_SUBMITTED = EventType.PLAN_CLAIM_SUBMITTED,
+    CLAIM_PROCESSED = EventType.PLAN_CLAIM_PROCESSED,
+    PLAN_SELECTED = EventType.PLAN_SELECTED,
+    BENEFIT_UTILIZED = EventType.PLAN_BENEFIT_UTILIZED,
+    REWARD_REDEEMED = EventType.PLAN_REWARD_REDEEMED,
+    DOCUMENT_COMPLETED = EventType.PLAN_DOCUMENT_COMPLETED
+  }
+  
+  /**
+   * Gamification event types that span across journeys.
+   */
+  export enum Gamification {
+    POINTS_EARNED = EventType.GAMIFICATION_POINTS_EARNED,
+    ACHIEVEMENT_UNLOCKED = EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+    LEVEL_UP = EventType.GAMIFICATION_LEVEL_UP,
+    QUEST_COMPLETED = EventType.GAMIFICATION_QUEST_COMPLETED
+  }
+  
+  /**
+   * User-related event types.
+   */
+  export enum User {
+    PROFILE_COMPLETED = EventType.USER_PROFILE_COMPLETED,
+    LOGIN = EventType.USER_LOGIN,
+    ONBOARDING_COMPLETED = EventType.USER_ONBOARDING_COMPLETED,
+    FEEDBACK_SUBMITTED = EventType.USER_FEEDBACK_SUBMITTED
+  }
 }

@@ -1,27 +1,47 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
-  "rootDir": ".",
+  "moduleFileExtensions": ["ts", "js", "json", "node"],
+  "rootDir": "../..",
   "testEnvironment": "node",
-  "testRegex": "\\.e2e-spec\\.ts$",
+  "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", {
-      "tsconfig": "../../tsconfig.json"
+      "tsconfig": "tsconfig.json",
+      "isolatedModules": true
     }]
   },
+  "collectCoverage": true,
+  "coverageDirectory": "<rootDir>/coverage/e2e",
+  "collectCoverageFrom": [
+    "<rootDir>/src/**/*.ts",
+    "!<rootDir>/src/**/*.d.ts",
+    "!<rootDir>/src/**/*.interface.ts",
+    "!<rootDir>/src/**/index.ts",
+    "!<rootDir>/src/**/*.mock.ts",
+    "!<rootDir>/src/**/*.test.ts",
+    "!<rootDir>/src/**/*.spec.ts"
+  ],
+  "coverageReporters": ["json", "lcov", "text", "clover"],
+  "setupFiles": ["<rootDir>/test/setup.ts"],
+  "globalTeardown": "<rootDir>/test/teardown.ts",
   "moduleNameMapper": {
-    "^@austa/tracing(.*)$": "<rootDir>/../../src$1",
-    "^@austa/logging(.*)$": "<rootDir>/../../../logging/src$1",
-    "^@austa/errors(.*)$": "<rootDir>/../../../errors/src$1"
+    "^@austa/tracing/(.*)$": "<rootDir>/src/$1",
+    "^@austa/logging(.*)$": "<rootDir>/../logging/src$1",
+    "^@austa/errors(.*)$": "<rootDir>/../errors/src$1"
   },
   "testTimeout": 30000,
-  "coverageDirectory": "./coverage",
-  "collectCoverageFrom": [
-    "../../src/**/*.ts",
-    "!../../src/**/*.interface.ts",
-    "!../../src/**/*.module.ts",
-    "!../../src/**/index.ts"
-  ],
-  "coverageReporters": ["json", "lcov", "text-summary"],
   "verbose": true,
-  "setupFilesAfterEnv": ["<rootDir>/tracing-setup.util.ts"]
+  "detectOpenHandles": true,
+  "forceExit": true,
+  "maxWorkers": "50%",
+  "testPathIgnorePatterns": [
+    "/node_modules/"
+  ],
+  "transformIgnorePatterns": [
+    "/node_modules/(?!(@opentelemetry)/)"
+  ],
+  "globals": {
+    "ts-jest": {
+      "isolatedModules": true
+    }
+  }
 }

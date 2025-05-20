@@ -1,105 +1,153 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
-import { Consumer, Kafka, Producer, logLevel } from 'kafkajs';
+import { LoggerService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
 import { KafkaService } from '../../../src/kafka/kafka.service';
-import { TracingService } from '../../../src/tracing';
-import {
-  EventValidationError,
-  KafkaConnectionError,
-  KafkaConsumerError,
-  KafkaProducerError,
-  KafkaSerializationError,
-} from '../../../src/kafka/kafka.errors';
-import { KafkaErrorCode } from '../../../src/kafka/kafka.constants';
-import { IKafkaConsumerOptions, IKafkaProducerOptions, IValidationResult } from '../../../src/kafka/kafka.interfaces';
+import { EventSchemaRegistry } from '../../../src/schema/schema-registry.service';
+import { KafkaModuleOptions } from '../../../src/interfaces/kafka-options.interface';
+import { KafkaMessage } from '../../../src/interfaces/kafka-message.interface';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { KAFKA_MODULE_OPTIONS } from '../../../src/constants/tokens.constants';
+import { ERROR_CODES } from '../../../src/constants/errors.constants';
+import { TOPICS } from '../../../src/constants/topics.constants';
+import { EventValidationError, KafkaError } from '../../../src/errors/kafka.errors';
+import { KafkaTestClient, createKafkaTestClient } from '../../utils/kafka-test-client';
+import { MockEventBroker } from '../../mocks/mock-event-broker';
 
 // Mock KafkaJS
-jest.mock('kafkajs');
+const mockConnect = jest.fn();
+const mockDisconnect = jest.fn();
+const mockSend = jest.fn();
+const mockSendBatch = jest.fn();
+const mockSubscribe = jest.fn();
+const mockRun = jest.fn();
 
-// Mock TracingService
-const mockTracingService = {
-  createSpan: jest.fn((name, callback) => callback({})),
-  getTraceContext: jest.fn(() => ({
-    'trace-id': 'test-trace-id',
-    'span-id': 'test-span-id',
-  })),
-  setTraceContext: jest.fn(),
-};
-
-// Mock ConfigService
-const mockConfigService = {
-  get: jest.fn((key, defaultValue) => {
-    const config = {
-      'service.name': 'test-service',
-      'kafka.brokers': 'localhost:9092',
-      'kafka.clientId': 'test-client',
-      'kafka.groupId': 'test-group',
-      'kafka.ssl': false,
-      'kafka.sasl.enabled': false,
-      'kafka.sasl.mechanism': 'plain',
-      'kafka.sasl.username': 'user',
-      'kafka.sasl.password': 'pass',
-      'kafka.retry.initialRetryTime': 300,
-      'kafka.retry.retries': 10,
-      'kafka.retry.factor': 2,
-      'kafka.retry.maxRetryTime': 30000,
-      'kafka.connectionTimeout': 3000,
-      'kafka.requestTimeout': 30000,
-      'kafka.logLevel': logLevel.ERROR,
-      'kafka.allowAutoTopicCreation': true,
-      'kafka.idempotent': true,
-      'kafka.maxInFlightRequests': 5,
-      'kafka.sessionTimeout': 30000,
-      'kafka.heartbeatInterval': 3000,
-      'test-service.kafka.brokers': 'test-broker:9092',
-      'test-service.kafka.clientId': 'test-service-client',
-      'test-service.kafka.groupId': 'test-service-group',
-    };
-    return config[key] || defaultValue;
-  }),
-};
-
-// Mock Kafka producer
 const mockProducer = {
-  connect: jest.fn().mockResolvedValue(undefined),
-  disconnect: jest.fn().mockResolvedValue(undefined),
-  send: jest.fn().mockResolvedValue([{ topicName: 'test-topic', partition: 0, errorCode: 0 }]),
+  connect: mockConnect,
+  disconnect: mockDisconnect,
+  send: mockSend,
+  sendBatch: mockSendBatch,
 };
 
-// Mock Kafka consumer
 const mockConsumer = {
-  connect: jest.fn().mockResolvedValue(undefined),
-  disconnect: jest.fn().mockResolvedValue(undefined),
-  subscribe: jest.fn().mockResolvedValue(undefined),
-  run: jest.fn().mockResolvedValue(undefined),
-  pause: jest.fn(),
-  resume: jest.fn(),
-  seek: jest.fn(),
-  commitOffsets: jest.fn().mockResolvedValue(undefined),
+  connect: mockConnect,
+  disconnect: mockDisconnect,
+  subscribe: mockSubscribe,
+  run: mockRun,
 };
 
-// Mock Kafka instance
 const mockKafka = {
   producer: jest.fn().mockReturnValue(mockProducer),
   consumer: jest.fn().mockReturnValue(mockConsumer),
 };
 
-// Mock Kafka constructor
-(Kafka as jest.Mock).mockImplementation(() => mockKafka);
+jest.mock('kafkajs', () => {
+  return {
+    Kafka: jest.fn().mockImplementation(() => mockKafka),
+    CompressionTypes: {
+      GZIP: 1,
+      None: 0,
+    },
+    logLevel: {
+      NOTHING: 0,
+      ERROR: 1,
+      WARN: 2,
+      INFO: 4,
+      DEBUG: 5,
+    },
+  };
+});
+
+// Mock dependencies
+const mockConfigService = {
+  get: jest.fn(),
+};
+
+const mockLoggerService = {
+  log: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
+  debug: jest.fn(),
+};
+
+const mockTracingService = {
+  createSpan: jest.fn().mockImplementation((name, fn) => fn({ setAttribute: jest.fn() })),
+  getTraceHeaders: jest.fn().mockReturnValue({ 'trace-id': 'test-trace-id' }),
+  getCurrentTraceId: jest.fn().mockReturnValue('test-trace-id'),
+};
+
+const mockSchemaRegistry = {
+  validate: jest.fn(),
+};
 
 describe('KafkaService', () => {
   let service: KafkaService;
   let module: TestingModule;
+  let kafkaTestClient: KafkaTestClient;
+  let mockEventBroker: MockEventBroker;
+
+  const defaultOptions: KafkaModuleOptions = {
+    serviceName: 'test-service',
+    configNamespace: 'test-service',
+    enableSchemaValidation: true,
+    enableDeadLetterQueue: true,
+  };
 
   beforeEach(async () => {
+    // Reset all mocks
     jest.clearAllMocks();
+    
+    // Set up default config values
+    mockConfigService.get.mockImplementation((key, defaultValue) => {
+      const config = {
+        'service.name': 'test-service',
+        'test-service.kafka.brokers': 'localhost:9092',
+        'test-service.kafka.clientId': 'test-service',
+        'test-service.kafka.groupId': 'test-service-consumer-group',
+        'test-service.kafka.ssl': false,
+        'test-service.kafka.retry.initialRetryTime': 300,
+        'test-service.kafka.retry.retries': 10,
+        'test-service.kafka.retry.factor': 2,
+        'test-service.kafka.retry.maxRetryTime': 30000,
+        'test-service.kafka.connectionTimeout': 3000,
+        'test-service.kafka.requestTimeout': 30000,
+        'test-service.kafka.logLevel': 'info',
+        'test-service.kafka.deadLetterTopic': 'dead-letter',
+        'kafka.brokers': 'localhost:9092',
+        'kafka.clientId': 'default-client',
+        'kafka.groupId': 'default-consumer-group',
+        'kafka.ssl': false,
+        'kafka.retry.initialRetryTime': 300,
+        'kafka.retry.retries': 10,
+        'kafka.retry.factor': 2,
+        'kafka.retry.maxRetryTime': 30000,
+        'kafka.connectionTimeout': 3000,
+        'kafka.requestTimeout': 30000,
+        'kafka.logLevel': 'info',
+        'kafka.deadLetterTopic': 'dead-letter',
+        'kafka.maxRetries': 3,
+        'kafka.sessionTimeout': 30000,
+        'kafka.heartbeatInterval': 3000,
+        'kafka.maxWaitTime': 5000,
+        'kafka.maxBytes': 10485760,
+        'kafka.allowAutoTopicCreation': true,
+      };
+      return config[key] || defaultValue;
+    });
 
+    // Create test utilities
+    kafkaTestClient = createKafkaTestClient();
+    mockEventBroker = new MockEventBroker();
+
+    // Create the testing module
     module = await Test.createTestingModule({
       providers: [
         KafkaService,
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: LoggerService, useValue: mockLoggerService },
         { provide: TracingService, useValue: mockTracingService },
+        { provide: EventSchemaRegistry, useValue: mockSchemaRegistry },
+        { provide: KAFKA_MODULE_OPTIONS, useValue: defaultOptions },
       ],
     }).compile();
 
@@ -114,812 +162,749 @@ describe('KafkaService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('Initialization', () => {
-    it('should initialize with default configuration', () => {
-      expect(Kafka).toHaveBeenCalledWith({
-        clientId: 'test-client',
-        brokers: ['localhost:9092'],
-        ssl: false,
-        sasl: undefined,
-        retry: {
+  describe('initialization', () => {
+    it('should initialize with the correct configuration', () => {
+      // Verify Kafka was initialized with the correct config
+      expect(mockKafka.producer).toHaveBeenCalledWith(expect.objectContaining({
+        allowAutoTopicCreation: true,
+        retry: expect.objectContaining({
           initialRetryTime: 300,
           retries: 10,
           factor: 2,
           maxRetryTime: 30000,
-          multiplier: 1.5,
-        },
-        logLevel: logLevel.ERROR,
-        connectionTimeout: 3000,
-        requestTimeout: 30000,
-      });
-    });
-
-    it('should initialize with service-specific configuration', () => {
-      // Reset mocks
-      jest.clearAllMocks();
-
-      // Create a new service with service-specific config namespace
-      const configService = {
-        ...mockConfigService,
-        get: jest.fn((key, defaultValue) => {
-          if (key === 'kafka.configNamespace') return 'test-service';
-          return mockConfigService.get(key, defaultValue);
         }),
-      };
-
-      const kafkaService = new KafkaService(configService as any, mockTracingService as any);
-
-      expect(Kafka).toHaveBeenCalledWith({
-        clientId: 'test-service-client',
-        brokers: ['test-broker:9092'],
-        ssl: false,
-        sasl: undefined,
-        retry: expect.any(Object),
-        logLevel: logLevel.ERROR,
-        connectionTimeout: 3000,
-        requestTimeout: 30000,
-      });
+      }));
     });
 
-    it('should initialize with SASL configuration when enabled', () => {
-      // Reset mocks
-      jest.clearAllMocks();
-
-      // Create a new service with SASL enabled
-      const configService = {
-        ...mockConfigService,
-        get: jest.fn((key, defaultValue) => {
-          if (key === 'kafka.sasl.enabled') return true;
-          return mockConfigService.get(key, defaultValue);
-        }),
-      };
-
-      const kafkaService = new KafkaService(configService as any, mockTracingService as any);
-
-      expect(Kafka).toHaveBeenCalledWith({
-        clientId: 'test-client',
-        brokers: ['localhost:9092'],
-        ssl: false,
-        sasl: {
-          mechanism: 'plain',
-          username: 'user',
-          password: 'pass',
-        },
-        retry: expect.any(Object),
-        logLevel: logLevel.ERROR,
-        connectionTimeout: 3000,
-        requestTimeout: 30000,
-      });
-    });
-  });
-
-  describe('Lifecycle Hooks', () => {
-    it('should connect producer on module init', async () => {
+    it('should connect the producer during initialization', async () => {
       await service.onModuleInit();
-      expect(mockProducer.connect).toHaveBeenCalled();
-    });
-
-    it('should disconnect producer and consumers on module destroy', async () => {
-      // Add a consumer to the map
-      (service as any).consumers.set('test-topic-test-group', mockConsumer);
-
-      await service.onModuleDestroy();
-
-      expect(mockProducer.disconnect).toHaveBeenCalled();
-      expect(mockConsumer.disconnect).toHaveBeenCalled();
-    });
-
-    it('should handle errors during initialization', async () => {
-      // Mock producer connect to throw error
-      mockProducer.connect.mockRejectedValueOnce(new Error('Connection error'));
-
-      await expect(service.onModuleInit()).rejects.toThrow(KafkaConnectionError);
-      expect(mockProducer.connect).toHaveBeenCalled();
-    });
-
-    it('should log errors during shutdown but not throw', async () => {
-      // Mock producer disconnect to throw error
-      mockProducer.disconnect.mockRejectedValueOnce(new Error('Disconnect error'));
-
-      // Mock console.error to verify logging
-      const consoleSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-
-      await service.onModuleDestroy();
-
-      expect(mockProducer.disconnect).toHaveBeenCalled();
-      expect(consoleSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe('Message Production', () => {
-    beforeEach(async () => {
-      // Initialize the service
-      await service.onModuleInit();
-    });
-
-    it('should produce a message to a topic', async () => {
-      const message = { test: 'data' };
-      await service.produce('test-topic', message);
-
-      expect(mockProducer.send).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        messages: [
-          {
-            value: expect.any(Buffer),
-            key: undefined,
-            headers: expect.any(Object),
-          },
-        ],
-        acks: -1,
-        timeout: undefined,
-      });
-
-      // Verify the message was serialized correctly
-      const call = mockProducer.send.mock.calls[0][0];
-      const sentValue = JSON.parse(call.messages[0].value.toString());
-      expect(sentValue).toEqual(message);
-    });
-
-    it('should produce a message with a key', async () => {
-      const message = { test: 'data' };
-      const key = 'test-key';
-      await service.produce('test-topic', message, key);
-
-      expect(mockProducer.send).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        messages: [
-          {
-            value: expect.any(Buffer),
-            key: key,
-            headers: expect.any(Object),
-          },
-        ],
-        acks: -1,
-        timeout: undefined,
-      });
-    });
-
-    it('should produce a message with headers', async () => {
-      const message = { test: 'data' };
-      const headers = { 'custom-header': 'value' };
-      await service.produce('test-topic', message, undefined, headers);
-
-      expect(mockProducer.send).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        messages: [
-          {
-            value: expect.any(Buffer),
-            key: undefined,
-            headers: expect.objectContaining({
-              'custom-header': 'value',
-              'x-service-name': 'test-service',
-              'x-timestamp': expect.any(String),
-              'x-trace-trace-id': 'test-trace-id',
-              'x-trace-span-id': 'test-span-id',
-            }),
-          },
-        ],
-        acks: -1,
-        timeout: undefined,
-      });
-    });
-
-    it('should produce a message with custom serializer', async () => {
-      const message = { test: 'data' };
-      const serializer = (msg: any) => Buffer.from(`custom:${JSON.stringify(msg)}`);
-      const options: IKafkaProducerOptions = { serializer };
-
-      await service.produce('test-topic', message, undefined, undefined, options);
-
-      expect(mockProducer.send).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        messages: [
-          {
-            value: expect.any(Buffer),
-            key: undefined,
-            headers: expect.any(Object),
-          },
-        ],
-        acks: -1,
-        timeout: undefined,
-      });
-
-      // Verify the message was serialized with the custom serializer
-      const call = mockProducer.send.mock.calls[0][0];
-      const sentValue = call.messages[0].value.toString();
-      expect(sentValue).toEqual(`custom:${JSON.stringify(message)}`);
-    });
-
-    it('should validate messages before producing', async () => {
-      const message = { test: 'data' };
-      const validator = jest.fn().mockResolvedValue({ isValid: true });
-      const options: IKafkaProducerOptions = { validator };
-
-      await service.produce('test-topic', message, undefined, undefined, options);
-
-      expect(validator).toHaveBeenCalledWith(message);
-      expect(mockProducer.send).toHaveBeenCalled();
-    });
-
-    it('should throw validation error for invalid messages', async () => {
-      const message = { test: 'data' };
-      const validator = jest.fn().mockResolvedValue({ isValid: false, error: 'Validation failed' });
-      const options: IKafkaProducerOptions = { validator };
-
-      await expect(service.produce('test-topic', message, undefined, undefined, options)).rejects.toThrow(
-        EventValidationError
+      expect(mockConnect).toHaveBeenCalled();
+      expect(mockLoggerService.log).toHaveBeenCalledWith(
+        'Kafka producer connected successfully',
+        'KafkaService'
       );
-
-      expect(validator).toHaveBeenCalledWith(message);
-      expect(mockProducer.send).not.toHaveBeenCalled();
     });
 
-    it('should produce a batch of messages', async () => {
-      const messages = [
-        { value: { id: 1, name: 'test1' }, key: 'key1', headers: { 'header1': 'value1' } },
-        { value: { id: 2, name: 'test2' }, key: 'key2', headers: { 'header2': 'value2' } },
-      ];
+    it('should handle initialization errors', async () => {
+      mockConnect.mockRejectedValueOnce(new Error('Connection failed'));
+      
+      await expect(service.onModuleInit()).rejects.toThrow();
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        'Failed to initialize Kafka service',
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
 
-      await service.produceBatch('test-topic', messages);
-
-      expect(mockProducer.send).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        messages: [
-          {
-            value: expect.any(Buffer),
-            key: 'key1',
-            headers: expect.objectContaining({
-              'header1': 'value1',
-              'x-service-name': 'test-service',
-              'x-timestamp': expect.any(String),
-            }),
-          },
-          {
-            value: expect.any(Buffer),
-            key: 'key2',
-            headers: expect.objectContaining({
-              'header2': 'value2',
-              'x-service-name': 'test-service',
-              'x-timestamp': expect.any(String),
-            }),
-          },
-        ],
-        acks: -1,
-        timeout: undefined,
+    it('should use service-specific configuration when provided', async () => {
+      // Create a new service with health-service namespace
+      mockConfigService.get.mockImplementation((key, defaultValue) => {
+        const config = {
+          'service.name': 'health-service',
+          'health-service.kafka.brokers': 'health-kafka:9092',
+          'health-service.kafka.clientId': 'health-client',
+          'health-service.kafka.groupId': 'health-consumer-group',
+          'health-service.kafka.retry.initialRetryTime': 500,
+          'kafka.brokers': 'default-kafka:9092',
+        };
+        return config[key] || defaultValue;
       });
+
+      const healthOptions: KafkaModuleOptions = {
+        serviceName: 'health-service',
+        configNamespace: 'health-service',
+      };
+
+      const healthModule = await Test.createTestingModule({
+        providers: [
+          KafkaService,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: TracingService, useValue: mockTracingService },
+          { provide: KAFKA_MODULE_OPTIONS, useValue: healthOptions },
+        ],
+      }).compile();
+
+      const healthService = healthModule.get<KafkaService>(KafkaService);
+      
+      // Verify the service used health-service specific config
+      expect(mockConfigService.get).toHaveBeenCalledWith(
+        'health-service.kafka.brokers',
+        expect.any(String)
+      );
+      
+      await healthModule.close();
+    });
+  });
+
+  describe('cleanup', () => {
+    it('should disconnect the producer during module destruction', async () => {
+      await service.onModuleDestroy();
+      expect(mockDisconnect).toHaveBeenCalled();
+      expect(mockLoggerService.log).toHaveBeenCalledWith(
+        'Kafka producer disconnected successfully',
+        'KafkaService'
+      );
+    });
+
+    it('should disconnect all consumers during module destruction', async () => {
+      // Add a mock consumer to the service's consumers map
+      (service as any).consumers.set('test-consumer', mockConsumer);
+      
+      await service.onModuleDestroy();
+      
+      expect(mockDisconnect).toHaveBeenCalled();
+      expect(mockLoggerService.log).toHaveBeenCalledWith(
+        expect.stringContaining('Kafka service destroyed successfully'),
+        'KafkaService'
+      );
+    });
+
+    it('should handle errors during shutdown gracefully', async () => {
+      mockDisconnect.mockRejectedValueOnce(new Error('Disconnect failed'));
+      
+      await service.onModuleDestroy();
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        'Error during Kafka service shutdown',
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
+  });
+
+  describe('produce', () => {
+    beforeEach(() => {
+      // Reset mocks for each test
+      mockSend.mockReset();
+      mockSend.mockResolvedValue({});
+    });
+
+    it('should produce a message to the specified topic', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+      const key = 'test-key';
+      const headers = { 'custom-header': 'value' };
+
+      await service.produce(topic, message, key, headers);
+
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
+        topic,
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            key,
+            headers: expect.any(Object),
+          }),
+        ]),
+      }));
+    });
+
+    it('should add metadata to messages if not present', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+
+      await service.produce(topic, message);
+
+      // Verify the message was serialized with metadata
+      const sendCall = mockSend.mock.calls[0][0];
+      const serializedMessage = sendCall.messages[0].value.toString();
+      const parsedMessage = JSON.parse(serializedMessage);
+      
+      expect(parsedMessage).toHaveProperty('metadata');
+      expect(parsedMessage.metadata).toHaveProperty('timestamp');
+      expect(parsedMessage.metadata).toHaveProperty('source', 'test-service');
+    });
+
+    it('should validate messages with schema registry if available', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+
+      await service.produce(topic, message);
+
+      expect(mockSchemaRegistry.validate).toHaveBeenCalledWith(topic, expect.any(Object));
+    });
+
+    it('should handle schema validation errors', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'invalid-message' };
+      
+      mockSchemaRegistry.validate.mockRejectedValueOnce(new Error('Validation failed'));
+
+      await expect(service.produce(topic, message)).rejects.toThrow(EventValidationError);
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Schema validation failed'),
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
+
+    it('should add tracing headers to messages', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+
+      await service.produce(topic, message);
+
+      // Verify tracing headers were added
+      const sendCall = mockSend.mock.calls[0][0];
+      const messageHeaders = sendCall.messages[0].headers;
+      
+      expect(messageHeaders).toHaveProperty('trace-id');
     });
 
     it('should handle producer errors', async () => {
-      // Mock producer send to throw error
-      mockProducer.send.mockRejectedValueOnce(new Error('Send error'));
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+      
+      mockSend.mockRejectedValueOnce(new Error('Send failed'));
 
-      await expect(service.produce('test-topic', { test: 'data' })).rejects.toThrow(KafkaProducerError);
-      expect(mockProducer.send).toHaveBeenCalled();
+      await expect(service.produce(topic, message)).rejects.toThrow(KafkaError);
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to produce message'),
+        expect.any(Error),
+        'KafkaService'
+      );
     });
 
-    it('should use a producer from the pool if producerId is provided', async () => {
-      const poolProducer = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockResolvedValue([{ topicName: 'test-topic', partition: 0, errorCode: 0 }]),
-      };
+    it('should support compression options', async () => {
+      const topic = 'test-topic';
+      const message = { test: 'message' };
+      const options = { compression: 1 }; // GZIP
 
-      // Mock the getOrCreateProducer method
-      jest.spyOn(service as any, 'getOrCreateProducer').mockResolvedValue(poolProducer);
+      await service.produce(topic, message, undefined, undefined, options);
 
-      const message = { test: 'data' };
-      const options: IKafkaProducerOptions = { producerId: 'custom-producer' };
-
-      await service.produce('test-topic', message, undefined, undefined, options);
-
-      expect((service as any).getOrCreateProducer).toHaveBeenCalledWith('custom-producer', undefined);
-      expect(poolProducer.send).toHaveBeenCalled();
-      expect(mockProducer.send).not.toHaveBeenCalled();
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
+        compression: 1,
+      }));
     });
   });
 
-  describe('Message Consumption', () => {
-    beforeEach(async () => {
-      // Initialize the service
-      await service.onModuleInit();
+  describe('produceBatch', () => {
+    beforeEach(() => {
+      // Reset mocks for each test
+      mockSendBatch.mockReset();
+      mockSendBatch.mockResolvedValue({});
     });
 
-    it('should consume messages from a topic', async () => {
-      const callback = jest.fn();
-      await service.consume('test-topic', 'test-group', callback);
+    it('should produce a batch of messages to the specified topic', async () => {
+      const topic = 'test-topic';
+      const messages = [
+        { value: { test: 'message1' }, key: 'key1', headers: { header1: 'value1' } },
+        { value: { test: 'message2' }, key: 'key2', headers: { header2: 'value2' } },
+      ];
 
-      expect(mockConsumer.connect).toHaveBeenCalled();
-      expect(mockConsumer.subscribe).toHaveBeenCalledWith({
-        topic: 'test-topic',
+      await service.produceBatch(topic, messages);
+
+      expect(mockSendBatch).toHaveBeenCalledWith(expect.objectContaining({
+        topicMessages: expect.arrayContaining([
+          expect.objectContaining({
+            topic,
+            messages: expect.arrayContaining([
+              expect.any(Object),
+              expect.any(Object),
+            ]),
+          }),
+        ]),
+      }));
+    });
+
+    it('should validate all messages in the batch', async () => {
+      const topic = 'test-topic';
+      const messages = [
+        { value: { test: 'message1' } },
+        { value: { test: 'message2' } },
+      ];
+
+      await service.produceBatch(topic, messages);
+
+      expect(mockSchemaRegistry.validate).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle schema validation errors in batch messages', async () => {
+      const topic = 'test-topic';
+      const messages = [
+        { value: { test: 'message1' } },
+        { value: { test: 'invalid-message' } },
+      ];
+      
+      mockSchemaRegistry.validate.mockImplementation((topic, message) => {
+        if (message.test === 'invalid-message') {
+          return Promise.reject(new Error('Validation failed'));
+        }
+        return Promise.resolve();
+      });
+
+      await expect(service.produceBatch(topic, messages)).rejects.toThrow(EventValidationError);
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Schema validation failed'),
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
+
+    it('should handle producer batch errors', async () => {
+      const topic = 'test-topic';
+      const messages = [
+        { value: { test: 'message1' } },
+        { value: { test: 'message2' } },
+      ];
+      
+      mockSendBatch.mockRejectedValueOnce(new Error('Batch send failed'));
+
+      await expect(service.produceBatch(topic, messages)).rejects.toThrow(KafkaError);
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to produce batch'),
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
+  });
+
+  describe('consume', () => {
+    beforeEach(() => {
+      // Reset mocks for each test
+      mockSubscribe.mockReset();
+      mockRun.mockReset();
+      mockSubscribe.mockResolvedValue({});
+      mockRun.mockResolvedValue({});
+    });
+
+    it('should subscribe to the specified topic', async () => {
+      const topic = 'test-topic';
+      const callback = jest.fn();
+
+      await service.consume(topic, callback);
+
+      expect(mockSubscribe).toHaveBeenCalledWith({
+        topic,
         fromBeginning: false,
       });
-      expect(mockConsumer.run).toHaveBeenCalled();
-      expect((service as any).consumers.has('test-topic-test-group')).toBe(true);
     });
 
-    it('should use default consumer group if not provided', async () => {
+    it('should create a consumer with the correct group ID', async () => {
+      const topic = 'test-topic';
       const callback = jest.fn();
-      await service.consume('test-topic', undefined, callback);
+      const groupId = 'custom-group';
 
-      expect(mockConsumer.subscribe).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        fromBeginning: false,
-      });
-      expect((service as any).consumers.has('test-topic-test-service-consumer-group')).toBe(true);
-    });
+      await service.consume(topic, callback, { groupId });
 
-    it('should consume messages with custom options', async () => {
-      const callback = jest.fn();
-      const options: IKafkaConsumerOptions = {
-        fromBeginning: true,
-        maxBytes: 2048000,
-        sessionTimeout: 60000,
-      };
-
-      await service.consume('test-topic', 'test-group', callback, options);
-
-      expect(mockConsumer.subscribe).toHaveBeenCalledWith({
-        topic: 'test-topic',
-        fromBeginning: true,
-      });
-
-      // Verify consumer was created with custom options
       expect(mockKafka.consumer).toHaveBeenCalledWith(expect.objectContaining({
-        groupId: 'test-group',
-        sessionTimeout: 60000,
-        maxBytes: 2048000,
+        groupId,
+      }));
+    });
+
+    it('should configure the consumer run with the correct options', async () => {
+      const topic = 'test-topic';
+      const callback = jest.fn();
+
+      await service.consume(topic, callback, { autoCommit: false });
+
+      expect(mockRun).toHaveBeenCalledWith(expect.objectContaining({
+        autoCommit: false,
+        eachMessage: expect.any(Function),
       }));
     });
 
     it('should handle consumer errors', async () => {
-      // Mock consumer connect to throw error
-      mockConsumer.connect.mockRejectedValueOnce(new Error('Consumer connection error'));
-
+      const topic = 'test-topic';
       const callback = jest.fn();
-      await expect(service.consume('test-topic', 'test-group', callback)).rejects.toThrow(KafkaConsumerError);
+      
+      mockSubscribe.mockRejectedValueOnce(new Error('Subscribe failed'));
 
-      expect(mockConsumer.connect).toHaveBeenCalled();
-      expect(mockConsumer.subscribe).not.toHaveBeenCalled();
-      expect(mockConsumer.run).not.toHaveBeenCalled();
-    });
-
-    it('should process messages with the callback', async () => {
-      const callback = jest.fn();
-      await service.consume('test-topic', 'test-group', callback);
-
-      // Get the eachMessage handler
-      const runCall = mockConsumer.run.mock.calls[0][0];
-      const eachMessageHandler = runCall.eachMessage;
-
-      // Create a mock message
-      const mockMessage = {
-        topic: 'test-topic',
-        partition: 0,
-        message: {
-          key: Buffer.from('test-key'),
-          value: Buffer.from(JSON.stringify({ test: 'data' })),
-          headers: {
-            'test-header': Buffer.from('test-value'),
-          },
-          offset: '0',
-          timestamp: '1630000000000',
-        },
-      };
-
-      // Call the handler
-      await eachMessageHandler(mockMessage);
-
-      // Verify callback was called with deserialized message
-      expect(callback).toHaveBeenCalledWith(
-        { test: 'data' },
-        'test-key',
-        { 'test-header': 'test-value' }
+      await expect(service.consume(topic, callback)).rejects.toThrow(KafkaError);
+      
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to consume from topic'),
+        expect.any(Error),
+        'KafkaService'
       );
     });
 
-    it('should handle message processing errors and send to DLQ', async () => {
-      // Mock the sendToDeadLetterQueue method
-      const sendToDLQSpy = jest.spyOn(service, 'sendToDeadLetterQueue').mockResolvedValue(undefined);
+    it('should reuse existing consumers for the same group-topic combination', async () => {
+      const topic = 'test-topic';
+      const callback1 = jest.fn();
+      const callback2 = jest.fn();
+      const groupId = 'test-group';
 
-      const callback = jest.fn().mockRejectedValue(new Error('Processing error'));
-      const options: IKafkaConsumerOptions = {
-        deadLetterQueue: {
-          enabled: true,
-          maxRetries: 1,
-        },
-      };
+      // First consumer
+      await service.consume(topic, callback1, { groupId });
+      
+      // Reset mock to check if it's called again
+      mockKafka.consumer.mockClear();
+      
+      // Second consumer with same group-topic
+      await service.consume(topic, callback2, { groupId });
 
-      await service.consume('test-topic', 'test-group', callback, options);
-
-      // Get the eachMessage handler
-      const runCall = mockConsumer.run.mock.calls[0][0];
-      const eachMessageHandler = runCall.eachMessage;
-
-      // Create a mock message
-      const mockMessage = {
-        topic: 'test-topic',
-        partition: 0,
-        message: {
-          key: Buffer.from('test-key'),
-          value: Buffer.from(JSON.stringify({ test: 'data' })),
-          headers: {
-            'x-retry-count': Buffer.from('1'), // Already retried once
-          },
-          offset: '0',
-          timestamp: '1630000000000',
-        },
-      };
-
-      // Call the handler
-      await eachMessageHandler(mockMessage);
-
-      // Verify callback was called and error was handled
-      expect(callback).toHaveBeenCalled();
-      expect(sendToDLQSpy).toHaveBeenCalled();
-    });
-
-    it('should retry messages before sending to DLQ', async () => {
-      // Mock the produce method for retries
-      const produceSpy = jest.spyOn(service, 'produce').mockResolvedValue();
-
-      const callback = jest.fn().mockRejectedValue(new Error('Processing error'));
-      const options: IKafkaConsumerOptions = {
-        deadLetterQueue: {
-          enabled: true,
-          retryEnabled: true,
-          maxRetries: 3,
-        },
-      };
-
-      await service.consume('test-topic', 'test-group', callback, options);
-
-      // Get the eachMessage handler
-      const runCall = mockConsumer.run.mock.calls[0][0];
-      const eachMessageHandler = runCall.eachMessage;
-
-      // Create a mock message with no previous retries
-      const mockMessage = {
-        topic: 'test-topic',
-        partition: 0,
-        message: {
-          key: Buffer.from('test-key'),
-          value: Buffer.from(JSON.stringify({ test: 'data' })),
-          headers: {},
-          offset: '0',
-          timestamp: '1630000000000',
-        },
-      };
-
-      // Call the handler
-      await eachMessageHandler(mockMessage);
-
-      // Verify callback was called and message was sent to retry topic
-      expect(callback).toHaveBeenCalled();
-      expect(produceSpy).toHaveBeenCalledWith(
-        'test-topic.retry',
-        expect.any(Object),
-        'test-key',
-        expect.objectContaining({
-          'x-retry-count': '1',
-          'x-original-topic': 'test-topic',
-        })
-      );
-    });
-
-    it('should consume from retry topics', async () => {
-      const callback = jest.fn();
-      await service.consumeRetry('test-topic', 'test-group', callback);
-
-      expect(mockConsumer.subscribe).toHaveBeenCalledWith({
-        topic: 'test-topic.retry',
-        fromBeginning: false,
-      });
-    });
-
-    it('should consume from dead letter queue topics', async () => {
-      const callback = jest.fn();
-      await service.consumeDeadLetterQueue('test-topic', 'test-group', callback);
-
-      expect(mockConsumer.subscribe).toHaveBeenCalledWith({
-        topic: 'test-topic.dlq',
-        fromBeginning: false,
-      });
+      // Should not create a new consumer
+      expect(mockKafka.consumer).not.toHaveBeenCalled();
     });
   });
 
-  describe('Dead Letter Queue', () => {
-    beforeEach(async () => {
-      // Initialize the service
-      await service.onModuleInit();
-    });
-
-    it('should send messages to dead letter queue', async () => {
-      // Mock the produce method
-      const produceSpy = jest.spyOn(service, 'produce').mockResolvedValue();
-
-      const originalTopic = 'test-topic';
-      const message = { test: 'data' };
-      const error = new Error('Processing error');
-      const metadata = { retryCount: 3, key: 'test-key' };
-
-      await service.sendToDeadLetterQueue(originalTopic, message, error, metadata);
-
-      expect(produceSpy).toHaveBeenCalledWith(
-        'test-topic.dlq',
-        expect.objectContaining({
-          originalMessage: message,
-          error: expect.objectContaining({
-            name: 'Error',
-            message: 'Processing error',
-          }),
-          metadata: expect.objectContaining({
-            originalTopic,
-            retryCount: 3,
-            key: 'test-key',
-            serviceName: 'test-service',
-          }),
-        }),
-        metadata.key,
-        expect.objectContaining({
-          'x-original-topic': originalTopic,
-          'x-error-type': 'Error',
-          'x-retry-count': '3',
-        })
-      );
-    });
-
-    it('should handle errors when sending to DLQ', async () => {
-      // Mock the produce method to throw an error
-      jest.spyOn(service, 'produce').mockRejectedValue(new Error('DLQ error'));
-
-      // Mock console.error to verify logging
-      const consoleSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-
-      const originalTopic = 'test-topic';
-      const message = { test: 'data' };
-      const error = new Error('Processing error');
-
-      // Should not throw even if produce fails
-      await service.sendToDeadLetterQueue(originalTopic, message, error);
-
-      expect(consoleSpy).toHaveBeenCalled();
-    });
-
-    it('should use custom DLQ topic if provided', async () => {
-      // Mock the produce method
-      const produceSpy = jest.spyOn(service, 'produce').mockResolvedValue();
-
-      const originalTopic = 'test-topic';
-      const message = { test: 'data' };
-      const error = new Error('Processing error');
-      const config = { topic: 'custom-dlq-topic' };
-
-      await service.sendToDeadLetterQueue(originalTopic, message, error, {}, config);
-
-      expect(produceSpy).toHaveBeenCalledWith(
-        'custom-dlq-topic',
-        expect.any(Object),
-        undefined,
-        expect.any(Object)
-      );
-    });
-  });
-
-  describe('Serialization/Deserialization', () => {
-    it('should serialize messages to JSON by default', () => {
-      const message = { test: 'data' };
-      const result = (service as any).serializeMessage(message);
-
-      expect(result).toBeInstanceOf(Buffer);
-      expect(JSON.parse(result.toString())).toEqual(message);
-    });
-
-    it('should use custom serializer if provided', () => {
-      const message = { test: 'data' };
-      const serializer = (msg: any) => Buffer.from(`custom:${JSON.stringify(msg)}`);
-      const result = (service as any).serializeMessage(message, serializer);
-
-      expect(result).toBeInstanceOf(Buffer);
-      expect(result.toString()).toEqual(`custom:${JSON.stringify(message)}`);
-    });
-
-    it('should handle serialization errors', () => {
-      const message = { test: 'data' };
-      const serializer = () => { throw new Error('Serialization error'); };
-
-      expect(() => (service as any).serializeMessage(message, serializer)).toThrow(KafkaSerializationError);
-    });
-
-    it('should deserialize messages from JSON by default', () => {
-      const message = { test: 'data' };
-      const buffer = Buffer.from(JSON.stringify(message));
-      const result = (service as any).deserializeMessage(buffer);
-
-      expect(result).toEqual(message);
-    });
-
-    it('should use custom deserializer if provided', () => {
-      const message = { test: 'data' };
-      const buffer = Buffer.from(`custom:${JSON.stringify(message)}`);
-      const deserializer = (buf: Buffer) => {
-        const str = buf.toString();
-        return JSON.parse(str.replace('custom:', ''));
-      };
-      const result = (service as any).deserializeMessage(buffer, deserializer);
-
+  describe('message processing', () => {
+    it('should deserialize messages correctly', async () => {
+      // Test the private deserializeMessage method
+      const message = { test: 'message', metadata: { timestamp: new Date().toISOString() } };
+      const serialized = Buffer.from(JSON.stringify(message));
+      
+      const result = (service as any).deserializeMessage(serialized);
+      
       expect(result).toEqual(message);
     });
 
     it('should handle deserialization errors', () => {
-      const buffer = Buffer.from('invalid json');
-
-      expect(() => (service as any).deserializeMessage(buffer)).toThrow(KafkaSerializationError);
+      // Invalid JSON
+      const invalidBuffer = Buffer.from('{invalid json');
+      
+      expect(() => (service as any).deserializeMessage(invalidBuffer)).toThrow();
     });
 
-    it('should parse headers from binary to string', () => {
+    it('should parse headers correctly', () => {
       const headers = {
-        'test-header': Buffer.from('test-value'),
-        'empty-header': null,
+        key1: Buffer.from('value1'),
+        key2: Buffer.from('value2'),
       };
-
+      
       const result = (service as any).parseHeaders(headers);
-
+      
       expect(result).toEqual({
-        'test-header': 'test-value',
+        key1: 'value1',
+        key2: 'value2',
       });
     });
-  });
 
-  describe('Connection Pooling', () => {
-    beforeEach(async () => {
-      // Initialize the service
-      await service.onModuleInit();
-    });
-
-    it('should create and cache producers in the pool', async () => {
-      // Create a new producer for the pool
-      const poolProducer = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockResolvedValue([]),
+    it('should convert headers to buffers correctly', () => {
+      const headers = {
+        key1: 'value1',
+        key2: 'value2',
       };
-
-      // Mock Kafka producer to return our pool producer
-      mockKafka.producer.mockReturnValueOnce(poolProducer);
-
-      // Call getOrCreateProducer directly
-      const producerId = 'test-producer';
-      const producer1 = await (service as any).getOrCreateProducer(producerId);
-
-      expect(producer1).toBe(poolProducer);
-      expect(mockKafka.producer).toHaveBeenCalled();
-      expect(poolProducer.connect).toHaveBeenCalled();
-      expect((service as any).producerPool.get(producerId)).toBe(poolProducer);
-
-      // Reset mocks for second call
-      mockKafka.producer.mockClear();
-      poolProducer.connect.mockClear();
-
-      // Call again with same ID - should return cached producer
-      const producer2 = await (service as any).getOrCreateProducer(producerId);
-
-      expect(producer2).toBe(poolProducer);
-      expect(mockKafka.producer).not.toHaveBeenCalled();
-      expect(poolProducer.connect).not.toHaveBeenCalled();
-    });
-
-    it('should handle errors when creating producers', async () => {
-      // Create a new producer for the pool that fails to connect
-      const poolProducer = {
-        connect: jest.fn().mockRejectedValue(new Error('Connection error')),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-      };
-
-      // Mock Kafka producer to return our pool producer
-      mockKafka.producer.mockReturnValueOnce(poolProducer);
-
-      // Call getOrCreateProducer directly
-      const producerId = 'test-producer';
-      await expect((service as any).getOrCreateProducer(producerId)).rejects.toThrow(KafkaConnectionError);
-
-      expect(mockKafka.producer).toHaveBeenCalled();
-      expect(poolProducer.connect).toHaveBeenCalled();
-      expect((service as any).producerPool.has(producerId)).toBe(false);
-    });
-
-    it('should disconnect all producers in the pool on module destroy', async () => {
-      // Create two producers for the pool
-      const poolProducer1 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-      };
-
-      const poolProducer2 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-      };
-
-      // Add producers to the pool
-      (service as any).producerPool.set('producer1', poolProducer1);
-      (service as any).producerPool.set('producer2', poolProducer2);
-
-      await service.onModuleDestroy();
-
-      expect(poolProducer1.disconnect).toHaveBeenCalled();
-      expect(poolProducer2.disconnect).toHaveBeenCalled();
-      expect((service as any).producerPool.size).toBe(0);
+      
+      const result = (service as any).convertHeadersToBuffers(headers);
+      
+      expect(result.key1).toBeInstanceOf(Buffer);
+      expect(result.key2).toBeInstanceOf(Buffer);
+      expect(result.key1.toString()).toBe('value1');
+      expect(result.key2.toString()).toBe('value2');
     });
   });
 
-  describe('Tracing Integration', () => {
-    beforeEach(async () => {
-      // Initialize the service
-      await service.onModuleInit();
+  describe('retry and error handling', () => {
+    it('should calculate retry delay with exponential backoff', () => {
+      const options = {
+        initialRetryTime: 100,
+        factor: 2,
+        maxRetryTime: 30000,
+      };
+      
+      // First retry
+      const delay1 = (service as any).calculateRetryDelay(1, options);
+      // Second retry
+      const delay2 = (service as any).calculateRetryDelay(2, options);
+      // Third retry
+      const delay3 = (service as any).calculateRetryDelay(3, options);
+      
+      // Check exponential growth
+      expect(delay2).toBeGreaterThan(delay1);
+      expect(delay3).toBeGreaterThan(delay2);
+      
+      // Check that delay3 is approximately 4x delay1 (with jitter)
+      const ratio = delay3 / delay1;
+      expect(ratio).toBeGreaterThanOrEqual(3);
+      expect(ratio).toBeLessThanOrEqual(5);
     });
 
-    it('should create spans for produce operations', async () => {
-      const message = { test: 'data' };
-      await service.produce('test-topic', message);
-
-      expect(mockTracingService.createSpan).toHaveBeenCalledWith(
-        'kafka.produce.test-topic',
-        expect.any(Function)
+    it('should send failed messages to the dead-letter queue', async () => {
+      // Mock the produce method to test sendToDLQ
+      jest.spyOn(service, 'produce').mockResolvedValue();
+      
+      // Call the private sendToDLQ method
+      await (service as any).sendToDLQ(
+        'source-topic',
+        { test: 'failed-message' },
+        'test-key',
+        { 'error-type': 'processing-failed' }
       );
-    });
-
-    it('should add trace context to message headers', async () => {
-      const message = { test: 'data' };
-      await service.produce('test-topic', message);
-
-      expect(mockTracingService.getTraceContext).toHaveBeenCalled();
-
-      // Verify headers in the sent message
-      const call = mockProducer.send.mock.calls[0][0];
-      const headers = call.messages[0].headers;
-
-      expect(headers).toEqual(expect.objectContaining({
-        'x-trace-trace-id': 'test-trace-id',
-        'x-trace-span-id': 'test-span-id',
-        'x-service-name': 'test-service',
-        'x-timestamp': expect.any(String),
-      }));
-    });
-
-    it('should extract trace context from message headers during consumption', async () => {
-      const callback = jest.fn();
-      await service.consume('test-topic', 'test-group', callback);
-
-      // Get the eachMessage handler
-      const runCall = mockConsumer.run.mock.calls[0][0];
-      const eachMessageHandler = runCall.eachMessage;
-
-      // Create a mock message with trace headers
-      const mockMessage = {
-        topic: 'test-topic',
-        partition: 0,
-        message: {
-          key: Buffer.from('test-key'),
-          value: Buffer.from(JSON.stringify({ test: 'data' })),
-          headers: {
-            'x-trace-trace-id': Buffer.from('incoming-trace-id'),
-            'x-trace-span-id': Buffer.from('incoming-span-id'),
-          },
-          offset: '0',
-          timestamp: '1630000000000',
-        },
-      };
-
-      // Call the handler
-      await eachMessageHandler(mockMessage);
-
-      // Verify trace context was extracted and set
-      expect(mockTracingService.setTraceContext).toHaveBeenCalledWith(
-        expect.anything(),
+      
+      // Verify produce was called with the right arguments
+      expect(service.produce).toHaveBeenCalledWith(
+        'dead-letter',
+        { test: 'failed-message' },
+        'test-key',
         expect.objectContaining({
-          'trace-id': 'incoming-trace-id',
-          'span-id': 'incoming-span-id',
+          'error-type': 'processing-failed',
+          'source-topic': 'source-topic',
+          'source-service': 'test-service',
         })
       );
+    });
+
+    it('should handle errors when sending to the dead-letter queue', async () => {
+      // Mock the produce method to throw an error
+      jest.spyOn(service, 'produce').mockRejectedValue(new Error('DLQ send failed'));
+      
+      // Call the private sendToDLQ method - should not throw
+      await (service as any).sendToDLQ(
+        'source-topic',
+        { test: 'failed-message' }
+      );
+      
+      // Verify error was logged
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to send message to dead-letter queue'),
+        expect.any(Error),
+        'KafkaService'
+      );
+    });
+  });
+
+  describe('journey-specific configurations', () => {
+    it('should support health journey configuration', async () => {
+      // Set up health journey specific config
+      mockConfigService.get.mockImplementation((key, defaultValue) => {
+        const config = {
+          'service.name': 'health-service',
+          'health-service.kafka.brokers': 'health-kafka:9092',
+          'health-service.kafka.retry.initialRetryTime': 500,
+          'health-service.kafka.deadLetterTopic': 'health-dead-letter',
+        };
+        return config[key] || defaultValue;
+      });
+
+      const healthOptions: KafkaModuleOptions = {
+        serviceName: 'health-service',
+        configNamespace: 'health-service',
+      };
+
+      const healthModule = await Test.createTestingModule({
+        providers: [
+          KafkaService,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: TracingService, useValue: mockTracingService },
+          { provide: KAFKA_MODULE_OPTIONS, useValue: healthOptions },
+        ],
+      }).compile();
+
+      const healthService = healthModule.get<KafkaService>(KafkaService);
+      
+      // Test that the service uses the health-specific dead letter topic
+      jest.spyOn(healthService, 'produce').mockResolvedValue();
+      
+      await (healthService as any).sendToDLQ(
+        TOPICS.HEALTH.METRICS,
+        { value: 100, type: 'HEART_RATE' }
+      );
+      
+      expect(healthService.produce).toHaveBeenCalledWith(
+        'health-dead-letter',
+        expect.any(Object),
+        undefined,
+        expect.any(Object)
+      );
+      
+      await healthModule.close();
+    });
+
+    it('should support care journey configuration', async () => {
+      // Set up care journey specific config
+      mockConfigService.get.mockImplementation((key, defaultValue) => {
+        const config = {
+          'service.name': 'care-service',
+          'care-service.kafka.brokers': 'care-kafka:9092',
+          'care-service.kafka.retry.maxRetries': 5,
+          'care-service.kafka.retry.factor': 3,
+        };
+        return config[key] || defaultValue;
+      });
+
+      const careOptions: KafkaModuleOptions = {
+        serviceName: 'care-service',
+        configNamespace: 'care-service',
+      };
+
+      const careModule = await Test.createTestingModule({
+        providers: [
+          KafkaService,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: TracingService, useValue: mockTracingService },
+          { provide: KAFKA_MODULE_OPTIONS, useValue: careOptions },
+        ],
+      }).compile();
+
+      const careService = careModule.get<KafkaService>(KafkaService);
+      
+      // Verify the retry options are correctly configured
+      const retryOptions = (careService as any).defaultRetryOptions;
+      expect(retryOptions.retries).toBe(5);
+      expect(retryOptions.factor).toBe(3);
+      
+      await careModule.close();
+    });
+
+    it('should support plan journey configuration', async () => {
+      // Set up plan journey specific config
+      mockConfigService.get.mockImplementation((key, defaultValue) => {
+        const config = {
+          'service.name': 'plan-service',
+          'plan-service.kafka.brokers': 'plan-kafka:9092',
+          'plan-service.kafka.groupId': 'plan-consumer-group',
+          'plan-service.kafka.sasl.enabled': true,
+          'plan-service.kafka.sasl.mechanism': 'plain',
+          'plan-service.kafka.sasl.username': 'plan-user',
+          'plan-service.kafka.sasl.password': 'plan-password',
+        };
+        return config[key] || defaultValue;
+      });
+
+      const planOptions: KafkaModuleOptions = {
+        serviceName: 'plan-service',
+        configNamespace: 'plan-service',
+      };
+
+      const planModule = await Test.createTestingModule({
+        providers: [
+          KafkaService,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: TracingService, useValue: mockTracingService },
+          { provide: KAFKA_MODULE_OPTIONS, useValue: planOptions },
+        ],
+      }).compile();
+
+      const planService = planModule.get<KafkaService>(KafkaService);
+      
+      // Test that the SASL config is correctly applied
+      const saslConfig = (planService as any).getSaslConfig('plan-service');
+      expect(saslConfig).toEqual({
+        mechanism: 'plain',
+        username: 'plan-user',
+        password: 'plan-password',
+      });
+      
+      await planModule.close();
+    });
+  });
+
+  describe('integration with event schemas', () => {
+    it('should validate health journey events correctly', async () => {
+      // Mock schema registry to validate health metrics
+      mockSchemaRegistry.validate.mockImplementation((topic, message) => {
+        if (topic === TOPICS.HEALTH.METRICS) {
+          if (!message.value || !message.type) {
+            return Promise.reject(new Error('Invalid health metric'));
+          }
+        }
+        return Promise.resolve();
+      });
+
+      // Valid health metric
+      const validMetric = { value: 72, type: 'HEART_RATE', unit: 'bpm' };
+      await service.produce(TOPICS.HEALTH.METRICS, validMetric);
+      
+      // Invalid health metric
+      const invalidMetric = { value: 72 }; // Missing type
+      await expect(service.produce(TOPICS.HEALTH.METRICS, invalidMetric))
+        .rejects.toThrow(EventValidationError);
+    });
+
+    it('should validate care journey events correctly', async () => {
+      // Mock schema registry to validate care appointments
+      mockSchemaRegistry.validate.mockImplementation((topic, message) => {
+        if (topic === TOPICS.CARE.APPOINTMENTS) {
+          if (!message.appointmentId || !message.date) {
+            return Promise.reject(new Error('Invalid appointment'));
+          }
+        }
+        return Promise.resolve();
+      });
+
+      // Valid appointment
+      const validAppointment = { 
+        appointmentId: '123', 
+        date: '2023-05-15T10:00:00Z',
+        provider: 'Dr. Smith',
+        specialty: 'Cardiology'
+      };
+      await service.produce(TOPICS.CARE.APPOINTMENTS, validAppointment);
+      
+      // Invalid appointment
+      const invalidAppointment = { provider: 'Dr. Smith' }; // Missing required fields
+      await expect(service.produce(TOPICS.CARE.APPOINTMENTS, invalidAppointment))
+        .rejects.toThrow(EventValidationError);
+    });
+
+    it('should validate plan journey events correctly', async () => {
+      // Mock schema registry to validate plan claims
+      mockSchemaRegistry.validate.mockImplementation((topic, message) => {
+        if (topic === TOPICS.PLAN.CLAIMS) {
+          if (!message.claimId || !message.amount || !message.type) {
+            return Promise.reject(new Error('Invalid claim'));
+          }
+        }
+        return Promise.resolve();
+      });
+
+      // Valid claim
+      const validClaim = { 
+        claimId: '456', 
+        amount: 150.75,
+        type: 'MEDICAL',
+        provider: 'City Hospital',
+        date: '2023-04-20'
+      };
+      await service.produce(TOPICS.PLAN.CLAIMS, validClaim);
+      
+      // Invalid claim
+      const invalidClaim = { claimId: '456' }; // Missing required fields
+      await expect(service.produce(TOPICS.PLAN.CLAIMS, invalidClaim))
+        .rejects.toThrow(EventValidationError);
+    });
+  });
+
+  describe('metadata handling', () => {
+    it('should check for existing metadata correctly', () => {
+      const withMetadata = {
+        data: 'test',
+        metadata: new EventMetadataDto()
+      };
+      
+      const withoutMetadata = {
+        data: 'test'
+      };
+      
+      expect((service as any).hasMetadata(withMetadata)).toBe(true);
+      expect((service as any).hasMetadata(withoutMetadata)).toBe(false);
+    });
+
+    it('should add metadata with correct fields', () => {
+      const message = { data: 'test' };
+      
+      const result = (service as any).addMetadata(message);
+      
+      expect(result).toHaveProperty('data', 'test');
+      expect(result).toHaveProperty('metadata');
+      expect(result.metadata).toHaveProperty('timestamp');
+      expect(result.metadata).toHaveProperty('source', 'test-service');
+      expect(result.metadata).toHaveProperty('correlationId', 'test-trace-id');
+    });
+
+    it('should preserve existing metadata', () => {
+      const existingMetadata = new EventMetadataDto();
+      existingMetadata.correlationId = 'existing-correlation-id';
+      
+      const message = {
+        data: 'test',
+        metadata: existingMetadata
+      };
+      
+      // Should not modify the message
+      const result = (service as any).addMetadata(message);
+      
+      expect(result.metadata.correlationId).toBe('existing-correlation-id');
     });
   });
 });

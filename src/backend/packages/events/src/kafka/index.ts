@@ -1,56 +1,41 @@
 /**
- * @file Kafka Module Barrel Export
- * @description Centralized export point for all Kafka-related components in the events package.
- * This file enables simplified imports via @austa/events/kafka and provides a clean,
- * consistent API for consumers across the application.
+ * Kafka integration module for the AUSTA SuperApp.
+ * 
+ * This module provides a robust implementation of Kafka for event streaming
+ * between microservices, with support for:
+ * - Type-safe event production and consumption
+ * - Schema validation
+ * - Dead-letter queues
+ * - Retry mechanisms with exponential backoff
+ * - Distributed tracing
+ * - Journey-specific event processing
+ * 
+ * @module kafka
  */
 
-/**
- * Module exports
- * @module Kafka/Module
- */
+// Export the Kafka module
 export { KafkaModule } from './kafka.module';
 
-/**
- * Service exports
- * @module Kafka/Services
- */
+// Export the Kafka service
 export { KafkaService } from './kafka.service';
-export { KafkaConsumer } from './kafka.consumer';
-export { KafkaProducer } from './kafka.producer';
 
-/**
- * Interface exports
- * @module Kafka/Interfaces
- */
-export * from './kafka.interfaces';
+// Re-export interfaces
+export { KafkaModuleOptions } from '../interfaces/kafka-options.interface';
+export { KafkaMessage } from '../interfaces/kafka-message.interface';
 
-/**
- * Type exports
- * @module Kafka/Types
- */
-export * from './kafka.types';
+// Re-export DTOs
+export { EventMetadataDto, EventVersionDto } from '../dto/event-metadata.dto';
 
-/**
- * Constant exports
- * @module Kafka/Constants
- */
-export * from './kafka.constants';
+// Re-export errors
+export {
+  KafkaError,
+  EventValidationError,
+  ProducerError,
+  ConsumerError,
+  MessageSerializationError,
+} from '../errors/kafka.errors';
 
-/**
- * Configuration exports
- * @module Kafka/Config
- */
-export * from './kafka.config';
-
-/**
- * Error exports
- * @module Kafka/Errors
- */
-export * from './kafka.errors';
-
-/**
- * Retry Strategy exports
- * @module Kafka/RetryStrategies
- */
-export * from './retry-strategies';
+// Re-export constants
+export { ERROR_CODES, ERROR_MESSAGES } from '../constants/errors.constants';
+export { TOPICS } from '../constants/topics.constants';
+export { KAFKA_MODULE_OPTIONS, EVENT_SCHEMA_REGISTRY } from '../constants/tokens.constants';

@@ -1,402 +1,390 @@
-import { IEventResponse } from '../../../src/interfaces/event-response.interface';
+/**
+ * @file event-response.interface.spec.ts
+ * @description Unit tests for the EventResponse interface that standardizes
+ * the structure for event processing results across all services.
+ */
 
-describe('IEventResponse Interface', () => {
-  describe('Structure validation', () => {
-    it('should create a valid success response', () => {
-      // Arrange & Act
-      const successResponse: IEventResponse<string> = {
+import { EventResponse, EventErrorDetails, EventResponseMetadata } from '../../../src/interfaces/event-response.interface';
+import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY } from '../../../src/constants/errors.constants';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+
+describe('EventResponse Interface', () => {
+  describe('Structure Validation', () => {
+    it('should create a successful response with data', () => {
+      const metadata: EventResponseMetadata = {
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        processingTimeMs: 42,
+        source: 'health-service',
+        destination: 'gamification-engine'
+      };
+
+      const response: EventResponse<{ userId: string }> = {
         success: true,
-        data: 'Operation completed successfully',
-        metadata: {
-          correlationId: '123e4567-e89b-12d3-a456-426614174000',
-          timestamp: new Date().toISOString(),
-          processingTime: 42,
-          source: 'test-service'
+        data: { userId: '123456' },
+        metadata
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.data).toBeDefined();
+      expect(response.data?.userId).toBe('123456');
+      expect(response.error).toBeUndefined();
+      expect(response.metadata).toBeDefined();
+      expect(response.metadata.correlationId).toBe('550e8400-e29b-41d4-a716-446655440000');
+    });
+
+    it('should create a failed response with error details', () => {
+      const metadata: EventResponseMetadata = {
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: new Date(),
+        processingTimeMs: 42,
+        source: 'health-service',
+        destination: 'gamification-engine'
+      };
+
+      const errorDetails: EventErrorDetails = {
+        code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+        retryable: false,
+        context: {
+          validationErrors: ['Field userId is required']
         }
       };
 
-      // Assert
-      expect(successResponse).toBeDefined();
-      expect(successResponse.success).toBe(true);
-      expect(successResponse.data).toBe('Operation completed successfully');
-      expect(successResponse.error).toBeUndefined();
-      expect(successResponse.metadata).toBeDefined();
-      expect(successResponse.metadata?.correlationId).toBe('123e4567-e89b-12d3-a456-426614174000');
-      expect(successResponse.metadata?.source).toBe('test-service');
+      const response: EventResponse = {
+        success: false,
+        error: errorDetails,
+        metadata
+      };
+
+      expect(response.success).toBe(false);
+      expect(response.data).toBeUndefined();
+      expect(response.error).toBeDefined();
+      expect(response.error?.code).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      expect(response.error?.message).toBe(ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]);
+      expect(response.error?.retryable).toBe(false);
+      expect(response.metadata).toBeDefined();
     });
 
-    it('should create a valid error response', () => {
-      // Arrange & Act
-      const errorResponse: IEventResponse = {
+    it('should enforce the required properties', () => {
+      // @ts-expect-error - Testing missing required property 'success'
+      const invalidResponse1: EventResponse = {
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date()
+        }
+      };
+
+      // @ts-expect-error - Testing missing required property 'metadata'
+      const invalidResponse2: EventResponse = {
+        success: true,
+        data: { userId: '123456' }
+      };
+
+      // These assertions will not be reached if TypeScript correctly flags the errors,
+      // but they're included for runtime validation in case the types are bypassed
+      expect(() => validateEventResponse(invalidResponse1)).toThrow();
+      expect(() => validateEventResponse(invalidResponse2)).toThrow();
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should include proper error codes from the constants', () => {
+      const response: EventResponse = {
         success: false,
         error: {
-          code: 'EVENT_PROCESSING_FAILED',
-          message: 'Failed to process event due to invalid payload',
-          details: { field: 'userId', issue: 'missing' }
+          code: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
+          message: ERROR_MESSAGES[ERROR_CODES.CONSUMER_PROCESSING_FAILED],
+          retryable: true,
+          stack: 'Error stack trace'
         },
         metadata: {
-          correlationId: '123e4567-e89b-12d3-a456-426614174000',
-          timestamp: new Date().toISOString(),
-          processingTime: 15,
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          processingTimeMs: 42,
           retryCount: 0,
-          source: 'test-service'
+          source: 'health-service',
+          destination: 'gamification-engine'
         }
       };
 
-      // Assert
-      expect(errorResponse).toBeDefined();
-      expect(errorResponse.success).toBe(false);
-      expect(errorResponse.data).toBeUndefined();
-      expect(errorResponse.error).toBeDefined();
-      expect(errorResponse.error?.code).toBe('EVENT_PROCESSING_FAILED');
-      expect(errorResponse.error?.message).toBe('Failed to process event due to invalid payload');
-      expect(errorResponse.error?.details).toEqual({ field: 'userId', issue: 'missing' });
-      expect(errorResponse.metadata?.retryCount).toBe(0);
+      expect(response.error?.code).toBe(ERROR_CODES.CONSUMER_PROCESSING_FAILED);
+      expect(response.error?.message).toBe(ERROR_MESSAGES[ERROR_CODES.CONSUMER_PROCESSING_FAILED]);
+      expect(ERROR_SEVERITY[response.error?.code as keyof typeof ERROR_SEVERITY]).toBeDefined();
     });
 
-    it('should allow minimal success response with only required fields', () => {
-      // Arrange & Act
-      const minimalSuccessResponse: IEventResponse = {
-        success: true
-      };
-
-      // Assert
-      expect(minimalSuccessResponse).toBeDefined();
-      expect(minimalSuccessResponse.success).toBe(true);
-      expect(minimalSuccessResponse.data).toBeUndefined();
-      expect(minimalSuccessResponse.error).toBeUndefined();
-      expect(minimalSuccessResponse.metadata).toBeUndefined();
-    });
-
-    it('should allow minimal error response with only required fields', () => {
-      // Arrange & Act
-      const minimalErrorResponse: IEventResponse = {
+    it('should indicate whether an error is retryable', () => {
+      // Non-retryable error (validation failure)
+      const nonRetryableResponse: EventResponse = {
         success: false,
         error: {
-          code: 'GENERIC_ERROR',
-          message: 'An error occurred'
+          code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+          retryable: false
+        },
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date()
         }
       };
 
-      // Assert
-      expect(minimalErrorResponse).toBeDefined();
-      expect(minimalErrorResponse.success).toBe(false);
-      expect(minimalErrorResponse.error?.code).toBe('GENERIC_ERROR');
-      expect(minimalErrorResponse.error?.message).toBe('An error occurred');
-      expect(minimalErrorResponse.error?.details).toBeUndefined();
-      expect(minimalErrorResponse.metadata).toBeUndefined();
-    });
-  });
-
-  describe('Error handling', () => {
-    it('should handle different error codes', () => {
-      // Common error codes that should be supported
-      const errorCodes = [
-        'VALIDATION_ERROR',
-        'UNAUTHORIZED',
-        'FORBIDDEN',
-        'NOT_FOUND',
-        'CONFLICT',
-        'INTERNAL_ERROR',
-        'SERVICE_UNAVAILABLE',
-        'TIMEOUT',
-        'INVALID_PAYLOAD',
-        'EVENT_PROCESSING_FAILED'
-      ];
-
-      // Test each error code
-      errorCodes.forEach(code => {
-        const response: IEventResponse = {
-          success: false,
-          error: {
-            code,
-            message: `Error with code ${code}`
-          }
-        };
-
-        expect(response.success).toBe(false);
-        expect(response.error?.code).toBe(code);
-      });
-    });
-
-    it('should support detailed error information', () => {
-      // Arrange & Act
-      const detailedErrorResponse: IEventResponse = {
+      // Retryable error (connection issue)
+      const retryableResponse: EventResponse = {
         success: false,
         error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Multiple validation errors occurred',
-          details: {
-            fields: [
-              { name: 'email', error: 'Invalid email format' },
-              { name: 'age', error: 'Must be a positive number' }
+          code: ERROR_CODES.CONSUMER_CONNECTION_FAILED,
+          message: ERROR_MESSAGES[ERROR_CODES.CONSUMER_CONNECTION_FAILED],
+          retryable: true
+        },
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date()
+        }
+      };
+
+      expect(nonRetryableResponse.error?.retryable).toBe(false);
+      expect(retryableResponse.error?.retryable).toBe(true);
+    });
+
+    it('should include detailed context in error details', () => {
+      const response: EventResponse = {
+        success: false,
+        error: {
+          code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+          retryable: false,
+          context: {
+            validationErrors: [
+              { field: 'userId', message: 'Field is required' },
+              { field: 'eventType', message: 'Invalid event type' }
             ],
-            requestId: '12345',
-            timestamp: new Date().toISOString()
+            receivedData: { eventType: 'INVALID_TYPE' }
           }
+        },
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date()
         }
       };
 
-      // Assert
-      expect(detailedErrorResponse.error?.details).toBeDefined();
-      expect(detailedErrorResponse.error?.details.fields).toHaveLength(2);
-      expect(detailedErrorResponse.error?.details.fields[0].name).toBe('email');
-      expect(detailedErrorResponse.error?.details.fields[1].error).toBe('Must be a positive number');
+      expect(response.error?.context).toBeDefined();
+      expect(response.error?.context?.validationErrors).toHaveLength(2);
+      expect(response.error?.context?.validationErrors[0].field).toBe('userId');
+      expect(response.error?.context?.receivedData.eventType).toBe('INVALID_TYPE');
     });
 
-    it('should handle nested error details for complex scenarios', () => {
-      // Arrange & Act
-      const nestedErrorResponse: IEventResponse = {
+    it('should handle retry exhaustion errors', () => {
+      const response: EventResponse = {
         success: false,
         error: {
-          code: 'PROCESSING_ERROR',
-          message: 'Failed to process event chain',
-          details: {
+          code: ERROR_CODES.RETRY_EXHAUSTED,
+          message: ERROR_MESSAGES[ERROR_CODES.RETRY_EXHAUSTED],
+          retryable: false, // No longer retryable after exhaustion
+          context: {
+            maxRetries: 3,
             originalError: {
-              code: 'DATABASE_ERROR',
-              message: 'Connection failed',
-              details: {
-                sqlState: '08006',
-                errorCode: 'CONNECTION_EXCEPTION'
-              }
-            },
-            context: {
-              operation: 'saveUserAchievement',
-              entityId: '12345'
+              code: ERROR_CODES.CONSUMER_CONNECTION_FAILED,
+              message: ERROR_MESSAGES[ERROR_CODES.CONSUMER_CONNECTION_FAILED]
             }
           }
+        },
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          retryCount: 3 // Indicates this was the final retry
         }
       };
 
-      // Assert
-      expect(nestedErrorResponse.error?.details.originalError).toBeDefined();
-      expect(nestedErrorResponse.error?.details.originalError.code).toBe('DATABASE_ERROR');
-      expect(nestedErrorResponse.error?.details.originalError.details.sqlState).toBe('08006');
-      expect(nestedErrorResponse.error?.details.context.operation).toBe('saveUserAchievement');
+      expect(response.error?.code).toBe(ERROR_CODES.RETRY_EXHAUSTED);
+      expect(response.error?.retryable).toBe(false);
+      expect(response.metadata.retryCount).toBe(3);
+      expect(response.error?.context?.originalError.code).toBe(ERROR_CODES.CONSUMER_CONNECTION_FAILED);
     });
   });
 
-  describe('Metadata handling', () => {
-    it('should include correlation ID for tracing', () => {
-      // Arrange & Act
-      const response: IEventResponse = {
+  describe('Metadata Handling', () => {
+    it('should include correlation ID for distributed tracing', () => {
+      const correlationId = '550e8400-e29b-41d4-a716-446655440000';
+      const response: EventResponse = {
         success: true,
+        data: { processed: true },
         metadata: {
-          correlationId: '123e4567-e89b-12d3-a456-426614174000'
+          correlationId,
+          timestamp: new Date()
         }
       };
 
-      // Assert
-      expect(response.metadata?.correlationId).toBe('123e4567-e89b-12d3-a456-426614174000');
+      expect(response.metadata.correlationId).toBe(correlationId);
     });
 
     it('should track processing time for performance monitoring', () => {
-      // Arrange & Act
-      const response: IEventResponse = {
+      const response: EventResponse = {
         success: true,
+        data: { processed: true },
         metadata: {
-          processingTime: 123 // milliseconds
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          processingTimeMs: 42
         }
       };
 
-      // Assert
-      expect(response.metadata?.processingTime).toBe(123);
+      expect(response.metadata.processingTimeMs).toBe(42);
     });
 
-    it('should track retry attempts for retry mechanism', () => {
-      // Arrange & Act
-      const response: IEventResponse = {
-        success: false,
-        error: {
-          code: 'TEMPORARY_FAILURE',
-          message: 'Service temporarily unavailable'
-        },
+    it('should track retry count for retry mechanism', () => {
+      const response: EventResponse = {
+        success: true,
+        data: { processed: true },
         metadata: {
-          retryCount: 3,
-          nextRetryAt: new Date(Date.now() + 30000).toISOString() // 30 seconds later
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          retryCount: 2
         }
       };
 
-      // Assert
-      expect(response.metadata?.retryCount).toBe(3);
-      expect(response.metadata?.nextRetryAt).toBeDefined();
+      expect(response.metadata.retryCount).toBe(2);
     });
 
-    it('should include source information for distributed tracing', () => {
-      // Arrange & Act
-      const response: IEventResponse = {
+    it('should include source and destination for message routing', () => {
+      const response: EventResponse = {
         success: true,
+        data: { processed: true },
         metadata: {
-          source: 'gamification-engine',
-          sourceInstance: 'gamification-engine-pod-1234',
-          sourceVersion: '1.2.3'
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          source: 'health-service',
+          destination: 'gamification-engine'
         }
       };
 
-      // Assert
-      expect(response.metadata?.source).toBe('gamification-engine');
-      expect(response.metadata?.sourceInstance).toBe('gamification-engine-pod-1234');
-      expect(response.metadata?.sourceVersion).toBe('1.2.3');
+      expect(response.metadata.source).toBe('health-service');
+      expect(response.metadata.destination).toBe('gamification-engine');
+    });
+
+    it('should be compatible with EventMetadataDto', () => {
+      // Create an EventMetadataDto instance
+      const eventMetadata = new EventMetadataDto({
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        origin: {
+          service: 'health-service',
+          component: 'metric-processor'
+        }
+      });
+
+      // Convert to EventResponseMetadata
+      const responseMetadata: EventResponseMetadata = {
+        correlationId: eventMetadata.correlationId,
+        timestamp: eventMetadata.timestamp,
+        source: eventMetadata.origin?.service,
+        processingTimeMs: 42,
+        retryCount: 0
+      };
+
+      const response: EventResponse = {
+        success: true,
+        data: { processed: true },
+        metadata: responseMetadata
+      };
+
+      expect(response.metadata.correlationId).toBe(eventMetadata.correlationId);
+      expect(response.metadata.source).toBe(eventMetadata.origin?.service);
     });
   });
 
-  describe('Serialization and deserialization', () => {
-    it('should properly serialize and deserialize response for transport', () => {
-      // Arrange
-      const originalResponse: IEventResponse<{ userId: string; points: number }> = {
+  describe('Serialization', () => {
+    it('should be serializable to JSON', () => {
+      const response: EventResponse = {
         success: true,
-        data: {
-          userId: 'user-123',
-          points: 100
-        },
+        data: { userId: '123456', metrics: [{ type: 'HEART_RATE', value: 72 }] },
         metadata: {
-          correlationId: '123e4567-e89b-12d3-a456-426614174000',
-          timestamp: new Date().toISOString(),
-          processingTime: 42
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date(),
+          processingTimeMs: 42
         }
       };
 
-      // Act
-      const serialized = JSON.stringify(originalResponse);
-      const deserialized = JSON.parse(serialized) as IEventResponse<{ userId: string; points: number }>;
+      const serialized = JSON.stringify(response);
+      expect(serialized).toBeTruthy();
+      expect(typeof serialized).toBe('string');
 
-      // Assert
-      expect(deserialized.success).toBe(originalResponse.success);
-      expect(deserialized.data).toEqual(originalResponse.data);
-      expect(deserialized.metadata?.correlationId).toBe(originalResponse.metadata?.correlationId);
-      expect(deserialized.metadata?.processingTime).toBe(originalResponse.metadata?.processingTime);
+      const deserialized = JSON.parse(serialized);
+      expect(deserialized.success).toBe(true);
+      expect(deserialized.data.userId).toBe('123456');
+      expect(deserialized.data.metrics[0].type).toBe('HEART_RATE');
+      expect(deserialized.metadata.correlationId).toBe('550e8400-e29b-41d4-a716-446655440000');
     });
 
-    it('should handle Date objects during serialization', () => {
-      // Arrange
+    it('should handle Date serialization/deserialization', () => {
       const now = new Date();
-      const originalResponse: IEventResponse = {
+      const response: EventResponse = {
         success: true,
-        data: {
-          createdAt: now,
-          updatedAt: now
+        data: { processed: true },
+        metadata: {
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: now
+        }
+      };
+
+      const serialized = JSON.stringify(response);
+      const deserialized = JSON.parse(serialized);
+
+      // Date is serialized as a string
+      expect(typeof deserialized.metadata.timestamp).toBe('string');
+      
+      // Convert back to Date for comparison
+      const deserializedDate = new Date(deserialized.metadata.timestamp);
+      expect(deserializedDate.getTime()).toBe(now.getTime());
+    });
+
+    it('should handle error details serialization', () => {
+      const response: EventResponse = {
+        success: false,
+        error: {
+          code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+          retryable: false,
+          stack: 'Error stack trace',
+          context: {
+            validationErrors: ['Field userId is required']
+          }
         },
         metadata: {
-          timestamp: now.toISOString()
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date()
         }
       };
 
-      // Act
-      const serialized = JSON.stringify(originalResponse);
-      const deserialized = JSON.parse(serialized) as IEventResponse;
+      const serialized = JSON.stringify(response);
+      const deserialized = JSON.parse(serialized);
 
-      // Assert
-      expect(deserialized.data.createdAt).not.toBeInstanceOf(Date); // JSON serializes dates as strings
-      expect(typeof deserialized.data.createdAt).toBe('string');
-      expect(deserialized.metadata?.timestamp).toBe(now.toISOString());
-    });
-
-    it('should handle complex nested objects during serialization', () => {
-      // Arrange
-      const originalResponse: IEventResponse = {
-        success: false,
-        error: {
-          code: 'COMPLEX_ERROR',
-          message: 'Complex error occurred',
-          details: {
-            errors: [
-              { field: 'name', message: 'Required' },
-              { field: 'email', message: 'Invalid format' }
-            ],
-            context: {
-              requestPath: '/api/events',
-              method: 'POST',
-              timestamp: new Date().toISOString()
-            }
-          }
-        }
-      };
-
-      // Act
-      const serialized = JSON.stringify(originalResponse);
-      const deserialized = JSON.parse(serialized) as IEventResponse;
-
-      // Assert
-      expect(deserialized.error?.code).toBe('COMPLEX_ERROR');
-      expect(deserialized.error?.details.errors).toHaveLength(2);
-      expect(deserialized.error?.details.errors[0].field).toBe('name');
-      expect(deserialized.error?.details.context.requestPath).toBe('/api/events');
-    });
-  });
-
-  describe('Type safety', () => {
-    it('should support generic type for data property', () => {
-      // String data
-      const stringResponse: IEventResponse<string> = {
-        success: true,
-        data: 'Success message'
-      };
-      expect(typeof stringResponse.data).toBe('string');
-
-      // Number data
-      const numberResponse: IEventResponse<number> = {
-        success: true,
-        data: 42
-      };
-      expect(typeof numberResponse.data).toBe('number');
-
-      // Object data
-      const objectResponse: IEventResponse<{id: string; name: string}> = {
-        success: true,
-        data: {id: '123', name: 'Test'}
-      };
-      expect(objectResponse.data?.id).toBe('123');
-      expect(objectResponse.data?.name).toBe('Test');
-
-      // Array data
-      const arrayResponse: IEventResponse<string[]> = {
-        success: true,
-        data: ['one', 'two', 'three']
-      };
-      expect(Array.isArray(arrayResponse.data)).toBe(true);
-      expect(arrayResponse.data?.length).toBe(3);
-    });
-
-    it('should enforce required properties', () => {
-      // @ts-expect-error - success is required
-      const invalidResponse: IEventResponse = {};
-
-      // This should compile without errors
-      const validResponse: IEventResponse = {
-        success: true
-      };
-
-      expect(validResponse.success).toBe(true);
-    });
-
-    it('should enforce error object structure when present', () => {
-      // @ts-expect-error - error.code is required
-      const invalidErrorResponse: IEventResponse = {
-        success: false,
-        error: {
-          message: 'Missing code'
-        }
-      };
-
-      // @ts-expect-error - error.message is required
-      const anotherInvalidErrorResponse: IEventResponse = {
-        success: false,
-        error: {
-          code: 'ERROR_CODE'
-        }
-      };
-
-      // This should compile without errors
-      const validErrorResponse: IEventResponse = {
-        success: false,
-        error: {
-          code: 'ERROR_CODE',
-          message: 'Error message'
-        }
-      };
-
-      expect(validErrorResponse.error?.code).toBe('ERROR_CODE');
-      expect(validErrorResponse.error?.message).toBe('Error message');
+      expect(deserialized.success).toBe(false);
+      expect(deserialized.error.code).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      expect(deserialized.error.message).toBe(ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]);
+      expect(deserialized.error.retryable).toBe(false);
+      expect(deserialized.error.stack).toBe('Error stack trace');
+      expect(deserialized.error.context.validationErrors[0]).toBe('Field userId is required');
     });
   });
 });
+
+/**
+ * Helper function to validate an EventResponse at runtime.
+ * This is used in tests to verify that the interface constraints are enforced.
+ */
+function validateEventResponse(response: EventResponse): void {
+  if (response.success === undefined) {
+    throw new Error('EventResponse must have a success property');
+  }
+  
+  if (!response.metadata) {
+    throw new Error('EventResponse must have a metadata property');
+  }
+  
+  if (response.success === false && !response.error) {
+    throw new Error('Failed EventResponse must have an error property');
+  }
+  
+  if (response.success === true && response.error) {
+    throw new Error('Successful EventResponse should not have an error property');
+  }
+}

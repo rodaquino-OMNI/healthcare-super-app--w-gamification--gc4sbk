@@ -1,434 +1,438 @@
 /**
- * Utility functions for adding standardized attributes to OpenTelemetry spans.
- * 
- * This module provides helper functions for enriching spans with consistent
- * attributes across the application, including common attributes, journey-specific
- * attributes, error information, and performance metrics.
+ * Utility functions for enriching OpenTelemetry spans with standardized attributes.
+ * These utilities enable consistent and searchable trace data across the AUSTA SuperApp.
  */
 
 import { Span, SpanStatusCode } from '@opentelemetry/api';
 
 /**
- * Adds common attributes to a span that are relevant across all services.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing common attributes
+ * Common attribute namespace constants to ensure consistent naming across the application.
  */
-export function addCommonAttributes(span: Span, attributes: {
-  userId?: string;
-  requestId?: string;
-  sessionId?: string;
-  serviceName?: string;
-  serviceVersion?: string;
-  environment?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  if (attributes.userId) {
-    span.setAttribute('user.id', attributes.userId);
-  }
-
-  if (attributes.requestId) {
-    span.setAttribute('request.id', attributes.requestId);
-  }
-
-  if (attributes.sessionId) {
-    span.setAttribute('session.id', attributes.sessionId);
-  }
-
-  if (attributes.serviceName) {
-    span.setAttribute('service.name', attributes.serviceName);
-  }
-
-  if (attributes.serviceVersion) {
-    span.setAttribute('service.version', attributes.serviceVersion);
-  }
-
-  if (attributes.environment) {
-    span.setAttribute('deployment.environment', attributes.environment);
-  }
+export enum AttributeNamespace {
+  AUSTA = 'austa',
+  USER = 'user',
+  REQUEST = 'request',
+  SERVICE = 'service',
+  JOURNEY = 'journey',
+  ERROR = 'error',
+  PERFORMANCE = 'performance',
 }
 
 /**
- * Adds HTTP-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing HTTP attributes
+ * Journey types supported by the AUSTA SuperApp.
  */
-export function addHttpAttributes(span: Span, attributes: {
-  method?: string;
-  url?: string;
-  statusCode?: number;
-  route?: string;
-  userAgent?: string;
-  clientIp?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  if (attributes.method) {
-    span.setAttribute('http.method', attributes.method);
-  }
-
-  if (attributes.url) {
-    span.setAttribute('http.url', attributes.url);
-  }
-
-  if (attributes.statusCode) {
-    span.setAttribute('http.status_code', attributes.statusCode);
-    
-    // Set span status based on HTTP status code
-    if (attributes.statusCode >= 400) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: `HTTP error ${attributes.statusCode}`
-      });
-    }
-  }
-
-  if (attributes.route) {
-    span.setAttribute('http.route', attributes.route);
-  }
-
-  if (attributes.userAgent) {
-    span.setAttribute('http.user_agent', attributes.userAgent);
-  }
-
-  if (attributes.clientIp) {
-    span.setAttribute('http.client_ip', attributes.clientIp);
-  }
+export enum JourneyType {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan',
 }
 
 /**
- * Adds database-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing database attributes
+ * Error classification types for consistent error categorization.
  */
-export function addDatabaseAttributes(span: Span, attributes: {
-  system?: string;
-  operation?: string;
-  statement?: string;
-  table?: string;
-  connectionString?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  if (attributes.system) {
-    span.setAttribute('db.system', attributes.system);
-  }
-
-  if (attributes.operation) {
-    span.setAttribute('db.operation', attributes.operation);
-  }
-
-  if (attributes.statement) {
-    span.setAttribute('db.statement', attributes.statement);
-  }
-
-  if (attributes.table) {
-    span.setAttribute('db.sql.table', attributes.table);
-  }
-
-  if (attributes.connectionString) {
-    // Sanitize connection string to remove sensitive information
-    const sanitizedConnectionString = sanitizeConnectionString(attributes.connectionString);
-    span.setAttribute('db.connection_string', sanitizedConnectionString);
-  }
+export enum ErrorType {
+  CLIENT = 'client',     // 4xx errors, client-side issues
+  SYSTEM = 'system',     // 5xx errors, internal system failures
+  TRANSIENT = 'transient', // Temporary failures that may resolve with retry
+  EXTERNAL = 'external',  // Failures in external dependencies
 }
 
 /**
- * Sanitizes a database connection string to remove sensitive information.
- * 
- * @param connectionString - The connection string to sanitize
- * @returns A sanitized connection string with passwords and sensitive data removed
+ * Adds common user-related attributes to a span.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param userId The unique identifier of the user
+ * @param sessionId Optional session identifier for the user's current session
+ * @param additionalAttributes Optional additional user attributes to include
+ * @returns The span with added attributes
  */
-function sanitizeConnectionString(connectionString: string): string {
-  // Replace password in connection strings
-  return connectionString.replace(/password=([^;]+)/gi, 'password=***');
+export function addUserAttributes(
+  span: Span,
+  userId: string,
+  sessionId?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.id`, userId);
+  
+  if (sessionId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.session_id`, sessionId);
+  }
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.${key}`, value);
+    });
+  }
+  
+  return span;
 }
+
+/**
+ * Adds request-related attributes to a span for correlation and tracking.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param requestId The unique identifier of the request
+ * @param correlationId Optional correlation ID for tracking related requests
+ * @param additionalAttributes Optional additional request attributes to include
+ * @returns The span with added attributes
+ */
+export function addRequestAttributes(
+  span: Span,
+  requestId: string,
+  correlationId?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.id`, requestId);
+  
+  if (correlationId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.correlation_id`, correlationId);
+  }
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.${key}`, value);
+    });
+  }
+  
+  return span;
+}
+
+/**
+ * Adds service-related attributes to a span for service identification.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param serviceName The name of the service
+ * @param serviceVersion Optional version of the service
+ * @param additionalAttributes Optional additional service attributes to include
+ * @returns The span with added attributes
+ */
+export function addServiceAttributes(
+  span: Span,
+  serviceName: string,
+  serviceVersion?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.name`, serviceName);
+  
+  if (serviceVersion) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.version`, serviceVersion);
+  }
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.${key}`, value);
+    });
+  }
+  
+  return span;
+}
+
+// ===== JOURNEY-SPECIFIC ATTRIBUTE HELPERS =====
 
 /**
  * Adds Health journey-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing Health journey attributes
+ * @param span The OpenTelemetry span to add attributes to
+ * @param metricType Optional type of health metric being tracked (e.g., 'heart_rate', 'blood_pressure')
+ * @param deviceId Optional identifier of the device providing the data
+ * @param goalId Optional identifier of the related health goal
+ * @param additionalAttributes Optional additional health journey attributes
+ * @returns The span with added attributes
  */
-export function addHealthJourneyAttributes(span: Span, attributes: {
-  metricType?: string;
-  metricValue?: number;
-  metricUnit?: string;
-  goalId?: string;
-  goalType?: string;
-  deviceId?: string;
-  deviceType?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  span.setAttribute('journey.type', 'health');
-
-  if (attributes.metricType) {
-    span.setAttribute('health.metric.type', attributes.metricType);
+export function addHealthJourneyAttributes(
+  span: Span,
+  metricType?: string,
+  deviceId?: string,
+  goalId?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`, JourneyType.HEALTH);
+  
+  if (metricType) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.metric_type`, metricType);
   }
-
-  if (attributes.metricValue !== undefined) {
-    span.setAttribute('health.metric.value', attributes.metricValue);
+  
+  if (deviceId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.device_id`, deviceId);
   }
-
-  if (attributes.metricUnit) {
-    span.setAttribute('health.metric.unit', attributes.metricUnit);
+  
+  if (goalId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.goal_id`, goalId);
   }
-
-  if (attributes.goalId) {
-    span.setAttribute('health.goal.id', attributes.goalId);
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.${key}`, value);
+    });
   }
-
-  if (attributes.goalType) {
-    span.setAttribute('health.goal.type', attributes.goalType);
-  }
-
-  if (attributes.deviceId) {
-    span.setAttribute('health.device.id', attributes.deviceId);
-  }
-
-  if (attributes.deviceType) {
-    span.setAttribute('health.device.type', attributes.deviceType);
-  }
+  
+  return span;
 }
 
 /**
  * Adds Care journey-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing Care journey attributes
+ * @param span The OpenTelemetry span to add attributes to
+ * @param appointmentId Optional identifier of the appointment
+ * @param providerId Optional identifier of the healthcare provider
+ * @param sessionId Optional identifier of the telemedicine session
+ * @param treatmentPlanId Optional identifier of the treatment plan
+ * @param additionalAttributes Optional additional care journey attributes
+ * @returns The span with added attributes
  */
-export function addCareJourneyAttributes(span: Span, attributes: {
-  appointmentId?: string;
-  appointmentType?: string;
-  providerId?: string;
-  providerSpecialty?: string;
-  medicationId?: string;
-  medicationType?: string;
-  telemedicineSessionId?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  span.setAttribute('journey.type', 'care');
-
-  if (attributes.appointmentId) {
-    span.setAttribute('care.appointment.id', attributes.appointmentId);
+export function addCareJourneyAttributes(
+  span: Span,
+  appointmentId?: string,
+  providerId?: string,
+  sessionId?: string,
+  treatmentPlanId?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`, JourneyType.CARE);
+  
+  if (appointmentId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.appointment_id`, appointmentId);
   }
-
-  if (attributes.appointmentType) {
-    span.setAttribute('care.appointment.type', attributes.appointmentType);
+  
+  if (providerId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.provider_id`, providerId);
   }
-
-  if (attributes.providerId) {
-    span.setAttribute('care.provider.id', attributes.providerId);
+  
+  if (sessionId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.session_id`, sessionId);
   }
-
-  if (attributes.providerSpecialty) {
-    span.setAttribute('care.provider.specialty', attributes.providerSpecialty);
+  
+  if (treatmentPlanId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.treatment_plan_id`, treatmentPlanId);
   }
-
-  if (attributes.medicationId) {
-    span.setAttribute('care.medication.id', attributes.medicationId);
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.${key}`, value);
+    });
   }
-
-  if (attributes.medicationType) {
-    span.setAttribute('care.medication.type', attributes.medicationType);
-  }
-
-  if (attributes.telemedicineSessionId) {
-    span.setAttribute('care.telemedicine.session_id', attributes.telemedicineSessionId);
-  }
+  
+  return span;
 }
 
 /**
  * Adds Plan journey-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing Plan journey attributes
+ * @param span The OpenTelemetry span to add attributes to
+ * @param planId Optional identifier of the insurance plan
+ * @param claimId Optional identifier of the insurance claim
+ * @param benefitId Optional identifier of the specific benefit
+ * @param additionalAttributes Optional additional plan journey attributes
+ * @returns The span with added attributes
  */
-export function addPlanJourneyAttributes(span: Span, attributes: {
-  planId?: string;
-  planType?: string;
-  benefitId?: string;
-  benefitType?: string;
-  claimId?: string;
-  claimStatus?: string;
-  documentId?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  span.setAttribute('journey.type', 'plan');
-
-  if (attributes.planId) {
-    span.setAttribute('plan.id', attributes.planId);
+export function addPlanJourneyAttributes(
+  span: Span,
+  planId?: string,
+  claimId?: string,
+  benefitId?: string,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`, JourneyType.PLAN);
+  
+  if (planId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.plan_id`, planId);
   }
-
-  if (attributes.planType) {
-    span.setAttribute('plan.type', attributes.planType);
+  
+  if (claimId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.claim_id`, claimId);
   }
-
-  if (attributes.benefitId) {
-    span.setAttribute('plan.benefit.id', attributes.benefitId);
+  
+  if (benefitId) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.benefit_id`, benefitId);
   }
-
-  if (attributes.benefitType) {
-    span.setAttribute('plan.benefit.type', attributes.benefitType);
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.${key}`, value);
+    });
   }
-
-  if (attributes.claimId) {
-    span.setAttribute('plan.claim.id', attributes.claimId);
-  }
-
-  if (attributes.claimStatus) {
-    span.setAttribute('plan.claim.status', attributes.claimStatus);
-  }
-
-  if (attributes.documentId) {
-    span.setAttribute('plan.document.id', attributes.documentId);
-  }
+  
+  return span;
 }
 
-/**
- * Adds gamification-specific attributes to a span.
- * 
- * @param span - The span to add attributes to
- * @param attributes - Object containing gamification attributes
- */
-export function addGamificationAttributes(span: Span, attributes: {
-  eventType?: string;
-  achievementId?: string;
-  achievementType?: string;
-  rewardId?: string;
-  rewardType?: string;
-  questId?: string;
-  profileId?: string;
-  pointsEarned?: number;
-}): void {
-  if (!span.isRecording()) return;
-
-  if (attributes.eventType) {
-    span.setAttribute('gamification.event.type', attributes.eventType);
-  }
-
-  if (attributes.achievementId) {
-    span.setAttribute('gamification.achievement.id', attributes.achievementId);
-  }
-
-  if (attributes.achievementType) {
-    span.setAttribute('gamification.achievement.type', attributes.achievementType);
-  }
-
-  if (attributes.rewardId) {
-    span.setAttribute('gamification.reward.id', attributes.rewardId);
-  }
-
-  if (attributes.rewardType) {
-    span.setAttribute('gamification.reward.type', attributes.rewardType);
-  }
-
-  if (attributes.questId) {
-    span.setAttribute('gamification.quest.id', attributes.questId);
-  }
-
-  if (attributes.profileId) {
-    span.setAttribute('gamification.profile.id', attributes.profileId);
-  }
-
-  if (attributes.pointsEarned !== undefined) {
-    span.setAttribute('gamification.points.earned', attributes.pointsEarned);
-  }
-}
+// ===== ERROR ATTRIBUTE UTILITIES =====
 
 /**
- * Adds error information to a span.
- * 
- * @param span - The span to add error information to
- * @param error - The error object
- * @param attributes - Additional error attributes
+ * Adds error-related attributes to a span.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param error The error object
+ * @param errorType The classification of the error
+ * @param additionalAttributes Optional additional error attributes
+ * @returns The span with added attributes
  */
-export function addErrorAttributes(span: Span, error: Error, attributes?: {
-  code?: string;
-  type?: string;
-  retryable?: boolean;
-  component?: string;
-}): void {
-  if (!span.isRecording()) return;
-
-  // Record the exception on the span
+export function addErrorAttributes(
+  span: Span,
+  error: Error,
+  errorType: ErrorType,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  // Set span status to ERROR
+  span.setStatus({ code: SpanStatusCode.ERROR });
+  
+  // Record the exception
   span.recordException(error);
   
-  // Set the span status to error
-  span.setStatus({
-    code: SpanStatusCode.ERROR,
-    message: error.message
-  });
-
-  // Add standard error attributes
-  span.setAttribute('error', true);
-  span.setAttribute('error.message', error.message);
-  span.setAttribute('error.stack', error.stack || '');
-  span.setAttribute('error.type', error.name);
-
-  // Add additional error attributes if provided
-  if (attributes) {
-    if (attributes.code) {
-      span.setAttribute('error.code', attributes.code);
-    }
-
-    if (attributes.type) {
-      span.setAttribute('error.category', attributes.type);
-    }
-
-    if (attributes.retryable !== undefined) {
-      span.setAttribute('error.retryable', attributes.retryable);
-    }
-
-    if (attributes.component) {
-      span.setAttribute('error.component', attributes.component);
-    }
+  // Add error attributes
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.type`, errorType);
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.message`, error.message);
+  span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.name`, error.name);
+  
+  if (error.stack) {
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.stack`, error.stack);
   }
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.${key}`, value);
+    });
+  }
+  
+  return span;
 }
 
 /**
- * Adds performance metric attributes to a span.
- * 
- * @param span - The span to add performance attributes to
- * @param attributes - Object containing performance metrics
+ * Helper function to classify HTTP errors based on status code.
+ * @param statusCode The HTTP status code
+ * @returns The appropriate ErrorType classification
  */
-export function addPerformanceAttributes(span: Span, attributes: {
-  operationDuration?: number;
-  queueTime?: number;
-  processingTime?: number;
-  resourceUsage?: number;
-  cacheHit?: boolean;
-  itemCount?: number;
-}): void {
-  if (!span.isRecording()) return;
-
-  if (attributes.operationDuration !== undefined) {
-    span.setAttribute('performance.duration_ms', attributes.operationDuration);
+export function classifyHttpError(statusCode: number): ErrorType {
+  if (statusCode >= 400 && statusCode < 500) {
+    return ErrorType.CLIENT;
+  } else if (statusCode >= 500) {
+    return ErrorType.SYSTEM;
+  } else {
+    return ErrorType.SYSTEM; // Default to system error for unexpected cases
   }
+}
 
-  if (attributes.queueTime !== undefined) {
-    span.setAttribute('performance.queue_time_ms', attributes.queueTime);
+// ===== PERFORMANCE METRIC ATTRIBUTE HELPERS =====
+
+/**
+ * Adds database operation performance attributes to a span.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param operation The database operation type (e.g., 'query', 'insert', 'update')
+ * @param table The database table being accessed
+ * @param durationMs The duration of the operation in milliseconds
+ * @param recordCount Optional number of records affected/returned
+ * @param additionalAttributes Optional additional performance attributes
+ * @returns The span with added attributes
+ */
+export function addDatabasePerformanceAttributes(
+  span: Span,
+  operation: string,
+  table: string,
+  durationMs: number,
+  recordCount?: number,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.database`;
+  
+  span.setAttribute(`${perfNamespace}.operation`, operation);
+  span.setAttribute(`${perfNamespace}.table`, table);
+  span.setAttribute(`${perfNamespace}.duration_ms`, durationMs);
+  
+  if (recordCount !== undefined) {
+    span.setAttribute(`${perfNamespace}.record_count`, recordCount);
   }
-
-  if (attributes.processingTime !== undefined) {
-    span.setAttribute('performance.processing_time_ms', attributes.processingTime);
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${perfNamespace}.${key}`, value);
+    });
   }
+  
+  return span;
+}
 
-  if (attributes.resourceUsage !== undefined) {
-    span.setAttribute('performance.resource_usage', attributes.resourceUsage);
+/**
+ * Adds external service call performance attributes to a span.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param serviceName The name of the external service
+ * @param operation The operation being performed
+ * @param durationMs The duration of the operation in milliseconds
+ * @param statusCode Optional status code returned by the service
+ * @param additionalAttributes Optional additional performance attributes
+ * @returns The span with added attributes
+ */
+export function addExternalServicePerformanceAttributes(
+  span: Span,
+  serviceName: string,
+  operation: string,
+  durationMs: number,
+  statusCode?: number,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.external`;
+  
+  span.setAttribute(`${perfNamespace}.service`, serviceName);
+  span.setAttribute(`${perfNamespace}.operation`, operation);
+  span.setAttribute(`${perfNamespace}.duration_ms`, durationMs);
+  
+  if (statusCode !== undefined) {
+    span.setAttribute(`${perfNamespace}.status_code`, statusCode);
   }
-
-  if (attributes.cacheHit !== undefined) {
-    span.setAttribute('performance.cache_hit', attributes.cacheHit);
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${perfNamespace}.${key}`, value);
+    });
   }
+  
+  return span;
+}
 
-  if (attributes.itemCount !== undefined) {
-    span.setAttribute('performance.item_count', attributes.itemCount);
+/**
+ * Adds processing time performance attributes to a span.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param operationType The type of operation being performed
+ * @param durationMs The duration of the operation in milliseconds
+ * @param itemCount Optional number of items processed
+ * @param additionalAttributes Optional additional performance attributes
+ * @returns The span with added attributes
+ */
+export function addProcessingPerformanceAttributes(
+  span: Span,
+  operationType: string,
+  durationMs: number,
+  itemCount?: number,
+  additionalAttributes?: Record<string, string | number | boolean>
+): Span {
+  const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.processing`;
+  
+  span.setAttribute(`${perfNamespace}.operation_type`, operationType);
+  span.setAttribute(`${perfNamespace}.duration_ms`, durationMs);
+  
+  if (itemCount !== undefined) {
+    span.setAttribute(`${perfNamespace}.item_count`, itemCount);
+  }
+  
+  if (additionalAttributes) {
+    Object.entries(additionalAttributes).forEach(([key, value]) => {
+      span.setAttribute(`${perfNamespace}.${key}`, value);
+    });
+  }
+  
+  return span;
+}
+
+/**
+ * Utility function to measure and record the execution time of a function.
+ * @param span The OpenTelemetry span to add attributes to
+ * @param attributeNamespace The namespace to use for the duration attribute
+ * @param attributeName The name to use for the duration attribute
+ * @param fn The function to execute and measure
+ * @returns The result of the function execution
+ */
+export async function measureExecutionTime<T>(
+  span: Span,
+  attributeNamespace: string,
+  attributeName: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const startTime = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const duration = Date.now() - startTime;
+    span.setAttribute(`${AttributeNamespace.AUSTA}.${attributeNamespace}.${attributeName}_duration_ms`, duration);
   }
 }

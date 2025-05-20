@@ -1,92 +1,157 @@
 /**
- * Global teardown file for logging package tests
+ * Global teardown for logging package tests.
  * 
  * This file is executed after all tests have completed and is responsible for cleaning up
- * the testing environment to ensure no state leaks between test runs. It handles:
+ * the test environment to ensure no state leaks between test runs. It handles:
  * 
  * - Closing any open file handles from FileTransport
- * - Stopping mock servers (CloudWatch, etc.)
+ * - Stopping mock servers (AWS CloudWatch, etc.)
  * - Restoring environment variables
  * - Resetting global mocks
- * - Clearing caches
+ * - Clearing any cached data
  */
 
-import { closeAllFileHandles } from './utils/log-capture.utils';
-import { stopAllMockServers } from './utils/mocks';
-import { resetEnvironmentVariables } from './utils/test-module.utils';
+import fs from 'fs';
+import path from 'path';
+import { promisify } from 'util';
+
+// Import mocks that need to be reset
+import { 
+  MockLoggerService,
+  MockContextManager,
+  MockTransport,
+  MockFormatter,
+  MockCloudWatchLogs,
+  MockConfigService
+} from './mocks';
+
+// Store original environment variables
+const originalEnv = { ...process.env };
+
+// Track open file handles that need to be closed
+const openFileHandles: fs.promises.FileHandle[] = [];
+
+// Track running mock servers
+const mockServers: Array<{ stop: () => Promise<void> }> = [];
 
 /**
- * Main teardown function that will be executed after all tests
+ * Register a file handle to be closed during teardown
+ * @param handle File handle to be closed
  */
-async function teardown(): Promise<void> {
+export const registerFileHandle = (handle: fs.promises.FileHandle): void => {
+  openFileHandles.push(handle);
+};
+
+/**
+ * Register a mock server to be stopped during teardown
+ * @param server Server with a stop method
+ */
+export const registerMockServer = (server: { stop: () => Promise<void> }): void => {
+  mockServers.push(server);
+};
+
+/**
+ * Reset all registered mocks to their initial state
+ */
+const resetMocks = (): void => {
+  // Reset all mock implementations
+  MockLoggerService.prototype.reset?.();
+  MockContextManager.prototype.reset?.();
+  MockTransport.prototype.reset?.();
+  MockFormatter.prototype.reset?.();
+  MockCloudWatchLogs.prototype.reset?.();
+  MockConfigService.prototype.reset?.();
+  
+  // Clear any module caches that might affect tests
+  jest.resetModules();
+};
+
+/**
+ * Close all registered file handles
+ */
+const closeFileHandles = async (): Promise<void> => {
   try {
-    // Close any open file handles from FileTransport
-    await closeAllFileHandles();
+    // Close all registered file handles
+    await Promise.all(openFileHandles.map(handle => handle.close()));
+    openFileHandles.length = 0; // Clear the array
     
-    // Stop all mock servers (CloudWatch, HTTP, etc.)
-    await stopAllMockServers();
-    
-    // Reset environment variables that might have been modified during tests
-    resetEnvironmentVariables();
-    
-    // Reset console mocks if they were used
-    if (global.console.log.mockRestore) {
-      global.console.log.mockRestore();
-      global.console.error.mockRestore();
-      global.console.warn.mockRestore();
-      global.console.debug.mockRestore();
-      global.console.info.mockRestore();
+    // Clean up any temporary log files created during tests
+    const testLogsDir = path.join(process.cwd(), 'test-logs');
+    if (fs.existsSync(testLogsDir)) {
+      const files = fs.readdirSync(testLogsDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(testLogsDir, file));
+      }
+      fs.rmdirSync(testLogsDir);
     }
-    
-    // Reset process.stdout and process.stderr mocks if they were used
-    if (process.stdout.write.mockRestore) {
-      process.stdout.write.mockRestore();
+  } catch (error) {
+    console.error('Error closing file handles:', error);
+  }
+};
+
+/**
+ * Stop all registered mock servers
+ */
+const stopMockServers = async (): Promise<void> => {
+  try {
+    await Promise.all(mockServers.map(server => server.stop()));
+    mockServers.length = 0; // Clear the array
+  } catch (error) {
+    console.error('Error stopping mock servers:', error);
+  }
+};
+
+/**
+ * Restore environment variables to their original state
+ */
+const restoreEnvironment = (): void => {
+  // Reset environment variables to original state
+  Object.keys(process.env).forEach(key => {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
     }
-    
-    if (process.stderr.write.mockRestore) {
-      process.stderr.write.mockRestore();
-    }
-    
-    // Clear any module caches that might cause state leakage
-    jest.resetModules();
-    
-    // Clear any AsyncLocalStorage instances that might persist between tests
-    // This is important for context isolation between test runs
-    global.__ASYNC_STORAGE_INSTANCES__?.forEach(storage => {
-      storage.disable();
-    });
-    global.__ASYNC_STORAGE_INSTANCES__ = [];
-    
-    // Reset any AWS SDK mocks
-    jest.restoreAllMocks();
-    
-    // Clear any in-memory transport buffers
-    global.__LOG_BUFFERS__?.clear();
+  });
+  
+  Object.keys(originalEnv).forEach(key => {
+    process.env[key] = originalEnv[key];
+  });
+};
+
+/**
+ * Clear any caches that might affect test isolation
+ */
+const clearCaches = (): void => {
+  // Clear any module-level caches
+  if (global.__LOGGER_CACHE__) {
+    global.__LOGGER_CACHE__.clear();
+  }
+  
+  if (global.__CONTEXT_CACHE__) {
+    global.__CONTEXT_CACHE__.clear();
+  }
+  
+  // Clear any AsyncLocalStorage instances
+  if (global.__ASYNC_STORAGE__) {
+    global.__ASYNC_STORAGE__.disable();
+  }
+};
+
+/**
+ * Main teardown function that runs after all tests
+ */
+export default async (): Promise<void> => {
+  try {
+    // Run all cleanup operations
+    await closeFileHandles();
+    await stopMockServers();
+    restoreEnvironment();
+    resetMocks();
+    clearCaches();
     
     console.log('Logging package test teardown completed successfully');
   } catch (error) {
-    console.error('Error during logging package test teardown:', error);
-    // We don't want to fail the test run if teardown has issues,
-    // but we do want to log the error for debugging
+    console.error('Error during test teardown:', error);
+    // Don't throw here to avoid failing the test run
+    // Just log the error for debugging
   }
-}
-
-// Export the teardown function as the default export
-// This will be picked up by Jest's globalTeardown configuration
-export default teardown;
-
-/**
- * Handle unexpected process termination
- * This ensures resources are properly cleaned up even if the process is terminated abnormally
- */
-process.on('SIGTERM', async () => {
-  console.log('Received SIGTERM, cleaning up logging test resources...');
-  await teardown();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('Received SIGINT, cleaning up logging test resources...');
-  await teardown();
-  process.exit(0);
-});
+};

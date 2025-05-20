@@ -1,933 +1,931 @@
 import { PrismaClient } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+import { DeepMockProxy, mockDeep } from 'jest-mock-extended';
 import { EventType } from '../../../src/dto/event-types.enum';
-import { DatabaseErrorType } from '../../../../database/src/errors/database-error.types';
-import { DatabaseException } from '../../../../database/src/errors/database-error.exception';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Mock implementation of PrismaClient for testing event persistence
+ * Interface for test database configuration options
  */
-export class MockPrismaClient {
-  private events: any[] = [];
-  private achievements: any[] = [];
-  private profiles: any[] = [];
-  private rewards: any[] = [];
-  private quests: any[] = [];
-  private shouldFail: boolean = false;
-  private errorType: DatabaseErrorType | null = null;
+export interface TestDatabaseOptions {
+  /** Whether to use an in-memory database instead of a real one */
+  useInMemory?: boolean;
+  /** Custom database URL to use for testing */
+  databaseUrl?: string;
+  /** Whether to seed the database with test data */
+  seedTestData?: boolean;
+  /** Specific journeys to seed data for */
+  journeysToSeed?: ('health' | 'care' | 'plan')[];
+  /** Whether to isolate this test database from others */
+  isolateDatabase?: boolean;
+  /** Custom schema name for database isolation */
+  schemaName?: string;
+}
 
-  /**
-   * Configure the mock client to simulate failures
-   * @param shouldFail Whether operations should fail
-   * @param errorType Type of database error to simulate
-   */
-  public setFailureMode(shouldFail: boolean, errorType: DatabaseErrorType | null = null): void {
-    this.shouldFail = shouldFail;
-    this.errorType = errorType;
-  }
+/**
+ * Interface for event database record
+ */
+export interface EventRecord {
+  id: string;
+  type: string;
+  payload: any;
+  userId?: string;
+  journeyId?: string;
+  createdAt: Date;
+  processedAt?: Date;
+  status: 'PENDING' | 'PROCESSED' | 'FAILED';
+  errorMessage?: string;
+  retryCount?: number;
+  version?: string;
+  correlationId?: string;
+  metadata?: Record<string, any>;
+}
 
-  /**
-   * Reset all data in the mock database
-   */
-  public async reset(): Promise<void> {
-    this.events = [];
-    this.achievements = [];
-    this.profiles = [];
-    this.rewards = [];
-    this.quests = [];
-    this.shouldFail = false;
-    this.errorType = null;
-  }
+/**
+ * Interface for achievement record
+ */
+export interface AchievementRecord {
+  id: string;
+  userId: string;
+  type: string;
+  level: number;
+  earnedAt: Date;
+  journey: 'health' | 'care' | 'plan';
+  metadata?: Record<string, any>;
+}
 
-  /**
-   * Get all events stored in the mock database
-   */
-  public getEvents(): any[] {
-    return [...this.events];
-  }
+/**
+ * Interface for mock database containing in-memory tables
+ */
+export interface MockDatabase {
+  events: EventRecord[];
+  achievements: AchievementRecord[];
+  users: any[];
+  healthMetrics: any[];
+  careAppointments: any[];
+  planClaims: any[];
+  [key: string]: any[];
+}
 
-  /**
-   * Get all achievements stored in the mock database
-   */
-  public getAchievements(): any[] {
-    return [...this.achievements];
-  }
+/**
+ * Mock PrismaClient for testing
+ */
+export type MockPrismaClient = DeepMockProxy<PrismaClient> & {
+  $connect: jest.Mock;
+  $disconnect: jest.Mock;
+  $transaction: jest.Mock;
+  $queryRaw: jest.Mock;
+  $executeRaw: jest.Mock;
+};
 
-  /**
-   * Get all profiles stored in the mock database
-   */
-  public getProfiles(): any[] {
-    return [...this.profiles];
-  }
+/**
+ * In-memory database for testing
+ */
+let inMemoryDatabase: MockDatabase = {
+  events: [],
+  achievements: [],
+  users: [],
+  healthMetrics: [],
+  careAppointments: [],
+  planClaims: [],
+};
 
-  /**
-   * Get all rewards stored in the mock database
-   */
-  public getRewards(): any[] {
-    return [...this.rewards];
-  }
-
-  /**
-   * Get all quests stored in the mock database
-   */
-  public getQuests(): any[] {
-    return [...this.quests];
-  }
-
-  /**
-   * Mock implementation of Prisma's $transaction method
-   * @param operations Array of operations to execute in a transaction
-   */
-  public async $transaction<T>(operations: (() => Promise<T>)[]): Promise<T[]> {
-    if (this.shouldFail) {
-      throw new DatabaseException(
-        'Transaction failed',
-        this.errorType || DatabaseErrorType.TRANSACTION,
-        'TEST_TRANSACTION_ERROR'
-      );
-    }
-
-    const results: T[] = [];
-    for (const operation of operations) {
-      results.push(await operation());
-    }
-    return results;
-  }
-
-  /**
-   * Mock implementation of Prisma's $disconnect method
-   */
-  public async $disconnect(): Promise<void> {
-    // No-op in mock implementation
-  }
-
-  /**
-   * Mock implementation of Prisma's $connect method
-   */
-  public async $connect(): Promise<void> {
-    if (this.shouldFail) {
-      throw new DatabaseException(
-        'Connection failed',
-        this.errorType || DatabaseErrorType.CONNECTION,
-        'TEST_CONNECTION_ERROR'
-      );
-    }
-  }
-
-  /**
-   * Mock implementation of Prisma's event model
-   */
-  public event = {
-    findMany: async (params?: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      if (!params) return this.events;
-      
-      let filteredEvents = [...this.events];
-      
-      if (params.where) {
-        if (params.where.userId) {
-          filteredEvents = filteredEvents.filter(e => e.userId === params.where.userId);
-        }
-        if (params.where.type) {
-          filteredEvents = filteredEvents.filter(e => e.type === params.where.type);
-        }
-        if (params.where.journey) {
-          filteredEvents = filteredEvents.filter(e => e.journey === params.where.journey);
-        }
-      }
-      
-      if (params.orderBy) {
-        const orderField = Object.keys(params.orderBy)[0];
-        const orderDir = params.orderBy[orderField];
-        filteredEvents.sort((a, b) => {
-          if (orderDir === 'asc') {
-            return a[orderField] < b[orderField] ? -1 : 1;
-          } else {
-            return a[orderField] > b[orderField] ? -1 : 1;
-          }
-        });
-      }
-      
-      if (params.take) {
-        filteredEvents = filteredEvents.slice(0, params.take);
-      }
-      
-      return filteredEvents;
-    },
-    findUnique: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      if (params.where.id) {
-        return this.events.find(e => e.id === params.where.id) || null;
-      }
-      
-      return null;
-    },
-    create: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Create failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_CREATE_ERROR'
-        );
-      }
-      
-      const newEvent = {
-        id: params.data.id || uuidv4(),
-        createdAt: params.data.createdAt || new Date(),
-        updatedAt: params.data.updatedAt || new Date(),
-        ...params.data
-      };
-      
-      this.events.push(newEvent);
-      return newEvent;
-    },
-    update: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Update failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_UPDATE_ERROR'
-        );
-      }
-      
-      const index = this.events.findIndex(e => e.id === params.where.id);
-      if (index === -1) {
-        throw new DatabaseException(
-          'Event not found',
-          DatabaseErrorType.QUERY,
-          'TEST_NOT_FOUND_ERROR'
-        );
-      }
-      
-      const updatedEvent = {
-        ...this.events[index],
-        ...params.data,
-        updatedAt: new Date()
-      };
-      
-      this.events[index] = updatedEvent;
-      return updatedEvent;
-    },
-    delete: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Delete failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_DELETE_ERROR'
-        );
-      }
-      
-      const index = this.events.findIndex(e => e.id === params.where.id);
-      if (index === -1) {
-        throw new DatabaseException(
-          'Event not found',
-          DatabaseErrorType.QUERY,
-          'TEST_NOT_FOUND_ERROR'
-        );
-      }
-      
-      const deletedEvent = this.events[index];
-      this.events.splice(index, 1);
-      return deletedEvent;
-    },
-    upsert: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Upsert failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_UPSERT_ERROR'
-        );
-      }
-      
-      const existingEvent = this.events.find(e => e.id === params.where.id);
-      if (existingEvent) {
-        return await this.event.update({
-          where: { id: params.where.id },
-          data: params.update
-        });
-      } else {
-        return await this.event.create({
-          data: params.create
-        });
-      }
-    }
-  };
-
-  /**
-   * Mock implementation of Prisma's achievement model
-   */
-  public achievement = {
-    findMany: async (params?: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      if (!params) return this.achievements;
-      
-      let filteredAchievements = [...this.achievements];
-      
-      if (params.where) {
-        if (params.where.userId) {
-          filteredAchievements = filteredAchievements.filter(a => a.userId === params.where.userId);
-        }
-        if (params.where.type) {
-          filteredAchievements = filteredAchievements.filter(a => a.type === params.where.type);
-        }
-        if (params.where.journey) {
-          filteredAchievements = filteredAchievements.filter(a => a.journey === params.where.journey);
-        }
-      }
-      
-      return filteredAchievements;
-    },
-    findUnique: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      if (params.where.id) {
-        return this.achievements.find(a => a.id === params.where.id) || null;
-      }
-      
-      return null;
-    },
-    create: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Create failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_CREATE_ERROR'
-        );
-      }
-      
-      const newAchievement = {
-        id: params.data.id || uuidv4(),
-        createdAt: params.data.createdAt || new Date(),
-        updatedAt: params.data.updatedAt || new Date(),
-        ...params.data
-      };
-      
-      this.achievements.push(newAchievement);
-      return newAchievement;
-    },
-    update: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Update failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_UPDATE_ERROR'
-        );
-      }
-      
-      const index = this.achievements.findIndex(a => a.id === params.where.id);
-      if (index === -1) {
-        throw new DatabaseException(
-          'Achievement not found',
-          DatabaseErrorType.QUERY,
-          'TEST_NOT_FOUND_ERROR'
-        );
-      }
-      
-      const updatedAchievement = {
-        ...this.achievements[index],
-        ...params.data,
-        updatedAt: new Date()
-      };
-      
-      this.achievements[index] = updatedAchievement;
-      return updatedAchievement;
-    }
-  };
-
-  /**
-   * Mock implementation of Prisma's profile model
-   */
-  public profile = {
-    findMany: async (params?: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      return this.profiles;
-    },
-    findUnique: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Query failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_QUERY_ERROR'
-        );
-      }
-      
-      if (params.where.id) {
-        return this.profiles.find(p => p.id === params.where.id) || null;
+/**
+ * Creates a mock PrismaClient for testing
+ * @returns A mock PrismaClient instance
+ */
+export function createMockPrismaClient(): MockPrismaClient {
+  const mockPrisma = mockDeep<PrismaClient>() as MockPrismaClient;
+  
+  // Mock the event model operations
+  mockPrisma.event.create.mockImplementation(async (params) => {
+    const newEvent = {
+      id: params.data.id || uuidv4(),
+      ...params.data,
+      createdAt: params.data.createdAt || new Date(),
+    } as any;
+    
+    inMemoryDatabase.events.push(newEvent);
+    return newEvent;
+  });
+  
+  mockPrisma.event.findUnique.mockImplementation(async (params) => {
+    const event = inMemoryDatabase.events.find(e => e.id === params.where.id);
+    return event || null;
+  });
+  
+  mockPrisma.event.findMany.mockImplementation(async (params) => {
+    let events = [...inMemoryDatabase.events];
+    
+    // Apply where filters if provided
+    if (params?.where) {
+      if (params.where.type) {
+        events = events.filter(e => e.type === params.where.type);
       }
       if (params.where.userId) {
-        return this.profiles.find(p => p.userId === params.where.userId) || null;
+        events = events.filter(e => e.userId === params.where.userId);
       }
-      
-      return null;
-    },
-    create: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Create failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_CREATE_ERROR'
-        );
+      if (params.where.status) {
+        events = events.filter(e => e.status === params.where.status);
       }
-      
-      const newProfile = {
-        id: params.data.id || uuidv4(),
-        createdAt: params.data.createdAt || new Date(),
-        updatedAt: params.data.updatedAt || new Date(),
-        xp: params.data.xp || 0,
-        level: params.data.level || 1,
-        ...params.data
-      };
-      
-      this.profiles.push(newProfile);
-      return newProfile;
-    },
-    update: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Update failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_UPDATE_ERROR'
-        );
-      }
-      
-      const index = this.profiles.findIndex(p => {
-        if (params.where.id) return p.id === params.where.id;
-        if (params.where.userId) return p.userId === params.where.userId;
-        return false;
-      });
-      
-      if (index === -1) {
-        throw new DatabaseException(
-          'Profile not found',
-          DatabaseErrorType.QUERY,
-          'TEST_NOT_FOUND_ERROR'
-        );
-      }
-      
-      const updatedProfile = {
-        ...this.profiles[index],
-        ...params.data,
-        updatedAt: new Date()
-      };
-      
-      this.profiles[index] = updatedProfile;
-      return updatedProfile;
-    },
-    upsert: async (params: any) => {
-      if (this.shouldFail) {
-        throw new DatabaseException(
-          'Upsert failed',
-          this.errorType || DatabaseErrorType.QUERY,
-          'TEST_UPSERT_ERROR'
-        );
-      }
-      
-      let existingProfile = null;
-      
-      if (params.where.id) {
-        existingProfile = this.profiles.find(p => p.id === params.where.id);
-      } else if (params.where.userId) {
-        existingProfile = this.profiles.find(p => p.userId === params.where.userId);
-      }
-      
-      if (existingProfile) {
-        return await this.profile.update({
-          where: params.where,
-          data: params.update
-        });
-      } else {
-        return await this.profile.create({
-          data: params.create
-        });
+      if (params.where.journeyId) {
+        events = events.filter(e => e.journeyId === params.where.journeyId);
       }
     }
+    
+    // Apply orderBy if provided
+    if (params?.orderBy) {
+      const orderField = Object.keys(params.orderBy)[0];
+      const orderDirection = params.orderBy[orderField];
+      
+      events.sort((a, b) => {
+        if (orderDirection === 'asc') {
+          return a[orderField] > b[orderField] ? 1 : -1;
+        } else {
+          return a[orderField] < b[orderField] ? 1 : -1;
+        }
+      });
+    }
+    
+    // Apply pagination if provided
+    if (params?.skip) {
+      events = events.slice(params.skip);
+    }
+    if (params?.take) {
+      events = events.slice(0, params.take);
+    }
+    
+    return events;
+  });
+  
+  mockPrisma.event.update.mockImplementation(async (params) => {
+    const index = inMemoryDatabase.events.findIndex(e => e.id === params.where.id);
+    if (index === -1) {
+      throw new Error(`Event with ID ${params.where.id} not found`);
+    }
+    
+    const updatedEvent = {
+      ...inMemoryDatabase.events[index],
+      ...params.data,
+    };
+    
+    inMemoryDatabase.events[index] = updatedEvent;
+    return updatedEvent;
+  });
+  
+  mockPrisma.event.delete.mockImplementation(async (params) => {
+    const index = inMemoryDatabase.events.findIndex(e => e.id === params.where.id);
+    if (index === -1) {
+      throw new Error(`Event with ID ${params.where.id} not found`);
+    }
+    
+    const deletedEvent = inMemoryDatabase.events[index];
+    inMemoryDatabase.events.splice(index, 1);
+    return deletedEvent;
+  });
+  
+  // Mock achievement model operations
+  mockPrisma.achievement.create.mockImplementation(async (params) => {
+    const newAchievement = {
+      id: params.data.id || uuidv4(),
+      ...params.data,
+      earnedAt: params.data.earnedAt || new Date(),
+    } as any;
+    
+    inMemoryDatabase.achievements.push(newAchievement);
+    return newAchievement;
+  });
+  
+  mockPrisma.achievement.findMany.mockImplementation(async (params) => {
+    let achievements = [...inMemoryDatabase.achievements];
+    
+    // Apply where filters if provided
+    if (params?.where) {
+      if (params.where.userId) {
+        achievements = achievements.filter(a => a.userId === params.where.userId);
+      }
+      if (params.where.type) {
+        achievements = achievements.filter(a => a.type === params.where.type);
+      }
+      if (params.where.journey) {
+        achievements = achievements.filter(a => a.journey === params.where.journey);
+      }
+    }
+    
+    // Apply orderBy if provided
+    if (params?.orderBy) {
+      const orderField = Object.keys(params.orderBy)[0];
+      const orderDirection = params.orderBy[orderField];
+      
+      achievements.sort((a, b) => {
+        if (orderDirection === 'asc') {
+          return a[orderField] > b[orderField] ? 1 : -1;
+        } else {
+          return a[orderField] < b[orderField] ? 1 : -1;
+        }
+      });
+    }
+    
+    // Apply pagination if provided
+    if (params?.skip) {
+      achievements = achievements.slice(params.skip);
+    }
+    if (params?.take) {
+      achievements = achievements.slice(0, params.take);
+    }
+    
+    return achievements;
+  });
+  
+  // Mock transaction support
+  mockPrisma.$transaction.mockImplementation(async (callback) => {
+    try {
+      // Create a snapshot of the database before transaction
+      const dbSnapshot = JSON.parse(JSON.stringify(inMemoryDatabase));
+      
+      // Execute the transaction callback
+      const result = await callback(mockPrisma);
+      
+      return result;
+    } catch (error) {
+      // Restore database from snapshot on error
+      inMemoryDatabase = JSON.parse(JSON.stringify(inMemoryDatabase));
+      throw error;
+    }
+  });
+  
+  return mockPrisma;
+}
+
+/**
+ * Creates a test database environment for event testing
+ * @param options Configuration options for the test database
+ * @returns A configured PrismaClient for testing
+ */
+export async function createTestDatabase(options: TestDatabaseOptions = {}): Promise<PrismaClient | MockPrismaClient> {
+  const {
+    useInMemory = true,
+    databaseUrl,
+    seedTestData = true,
+    journeysToSeed = ['health', 'care', 'plan'],
+    isolateDatabase = true,
+    schemaName = `test_${uuidv4().replace(/-/g, '')}`
+  } = options;
+  
+  // Reset in-memory database
+  resetInMemoryDatabase();
+  
+  if (useInMemory) {
+    const mockPrisma = createMockPrismaClient();
+    
+    if (seedTestData) {
+      await seedTestEventData(mockPrisma, journeysToSeed);
+    }
+    
+    return mockPrisma;
+  } else {
+    // Create a real PrismaClient with test configuration
+    const prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: databaseUrl || process.env.TEST_DATABASE_URL || `postgresql://postgres:postgres@localhost:5432/test?schema=${schemaName}`,
+        },
+      },
+    });
+    
+    // Connect to the database
+    await prisma.$connect();
+    
+    // Create isolated schema if needed
+    if (isolateDatabase) {
+      await prisma.$executeRaw`CREATE SCHEMA IF NOT EXISTS ${schemaName}`;
+      await prisma.$executeRaw`SET search_path TO ${schemaName}`;
+    }
+    
+    // Clean the database
+    await cleanDatabase(prisma);
+    
+    // Seed test data if requested
+    if (seedTestData) {
+      await seedTestEventData(prisma, journeysToSeed);
+    }
+    
+    return prisma;
+  }
+}
+
+/**
+ * Cleans up the test database environment
+ * @param prisma The PrismaClient instance to clean up
+ * @param options Cleanup options
+ */
+export async function cleanupTestDatabase(
+  prisma: PrismaClient | MockPrismaClient,
+  options: { dropSchema?: boolean; schemaName?: string } = {}
+): Promise<void> {
+  const { dropSchema = false, schemaName } = options;
+  
+  if ('$executeRaw' in prisma && typeof prisma.$executeRaw === 'function') {
+    try {
+      // Clean the database first
+      await cleanDatabase(prisma);
+      
+      // Drop the schema if requested
+      if (dropSchema && schemaName) {
+        await prisma.$executeRaw`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`;
+      }
+    } catch (error) {
+      console.error('Error cleaning up test database:', error);
+    }
+  }
+  
+  // Disconnect from the database
+  await prisma.$disconnect();
+  
+  // Reset in-memory database
+  resetInMemoryDatabase();
+}
+
+/**
+ * Cleans the database by truncating all tables
+ * @param prisma The PrismaClient instance
+ */
+export async function cleanDatabase(prisma: PrismaClient | MockPrismaClient): Promise<void> {
+  if ('$executeRaw' in prisma && typeof prisma.$executeRaw === 'function') {
+    try {
+      // For a real database, truncate all tables
+      await prisma.$transaction([
+        prisma.$executeRaw`TRUNCATE TABLE "Event" CASCADE`,
+        prisma.$executeRaw`TRUNCATE TABLE "Achievement" CASCADE`,
+        prisma.$executeRaw`TRUNCATE TABLE "User" CASCADE`,
+        prisma.$executeRaw`TRUNCATE TABLE "HealthMetric" CASCADE`,
+        prisma.$executeRaw`TRUNCATE TABLE "CareAppointment" CASCADE`,
+        prisma.$executeRaw`TRUNCATE TABLE "PlanClaim" CASCADE`,
+      ]);
+    } catch (error) {
+      console.error('Error cleaning database:', error);
+    }
+  } else {
+    // For in-memory database, just reset it
+    resetInMemoryDatabase();
+  }
+}
+
+/**
+ * Resets the in-memory database to an empty state
+ */
+export function resetInMemoryDatabase(): void {
+  inMemoryDatabase = {
+    events: [],
+    achievements: [],
+    users: [],
+    healthMetrics: [],
+    careAppointments: [],
+    planClaims: [],
   };
 }
 
 /**
- * TestDatabaseHelper provides utilities for setting up and tearing down test databases
- * for event-related tests.
+ * Seeds the test database with event-specific test data
+ * @param prisma The PrismaClient instance
+ * @param journeys The journeys to seed data for
  */
-export class TestDatabaseHelper {
-  private prismaClient: MockPrismaClient;
-  
-  constructor() {
-    this.prismaClient = new MockPrismaClient();
-  }
-  
-  /**
-   * Get the mock Prisma client instance
-   */
-  public getPrismaClient(): MockPrismaClient {
-    return this.prismaClient;
-  }
-  
-  /**
-   * Initialize the test database with predefined data
-   * @param options Configuration options for database initialization
-   */
-  public async initializeDatabase(options: InitializeDatabaseOptions = {}): Promise<void> {
-    await this.prismaClient.reset();
+export async function seedTestEventData(
+  prisma: PrismaClient | MockPrismaClient,
+  journeys: ('health' | 'care' | 'plan')[] = ['health', 'care', 'plan']
+): Promise<void> {
+  try {
+    // Create test users
+    const testUsers = await seedTestUsers(prisma);
     
-    if (options.seedUsers) {
-      await this.seedTestUsers(options.userCount || 3);
-    }
-    
-    if (options.seedEvents) {
-      await this.seedTestEvents(options.eventCount || 10);
-    }
-    
-    if (options.seedAchievements) {
-      await this.seedTestAchievements(options.achievementCount || 5);
-    }
-    
-    if (options.seedProfiles) {
-      await this.seedTestProfiles(options.profileCount || 3);
-    }
-  }
-  
-  /**
-   * Clean up the test database, removing all data
-   */
-  public async cleanupDatabase(): Promise<void> {
-    await this.prismaClient.reset();
-  }
-  
-  /**
-   * Seed the database with test users
-   * @param count Number of test users to create
-   */
-  private async seedTestUsers(count: number): Promise<any[]> {
-    const users = [];
-    
-    for (let i = 0; i < count; i++) {
-      const user = {
-        id: uuidv4(),
-        name: `Test User ${i + 1}`,
-        email: `test${i + 1}@example.com`,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      users.push(user);
-    }
-    
-    return users;
-  }
-  
-  /**
-   * Seed the database with test events
-   * @param count Number of test events to create
-   */
-  private async seedTestEvents(count: number): Promise<void> {
-    const journeys = ['health', 'care', 'plan'];
-    const eventTypes = [
-      EventType.HEALTH_METRIC_RECORDED,
-      EventType.HEALTH_GOAL_ACHIEVED,
-      EventType.CARE_APPOINTMENT_BOOKED,
-      EventType.CARE_MEDICATION_TAKEN,
-      EventType.PLAN_CLAIM_SUBMITTED,
-      EventType.PLAN_BENEFIT_USED
-    ];
-    
-    const users = await this.seedTestUsers(3);
-    
-    for (let i = 0; i < count; i++) {
-      const userIndex = i % users.length;
-      const journeyIndex = i % journeys.length;
-      const eventTypeIndex = i % eventTypes.length;
-      
-      const journey = journeys[journeyIndex];
-      const eventType = eventTypes[eventTypeIndex];
-      
-      let payload: any = {};
-      
-      // Create journey-specific payloads
-      switch (eventType) {
-        case EventType.HEALTH_METRIC_RECORDED:
-          payload = {
-            metricType: 'HEART_RATE',
-            value: 75 + Math.floor(Math.random() * 20),
-            unit: 'bpm',
-            recordedAt: new Date()
-          };
+    // Seed journey-specific events
+    for (const journey of journeys) {
+      switch (journey) {
+        case 'health':
+          await seedHealthJourneyEvents(prisma, testUsers);
           break;
-        case EventType.HEALTH_GOAL_ACHIEVED:
-          payload = {
-            goalType: 'STEPS',
-            targetValue: 10000,
-            achievedValue: 10500 + Math.floor(Math.random() * 1000),
-            completedAt: new Date()
-          };
+        case 'care':
+          await seedCareJourneyEvents(prisma, testUsers);
           break;
-        case EventType.CARE_APPOINTMENT_BOOKED:
-          payload = {
-            providerId: uuidv4(),
-            specialtyId: uuidv4(),
-            appointmentDate: new Date(Date.now() + 86400000 * (i + 1)),
-            appointmentType: 'IN_PERSON',
-            notes: 'Test appointment notes'
-          };
-          break;
-        case EventType.CARE_MEDICATION_TAKEN:
-          payload = {
-            medicationId: uuidv4(),
-            dosage: '10mg',
-            takenAt: new Date(),
-            scheduled: true
-          };
-          break;
-        case EventType.PLAN_CLAIM_SUBMITTED:
-          payload = {
-            claimType: 'MEDICAL',
-            providerId: uuidv4(),
-            serviceDate: new Date(Date.now() - 86400000 * i),
-            amount: 150.0 + i * 10,
-            currency: 'BRL',
-            receiptId: uuidv4()
-          };
-          break;
-        case EventType.PLAN_BENEFIT_USED:
-          payload = {
-            benefitId: uuidv4(),
-            benefitType: 'DISCOUNT',
-            usedAt: new Date(),
-            value: 50.0 + i * 5,
-            provider: 'Pharmacy XYZ'
-          };
+        case 'plan':
+          await seedPlanJourneyEvents(prisma, testUsers);
           break;
       }
-      
-      await this.prismaClient.event.create({
-        data: {
-          id: uuidv4(),
-          userId: users[userIndex].id,
-          type: eventType,
-          journey,
-          payload,
-          processed: false,
-          createdAt: new Date(Date.now() - i * 3600000),
-          updatedAt: new Date(Date.now() - i * 3600000)
-        }
+    }
+    
+    // Seed cross-journey achievements
+    await seedAchievements(prisma, testUsers);
+    
+  } catch (error) {
+    console.error('Error seeding test event data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Seeds test users for event testing
+ * @param prisma The PrismaClient instance
+ * @returns Array of created test user IDs
+ */
+async function seedTestUsers(prisma: PrismaClient | MockPrismaClient): Promise<string[]> {
+  const userIds: string[] = [];
+  
+  // Create test users with mock data
+  const testUsers = [
+    { id: uuidv4(), name: 'Test User 1', email: 'test1@austa.com.br' },
+    { id: uuidv4(), name: 'Test User 2', email: 'test2@austa.com.br' },
+    { id: uuidv4(), name: 'Test User 3', email: 'test3@austa.com.br' },
+  ];
+  
+  for (const user of testUsers) {
+    if ('user' in prisma && prisma.user && typeof prisma.user.create === 'function') {
+      await prisma.user.create({
+        data: user,
       });
-    }
-  }
-  
-  /**
-   * Seed the database with test achievements
-   * @param count Number of test achievements to create
-   */
-  private async seedTestAchievements(count: number): Promise<void> {
-    const journeys = ['health', 'care', 'plan'];
-    const achievementTypes = [
-      'health-check-streak',
-      'steps-goal',
-      'appointment-keeper',
-      'medication-adherence',
-      'claim-master'
-    ];
-    
-    const users = await this.seedTestUsers(3);
-    
-    for (let i = 0; i < count; i++) {
-      const userIndex = i % users.length;
-      const journeyIndex = i % journeys.length;
-      const achievementTypeIndex = i % achievementTypes.length;
-      
-      const journey = journeys[journeyIndex];
-      const achievementType = achievementTypes[achievementTypeIndex];
-      
-      await this.prismaClient.achievement.create({
-        data: {
-          id: uuidv4(),
-          userId: users[userIndex].id,
-          type: achievementType,
-          journey,
-          level: 1 + (i % 3),
-          unlockedAt: new Date(Date.now() - i * 86400000),
-          progress: 100,
-          xpAwarded: 50 * (1 + (i % 3)),
-          createdAt: new Date(Date.now() - i * 86400000 * 2),
-          updatedAt: new Date(Date.now() - i * 86400000)
-        }
-      });
-    }
-  }
-  
-  /**
-   * Seed the database with test profiles
-   * @param count Number of test profiles to create
-   */
-  private async seedTestProfiles(count: number): Promise<void> {
-    const users = await this.seedTestUsers(count);
-    
-    for (let i = 0; i < users.length; i++) {
-      await this.prismaClient.profile.create({
-        data: {
-          id: uuidv4(),
-          userId: users[i].id,
-          xp: 100 * (i + 1),
-          level: 1 + Math.floor(i / 2),
-          achievements: i * 2,
-          createdAt: new Date(Date.now() - i * 86400000 * 7),
-          updatedAt: new Date(Date.now() - i * 3600000)
-        }
-      });
-    }
-  }
-  
-  /**
-   * Create a test event with the specified properties
-   * @param eventData Event data to create
-   */
-  public async createTestEvent(eventData: CreateTestEventOptions): Promise<any> {
-    const { userId, type, journey, payload, processed = false } = eventData;
-    
-    return await this.prismaClient.event.create({
-      data: {
-        id: eventData.id || uuidv4(),
-        userId,
-        type,
-        journey,
-        payload,
-        processed,
-        createdAt: eventData.createdAt || new Date(),
-        updatedAt: eventData.updatedAt || new Date()
-      }
-    });
-  }
-  
-  /**
-   * Create a test achievement with the specified properties
-   * @param achievementData Achievement data to create
-   */
-  public async createTestAchievement(achievementData: CreateTestAchievementOptions): Promise<any> {
-    const { userId, type, journey, level, progress, xpAwarded } = achievementData;
-    
-    return await this.prismaClient.achievement.create({
-      data: {
-        id: achievementData.id || uuidv4(),
-        userId,
-        type,
-        journey,
-        level,
-        progress,
-        xpAwarded,
-        unlockedAt: achievementData.unlockedAt || new Date(),
-        createdAt: achievementData.createdAt || new Date(),
-        updatedAt: achievementData.updatedAt || new Date()
-      }
-    });
-  }
-  
-  /**
-   * Create a test profile with the specified properties
-   * @param profileData Profile data to create
-   */
-  public async createTestProfile(profileData: CreateTestProfileOptions): Promise<any> {
-    const { userId, xp, level, achievements } = profileData;
-    
-    return await this.prismaClient.profile.create({
-      data: {
-        id: profileData.id || uuidv4(),
-        userId,
-        xp,
-        level,
-        achievements,
-        createdAt: profileData.createdAt || new Date(),
-        updatedAt: profileData.updatedAt || new Date()
-      }
-    });
-  }
-  
-  /**
-   * Verify that an event exists in the database with the specified properties
-   * @param eventData Event data to verify
-   */
-  public async verifyEventExists(eventData: VerifyEventOptions): Promise<boolean> {
-    const events = await this.prismaClient.event.findMany({
-      where: {
-        userId: eventData.userId,
-        type: eventData.type,
-        journey: eventData.journey
-      }
-    });
-    
-    if (events.length === 0) return false;
-    
-    if (eventData.payload) {
-      return events.some(event => {
-        // Check if all payload properties match
-        for (const key in eventData.payload) {
-          if (event.payload[key] !== eventData.payload[key]) {
-            return false;
-          }
-        }
-        return true;
-      });
+    } else {
+      // For mock database, add to in-memory storage
+      inMemoryDatabase.users.push(user);
     }
     
-    return true;
+    userIds.push(user.id);
   }
   
-  /**
-   * Verify that an achievement exists in the database with the specified properties
-   * @param achievementData Achievement data to verify
-   */
-  public async verifyAchievementExists(achievementData: VerifyAchievementOptions): Promise<boolean> {
-    const achievements = await this.prismaClient.achievement.findMany({
-      where: {
-        userId: achievementData.userId,
-        type: achievementData.type,
-        journey: achievementData.journey
-      }
+  return userIds;
+}
+
+/**
+ * Seeds health journey events for testing
+ * @param prisma The PrismaClient instance
+ * @param userIds Array of user IDs to create events for
+ */
+async function seedHealthJourneyEvents(prisma: PrismaClient | MockPrismaClient, userIds: string[]): Promise<void> {
+  // Create health metric events
+  const healthMetricEvents = [];
+  
+  for (const userId of userIds) {
+    // Heart rate events
+    healthMetricEvents.push({
+      id: uuidv4(),
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId,
+      journeyId: 'health',
+      payload: {
+        metricType: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        recordedAt: new Date().toISOString(),
+        source: 'manual',
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
     });
     
-    if (achievements.length === 0) return false;
+    // Blood pressure events
+    healthMetricEvents.push({
+      id: uuidv4(),
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId,
+      journeyId: 'health',
+      payload: {
+        metricType: 'BLOOD_PRESSURE',
+        value: { systolic: 120, diastolic: 80 },
+        unit: 'mmHg',
+        recordedAt: new Date().toISOString(),
+        source: 'manual',
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
     
-    if (achievementData.level) {
-      return achievements.some(achievement => achievement.level === achievementData.level);
-    }
+    // Steps events
+    healthMetricEvents.push({
+      id: uuidv4(),
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId,
+      journeyId: 'health',
+      payload: {
+        metricType: 'STEPS',
+        value: 8500,
+        unit: 'steps',
+        recordedAt: new Date().toISOString(),
+        source: 'device',
+        deviceId: uuidv4(),
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
     
-    return true;
+    // Goal achievement events
+    healthMetricEvents.push({
+      id: uuidv4(),
+      type: EventType.HEALTH_GOAL_ACHIEVED,
+      userId,
+      journeyId: 'health',
+      payload: {
+        goalType: 'STEPS',
+        targetValue: 8000,
+        actualValue: 8500,
+        achievedAt: new Date().toISOString(),
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Device sync events
+    healthMetricEvents.push({
+      id: uuidv4(),
+      type: EventType.HEALTH_DEVICE_SYNCED,
+      userId,
+      journeyId: 'health',
+      payload: {
+        deviceId: uuidv4(),
+        deviceType: 'Smartwatch',
+        syncedAt: new Date().toISOString(),
+        metricsCount: 5,
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
   }
   
-  /**
-   * Verify that a profile exists in the database with the specified properties
-   * @param profileData Profile data to verify
-   */
-  public async verifyProfileExists(profileData: VerifyProfileOptions): Promise<boolean> {
-    const profile = await this.prismaClient.profile.findUnique({
-      where: { userId: profileData.userId }
+  // Store events in database
+  for (const event of healthMetricEvents) {
+    await prisma.event.create({
+      data: event,
     });
-    
-    if (!profile) return false;
-    
-    if (profileData.xp && profile.xp !== profileData.xp) return false;
-    if (profileData.level && profile.level !== profileData.level) return false;
-    if (profileData.achievements && profile.achievements !== profileData.achievements) return false;
-    
-    return true;
   }
 }
 
 /**
- * Options for initializing the test database
+ * Seeds care journey events for testing
+ * @param prisma The PrismaClient instance
+ * @param userIds Array of user IDs to create events for
  */
-export interface InitializeDatabaseOptions {
-  seedUsers?: boolean;
-  seedEvents?: boolean;
-  seedAchievements?: boolean;
-  seedProfiles?: boolean;
-  userCount?: number;
-  eventCount?: number;
-  achievementCount?: number;
-  profileCount?: number;
+async function seedCareJourneyEvents(prisma: PrismaClient | MockPrismaClient, userIds: string[]): Promise<void> {
+  // Create care journey events
+  const careEvents = [];
+  
+  for (const userId of userIds) {
+    // Appointment booking events
+    careEvents.push({
+      id: uuidv4(),
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      userId,
+      journeyId: 'care',
+      payload: {
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        specialtyId: 'Cardiologia',
+        scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
+        location: 'Clínica Central',
+        bookedAt: new Date().toISOString(),
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Appointment completed events
+    careEvents.push({
+      id: uuidv4(),
+      type: EventType.CARE_APPOINTMENT_COMPLETED,
+      userId,
+      journeyId: 'care',
+      payload: {
+        appointmentId: uuidv4(),
+        providerId: uuidv4(),
+        specialtyId: 'Dermatologia',
+        scheduledAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+        completedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        duration: 30, // minutes
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      processedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Medication adherence events
+    careEvents.push({
+      id: uuidv4(),
+      type: EventType.CARE_MEDICATION_TAKEN,
+      userId,
+      journeyId: 'care',
+      payload: {
+        medicationId: uuidv4(),
+        medicationName: 'Atenolol',
+        dosage: '50mg',
+        takenAt: new Date().toISOString(),
+        scheduled: true,
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Telemedicine session events
+    careEvents.push({
+      id: uuidv4(),
+      type: EventType.CARE_TELEMEDICINE_COMPLETED,
+      userId,
+      journeyId: 'care',
+      payload: {
+        sessionId: uuidv4(),
+        providerId: uuidv4(),
+        specialtyId: 'Psiquiatria',
+        startedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        endedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 + 45 * 60 * 1000).toISOString(),
+        duration: 45, // minutes
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      processedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+  }
+  
+  // Store events in database
+  for (const event of careEvents) {
+    await prisma.event.create({
+      data: event,
+    });
+  }
 }
 
 /**
- * Options for creating a test event
+ * Seeds plan journey events for testing
+ * @param prisma The PrismaClient instance
+ * @param userIds Array of user IDs to create events for
  */
-export interface CreateTestEventOptions {
-  id?: string;
-  userId: string;
-  type: string;
-  journey: string;
-  payload: any;
-  processed?: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
+async function seedPlanJourneyEvents(prisma: PrismaClient | MockPrismaClient, userIds: string[]): Promise<void> {
+  // Create plan journey events
+  const planEvents = [];
+  
+  for (const userId of userIds) {
+    // Claim submission events
+    planEvents.push({
+      id: uuidv4(),
+      type: EventType.PLAN_CLAIM_SUBMITTED,
+      userId,
+      journeyId: 'plan',
+      payload: {
+        claimId: uuidv4(),
+        claimType: 'Consulta Médica',
+        amount: 250.0,
+        currency: 'BRL',
+        serviceDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        submittedAt: new Date().toISOString(),
+        provider: 'Clínica Central',
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Claim approved events
+    planEvents.push({
+      id: uuidv4(),
+      type: EventType.PLAN_CLAIM_APPROVED,
+      userId,
+      journeyId: 'plan',
+      payload: {
+        claimId: uuidv4(),
+        claimType: 'Exame',
+        amount: 180.0,
+        approvedAmount: 150.0,
+        currency: 'BRL',
+        serviceDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        submittedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
+        approvedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        provider: 'Laboratório Central',
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      processedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Benefit usage events
+    planEvents.push({
+      id: uuidv4(),
+      type: EventType.PLAN_BENEFIT_USED,
+      userId,
+      journeyId: 'plan',
+      payload: {
+        benefitId: uuidv4(),
+        benefitType: 'Desconto em Farmácia',
+        usedAt: new Date().toISOString(),
+        location: 'Farmácia Popular',
+        savingsAmount: 45.0,
+        currency: 'BRL',
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+    
+    // Plan comparison events
+    planEvents.push({
+      id: uuidv4(),
+      type: EventType.PLAN_COMPARISON_COMPLETED,
+      userId,
+      journeyId: 'plan',
+      payload: {
+        comparisonId: uuidv4(),
+        planIds: [uuidv4(), uuidv4(), uuidv4()],
+        completedAt: new Date().toISOString(),
+        selectedPlanId: uuidv4(),
+      },
+      status: 'PROCESSED',
+      createdAt: new Date(),
+      processedAt: new Date(),
+      version: '1.0.0',
+      correlationId: uuidv4(),
+    });
+  }
+  
+  // Store events in database
+  for (const event of planEvents) {
+    await prisma.event.create({
+      data: event,
+    });
+  }
 }
 
 /**
- * Options for creating a test achievement
+ * Seeds achievements for testing
+ * @param prisma The PrismaClient instance
+ * @param userIds Array of user IDs to create achievements for
  */
-export interface CreateTestAchievementOptions {
-  id?: string;
-  userId: string;
-  type: string;
-  journey: string;
-  level: number;
-  progress: number;
-  xpAwarded: number;
-  unlockedAt?: Date;
-  createdAt?: Date;
-  updatedAt?: Date;
+async function seedAchievements(prisma: PrismaClient | MockPrismaClient, userIds: string[]): Promise<void> {
+  // Create achievements
+  const achievements = [];
+  
+  for (const userId of userIds) {
+    // Health journey achievements
+    achievements.push({
+      id: uuidv4(),
+      userId,
+      type: 'health-check-streak',
+      level: 1,
+      earnedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      journey: 'health',
+      metadata: {
+        streakDays: 7,
+        metrics: ['HEART_RATE', 'BLOOD_PRESSURE', 'STEPS'],
+      },
+    });
+    
+    achievements.push({
+      id: uuidv4(),
+      userId,
+      type: 'steps-goal',
+      level: 2,
+      earnedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      journey: 'health',
+      metadata: {
+        goalsMet: 15,
+        totalSteps: 120000,
+      },
+    });
+    
+    // Care journey achievements
+    achievements.push({
+      id: uuidv4(),
+      userId,
+      type: 'appointment-keeper',
+      level: 1,
+      earnedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      journey: 'care',
+      metadata: {
+        appointmentsKept: 3,
+        onTimeRate: 100,
+      },
+    });
+    
+    // Plan journey achievements
+    achievements.push({
+      id: uuidv4(),
+      userId,
+      type: 'claim-master',
+      level: 1,
+      earnedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      journey: 'plan',
+      metadata: {
+        claimsSubmitted: 5,
+        approvalRate: 100,
+      },
+    });
+  }
+  
+  // Store achievements in database
+  for (const achievement of achievements) {
+    await prisma.achievement.create({
+      data: achievement,
+    });
+  }
 }
 
 /**
- * Options for creating a test profile
+ * Creates a test event with the specified properties
+ * @param type The event type
+ * @param userId The user ID
+ * @param journeyId The journey ID
+ * @param payload The event payload
+ * @param options Additional event options
+ * @returns The created event object
  */
-export interface CreateTestProfileOptions {
-  id?: string;
-  userId: string;
-  xp: number;
-  level: number;
-  achievements: number;
-  createdAt?: Date;
-  updatedAt?: Date;
+export function createTestEvent(
+  type: EventType,
+  userId: string,
+  journeyId: 'health' | 'care' | 'plan',
+  payload: any,
+  options: Partial<EventRecord> = {}
+): EventRecord {
+  return {
+    id: options.id || uuidv4(),
+    type,
+    userId,
+    journeyId,
+    payload,
+    createdAt: options.createdAt || new Date(),
+    processedAt: options.processedAt,
+    status: options.status || 'PENDING',
+    errorMessage: options.errorMessage,
+    retryCount: options.retryCount || 0,
+    version: options.version || '1.0.0',
+    correlationId: options.correlationId || uuidv4(),
+    metadata: options.metadata || {},
+  };
 }
 
 /**
- * Options for verifying an event exists
+ * Creates a test achievement with the specified properties
+ * @param userId The user ID
+ * @param type The achievement type
+ * @param level The achievement level
+ * @param journey The journey
+ * @param options Additional achievement options
+ * @returns The created achievement object
  */
-export interface VerifyEventOptions {
-  userId: string;
-  type: string;
-  journey: string;
-  payload?: any;
+export function createTestAchievement(
+  userId: string,
+  type: string,
+  level: number,
+  journey: 'health' | 'care' | 'plan',
+  options: Partial<AchievementRecord> = {}
+): AchievementRecord {
+  return {
+    id: options.id || uuidv4(),
+    userId,
+    type,
+    level,
+    earnedAt: options.earnedAt || new Date(),
+    journey,
+    metadata: options.metadata || {},
+  };
 }
 
 /**
- * Options for verifying an achievement exists
+ * Gets the current state of the in-memory database
+ * @returns The current in-memory database state
  */
-export interface VerifyAchievementOptions {
-  userId: string;
-  type: string;
-  journey: string;
-  level?: number;
+export function getInMemoryDatabase(): MockDatabase {
+  return { ...inMemoryDatabase };
 }
 
 /**
- * Options for verifying a profile exists
+ * Sets the state of the in-memory database (useful for specific test scenarios)
+ * @param newState The new database state
  */
-export interface VerifyProfileOptions {
-  userId: string;
-  xp?: number;
-  level?: number;
-  achievements?: number;
+export function setInMemoryDatabase(newState: Partial<MockDatabase>): void {
+  inMemoryDatabase = {
+    ...inMemoryDatabase,
+    ...newState,
+  };
 }

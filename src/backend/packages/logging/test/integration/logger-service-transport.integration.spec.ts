@@ -1,851 +1,802 @@
 import { Test } from '@nestjs/testing';
 import * as fs from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
+import * as os from 'os';
 import { LoggerService } from '../../src/logger.service';
+import { LogLevel } from '../../src/interfaces/log-level.enum';
 import { ConsoleTransport } from '../../src/transports/console.transport';
 import { FileTransport } from '../../src/transports/file.transport';
 import { CloudWatchTransport } from '../../src/transports/cloudwatch.transport';
-import { TransportFactory } from '../../src/transports/transport-factory';
-import { JsonFormatter } from '../../src/formatters/json.formatter';
 import { TextFormatter } from '../../src/formatters/text.formatter';
+import { JsonFormatter } from '../../src/formatters/json.formatter';
 import { CloudWatchFormatter } from '../../src/formatters/cloudwatch.formatter';
-import { LogLevel } from '../../src/interfaces/log-level.enum';
 import { Transport } from '../../src/interfaces/transport.interface';
 import { LoggerConfig } from '../../src/interfaces/log-config.interface';
-import { LogEntry } from '../../src/interfaces/log-entry.interface';
+import { TransportFactory } from '../../src/transports/transport-factory';
+import { LoggingContext } from '../../src/context/context.interface';
+import { JourneyContext } from '../../src/context/journey-context.interface';
+import { UserContext } from '../../src/context/user-context.interface';
+import { RequestContext } from '../../src/context/request-context.interface';
+import { ContextManager } from '../../src/context/context-manager';
+import { TracingService } from '@austa/tracing';
 
-// Mock AWS SDK
-jest.mock('aws-sdk', () => {
-  const mockPutLogEvents = jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({ nextSequenceToken: 'mock-token' })
-  });
-  
-  const mockCreateLogStream = jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({})
-  });
+// Import test utilities and fixtures
+import { MockTransport } from '../mocks/transport.mock';
+import { MockTracingService } from '../mocks/tracing.service.mock';
+import * as fixtures from './fixtures';
+import * as testUtils from './utils';
 
-  const mockCreateLogGroup = jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({})
-  });
-
-  const mockDescribeLogStreams = jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({
-      logStreams: [{ logStreamName: 'test-stream', uploadSequenceToken: 'mock-token' }]
-    })
-  });
-
-  return {
-    CloudWatchLogs: jest.fn().mockImplementation(() => ({
-      putLogEvents: mockPutLogEvents,
-      createLogStream: mockCreateLogStream,
-      createLogGroup: mockCreateLogGroup,
-      describeLogStreams: mockDescribeLogStreams
-    }))
-  };
-});
-
-// Helper to read the last line of a file
-const readLastLine = async (filePath: string): Promise<string> => {
-  const readFile = promisify(fs.readFile);
-  const content = await readFile(filePath, 'utf8');
-  const lines = content.split('\n').filter(Boolean);
-  return lines[lines.length - 1];
-};
-
-// Mock console methods
-let consoleOutput: { [key: string]: string[] } = {};
-const originalConsole = { ...console };
-
-beforeAll(() => {
-  // Mock console methods to capture output
-  ['log', 'error', 'warn', 'debug', 'info'].forEach(method => {
-    consoleOutput[method] = [];
-    console[method] = jest.fn((...args) => {
-      consoleOutput[method].push(args.join(' '));
-    });
-  });
-});
-
-afterAll(() => {
-  // Restore original console methods
-  Object.assign(console, originalConsole);
-});
-
-beforeEach(() => {
-  // Clear captured console output before each test
-  Object.keys(consoleOutput).forEach(key => {
-    consoleOutput[key] = [];
-  });
-});
-
+/**
+ * Integration tests for LoggerService with various transports.
+ * 
+ * These tests verify the correct interaction between LoggerService and the
+ * Console, File, and CloudWatch transports. They ensure log entries are properly
+ * delivered to the appropriate destinations with correct formatting.
+ */
 describe('LoggerService Transport Integration', () => {
-  const TEST_LOG_DIR = path.join(__dirname, '../../../test-logs');
-  const TEST_LOG_FILE = path.join(TEST_LOG_DIR, 'test.log');
-  
-  // Ensure test log directory exists
+  // Common test variables
+  let loggerService: LoggerService;
+  let mockTracingService: TracingService;
+  let tempLogDir: string;
+  let tempLogFile: string;
+
+  // Setup before all tests
   beforeAll(() => {
-    if (!fs.existsSync(TEST_LOG_DIR)) {
-      fs.mkdirSync(TEST_LOG_DIR, { recursive: true });
-    }
+    // Create temporary directory for log files
+    tempLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'));
+    tempLogFile = path.join(tempLogDir, 'test.log');
   });
-  
-  // Clean up test log files after each test
-  afterEach(() => {
-    if (fs.existsSync(TEST_LOG_FILE)) {
-      fs.unlinkSync(TEST_LOG_FILE);
-    }
-  });
-  
-  // Clean up test log directory after all tests
+
+  // Cleanup after all tests
   afterAll(() => {
-    if (fs.existsSync(TEST_LOG_DIR)) {
-      fs.rmdirSync(TEST_LOG_DIR, { recursive: true });
+    // Remove temporary log files and directory
+    if (fs.existsSync(tempLogDir)) {
+      const files = fs.readdirSync(tempLogDir);
+      files.forEach(file => {
+        fs.unlinkSync(path.join(tempLogDir, file));
+      });
+      fs.rmdirSync(tempLogDir);
     }
   });
 
   describe('Console Transport Integration', () => {
-    let loggerService: LoggerService;
     let consoleTransport: ConsoleTransport;
-    
-    beforeEach(async () => {
-      // Create a console transport with text formatter
+    let originalConsoleLog: typeof console.log;
+    let originalConsoleError: typeof console.error;
+    let consoleLogSpy: jest.SpyInstance;
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      // Save original console methods
+      originalConsoleLog = console.log;
+      originalConsoleError = console.error;
+
+      // Create spies for console methods
+      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      // Create console transport with text formatter
+      const textFormatter = new TextFormatter();
       consoleTransport = new ConsoleTransport({
-        level: LogLevel.DEBUG,
-        formatter: new TextFormatter()
+        formatter: textFormatter,
+        minLevel: LogLevel.DEBUG,
+        colorize: false, // Disable colors for testing
+        bufferSize: 1, // Flush immediately for testing
       });
-      
-      // Create a spy on the transport's write method
-      jest.spyOn(consoleTransport, 'write');
-      
-      // Create the logger service with the console transport
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([consoleTransport]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+
+      // Create logger service with console transport
+      mockTracingService = new MockTracingService();
+      const loggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [consoleTransport],
+      };
+
+      loggerService = new LoggerService(loggerConfig, mockTracingService);
     });
-    
-    it('should log messages to console with the correct level', () => {
+
+    afterEach(() => {
+      // Restore original console methods
+      console.log = originalConsoleLog;
+      console.error = originalConsoleError;
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should log messages to console with correct level', async () => {
       // Log messages at different levels
       loggerService.debug('Debug message');
       loggerService.log('Info message');
       loggerService.warn('Warning message');
       loggerService.error('Error message');
+
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Verify console.log was called for debug, info, and warn levels
+      expect(consoleLogSpy).toHaveBeenCalledTimes(3);
       
-      // Verify transport write method was called with correct log entries
-      expect(consoleTransport.write).toHaveBeenCalledTimes(4);
+      // Verify console.error was called for error level
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+      // Verify log content contains the messages
+      const allCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(allCalls).toContain('Debug message');
+      expect(allCalls).toContain('Info message');
+      expect(allCalls).toContain('Warning message');
       
-      // Verify console output contains the messages
-      expect(consoleOutput.debug.some(line => line.includes('Debug message'))).toBeTruthy();
-      expect(consoleOutput.log.some(line => line.includes('Info message'))).toBeTruthy();
-      expect(consoleOutput.warn.some(line => line.includes('Warning message'))).toBeTruthy();
-      expect(consoleOutput.error.some(line => line.includes('Error message'))).toBeTruthy();
+      const errorCalls = consoleErrorSpy.mock.calls.flat().join(' ');
+      expect(errorCalls).toContain('Error message');
     });
-    
-    it('should include context in console logs', () => {
-      const context = { requestId: 'test-request', userId: 'test-user' };
+
+    it('should include context information in console logs', async () => {
+      // Create context objects
+      const requestContext: RequestContext = fixtures.sampleRequestContext;
       
       // Log with context
-      loggerService.log('Message with context', context);
+      loggerService.log('Message with context', { requestId: requestContext.requestId });
       
-      // Verify context is included in the output
-      expect(consoleOutput.log.some(line => {
-        return line.includes('Message with context') && 
-               line.includes('test-request') && 
-               line.includes('test-user');
-      })).toBeTruthy();
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Verify context is included in logs
+      const allCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(allCalls).toContain(requestContext.requestId);
     });
-    
-    it('should respect log level filtering', () => {
-      // Set transport level to INFO
-      consoleTransport.setLevel(LogLevel.INFO);
+
+    it('should handle errors in console transport gracefully', async () => {
+      // Make console.log throw an error
+      console.log = jest.fn().mockImplementation(() => {
+        throw new Error('Console error');
+      });
       
-      // Log at different levels
-      loggerService.debug('Debug message'); // Should be filtered out
-      loggerService.log('Info message');    // Should be logged
-      loggerService.warn('Warning message'); // Should be logged
+      // This should not throw despite the console error
+      expect(() => {
+        loggerService.log('This should not throw');
+      }).not.toThrow();
       
-      // Verify debug message was filtered out
-      expect(consoleOutput.debug.length).toBe(0);
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 50));
       
-      // Verify other messages were logged
-      expect(consoleOutput.log.some(line => line.includes('Info message'))).toBeTruthy();
-      expect(consoleOutput.warn.some(line => line.includes('Warning message'))).toBeTruthy();
+      // Verify error was handled
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    it('should batch console logs correctly', async () => {
+      // Create a transport with larger buffer size
+      const textFormatter = new TextFormatter();
+      const batchedTransport = new ConsoleTransport({
+        formatter: textFormatter,
+        minLevel: LogLevel.DEBUG,
+        colorize: false,
+        bufferSize: 5, // Batch 5 logs before flushing
+      });
+
+      // Create logger with batched transport
+      const batchedLoggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [batchedTransport],
+      };
+
+      const batchedLogger = new LoggerService(batchedLoggerConfig, mockTracingService);
+
+      // Reset console spies
+      consoleLogSpy.mockClear();
+      consoleErrorSpy.mockClear();
+
+      // Log 4 messages (less than buffer size)
+      batchedLogger.log('Batch message 1');
+      batchedLogger.log('Batch message 2');
+      batchedLogger.log('Batch message 3');
+      batchedLogger.log('Batch message 4');
+
+      // Verify no logs yet (buffer not full)
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+
+      // Log one more message to trigger flush
+      batchedLogger.log('Batch message 5');
+
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Verify all logs were flushed together
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const allCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(allCalls).toContain('Batch message 1');
+      expect(allCalls).toContain('Batch message 5');
     });
   });
-  
+
   describe('File Transport Integration', () => {
-    let loggerService: LoggerService;
     let fileTransport: FileTransport;
     
-    beforeEach(async () => {
-      // Create a file transport with JSON formatter
+    beforeEach(() => {
+      // Create file transport with JSON formatter
+      const jsonFormatter = new JsonFormatter();
       fileTransport = new FileTransport({
-        level: LogLevel.DEBUG,
-        formatter: new JsonFormatter(),
-        filename: TEST_LOG_FILE
+        filePath: tempLogFile,
+        formatter: jsonFormatter,
+        minLevel: LogLevel.DEBUG,
+        bufferSize: 1, // Flush immediately for testing
+        sync: true, // Use synchronous file operations for testing
       });
-      
-      // Create a spy on the transport's write method
-      jest.spyOn(fileTransport, 'write');
-      
-      // Create the logger service with the file transport
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([fileTransport]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
-    });
-    
-    it('should write log entries to file in JSON format', async () => {
-      // Log a message
-      loggerService.log('File log message');
-      
-      // Wait for file write to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Verify transport write method was called
-      expect(fileTransport.write).toHaveBeenCalledTimes(1);
-      
-      // Verify file exists
-      expect(fs.existsSync(TEST_LOG_FILE)).toBeTruthy();
-      
-      // Read the last line of the file
-      const lastLine = await readLastLine(TEST_LOG_FILE);
-      
-      // Parse the JSON log entry
-      const logEntry = JSON.parse(lastLine);
-      
-      // Verify log entry contains the message
-      expect(logEntry.message).toBe('File log message');
-      expect(logEntry.level).toBe('info');
-    });
-    
-    it('should include error details in file logs', async () => {
-      // Create an error
-      const testError = new Error('Test error');
-      
-      // Log the error
-      loggerService.error('Error occurred', testError);
-      
-      // Wait for file write to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Read the last line of the file
-      const lastLine = await readLastLine(TEST_LOG_FILE);
-      
-      // Parse the JSON log entry
-      const logEntry = JSON.parse(lastLine);
-      
-      // Verify error details are included
-      expect(logEntry.message).toBe('Error occurred');
-      expect(logEntry.level).toBe('error');
-      expect(logEntry.error).toBeDefined();
-      expect(logEntry.error.message).toBe('Test error');
-      expect(logEntry.error.stack).toBeDefined();
-    });
-    
-    it('should handle log rotation based on file size', async () => {
-      // Create a file transport with size-based rotation
-      const rotatingFileTransport = new FileTransport({
-        level: LogLevel.DEBUG,
-        formatter: new JsonFormatter(),
-        filename: TEST_LOG_FILE,
-        maxSize: 1024, // 1KB max size
-        maxFiles: 3    // Keep 3 rotated files
-      });
-      
-      // Create a logger with the rotating file transport
-      const logger = new LoggerService();
-      logger.setTransports([rotatingFileTransport]);
-      
-      // Write enough logs to trigger rotation
-      const largeMessage = 'A'.repeat(500); // 500 character message
-      for (let i = 0; i < 10; i++) {
-        logger.log(`${largeMessage} - ${i}`);
+
+      // Create logger service with file transport
+      mockTracingService = new MockTracingService();
+      const loggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [fileTransport],
+      };
+
+      loggerService = new LoggerService(loggerConfig, mockTracingService);
+
+      // Clear log file before each test
+      if (fs.existsSync(tempLogFile)) {
+        fs.truncateSync(tempLogFile, 0);
       }
+    });
+
+    it('should write logs to file with correct format', async () => {
+      // Log messages at different levels
+      loggerService.debug('Debug file message');
+      loggerService.log('Info file message');
+      loggerService.warn('Warning file message');
+      loggerService.error('Error file message');
+
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify file exists and has content
+      expect(fs.existsSync(tempLogFile)).toBe(true);
+      const fileContent = fs.readFileSync(tempLogFile, 'utf8');
       
-      // Wait for file operations to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Verify log content contains the messages
+      expect(fileContent).toContain('Debug file message');
+      expect(fileContent).toContain('Info file message');
+      expect(fileContent).toContain('Warning file message');
+      expect(fileContent).toContain('Error file message');
+
+      // Verify JSON format
+      const logLines = fileContent.trim().split('\n');
+      logLines.forEach(line => {
+        const logEntry = JSON.parse(line);
+        expect(logEntry).toHaveProperty('level');
+        expect(logEntry).toHaveProperty('message');
+        expect(logEntry).toHaveProperty('timestamp');
+        expect(logEntry).toHaveProperty('serviceName', 'test-service');
+      });
+    });
+
+    it('should include context and trace information in file logs', async () => {
+      // Set trace context
+      (mockTracingService as MockTracingService).setCurrentTraceContext({
+        traceId: 'test-trace-id',
+        spanId: 'test-span-id',
+      });
+
+      // Create journey context
+      const journeyContext: JourneyContext = fixtures.sampleJourneyContext;
       
-      // Verify rotation files exist
-      const baseDir = path.dirname(TEST_LOG_FILE);
-      const baseFileName = path.basename(TEST_LOG_FILE);
-      const rotatedFiles = fs.readdirSync(baseDir)
-        .filter(file => file.startsWith(baseFileName) && file !== baseFileName);
+      // Log with journey context
+      loggerService.logWithJourneyContext(
+        LogLevel.INFO,
+        'Journey context message',
+        journeyContext
+      );
       
-      // Should have at least one rotated file
-      expect(rotatedFiles.length).toBeGreaterThan(0);
+      // Allow time for async flush
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Verify file content
+      const fileContent = fs.readFileSync(tempLogFile, 'utf8');
+      const logEntry = JSON.parse(fileContent.trim());
+      
+      // Verify journey context
+      expect(logEntry).toHaveProperty('journeyType', journeyContext.journeyType);
+      expect(logEntry).toHaveProperty('journeyId', journeyContext.journeyId);
+      
+      // Verify trace context
+      expect(logEntry).toHaveProperty('traceId', 'test-trace-id');
+      expect(logEntry).toHaveProperty('spanId', 'test-span-id');
+    });
+
+    it('should handle file rotation correctly', async () => {
+      // Create file transport with small max size to trigger rotation
+      const jsonFormatter = new JsonFormatter();
+      const rotatingTransport = new FileTransport({
+        filePath: tempLogFile,
+        formatter: jsonFormatter,
+        minLevel: LogLevel.DEBUG,
+        maxSize: 100, // Very small size to trigger rotation
+        maxFiles: 3,
+        bufferSize: 1, // Flush immediately
+        sync: true, // Synchronous for testing
+      });
+
+      // Create logger with rotating transport
+      const rotatingLoggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [rotatingTransport],
+      };
+
+      const rotatingLogger = new LoggerService(rotatingLoggerConfig, mockTracingService);
+
+      // Write logs to trigger rotation
+      for (let i = 0; i < 10; i++) {
+        rotatingLogger.log(`Rotation test message ${i} with some extra content to make it larger`);
+        // Allow time for async operations
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
+      // Check for rotated files
+      const dirContents = fs.readdirSync(tempLogDir);
+      const logFiles = dirContents.filter(file => file.startsWith(path.basename(tempLogFile)));
+      
+      // Should have original file plus rotated files (up to maxFiles)
+      expect(logFiles.length).toBeGreaterThan(1);
+      
+      // Original file should exist and have content
+      expect(fs.existsSync(tempLogFile)).toBe(true);
+      expect(fs.readFileSync(tempLogFile, 'utf8')).not.toBe('');
+    });
+
+    it('should handle file write errors gracefully', async () => {
+      // Create a directory with the same name as the log file to cause a write error
+      const errorFilePath = path.join(tempLogDir, 'error-file');
+      if (fs.existsSync(errorFilePath)) {
+        fs.unlinkSync(errorFilePath);
+      }
+      fs.mkdirSync(errorFilePath);
+
+      // Create file transport that will fail
+      const jsonFormatter = new JsonFormatter();
+      const errorTransport = new FileTransport({
+        filePath: errorFilePath, // This is a directory, so writes will fail
+        formatter: jsonFormatter,
+        minLevel: LogLevel.DEBUG,
+        bufferSize: 1,
+      });
+
+      // Create logger with error transport
+      const errorLoggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [errorTransport],
+      };
+
+      const errorLogger = new LoggerService(errorLoggerConfig, mockTracingService);
+
+      // This should not throw despite the file error
+      expect(() => {
+        errorLogger.log('This should not throw despite file error');
+      }).not.toThrow();
+
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Clean up
+      fs.rmdirSync(errorFilePath);
     });
   });
-  
+
   describe('CloudWatch Transport Integration', () => {
-    let loggerService: LoggerService;
-    let cloudwatchTransport: CloudWatchTransport;
-    let awsSdkMock: any;
+    let cloudWatchTransport: CloudWatchTransport;
+    let mockCloudWatchClient: any;
     
-    beforeEach(async () => {
-      // Get the mocked AWS SDK
-      awsSdkMock = require('aws-sdk');
+    beforeEach(() => {
+      // Create mock CloudWatch client
+      mockCloudWatchClient = testUtils.createMockCloudWatchClient();
       
-      // Create a CloudWatch transport with CloudWatch formatter
-      cloudwatchTransport = new CloudWatchTransport({
-        level: LogLevel.INFO,
-        formatter: new CloudWatchFormatter(),
-        logGroupName: 'test-group',
-        logStreamName: 'test-stream',
-        region: 'us-east-1'
+      // Create CloudWatch transport with CloudWatch formatter
+      const cloudWatchFormatter = new CloudWatchFormatter();
+      cloudWatchTransport = new CloudWatchTransport({
+        region: 'us-east-1',
+        logGroupName: 'test-log-group',
+        logStreamName: 'test-log-stream',
+        batchSize: 1, // Flush immediately for testing
+      }, cloudWatchFormatter);
+      
+      // Replace the AWS client with our mock
+      (cloudWatchTransport as any).client = mockCloudWatchClient;
+      
+      // Initialize the transport
+      (cloudWatchTransport as any).logGroupExists = true;
+      (cloudWatchTransport as any).logStreamExists = true;
+      (cloudWatchTransport as any).initialized = true;
+
+      // Create logger service with CloudWatch transport
+      mockTracingService = new MockTracingService();
+      const loggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [cloudWatchTransport],
+      };
+
+      loggerService = new LoggerService(loggerConfig, mockTracingService);
+    });
+
+    it('should send logs to CloudWatch with correct format', async () => {
+      // Log messages at different levels
+      loggerService.debug('Debug CloudWatch message');
+      loggerService.log('Info CloudWatch message');
+      loggerService.warn('Warning CloudWatch message');
+      loggerService.error('Error CloudWatch message');
+
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify PutLogEvents was called
+      expect(mockCloudWatchClient.send).toHaveBeenCalled();
+      
+      // Get the PutLogEvents commands
+      const putLogEventsCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'PutLogEventsCommand'
+      );
+      
+      // Verify log events were sent
+      expect(putLogEventsCalls.length).toBeGreaterThan(0);
+      
+      // Verify log content
+      let foundDebug = false;
+      let foundInfo = false;
+      let foundWarn = false;
+      let foundError = false;
+      
+      putLogEventsCalls.forEach(call => {
+        const command = call[0];
+        const logEvents = command.input.logEvents;
+        
+        logEvents.forEach(event => {
+          const message = event.message;
+          if (message.includes('Debug CloudWatch message')) foundDebug = true;
+          if (message.includes('Info CloudWatch message')) foundInfo = true;
+          if (message.includes('Warning CloudWatch message')) foundWarn = true;
+          if (message.includes('Error CloudWatch message')) foundError = true;
+        });
       });
       
-      // Create a spy on the transport's write method
-      jest.spyOn(cloudwatchTransport, 'write');
-      
-      // Create the logger service with the CloudWatch transport
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([cloudwatchTransport]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      expect(foundDebug).toBe(true);
+      expect(foundInfo).toBe(true);
+      expect(foundWarn).toBe(true);
+      expect(foundError).toBe(true);
     });
-    
-    it('should send log entries to CloudWatch', () => {
-      // Log a message
-      loggerService.log('CloudWatch log message');
+
+    it('should create log group and stream if they do not exist', async () => {
+      // Reset the transport state
+      (cloudWatchTransport as any).logGroupExists = false;
+      (cloudWatchTransport as any).logStreamExists = false;
+      (cloudWatchTransport as any).initialized = false;
       
-      // Verify transport write method was called
-      expect(cloudwatchTransport.write).toHaveBeenCalledTimes(1);
+      // Clear mock calls
+      mockCloudWatchClient.send.mockClear();
       
-      // Get the CloudWatchLogs instance
-      const cloudwatchLogs = new awsSdkMock.CloudWatchLogs();
+      // Log a message to trigger initialization
+      loggerService.log('Initialize CloudWatch transport');
       
-      // Verify putLogEvents was called
-      expect(cloudwatchLogs.putLogEvents).toHaveBeenCalled();
-      
-      // Verify the log message was included in the putLogEvents call
-      const putLogEventsArgs = cloudwatchLogs.putLogEvents.mock.calls[0][0];
-      expect(putLogEventsArgs.logGroupName).toBe('test-group');
-      expect(putLogEventsArgs.logStreamName).toBe('test-stream');
-      expect(putLogEventsArgs.logEvents.length).toBe(1);
-      
-      // Verify the log message contains the expected content
-      const logMessage = JSON.parse(putLogEventsArgs.logEvents[0].message);
-      expect(logMessage.message).toBe('CloudWatch log message');
-    });
-    
-    it('should batch multiple log entries in a single CloudWatch request', () => {
-      // Configure the transport to use batching
-      cloudwatchTransport.setBatchSize(5);
-      cloudwatchTransport.setBatchTimeout(1000);
-      
-      // Log multiple messages
-      for (let i = 0; i < 5; i++) {
-        loggerService.log(`CloudWatch batch message ${i}`);
-      }
-      
-      // Verify transport write method was called for each message
-      expect(cloudwatchTransport.write).toHaveBeenCalledTimes(5);
-      
-      // Get the CloudWatchLogs instance
-      const cloudwatchLogs = new awsSdkMock.CloudWatchLogs();
-      
-      // Verify putLogEvents was called once with all messages
-      expect(cloudwatchLogs.putLogEvents).toHaveBeenCalledTimes(1);
-      
-      // Verify the batch contains all log messages
-      const putLogEventsArgs = cloudwatchLogs.putLogEvents.mock.calls[0][0];
-      expect(putLogEventsArgs.logEvents.length).toBe(5);
-    });
-    
-    it('should handle CloudWatch API errors gracefully', async () => {
-      // Mock a failure in putLogEvents
-      const cloudwatchLogs = new awsSdkMock.CloudWatchLogs();
-      cloudwatchLogs.putLogEvents.mockReturnValueOnce({
-        promise: jest.fn().mockRejectedValueOnce(new Error('API Error'))
-      });
-      
-      // Log a message (this should trigger the error)
-      loggerService.log('Error-triggering message');
-      
-      // Wait for error handling to complete
+      // Allow time for async operations
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Verify the transport attempted to handle the error
-      // This would typically involve retry logic or fallback to another transport
-      // For this test, we're just verifying the error doesn't crash the application
-      expect(true).toBeTruthy(); // If we got here, the error was handled
+      // Verify describe and create commands were called
+      const describeLogGroupsCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'DescribeLogGroupsCommand'
+      );
+      
+      const createLogGroupCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'CreateLogGroupCommand'
+      );
+      
+      const describeLogStreamsCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'DescribeLogStreamsCommand'
+      );
+      
+      const createLogStreamCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'CreateLogStreamCommand'
+      );
+      
+      expect(describeLogGroupsCalls.length).toBeGreaterThan(0);
+      expect(createLogGroupCalls.length).toBeGreaterThan(0);
+      expect(describeLogStreamsCalls.length).toBeGreaterThan(0);
+      expect(createLogStreamCalls.length).toBeGreaterThan(0);
+    });
+
+    it('should handle CloudWatch API errors gracefully', async () => {
+      // Make the CloudWatch client throw an error
+      mockCloudWatchClient.send.mockRejectedValueOnce(new Error('CloudWatch API error'));
+      
+      // This should not throw despite the API error
+      expect(() => {
+        loggerService.log('This should not throw despite CloudWatch error');
+      }).not.toThrow();
+      
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+
+    it('should batch CloudWatch logs correctly', async () => {
+      // Create a transport with larger batch size
+      const cloudWatchFormatter = new CloudWatchFormatter();
+      const batchedTransport = new CloudWatchTransport({
+        region: 'us-east-1',
+        logGroupName: 'test-log-group',
+        logStreamName: 'test-log-stream',
+        batchSize: 5, // Batch 5 logs before sending
+      }, cloudWatchFormatter);
+      
+      // Replace the AWS client with our mock
+      (batchedTransport as any).client = mockCloudWatchClient;
+      
+      // Initialize the transport
+      (batchedTransport as any).logGroupExists = true;
+      (batchedTransport as any).logStreamExists = true;
+      (batchedTransport as any).initialized = true;
+
+      // Create logger with batched transport
+      const batchedLoggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG,
+        transports: [batchedTransport],
+      };
+
+      const batchedLogger = new LoggerService(batchedLoggerConfig, mockTracingService);
+
+      // Clear mock calls
+      mockCloudWatchClient.send.mockClear();
+
+      // Log 4 messages (less than batch size)
+      batchedLogger.log('Batch CloudWatch message 1');
+      batchedLogger.log('Batch CloudWatch message 2');
+      batchedLogger.log('Batch CloudWatch message 3');
+      batchedLogger.log('Batch CloudWatch message 4');
+
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify no PutLogEvents calls yet (batch not full)
+      const putLogEventsCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'PutLogEventsCommand'
+      );
+      expect(putLogEventsCalls.length).toBe(0);
+
+      // Log one more message to trigger batch send
+      batchedLogger.log('Batch CloudWatch message 5');
+
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify batch was sent
+      const updatedPutLogEventsCalls = mockCloudWatchClient.send.mock.calls.filter(
+        call => call[0].constructor.name === 'PutLogEventsCommand'
+      );
+      expect(updatedPutLogEventsCalls.length).toBeGreaterThan(0);
+      
+      // Verify all messages were in the batch
+      const lastCall = updatedPutLogEventsCalls[updatedPutLogEventsCalls.length - 1];
+      const logEvents = lastCall[0].input.logEvents;
+      expect(logEvents.length).toBe(5);
     });
   });
-  
+
   describe('Multiple Transports Integration', () => {
-    let loggerService: LoggerService;
     let consoleTransport: ConsoleTransport;
     let fileTransport: FileTransport;
+    let mockTransport: MockTransport;
+    let consoleLogSpy: jest.SpyInstance;
     
-    beforeEach(async () => {
+    beforeEach(() => {
+      // Create spies for console methods
+      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      
       // Create transports
+      const textFormatter = new TextFormatter();
+      const jsonFormatter = new JsonFormatter();
+      
       consoleTransport = new ConsoleTransport({
-        level: LogLevel.INFO,
-        formatter: new TextFormatter()
+        formatter: textFormatter,
+        minLevel: LogLevel.INFO, // Only INFO and above
+        colorize: false,
+        bufferSize: 1,
       });
       
       fileTransport = new FileTransport({
-        level: LogLevel.DEBUG, // Lower level than console transport
-        formatter: new JsonFormatter(),
-        filename: TEST_LOG_FILE
+        filePath: tempLogFile,
+        formatter: jsonFormatter,
+        minLevel: LogLevel.WARN, // Only WARN and above
+        bufferSize: 1,
+        sync: true,
       });
       
-      // Create spies on transport write methods
-      jest.spyOn(consoleTransport, 'write');
-      jest.spyOn(fileTransport, 'write');
+      mockTransport = new MockTransport();
       
-      // Create the logger service with multiple transports
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([consoleTransport, fileTransport]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      // Create logger service with multiple transports
+      mockTracingService = new MockTracingService();
+      const loggerConfig: LoggerConfig = {
+        serviceName: 'test-service',
+        logLevel: LogLevel.DEBUG, // Logger accepts all levels
+        transports: [consoleTransport, fileTransport, mockTransport],
+      };
+
+      loggerService = new LoggerService(loggerConfig, mockTracingService);
+
+      // Clear log file before each test
+      if (fs.existsSync(tempLogFile)) {
+        fs.truncateSync(tempLogFile, 0);
+      }
     });
-    
-    it('should send logs to all configured transports respecting their levels', async () => {
-      // Log at DEBUG level
-      loggerService.debug('Debug message');
+
+    afterEach(() => {
+      consoleLogSpy.mockRestore();
+    });
+
+    it('should respect different log levels for different transports', async () => {
+      // Log at DEBUG level (should only go to mockTransport)
+      loggerService.debug('Debug multi-transport message');
       
-      // Log at INFO level
-      loggerService.log('Info message');
+      // Log at INFO level (should go to console and mock, but not file)
+      loggerService.log('Info multi-transport message');
       
-      // Verify console transport only received INFO message
-      expect(consoleTransport.write).toHaveBeenCalledTimes(1);
+      // Log at WARN level (should go to all transports)
+      loggerService.warn('Warning multi-transport message');
       
-      // Verify file transport received both messages
-      expect(fileTransport.write).toHaveBeenCalledTimes(2);
-      
-      // Wait for file write to complete
+      // Allow time for async operations
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Verify file contains both messages
-      const fileContent = fs.readFileSync(TEST_LOG_FILE, 'utf8');
-      const logLines = fileContent.split('\n').filter(Boolean);
+      // Verify console transport (INFO and above)
+      expect(consoleLogSpy).toHaveBeenCalledTimes(2); // INFO and WARN
+      const consoleCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(consoleCalls).not.toContain('Debug multi-transport message');
+      expect(consoleCalls).toContain('Info multi-transport message');
+      expect(consoleCalls).toContain('Warning multi-transport message');
       
-      expect(logLines.length).toBe(2);
-      expect(logLines[0].includes('Debug message')).toBeTruthy();
-      expect(logLines[1].includes('Info message')).toBeTruthy();
+      // Verify file transport (WARN and above)
+      const fileContent = fs.readFileSync(tempLogFile, 'utf8');
+      expect(fileContent).not.toContain('Debug multi-transport message');
+      expect(fileContent).not.toContain('Info multi-transport message');
+      expect(fileContent).toContain('Warning multi-transport message');
+      
+      // Verify mock transport (all levels)
+      expect(mockTransport.getWrittenLogs()).toHaveLength(3); // DEBUG, INFO, WARN
+      expect(mockTransport.getWrittenLogs()[0].message).toContain('Debug multi-transport message');
+      expect(mockTransport.getWrittenLogs()[1].message).toContain('Info multi-transport message');
+      expect(mockTransport.getWrittenLogs()[2].message).toContain('Warning multi-transport message');
     });
-    
+
     it('should handle transport failures without affecting other transports', async () => {
-      // Create a failing transport
-      const failingTransport: Transport = {
-        write: jest.fn().mockImplementation(() => {
-          throw new Error('Transport failure');
-        }),
-        setLevel: jest.fn(),
-        getLevel: jest.fn().mockReturnValue(LogLevel.INFO)
-      };
-      
-      // Add the failing transport to the logger
-      loggerService.addTransport(failingTransport);
+      // Make file transport fail
+      jest.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => {
+        throw new Error('File write error');
+      });
       
       // Log a message
-      loggerService.log('Message with failing transport');
+      loggerService.error('Error message with failing transport');
       
-      // Verify the failing transport was called
-      expect(failingTransport.write).toHaveBeenCalledTimes(1);
-      
-      // Verify other transports still received the message
-      expect(consoleTransport.write).toHaveBeenCalledTimes(1);
-      expect(fileTransport.write).toHaveBeenCalledTimes(1);
-      
-      // Wait for file write to complete
+      // Allow time for async operations
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Verify file contains the message
-      const fileContent = fs.readFileSync(TEST_LOG_FILE, 'utf8');
-      expect(fileContent.includes('Message with failing transport')).toBeTruthy();
+      // Verify console transport still worked
+      expect(consoleLogSpy).toHaveBeenCalled();
+      
+      // Verify mock transport still worked
+      expect(mockTransport.getWrittenLogs()).toHaveLength(1);
+      expect(mockTransport.getWrittenLogs()[0].message).toContain('Error message with failing transport');
+    });
+
+    it('should propagate context and trace information to all transports', async () => {
+      // Set trace context
+      (mockTracingService as MockTracingService).setCurrentTraceContext({
+        traceId: 'multi-trace-id',
+        spanId: 'multi-span-id',
+      });
+
+      // Create user context
+      const userContext: UserContext = fixtures.sampleUserContext;
+      
+      // Log with user context
+      loggerService.logWithUserContext(
+        LogLevel.ERROR,
+        'User context message to multiple transports',
+        userContext
+      );
+      
+      // Allow time for async operations
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Verify file transport received context
+      const fileContent = fs.readFileSync(tempLogFile, 'utf8');
+      const fileLogEntry = JSON.parse(fileContent.trim());
+      expect(fileLogEntry).toHaveProperty('userId', userContext.userId);
+      expect(fileLogEntry).toHaveProperty('traceId', 'multi-trace-id');
+      
+      // Verify mock transport received context
+      const mockLogs = mockTransport.getWrittenLogs();
+      expect(mockLogs[0]).toHaveProperty('userId', userContext.userId);
+      expect(mockLogs[0]).toHaveProperty('traceId', 'multi-trace-id');
     });
   });
-  
+
   describe('Transport Factory Integration', () => {
-    it('should create appropriate transports based on configuration', () => {
-      // Create a configuration with multiple transports
-      const config: LoggerConfig = {
-        level: LogLevel.INFO,
-        transports: {
-          console: {
-            enabled: true,
-            level: LogLevel.INFO,
-            formatter: 'text'
-          },
-          file: {
-            enabled: true,
-            level: LogLevel.DEBUG,
-            formatter: 'json',
-            filename: TEST_LOG_FILE
-          },
-          cloudwatch: {
-            enabled: false, // Disabled for this test
-            level: LogLevel.ERROR,
-            formatter: 'cloudwatch',
-            logGroupName: 'test-group',
-            logStreamName: 'test-stream',
-            region: 'us-east-1'
-          }
-        }
-      };
-      
-      // Create transports using the factory
-      const transportFactory = new TransportFactory();
-      const transports = transportFactory.createFromConfig(config);
-      
-      // Verify the correct number of transports were created (2, since cloudwatch is disabled)
-      expect(transports.length).toBe(2);
-      
-      // Verify the types of transports
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-      expect(transports[1]).toBeInstanceOf(FileTransport);
-      
-      // Verify transport levels were set correctly
-      expect(transports[0].getLevel()).toBe(LogLevel.INFO);
-      expect(transports[1].getLevel()).toBe(LogLevel.DEBUG);
-    });
-    
-    it('should create a logger service with transports from factory', async () => {
-      // Create a configuration
-      const config: LoggerConfig = {
-        level: LogLevel.INFO,
-        transports: {
-          console: {
-            enabled: true,
-            level: LogLevel.INFO,
-            formatter: 'text'
-          }
-        }
-      };
-      
-      // Create transports using the factory
-      const transportFactory = new TransportFactory();
-      const transports = transportFactory.createFromConfig(config);
-      
-      // Create the logger service with the transports
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports(transports);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      const loggerService = moduleRef.get<LoggerService>(LoggerService);
-      
-      // Log a message
-      loggerService.log('Factory-created transport test');
-      
-      // Verify the message was logged to console
-      expect(consoleOutput.log.some(line => 
-        line.includes('Factory-created transport test')
-      )).toBeTruthy();
-    });
-  });
-  
-  describe('Journey Context Integration', () => {
-    let loggerService: LoggerService;
-    let consoleTransport: ConsoleTransport;
-    
-    beforeEach(async () => {
-      // Create a console transport
-      consoleTransport = new ConsoleTransport({
-        level: LogLevel.DEBUG,
-        formatter: new TextFormatter()
+    it('should create console transport with correct configuration', () => {
+      const transport = TransportFactory.createConsoleTransport({
+        minLevel: LogLevel.INFO,
+        colorize: true,
       });
       
-      // Create the logger service
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: LoggerService,
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([consoleTransport]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      expect(transport).toBeInstanceOf(ConsoleTransport);
+      expect((transport as any).options.minLevel).toBe(LogLevel.INFO);
+      expect((transport as any).options.colorize).toBe(true);
     });
-    
-    it('should include journey context in log entries', () => {
-      // Set journey context
-      loggerService.setContext({
-        journey: 'health',
-        userId: 'test-user-123',
-        requestId: 'req-456'
+
+    it('should create file transport with correct configuration', () => {
+      const transport = TransportFactory.createFileTransport({
+        filePath: tempLogFile,
+        minLevel: LogLevel.WARN,
+        maxSize: 1024 * 1024,
       });
       
-      // Log a message
-      loggerService.log('Journey-specific log');
-      
-      // Verify journey context is included in the log
-      expect(consoleOutput.log.some(line => {
-        return line.includes('Journey-specific log') && 
-               line.includes('health') && 
-               line.includes('test-user-123') && 
-               line.includes('req-456');
-      })).toBeTruthy();
+      expect(transport).toBeInstanceOf(FileTransport);
+      expect((transport as any).options.filePath).toBe(tempLogFile);
+      expect((transport as any).options.minLevel).toBe(LogLevel.WARN);
+      expect((transport as any).options.maxSize).toBe(1024 * 1024);
     });
-    
-    it('should maintain separate contexts for different logger instances', async () => {
-      // Create a second logger service
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          {
-            provide: 'SecondLogger',
-            useFactory: () => {
-              const logger = new LoggerService();
-              logger.setTransports([new ConsoleTransport({
-                level: LogLevel.DEBUG,
-                formatter: new TextFormatter()
-              })]);
-              return logger;
-            }
-          }
-        ]
-      }).compile();
-      
-      const secondLogger = moduleRef.get<LoggerService>('SecondLogger');
-      
-      // Set different contexts for each logger
-      loggerService.setContext({ journey: 'health', userId: 'user-1' });
-      secondLogger.setContext({ journey: 'care', userId: 'user-2' });
-      
-      // Log messages with both loggers
-      loggerService.log('Health journey log');
-      secondLogger.log('Care journey log');
-      
-      // Verify each log contains the correct context
-      expect(consoleOutput.log.some(line => 
-        line.includes('Health journey log') && line.includes('health') && line.includes('user-1')
-      )).toBeTruthy();
-      
-      expect(consoleOutput.log.some(line => 
-        line.includes('Care journey log') && line.includes('care') && line.includes('user-2')
-      )).toBeTruthy();
-    });
-  });
-  
-  describe('Error Handling and Recovery', () => {
-    it('should handle transport initialization failures gracefully', async () => {
-      // Create a transport factory that will throw during initialization
-      const failingTransportFactory = new TransportFactory();
-      jest.spyOn(failingTransportFactory, 'createFromConfig').mockImplementation(() => {
-        throw new Error('Transport initialization failure');
-      });
-      
-      // Create a logger service with a try/catch for the failing factory
-      let logger: LoggerService;
-      try {
-        const transports = failingTransportFactory.createFromConfig({} as LoggerConfig);
-        logger = new LoggerService();
-        logger.setTransports(transports);
-      } catch (error) {
-        // Fall back to a console transport
-        logger = new LoggerService();
-        logger.setTransports([new ConsoleTransport({
-          level: LogLevel.INFO,
-          formatter: new TextFormatter()
-        })]);
-      }
-      
-      // Verify the logger still works with the fallback transport
-      logger.log('Fallback transport test');
-      
-      // Verify the message was logged to console
-      expect(consoleOutput.log.some(line => 
-        line.includes('Fallback transport test')
-      )).toBeTruthy();
-    });
-    
-    it('should recover from transport write failures with fallback mechanism', async () => {
-      // Create a transport that will fail after a certain number of writes
-      let writeCount = 0;
-      const failAfterNWritesTransport: Transport = {
-        write: jest.fn().mockImplementation((entry: LogEntry) => {
-          writeCount++;
-          if (writeCount > 2) {
-            throw new Error('Transport write failure');
-          }
-        }),
-        setLevel: jest.fn(),
-        getLevel: jest.fn().mockReturnValue(LogLevel.INFO)
-      };
-      
-      // Create a fallback transport
-      const fallbackTransport = new ConsoleTransport({
-        level: LogLevel.INFO,
-        formatter: new TextFormatter()
-      });
-      
-      // Create a logger with the failing transport and fallback mechanism
-      const logger = new LoggerService();
-      logger.setTransports([failAfterNWritesTransport]);
-      
-      // Add error handler that switches to fallback transport
-      logger.setErrorHandler((error, transport) => {
-        // Remove the failing transport
-        logger.removeTransport(transport);
-        // Add the fallback transport
-        logger.addTransport(fallbackTransport);
-      });
-      
-      // Log messages (first two should go to the failing transport)
-      logger.log('Message 1'); // Goes to failing transport
-      logger.log('Message 2'); // Goes to failing transport
-      logger.log('Message 3'); // Triggers failure, switches to fallback
-      logger.log('Message 4'); // Should go to fallback transport
-      
-      // Verify the failing transport was called 3 times (third call throws)
-      expect(failAfterNWritesTransport.write).toHaveBeenCalledTimes(3);
-      
-      // Verify the fallback transport received the message after failure
-      expect(consoleOutput.log.some(line => line.includes('Message 4'))).toBeTruthy();
-    });
-  });
-  
-  describe('Batched Logging Operations', () => {
-    it('should batch log entries for efficient delivery to CloudWatch', async () => {
-      // Create a CloudWatch transport with batching enabled
-      const batchedCloudWatchTransport = new CloudWatchTransport({
-        level: LogLevel.INFO,
-        formatter: new CloudWatchFormatter(),
+
+    it('should create CloudWatch transport with correct configuration', () => {
+      const transport = TransportFactory.createCloudWatchTransport({
+        region: 'us-west-2',
         logGroupName: 'test-group',
         logStreamName: 'test-stream',
-        region: 'us-east-1',
-        batchSize: 10,
-        batchTimeout: 500 // 500ms timeout
       });
       
-      // Create a spy on the transport's flushBatch method
-      jest.spyOn(batchedCloudWatchTransport as any, 'flushBatch');
-      
-      // Create a logger with the batched transport
-      const logger = new LoggerService();
-      logger.setTransports([batchedCloudWatchTransport]);
-      
-      // Log multiple messages (but fewer than batch size)
-      for (let i = 0; i < 5; i++) {
-        logger.log(`Batch message ${i}`);
-      }
-      
-      // Verify flushBatch hasn't been called yet (batch not full)
-      expect((batchedCloudWatchTransport as any).flushBatch).not.toHaveBeenCalled();
-      
-      // Wait for batch timeout
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      // Verify flushBatch was called after timeout
-      expect((batchedCloudWatchTransport as any).flushBatch).toHaveBeenCalledTimes(1);
-      
-      // Now log enough messages to trigger batch size flush
-      for (let i = 0; i < 10; i++) {
-        logger.log(`Size-triggered batch message ${i}`);
-      }
-      
-      // Verify flushBatch was called again due to batch size
-      expect((batchedCloudWatchTransport as any).flushBatch).toHaveBeenCalledTimes(2);
+      expect(transport).toBeInstanceOf(CloudWatchTransport);
+      expect((transport as any).config.region).toBe('us-west-2');
+      expect((transport as any).config.logGroupName).toBe('test-group');
+      expect((transport as any).config.logStreamName).toBe('test-stream');
     });
-    
-    it('should handle partial batch failures with retry mechanism', async () => {
-      // Get the mocked AWS SDK
-      const awsSdkMock = require('aws-sdk');
-      const cloudwatchLogs = new awsSdkMock.CloudWatchLogs();
+
+    it('should create transport from configuration object', () => {
+      const consoleConfig = {
+        type: 'console',
+        options: {
+          minLevel: LogLevel.INFO,
+          colorize: true,
+        },
+      };
       
-      // Mock a partial failure in putLogEvents
-      let callCount = 0;
-      cloudwatchLogs.putLogEvents.mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          // First call fails
-          return {
-            promise: jest.fn().mockRejectedValueOnce({
-              code: 'InvalidSequenceTokenException',
-              message: 'Invalid sequence token'
-            })
-          };
-        } else {
-          // Subsequent calls succeed
-          return {
-            promise: jest.fn().mockResolvedValue({ nextSequenceToken: 'new-token' })
-          };
-        }
-      });
+      const fileConfig = {
+        type: 'file',
+        options: {
+          filePath: tempLogFile,
+          minLevel: LogLevel.WARN,
+        },
+      };
       
-      // Create a CloudWatch transport with retry enabled
-      const retryingCloudWatchTransport = new CloudWatchTransport({
-        level: LogLevel.INFO,
-        formatter: new CloudWatchFormatter(),
-        logGroupName: 'test-group',
-        logStreamName: 'test-stream',
-        region: 'us-east-1',
-        maxRetries: 3,
-        retryDelay: 100
-      });
+      const cloudWatchConfig = {
+        type: 'cloudwatch',
+        options: {
+          region: 'us-east-1',
+          logGroupName: 'test-group',
+        },
+      };
       
-      // Create a logger with the retrying transport
-      const logger = new LoggerService();
-      logger.setTransports([retryingCloudWatchTransport]);
+      const consoleTransport = TransportFactory.createTransport(consoleConfig);
+      const fileTransport = TransportFactory.createTransport(fileConfig);
+      const cloudWatchTransport = TransportFactory.createTransport(cloudWatchConfig);
       
-      // Log a message
-      logger.log('Message with retry');
+      expect(consoleTransport).toBeInstanceOf(ConsoleTransport);
+      expect(fileTransport).toBeInstanceOf(FileTransport);
+      expect(cloudWatchTransport).toBeInstanceOf(CloudWatchTransport);
+    });
+
+    it('should throw error for invalid transport type', () => {
+      const invalidConfig = {
+        type: 'invalid-type',
+        options: {},
+      };
       
-      // Wait for retry to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Verify putLogEvents was called multiple times (initial + retry)
-      expect(cloudwatchLogs.putLogEvents).toHaveBeenCalledTimes(2);
-      
-      // Verify the second call succeeded
-      expect(cloudwatchLogs.describeLogStreams).toHaveBeenCalled();
+      expect(() => {
+        TransportFactory.createTransport(invalidConfig);
+      }).toThrow();
     });
   });
 });

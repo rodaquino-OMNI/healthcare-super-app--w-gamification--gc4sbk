@@ -1,428 +1,479 @@
-import { jest } from '@jest/globals';
-import { ConsoleTransport } from '../../../src/transports/console.transport';
+import { EventEmitter } from 'events';
+import { ConsoleTransport, ConsoleTransportOptions } from '../../../src/transports/console.transport';
 import { LogLevel } from '../../../src/interfaces/log-level.enum';
-import { LogEntry } from '../../../src/interfaces/log-entry.interface';
+import { Formatter } from '../../../src/formatters/formatter.interface';
+
+// Mock formatter implementation
+class MockFormatter implements Formatter {
+  format(entry: any): string {
+    return `[${LogLevel[entry.level]}] ${entry.message}`;
+  }
+}
 
 describe('ConsoleTransport', () => {
-  // Console method spies
+  // Spy on console methods
   let consoleLogSpy: jest.SpyInstance;
-  let consoleInfoSpy: jest.SpyInstance;
-  let consoleWarnSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
-
-  // Set up spies before each test
+  
+  // Mock formatter
+  let formatter: Formatter;
+  
+  // Default options
+  let defaultOptions: ConsoleTransportOptions;
+  
   beforeEach(() => {
-    // Use spyOn instead of direct replacement for better cleanup
+    // Setup console spies
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-    consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation();
-    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    // Create formatter
+    formatter = new MockFormatter();
+    
+    // Setup default options
+    defaultOptions = {
+      formatter,
+      minLevel: LogLevel.DEBUG,
+      colorize: false, // Disable colors for easier testing
+    };
+    
+    // Clear mocks before each test
+    jest.clearAllMocks();
   });
-
-  // Restore original console methods after each test
+  
   afterEach(() => {
+    // Restore console methods
     consoleLogSpy.mockRestore();
-    consoleInfoSpy.mockRestore();
-    consoleWarnSpy.mockRestore();
     consoleErrorSpy.mockRestore();
   });
-
-  describe('initialization', () => {
-    it('should use default values if not provided', () => {
-      // Execute
-      const transport = new ConsoleTransport();
+  
+  describe('constructor', () => {
+    it('should create a transport with default options', () => {
+      const transport = new ConsoleTransport(defaultOptions);
       
-      // Verify - using any to access private properties for testing
-      expect((transport as any).colorize).toBe(true);
-      expect((transport as any).level).toBe(LogLevel.DEBUG);
+      expect(transport).toBeInstanceOf(ConsoleTransport);
+      expect(transport).toBeInstanceOf(EventEmitter);
     });
-
-    it('should use provided configuration values', () => {
-      // Execute
-      const transport = new ConsoleTransport({
-        colorize: false,
-        level: LogLevel.ERROR,
-      });
+    
+    it('should merge provided options with defaults', () => {
+      const customOptions: ConsoleTransportOptions = {
+        formatter,
+        minLevel: LogLevel.ERROR,
+        colorize: true,
+        timestamp: false,
+      };
       
-      // Verify - using any to access private properties for testing
-      expect((transport as any).colorize).toBe(false);
-      expect((transport as any).level).toBe(LogLevel.ERROR);
+      const transport = new ConsoleTransport(customOptions);
+      
+      // We can't directly test private properties, but we can test behavior
+      // that depends on these options in other tests
+      expect(transport).toBeInstanceOf(ConsoleTransport);
     });
   });
-
+  
   describe('write', () => {
-    let transport: ConsoleTransport;
-    
-    const mockDebugEntry: LogEntry = {
-      message: 'Debug message',
-      level: LogLevel.DEBUG,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-    
-    const mockInfoEntry: LogEntry = {
-      message: 'Info message',
-      level: LogLevel.INFO,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-    
-    const mockWarnEntry: LogEntry = {
-      message: 'Warning message',
-      level: LogLevel.WARN,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-    
-    const mockErrorEntry: LogEntry = {
-      message: 'Error message',
-      level: LogLevel.ERROR,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-      error: new Error('Test error'),
-    };
-    
-    const mockFatalEntry: LogEntry = {
-      message: 'Fatal message',
-      level: LogLevel.FATAL,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-      error: new Error('Fatal error'),
-    };
-
-    const formattedEntry = 'Formatted log entry';
-
-    beforeEach(() => {
-      transport = new ConsoleTransport();
-    });
-
-    it('should write DEBUG level logs to console.log', async () => {
-      // Execute
-      await transport.write(mockDebugEntry, formattedEntry);
+    it('should write a log entry to console.log', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      const message = 'Test log message';
       
-      // Verify
-      expect(consoleLogSpy).toHaveBeenCalledWith(formattedEntry);
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-
-    it('should write INFO level logs to console.info', async () => {
-      // Execute
-      await transport.write(mockInfoEntry, formattedEntry);
+      await transport.write(LogLevel.INFO, message);
       
-      // Verify
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).toHaveBeenCalledWith(formattedEntry);
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-
-    it('should write WARN level logs to console.warn', async () => {
-      // Execute
-      await transport.write(mockWarnEntry, formattedEntry);
-      
-      // Verify
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(formattedEntry);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-
-    it('should write ERROR level logs to console.error', async () => {
-      // Execute
-      await transport.write(mockErrorEntry, formattedEntry);
-      
-      // Verify
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(formattedEntry);
-    });
-
-    it('should write FATAL level logs to console.error', async () => {
-      // Execute
-      await transport.write(mockFatalEntry, formattedEntry);
-      
-      // Verify
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(formattedEntry);
-    });
-
-    it('should not write logs below the configured level', async () => {
-      // Setup - configure transport to only show ERROR and above
-      transport = new ConsoleTransport({ level: LogLevel.ERROR });
-      
-      // Execute
-      await transport.write(mockDebugEntry, formattedEntry);
-      await transport.write(mockInfoEntry, formattedEntry);
-      await transport.write(mockWarnEntry, formattedEntry);
-      
-      // Verify - no console methods should be called for logs below ERROR
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-      
-      // Now write an ERROR log
-      await transport.write(mockErrorEntry, formattedEntry);
-      
-      // Verify - only console.error should be called
-      expect(consoleErrorSpy).toHaveBeenCalledWith(formattedEntry);
-    });
-  });
-
-  describe('colorization', () => {
-    let transport: ConsoleTransport;
-    const mockInfoEntry: LogEntry = {
-      message: 'Info message',
-      level: LogLevel.INFO,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-
-    // Mock chalk or other colorization library
-    jest.mock('chalk', () => ({
-      green: jest.fn((text) => `GREEN:${text}`),
-      blue: jest.fn((text) => `BLUE:${text}`),
-      yellow: jest.fn((text) => `YELLOW:${text}`),
-      red: jest.fn((text) => `RED:${text}`),
-      magenta: jest.fn((text) => `MAGENTA:${text}`),
-    }));
-
-    beforeEach(() => {
-      transport = new ConsoleTransport({ colorize: true });
-    });
-
-    it('should apply colors when colorize is enabled', async () => {
-      // Setup
-      const formattedEntry = 'Formatted log entry';
-      const colorizedEntry = 'BLUE:Formatted log entry'; // Assuming INFO is blue
-      
-      // Mock the colorize method
-      (transport as any).colorize = true;
-      (transport as any).colorizeText = jest.fn().mockReturnValue(colorizedEntry);
-      
-      // Execute
-      await transport.write(mockInfoEntry, formattedEntry);
-      
-      // Verify
-      expect((transport as any).colorizeText).toHaveBeenCalledWith(formattedEntry, LogLevel.INFO);
-      expect(consoleInfoSpy).toHaveBeenCalledWith(colorizedEntry);
-    });
-
-    it('should not apply colors when colorize is disabled', async () => {
-      // Setup
-      transport = new ConsoleTransport({ colorize: false });
-      const formattedEntry = 'Formatted log entry';
-      
-      // Mock the colorize method to ensure it's not called
-      (transport as any).colorizeText = jest.fn();
-      
-      // Execute
-      await transport.write(mockInfoEntry, formattedEntry);
-      
-      // Verify
-      expect((transport as any).colorizeText).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).toHaveBeenCalledWith(formattedEntry);
-    });
-
-    it('should apply different colors based on log level', async () => {
-      // This test would depend on the actual implementation of colorizeText
-      // Here we're just testing the concept
-      
-      // Setup mock entries for different levels
-      const mockEntries = [
-        { entry: { ...mockInfoEntry, level: LogLevel.DEBUG }, color: 'GREEN' },
-        { entry: { ...mockInfoEntry, level: LogLevel.INFO }, color: 'BLUE' },
-        { entry: { ...mockInfoEntry, level: LogLevel.WARN }, color: 'YELLOW' },
-        { entry: { ...mockInfoEntry, level: LogLevel.ERROR }, color: 'RED' },
-        { entry: { ...mockInfoEntry, level: LogLevel.FATAL }, color: 'MAGENTA' },
-      ];
-      
-      // Mock the colorizeText method with different returns based on level
-      (transport as any).colorizeText = jest.fn((text, level) => {
-        const color = mockEntries.find(e => e.entry.level === level)?.color || '';
-        return `${color}:${text}`;
-      });
-      
-      // Execute for each level and verify
-      for (const { entry, color } of mockEntries) {
-        const formattedEntry = 'Formatted log entry';
-        const expectedColorized = `${color}:${formattedEntry}`;
-        
-        await transport.write(entry, formattedEntry);
-        
-        // Determine which console method should be called based on level
-        let consoleMethod;
-        switch (entry.level) {
-          case LogLevel.DEBUG:
-            consoleMethod = consoleLogSpy;
-            break;
-          case LogLevel.INFO:
-            consoleMethod = consoleInfoSpy;
-            break;
-          case LogLevel.WARN:
-            consoleMethod = consoleWarnSpy;
-            break;
-          case LogLevel.ERROR:
-          case LogLevel.FATAL:
-            consoleMethod = consoleErrorSpy;
-            break;
-        }
-        
-        expect((transport as any).colorizeText).toHaveBeenCalledWith(formattedEntry, entry.level);
-        expect(consoleMethod).toHaveBeenCalledWith(expectedColorized);
-        
-        // Clear mock calls for next iteration
-        jest.clearAllMocks();
-      }
-    });
-  });
-
-  describe('error handling', () => {
-    let transport: ConsoleTransport;
-    const mockInfoEntry: LogEntry = {
-      message: 'Info message',
-      level: LogLevel.INFO,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-    const formattedEntry = 'Formatted log entry';
-
-    beforeEach(() => {
-      transport = new ConsoleTransport();
-    });
-
-    it('should handle console output errors', async () => {
-      // Setup - simulate console.info throwing an error
-      const errorMessage = 'Console output error';
-      consoleInfoSpy.mockImplementation(() => {
-        throw new Error(errorMessage);
-      });
-      
-      // Execute & Verify
-      await expect(transport.write(mockInfoEntry, formattedEntry))
-        .rejects.toThrow(errorMessage);
-    });
-
-    it('should handle colorization errors', async () => {
-      // Setup - simulate colorizeText throwing an error
-      const errorMessage = 'Colorization error';
-      (transport as any).colorizeText = jest.fn().mockImplementation(() => {
-        throw new Error(errorMessage);
-      });
-      
-      // Execute & Verify
-      await expect(transport.write(mockInfoEntry, formattedEntry))
-        .rejects.toThrow(errorMessage);
-    });
-  });
-
-  describe('batching', () => {
-    let transport: ConsoleTransport;
-    const mockInfoEntry: LogEntry = {
-      message: 'Info message',
-      level: LogLevel.INFO,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-    const formattedEntry = 'Formatted log entry';
-
-    beforeEach(() => {
-      transport = new ConsoleTransport({ batchSize: 3 });
-    });
-
-    it('should support batched writing when configured', async () => {
-      // This test depends on the actual implementation of batching
-      // Here we're just testing the concept
-      
-      // Setup - mock the flush method
-      (transport as any).flush = jest.fn();
-      (transport as any).batch = [];
-      (transport as any).batchSize = 3;
-      
-      // Execute - write entries but not enough to trigger flush
-      await transport.write(mockInfoEntry, formattedEntry);
-      await transport.write(mockInfoEntry, formattedEntry);
-      
-      // Verify - batch should have entries but flush not called
-      expect((transport as any).batch.length).toBe(2);
-      expect((transport as any).flush).not.toHaveBeenCalled();
-      expect(consoleInfoSpy).not.toHaveBeenCalled();
-      
-      // Execute - write one more entry to trigger flush
-      await transport.write(mockInfoEntry, formattedEntry);
-      
-      // Verify - flush should be called and batch emptied
-      expect((transport as any).flush).toHaveBeenCalled();
-    });
-
-    it('should flush batch on demand', async () => {
-      // Setup - prepare a batch
-      (transport as any).batch = [
-        { entry: mockInfoEntry, formatted: formattedEntry },
-        { entry: mockInfoEntry, formatted: formattedEntry },
-      ];
-      
-      // Execute - call flush directly
+      // Force flush the buffer
       await (transport as any).flush();
       
-      // Verify - console should be called for each entry and batch emptied
-      expect(consoleInfoSpy).toHaveBeenCalledTimes(2);
-      expect(consoleInfoSpy).toHaveBeenCalledWith(formattedEntry);
-      expect((transport as any).batch.length).toBe(0);
+      expect(consoleLogSpy).toHaveBeenCalledWith('[INFO] Test log message');
     });
-  });
-
-  describe('integration with formatters', () => {
-    let transport: ConsoleTransport;
-    const mockInfoEntry: LogEntry = {
-      message: 'Info message',
-      level: LogLevel.INFO,
-      timestamp: new Date('2023-01-01T12:00:00Z'),
-      context: { requestId: '123', userId: '456', journey: 'health' },
-    };
-
-    beforeEach(() => {
-      transport = new ConsoleTransport();
+    
+    it('should write error logs to console.error when useStderr is true', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        useStderr: true,
+      });
+      const message = 'Test error message';
+      
+      await transport.write(LogLevel.ERROR, message);
+      
+      // Force flush the buffer
+      await (transport as any).flush();
+      
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[ERROR] Test error message');
+      expect(consoleLogSpy).not.toHaveBeenCalled();
     });
-
-    it('should use the formatted entry provided by the formatter', async () => {
-      // Setup - create a mock formatter result
-      const formattedEntry = 'Custom formatted entry with special formatting';
+    
+    it('should not write logs below the minimum level', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        minLevel: LogLevel.ERROR,
+      });
       
-      // Execute
-      await transport.write(mockInfoEntry, formattedEntry);
+      await transport.write(LogLevel.DEBUG, 'Debug message');
+      await transport.write(LogLevel.INFO, 'Info message');
+      await transport.write(LogLevel.WARN, 'Warn message');
       
-      // Verify
-      expect(consoleInfoSpy).toHaveBeenCalledWith(
-        (transport as any).colorize ? expect.any(String) : formattedEntry
+      // Force flush the buffer
+      await (transport as any).flush();
+      
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    });
+    
+    it('should throw an error when writing to a closed transport', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      await transport.close();
+      
+      await expect(transport.write(LogLevel.INFO, 'Test message')).rejects.toThrow(
+        'Cannot write to closed transport'
       );
     });
-
-    it('should work with different formatter outputs', async () => {
-      // Test with different formatter outputs
-      const formatterOutputs = [
-        'Simple text output',
-        '{"json":"formatted","output":true}',
-        'Output with special characters: \n\t\r',
-        'Very long output '.repeat(100), // Test with long output
+    
+    it('should emit an error event when write fails', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      const errorSpy = jest.fn();
+      
+      transport.on('error', errorSpy);
+      
+      // Mock addToBuffer to throw an error
+      jest.spyOn(transport as any, 'addToBuffer').mockImplementation(() => {
+        throw new Error('Test error');
+      });
+      
+      await transport.write(LogLevel.INFO, 'Test message');
+      
+      expect(errorSpy).toHaveBeenCalled();
+      expect(errorSpy.mock.calls[0][0]).toBeInstanceOf(Error);
+      expect(errorSpy.mock.calls[0][0].message).toBe('Test error');
+    });
+  });
+  
+  describe('close', () => {
+    it('should close the transport and flush pending writes', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      const flushSpy = jest.spyOn(transport as any, 'flush');
+      
+      await transport.write(LogLevel.INFO, 'Test message');
+      await transport.close();
+      
+      expect(flushSpy).toHaveBeenCalled();
+      expect((transport as any).closed).toBe(true);
+    });
+    
+    it('should do nothing if the transport is already closed', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      
+      await transport.close();
+      const flushSpy = jest.spyOn(transport as any, 'flush');
+      
+      await transport.close();
+      
+      expect(flushSpy).not.toHaveBeenCalled();
+    });
+  });
+  
+  describe('flush', () => {
+    it('should flush the buffer and write logs to console', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        bufferSize: 5, // Set a larger buffer size to prevent auto-flush
+      });
+      
+      await transport.write(LogLevel.INFO, 'Message 1');
+      await transport.write(LogLevel.INFO, 'Message 2');
+      
+      // Manually flush
+      await (transport as any).flush();
+      
+      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
+      expect(consoleLogSpy).toHaveBeenNthCalledWith(1, '[INFO] Message 1');
+      expect(consoleLogSpy).toHaveBeenNthCalledWith(2, '[INFO] Message 2');
+    });
+    
+    it('should emit a flush event with the number of entries flushed', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        bufferSize: 5,
+      });
+      const flushSpy = jest.fn();
+      
+      transport.on('flush', flushSpy);
+      
+      await transport.write(LogLevel.INFO, 'Message 1');
+      await transport.write(LogLevel.INFO, 'Message 2');
+      
+      // Manually flush
+      await (transport as any).flush();
+      
+      expect(flushSpy).toHaveBeenCalledWith(2);
+    });
+    
+    it('should handle errors during flush and put logs back in buffer', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      const errorSpy = jest.fn();
+      
+      transport.on('error', errorSpy);
+      
+      // Mock writeToConsole to throw an error
+      jest.spyOn(transport as any, 'writeToConsole').mockImplementation(() => {
+        throw new Error('Console write error');
+      });
+      
+      await transport.write(LogLevel.INFO, 'Test message');
+      
+      // Manually flush
+      await (transport as any).flush();
+      
+      expect(errorSpy).toHaveBeenCalled();
+      expect(errorSpy.mock.calls[0][0]).toBeInstanceOf(Error);
+      expect(errorSpy.mock.calls[0][0].message).toContain('Failed to flush logs');
+      
+      // Verify logs are put back in buffer
+      expect((transport as any).buffer.length).toBe(1);
+    });
+    
+    it('should not flush if already writing', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      
+      // Set writing flag to true
+      (transport as any).writing = true;
+      
+      const writeToConsoleSpy = jest.spyOn(transport as any, 'writeToConsole');
+      
+      await transport.write(LogLevel.INFO, 'Test message');
+      
+      // Manually flush
+      await (transport as any).flush();
+      
+      expect(writeToConsoleSpy).not.toHaveBeenCalled();
+    });
+    
+    it('should not flush if buffer is empty', async () => {
+      const transport = new ConsoleTransport(defaultOptions);
+      const writeToConsoleSpy = jest.spyOn(transport as any, 'writeToConsole');
+      
+      // Manually flush with empty buffer
+      await (transport as any).flush();
+      
+      expect(writeToConsoleSpy).not.toHaveBeenCalled();
+    });
+  });
+  
+  describe('colorization', () => {
+    it('should colorize output when colorize option is true', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        colorize: true,
+      });
+      
+      // Spy on colorizeByLevel method
+      const colorizeByLevelSpy = jest.spyOn(transport as any, 'colorizeByLevel');
+      
+      await transport.write(LogLevel.INFO, 'Colorized message');
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      expect(colorizeByLevelSpy).toHaveBeenCalled();
+    });
+    
+    it('should not colorize output when colorize option is false', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        colorize: false,
+      });
+      
+      // Spy on colorizeByLevel method
+      const colorizeByLevelSpy = jest.spyOn(transport as any, 'colorizeByLevel');
+      
+      await transport.write(LogLevel.INFO, 'Non-colorized message');
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      expect(colorizeByLevelSpy).not.toHaveBeenCalled();
+    });
+    
+    it('should apply different colors based on log level', async () => {
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        colorize: true,
+      });
+      
+      // Test each log level
+      const levels = [
+        LogLevel.DEBUG,
+        LogLevel.INFO,
+        LogLevel.WARN,
+        LogLevel.ERROR,
+        LogLevel.FATAL,
       ];
       
-      for (const formatted of formatterOutputs) {
-        jest.clearAllMocks();
-        
-        // Execute
-        await transport.write(mockInfoEntry, formatted);
-        
-        // Verify
-        expect(consoleInfoSpy).toHaveBeenCalledWith(
-          (transport as any).colorize ? expect.any(String) : formatted
-        );
+      // Create a unique message for each level
+      const messages = levels.map((level) => `${LogLevel[level]} message`);
+      
+      // Write a log for each level
+      for (let i = 0; i < levels.length; i++) {
+        await transport.write(levels[i], messages[i]);
       }
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      // Verify console.log was called with different colorized strings
+      expect(consoleLogSpy).toHaveBeenCalledTimes(3); // DEBUG, INFO, WARN
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(2); // ERROR, FATAL
+      
+      // We can't easily test the exact color codes, but we can verify
+      // that different strings were passed to console.log/error
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call[0]);
+      const errorCalls = consoleErrorSpy.mock.calls.map((call) => call[0]);
+      
+      // Verify all log calls have different colorized strings
+      const uniqueLogCalls = new Set(logCalls);
+      expect(uniqueLogCalls.size).toBe(3);
+      
+      // Verify all error calls have different colorized strings
+      const uniqueErrorCalls = new Set(errorCalls);
+      expect(uniqueErrorCalls.size).toBe(2);
+    });
+  });
+  
+  describe('batching', () => {
+    it('should batch logs and flush when buffer size is reached', async () => {
+      const bufferSize = 3;
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        bufferSize,
+      });
+      
+      const flushSpy = jest.spyOn(transport as any, 'flush');
+      
+      // Write logs up to buffer size
+      for (let i = 0; i < bufferSize; i++) {
+        await transport.write(LogLevel.INFO, `Message ${i + 1}`);
+      }
+      
+      // Verify flush was called once
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+      
+      // Write one more log
+      await transport.write(LogLevel.INFO, 'Message 4');
+      
+      // Verify flush was not called again
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+    });
+    
+    it('should flush logs periodically based on flushInterval', async () => {
+      jest.useFakeTimers();
+      
+      const flushInterval = 100;
+      const transport = new ConsoleTransport({
+        ...defaultOptions,
+        bufferSize: 10, // Large buffer to prevent size-based flush
+        flushInterval,
+      });
+      
+      const flushSpy = jest.spyOn(transport as any, 'flush');
+      
+      // Write a log
+      await transport.write(LogLevel.INFO, 'Test message');
+      
+      // Verify flush was not called immediately
+      expect(flushSpy).not.toHaveBeenCalled();
+      
+      // Advance timer to trigger flush
+      jest.advanceTimersByTime(flushInterval);
+      
+      // Verify flush was called
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+      
+      // Cleanup
+      jest.useRealTimers();
+    });
+  });
+  
+  describe('pretty printing', () => {
+    it('should pretty print objects when prettyPrint is true', async () => {
+      // Create a formatter that returns an object
+      const objectFormatter: Formatter = {
+        format: () => ({ key: 'value', nested: { prop: 'test' } }),
+      };
+      
+      const transport = new ConsoleTransport({
+        formatter: objectFormatter,
+        prettyPrint: true,
+        colorize: false,
+      });
+      
+      await transport.write(LogLevel.INFO, 'Object message');
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      // Verify console.log was called with pretty-printed JSON
+      expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify({ key: 'value', nested: { prop: 'test' } }, null, 2));
+    });
+    
+    it('should not pretty print objects when prettyPrint is false', async () => {
+      // Create a formatter that returns an object
+      const objectFormatter: Formatter = {
+        format: () => ({ key: 'value', nested: { prop: 'test' } }),
+      };
+      
+      const transport = new ConsoleTransport({
+        formatter: objectFormatter,
+        prettyPrint: false,
+        colorize: false,
+      });
+      
+      await transport.write(LogLevel.INFO, 'Object message');
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      // Verify console.log was called with compact JSON
+      expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify({ key: 'value', nested: { prop: 'test' } }));
+    });
+  });
+  
+  describe('integration with formatters', () => {
+    it('should use the provided formatter to format log entries', async () => {
+      // Create a custom formatter
+      const customFormatter: Formatter = {
+        format: (entry) => `CUSTOM: ${entry.level} - ${entry.message}`,
+      };
+      
+      const transport = new ConsoleTransport({
+        formatter: customFormatter,
+        colorize: false,
+      });
+      
+      await transport.write(LogLevel.INFO, 'Formatted message');
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      // Verify console.log was called with formatted message
+      expect(consoleLogSpy).toHaveBeenCalledWith('CUSTOM: 1 - Formatted message');
+    });
+    
+    it('should pass metadata to the formatter', async () => {
+      // Create a formatter that includes metadata
+      const metadataFormatter: Formatter = {
+        format: (entry) => `META: ${JSON.stringify(entry.meta)}`,
+      };
+      
+      const transport = new ConsoleTransport({
+        formatter: metadataFormatter,
+        colorize: false,
+      });
+      
+      const metadata = { userId: '123', requestId: 'abc' };
+      
+      await transport.write(LogLevel.INFO, 'Message with metadata', metadata);
+      
+      // Force flush
+      await (transport as any).flush();
+      
+      // Verify console.log was called with metadata
+      expect(consoleLogSpy).toHaveBeenCalledWith(`META: ${JSON.stringify(metadata)}`);
     });
   });
 });

@@ -1,229 +1,115 @@
-import { LogContext } from '../interfaces/logger.interface';
+/**
+ * @file Journey Context Interface
+ * @description Defines the JourneyContext interface that extends the base LoggingContext
+ * to capture journey-specific information for structured logging in the journey-centered architecture.
+ */
+
+import { LoggingContext } from './context.interface';
 
 /**
- * Enum representing the available journey types in the AUSTA SuperApp.
- * The application is built around three primary user journeys with an additional
- * cross-journey type for operations that span multiple journeys.
+ * Enum representing the three distinct user journeys in the AUSTA SuperApp.
  */
 export enum JourneyType {
-  /**
-   * Health journey focused on health metrics, goals, and device integration
-   */
+  /** Health journey ("Minha Saúde") */
   HEALTH = 'health',
-  
-  /**
-   * Care journey focused on appointments, medications, and provider interactions
-   */
+  /** Care journey ("Cuidar-me Agora") */
   CARE = 'care',
-  
-  /**
-   * Plan journey focused on insurance plans, benefits, and claims
-   */
+  /** Plan journey ("Meu Plano & Benefícios") */
   PLAN = 'plan',
-  
-  /**
-   * Cross-journey operations that span multiple journeys
-   */
-  CROSS_JOURNEY = 'cross_journey'
 }
 
 /**
- * Interface for health journey specific context information.
- * Captures health-specific data points relevant for logging in the health journey.
+ * Interface for journey-specific state that can be included in logs.
+ * This provides a flexible structure for capturing relevant journey data.
  */
-export interface HealthJourneyContext {
-  /**
-   * The health metric type being recorded or accessed
-   */
-  metricType?: string;
-  
-  /**
-   * The device ID for connected health devices
-   */
-  deviceId?: string;
-  
-  /**
-   * The health goal ID being tracked
-   */
-  goalId?: string;
-  
-  /**
-   * The specific health insight being generated or viewed
-   */
-  insightId?: string;
-  
-  /**
-   * The FHIR resource type being accessed or modified
-   */
-  fhirResourceType?: string;
-  
-  /**
-   * The FHIR resource ID being accessed or modified
-   */
-  fhirResourceId?: string;
+export interface JourneyState {
+  /** Unique identifier for the current journey session */
+  journeySessionId?: string;
+  /** Current step or page within the journey */
+  currentStep?: string;
+  /** Previous step or page within the journey */
+  previousStep?: string;
+  /** Time spent on the current step (in milliseconds) */
+  stepDuration?: number;
+  /** Any journey-specific data relevant to the current context */
+  [key: string]: any;
 }
 
 /**
- * Interface for care journey specific context information.
- * Captures care-specific data points relevant for logging in the care journey.
- */
-export interface CareJourneyContext {
-  /**
-   * The appointment ID for scheduling or appointment management
-   */
-  appointmentId?: string;
-  
-  /**
-   * The healthcare provider ID
-   */
-  providerId?: string;
-  
-  /**
-   * The telemedicine session ID for virtual consultations
-   */
-  sessionId?: string;
-  
-  /**
-   * The medication ID for medication tracking
-   */
-  medicationId?: string;
-  
-  /**
-   * The treatment plan ID
-   */
-  treatmentPlanId?: string;
-  
-  /**
-   * The symptom checker session ID
-   */
-  symptomCheckerSessionId?: string;
-}
-
-/**
- * Interface for plan journey specific context information.
- * Captures plan-specific data points relevant for logging in the plan journey.
- */
-export interface PlanJourneyContext {
-  /**
-   * The insurance plan ID
-   */
-  planId?: string;
-  
-  /**
-   * The insurance claim ID
-   */
-  claimId?: string;
-  
-  /**
-   * The benefit ID being accessed or utilized
-   */
-  benefitId?: string;
-  
-  /**
-   * The coverage ID for specific coverage details
-   */
-  coverageId?: string;
-  
-  /**
-   * The document ID for insurance-related documents
-   */
-  documentId?: string;
-}
-
-/**
- * Interface for cross-journey context information.
- * Captures data points that span multiple journeys or are shared between journeys.
+ * Interface for cross-journey context when a user action spans multiple journeys.
+ * This allows tracking user flows that transition between different journeys.
  */
 export interface CrossJourneyContext {
-  /**
-   * The gamification event type
-   */
-  eventType?: string;
-  
-  /**
-   * The achievement ID for gamification
-   */
-  achievementId?: string;
-  
-  /**
-   * The quest ID for gamification
-   */
-  questId?: string;
-  
-  /**
-   * The reward ID for gamification
-   */
-  rewardId?: string;
-  
-  /**
-   * The user profile ID for gamification
-   */
-  profileId?: string;
-  
-  /**
-   * The leaderboard ID for gamification
-   */
-  leaderboardId?: string;
+  /** The source journey where the cross-journey flow originated */
+  sourceJourney: JourneyType;
+  /** The target journey where the cross-journey flow is heading */
+  targetJourney: JourneyType;
+  /** Unique identifier for the cross-journey flow */
+  flowId: string;
+  /** Timestamp when the cross-journey flow started */
+  startedAt: string;
+  /** Optional metadata for the cross-journey flow */
+  metadata?: Record<string, any>;
 }
 
 /**
- * Interface representing journey-specific context for structured logging in the AUSTA SuperApp.
- * Extends the base LogContext to capture journey-specific information that provides
- * critical context for logs within each journey.
+ * JourneyContext interface that extends the base LoggingContext to capture
+ * journey-specific information for structured logging in the journey-centered architecture.
+ * 
+ * This interface provides critical context for logs within each journey, enabling
+ * proper analysis of user experiences and system behavior within the journey-centered
+ * architecture of the AUSTA SuperApp.
  */
-export interface JourneyContext extends LogContext {
-  /**
-   * The specific journey type (Health, Care, Plan, or Cross-Journey)
-   */
+export interface JourneyContext extends LoggingContext {
+  /** The type of journey (Health, Care, Plan) */
   journeyType: JourneyType;
   
-  /**
-   * The journey ID for tracking specific user journeys
-   */
-  journeyId?: string;
+  /** Journey-specific state information */
+  journeyState?: JourneyState;
   
-  /**
-   * The current step or action within the journey
-   */
-  journeyStep?: string;
+  /** Cross-journey context for actions that span multiple journeys */
+  crossJourneyContext?: CrossJourneyContext;
   
-  /**
-   * The journey state or status
-   */
-  journeyState?: string;
+  /** Journey-specific feature flags that may affect behavior */
+  journeyFeatureFlags?: Record<string, boolean>;
   
-  /**
-   * The business transaction ID for tracking operations across services
-   */
-  transactionId?: string;
+  /** Journey-specific performance metrics */
+  journeyPerformance?: {
+    /** Time to interactive for the journey (in milliseconds) */
+    timeToInteractive?: number;
+    /** Time to complete a specific journey action (in milliseconds) */
+    actionDuration?: number;
+    /** Number of API calls made during the journey */
+    apiCallCount?: number;
+    /** Other performance metrics */
+    [key: string]: number | undefined;
+  };
   
-  /**
-   * The user session ID for holistic experience monitoring
-   */
-  sessionId?: string;
+  /** Business transaction information related to the journey */
+  businessTransaction?: {
+    /** Unique identifier for the business transaction */
+    transactionId: string;
+    /** Type of business transaction */
+    transactionType: string;
+    /** Current status of the transaction */
+    status: string;
+    /** Timestamp when the transaction started */
+    startedAt: string;
+    /** Timestamp when the transaction was last updated */
+    updatedAt?: string;
+    /** Additional transaction metadata */
+    metadata?: Record<string, any>;
+  };
   
-  /**
-   * Health journey specific context
-   */
-  health?: HealthJourneyContext;
-  
-  /**
-   * Care journey specific context
-   */
-  care?: CareJourneyContext;
-  
-  /**
-   * Plan journey specific context
-   */
-  plan?: PlanJourneyContext;
-  
-  /**
-   * Cross-journey specific context
-   */
-  crossJourney?: CrossJourneyContext;
-  
-  /**
-   * Additional journey-specific metadata
-   */
-  journeyMetadata?: Record<string, any>;
+  /** User interaction information within the journey */
+  userInteraction?: {
+    /** Type of interaction (click, swipe, form submission, etc.) */
+    interactionType: string;
+    /** Target element or component of the interaction */
+    interactionTarget: string;
+    /** Result of the interaction */
+    interactionResult?: string;
+    /** Duration of the interaction (in milliseconds) */
+    interactionDuration?: number;
+  };
 }

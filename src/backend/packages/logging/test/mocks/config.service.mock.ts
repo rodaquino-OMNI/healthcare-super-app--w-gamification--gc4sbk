@@ -1,42 +1,37 @@
+/**
+ * @file config.service.mock.ts
+ * @description Mock implementation of NestJS ConfigService for testing logging components
+ * that depend on configuration values. Provides a configurable key-value store that can be
+ * preset with test values and allows configuration changes during tests.
+ */
+
 import { Injectable } from '@nestjs/common';
-import { get, set, has as lodashHas } from 'lodash';
 
 /**
- * Mock implementation of NestJS ConfigService for testing logging components.
- * Provides a configurable key-value store that can be preset with test values
- * and allows configuration changes during tests.
- *
- * This mock is critical for testing configuration-dependent behavior of the
- * logging system without relying on environment variables or config files.
+ * Mock implementation of the NestJS ConfigService for testing.
+ * Provides a configurable store for test configuration values and methods
+ * to retrieve, set, and reset those values.
  *
  * @example
- * // Create a mock with initial configuration
- * const configServiceMock = new ConfigServiceMock({
- *   logger: {
- *     level: 'debug',
- *     format: 'json',
- *     transports: ['console']
- *   }
- * });
+ * ```typescript
+ * // In your test file
+ * const configService = new MockConfigService();
+ * configService.set('logging.level', 'debug');
+ * configService.set('logging.transports', ['console']);
  *
- * // Get a configuration value
- * const logLevel = configServiceMock.get<string>('logger.level');
- *
- * // Set a configuration value
- * configServiceMock.set('logger.level', 'info');
- *
- * // Reset the configuration
- * configServiceMock.reset();
+ * // Use in your test
+ * const level = configService.get<string>('logging.level');
+ * expect(level).toBe('debug');
+ * ```
  */
 @Injectable()
-export class ConfigServiceMock {
+export class MockConfigService {
   private configStore: Record<string, any> = {};
-  private accessedPaths: Set<string> = new Set();
 
   /**
-   * Creates a new ConfigServiceMock instance with optional initial configuration.
-   * 
-   * @param initialConfig - Optional initial configuration object
+   * Creates a new MockConfigService with optional initial configuration.
+   *
+   * @param initialConfig - Initial configuration values
    */
   constructor(initialConfig: Record<string, any> = {}) {
     this.configStore = { ...initialConfig };
@@ -44,154 +39,188 @@ export class ConfigServiceMock {
 
   /**
    * Gets a configuration value at the specified path.
-   * Supports dot notation for accessing nested properties (e.g., 'database.host').
-   * Returns the default value if the property doesn't exist.
-   * 
-   * Compatible with NestJS ConfigService interface, including support for the
-   * 'infer' option for type inference.
-   * 
-   * @param propertyPath - Path to the configuration property
-   * @param defaultValueOrOptions - Optional default value or options object
-   * @param options - Optional configuration options when defaultValue is provided separately
+   * Supports nested paths using dot notation (e.g., 'database.host').
+   *
+   * @param propertyPath - Path to the configuration value
+   * @param defaultValue - Default value to return if the path doesn't exist
    * @returns The configuration value or the default value
+   *
+   * @example
+   * ```typescript
+   * // Get a string value with a default
+   * const host = configService.get<string>('database.host', 'localhost');
+   *
+   * // Get a number value
+   * const port = configService.get<number>('database.port');
+   *
+   * // Get a complex object
+   * const dbConfig = configService.get<DbConfig>('database');
+   * ```
    */
-  get<T = any>(propertyPath: string, defaultValueOrOptions?: T | Record<string, any>, options?: Record<string, any>): T {
-    this.accessedPaths.add(propertyPath);
-    
-    // Handle case where second parameter is options object
-    let defaultValue: T | undefined;
-    let configOptions: Record<string, any> | undefined;
-    
-    if (defaultValueOrOptions !== undefined && typeof defaultValueOrOptions === 'object' && 
-        defaultValueOrOptions !== null && 'infer' in defaultValueOrOptions) {
-      configOptions = defaultValueOrOptions as Record<string, any>;
-    } else {
-      defaultValue = defaultValueOrOptions as T;
-      configOptions = options;
-    }
-    
-    const value = get(this.configStore, propertyPath, defaultValue);
-    return value as T;
-  }
-
-  /**
-   * Gets a configuration value at the specified path or throws an error if not found.
-   * Supports dot notation for accessing nested properties (e.g., 'database.host').
-   * 
-   * Compatible with NestJS ConfigService interface, including support for the
-   * 'infer' option for type inference.
-   * 
-   * @param propertyPath - Path to the configuration property
-   * @param defaultValueOrOptions - Optional default value or options object
-   * @param options - Optional configuration options when defaultValue is provided separately
-   * @returns The configuration value
-   * @throws Error if the property doesn't exist and no default value is provided
-   */
-  getOrThrow<T = any>(propertyPath: string, defaultValueOrOptions?: T | Record<string, any>, options?: Record<string, any>): T {
-    this.accessedPaths.add(propertyPath);
-    
-    // Handle case where second parameter is options object
-    let defaultValue: T | undefined;
-    let configOptions: Record<string, any> | undefined;
-    
-    if (defaultValueOrOptions !== undefined && typeof defaultValueOrOptions === 'object' && 
-        defaultValueOrOptions !== null && 'infer' in defaultValueOrOptions) {
-      configOptions = defaultValueOrOptions as Record<string, any>;
-    } else {
-      defaultValue = defaultValueOrOptions as T;
-      configOptions = options;
-    }
-    
-    const value = this.get(propertyPath, defaultValue, configOptions);
-    if (value === undefined) {
-      throw new Error(`Configuration property '${propertyPath}' not found and no default value provided`);
-    }
-    return value as T;
+  get<T = any>(propertyPath: string, defaultValue?: T): T {
+    const value = this.getValueFromPath(propertyPath);
+    return value !== undefined ? value : defaultValue as T;
   }
 
   /**
    * Sets a configuration value at the specified path.
-   * Supports dot notation for setting nested properties (e.g., 'database.host').
-   * 
-   * @param propertyPath - Path to the configuration property
+   * Supports nested paths using dot notation (e.g., 'database.host').
+   * Creates intermediate objects if they don't exist.
+   *
+   * @param propertyPath - Path to set the configuration value
    * @param value - Value to set
-   * @returns The ConfigServiceMock instance for chaining
+   *
+   * @example
+   * ```typescript
+   * // Set a simple value
+   * configService.set('logging.level', 'debug');
+   *
+   * // Set a complex object
+   * configService.set('database', { host: 'localhost', port: 5432 });
+   * ```
    */
-  set<T = any>(propertyPath: string, value: T): this {
-    set(this.configStore, propertyPath, value);
-    return this;
+  set(propertyPath: string, value: any): void {
+    if (!propertyPath) {
+      throw new Error('Property path cannot be empty');
+    }
+
+    const pathParts = propertyPath.split('.');
+    let current = this.configStore;
+
+    // Navigate to the parent object of the property to set
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i];
+      if (!current[part] || typeof current[part] !== 'object') {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+
+    // Set the value on the last part
+    current[pathParts[pathParts.length - 1]] = value;
   }
 
   /**
    * Sets multiple configuration values at once.
-   * 
-   * @param config - Configuration object to merge with the current configuration
-   * @returns The ConfigServiceMock instance for chaining
+   *
+   * @param config - Configuration object with values to set
+   *
+   * @example
+   * ```typescript
+   * configService.setAll({
+   *   'logging.level': 'debug',
+   *   'logging.transports': ['console'],
+   *   'database.host': 'localhost',
+   * });
+   * ```
    */
-  setAll(config: Record<string, any>): this {
-    this.configStore = { ...this.configStore, ...config };
-    return this;
+  setAll(config: Record<string, any>): void {
+    Object.entries(config).forEach(([path, value]) => {
+      this.set(path, value);
+    });
   }
 
   /**
-   * Resets the configuration store to an empty object or to the provided initial configuration.
-   * Also clears the list of accessed paths.
-   * 
-   * @param initialConfig - Optional initial configuration to set after reset
-   * @returns The ConfigServiceMock instance for chaining
+   * Checks if a configuration value exists at the specified path.
+   *
+   * @param propertyPath - Path to check
+   * @returns True if the path exists, false otherwise
+   *
+   * @example
+   * ```typescript
+   * if (configService.has('database.host')) {
+   *   // Use the database host
+   * }
+   * ```
    */
-  reset(initialConfig: Record<string, any> = {}): this {
+  has(propertyPath: string): boolean {
+    return this.getValueFromPath(propertyPath) !== undefined;
+  }
+
+  /**
+   * Removes a configuration value at the specified path.
+   *
+   * @param propertyPath - Path to remove
+   *
+   * @example
+   * ```typescript
+   * configService.remove('logging.transports');
+   * ```
+   */
+  remove(propertyPath: string): void {
+    if (!propertyPath) {
+      return;
+    }
+
+    const pathParts = propertyPath.split('.');
+    let current = this.configStore;
+
+    // Navigate to the parent object of the property to remove
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i];
+      if (!current[part] || typeof current[part] !== 'object') {
+        return; // Path doesn't exist, nothing to remove
+      }
+      current = current[part];
+    }
+
+    // Remove the property
+    delete current[pathParts[pathParts.length - 1]];
+  }
+
+  /**
+   * Resets all configuration values to an empty state or to the provided initial values.
+   *
+   * @param initialConfig - Optional initial configuration to reset to
+   *
+   * @example
+   * ```typescript
+   * // Reset to empty configuration
+   * configService.reset();
+   *
+   * // Reset to specific configuration
+   * configService.reset({
+   *   'logging.level': 'info',
+   *   'database.host': 'localhost',
+   * });
+   * ```
+   */
+  reset(initialConfig: Record<string, any> = {}): void {
     this.configStore = { ...initialConfig };
-    this.accessedPaths.clear();
-    return this;
   }
 
   /**
    * Gets the entire configuration store.
-   * 
+   * Useful for debugging or saving the current state.
+   *
    * @returns The current configuration store
    */
-  getAll(): Record<string, any> {
+  getConfigStore(): Record<string, any> {
     return { ...this.configStore };
   }
 
   /**
-   * Checks if a configuration property exists.
-   * 
-   * @param propertyPath - Path to the configuration property
-   * @returns True if the property exists, false otherwise
+   * Internal helper to get a value from a nested path.
+   *
+   * @param propertyPath - Path to the value
+   * @returns The value at the path or undefined if not found
+   * @private
    */
-  has(propertyPath: string): boolean {
-    return lodashHas(this.configStore, propertyPath);
-  }
-  
-  /**
-   * Gets the list of configuration paths that have been accessed via get() or getOrThrow().
-   * Useful for verifying which configuration values were used during tests.
-   * 
-   * @returns Array of accessed property paths
-   */
-  getAccessedPaths(): string[] {
-    return Array.from(this.accessedPaths);
-  }
-  
-  /**
-   * Checks if a specific configuration path was accessed during tests.
-   * 
-   * @param propertyPath - Path to check
-   * @returns True if the path was accessed, false otherwise
-   */
-  wasAccessed(propertyPath: string): boolean {
-    return this.accessedPaths.has(propertyPath);
-  }
-  
-  /**
-   * Clears the list of accessed paths without resetting the configuration.
-   * 
-   * @returns The ConfigServiceMock instance for chaining
-   */
-  clearAccessedPaths(): this {
-    this.accessedPaths.clear();
-    return this;
+  private getValueFromPath(propertyPath: string): any {
+    if (!propertyPath) {
+      return undefined;
+    }
+
+    const pathParts = propertyPath.split('.');
+    let current: any = this.configStore;
+
+    for (const part of pathParts) {
+      if (current === undefined || current === null) {
+        return undefined;
+      }
+      current = current[part];
+    }
+
+    return current;
   }
 }

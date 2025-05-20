@@ -1,94 +1,128 @@
-import { ErrorType } from '../../../errors/src/categories';
-import { AppException } from '../../../errors/src/base-error';
-import { JourneyType } from '../../src/interfaces/log-entry.interface';
+import { ErrorType, AppException } from '@austa/shared/exceptions';
 
 /**
- * Collection of error objects for testing error logging functionality across different scenarios.
- * Includes standard JavaScript errors, custom application exceptions with metadata,
- * validation errors with structured details, and nested error chains.
+ * Collection of error objects for testing error logging functionality.
+ * Provides a variety of error types and structures to verify proper error
+ * serialization, stack trace handling, and error context enrichment.
  */
 
 /**
  * Standard JavaScript errors with stack traces
  */
 export const standardErrors = {
-  /**
-   * Basic Error instance
-   */
-  basicError: new Error('A basic error occurred'),
-
-  /**
-   * TypeError instance
-   */
-  typeError: new TypeError('Invalid type provided'),
-
-  /**
-   * RangeError instance
-   */
+  // Basic Error object
+  basicError: new Error('Basic error message'),
+  
+  // TypeError for invalid operations
+  typeError: new TypeError('Invalid type operation'),
+  
+  // RangeError for values outside acceptable range
   rangeError: new RangeError('Value out of acceptable range'),
-
-  /**
-   * ReferenceError instance
-   */
-  referenceError: new ReferenceError('Reference to undefined variable'),
-
-  /**
-   * SyntaxError instance
-   */
-  syntaxError: new SyntaxError('Invalid syntax in dynamic code'),
-
-  /**
-   * Error with custom properties
-   */
-  customPropertiesError: Object.assign(new Error('Error with custom properties'), {
-    code: 'CUSTOM_ERROR_001',
-    statusCode: 500,
-    details: { source: 'test-fixture', timestamp: new Date().toISOString() }
-  })
+  
+  // ReferenceError for invalid references
+  referenceError: new ReferenceError('Invalid reference used'),
+  
+  // SyntaxError for parsing errors
+  syntaxError: new SyntaxError('Invalid syntax in operation'),
+  
+  // URIError for URI encoding/decoding errors
+  uriError: new URIError('Invalid URI encoding or decoding')
 };
 
 /**
  * Custom application exceptions with error codes and metadata
  */
 export const applicationExceptions = {
-  /**
-   * Validation error
-   */
-  validationException: new AppException(
-    'Invalid input parameters',
+  // Validation error (400 Bad Request)
+  validationError: new AppException(
+    'Invalid input data provided',
     ErrorType.VALIDATION,
     'VAL_001',
-    { fields: ['email', 'password'], reason: 'missing_required_fields' }
+    {
+      fields: {
+        email: 'Invalid email format',
+        password: 'Password must be at least 8 characters'
+      }
+    }
   ),
-
-  /**
-   * Business logic error
-   */
-  businessException: new AppException(
-    'Operation not allowed in current state',
+  
+  // Business logic error (422 Unprocessable Entity)
+  businessError: new AppException(
+    'Cannot complete the requested operation',
     ErrorType.BUSINESS,
     'BUS_101',
-    { currentState: 'pending', allowedTransitions: ['approved', 'rejected'] }
+    {
+      reason: 'Insufficient account balance',
+      currentBalance: 50,
+      requiredBalance: 100
+    }
   ),
-
-  /**
-   * Technical error
-   */
-  technicalException: new AppException(
-    'Database connection failed',
+  
+  // Technical error (500 Internal Server Error)
+  technicalError: new AppException(
+    'Unexpected error occurred during processing',
     ErrorType.TECHNICAL,
-    'TECH_201',
-    { service: 'postgres', operation: 'connect', retryCount: 3 }
+    'TECH_500',
+    {
+      component: 'PaymentProcessor',
+      operation: 'processTransaction',
+      timestamp: new Date().toISOString()
+    }
   ),
-
-  /**
-   * External system error
-   */
-  externalException: new AppException(
-    'External API request failed',
+  
+  // External system error (502 Bad Gateway)
+  externalError: new AppException(
+    'External service unavailable',
     ErrorType.EXTERNAL,
-    'EXT_301',
-    { service: 'payment-gateway', statusCode: 503, endpoint: '/api/v1/process' }
+    'EXT_502',
+    {
+      service: 'PaymentGateway',
+      endpoint: '/api/v1/payments',
+      statusCode: 503,
+      retryAfter: 30
+    }
+  )
+};
+
+/**
+ * Journey-specific error types for testing domain error handling
+ */
+export const journeyErrors = {
+  // Health journey error
+  healthJourneyError: new AppException(
+    'Unable to sync health data',
+    ErrorType.TECHNICAL,
+    'HEALTH_001',
+    {
+      deviceType: 'FitbitWatch',
+      lastSyncTime: new Date(Date.now() - 86400000).toISOString(),
+      metrics: ['steps', 'heartRate', 'sleep']
+    }
+  ),
+  
+  // Care journey error
+  careJourneyError: new AppException(
+    'Appointment scheduling failed',
+    ErrorType.BUSINESS,
+    'CARE_101',
+    {
+      doctorId: 'dr-smith-123',
+      requestedDate: new Date().toISOString(),
+      reason: 'No available slots for the requested time'
+    }
+  ),
+  
+  // Plan journey error
+  planJourneyError: new AppException(
+    'Claim processing error',
+    ErrorType.EXTERNAL,
+    'PLAN_201',
+    {
+      claimId: 'CLM-2023-12345',
+      insuranceProvider: 'HealthPlus',
+      status: 'REJECTED',
+      reason: 'Missing documentation'
+    }
   )
 };
 
@@ -96,51 +130,57 @@ export const applicationExceptions = {
  * Validation errors with structured field-level details
  */
 export const validationErrors = {
-  /**
-   * Field validation error
-   */
-  fieldValidationError: new AppException(
-    'Validation failed for submitted data',
+  // Simple field validation error
+  simpleValidation: new AppException(
+    'Validation failed',
     ErrorType.VALIDATION,
-    'VAL_002',
+    'VAL_100',
     {
-      fields: [
-        { name: 'email', errors: ['must be a valid email address'] },
-        { name: 'age', errors: ['must be a number', 'must be at least 18'] },
-        { name: 'password', errors: ['must be at least 8 characters', 'must contain at least one number'] }
-      ]
+      fields: {
+        username: 'Username is required',
+        email: 'Email format is invalid'
+      }
     }
   ),
-
-  /**
-   * Schema validation error
-   */
-  schemaValidationError: new AppException(
-    'Request body failed schema validation',
+  
+  // Complex nested validation error
+  complexValidation: new AppException(
+    'Form validation failed',
     ErrorType.VALIDATION,
-    'VAL_003',
+    'VAL_200',
     {
-      schemaName: 'UserRegistration',
-      errors: [
-        { path: 'user.profile.firstName', message: 'Required field missing' },
-        { path: 'user.contact.phoneNumber', message: 'Invalid phone number format' }
-      ]
+      fields: {
+        personalInfo: {
+          firstName: 'First name is required',
+          lastName: 'Last name is required',
+          contact: {
+            email: 'Email format is invalid',
+            phone: 'Phone number must be 10 digits'
+          }
+        },
+        address: {
+          street: 'Street is required',
+          zipCode: 'Invalid zip code format'
+        }
+      },
+      formId: 'user-registration',
+      attemptCount: 3
     }
   ),
-
-  /**
-   * Zod validation error simulation
-   */
-  zodLikeValidationError: new AppException(
-    'Zod validation failed',
+  
+  // Array validation error
+  arrayValidation: new AppException(
+    'Invalid items in collection',
     ErrorType.VALIDATION,
-    'VAL_004',
+    'VAL_300',
     {
-      issues: [
-        { code: 'invalid_type', expected: 'string', received: 'undefined', path: ['name'] },
-        { code: 'too_small', minimum: 3, type: 'string', path: ['username'], inclusive: true },
-        { code: 'invalid_string', validation: 'email', path: ['email'] }
-      ]
+      fields: {
+        'items[0].name': 'Name is required',
+        'items[0].price': 'Price must be positive',
+        'items[2].quantity': 'Quantity must be at least 1'
+      },
+      totalItems: 3,
+      validItems: 1
     }
   )
 };
@@ -149,179 +189,126 @@ export const validationErrors = {
  * Nested error chains to test cause tracking
  */
 export const nestedErrors = {
-  /**
-   * Simple nested error
-   */
-  simpleNestedError: new AppException(
-    'Failed to process user request',
-    ErrorType.TECHNICAL,
-    'TECH_401',
-    { operation: 'processUserRequest' },
-    new Error('Internal processing error')
-  ),
-
-  /**
-   * Deeply nested error chain
-   */
-  deeplyNestedError: new AppException(
-    'Failed to complete payment transaction',
-    ErrorType.BUSINESS,
-    'BUS_501',
-    { transactionId: 'tx_12345' },
-    new AppException(
-      'Payment gateway error',
-      ErrorType.EXTERNAL,
-      'EXT_302',
-      { gateway: 'stripe' },
-      new AppException(
-        'Network request failed',
-        ErrorType.TECHNICAL,
-        'TECH_202',
-        { timeout: 30000 },
-        new Error('ETIMEDOUT: Connection timed out')
-      )
-    )
-  ),
-
-  /**
-   * Mixed error types in chain
-   */
-  mixedErrorChain: new AppException(
-    'User registration failed',
-    ErrorType.BUSINESS,
-    'BUS_601',
-    { userId: 'user_12345' },
-    Object.assign(new TypeError('Expected string but got object'), {
-      code: 'TYPE_MISMATCH',
-      field: 'email',
-      cause: new Error('Invalid input data')
-    })
-  )
-};
-
-/**
- * Journey-specific error types for testing domain error handling
- */
-export const journeyErrors = {
-  /**
-   * Health journey error
-   */
-  healthJourneyError: new AppException(
-    'Failed to sync health metrics from device',
-    ErrorType.TECHNICAL,
-    'HEALTH_001',
-    {
-      journey: JourneyType.HEALTH,
-      deviceId: 'device_12345',
-      metricType: 'heart_rate',
-      lastSyncTime: new Date().toISOString()
-    }
-  ),
-
-  /**
-   * Care journey error
-   */
-  careJourneyError: new AppException(
-    'Appointment scheduling failed',
-    ErrorType.BUSINESS,
-    'CARE_001',
-    {
-      journey: JourneyType.CARE,
-      providerId: 'provider_12345',
-      requestedTime: new Date().toISOString(),
-      reason: 'no_availability'
-    }
-  ),
-
-  /**
-   * Plan journey error
-   */
-  planJourneyError: new AppException(
-    'Claim submission rejected',
-    ErrorType.VALIDATION,
-    'PLAN_001',
-    {
-      journey: JourneyType.PLAN,
-      claimId: 'claim_12345',
-      rejectionReason: 'missing_documentation',
-      requiredDocuments: ['receipt', 'medical_report']
-    }
-  ),
-
-  /**
-   * Cross-journey error
-   */
-  crossJourneyError: new AppException(
-    'Failed to process cross-journey event',
-    ErrorType.TECHNICAL,
-    'CROSS_001',
-    {
-      journey: JourneyType.CROSS_JOURNEY,
-      sourceJourney: JourneyType.HEALTH,
-      targetJourney: JourneyType.CARE,
-      eventType: 'abnormal_metric_detected',
-      metricType: 'blood_pressure'
-    }
-  )
-};
-
-/**
- * Error objects with non-standard properties to test serialization edge cases
- */
-export const edgeCaseErrors = {
-  /**
-   * Error with circular reference
-   */
-  circularReferenceError: (() => {
-    const error = new Error('Error with circular reference');
-    const details = { name: 'circular-error' };
-    details['self'] = details; // Create circular reference
-    (error as any).details = details;
-    return error;
+  // Two-level nested error
+  twoLevelError: (() => {
+    const cause = new Error('Original database connection error');
+    return new AppException(
+      'Failed to fetch user data',
+      ErrorType.TECHNICAL,
+      'DB_ERROR',
+      { userId: 'user-123', operation: 'findById' },
+      cause
+    );
   })(),
-
-  /**
-   * Error with function properties
-   */
-  functionPropertyError: Object.assign(new Error('Error with function properties'), {
-    calculator: (a: number, b: number) => a + b,
-    formatter: function(msg: string) { return `Error: ${msg}`; }
-  }),
-
-  /**
-   * Error with non-serializable properties
-   */
-  nonSerializableError: Object.assign(new Error('Error with non-serializable properties'), {
-    symbol: Symbol('error-symbol'),
-    map: new Map([['key', 'value']]),
-    set: new Set([1, 2, 3]),
-    date: new Date()
-  }),
-
-  /**
-   * Error with very large stack trace
-   */
-  largeStackError: (() => {
-    const generateNestedError = (depth: number): Error => {
-      if (depth <= 0) return new Error('Base error');
-      try {
-        throw generateNestedError(depth - 1);
-      } catch (e) {
-        return new Error(`Nested error level ${depth}`, { cause: e });
-      }
-    };
-    return generateNestedError(10);
+  
+  // Three-level nested error with mixed types
+  threeLevelError: (() => {
+    const level1 = new TypeError('Invalid parameter type');
+    const level2 = new AppException(
+      'Data processing failed',
+      ErrorType.TECHNICAL,
+      'PROC_ERROR',
+      { step: 'transformation', dataType: 'user-profile' },
+      level1
+    );
+    return new AppException(
+      'User profile update failed',
+      ErrorType.BUSINESS,
+      'PROFILE_ERROR',
+      { userId: 'user-456', fields: ['name', 'email', 'preferences'] },
+      level2
+    );
+  })(),
+  
+  // Deep nested error chain with journey context
+  deepNestedError: (() => {
+    const dbError = new Error('Database query timeout');
+    const repoError = new AppException(
+      'Repository operation failed',
+      ErrorType.TECHNICAL,
+      'REPO_ERROR',
+      { repository: 'UserRepository', method: 'findByEmail' },
+      dbError
+    );
+    const serviceError = new AppException(
+      'Service operation failed',
+      ErrorType.TECHNICAL,
+      'SERVICE_ERROR',
+      { service: 'AuthService', method: 'validateCredentials' },
+      repoError
+    );
+    const journeyError = new AppException(
+      'Health journey authentication failed',
+      ErrorType.BUSINESS,
+      'HEALTH_AUTH_ERROR',
+      { journey: 'health', action: 'viewMedicalRecords' },
+      serviceError
+    );
+    return journeyError;
   })()
 };
 
 /**
- * Complete collection of all error objects for testing
+ * Errors with additional context for testing context enrichment
+ */
+export const contextualErrors = {
+  // Error with request context
+  requestError: Object.assign(new Error('Failed to process request'), {
+    request: {
+      url: '/api/health/metrics',
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'user-agent': 'Mozilla/5.0'
+      },
+      body: { metric: 'blood-pressure', value: '120/80' }
+    },
+    statusCode: 500
+  }),
+  
+  // Error with user context
+  userContextError: Object.assign(new AppException(
+    'User operation failed',
+    ErrorType.BUSINESS,
+    'USER_OP_ERROR',
+    { operation: 'updatePreferences' }
+  ), {
+    userContext: {
+      userId: 'user-789',
+      email: 'user@example.com',
+      roles: ['patient'],
+      journeys: ['health', 'care']
+    }
+  }),
+  
+  // Error with transaction context
+  transactionError: Object.assign(new AppException(
+    'Transaction failed',
+    ErrorType.TECHNICAL,
+    'TRANSACTION_ERROR',
+    { status: 'FAILED' }
+  ), {
+    transactionContext: {
+      transactionId: 'tx-12345',
+      startTime: new Date(Date.now() - 5000).toISOString(),
+      endTime: new Date().toISOString(),
+      steps: [
+        { name: 'validation', status: 'SUCCESS', duration: 45 },
+        { name: 'processing', status: 'SUCCESS', duration: 130 },
+        { name: 'persistence', status: 'FAILED', duration: 200 }
+      ]
+    }
+  })
+};
+
+/**
+ * Export all error objects as a single collection
  */
 export const allErrors = {
   ...standardErrors,
   ...applicationExceptions,
+  ...journeyErrors,
   ...validationErrors,
   ...nestedErrors,
-  ...journeyErrors,
-  ...edgeCaseErrors
+  ...contextualErrors
 };

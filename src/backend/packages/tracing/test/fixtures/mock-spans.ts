@@ -1,876 +1,523 @@
-/**
- * Mock Spans for Testing
- *
- * This file provides a collection of pre-configured mock spans for different journey contexts
- * (health, care, plan) to facilitate consistent testing of tracing functionality across services.
- * Includes sample spans for common operations like database queries, API calls, and message processing
- * with appropriate attributes and timing characteristics.
- */
-
-import { SpanStatusCode, SpanKind, Span, Context } from '@opentelemetry/api';
-import {
-  JourneyType,
-  HealthJourneyContext,
-  CareJourneyContext,
-  PlanJourneyContext,
-  GamificationContext
-} from '../../src/interfaces/journey-context.interface';
-import {
-  HttpSpanAttributes,
-  DatabaseSpanAttributes,
-  MessagingSpanAttributes,
-  HealthJourneySpanAttributes,
-  CareJourneySpanAttributes,
-  PlanJourneySpanAttributes,
-  GamificationSpanAttributes,
-  JOURNEY_NAMES,
-  DATABASE_SYSTEMS,
-  MESSAGING_SYSTEMS,
-  GAMIFICATION_EVENT_TYPES
-} from '../../src/interfaces/span-attributes.interface';
+import { SpanStatusCode } from '@opentelemetry/api';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 
 /**
- * Interface for mock span configuration
+ * Mock spans for testing tracing functionality across different journey contexts.
+ * These spans represent common operations with realistic timing and attributes.
+ * 
+ * Requirements:
+ * - Distributed tracing must include custom span annotations for business-relevant operations
+ * - Tracing must support end-to-end request visualization
+ * - Performance metrics need to be measured with <50ms per event processing time (95th percentile)
  */
-export interface MockSpanConfig {
+
+// Base timestamp for all spans (January 1, 2023)
+const BASE_TIMESTAMP = 1672531200000000;
+
+// Common span attributes
+const COMMON_ATTRIBUTES = {
+  'service.name': 'austa-service',
+  'service.version': '1.0.0',
+  'deployment.environment': 'test',
+};
+
+/**
+ * Creates a mock span with the given parameters
+ */
+export function createMockSpan({
+  name,
+  traceId,
+  spanId,
+  parentSpanId,
+  startTime = BASE_TIMESTAMP,
+  endTime,
+  attributes = {},
+  events = [],
+  status = SpanStatusCode.OK,
+  kind = 0, // INTERNAL
+}: {
   name: string;
-  kind: SpanKind;
-  startTime: [number, number]; // [seconds, nanoseconds]
-  endTime: [number, number]; // [seconds, nanoseconds]
-  attributes: Record<string, any>;
-  status?: {
-    code: SpanStatusCode;
-    message?: string;
-  };
-  events?: Array<{
-    name: string;
-    time: [number, number]; // [seconds, nanoseconds]
-    attributes?: Record<string, any>;
-  }>;
-  links?: Array<{
-    context: Context;
-    attributes?: Record<string, any>;
-  }>;
-}
-
-/**
- * Base class for creating mock spans
- */
-export class MockSpan implements Partial<Span> {
-  private _config: MockSpanConfig;
-  private _isRecording: boolean = true;
-
-  constructor(config: MockSpanConfig) {
-    this._config = config;
-  }
-
-  // Implement basic Span interface methods
-  setAttribute(key: string, value: any): this {
-    this._config.attributes[key] = value;
-    return this;
-  }
-
-  setAttributes(attributes: Record<string, any>): this {
-    Object.assign(this._config.attributes, attributes);
-    return this;
-  }
-
-  addEvent(name: string, attributesOrTime?: Record<string, any> | [number, number], attributes?: Record<string, any>): this {
-    const time = Array.isArray(attributesOrTime) ? attributesOrTime : [Math.floor(Date.now() / 1000), 0];
-    const eventAttributes = Array.isArray(attributesOrTime) ? attributes : attributesOrTime;
-    
-    this._config.events = this._config.events || [];
-    this._config.events.push({
-      name,
-      time,
-      attributes: eventAttributes
-    });
-    
-    return this;
-  }
-
-  setStatus(status: { code: SpanStatusCode; message?: string }): this {
-    this._config.status = status;
-    return this;
-  }
-
-  updateName(name: string): this {
-    this._config.name = name;
-    return this;
-  }
-
-  end(endTime?: [number, number]): void {
-    if (endTime) {
-      this._config.endTime = endTime;
-    }
-    this._isRecording = false;
-  }
-
-  isRecording(): boolean {
-    return this._isRecording;
-  }
-
-  recordException(exception: Error, time?: [number, number]): void {
-    this.addEvent('exception', time || [Math.floor(Date.now() / 1000), 0], {
-      'exception.type': exception.name,
-      'exception.message': exception.message,
-      'exception.stacktrace': exception.stack
-    });
-  }
-
-  // Additional methods for testing
-  getConfig(): MockSpanConfig {
-    return this._config;
-  }
-
-  getDurationMs(): number {
-    const startTimeMs = this._config.startTime[0] * 1000 + this._config.startTime[1] / 1000000;
-    const endTimeMs = this._config.endTime[0] * 1000 + this._config.endTime[1] / 1000000;
-    return endTimeMs - startTimeMs;
-  }
-}
-
-/**
- * Factory function to create a mock HTTP span
- */
-export function createMockHttpSpan({
-  name = 'HTTP GET',
-  method = 'GET',
-  url = 'https://api.austa.health/v1/users',
-  statusCode = 200,
-  requestSize = 256,
-  responseSize = 1024,
-  durationMs = 45,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456',
-  journeyName = JOURNEY_NAMES.HEALTH
-}: {
-  name?: string;
-  method?: string;
-  url?: string;
-  statusCode?: number;
-  requestSize?: number;
-  responseSize?: number;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-  journeyName?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: HttpSpanAttributes & Record<string, any> = {
-    'http.method': method,
-    'http.url': url,
-    'http.target': new URL(url).pathname,
-    'http.host': new URL(url).host,
-    'http.scheme': new URL(url).protocol.replace(':', ''),
-    'http.status_code': statusCode,
-    'http.request_content_length': requestSize,
-    'http.response_content_length': responseSize,
-    'austa.journey.name': journeyName,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.journey.operation': 'api_request'
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  startTime?: number;
+  endTime?: number;
+  attributes?: Record<string, any>;
+  events?: Array<{ name: string; time: number; attributes?: Record<string, any> }>;
+  status?: SpanStatusCode;
+  kind?: number;
+}): ReadableSpan {
+  const duration = endTime ? endTime - startTime : 0;
+  
+  return {
     name,
-    kind: SpanKind.CLIENT,
+    kind,
+    spanContext: () => ({
+      traceId,
+      spanId,
+      traceFlags: 1, // SAMPLED
+      isRemote: false,
+      traceState: {
+        get: () => undefined,
+        set: () => ({ get: () => undefined, set: () => ({ get: () => undefined }) }),
+        unset: () => ({ get: () => undefined, set: () => ({ get: () => undefined }) }),
+        serialize: () => '',
+      },
+    }),
+    parentSpanId,
+    startTime: [Math.floor(startTime / 1000000), startTime % 1000000],
+    endTime: endTime ? [Math.floor(endTime / 1000000), endTime % 1000000] : undefined,
+    status: { code: status },
+    attributes: { ...COMMON_ATTRIBUTES, ...attributes },
+    links: [],
+    events: events.map(event => ({
+      name: event.name,
+      time: [Math.floor(event.time / 1000000), event.time % 1000000],
+      attributes: event.attributes || {},
+    })),
+    duration: [Math.floor(duration / 1000000), duration % 1000000],
+    ended: !!endTime,
+    resource: {
+      attributes: {},
+    },
+    instrumentationLibrary: {
+      name: '@austa/tracing',
+      version: '1.0.0',
+    },
+  } as unknown as ReadableSpan;
+}
+
+/**
+ * Creates a mock span for the Health Journey context
+ */
+export function createHealthJourneySpan({
+  name,
+  traceId,
+  spanId,
+  parentSpanId,
+  startTime = BASE_TIMESTAMP,
+  duration = 45000, // 45ms in microseconds
+  attributes = {},
+  events = [],
+  status = SpanStatusCode.OK,
+}: {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  startTime?: number;
+  duration?: number;
+  attributes?: Record<string, any>;
+  events?: Array<{ name: string; time: number; attributes?: Record<string, any> }>;
+  status?: SpanStatusCode;
+}): ReadableSpan {
+  const endTime = startTime + duration;
+  
+  return createMockSpan({
+    name,
+    traceId,
+    spanId,
+    parentSpanId,
     startTime,
     endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock database span
- */
-export function createMockDatabaseSpan({
-  name = 'DB Query',
-  system = DATABASE_SYSTEMS.POSTGRES,
-  operation = 'SELECT',
-  table = 'users',
-  statement = 'SELECT * FROM users WHERE id = $1',
-  durationMs = 25,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456',
-  journeyName = JOURNEY_NAMES.HEALTH
-}: {
-  name?: string;
-  system?: string;
-  operation?: string;
-  table?: string;
-  statement?: string;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-  journeyName?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: DatabaseSpanAttributes & Record<string, any> = {
-    'db.system': system,
-    'db.operation': operation,
-    'db.statement': statement,
-    'db.sql.table': table,
-    'austa.journey.name': journeyName,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.journey.operation': 'database_operation'
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.CLIENT,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock messaging span
- */
-export function createMockMessagingSpan({
-  name = 'Process Message',
-  system = MESSAGING_SYSTEMS.KAFKA,
-  destination = 'gamification-events',
-  messageId = 'msg-789',
-  payloadSize = 512,
-  durationMs = 35,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456',
-  journeyName = JOURNEY_NAMES.HEALTH
-}: {
-  name?: string;
-  system?: string;
-  destination?: string;
-  messageId?: string;
-  payloadSize?: number;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-  journeyName?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: MessagingSpanAttributes & Record<string, any> = {
-    'messaging.system': system,
-    'messaging.destination': destination,
-    'messaging.destination_kind': 'topic',
-    'messaging.message_id': messageId,
-    'messaging.message_payload_size_bytes': payloadSize,
-    'austa.journey.name': journeyName,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.journey.operation': 'message_processing'
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.CONSUMER,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock health journey span
- */
-export function createMockHealthJourneySpan({
-  name = 'Health Metric Recording',
-  operation = 'record_health_metric',
-  metricType = 'heart_rate',
-  metricValue = 75,
-  deviceId = 'device-123',
-  durationMs = 30,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456'
-}: {
-  name?: string;
-  operation?: string;
-  metricType?: string;
-  metricValue?: number;
-  deviceId?: string;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: HealthJourneySpanAttributes & Record<string, any> = {
-    'austa.journey.name': JOURNEY_NAMES.HEALTH,
-    'austa.journey.operation': operation,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.health.metric_type': metricType,
-    'austa.health.metric_value': metricValue,
-    'austa.health.device_id': deviceId
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.INTERNAL,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock care journey span
- */
-export function createMockCareJourneySpan({
-  name = 'Appointment Booking',
-  operation = 'book_appointment',
-  appointmentId = 'appt-123',
-  providerId = 'provider-456',
-  durationMs = 40,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456'
-}: {
-  name?: string;
-  operation?: string;
-  appointmentId?: string;
-  providerId?: string;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: CareJourneySpanAttributes & Record<string, any> = {
-    'austa.journey.name': JOURNEY_NAMES.CARE,
-    'austa.journey.operation': operation,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.care.appointment_id': appointmentId,
-    'austa.care.provider_id': providerId
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.INTERNAL,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock plan journey span
- */
-export function createMockPlanJourneySpan({
-  name = 'Claim Submission',
-  operation = 'submit_claim',
-  claimId = 'claim-123',
-  planId = 'plan-456',
-  amount = 150.75,
-  durationMs = 45,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456'
-}: {
-  name?: string;
-  operation?: string;
-  claimId?: string;
-  planId?: string;
-  amount?: number;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: PlanJourneySpanAttributes & Record<string, any> = {
-    'austa.journey.name': JOURNEY_NAMES.PLAN,
-    'austa.journey.operation': operation,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.plan.claim_id': claimId,
-    'austa.plan.plan_id': planId,
-    'claim.amount': amount
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.INTERNAL,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a mock gamification span
- */
-export function createMockGamificationSpan({
-  name = 'Process Gamification Event',
-  eventType = GAMIFICATION_EVENT_TYPES.ACHIEVEMENT_UNLOCKED,
-  achievementId = 'achievement-123',
-  points = 50,
-  sourceJourney = JOURNEY_NAMES.HEALTH,
-  durationMs = 20,
-  error = null,
-  userId = 'user-123',
-  sessionId = 'session-456'
-}: {
-  name?: string;
-  eventType?: string;
-  achievementId?: string;
-  points?: number;
-  sourceJourney?: string;
-  durationMs?: number;
-  error?: Error | null;
-  userId?: string;
-  sessionId?: string;
-} = {}): MockSpan {
-  const now = Date.now();
-  const startTime: [number, number] = [Math.floor(now / 1000), (now % 1000) * 1000000];
-  const endTime: [number, number] = [
-    Math.floor((now + durationMs) / 1000),
-    ((now + durationMs) % 1000) * 1000000
-  ];
-
-  const attributes: GamificationSpanAttributes & Record<string, any> = {
-    'austa.journey.name': sourceJourney,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-    'austa.journey.operation': 'gamification_event',
-    'austa.gamification.event_type': eventType,
-    'austa.gamification.achievement_id': achievementId,
-    'austa.gamification.points': points
-  };
-
-  const status = error
-    ? { code: SpanStatusCode.ERROR, message: error.message }
-    : { code: SpanStatusCode.OK };
-
-  const config: MockSpanConfig = {
-    name,
-    kind: SpanKind.INTERNAL,
-    startTime,
-    endTime,
-    attributes,
-    status
-  };
-
-  if (error) {
-    const span = new MockSpan(config);
-    span.recordException(error);
-    return span;
-  }
-
-  return new MockSpan(config);
-}
-
-/**
- * Factory function to create a complex trace with multiple spans
- */
-export function createMockComplexTrace({
-  userId = 'user-123',
-  sessionId = 'session-456',
-  journeyName = JOURNEY_NAMES.HEALTH,
-  includeError = false
-}: {
-  userId?: string;
-  sessionId?: string;
-  journeyName?: string;
-  includeError?: boolean;
-} = {}): MockSpan[] {
-  // Create a root HTTP span
-  const rootSpan = createMockHttpSpan({
-    name: 'HTTP POST /api/v1/health/metrics',
-    method: 'POST',
-    url: `https://api.austa.health/v1/${journeyName}/metrics`,
-    durationMs: 120,
-    userId,
-    sessionId,
-    journeyName
+    attributes: {
+      'journey.context': 'health',
+      'journey.operation': name,
+      ...attributes,
+    },
+    events,
+    status,
   });
-
-  // Create child database spans
-  const dbSpan1 = createMockDatabaseSpan({
-    name: 'DB Query - Get User Profile',
-    operation: 'SELECT',
-    table: 'user_profiles',
-    statement: 'SELECT * FROM user_profiles WHERE user_id = $1',
-    durationMs: 15,
-    userId,
-    sessionId,
-    journeyName
-  });
-
-  const dbSpan2 = createMockDatabaseSpan({
-    name: 'DB Query - Insert Metric',
-    operation: 'INSERT',
-    table: `${journeyName}_metrics`,
-    statement: `INSERT INTO ${journeyName}_metrics (user_id, metric_type, value, recorded_at) VALUES ($1, $2, $3, $4)`,
-    durationMs: 20,
-    userId,
-    sessionId,
-    journeyName,
-    error: includeError ? new Error('Database connection timeout') : null
-  });
-
-  // Create a messaging span for gamification
-  const messagingSpan = createMockMessagingSpan({
-    name: 'Send Gamification Event',
-    destination: 'gamification-events',
-    durationMs: 10,
-    userId,
-    sessionId,
-    journeyName
-  });
-
-  // Create a journey-specific span
-  let journeySpan;
-  switch (journeyName) {
-    case JOURNEY_NAMES.HEALTH:
-      journeySpan = createMockHealthJourneySpan({
-        name: 'Record Health Metric',
-        metricType: 'blood_pressure',
-        metricValue: 120,
-        userId,
-        sessionId
-      });
-      break;
-    case JOURNEY_NAMES.CARE:
-      journeySpan = createMockCareJourneySpan({
-        name: 'Schedule Appointment',
-        appointmentId: 'appt-789',
-        providerId: 'provider-456',
-        userId,
-        sessionId
-      });
-      break;
-    case JOURNEY_NAMES.PLAN:
-      journeySpan = createMockPlanJourneySpan({
-        name: 'Submit Insurance Claim',
-        claimId: 'claim-789',
-        planId: 'plan-456',
-        amount: 250.50,
-        userId,
-        sessionId
-      });
-      break;
-    default:
-      journeySpan = createMockHealthJourneySpan({
-        userId,
-        sessionId
-      });
-  }
-
-  // Create a gamification span
-  const gamificationSpan = createMockGamificationSpan({
-    name: 'Process Achievement',
-    eventType: GAMIFICATION_EVENT_TYPES.ACHIEVEMENT_UNLOCKED,
-    achievementId: 'achievement-789',
-    points: 100,
-    sourceJourney: journeyName,
-    userId,
-    sessionId
-  });
-
-  return [rootSpan, dbSpan1, dbSpan2, messagingSpan, journeySpan, gamificationSpan];
 }
 
 /**
- * Pre-configured mock spans for common testing scenarios
+ * Creates a mock span for the Care Journey context
  */
-export const mockSpans = {
-  // Health journey spans
+export function createCareJourneySpan({
+  name,
+  traceId,
+  spanId,
+  parentSpanId,
+  startTime = BASE_TIMESTAMP,
+  duration = 65000, // 65ms in microseconds
+  attributes = {},
+  events = [],
+  status = SpanStatusCode.OK,
+}: {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  startTime?: number;
+  duration?: number;
+  attributes?: Record<string, any>;
+  events?: Array<{ name: string; time: number; attributes?: Record<string, any> }>;
+  status?: SpanStatusCode;
+}): ReadableSpan {
+  const endTime = startTime + duration;
+  
+  return createMockSpan({
+    name,
+    traceId,
+    spanId,
+    parentSpanId,
+    startTime,
+    endTime,
+    attributes: {
+      'journey.context': 'care',
+      'journey.operation': name,
+      ...attributes,
+    },
+    events,
+    status,
+  });
+}
+
+/**
+ * Creates a mock span for the Plan Journey context
+ */
+export function createPlanJourneySpan({
+  name,
+  traceId,
+  spanId,
+  parentSpanId,
+  startTime = BASE_TIMESTAMP,
+  duration = 55000, // 55ms in microseconds
+  attributes = {},
+  events = [],
+  status = SpanStatusCode.OK,
+}: {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  startTime?: number;
+  duration?: number;
+  attributes?: Record<string, any>;
+  events?: Array<{ name: string; time: number; attributes?: Record<string, any> }>;
+  status?: SpanStatusCode;
+}): ReadableSpan {
+  const endTime = startTime + duration;
+  
+  return createMockSpan({
+    name,
+    traceId,
+    spanId,
+    parentSpanId,
+    startTime,
+    endTime,
+    attributes: {
+      'journey.context': 'plan',
+      'journey.operation': name,
+      ...attributes,
+    },
+    events,
+    status,
+  });
+}
+
+/**
+ * Creates a mock span for the Gamification Engine
+ */
+export function createGamificationSpan({
+  name,
+  traceId,
+  spanId,
+  parentSpanId,
+  startTime = BASE_TIMESTAMP,
+  duration = 35000, // 35ms in microseconds (below the 50ms requirement)
+  attributes = {},
+  events = [],
+  status = SpanStatusCode.OK,
+}: {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  startTime?: number;
+  duration?: number;
+  attributes?: Record<string, any>;
+  events?: Array<{ name: string; time: number; attributes?: Record<string, any> }>;
+  status?: SpanStatusCode;
+}): ReadableSpan {
+  const endTime = startTime + duration;
+  
+  return createMockSpan({
+    name,
+    traceId,
+    spanId,
+    parentSpanId,
+    startTime,
+    endTime,
+    attributes: {
+      'journey.context': 'gamification',
+      'journey.operation': name,
+      ...attributes,
+    },
+    events,
+    status,
+  });
+}
+
+// Sample trace ID and span IDs for testing
+export const SAMPLE_TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
+export const SAMPLE_SPAN_ID_1 = 'b7ad6b7169203331';
+export const SAMPLE_SPAN_ID_2 = 'c9c4b7f5b8615f08';
+export const SAMPLE_SPAN_ID_3 = 'a4b3c2d1e5f67890';
+export const SAMPLE_SPAN_ID_4 = '1a2b3c4d5e6f7890';
+
+// Sample mock spans for Health Journey
+export const HEALTH_API_SPAN = createHealthJourneySpan({
+  name: 'health.api.getMetrics',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_1,
+  duration: 120000, // 120ms
+  attributes: {
+    'http.method': 'GET',
+    'http.url': '/api/health/metrics',
+    'http.status_code': 200,
+    'http.flavor': '1.1',
+    'net.peer.ip': '192.168.1.1',
+    'user.id': 'user-123',
+  },
+  events: [
+    {
+      name: 'request.received',
+      time: BASE_TIMESTAMP + 1000,
+      attributes: { 'request.size': 1024 },
+    },
+    {
+      name: 'response.sent',
+      time: BASE_TIMESTAMP + 119000,
+      attributes: { 'response.size': 2048 },
+    },
+  ],
+});
+
+export const HEALTH_DB_SPAN = createHealthJourneySpan({
+  name: 'health.db.query',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_2,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 10000,
+  duration: 45000, // 45ms
+  attributes: {
+    'db.system': 'postgresql',
+    'db.name': 'health_metrics',
+    'db.user': 'health_service',
+    'db.statement': 'SELECT * FROM health_metrics WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 10',
+    'db.operation': 'SELECT',
+    'db.postgresql.table': 'health_metrics',
+  },
+});
+
+export const HEALTH_DEVICE_SPAN = createHealthJourneySpan({
+  name: 'health.device.sync',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_3,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 60000,
+  duration: 30000, // 30ms
+  attributes: {
+    'device.type': 'smartwatch',
+    'device.id': 'device-456',
+    'sync.records': 15,
+    'sync.operation': 'pull',
+  },
+});
+
+// Sample mock spans for Care Journey
+export const CARE_API_SPAN = createCareJourneySpan({
+  name: 'care.api.bookAppointment',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_1,
+  duration: 180000, // 180ms
+  attributes: {
+    'http.method': 'POST',
+    'http.url': '/api/care/appointments',
+    'http.status_code': 201,
+    'http.flavor': '1.1',
+    'net.peer.ip': '192.168.1.2',
+    'user.id': 'user-456',
+  },
+  events: [
+    {
+      name: 'request.received',
+      time: BASE_TIMESTAMP + 1000,
+      attributes: { 'request.size': 2048 },
+    },
+    {
+      name: 'appointment.validated',
+      time: BASE_TIMESTAMP + 50000,
+      attributes: { 'validation.result': 'success' },
+    },
+    {
+      name: 'response.sent',
+      time: BASE_TIMESTAMP + 179000,
+      attributes: { 'response.size': 1024 },
+    },
+  ],
+});
+
+export const CARE_DB_SPAN = createCareJourneySpan({
+  name: 'care.db.insert',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_2,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 60000,
+  duration: 65000, // 65ms
+  attributes: {
+    'db.system': 'postgresql',
+    'db.name': 'care_appointments',
+    'db.user': 'care_service',
+    'db.statement': 'INSERT INTO appointments (user_id, provider_id, date, time, type) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+    'db.operation': 'INSERT',
+    'db.postgresql.table': 'appointments',
+  },
+});
+
+export const CARE_NOTIFICATION_SPAN = createCareJourneySpan({
+  name: 'care.notification.send',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_3,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 130000,
+  duration: 40000, // 40ms
+  attributes: {
+    'notification.type': 'appointment_confirmation',
+    'notification.channel': 'push',
+    'notification.recipient': 'user-456',
+    'notification.template': 'appointment_booked',
+  },
+});
+
+// Sample mock spans for Plan Journey
+export const PLAN_API_SPAN = createPlanJourneySpan({
+  name: 'plan.api.submitClaim',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_1,
+  duration: 150000, // 150ms
+  attributes: {
+    'http.method': 'POST',
+    'http.url': '/api/plan/claims',
+    'http.status_code': 202,
+    'http.flavor': '1.1',
+    'net.peer.ip': '192.168.1.3',
+    'user.id': 'user-789',
+  },
+  events: [
+    {
+      name: 'request.received',
+      time: BASE_TIMESTAMP + 1000,
+      attributes: { 'request.size': 4096 },
+    },
+    {
+      name: 'claim.validated',
+      time: BASE_TIMESTAMP + 40000,
+      attributes: { 'validation.result': 'success' },
+    },
+    {
+      name: 'documents.processed',
+      time: BASE_TIMESTAMP + 100000,
+      attributes: { 'document.count': 3 },
+    },
+    {
+      name: 'response.sent',
+      time: BASE_TIMESTAMP + 149000,
+      attributes: { 'response.size': 1024 },
+    },
+  ],
+});
+
+export const PLAN_DB_SPAN = createPlanJourneySpan({
+  name: 'plan.db.insert',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_2,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 50000,
+  duration: 55000, // 55ms
+  attributes: {
+    'db.system': 'postgresql',
+    'db.name': 'plan_claims',
+    'db.user': 'plan_service',
+    'db.statement': 'INSERT INTO claims (user_id, plan_id, amount, service_date, provider, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    'db.operation': 'INSERT',
+    'db.postgresql.table': 'claims',
+  },
+});
+
+export const PLAN_EXTERNAL_API_SPAN = createPlanJourneySpan({
+  name: 'plan.external.insuranceApi',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_3,
+  parentSpanId: SAMPLE_SPAN_ID_1,
+  startTime: BASE_TIMESTAMP + 110000,
+  duration: 35000, // 35ms
+  attributes: {
+    'http.method': 'POST',
+    'http.url': 'https://insurance-api.example.com/claims',
+    'http.status_code': 200,
+    'peer.service': 'insurance-api',
+    'claim.id': 'claim-123',
+    'claim.status': 'submitted',
+  },
+});
+
+// Sample mock spans for Gamification Engine
+export const GAMIFICATION_EVENT_SPAN = createGamificationSpan({
+  name: 'gamification.event.process',
+  traceId: SAMPLE_TRACE_ID,
+  spanId: SAMPLE_SPAN_ID_4,
+  duration: 35000, // 35ms (below the 50ms requirement)
+  attributes: {
+    'event.type': 'achievement_progress',
+    'event.source': 'health_journey',
+    'user.id': 'user-123',
+    'achievement.id': 'daily_steps_goal',
+    'achievement.progress': 75,
+  },
+  events: [
+    {
+      name: 'event.received',
+      time: BASE_TIMESTAMP + 1000,
+      attributes: { 'event.size': 512 },
+    },
+    {
+      name: 'rules.evaluated',
+      time: BASE_TIMESTAMP + 15000,
+      attributes: { 'rules.count': 3, 'rules.matched': 2 },
+    },
+    {
+      name: 'points.awarded',
+      time: BASE_TIMESTAMP + 25000,
+      attributes: { 'points.amount': 50 },
+    },
+    {
+      name: 'event.processed',
+      time: BASE_TIMESTAMP + 34000,
+      attributes: { 'processing.result': 'success' },
+    },
+  ],
+});
+
+// Export all mock spans for easy access
+export const MOCK_SPANS = {
   health: {
-    recordMetric: createMockHealthJourneySpan({
-      name: 'Record Heart Rate',
-      metricType: 'heart_rate',
-      metricValue: 72
-    }),
-    syncDevice: createMockHealthJourneySpan({
-      name: 'Sync Wearable Device',
-      operation: 'sync_device',
-      deviceId: 'fitbit-123',
-      durationMs: 150
-    }),
-    viewGoals: createMockHealthJourneySpan({
-      name: 'View Health Goals',
-      operation: 'view_goals'
-    }),
-    errorCase: createMockHealthJourneySpan({
-      name: 'Failed Health Metric Recording',
-      error: new Error('Invalid metric value')
-    })
+    api: HEALTH_API_SPAN,
+    db: HEALTH_DB_SPAN,
+    device: HEALTH_DEVICE_SPAN,
   },
-  
-  // Care journey spans
   care: {
-    bookAppointment: createMockCareJourneySpan({
-      name: 'Book Doctor Appointment',
-      appointmentId: 'appt-456',
-      providerId: 'doctor-789'
-    }),
-    startTelemedicine: createMockCareJourneySpan({
-      name: 'Start Telemedicine Session',
-      operation: 'start_telemedicine',
-      appointmentId: 'telemedicine-456'
-    }),
-    medicationReminder: createMockCareJourneySpan({
-      name: 'Medication Reminder',
-      operation: 'medication_reminder'
-    }),
-    errorCase: createMockCareJourneySpan({
-      name: 'Failed Appointment Booking',
-      error: new Error('Provider not available')
-    })
+    api: CARE_API_SPAN,
+    db: CARE_DB_SPAN,
+    notification: CARE_NOTIFICATION_SPAN,
   },
-  
-  // Plan journey spans
   plan: {
-    submitClaim: createMockPlanJourneySpan({
-      name: 'Submit Medical Claim',
-      claimId: 'claim-456',
-      amount: 175.50
-    }),
-    checkCoverage: createMockPlanJourneySpan({
-      name: 'Check Benefit Coverage',
-      operation: 'check_coverage',
-      planId: 'plan-789'
-    }),
-    viewBenefits: createMockPlanJourneySpan({
-      name: 'View Plan Benefits',
-      operation: 'view_benefits'
-    }),
-    errorCase: createMockPlanJourneySpan({
-      name: 'Failed Claim Submission',
-      error: new Error('Missing documentation')
-    })
+    api: PLAN_API_SPAN,
+    db: PLAN_DB_SPAN,
+    externalApi: PLAN_EXTERNAL_API_SPAN,
   },
-  
-  // Gamification spans
   gamification: {
-    achievementUnlocked: createMockGamificationSpan({
-      name: 'Achievement Unlocked',
-      eventType: GAMIFICATION_EVENT_TYPES.ACHIEVEMENT_UNLOCKED,
-      achievementId: 'first-appointment'
-    }),
-    questCompleted: createMockGamificationSpan({
-      name: 'Quest Completed',
-      eventType: GAMIFICATION_EVENT_TYPES.QUEST_COMPLETED,
-      achievementId: 'health-tracking-week'
-    }),
-    pointsEarned: createMockGamificationSpan({
-      name: 'Points Earned',
-      eventType: GAMIFICATION_EVENT_TYPES.POINTS_EARNED,
-      points: 25
-    }),
-    errorCase: createMockGamificationSpan({
-      name: 'Failed Achievement Processing',
-      error: new Error('Achievement criteria not met')
-    })
+    event: GAMIFICATION_EVENT_SPAN,
   },
-  
-  // Database operation spans
-  database: {
-    select: createMockDatabaseSpan({
-      name: 'Select User Data',
-      operation: 'SELECT',
-      table: 'users'
-    }),
-    insert: createMockDatabaseSpan({
-      name: 'Insert Health Record',
-      operation: 'INSERT',
-      table: 'health_records'
-    }),
-    update: createMockDatabaseSpan({
-      name: 'Update User Profile',
-      operation: 'UPDATE',
-      table: 'user_profiles'
-    }),
-    errorCase: createMockDatabaseSpan({
-      name: 'Failed Database Query',
-      error: new Error('Database connection error')
-    })
-  },
-  
-  // HTTP request spans
-  http: {
-    get: createMockHttpSpan({
-      name: 'HTTP GET User Profile',
-      method: 'GET',
-      url: 'https://api.austa.health/v1/users/profile'
-    }),
-    post: createMockHttpSpan({
-      name: 'HTTP POST Create Appointment',
-      method: 'POST',
-      url: 'https://api.austa.health/v1/care/appointments'
-    }),
-    put: createMockHttpSpan({
-      name: 'HTTP PUT Update Preferences',
-      method: 'PUT',
-      url: 'https://api.austa.health/v1/users/preferences'
-    }),
-    errorCase: createMockHttpSpan({
-      name: 'HTTP Error Response',
-      statusCode: 500,
-      error: new Error('Internal server error')
-    })
-  },
-  
-  // Messaging spans
-  messaging: {
-    publishEvent: createMockMessagingSpan({
-      name: 'Publish Health Event',
-      destination: 'health-events'
-    }),
-    consumeNotification: createMockMessagingSpan({
-      name: 'Consume Notification',
-      destination: 'user-notifications',
-      kind: SpanKind.CONSUMER
-    }),
-    processCommand: createMockMessagingSpan({
-      name: 'Process Command',
-      destination: 'user-commands'
-    }),
-    errorCase: createMockMessagingSpan({
-      name: 'Failed Message Processing',
-      error: new Error('Message deserialization error')
-    })
-  },
-  
-  // Complex traces
-  traces: {
-    healthJourney: createMockComplexTrace({
-      journeyName: JOURNEY_NAMES.HEALTH
-    }),
-    careJourney: createMockComplexTrace({
-      journeyName: JOURNEY_NAMES.CARE
-    }),
-    planJourney: createMockComplexTrace({
-      journeyName: JOURNEY_NAMES.PLAN
-    }),
-    errorTrace: createMockComplexTrace({
-      journeyName: JOURNEY_NAMES.HEALTH,
-      includeError: true
-    })
-  }
 };

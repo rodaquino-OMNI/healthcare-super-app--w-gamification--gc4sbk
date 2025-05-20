@@ -1,670 +1,511 @@
-import { LoggerConfig } from '../../src/interfaces/log-config.interface';
+/**
+ * @file config-options.fixture.ts
+ * @description Test fixtures for logger configuration options.
+ * Provides sample configurations for different environments and scenarios
+ * to test the LoggerModule's configuration handling.
+ */
+
+import { 
+  LoggerConfig, 
+  FormatterType, 
+  TransportType,
+  LogContextDefaults,
+  TransportConfig,
+  JourneyLogConfig
+} from '../../src/interfaces/log-config.interface';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
 
 /**
- * Sample logger configuration options for different environments and scenarios.
- * These fixtures are used for testing the LoggerModule's configuration handling
- * and ensuring proper logger initialization across environments.
- */
-
-/**
- * Development environment configuration with console output
- * - Uses text formatter with colors and pretty printing
- * - Logs DEBUG level and above to console
- * - Disables CloudWatch integration
- * - Captures all journey contexts
+ * Basic development configuration with console output and text formatter
  */
 export const developmentConfig: LoggerConfig = {
   level: LogLevel.DEBUG,
-  enabled: true,
-  debug: true,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: false,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: true,
-      prettyPrint: true,
-      level: LogLevel.DEBUG,
-    },
-    file: {
-      enabled: true,
-      directory: './logs',
-      filename: 'dev-app',
-      maxSize: 10485760, // 10MB
-      maxFiles: 5,
-      compress: false,
-      level: LogLevel.INFO,
-    },
-    cloudWatch: {
-      enabled: false,
-    },
-  },
-  formatters: {
-    default: 'text',
-    prettyPrint: true,
-    includeStacktraces: true,
-    maxObjectDepth: 10,
-  },
+  formatter: FormatterType.TEXT,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: true,
+        prettyPrint: true,
+        timestamp: true
+      }
+    }
+  ],
   context: {
-    enabled: true,
-    serviceName: 'dev-service',
-    appName: 'austa-superapp',
+    application: 'austa-superapp',
+    service: 'test-service',
     environment: 'development',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
+    version: '1.0.0'
   },
-  journeys: {
-    health: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-      },
-    },
-    care: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-      },
-    },
-    plan: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: false,
-  },
-  maxBufferSize: 1000,
+  enableTracing: true,
+  redactSensitiveData: true,
+  sensitiveFields: ['password', 'token', 'secret', 'authorization', 'cookie'],
+  maxObjectDepth: 5,
+  handleExceptions: true,
+  exitOnError: false,
+  silent: false
 };
 
 /**
- * Production environment configuration with structured JSON and CloudWatch integration
- * - Uses JSON formatter without pretty printing
- * - Logs INFO level and above to console and CloudWatch
- * - Enables CloudWatch integration with batching
- * - Captures all journey contexts
+ * Production configuration with console and CloudWatch transports
  */
 export const productionConfig: LoggerConfig = {
   level: LogLevel.INFO,
-  enabled: true,
-  debug: false,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: true,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: false,
-      prettyPrint: false,
+  formatter: FormatterType.JSON,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
       level: LogLevel.INFO,
+      formatter: FormatterType.JSON,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: true
+      }
     },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp',
-      logStreamName: 'production-service',
-      batchSize: 50,
-      flushInterval: 5000,
-      maxRetries: 3,
+    {
+      type: TransportType.CLOUDWATCH,
       level: LogLevel.INFO,
-    },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: false,
-    includeStacktraces: true,
-    maxObjectDepth: 5,
-  },
+      formatter: FormatterType.CLOUDWATCH,
+      cloudWatch: {
+        region: 'us-east-1',
+        logGroupName: '/austa-superapp/production',
+        logStreamName: 'test-service',
+        retries: 3,
+        batchSize: 10000,
+        flushInterval: 1000
+      }
+    }
+  ],
   context: {
-    enabled: true,
-    serviceName: 'production-service',
-    appName: 'austa-superapp',
+    application: 'austa-superapp',
+    service: 'test-service',
     environment: 'production',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
+    version: '1.0.0',
+    additional: {
+      deploymentId: 'prod-deployment-123',
+      instanceId: 'i-1234567890abcdef0'
+    }
   },
-  journeys: {
-    health: {
-      level: LogLevel.INFO,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: false,
-      },
-    },
-    care: {
-      level: LogLevel.INFO,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: false,
-      },
-    },
-    plan: {
-      level: LogLevel.INFO,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: false,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: true,
-  },
-  maxBufferSize: 5000,
+  enableTracing: true,
+  redactSensitiveData: true,
+  sensitiveFields: ['password', 'token', 'secret', 'authorization', 'cookie', 'ssn', 'creditCard'],
+  maxObjectDepth: 3,
+  handleExceptions: true,
+  exitOnError: true,
+  silent: false
 };
 
 /**
- * Testing environment configuration optimized for automated tests
- * - Uses text formatter with minimal output
- * - Only logs ERROR level and above to console
- * - Disables all other transports
- * - Disables exception capturing to allow tests to fail properly
+ * Testing configuration with minimal console output
  */
 export const testingConfig: LoggerConfig = {
   level: LogLevel.ERROR,
-  enabled: true,
-  debug: false,
-  captureExceptions: false,
-  captureRejections: false,
-  exitOnError: false,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: true,
-      prettyPrint: false,
-      level: LogLevel.ERROR,
-    },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: false,
-    },
-  },
-  formatters: {
-    default: 'text',
-    prettyPrint: false,
-    includeStacktraces: false,
-    maxObjectDepth: 3,
-  },
+  formatter: FormatterType.TEXT,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: false
+      }
+    }
+  ],
   context: {
-    enabled: true,
-    serviceName: 'test-service',
-    appName: 'austa-superapp',
+    application: 'austa-superapp',
+    service: 'test-service',
     environment: 'test',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey'],
-    includeRequestContext: false,
-    includeUserContext: false,
-    includeJourneyContext: true,
+    version: '1.0.0'
+  },
+  enableTracing: false,
+  redactSensitiveData: true,
+  handleExceptions: false,
+  exitOnError: false,
+  silent: true
+};
+
+/**
+ * File-based logging configuration for local development
+ */
+export const fileLoggingConfig: LoggerConfig = {
+  level: LogLevel.DEBUG,
+  formatter: FormatterType.JSON,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.INFO,
+      formatter: FormatterType.TEXT
+    },
+    {
+      type: TransportType.FILE,
+      level: LogLevel.DEBUG,
+      formatter: FormatterType.JSON,
+      file: {
+        filename: './logs/austa-superapp.log',
+        maxSize: 10485760, // 10MB
+        maxFiles: 5,
+        compress: true,
+        append: true
+      }
+    }
+  ],
+  context: {
+    application: 'austa-superapp',
+    service: 'test-service',
+    environment: 'development',
+    version: '1.0.0'
+  },
+  enableTracing: true,
+  redactSensitiveData: true,
+  handleExceptions: true,
+  exitOnError: false
+};
+
+/**
+ * Journey-specific logging configurations
+ */
+export const journeySpecificConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  formatter: FormatterType.JSON,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      formatter: FormatterType.TEXT
+    }
+  ],
+  context: {
+    application: 'austa-superapp',
+    service: 'journey-service',
+    environment: 'development',
+    version: '1.0.0'
   },
   journeys: {
     health: {
-      level: LogLevel.ERROR,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        testMode: true,
+      level: LogLevel.DEBUG,
+      context: {
+        journeyId: 'health',
+        journeyVersion: '2.0.0',
+        features: ['metrics', 'goals', 'devices']
       },
+      transports: [
+        {
+          type: TransportType.FILE,
+          formatter: FormatterType.JSON,
+          file: {
+            filename: './logs/health-journey.log',
+            maxSize: 5242880, // 5MB
+            maxFiles: 3,
+            compress: true
+          }
+        }
+      ]
     },
     care: {
-      level: LogLevel.ERROR,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        testMode: true,
-      },
+      level: LogLevel.INFO,
+      context: {
+        journeyId: 'care',
+        journeyVersion: '1.5.0',
+        features: ['appointments', 'telemedicine', 'medications']
+      }
     },
     plan: {
-      level: LogLevel.ERROR,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        testMode: true,
-      },
-    },
+      level: LogLevel.WARN,
+      context: {
+        journeyId: 'plan',
+        journeyVersion: '1.2.0',
+        features: ['claims', 'benefits', 'coverage']
+      }
+    }
   },
-  tracing: {
-    enabled: false,
-  },
-  maxBufferSize: 100,
+  enableTracing: true,
+  redactSensitiveData: true,
+  handleExceptions: true,
+  exitOnError: false
 };
 
 /**
- * Health journey specific configuration for production
- * - Specialized configuration for the Health journey
- * - Uses CloudWatch integration with health-specific log group
- * - Includes health-specific context fields
- */
-export const healthJourneyConfig: LoggerConfig = {
-  level: LogLevel.INFO,
-  enabled: true,
-  debug: false,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: true,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: false,
-      prettyPrint: false,
-      level: LogLevel.INFO,
-    },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp-health-journey',
-      logStreamName: 'health-service',
-      batchSize: 50,
-      flushInterval: 5000,
-      maxRetries: 3,
-      level: LogLevel.INFO,
-    },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: false,
-    includeStacktraces: true,
-    maxObjectDepth: 5,
-  },
-  context: {
-    enabled: true,
-    serviceName: 'health-service',
-    appName: 'austa-superapp',
-    environment: 'production',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey', 'healthData'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
-  },
-  journeys: {
-    health: {
-      level: LogLevel.DEBUG, // More detailed logging for this specific journey
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        journeyType: 'health',
-        dataCategories: ['metrics', 'goals', 'devices'],
-        sensitiveDataPresent: true,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: true,
-  },
-  maxBufferSize: 5000,
-};
-
-/**
- * Care journey specific configuration for production
- * - Specialized configuration for the Care journey
- * - Uses CloudWatch integration with care-specific log group
- * - Includes care-specific context fields
- */
-export const careJourneyConfig: LoggerConfig = {
-  level: LogLevel.INFO,
-  enabled: true,
-  debug: false,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: true,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: false,
-      prettyPrint: false,
-      level: LogLevel.INFO,
-    },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp-care-journey',
-      logStreamName: 'care-service',
-      batchSize: 50,
-      flushInterval: 5000,
-      maxRetries: 3,
-      level: LogLevel.INFO,
-    },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: false,
-    includeStacktraces: true,
-    maxObjectDepth: 5,
-  },
-  context: {
-    enabled: true,
-    serviceName: 'care-service',
-    appName: 'austa-superapp',
-    environment: 'production',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey', 'medicalData'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
-  },
-  journeys: {
-    care: {
-      level: LogLevel.DEBUG, // More detailed logging for this specific journey
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        journeyType: 'care',
-        dataCategories: ['appointments', 'providers', 'medications'],
-        sensitiveDataPresent: true,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: true,
-  },
-  maxBufferSize: 5000,
-};
-
-/**
- * Plan journey specific configuration for production
- * - Specialized configuration for the Plan journey
- * - Uses CloudWatch integration with plan-specific log group
- * - Includes plan-specific context fields
- */
-export const planJourneyConfig: LoggerConfig = {
-  level: LogLevel.INFO,
-  enabled: true,
-  debug: false,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: true,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: false,
-      prettyPrint: false,
-      level: LogLevel.INFO,
-    },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp-plan-journey',
-      logStreamName: 'plan-service',
-      batchSize: 50,
-      flushInterval: 5000,
-      maxRetries: 3,
-      level: LogLevel.INFO,
-    },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: false,
-    includeStacktraces: true,
-    maxObjectDepth: 5,
-  },
-  context: {
-    enabled: true,
-    serviceName: 'plan-service',
-    appName: 'austa-superapp',
-    environment: 'production',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey', 'financialData'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
-  },
-  journeys: {
-    plan: {
-      level: LogLevel.DEBUG, // More detailed logging for this specific journey
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        journeyType: 'plan',
-        dataCategories: ['benefits', 'claims', 'coverage'],
-        sensitiveDataPresent: true,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: true,
-  },
-  maxBufferSize: 5000,
-};
-
-/**
- * Minimal configuration for testing edge cases
- * - Minimal configuration with only required fields
- * - Tests logger's ability to use defaults for missing options
+ * Minimal configuration to test defaults
  */
 export const minimalConfig: LoggerConfig = {
-  level: LogLevel.INFO,
-  enabled: true,
+  level: LogLevel.INFO
 };
 
 /**
- * Configuration with all transports disabled
- * - Tests logger's behavior when all transports are disabled
- * - Should fall back to console transport with warnings
+ * Configuration with multiple transports of the same type
  */
-export const noTransportsConfig: LoggerConfig = {
-  level: LogLevel.WARN,
-  enabled: true,
-  transports: {
-    console: {
-      enabled: false,
+export const multipleTransportsConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.DEBUG,
+      formatter: FormatterType.TEXT,
+      console: {
+        colorize: true
+      }
     },
-    file: {
-      enabled: false,
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.ERROR,
+      formatter: FormatterType.JSON,
+      console: {
+        colorize: false
+      }
     },
-    cloudWatch: {
-      enabled: false,
+    {
+      type: TransportType.FILE,
+      level: LogLevel.INFO,
+      file: {
+        filename: './logs/info.log'
+      }
     },
-  },
+    {
+      type: TransportType.FILE,
+      level: LogLevel.ERROR,
+      file: {
+        filename: './logs/error.log'
+      }
+    }
+  ]
 };
 
 /**
- * Configuration with invalid formatter
- * - Tests logger's error handling for invalid formatter configuration
- * - Should fall back to default formatter with warnings
+ * Configuration with invalid formatter (for testing error handling)
  */
 export const invalidFormatterConfig: LoggerConfig = {
   level: LogLevel.INFO,
-  enabled: true,
-  formatters: {
-    // @ts-ignore - Intentionally using invalid formatter for testing
-    default: 'invalid-formatter',
-  },
+  // @ts-ignore - Intentionally using an invalid formatter for testing
+  formatter: 'invalid-formatter',
+  transports: [
+    {
+      type: TransportType.CONSOLE
+    }
+  ]
 };
 
 /**
- * Configuration with extremely verbose settings
- * - Tests logger's performance with maximum verbosity
- * - Includes all possible context fields and debug information
+ * Configuration with invalid transport type (for testing error handling)
  */
-export const verboseConfig: LoggerConfig = {
-  level: LogLevel.DEBUG,
-  enabled: true,
-  debug: true,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: false,
-  transports: {
-    console: {
-      enabled: true,
-      colorize: true,
-      prettyPrint: true,
-      level: LogLevel.DEBUG,
-    },
-    file: {
-      enabled: true,
-      directory: './logs',
-      filename: 'verbose-app',
-      maxSize: 104857600, // 100MB
-      maxFiles: 20,
-      compress: true,
-      level: LogLevel.DEBUG,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp-verbose',
-      logStreamName: 'verbose-service',
-      batchSize: 10, // Smaller batch for more frequent sending
-      flushInterval: 1000, // Flush every second
-      maxRetries: 5,
-      level: LogLevel.DEBUG,
-    },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: true,
-    includeStacktraces: true,
-    maxObjectDepth: 20, // Very deep object serialization
-  },
-  context: {
-    enabled: true,
-    serviceName: 'verbose-service',
-    appName: 'austa-superapp',
-    environment: 'development',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey'],
-    includeRequestContext: true,
-    includeUserContext: true,
-    includeJourneyContext: true,
-  },
-  journeys: {
-    health: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-        debugMode: true,
-        traceAllOperations: true,
-      },
-    },
-    care: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-        debugMode: true,
-        traceAllOperations: true,
-      },
-    },
-    plan: {
-      level: LogLevel.DEBUG,
-      additionalContext: {
-        journeyVersion: '1.0.0',
-        enableDetailedMetrics: true,
-        debugMode: true,
-        traceAllOperations: true,
-      },
-    },
-  },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: false,
-  },
-  maxBufferSize: 10000, // Very large buffer
-};
-
-/**
- * Configuration for high-throughput production environment
- * - Optimized for high log volume environments
- * - Uses batching and compression for efficiency
- * - Minimizes context to reduce log size
- */
-export const highThroughputConfig: LoggerConfig = {
+export const invalidTransportConfig: LoggerConfig = {
   level: LogLevel.INFO,
-  enabled: true,
-  debug: false,
-  captureExceptions: true,
-  captureRejections: true,
-  exitOnError: true,
-  transports: {
-    console: {
-      enabled: false, // Disable console in high-throughput environments
+  transports: [
+    {
+      // @ts-ignore - Intentionally using an invalid transport for testing
+      type: 'invalid-transport'
+    }
+  ]
+};
+
+/**
+ * Configuration with missing required transport config (for testing error handling)
+ */
+export const missingRequiredTransportConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  transports: [
+    {
+      type: TransportType.FILE,
+      // Missing required file.filename property
+      file: {
+        maxSize: 1048576
+      } as any
+    }
+  ]
+};
+
+/**
+ * Configuration with CloudWatch transport but missing region (for testing error handling)
+ */
+export const missingCloudWatchRegionConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  transports: [
+    {
+      type: TransportType.CLOUDWATCH,
+      cloudWatch: {
+        // Missing required region
+        logGroupName: '/austa-superapp/test'
+      } as any
+    }
+  ]
+};
+
+/**
+ * Configuration with empty transports array (for testing error handling)
+ */
+export const emptyTransportsConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  transports: []
+};
+
+/**
+ * Configuration with all log levels for testing level filtering
+ */
+export const allLogLevelsConfig: LoggerConfig = {
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.DEBUG,
+      console: { colorize: true }
     },
-    file: {
-      enabled: false,
-    },
-    cloudWatch: {
-      enabled: true,
-      region: 'us-east-1',
-      logGroupName: 'austa-superapp',
-      logStreamName: 'high-throughput-service',
-      batchSize: 500, // Larger batch size for efficiency
-      flushInterval: 10000, // Longer flush interval (10 seconds)
-      maxRetries: 3,
+    {
+      type: TransportType.CONSOLE,
       level: LogLevel.INFO,
+      console: { colorize: true }
     },
-  },
-  formatters: {
-    default: 'json',
-    prettyPrint: false,
-    includeStacktraces: false, // Disable stacktraces to reduce log size
-    maxObjectDepth: 3, // Limit object depth to reduce log size
-  },
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.WARN,
+      console: { colorize: true }
+    },
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.ERROR,
+      console: { colorize: true }
+    },
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.FATAL,
+      console: { colorize: true }
+    }
+  ]
+};
+
+/**
+ * Configuration with all formatter types for testing formatter selection
+ */
+export const allFormattersConfig: LoggerConfig = {
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      formatter: FormatterType.TEXT
+    },
+    {
+      type: TransportType.CONSOLE,
+      formatter: FormatterType.JSON
+    },
+    {
+      type: TransportType.CONSOLE,
+      formatter: FormatterType.CLOUDWATCH
+    }
+  ]
+};
+
+/**
+ * Configuration for AWS Lambda environment
+ */
+export const lambdaConfig: LoggerConfig = {
+  level: LogLevel.INFO,
+  formatter: FormatterType.JSON,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      formatter: FormatterType.JSON,
+      console: {
+        colorize: false,
+        prettyPrint: false,
+        timestamp: true
+      }
+    }
+  ],
   context: {
-    enabled: true,
-    serviceName: 'high-throughput-service',
-    appName: 'austa-superapp',
+    application: 'austa-superapp',
+    service: 'lambda-function',
     environment: 'production',
-    sanitizeFields: ['password', 'token', 'secret', 'authorization', 'apiKey'],
-    includeRequestContext: true,
-    includeUserContext: false, // Minimize context to reduce log size
-    includeJourneyContext: true,
+    version: '1.0.0',
+    additional: {
+      awsRegion: 'us-east-1',
+      functionName: 'austa-api-handler',
+      functionVersion: '$LATEST'
+    }
+  },
+  enableTracing: true,
+  redactSensitiveData: true,
+  handleExceptions: true,
+  exitOnError: false // Lambda should not exit on error
+};
+
+/**
+ * Configuration for local development with all features enabled
+ */
+export const fullFeaturedDevConfig: LoggerConfig = {
+  level: LogLevel.DEBUG,
+  formatter: FormatterType.TEXT,
+  transports: [
+    {
+      type: TransportType.CONSOLE,
+      level: LogLevel.DEBUG,
+      formatter: FormatterType.TEXT,
+      console: {
+        colorize: true,
+        prettyPrint: true,
+        timestamp: true
+      }
+    },
+    {
+      type: TransportType.FILE,
+      level: LogLevel.INFO,
+      formatter: FormatterType.JSON,
+      file: {
+        filename: './logs/combined.log',
+        maxSize: 10485760,
+        maxFiles: 5,
+        compress: true
+      }
+    },
+    {
+      type: TransportType.FILE,
+      level: LogLevel.ERROR,
+      formatter: FormatterType.JSON,
+      file: {
+        filename: './logs/error.log',
+        maxSize: 10485760,
+        maxFiles: 10,
+        compress: true
+      }
+    }
+  ],
+  context: {
+    application: 'austa-superapp',
+    service: 'dev-service',
+    environment: 'development',
+    version: '1.0.0',
+    additional: {
+      developer: 'John Doe',
+      machine: 'local-dev-machine',
+      features: ['all']
+    }
   },
   journeys: {
     health: {
-      level: LogLevel.WARN, // Higher threshold to reduce log volume
-      additionalContext: {
-        journeyVersion: '1.0.0',
-      },
+      level: LogLevel.DEBUG,
+      context: {
+        journeyId: 'health',
+        features: ['all']
+      }
     },
     care: {
-      level: LogLevel.WARN, // Higher threshold to reduce log volume
-      additionalContext: {
-        journeyVersion: '1.0.0',
-      },
+      level: LogLevel.DEBUG,
+      context: {
+        journeyId: 'care',
+        features: ['all']
+      }
     },
     plan: {
-      level: LogLevel.WARN, // Higher threshold to reduce log volume
-      additionalContext: {
-        journeyVersion: '1.0.0',
-      },
-    },
+      level: LogLevel.DEBUG,
+      context: {
+        journeyId: 'plan',
+        features: ['all']
+      }
+    }
   },
-  tracing: {
-    enabled: true,
-    traceIdField: 'traceId',
-    spanIdField: 'spanId',
-    xrayFormat: true,
-  },
-  maxBufferSize: 10000, // Larger buffer for high throughput
+  enableTracing: true,
+  redactSensitiveData: true,
+  sensitiveFields: [
+    'password', 'token', 'secret', 'authorization', 'cookie',
+    'ssn', 'creditCard', 'accessKey', 'privateKey'
+  ],
+  maxObjectDepth: 10,
+  handleExceptions: true,
+  exitOnError: false,
+  silent: false
 };

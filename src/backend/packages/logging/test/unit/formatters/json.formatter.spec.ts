@@ -1,23 +1,6 @@
 import { JsonFormatter } from '../../../src/formatters/json.formatter';
 import { LogEntry } from '../../../src/formatters/formatter.interface';
-import { LogLevel } from '../../../src/interfaces';
-import { 
-  standardLogEntries,
-  journeyContextEntries,
-  errorLogEntries,
-  largeObjectEntries,
-  circularReferenceEntries
-} from '../../fixtures/log-entries.fixture';
-import { errorObjects } from '../../fixtures/error-objects.fixture';
-import { logContexts } from '../../fixtures/log-contexts.fixture';
-import { journeyData } from '../../fixtures/journey-data.fixture';
-import { 
-  assertJsonFormat, 
-  assertLogLevelFormat, 
-  assertTimestampFormat,
-  assertContextEnrichment,
-  assertErrorSerialization
-} from '../../utils/assertion.utils';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
 
 describe('JsonFormatter', () => {
   let formatter: JsonFormatter;
@@ -26,14 +9,14 @@ describe('JsonFormatter', () => {
     formatter = new JsonFormatter();
   });
 
-  describe('format', () => {
-    it('should format a basic log entry as JSON', () => {
+  describe('basic formatting', () => {
+    it('should format a basic log entry with minimal fields', () => {
       // Arrange
+      const timestamp = new Date('2023-01-01T12:00:00.000Z');
       const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
+        timestamp,
         level: LogLevel.INFO,
         message: 'Test message',
-        context: { service: 'test-service' }
       };
 
       // Act
@@ -42,175 +25,50 @@ describe('JsonFormatter', () => {
 
       // Assert
       expect(parsed).toEqual({
-        timestamp: '2023-01-01T12:00:00.000Z',
+        timestamp: timestamp.toISOString(),
         level: 'INFO',
+        levelValue: LogLevel.INFO,
         message: 'Test message',
-        context: { service: 'test-service' }
       });
     });
 
-    it('should format log entries with different log levels correctly', () => {
-      // Test all log levels
-      Object.values(LogLevel).forEach(level => {
-        // Arrange
-        const entry: LogEntry = {
-          timestamp: new Date('2023-01-01T12:00:00Z'),
-          level,
-          message: `Test message for ${level}`,
-          context: { service: 'test-service' }
-        };
-
-        // Act
-        const result = formatter.format(entry);
-        const parsed = JSON.parse(result);
-
-        // Assert
-        expect(parsed.level).toBe(level);
-        assertLogLevelFormat(parsed);
-      });
-    });
-
-    it('should include all context information in the formatted output', () => {
+    it('should format log entries with different log levels', () => {
       // Arrange
-      const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'Test message with context',
-        context: logContexts.requestContext
-      };
-
-      // Act
-      const result = formatter.format(entry);
-      const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.context).toEqual(logContexts.requestContext);
-      assertContextEnrichment(parsed, 'request');
-    });
-
-    it('should properly format timestamps in ISO format', () => {
-      // Arrange
-      const timestamps = [
-        new Date('2023-01-01T12:00:00Z'),
-        new Date('2023-01-01T12:00:00.123Z'),
-        new Date()
+      const timestamp = new Date('2023-01-01T12:00:00.000Z');
+      const levels = [
+        LogLevel.DEBUG,
+        LogLevel.INFO,
+        LogLevel.WARN,
+        LogLevel.ERROR,
+        LogLevel.FATAL,
       ];
 
-      timestamps.forEach(timestamp => {
+      // Act & Assert
+      levels.forEach(level => {
         const entry: LogEntry = {
           timestamp,
-          level: LogLevel.INFO,
-          message: 'Test timestamp',
-          context: {}
+          level,
+          message: `${LogLevel[level]} message`,
         };
 
-        // Act
         const result = formatter.format(entry);
         const parsed = JSON.parse(result);
 
-        // Assert
-        expect(parsed.timestamp).toBe(timestamp.toISOString());
-        assertTimestampFormat(parsed);
+        expect(parsed.level).toBe(LogLevel[level]);
+        expect(parsed.levelValue).toBe(level);
+        expect(parsed.message).toBe(`${LogLevel[level]} message`);
       });
     });
 
-    it('should properly serialize error objects with stack traces', () => {
+    it('should include service information when available', () => {
       // Arrange
       const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.ERROR,
-        message: 'Error occurred',
-        context: {},
-        error: errorObjects.standardError
-      };
-
-      // Act
-      const result = formatter.format(entry);
-      const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.error).toBeDefined();
-      expect(parsed.error.message).toBe(errorObjects.standardError.message);
-      expect(parsed.error.stack).toBeDefined();
-      assertErrorSerialization(parsed);
-    });
-
-    it('should handle custom application exceptions with metadata', () => {
-      // Arrange
-      const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.ERROR,
-        message: 'Application error',
-        context: {},
-        error: errorObjects.applicationException
-      };
-
-      // Act
-      const result = formatter.format(entry);
-      const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.error).toBeDefined();
-      expect(parsed.error.code).toBe(errorObjects.applicationException.code);
-      expect(parsed.error.metadata).toEqual(errorObjects.applicationException.metadata);
-      assertErrorSerialization(parsed);
-    });
-
-    it('should handle nested error chains', () => {
-      // Arrange
-      const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.ERROR,
-        message: 'Nested error',
-        context: {},
-        error: errorObjects.nestedError
-      };
-
-      // Act
-      const result = formatter.format(entry);
-      const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.error).toBeDefined();
-      expect(parsed.error.cause).toBeDefined();
-      expect(parsed.error.cause.message).toBe(errorObjects.nestedError.cause.message);
-      assertErrorSerialization(parsed);
-    });
-
-    it('should include journey-specific context in the formatted output', () => {
-      // Arrange
-      const healthJourneyEntry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
+        timestamp: new Date(),
         level: LogLevel.INFO,
-        message: 'Health journey log',
+        message: 'Service info test',
         context: {
-          ...logContexts.requestContext,
-          journey: journeyData.health.identifier,
-          journeyContext: journeyData.health.context
-        }
-      };
-
-      // Act
-      const result = formatter.format(healthJourneyEntry);
-      const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.context.journey).toBe(journeyData.health.identifier);
-      expect(parsed.context.journeyContext).toEqual(journeyData.health.context);
-      assertContextEnrichment(parsed, 'journey');
-    });
-
-    it('should include correlation IDs for distributed tracing', () => {
-      // Arrange
-      const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'Traced operation',
-        context: {
-          requestId: 'req-123',
-          correlationId: 'corr-456',
-          traceId: 'trace-789'
-        }
+          service: 'test-service',
+        },
       };
 
       // Act
@@ -218,140 +76,406 @@ describe('JsonFormatter', () => {
       const parsed = JSON.parse(result);
 
       // Assert
-      expect(parsed.context.requestId).toBe('req-123');
-      expect(parsed.context.correlationId).toBe('corr-456');
-      expect(parsed.context.traceId).toBe('trace-789');
-      assertContextEnrichment(parsed, 'correlation');
+      expect(parsed.service).toBe('test-service');
     });
 
-    it('should handle circular references in objects', () => {
+    it('should include journey information when available', () => {
       // Arrange
-      const circularObj: any = { name: 'circular' };
-      circularObj.self = circularObj;
-
       const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Journey info test',
+        context: {
+          journey: 'health',
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.journey).toBe('health');
+    });
+  });
+
+  describe('context handling', () => {
+    it('should format request context correctly', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Request context test',
+        context: {
+          request: {
+            id: 'req-123',
+            method: 'GET',
+            path: '/api/test',
+            userId: 'user-456',
+            duration: 42,
+            extraField: 'extra-value',
+          },
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.request).toBeDefined();
+      expect(parsed.request.id).toBe('req-123');
+      expect(parsed.request.method).toBe('GET');
+      expect(parsed.request.path).toBe('/api/test');
+      expect(parsed.request.userId).toBe('user-456');
+      expect(parsed.request.duration).toBe(42);
+      expect(parsed.request.extraField).toBe('extra-value');
+    });
+
+    it('should format trace context correctly', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Trace context test',
+        context: {
+          trace: {
+            id: 'trace-123',
+            spanId: 'span-456',
+            parentSpanId: 'parent-789',
+            extraField: 'extra-value',
+          },
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.trace).toBeDefined();
+      expect(parsed.trace.id).toBe('trace-123');
+      expect(parsed.trace.spanId).toBe('span-456');
+      expect(parsed.trace.parentSpanId).toBe('parent-789');
+      expect(parsed.trace.extraField).toBe('extra-value');
+    });
+
+    it('should include additional context fields', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Additional context test',
+        context: {
+          service: 'test-service',
+          journey: 'health',
+          customField1: 'custom-value-1',
+          customField2: 42,
+          customObject: { key: 'value' },
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.service).toBe('test-service');
+      expect(parsed.journey).toBe('health');
+      expect(parsed.customField1).toBe('custom-value-1');
+      expect(parsed.customField2).toBe(42);
+      expect(parsed.customObject).toEqual({ key: 'value' });
+    });
+
+    it('should include additional entry fields', () => {
+      // Arrange
+      const entry: LogEntry & { customField1: string; customField2: number } = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Additional entry fields test',
+        customField1: 'custom-value-1',
+        customField2: 42,
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.customField1).toBe('custom-value-1');
+      expect(parsed.customField2).toBe(42);
+    });
+  });
+
+  describe('error handling', () => {
+    it('should format Error objects correctly', () => {
+      // Arrange
+      const error = new Error('Test error');
+      error.name = 'TestError';
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.ERROR,
+        message: 'Error test',
+        error,
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.error).toBeDefined();
+      expect(parsed.error.message).toBe('Test error');
+      expect(parsed.error.name).toBe('TestError');
+      expect(Array.isArray(parsed.error.stack)).toBe(true);
+      expect(parsed.error.stack.length).toBeGreaterThan(0);
+    });
+
+    it('should format string errors correctly', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.ERROR,
+        message: 'String error test',
+        error: 'String error message',
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.error).toBeDefined();
+      expect(parsed.error.message).toBe('String error message');
+    });
+
+    it('should format custom error objects correctly', () => {
+      // Arrange
+      const customError = {
+        name: 'CustomError',
+        message: 'Custom error message',
+        code: 'ERR_CUSTOM',
+        statusCode: 400,
+        details: { field: 'test', reason: 'invalid' },
+      };
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.ERROR,
+        message: 'Custom error test',
+        error: customError,
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.error).toBeDefined();
+      expect(parsed.error.name).toBe('CustomError');
+      expect(parsed.error.message).toBe('Custom error message');
+      expect(parsed.error.code).toBe('ERR_CUSTOM');
+      expect(parsed.error.statusCode).toBe(400);
+      expect(parsed.error.details).toEqual({ field: 'test', reason: 'invalid' });
+    });
+
+    it('should respect includeStackTrace option', () => {
+      // Arrange
+      const error = new Error('Test error');
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.ERROR,
+        message: 'Stack trace option test',
+        error,
+      };
+      const formatterWithoutStack = new JsonFormatter({ includeStackTrace: false });
+
+      // Act
+      const result = formatterWithoutStack.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.error).toBeDefined();
+      expect(parsed.error.message).toBe('Test error');
+      expect(parsed.error.stack).toBeUndefined();
+    });
+  });
+
+  describe('sensitive information handling', () => {
+    it('should redact default sensitive fields', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Sensitive info test',
+        context: {
+          password: 'secret123',
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+          apiKey: '1234567890abcdef',
+          user: {
+            name: 'Test User',
+            password: 'userpass',
+            creditCardSecret: '4111111111111111',
+          },
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.password).toBe('[REDACTED]');
+      expect(parsed.token).toBe('[REDACTED]');
+      expect(parsed.apiKey).toBe('[REDACTED]');
+      expect(parsed.user.name).toBe('Test User');
+      expect(parsed.user.password).toBe('[REDACTED]');
+      expect(parsed.user.creditCardSecret).toBe('[REDACTED]');
+    });
+
+    it('should redact additional sensitive fields', () => {
+      // Arrange
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Additional sensitive fields test',
+        context: {
+          customSecret: 'very-secret',
+          sensitiveData: 'sensitive-value',
+        },
+      };
+      const formatterWithCustomSensitiveKeys = new JsonFormatter({
+        additionalSensitiveKeys: ['customSecret', 'sensitiveData'],
+      });
+
+      // Act
+      const result = formatterWithCustomSensitiveKeys.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.customSecret).toBe('[REDACTED]');
+      expect(parsed.sensitiveData).toBe('[REDACTED]');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle circular references', () => {
+      // Arrange
+      const circular: any = { name: 'circular' };
+      circular.self = circular;
+      const entry: LogEntry = {
+        timestamp: new Date(),
         level: LogLevel.INFO,
         message: 'Circular reference test',
-        context: { circular: circularObj }
+        context: {
+          circular,
+        },
       };
 
-      // Act & Assert
-      expect(() => {
-        const result = formatter.format(entry);
-        const parsed = JSON.parse(result);
-        expect(parsed.context.circular.name).toBe('circular');
-        expect(parsed.context.circular.self).toBe('[Circular]');
-      }).not.toThrow();
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.circular.name).toBe('circular');
+      expect(parsed.circular.self).toBe('[Circular Reference]');
     });
 
-    it('should handle large objects without exceeding size limits', () => {
+    it('should handle nested circular references', () => {
       // Arrange
-      const largeObject = {};
-      // Create a large object with 1000 properties
-      for (let i = 0; i < 1000; i++) {
-        largeObject[`prop${i}`] = `value${i}`;
-      }
-
+      const parent: any = { name: 'parent' };
+      const child: any = { name: 'child', parent };
+      parent.child = child;
       const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Nested circular reference test',
+        context: {
+          parent,
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.parent.name).toBe('parent');
+      expect(parsed.parent.child.name).toBe('child');
+      expect(parsed.parent.child.parent).toBe('[Circular Reference]');
+    });
+
+    it('should handle large objects', () => {
+      // Arrange
+      const largeObject: any = {};
+      for (let i = 0; i < 1000; i++) {
+        largeObject[`key${i}`] = `value${i}`;
+      }
+      const entry: LogEntry = {
+        timestamp: new Date(),
         level: LogLevel.INFO,
         message: 'Large object test',
-        context: { large: largeObject }
+        context: {
+          largeObject,
+        },
       };
 
       // Act
       const result = formatter.format(entry);
-      
+      const parsed = JSON.parse(result);
+
       // Assert
-      // Ensure the result is valid JSON and doesn't exceed reasonable size
-      expect(() => JSON.parse(result)).not.toThrow();
-      expect(result.length).toBeLessThan(1000000); // Reasonable size limit
+      expect(parsed.largeObject).toBeDefined();
+      expect(Object.keys(parsed.largeObject).length).toBe(1000);
+      expect(parsed.largeObject.key0).toBe('value0');
+      expect(parsed.largeObject.key999).toBe('value999');
     });
 
-    it('should handle undefined or null values in context', () => {
+    it('should handle very long strings', () => {
+      // Arrange
+      const veryLongString = 'a'.repeat(20000);
+      const entry: LogEntry = {
+        timestamp: new Date(),
+        level: LogLevel.INFO,
+        message: 'Very long string test',
+        context: {
+          longString: veryLongString,
+        },
+      };
+
+      // Act
+      const result = formatter.format(entry);
+      const parsed = JSON.parse(result);
+
+      // Assert
+      expect(parsed.longString).toContain('... [truncated');
+      expect(parsed.longString.length).toBeLessThan(veryLongString.length);
+    });
+  });
+
+  describe('formatting options', () => {
+    it('should support pretty printing', () => {
       // Arrange
       const entry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
         level: LogLevel.INFO,
-        message: 'Null values test',
+        message: 'Pretty print test',
         context: {
-          nullValue: null,
-          undefinedValue: undefined,
-          validValue: 'test'
-        }
+          field1: 'value1',
+          field2: 'value2',
+        },
       };
+      const prettyFormatter = new JsonFormatter({ pretty: true });
 
       // Act
-      const result = formatter.format(entry);
-      const parsed = JSON.parse(result);
+      const result = prettyFormatter.format(entry);
 
       // Assert
-      expect(parsed.context.nullValue).toBeNull();
-      expect(parsed.context.undefinedValue).toBeUndefined();
-      expect(parsed.context.validValue).toBe('test');
-    });
-
-    it('should handle missing optional fields', () => {
-      // Arrange
-      const minimalEntry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'Minimal entry'
-        // No context or error
-      };
-
-      // Act
-      const result = formatter.format(minimalEntry);
+      expect(result).toContain('\n');
+      expect(result).toContain('  "');
+      
+      // Verify it's still valid JSON
       const parsed = JSON.parse(result);
-
-      // Assert
-      expect(parsed.timestamp).toBeDefined();
-      expect(parsed.level).toBe(LogLevel.INFO);
-      expect(parsed.message).toBe('Minimal entry');
-      expect(parsed.context).toBeUndefined();
-      expect(parsed.error).toBeUndefined();
-    });
-
-    it('should format all standard log entries correctly', () => {
-      // Test all standard log entries from fixtures
-      standardLogEntries.forEach(entry => {
-        // Act
-        const result = formatter.format(entry);
-        const parsed = JSON.parse(result);
-
-        // Assert
-        expect(parsed.timestamp).toBe(entry.timestamp.toISOString());
-        expect(parsed.level).toBe(entry.level);
-        expect(parsed.message).toBe(entry.message);
-        assertJsonFormat(parsed);
-      });
-    });
-
-    it('should format all error log entries correctly', () => {
-      // Test all error log entries from fixtures
-      errorLogEntries.forEach(entry => {
-        // Act
-        const result = formatter.format(entry);
-        const parsed = JSON.parse(result);
-
-        // Assert
-        expect(parsed.error).toBeDefined();
-        assertErrorSerialization(parsed);
-      });
-    });
-
-    it('should format all journey context entries correctly', () => {
-      // Test all journey context entries from fixtures
-      journeyContextEntries.forEach(entry => {
-        // Act
-        const result = formatter.format(entry);
-        const parsed = JSON.parse(result);
-
-        // Assert
-        expect(parsed.context.journey).toBeDefined();
-        assertContextEnrichment(parsed, 'journey');
-      });
+      expect(parsed.message).toBe('Pretty print test');
     });
   });
 });

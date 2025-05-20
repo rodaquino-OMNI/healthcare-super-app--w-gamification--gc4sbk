@@ -1,37 +1,36 @@
 /**
- * @file Utility functions for OpenTelemetry tracing
- * 
- * This barrel file exports all utility functions from the tracing utilities directory,
- * providing a single import point for all tracing utility functions. This simplifies
- * importing utilities in other files and ensures consistent usage patterns across the
- * AUSTA SuperApp.
- *
- * @module @austa/tracing/utils
+ * @file Tracing Utilities Index
+ * @description Barrel file that exports all utility functions from the tracing utilities directory.
+ * This file provides a single import point for all tracing utility functions, simplifying imports
+ * in other files and ensuring consistent usage patterns across the AUSTA SuperApp.
  */
 
 /**
- * Utilities for correlating traces with logs and metrics
- * 
- * These utilities enable unified observability across the application by providing
- * methods to extract trace and span IDs from the current context and enrich log
- * objects with tracing information.
+ * Correlation utilities for connecting traces with logs and metrics.
+ * These utilities enable unified observability across the application by:
+ * - Extracting trace and span IDs from the current context
+ * - Enriching log objects with tracing information
+ * - Generating correlation objects for external systems
+ * - Correlating traces with metrics
  */
 export * from './correlation';
 
 /**
- * Utilities for enriching OpenTelemetry spans with standardized attributes
- * 
- * These utilities provide methods for adding common attributes (e.g., user ID, request ID),
- * journey-specific attributes for different healthcare journeys, and error information
- * to spans, enabling consistent and searchable trace data.
+ * Span attribute utilities for enriching OpenTelemetry spans with standardized attributes.
+ * These utilities enable consistent and searchable trace data by providing methods for:
+ * - Adding common attributes (user ID, request ID, service info)
+ * - Adding journey-specific attributes for health, care, and plan journeys
+ * - Adding error information with consistent attribute patterns
+ * - Adding performance metric attributes
  */
 export * from './span-attributes';
 
 /**
- * Utilities for propagating trace context across service boundaries
- * 
- * These utilities enable end-to-end tracing by offering methods to extract and inject
- * trace context into various transport mechanisms including HTTP headers and Kafka messages,
- * ensuring trace continuity in distributed systems.
+ * Context propagation utilities for maintaining trace context across service boundaries.
+ * These utilities enable end-to-end tracing in distributed systems by providing methods for:
+ * - Extracting and injecting trace context in HTTP headers
+ * - Propagating trace context in Kafka messages
+ * - Serializing and deserializing trace context
+ * - Supporting journey-specific context propagation
  */
 export * from './context-propagation';

@@ -1,136 +1,120 @@
-import { jest } from '@jest/globals';
+/**
+ * @file Unit tests for formatters barrel file
+ * @description Verifies that all formatter implementations and interfaces are correctly exported
+ */
 
-// Mock the formatter implementations and interfaces
-jest.mock('../../../src/formatters/json.formatter', () => ({
-  JsonFormatter: class MockJsonFormatter {}
-}));
-
-jest.mock('../../../src/formatters/text.formatter', () => ({
-  TextFormatter: class MockTextFormatter {}
-}));
-
-jest.mock('../../../src/formatters/cloudwatch.formatter', () => ({
-  CloudWatchFormatter: class MockCloudWatchFormatter {}
-}));
-
-jest.mock('../../../src/formatters/formatter.interface', () => ({
-  Formatter: 'MockFormatterInterface',
-  LogEntry: 'MockLogEntryInterface'
-}));
+import { expect } from 'chai';
 
 describe('Formatters Barrel File', () => {
-  describe('Named Exports', () => {
-    it('should export all formatter implementations', () => {
-      // Import all named exports from the barrel file
-      const {
-        JsonFormatter,
-        TextFormatter,
-        CloudWatchFormatter,
-        Formatter,
-        LogEntry
-      } = require('../../../src/formatters');
+  describe('Interface Exports', () => {
+    it('should export the Formatter interface', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('Formatter');
+    });
 
-      // Verify formatter implementations are exported
-      expect(JsonFormatter).toBeDefined();
-      expect(TextFormatter).toBeDefined();
-      expect(CloudWatchFormatter).toBeDefined();
-      
-      // Verify formatter interfaces are exported
-      expect(Formatter).toBeDefined();
-      expect(LogEntry).toBeDefined();
-      
-      // Verify the exports are the correct types
-      expect(JsonFormatter.name).toBe('MockJsonFormatter');
-      expect(TextFormatter.name).toBe('MockTextFormatter');
-      expect(CloudWatchFormatter.name).toBe('MockCloudWatchFormatter');
-      expect(Formatter).toBe('MockFormatterInterface');
-      expect(LogEntry).toBe('MockLogEntryInterface');
+    it('should export the LogEntry interface', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('LogEntry');
+    });
+
+    it('should export the LogLevel enum', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('LogLevel');
+      // Verify it's an enum by checking for some expected values
+      expect(exports.LogLevel).to.have.property('DEBUG');
+      expect(exports.LogLevel).to.have.property('INFO');
+      expect(exports.LogLevel).to.have.property('WARN');
+      expect(exports.LogLevel).to.have.property('ERROR');
+      expect(exports.LogLevel).to.have.property('FATAL');
+    });
+
+    it('should export the JourneyType enum', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('JourneyType');
+      // Verify it's an enum by checking for expected values
+      expect(exports.JourneyType).to.have.property('HEALTH');
+      expect(exports.JourneyType).to.have.property('CARE');
+      expect(exports.JourneyType).to.have.property('PLAN');
     });
   });
 
-  describe('Namespace Import', () => {
-    it('should allow importing all formatters as a namespace', () => {
-      // Import everything as a namespace
-      const formatters = require('../../../src/formatters');
-      
-      // Verify formatter implementations are exported
-      expect(formatters.JsonFormatter).toBeDefined();
-      expect(formatters.TextFormatter).toBeDefined();
-      expect(formatters.CloudWatchFormatter).toBeDefined();
-      
-      // Verify formatter interfaces are exported
-      expect(formatters.Formatter).toBeDefined();
-      expect(formatters.LogEntry).toBeDefined();
-      
-      // Verify the exports are the correct types
-      expect(formatters.JsonFormatter.name).toBe('MockJsonFormatter');
-      expect(formatters.TextFormatter.name).toBe('MockTextFormatter');
-      expect(formatters.CloudWatchFormatter.name).toBe('MockCloudWatchFormatter');
-      expect(formatters.Formatter).toBe('MockFormatterInterface');
-      expect(formatters.LogEntry).toBe('MockLogEntryInterface');
+  describe('Formatter Implementation Exports', () => {
+    it('should export the JsonFormatter', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('JsonFormatter');
+      // Verify it's a constructor function
+      expect(exports.JsonFormatter).to.be.a('function');
+    });
+
+    it('should export the TextFormatter and its options', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('TextFormatter');
+      expect(exports).to.have.property('TextFormatterOptions');
+      // Verify it's a constructor function
+      expect(exports.TextFormatter).to.be.a('function');
+    });
+
+    it('should export the CloudWatchFormatter', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('CloudWatchFormatter');
+      // Verify it's a constructor function
+      expect(exports.CloudWatchFormatter).to.be.a('function');
     });
   });
 
-  describe('Individual Imports', () => {
-    it('should allow importing formatters individually', () => {
-      // Import each formatter individually
-      const { JsonFormatter } = require('../../../src/formatters');
-      const { TextFormatter } = require('../../../src/formatters');
-      const { CloudWatchFormatter } = require('../../../src/formatters');
-      const { Formatter } = require('../../../src/formatters');
-      const { LogEntry } = require('../../../src/formatters');
-      
-      // Verify each import is defined and has the correct type
-      expect(JsonFormatter).toBeDefined();
-      expect(JsonFormatter.name).toBe('MockJsonFormatter');
-      
-      expect(TextFormatter).toBeDefined();
-      expect(TextFormatter.name).toBe('MockTextFormatter');
-      
-      expect(CloudWatchFormatter).toBeDefined();
-      expect(CloudWatchFormatter.name).toBe('MockCloudWatchFormatter');
-      
-      expect(Formatter).toBeDefined();
-      expect(Formatter).toBe('MockFormatterInterface');
-      
-      expect(LogEntry).toBeDefined();
-      expect(LogEntry).toBe('MockLogEntryInterface');
+  describe('Utility Exports', () => {
+    it('should export the LogLevelUtils', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('LogLevelUtils');
+      // Verify it has the expected utility methods
+      expect(exports.LogLevelUtils).to.have.property('toString');
+      expect(exports.LogLevelUtils).to.have.property('fromString');
+      expect(exports.LogLevelUtils).to.have.property('isLevelEnabled');
+      expect(exports.LogLevelUtils).to.have.property('getAllLevels');
+      expect(exports.LogLevelUtils).to.have.property('getAllLevelValues');
+    });
+
+    it('should export the LogLevelString type', () => {
+      const exports = require('../../../src/formatters');
+      expect(exports).to.have.property('LogLevelString');
     });
   });
 
-  describe('Export Naming Consistency', () => {
-    it('should maintain consistent export names', () => {
-      // Import directly from implementation files
-      const { JsonFormatter: DirectJsonFormatter } = require('../../../src/formatters/json.formatter');
-      const { TextFormatter: DirectTextFormatter } = require('../../../src/formatters/text.formatter');
-      const { CloudWatchFormatter: DirectCloudWatchFormatter } = require('../../../src/formatters/cloudwatch.formatter');
-      const { Formatter: DirectFormatter, LogEntry: DirectLogEntry } = require('../../../src/formatters/formatter.interface');
-      
-      // Import from barrel file
-      const {
-        JsonFormatter: BarrelJsonFormatter,
-        TextFormatter: BarrelTextFormatter,
-        CloudWatchFormatter: BarrelCloudWatchFormatter,
-        Formatter: BarrelFormatter,
-        LogEntry: BarrelLogEntry
-      } = require('../../../src/formatters');
-      
-      // Verify export names are consistent
-      expect(DirectJsonFormatter).toBe(BarrelJsonFormatter);
-      expect(DirectTextFormatter).toBe(BarrelTextFormatter);
-      expect(DirectCloudWatchFormatter).toBe(BarrelCloudWatchFormatter);
-      expect(DirectFormatter).toBe(BarrelFormatter);
-      expect(DirectLogEntry).toBe(BarrelLogEntry);
+  describe('Import Variations', () => {
+    it('should support named imports', () => {
+      // This test verifies that named imports work correctly
+      const { JsonFormatter, TextFormatter, CloudWatchFormatter } = require('../../../src/formatters');
+      expect(JsonFormatter).to.be.a('function');
+      expect(TextFormatter).to.be.a('function');
+      expect(CloudWatchFormatter).to.be.a('function');
+    });
+
+    it('should support importing interfaces', () => {
+      // This test verifies that interfaces can be imported
+      const { Formatter, LogEntry, LogLevel, JourneyType } = require('../../../src/formatters');
+      expect(Formatter).to.exist;
+      expect(LogEntry).to.exist;
+      expect(LogLevel).to.exist;
+      expect(JourneyType).to.exist;
+    });
+
+    it('should support importing utilities', () => {
+      // This test verifies that utilities can be imported
+      const { LogLevelUtils, LogLevelString } = require('../../../src/formatters');
+      expect(LogLevelUtils).to.exist;
+      expect(LogLevelString).to.exist;
     });
   });
 
-  describe('Default Export', () => {
-    it('should not have a default export', () => {
-      // Import default export
-      const defaultExport = require('../../../src/formatters').default;
+  describe('Formatter Functionality', () => {
+    it('should allow instantiating formatters from barrel imports', () => {
+      // This test verifies that the exported formatters can be instantiated
+      const { JsonFormatter, TextFormatter, CloudWatchFormatter } = require('../../../src/formatters');
       
-      // Verify there is no default export
-      expect(defaultExport).toBeUndefined();
+      // We don't need to test full functionality, just that they can be instantiated
+      expect(() => new JsonFormatter()).not.to.throw();
+      expect(() => new TextFormatter()).not.to.throw();
+      expect(() => new CloudWatchFormatter()).not.to.throw();
     });
   });
 });

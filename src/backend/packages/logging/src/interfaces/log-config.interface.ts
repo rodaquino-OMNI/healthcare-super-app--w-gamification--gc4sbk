@@ -1,32 +1,51 @@
+/**
+ * @file log-config.interface.ts
+ * @description Defines the configuration interface for the AUSTA SuperApp logging system.
+ * This interface provides a comprehensive and type-safe way to configure all aspects
+ * of the logging system, including log levels, formatters, transports, and context defaults.
+ */
+
 import { LogLevel } from './log-level.enum';
+
+/**
+ * Supported log formatter types
+ */
+export enum FormatterType {
+  JSON = 'json',
+  TEXT = 'text',
+  CLOUDWATCH = 'cloudwatch',
+}
+
+/**
+ * Supported log transport types
+ */
+export enum TransportType {
+  CONSOLE = 'console',
+  FILE = 'file',
+  CLOUDWATCH = 'cloudwatch',
+}
 
 /**
  * Configuration options for the console transport
  */
 export interface ConsoleTransportConfig {
   /**
-   * Enable or disable the console transport
-   * @default true
-   */
-  enabled?: boolean;
-
-  /**
-   * Enable or disable colorized output in console logs
+   * Whether to use colors in console output
    * @default true
    */
   colorize?: boolean;
 
   /**
-   * Enable or disable pretty printing of objects and errors
-   * @default true in development, false in production
+   * Whether to pretty-print objects in console output
+   * @default true
    */
   prettyPrint?: boolean;
 
   /**
-   * Minimum log level to output to console
-   * @default LogLevel.DEBUG in development, LogLevel.INFO in production
+   * Whether to include timestamps in console output
+   * @default true
    */
-  level?: LogLevel;
+  timestamp?: boolean;
 }
 
 /**
@@ -34,25 +53,13 @@ export interface ConsoleTransportConfig {
  */
 export interface FileTransportConfig {
   /**
-   * Enable or disable the file transport
-   * @default false
+   * Path to the log file
+   * @required
    */
-  enabled?: boolean;
+  filename: string;
 
   /**
-   * Directory path where log files will be stored
-   * @default './logs'
-   */
-  directory?: string;
-
-  /**
-   * Base filename for log files
-   * @default 'application'
-   */
-  filename?: string;
-
-  /**
-   * Maximum size of each log file before rotation (in bytes)
+   * Maximum size of log files before rotation (in bytes)
    * @default 10485760 (10MB)
    */
   maxSize?: number;
@@ -64,323 +71,253 @@ export interface FileTransportConfig {
   maxFiles?: number;
 
   /**
-   * Enable or disable log file compression
+   * Whether to compress rotated log files
    * @default true
    */
   compress?: boolean;
 
   /**
-   * Minimum log level to output to file
-   * @default LogLevel.INFO
+   * Whether to append to existing log files
+   * @default true
    */
-  level?: LogLevel;
+  append?: boolean;
 }
 
 /**
- * Configuration options for the AWS CloudWatch transport
+ * Configuration options for the CloudWatch transport
  */
 export interface CloudWatchTransportConfig {
   /**
-   * Enable or disable the CloudWatch transport
-   * @default false in development, true in production
-   */
-  enabled?: boolean;
-
-  /**
    * AWS region for CloudWatch Logs
-   * @default process.env.AWS_REGION || 'us-east-1'
+   * @required
    */
-  region?: string;
+  region: string;
 
   /**
    * CloudWatch log group name
-   * @default 'austa-superapp'
+   * @required
    */
-  logGroupName?: string;
+  logGroupName: string;
 
   /**
    * CloudWatch log stream name
-   * @default '{service-name}-{environment}'
+   * @default Automatically generated based on service name and environment
    */
   logStreamName?: string;
 
   /**
-   * Number of log entries to batch before sending to CloudWatch
-   * @default 50
+   * Number of retries for failed CloudWatch API calls
+   * @default 3
+   */
+  retries?: number;
+
+  /**
+   * Batch size for CloudWatch API calls
+   * @default 10000
    */
   batchSize?: number;
 
   /**
-   * Interval in milliseconds to flush logs to CloudWatch even if batch size isn't reached
-   * @default 5000 (5 seconds)
+   * Interval in milliseconds to flush logs to CloudWatch
+   * @default 1000
    */
   flushInterval?: number;
 
   /**
-   * Maximum number of retries for failed CloudWatch API calls
-   * @default 3
+   * AWS credentials configuration
    */
-  maxRetries?: number;
-
-  /**
-   * Minimum log level to send to CloudWatch
-   * @default LogLevel.INFO
-   */
-  level?: LogLevel;
+  credentials?: {
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
+    profile?: string;
+  };
 }
 
 /**
- * Configuration options for all log transports
+ * Configuration for a single transport
  */
 export interface TransportConfig {
   /**
-   * Console transport configuration
+   * Transport type
+   * @required
+   */
+  type: TransportType;
+
+  /**
+   * Minimum log level for this transport
+   * @default LogLevel from parent configuration
+   */
+  level?: LogLevel;
+
+  /**
+   * Formatter to use for this transport
+   * @default FormatterType from parent configuration
+   */
+  formatter?: FormatterType;
+
+  /**
+   * Console transport specific configuration
+   * Only used when type is TransportType.CONSOLE
    */
   console?: ConsoleTransportConfig;
 
   /**
-   * File transport configuration
+   * File transport specific configuration
+   * Only used when type is TransportType.FILE
    */
   file?: FileTransportConfig;
 
   /**
-   * CloudWatch transport configuration
+   * CloudWatch transport specific configuration
+   * Only used when type is TransportType.CLOUDWATCH
    */
   cloudWatch?: CloudWatchTransportConfig;
 }
 
 /**
- * Configuration options for log formatters
+ * Configuration for journey-specific logging
  */
-export interface FormatterConfig {
+export interface JourneyLogConfig {
+  /**
+   * Minimum log level for this journey
+   * @default LogLevel from parent configuration
+   */
+  level?: LogLevel;
+
+  /**
+   * Additional context fields to include in logs for this journey
+   */
+  context?: Record<string, any>;
+
+  /**
+   * Journey-specific transports
+   * @default Transports from parent configuration
+   */
+  transports?: TransportConfig[];
+}
+
+/**
+ * Default context values for logs
+ */
+export interface LogContextDefaults {
+  /**
+   * Application name
+   * @default 'austa-superapp'
+   */
+  application?: string;
+
+  /**
+   * Service name
+   * @default Derived from package.json
+   */
+  service?: string;
+
+  /**
+   * Environment name (development, staging, production)
+   * @default 'development'
+   */
+  environment?: string;
+
+  /**
+   * Version of the application
+   * @default Derived from package.json
+   */
+  version?: string;
+
+  /**
+   * Additional context fields to include in all logs
+   */
+  additional?: Record<string, any>;
+}
+
+/**
+ * Main configuration interface for the logger
+ */
+export interface LoggerConfig {
+  /**
+   * Minimum log level
+   * @default LogLevel.INFO
+   */
+  level?: LogLevel;
+
   /**
    * Default formatter to use
-   * @default 'json' in production, 'text' in development
+   * @default FormatterType.JSON in production, FormatterType.TEXT otherwise
    */
-  default?: 'json' | 'text' | 'cloudwatch';
+  formatter?: FormatterType;
 
   /**
-   * Enable or disable pretty printing of JSON in development
-   * @default true in development, false in production
+   * Log transports configuration
+   * @default [{ type: TransportType.CONSOLE }] in development
+   * @default [{ type: TransportType.CONSOLE }, { type: TransportType.CLOUDWATCH }] in production
    */
-  prettyPrint?: boolean;
+  transports?: TransportConfig[];
 
   /**
-   * Include or exclude stack traces in error objects
+   * Default context values for all logs
+   */
+  context?: LogContextDefaults;
+
+  /**
+   * Journey-specific logging configuration
+   */
+  journeys?: {
+    /**
+     * Health journey logging configuration
+     */
+    health?: JourneyLogConfig;
+
+    /**
+     * Care journey logging configuration
+     */
+    care?: JourneyLogConfig;
+
+    /**
+     * Plan journey logging configuration
+     */
+    plan?: JourneyLogConfig;
+  };
+
+  /**
+   * Whether to include trace IDs in logs for distributed tracing
    * @default true
    */
-  includeStacktraces?: boolean;
+  enableTracing?: boolean;
+
+  /**
+   * Whether to redact sensitive information in logs
+   * @default true
+   */
+  redactSensitiveData?: boolean;
+
+  /**
+   * List of field names to redact in logs
+   * @default ['password', 'token', 'secret', 'authorization', 'cookie']
+   */
+  sensitiveFields?: string[];
 
   /**
    * Maximum depth for object serialization
    * @default 5
    */
   maxObjectDepth?: number;
-}
 
-/**
- * Configuration options for context enrichment
- */
-export interface ContextConfig {
   /**
-   * Enable or disable automatic context enrichment
+   * Whether to handle uncaught exceptions and unhandled rejections
    * @default true
    */
-  enabled?: boolean;
+  handleExceptions?: boolean;
 
   /**
-   * Default service name to include in logs
-   * @default process.env.SERVICE_NAME || 'austa-service'
-   */
-  serviceName?: string;
-
-  /**
-   * Default application name to include in logs
-   * @default 'austa-superapp'
-   */
-  appName?: string;
-
-  /**
-   * Environment name (development, staging, production)
-   * @default process.env.NODE_ENV || 'development'
-   */
-  environment?: string;
-
-  /**
-   * Fields to sanitize from logs (passwords, tokens, etc.)
-   * @default ['password', 'token', 'secret', 'authorization', 'apiKey']
-   */
-  sanitizeFields?: string[];
-
-  /**
-   * Enable or disable request context enrichment
-   * @default true
-   */
-  includeRequestContext?: boolean;
-
-  /**
-   * Enable or disable user context enrichment
-   * @default true
-   */
-  includeUserContext?: boolean;
-
-  /**
-   * Enable or disable journey context enrichment
-   * @default true
-   */
-  includeJourneyContext?: boolean;
-}
-
-/**
- * Configuration options for journey-specific logging
- */
-export interface JourneyConfig {
-  /**
-   * Health journey logging configuration
-   */
-  health?: {
-    /**
-     * Minimum log level for health journey logs
-     * @default LogLevel.INFO
-     */
-    level?: LogLevel;
-
-    /**
-     * Additional context fields to include in health journey logs
-     */
-    additionalContext?: Record<string, any>;
-  };
-
-  /**
-   * Care journey logging configuration
-   */
-  care?: {
-    /**
-     * Minimum log level for care journey logs
-     * @default LogLevel.INFO
-     */
-    level?: LogLevel;
-
-    /**
-     * Additional context fields to include in care journey logs
-     */
-    additionalContext?: Record<string, any>;
-  };
-
-  /**
-   * Plan journey logging configuration
-   */
-  plan?: {
-    /**
-     * Minimum log level for plan journey logs
-     * @default LogLevel.INFO
-     */
-    level?: LogLevel;
-
-    /**
-     * Additional context fields to include in plan journey logs
-     */
-    additionalContext?: Record<string, any>;
-  };
-}
-
-/**
- * Configuration options for tracing integration
- */
-export interface TracingConfig {
-  /**
-   * Enable or disable tracing integration
-   * @default true
-   */
-  enabled?: boolean;
-
-  /**
-   * Name of the trace ID field in logs
-   * @default 'traceId'
-   */
-  traceIdField?: string;
-
-  /**
-   * Name of the span ID field in logs
-   * @default 'spanId'
-   */
-  spanIdField?: string;
-
-  /**
-   * Enable or disable AWS X-Ray trace ID format compatibility
-   * @default false
-   */
-  xrayFormat?: boolean;
-}
-
-/**
- * Comprehensive configuration interface for the logging system
- */
-export interface LoggerConfig {
-  /**
-   * Default minimum log level for the application
-   * @default LogLevel.INFO
-   */
-  level?: LogLevel;
-
-  /**
-   * Transport configuration for different log destinations
-   */
-  transports?: TransportConfig;
-
-  /**
-   * Formatter configuration for log output format
-   */
-  formatters?: FormatterConfig;
-
-  /**
-   * Context configuration for log enrichment
-   */
-  context?: ContextConfig;
-
-  /**
-   * Journey-specific logging configuration
-   */
-  journeys?: JourneyConfig;
-
-  /**
-   * Tracing integration configuration
-   */
-  tracing?: TracingConfig;
-
-  /**
-   * Enable or disable logging entirely
-   * @default true
-   */
-  enabled?: boolean;
-
-  /**
-   * Enable or disable debug mode (more verbose internal logging)
-   * @default false
-   */
-  debug?: boolean;
-
-  /**
-   * Maximum number of log entries to keep in memory buffer before dropping
-   * @default 1000
-   */
-  maxBufferSize?: number;
-
-  /**
-   * Enable or disable automatic error logging for uncaught exceptions
-   * @default true
-   */
-  captureExceptions?: boolean;
-
-  /**
-   * Enable or disable automatic error logging for unhandled promise rejections
-   * @default true
-   */
-  captureRejections?: boolean;
-
-  /**
-   * Exit process after logging uncaught exceptions
-   * @default true in production, false in development
+   * Whether to exit process after logging uncaught exceptions
+   * @default true in production, false otherwise
    */
   exitOnError?: boolean;
+
+  /**
+   * Whether to silence logs during tests
+   * @default true
+   */
+  silent?: boolean;
 }

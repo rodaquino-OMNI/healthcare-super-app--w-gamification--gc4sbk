@@ -1,292 +1,197 @@
-/**
- * TraceContext Interface
- *
- * Defines the interface for managing and propagating trace context across service boundaries.
- * This interface enables correlation of traces through different components of the application,
- * supporting end-to-end observability and business transaction tracking.
- *
- * The trace context follows the W3C Trace Context specification and OpenTelemetry standards
- * for context propagation, ensuring compatibility with various tracing systems.
- */
-
-import { Context } from '@opentelemetry/api';
-import { JourneyContext, GamificationContext } from './journey-context.interface';
-import { SpanAttributes } from './span-attributes.interface';
+import { Context, SpanContext } from '@opentelemetry/api';
+import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
+import { KafkaMessage } from 'kafkajs';
 
 /**
- * Represents the carrier object used for context propagation.
- * This is typically headers in HTTP requests or message properties in messaging systems.
+ * Interface representing journey-specific context information
  */
-export interface ContextCarrier {
-  [key: string]: string;
+export interface JourneyContextInfo {
+  /** Type of journey (health, care, plan) */
+  journeyType: 'health' | 'care' | 'plan';
+  
+  /** Unique identifier for the journey instance */
+  journeyId: string;
+  
+  /** Optional user identifier associated with the journey */
+  userId?: string;
+  
+  /** Optional session identifier associated with the journey */
+  sessionId?: string;
+  
+  /** Optional request identifier for correlation */
+  requestId?: string;
 }
 
 /**
- * Represents the serialized form of a trace context that can be transmitted
- * across service boundaries or stored for later use.
- */
-export interface SerializedTraceContext {
-  /** W3C traceparent header value */
-  traceParent: string;
-  /** W3C tracestate header value */
-  traceState?: string;
-  /** Serialized journey context */
-  journeyContext?: string;
-  /** Serialized gamification context */
-  gamificationContext?: string;
-  /** Additional correlation identifiers */
-  correlationIds?: {
-    /** Request identifier */
-    requestId?: string;
-    /** Session identifier */
-    sessionId?: string;
-    /** User identifier */
-    userId?: string;
-    /** Transaction identifier for business transactions */
-    transactionId?: string;
-  };
-  /** Additional baggage items */
-  baggage?: Record<string, string>;
-}
-
-/**
- * Options for creating a new trace context
- */
-export interface CreateTraceContextOptions {
-  /** Parent context to inherit from */
-  parentContext?: Context;
-  /** Journey context to associate with the trace */
-  journeyContext?: JourneyContext;
-  /** Gamification context to associate with the trace */
-  gamificationContext?: GamificationContext;
-  /** Additional correlation identifiers */
-  correlationIds?: {
-    requestId?: string;
-    sessionId?: string;
-    userId?: string;
-    transactionId?: string;
-  };
-  /** Additional attributes to add to the trace */
-  attributes?: SpanAttributes;
-  /** Whether to start a new trace even if parent context exists */
-  forceNewTrace?: boolean;
-}
-
-/**
- * Options for extracting trace context from a carrier
- */
-export interface ExtractTraceContextOptions {
-  /** Whether to ignore invalid context in the carrier */
-  ignoreInvalid?: boolean;
-  /** Whether to create a new context if extraction fails */
-  createIfMissing?: boolean;
-  /** Default journey context to use if not present in carrier */
-  defaultJourneyContext?: JourneyContext;
-  /** Default gamification context to use if not present in carrier */
-  defaultGamificationContext?: GamificationContext;
-}
-
-/**
- * Options for injecting trace context into a carrier
- */
-export interface InjectTraceContextOptions {
-  /** Whether to include journey context in the carrier */
-  includeJourneyContext?: boolean;
-  /** Whether to include gamification context in the carrier */
-  includeGamificationContext?: boolean;
-  /** Whether to include baggage in the carrier */
-  includeBaggage?: boolean;
-  /** Additional headers to include in the carrier */
-  additionalHeaders?: Record<string, string>;
-}
-
-/**
- * Interface for managing trace context across service boundaries
+ * Interface for managing and propagating trace context across service boundaries.
+ * 
+ * The TraceContext interface enables correlation of traces through different components
+ * of the application, supporting end-to-end observability. It provides methods for
+ * extracting and injecting context across service boundaries, as well as utilities
+ * for context serialization and deserialization.
  */
 export interface TraceContext {
   /**
-   * Creates a new trace context
-   * 
-   * @param options Options for creating the trace context
-   * @returns The created trace context
+   * Gets the underlying OpenTelemetry Context object
+   * @returns The OpenTelemetry Context object
    */
-  create(options?: CreateTraceContextOptions): Context;
-
+  getContext(): Context;
+  
   /**
-   * Extracts trace context from a carrier (e.g., HTTP headers)
-   * 
-   * @param carrier The carrier containing the trace context
-   * @param options Options for extracting the trace context
-   * @returns The extracted trace context
+   * Gets the current active span context
+   * @returns The current SpanContext or undefined if no span is active
    */
-  extract(carrier: ContextCarrier, options?: ExtractTraceContextOptions): Context;
-
+  getSpanContext(): SpanContext | undefined;
+  
   /**
-   * Injects trace context into a carrier (e.g., HTTP headers)
-   * 
-   * @param context The trace context to inject
-   * @param carrier The carrier to inject the trace context into
-   * @param options Options for injecting the trace context
-   * @returns The carrier with the injected trace context
+   * Gets the trace ID from the current context
+   * @returns The trace ID or undefined if no trace is active
    */
-  inject(context: Context, carrier: ContextCarrier, options?: InjectTraceContextOptions): ContextCarrier;
-
+  getTraceId(): string | undefined;
+  
   /**
-   * Serializes trace context for storage or transmission
-   * 
-   * @param context The trace context to serialize
-   * @returns The serialized trace context
+   * Gets the span ID from the current context
+   * @returns The span ID or undefined if no span is active
    */
-  serialize(context: Context): SerializedTraceContext;
-
+  getSpanId(): string | undefined;
+  
   /**
-   * Deserializes trace context from a serialized form
-   * 
-   * @param serialized The serialized trace context
-   * @returns The deserialized trace context
+   * Gets the trace flags from the current context
+   * @returns The trace flags or undefined if no trace is active
    */
-  deserialize(serialized: SerializedTraceContext): Context;
-
+  getTraceFlags(): number | undefined;
+  
   /**
-   * Gets the current active trace context
-   * 
-   * @returns The current active trace context
-   */
-  getCurrentContext(): Context;
-
-  /**
-   * Gets the trace ID from a context
-   * 
-   * @param context The context to get the trace ID from
-   * @returns The trace ID
-   */
-  getTraceId(context: Context): string;
-
-  /**
-   * Gets the span ID from a context
-   * 
-   * @param context The context to get the span ID from
-   * @returns The span ID
-   */
-  getSpanId(context: Context): string;
-
-  /**
-   * Gets the journey context from a trace context
-   * 
-   * @param context The context to get the journey context from
-   * @returns The journey context, or undefined if not present
-   */
-  getJourneyContext(context: Context): JourneyContext | undefined;
-
-  /**
-   * Gets the gamification context from a trace context
-   * 
-   * @param context The context to get the gamification context from
-   * @returns The gamification context, or undefined if not present
-   */
-  getGamificationContext(context: Context): GamificationContext | undefined;
-
-  /**
-   * Sets the journey context in a trace context
-   * 
-   * @param context The context to set the journey context in
-   * @param journeyContext The journey context to set
-   * @returns The updated context
-   */
-  setJourneyContext(context: Context, journeyContext: JourneyContext): Context;
-
-  /**
-   * Sets the gamification context in a trace context
-   * 
-   * @param context The context to set the gamification context in
-   * @param gamificationContext The gamification context to set
-   * @returns The updated context
-   */
-  setGamificationContext(context: Context, gamificationContext: GamificationContext): Context;
-
-  /**
-   * Gets correlation IDs from a trace context
-   * 
-   * @param context The context to get correlation IDs from
-   * @returns The correlation IDs, or undefined if not present
-   */
-  getCorrelationIds(context: Context): {
-    requestId?: string;
-    sessionId?: string;
-    userId?: string;
-    transactionId?: string;
-  } | undefined;
-
-  /**
-   * Sets correlation IDs in a trace context
-   * 
-   * @param context The context to set correlation IDs in
-   * @param correlationIds The correlation IDs to set
-   * @returns The updated context
-   */
-  setCorrelationIds(context: Context, correlationIds: {
-    requestId?: string;
-    sessionId?: string;
-    userId?: string;
-    transactionId?: string;
-  }): Context;
-
-  /**
-   * Merges two trace contexts, combining their attributes and contexts
-   * 
-   * @param target The target context to merge into
-   * @param source The source context to merge from
-   * @returns The merged context
-   */
-  merge(target: Context, source: Context): Context;
-
-  /**
-   * Clears the current active trace context
-   */
-  clearCurrentContext(): void;
-
-  /**
-   * Checks if a context is sampled (will be exported)
-   * 
-   * @param context The context to check
+   * Checks if the current context is sampled (will be recorded)
    * @returns True if the context is sampled, false otherwise
    */
-  isSampled(context: Context): boolean;
-
+  isSampled(): boolean;
+  
   /**
-   * Checks if a context is valid
-   * 
-   * @param context The context to check
-   * @returns True if the context is valid, false otherwise
+   * Extracts trace context from HTTP headers
+   * @param headers HTTP headers containing trace context
+   * @returns A new TraceContext instance with the extracted context
    */
-  isValid(context: Context): boolean;
-
+  extractFromHttpHeaders(headers: IncomingHttpHeaders): TraceContext;
+  
   /**
-   * Creates a child context from a parent context
-   * 
-   * @param parentContext The parent context
-   * @param name The name of the child context
-   * @param attributes Additional attributes for the child context
-   * @returns The child context
+   * Injects the current trace context into HTTP headers
+   * @param headers HTTP headers object to inject context into
+   * @returns The headers with injected trace context
    */
-  createChildContext(parentContext: Context, name: string, attributes?: SpanAttributes): Context;
-
+  injectIntoHttpHeaders(headers: OutgoingHttpHeaders): OutgoingHttpHeaders;
+  
   /**
-   * Propagates trace context to an external system that may use a different tracing format
-   * 
-   * @param context The context to propagate
-   * @param format The format to propagate the context in (e.g., 'b3', 'jaeger')
-   * @param carrier The carrier to inject the context into
-   * @returns The carrier with the propagated context
+   * Extracts trace context from Kafka message headers
+   * @param message Kafka message containing trace context in headers
+   * @returns A new TraceContext instance with the extracted context
    */
-  propagateToExternalSystem(context: Context, format: string, carrier: ContextCarrier): ContextCarrier;
-
+  extractFromKafkaMessage(message: KafkaMessage): TraceContext;
+  
   /**
-   * Extracts trace context from an external system that may use a different tracing format
-   * 
-   * @param format The format to extract the context from (e.g., 'b3', 'jaeger')
-   * @param carrier The carrier containing the context
-   * @returns The extracted context
+   * Injects the current trace context into Kafka message headers
+   * @param message Kafka message to inject trace context into
+   * @returns The message with injected trace context
    */
-  extractFromExternalSystem(format: string, carrier: ContextCarrier): Context;
+  injectIntoKafkaMessage(message: KafkaMessage): KafkaMessage;
+  
+  /**
+   * Serializes the trace context to a string for storage or transmission
+   * @returns Serialized context as a string
+   */
+  serialize(): string;
+  
+  /**
+   * Creates a new TraceContext from a serialized string
+   * @param serialized Serialized context string
+   * @returns A new TraceContext instance with the deserialized context
+   */
+  deserialize(serialized: string): TraceContext;
+  
+  /**
+   * Adds journey-specific context to the trace context
+   * @param journeyContext Journey context information
+   * @returns A new TraceContext instance with the added journey context
+   */
+  withJourneyContext(journeyContext: JourneyContextInfo): TraceContext;
+  
+  /**
+   * Extracts journey context from the trace context
+   * @returns Journey context information if available, undefined otherwise
+   */
+  getJourneyContext(): JourneyContextInfo | undefined;
+  
+  /**
+   * Creates a new trace context for a health journey
+   * @param journeyId Unique identifier for the health journey
+   * @param userId Optional user identifier
+   * @param sessionId Optional session identifier
+   * @param requestId Optional request identifier
+   * @returns A new TraceContext instance with health journey context
+   */
+  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
+  
+  /**
+   * Creates a new trace context for a care journey
+   * @param journeyId Unique identifier for the care journey
+   * @param userId Optional user identifier
+   * @param sessionId Optional session identifier
+   * @param requestId Optional request identifier
+   * @returns A new TraceContext instance with care journey context
+   */
+  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
+  
+  /**
+   * Creates a new trace context for a plan journey
+   * @param journeyId Unique identifier for the plan journey
+   * @param userId Optional user identifier
+   * @param sessionId Optional session identifier
+   * @param requestId Optional request identifier
+   * @returns A new TraceContext instance with plan journey context
+   */
+  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
+  
+  /**
+   * Gets correlation information for connecting logs, traces, and metrics
+   * @returns Object containing correlation IDs (trace ID, span ID, etc.)
+   */
+  getCorrelationInfo(): {
+    traceId: string | undefined;
+    spanId: string | undefined;
+    traceFlags: number | undefined;
+    isSampled: boolean;
+    journeyType?: 'health' | 'care' | 'plan';
+    journeyId?: string;
+    userId?: string;
+    sessionId?: string;
+    requestId?: string;
+  };
+  
+  /**
+   * Creates a log context object with trace information for structured logging
+   * @param additionalContext Additional context to include in the log
+   * @returns Object containing trace context for logging
+   */
+  createLogContext(additionalContext?: Record<string, any>): Record<string, any>;
+  
+  /**
+   * Creates a new trace context with additional attributes
+   * @param attributes Attributes to add to the trace context
+   * @returns A new TraceContext instance with the added attributes
+   */
+  withAttributes(attributes: Record<string, any>): TraceContext;
+  
+  /**
+   * Checks if the trace context contains a specific attribute
+   * @param key Attribute key to check
+   * @returns True if the attribute exists, false otherwise
+   */
+  hasAttribute(key: string): boolean;
+  
+  /**
+   * Gets the value of a specific attribute from the trace context
+   * @param key Attribute key to get
+   * @returns The attribute value or undefined if not found
+   */
+  getAttribute(key: string): any;
 }

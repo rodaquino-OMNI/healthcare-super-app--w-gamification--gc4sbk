@@ -1,353 +1,406 @@
-import { EventTypes } from '../../../src/dto/event-types.enum';
-
 /**
- * Test suite for the EventTypes enum
- * 
- * These tests verify that the EventTypes enum meets the requirements specified in the technical specification:
- * - Comprehensive event type definitions for all journeys
- * - Proper naming conventions and organization
- * - Type safety for event processing
- * - Complete coverage of all required event categories
+ * @file event-types.enum.spec.ts
+ * @description Unit tests for the EventTypesEnum that validate the event type constants used across the system.
+ * Tests verify that all required event types are defined, that they follow the proper naming convention,
+ * and that they're organized correctly by journey and category.
  */
-describe('EventTypes Enum', () => {
-  /**
-   * Helper function to check if a string follows the JOURNEY_EVENT_ACTION format
-   * Event types should be in uppercase with underscores separating words
-   * 
-   * @param eventType - The event type string to validate
-   * @returns boolean indicating if the naming convention is followed
-   */
-  const hasValidNamingConvention = (eventType: string): boolean => {
-    // Event types should be in uppercase with underscores
-    const validFormatRegex = /^[A-Z]+(_[A-Z]+)+$/;
-    return validFormatRegex.test(eventType);
-  };
 
-  /**
-   * Helper function to get the journey prefix from an event type
-   * Extracts the first part of the event type (before the first underscore)
-   * 
-   * @param eventType - The event type string
-   * @returns The journey prefix (HEALTH, CARE, PLAN, etc.)
-   */
-  const getJourneyPrefix = (eventType: string): string => {
-    const parts = eventType.split('_');
-    return parts[0];
-  };
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
 
-  /**
-   * Verifies that the EventTypes enum is properly exported and available
-   */
-  it('should export EventTypes enum', () => {
-    expect(EventTypes).toBeDefined();
-  });
-
-  /**
-   * Verifies that the EventTypes enum contains all required event types
-   * for each journey as specified in the technical specification
-   */
-  it('should contain all required event types', () => {
-    // Get all event types as an array
-    const eventTypes = Object.values(EventTypes);
-    
-    // Check that we have a substantial number of event types
-    expect(eventTypes.length).toBeGreaterThan(20);
-    
-    // Check for specific required events from each journey
-    const requiredEvents = [
-      // Health journey events
-      'HEALTH_METRIC_RECORDED',
-      'HEALTH_GOAL_CREATED',
-      'HEALTH_GOAL_ACHIEVED',
-      'HEALTH_DEVICE_CONNECTED',
-      'HEALTH_INSIGHT_GENERATED',
-      'HEALTH_DATA_SYNCED',
+describe('EventType Enum', () => {
+  describe('Structure and Completeness', () => {
+    it('should define all required event types', () => {
+      // Verify that the enum has the expected number of entries
+      const eventTypeCount = Object.keys(EventType).length / 2; // Divide by 2 because TypeScript enums have both name->value and value->name mappings
+      expect(eventTypeCount).toBeGreaterThanOrEqual(30); // We expect at least 30 event types
       
-      // Care journey events
-      'CARE_APPOINTMENT_BOOKED',
-      'CARE_APPOINTMENT_COMPLETED',
-      'CARE_MEDICATION_TAKEN',
-      'CARE_MEDICATION_MISSED',
-      'CARE_TELEMEDICINE_STARTED',
-      'CARE_TELEMEDICINE_COMPLETED',
-      'CARE_PROVIDER_SEARCHED',
-      
-      // Plan journey events
-      'PLAN_CLAIM_SUBMITTED',
-      'PLAN_CLAIM_STATUS_UPDATED',
-      'PLAN_BENEFIT_UTILIZED',
-      'PLAN_COVERAGE_VIEWED',
-      'PLAN_DOCUMENT_UPLOADED',
-      'PLAN_DOCUMENT_DOWNLOADED',
-      'PLAN_COMPARISON_PERFORMED',
-      
-      // Cross-journey events
-      'USER_PROFILE_COMPLETED',
-      'USER_PROFILE_UPDATED',
-      'JOURNEY_ONBOARDING_COMPLETED',
-      'USER_FEEDBACK_SUBMITTED',
-      'CONTENT_SHARED',
-      'SURVEY_COMPLETED'
-    ];
-    
-    requiredEvents.forEach(event => {
-      expect(eventTypes).toContain(event);
-    });
-  });
-
-  /**
-   * Verifies that all event types follow the proper naming convention
-   * (JOURNEY_EVENT_ACTION format in uppercase with underscores)
-   */
-  it('should follow proper naming convention for all event types', () => {
-    // Get all event type keys (the enum keys, not values)
-    const eventTypeKeys = Object.keys(EventTypes).filter(
-      key => typeof EventTypes[key as keyof typeof EventTypes] === 'string'
-    );
-    
-    // Check that each event type follows the naming convention
-    eventTypeKeys.forEach(key => {
-      const eventType = EventTypes[key as keyof typeof EventTypes];
-      expect(hasValidNamingConvention(eventType as string)).toBe(
-        true,
-        `Event type ${eventType} does not follow the JOURNEY_EVENT_ACTION naming convention`
-      );
-    });
-  });
-
-  /**
-   * Verifies that events are properly organized by journey category
-   * and follow the correct prefix conventions for each journey
-   */
-  it('should organize events by journey category', () => {
-    // Get all event type values
-    const eventTypes = Object.values(EventTypes);
-    
-    // Group events by journey prefix
-    const journeyGroups = {
-      HEALTH: [] as string[],
-      CARE: [] as string[],
-      PLAN: [] as string[],
-      // Cross-journey events typically start with USER, JOURNEY, CONTENT, etc.
-      CROSS_JOURNEY: [] as string[]
-    };
-    
-    eventTypes.forEach(eventType => {
-      const prefix = getJourneyPrefix(eventType);
-      
-      if (prefix === 'HEALTH') {
-        journeyGroups.HEALTH.push(eventType);
-      } else if (prefix === 'CARE') {
-        journeyGroups.CARE.push(eventType);
-      } else if (prefix === 'PLAN') {
-        journeyGroups.PLAN.push(eventType);
-      } else {
-        journeyGroups.CROSS_JOURNEY.push(eventType);
-      }
+      // Check for specific required event types from each journey
+      expect(EventType.HEALTH_METRIC_RECORDED).toBeDefined();
+      expect(EventType.CARE_APPOINTMENT_BOOKED).toBeDefined();
+      expect(EventType.PLAN_CLAIM_SUBMITTED).toBeDefined();
+      expect(EventType.GAMIFICATION_POINTS_EARNED).toBeDefined();
+      expect(EventType.USER_PROFILE_COMPLETED).toBeDefined();
     });
     
-    // Verify that each journey has events
-    expect(journeyGroups.HEALTH.length).toBeGreaterThan(0, 'No Health journey events found');
-    expect(journeyGroups.CARE.length).toBeGreaterThan(0, 'No Care journey events found');
-    expect(journeyGroups.PLAN.length).toBeGreaterThan(0, 'No Plan journey events found');
-    expect(journeyGroups.CROSS_JOURNEY.length).toBeGreaterThan(0, 'No cross-journey events found');
-    
-    // Verify that health events follow the HEALTH_ prefix convention
-    journeyGroups.HEALTH.forEach(event => {
-      expect(event.startsWith('HEALTH_')).toBe(true, `Health event ${event} does not start with HEALTH_ prefix`);
+    it('should have string values for all event types', () => {
+      // Verify that all enum values are strings
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key))) // Filter out the numeric keys
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(typeof value).toBe('string');
+        });
     });
     
-    // Verify that care events follow the CARE_ prefix convention
-    journeyGroups.CARE.forEach(event => {
-      expect(event.startsWith('CARE_')).toBe(true, `Care event ${event} does not start with CARE_ prefix`);
-    });
-    
-    // Verify that plan events follow the PLAN_ prefix convention
-    journeyGroups.PLAN.forEach(event => {
-      expect(event.startsWith('PLAN_')).toBe(true, `Plan event ${event} does not start with PLAN_ prefix`);
-    });
-  });
-
-  /**
-   * Verifies that the EventTypes enum provides proper type safety
-   * This ensures that only valid event types can be used in the application
-   */
-  it('should provide type safety for event types', () => {
-    // Verify that TypeScript recognizes EventTypes as a valid type
-    const typeCheck = (eventType: EventTypes): EventTypes => {
-      return eventType;
-    };
-    
-    // This should compile without errors
-    const validEvent = typeCheck(EventTypes.HEALTH_METRIC_RECORDED);
-    expect(validEvent).toBe(EventTypes.HEALTH_METRIC_RECORDED);
-    
-    // TypeScript should prevent assigning invalid values at compile time
-    // This test verifies runtime behavior as a proxy for compile-time checks
-    const eventValues = Object.values(EventTypes);
-    const randomString = 'INVALID_EVENT_TYPE';
-    
-    // The random string should not be in the enum values
-    expect(eventValues).not.toContain(randomString);
-    
-    // Verify that we can use the enum in a type-safe way with switch statements
-    const getEventCategory = (eventType: EventTypes): string => {
-      switch (eventType) {
-        case EventTypes.HEALTH_METRIC_RECORDED:
-          return 'health-metrics';
-        case EventTypes.CARE_APPOINTMENT_BOOKED:
-          return 'care-appointments';
-        case EventTypes.PLAN_CLAIM_SUBMITTED:
-          return 'plan-claims';
-        default:
-          return 'other';
-      }
-    };
-    
-    expect(getEventCategory(EventTypes.HEALTH_METRIC_RECORDED)).toBe('health-metrics');
-    expect(getEventCategory(EventTypes.CARE_APPOINTMENT_BOOKED)).toBe('care-appointments');
-    expect(getEventCategory(EventTypes.PLAN_CLAIM_SUBMITTED)).toBe('plan-claims');
-  });
-
-  /**
-   * Verifies that the EventTypes enum includes events for all required categories
-   * as specified in the technical specification
-   */
-  it('should include events for all required categories', () => {
-    // Get all event type values
-    const eventTypes = Object.values(EventTypes);
-    
-    // Define expected event categories based on the technical specification
-    const expectedCategories = {
-      // Health journey categories
-      HEALTH_METRIC: 'HEALTH_METRIC',
-      HEALTH_GOAL: 'HEALTH_GOAL',
-      HEALTH_DEVICE: 'HEALTH_DEVICE',
-      HEALTH_DATA: 'HEALTH_DATA',
-      HEALTH_INSIGHT: 'HEALTH_INSIGHT',
+    it('should have unique values for all event types', () => {
+      // Get all string values from the enum
+      const values = Object.keys(EventType)
+        .filter(key => isNaN(Number(key))) // Filter out the numeric keys
+        .map(key => EventType[key as keyof typeof EventType]);
       
-      // Care journey categories
-      CARE_APPOINTMENT: 'CARE_APPOINTMENT',
-      CARE_MEDICATION: 'CARE_MEDICATION',
-      CARE_TELEMEDICINE: 'CARE_TELEMEDICINE',
-      CARE_PROVIDER: 'CARE_PROVIDER',
+      // Create a Set to check for duplicates
+      const uniqueValues = new Set(values);
       
-      // Plan journey categories
-      PLAN_CLAIM: 'PLAN_CLAIM',
-      PLAN_COVERAGE: 'PLAN_COVERAGE',
-      PLAN_BENEFIT: 'PLAN_BENEFIT',
-      PLAN_DOCUMENT: 'PLAN_DOCUMENT',
-      PLAN_COMPARISON: 'PLAN_COMPARISON',
-      
-      // Cross-journey categories
-      USER_PROFILE: 'USER_PROFILE',
-      JOURNEY_ONBOARDING: 'JOURNEY_ONBOARDING',
-      USER_FEEDBACK: 'USER_FEEDBACK',
-      CONTENT_SHARED: 'CONTENT_SHARED',
-      SURVEY: 'SURVEY'
-    };
-    
-    // Check that each category has at least one event
-    Object.values(expectedCategories).forEach(category => {
-      const hasEventInCategory = eventTypes.some(eventType => {
-        const parts = eventType.split('_');
-        const eventCategory = `${parts[0]}_${parts[1]}`;
-        return eventCategory === category;
-      });
-      
-      expect(hasEventInCategory).toBe(
-        true,
-        `No events found for category ${category}`
-      );
-    });
-    
-    // Count events per category for reporting
-    const categoryCounts: Record<string, number> = {};
-    eventTypes.forEach(eventType => {
-      const parts = eventType.split('_');
-      if (parts.length >= 2) {
-        const category = `${parts[0]}_${parts[1]}`;
-        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-      }
-    });
-    
-    // Log category counts for debugging (this won't affect the test result)
-    // console.log('Event counts by category:', categoryCounts);
-  });
-
-  /**
-   * Verifies that event naming is consistent within categories
-   * This ensures that all events in a category follow the same verb tense pattern
-   */
-  it('should have consistent event naming within categories', () => {
-    // Get all event type values
-    const eventTypes = Object.values(EventTypes);
-    
-    // Group events by category (first two parts of the event name)
-    const categoryGroups: Record<string, string[]> = {};
-    
-    eventTypes.forEach(eventType => {
-      const parts = eventType.split('_');
-      if (parts.length >= 2) {
-        const category = `${parts[0]}_${parts[1]}`;
-        if (!categoryGroups[category]) {
-          categoryGroups[category] = [];
-        }
-        categoryGroups[category].push(eventType);
-      }
-    });
-    
-    // Check that each category has consistent naming patterns
-    Object.entries(categoryGroups).forEach(([category, events]) => {
-      // Skip categories with only one event
-      if (events.length <= 1) return;
-      
-      // Extract action verbs (the part after the category)
-      const actionVerbs = events.map(event => {
-        const parts = event.split('_');
-        return parts.slice(2).join('_');
-      });
-      
-      // Check that action verbs are consistent (all past tense or all present tense)
-      const pastTenseCount = actionVerbs.filter(verb => 
-        verb.endsWith('ED') || verb.endsWith('D')
-      ).length;
-      
-      // If most verbs are past tense, all should be past tense
-      if (pastTenseCount > events.length / 2) {
-        expect(pastTenseCount).toBe(
-          events.length,
-          `Inconsistent verb tense in category ${category}. All verbs should be past tense.`
-        );
-      }
-      
-      // If most verbs are present tense, all should be present tense
-      const presentTenseCount = events.length - pastTenseCount;
-      if (presentTenseCount > events.length / 2) {
-        expect(presentTenseCount).toBe(
-          events.length,
-          `Inconsistent verb tense in category ${category}. All verbs should be present tense.`
-        );
-      }
+      // If there are duplicates, the Set size will be smaller than the array length
+      expect(uniqueValues.size).toBe(values.length);
     });
   });
   
-  /**
-   * Verifies that event documentation is complete
-   * This test ensures that all events have proper JSDoc comments
-   * with payload information in the source file
-   */
-  it('should have documentation for all event types', () => {
-    // This test is a placeholder for manual verification
-    // In a real implementation, we would parse the source file and check for JSDoc comments
-    // For now, we'll just verify that the enum exists and has values
-    const eventTypeKeys = Object.keys(EventTypes).filter(
-      key => typeof EventTypes[key as keyof typeof EventTypes] === 'string'
-    );
+  describe('Naming Conventions', () => {
+    it('should follow journey-specific naming conventions', () => {
+      // Health journey events should start with HEALTH_
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)) && key.startsWith('HEALTH_'))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^HEALTH_[A-Z_]+$/);
+        });
+      
+      // Care journey events should start with CARE_
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)) && key.startsWith('CARE_'))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^CARE_[A-Z_]+$/);
+        });
+      
+      // Plan journey events should start with PLAN_
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)) && key.startsWith('PLAN_'))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^PLAN_[A-Z_]+$/);
+        });
+      
+      // Gamification events should start with GAMIFICATION_
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)) && key.startsWith('GAMIFICATION_'))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^GAMIFICATION_[A-Z_]+$/);
+        });
+      
+      // User events should start with USER_
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)) && key.startsWith('USER_'))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^USER_[A-Z_]+$/);
+        });
+    });
     
-    expect(eventTypeKeys.length).toBeGreaterThan(0);
+    it('should use SNAKE_CASE for all event types', () => {
+      // All event types should be in SNAKE_CASE
+      Object.keys(EventType)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = EventType[key as keyof typeof EventType];
+          expect(value).toMatch(/^[A-Z][A-Z0-9_]*$/);
+        });
+    });
+  });
+  
+  describe('Journey Organization', () => {
+    it('should organize health events correctly in JourneyEvents.Health', () => {
+      // All health events should be in the Health namespace
+      Object.keys(JourneyEvents.Health).forEach(key => {
+        if (isNaN(Number(key))) {
+          const value = JourneyEvents.Health[key as keyof typeof JourneyEvents.Health];
+          expect(value.toString()).toMatch(/^HEALTH_[A-Z_]+$/);
+        }
+      });
+      
+      // All events in the Health namespace should be in the main EventType enum
+      Object.keys(JourneyEvents.Health)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = JourneyEvents.Health[key as keyof typeof JourneyEvents.Health];
+          expect(Object.values(EventType)).toContain(value);
+        });
+    });
     
-    // Note: A more comprehensive test would verify that each event type in the enum
-    // has a corresponding JSDoc comment with payload information
+    it('should organize care events correctly in JourneyEvents.Care', () => {
+      // All care events should be in the Care namespace
+      Object.keys(JourneyEvents.Care).forEach(key => {
+        if (isNaN(Number(key))) {
+          const value = JourneyEvents.Care[key as keyof typeof JourneyEvents.Care];
+          expect(value.toString()).toMatch(/^CARE_[A-Z_]+$/);
+        }
+      });
+      
+      // All events in the Care namespace should be in the main EventType enum
+      Object.keys(JourneyEvents.Care)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = JourneyEvents.Care[key as keyof typeof JourneyEvents.Care];
+          expect(Object.values(EventType)).toContain(value);
+        });
+    });
+    
+    it('should organize plan events correctly in JourneyEvents.Plan', () => {
+      // All plan events should be in the Plan namespace
+      Object.keys(JourneyEvents.Plan).forEach(key => {
+        if (isNaN(Number(key))) {
+          const value = JourneyEvents.Plan[key as keyof typeof JourneyEvents.Plan];
+          expect(value.toString()).toMatch(/^PLAN_[A-Z_]+$/);
+        }
+      });
+      
+      // All events in the Plan namespace should be in the main EventType enum
+      Object.keys(JourneyEvents.Plan)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = JourneyEvents.Plan[key as keyof typeof JourneyEvents.Plan];
+          expect(Object.values(EventType)).toContain(value);
+        });
+    });
+    
+    it('should organize gamification events correctly in JourneyEvents.Gamification', () => {
+      // All gamification events should be in the Gamification namespace
+      Object.keys(JourneyEvents.Gamification).forEach(key => {
+        if (isNaN(Number(key))) {
+          const value = JourneyEvents.Gamification[key as keyof typeof JourneyEvents.Gamification];
+          expect(value.toString()).toMatch(/^GAMIFICATION_[A-Z_]+$/);
+        }
+      });
+      
+      // All events in the Gamification namespace should be in the main EventType enum
+      Object.keys(JourneyEvents.Gamification)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = JourneyEvents.Gamification[key as keyof typeof JourneyEvents.Gamification];
+          expect(Object.values(EventType)).toContain(value);
+        });
+    });
+    
+    it('should organize user events correctly in JourneyEvents.User', () => {
+      // All user events should be in the User namespace
+      Object.keys(JourneyEvents.User).forEach(key => {
+        if (isNaN(Number(key))) {
+          const value = JourneyEvents.User[key as keyof typeof JourneyEvents.User];
+          expect(value.toString()).toMatch(/^USER_[A-Z_]+$/);
+        }
+      });
+      
+      // All events in the User namespace should be in the main EventType enum
+      Object.keys(JourneyEvents.User)
+        .filter(key => isNaN(Number(key)))
+        .forEach(key => {
+          const value = JourneyEvents.User[key as keyof typeof JourneyEvents.User];
+          expect(Object.values(EventType)).toContain(value);
+        });
+    });
+    
+    it('should include all EventType entries in the appropriate JourneyEvents namespace', () => {
+      // Get all event types from the main enum
+      const allEventTypes = Object.keys(EventType)
+        .filter(key => isNaN(Number(key)))
+        .map(key => EventType[key as keyof typeof EventType]);
+      
+      // Get all event types from the namespaces
+      const healthEvents = Object.values(JourneyEvents.Health).filter(value => typeof value === 'string');
+      const careEvents = Object.values(JourneyEvents.Care).filter(value => typeof value === 'string');
+      const planEvents = Object.values(JourneyEvents.Plan).filter(value => typeof value === 'string');
+      const gamificationEvents = Object.values(JourneyEvents.Gamification).filter(value => typeof value === 'string');
+      const userEvents = Object.values(JourneyEvents.User).filter(value => typeof value === 'string');
+      
+      // Combine all namespace events
+      const allNamespaceEvents = [
+        ...healthEvents,
+        ...careEvents,
+        ...planEvents,
+        ...gamificationEvents,
+        ...userEvents
+      ];
+      
+      // Every event in the main enum should be in exactly one namespace
+      allEventTypes.forEach(eventType => {
+        expect(allNamespaceEvents).toContain(eventType);
+      });
+      
+      // The total count should match
+      expect(allNamespaceEvents.length).toBe(allEventTypes.length);
+    });
+  });
+  
+  describe('Type Safety', () => {
+    it('should provide type safety for event types', () => {
+      // Valid assignment
+      let eventType: EventType = EventType.HEALTH_METRIC_RECORDED;
+      expect(eventType).toBe(EventType.HEALTH_METRIC_RECORDED);
+      
+      // TypeScript should prevent invalid assignments at compile time
+      // The following would cause a TypeScript error:
+      // eventType = 'INVALID_EVENT_TYPE';
+      
+      // But we can test runtime type checking
+      function isValidEventType(type: string): boolean {
+        return Object.values(EventType).includes(type as any);
+      }
+      
+      expect(isValidEventType(EventType.HEALTH_METRIC_RECORDED)).toBe(true);
+      expect(isValidEventType('INVALID_EVENT_TYPE')).toBe(false);
+    });
+    
+    it('should allow using journey-specific event types', () => {
+      // Health journey event
+      let healthEvent: JourneyEvents.Health = JourneyEvents.Health.METRIC_RECORDED;
+      expect(healthEvent).toBe(EventType.HEALTH_METRIC_RECORDED);
+      
+      // Care journey event
+      let careEvent: JourneyEvents.Care = JourneyEvents.Care.APPOINTMENT_BOOKED;
+      expect(careEvent).toBe(EventType.CARE_APPOINTMENT_BOOKED);
+      
+      // Plan journey event
+      let planEvent: JourneyEvents.Plan = JourneyEvents.Plan.CLAIM_SUBMITTED;
+      expect(planEvent).toBe(EventType.PLAN_CLAIM_SUBMITTED);
+      
+      // Gamification event
+      let gamificationEvent: JourneyEvents.Gamification = JourneyEvents.Gamification.POINTS_EARNED;
+      expect(gamificationEvent).toBe(EventType.GAMIFICATION_POINTS_EARNED);
+      
+      // User event
+      let userEvent: JourneyEvents.User = JourneyEvents.User.PROFILE_COMPLETED;
+      expect(userEvent).toBe(EventType.USER_PROFILE_COMPLETED);
+    });
+    
+    it('should maintain compatibility between EventType and JourneyEvents', () => {
+      // EventType can be assigned to the appropriate journey event type
+      const healthEvent: JourneyEvents.Health = EventType.HEALTH_METRIC_RECORDED as JourneyEvents.Health;
+      expect(healthEvent).toBe(JourneyEvents.Health.METRIC_RECORDED);
+      
+      // Journey event type can be assigned to EventType
+      const eventType: EventType = JourneyEvents.Health.METRIC_RECORDED;
+      expect(eventType).toBe(EventType.HEALTH_METRIC_RECORDED);
+    });
+  });
+  
+  describe('Documentation', () => {
+    it('should have JSDoc comments for all event types', () => {
+      // This is a bit tricky to test directly in Jest since JSDoc comments are not accessible at runtime
+      // Instead, we'll check that the enum file exists and has the expected structure
+      expect(EventType).toBeDefined();
+      expect(JourneyEvents).toBeDefined();
+      expect(JourneyEvents.Health).toBeDefined();
+      expect(JourneyEvents.Care).toBeDefined();
+      expect(JourneyEvents.Plan).toBeDefined();
+      expect(JourneyEvents.Gamification).toBeDefined();
+      expect(JourneyEvents.User).toBeDefined();
+    });
+  });
+  
+  describe('Event Type Validation', () => {
+    it('should provide a way to validate event types', () => {
+      // Create a simple validation function
+      function validateEventType(type: string): boolean {
+        return Object.values(EventType).includes(type as any);
+      }
+      
+      // Valid event types should pass validation
+      expect(validateEventType(EventType.HEALTH_METRIC_RECORDED)).toBe(true);
+      expect(validateEventType(EventType.CARE_APPOINTMENT_BOOKED)).toBe(true);
+      expect(validateEventType(EventType.PLAN_CLAIM_SUBMITTED)).toBe(true);
+      expect(validateEventType(EventType.GAMIFICATION_POINTS_EARNED)).toBe(true);
+      expect(validateEventType(EventType.USER_PROFILE_COMPLETED)).toBe(true);
+      
+      // Invalid event types should fail validation
+      expect(validateEventType('INVALID_EVENT_TYPE')).toBe(false);
+      expect(validateEventType('')).toBe(false);
+      expect(validateEventType('health_metric_recorded')).toBe(false); // lowercase
+    });
+    
+    it('should validate journey-specific event types', () => {
+      // Create journey-specific validation functions
+      function isHealthEvent(type: string): boolean {
+        return type.startsWith('HEALTH_') && Object.values(EventType).includes(type as any);
+      }
+      
+      function isCareEvent(type: string): boolean {
+        return type.startsWith('CARE_') && Object.values(EventType).includes(type as any);
+      }
+      
+      function isPlanEvent(type: string): boolean {
+        return type.startsWith('PLAN_') && Object.values(EventType).includes(type as any);
+      }
+      
+      function isGamificationEvent(type: string): boolean {
+        return type.startsWith('GAMIFICATION_') && Object.values(EventType).includes(type as any);
+      }
+      
+      function isUserEvent(type: string): boolean {
+        return type.startsWith('USER_') && Object.values(EventType).includes(type as any);
+      }
+      
+      // Test health events
+      expect(isHealthEvent(EventType.HEALTH_METRIC_RECORDED)).toBe(true);
+      expect(isHealthEvent(EventType.CARE_APPOINTMENT_BOOKED)).toBe(false);
+      
+      // Test care events
+      expect(isCareEvent(EventType.CARE_APPOINTMENT_BOOKED)).toBe(true);
+      expect(isCareEvent(EventType.HEALTH_METRIC_RECORDED)).toBe(false);
+      
+      // Test plan events
+      expect(isPlanEvent(EventType.PLAN_CLAIM_SUBMITTED)).toBe(true);
+      expect(isPlanEvent(EventType.CARE_APPOINTMENT_BOOKED)).toBe(false);
+      
+      // Test gamification events
+      expect(isGamificationEvent(EventType.GAMIFICATION_POINTS_EARNED)).toBe(true);
+      expect(isGamificationEvent(EventType.HEALTH_METRIC_RECORDED)).toBe(false);
+      
+      // Test user events
+      expect(isUserEvent(EventType.USER_PROFILE_COMPLETED)).toBe(true);
+      expect(isUserEvent(EventType.HEALTH_METRIC_RECORDED)).toBe(false);
+    });
+  });
+  
+  describe('Event Type Categorization', () => {
+    it('should categorize events by journey', () => {
+      // Create a function to get the journey for an event type
+      function getJourneyForEvent(eventType: EventType): string {
+        const eventTypeStr = eventType.toString();
+        
+        if (eventTypeStr.startsWith('HEALTH_')) return 'health';
+        if (eventTypeStr.startsWith('CARE_')) return 'care';
+        if (eventTypeStr.startsWith('PLAN_')) return 'plan';
+        if (eventTypeStr.startsWith('GAMIFICATION_')) return 'gamification';
+        if (eventTypeStr.startsWith('USER_')) return 'user';
+        
+        return 'unknown';
+      }
+      
+      // Test journey categorization
+      expect(getJourneyForEvent(EventType.HEALTH_METRIC_RECORDED)).toBe('health');
+      expect(getJourneyForEvent(EventType.CARE_APPOINTMENT_BOOKED)).toBe('care');
+      expect(getJourneyForEvent(EventType.PLAN_CLAIM_SUBMITTED)).toBe('plan');
+      expect(getJourneyForEvent(EventType.GAMIFICATION_POINTS_EARNED)).toBe('gamification');
+      expect(getJourneyForEvent(EventType.USER_PROFILE_COMPLETED)).toBe('user');
+    });
+    
+    it('should group related events within a journey', () => {
+      // Health journey should have related event types
+      const healthEvents = Object.values(JourneyEvents.Health);
+      expect(healthEvents).toContain(EventType.HEALTH_METRIC_RECORDED);
+      expect(healthEvents).toContain(EventType.HEALTH_GOAL_ACHIEVED);
+      
+      // Care journey should have related event types
+      const careEvents = Object.values(JourneyEvents.Care);
+      expect(careEvents).toContain(EventType.CARE_APPOINTMENT_BOOKED);
+      expect(careEvents).toContain(EventType.CARE_APPOINTMENT_COMPLETED);
+      
+      // Plan journey should have related event types
+      const planEvents = Object.values(JourneyEvents.Plan);
+      expect(planEvents).toContain(EventType.PLAN_CLAIM_SUBMITTED);
+      expect(planEvents).toContain(EventType.PLAN_CLAIM_PROCESSED);
+      
+      // Gamification should have related event types
+      const gamificationEvents = Object.values(JourneyEvents.Gamification);
+      expect(gamificationEvents).toContain(EventType.GAMIFICATION_POINTS_EARNED);
+      expect(gamificationEvents).toContain(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED);
+      
+      // User should have related event types
+      const userEvents = Object.values(JourneyEvents.User);
+      expect(userEvents).toContain(EventType.USER_PROFILE_COMPLETED);
+      expect(userEvents).toContain(EventType.USER_LOGIN);
+    });
   });
 });

@@ -1,547 +1,588 @@
 import { Test } from '@nestjs/testing';
 import { LoggerService } from '../../src/logger.service';
-import { LogLevel } from '../../src/interfaces/log-level.enum';
+import { LoggerModule } from '../../src/logger.module';
+import { ContextManager } from '../../src/context/context-manager';
 import { JsonFormatter } from '../../src/formatters/json.formatter';
 import { TextFormatter } from '../../src/formatters/text.formatter';
+import { CloudWatchFormatter } from '../../src/formatters/cloudwatch.formatter';
 import { ConsoleTransport } from '../../src/transports/console.transport';
-import { ContextManager } from '../../src/context/context-manager';
-import { JourneyType } from '../../src/context/context.constants';
+import { FileTransport } from '../../src/transports/file.transport';
+import { CloudWatchTransport } from '../../src/transports/cloudwatch.transport';
 import { TransportFactory } from '../../src/transports/transport-factory';
+import { LogLevel } from '../../src/interfaces/log-level.enum';
+import { LoggerConfig } from '../../src/interfaces/log-config.interface';
 import { Transport } from '../../src/interfaces/transport.interface';
 import { Formatter } from '../../src/formatters/formatter.interface';
-import { LoggerConfig } from '../../src/interfaces/log-config.interface';
-import { CloudWatchFormatter } from '../../src/formatters/cloudwatch.formatter';
-import { CloudWatchTransport } from '../../src/transports/cloudwatch.transport';
-import { FileTransport } from '../../src/transports/file.transport';
+import { LoggingContext } from '../../src/context/context.interface';
+import { JourneyContext } from '../../src/context/journey-context.interface';
+import { RequestContext } from '../../src/context/request-context.interface';
+import { UserContext } from '../../src/context/user-context.interface';
 
-/**
- * Mock transport for testing that captures logs instead of sending them
- */
-class MockTransport implements Transport {
-  public logs: any[] = [];
-  private formatter: Formatter;
-
-  constructor(formatter: Formatter) {
-    this.formatter = formatter;
-  }
-
-  async write(entry: any): Promise<void> {
-    const formatted = this.formatter.format(entry);
-    this.logs.push(formatted);
-    return Promise.resolve();
-  }
-
-  getFormatter(): Formatter {
-    return this.formatter;
-  }
-}
+import {
+  captureLogOutput,
+  resetCapturedLogs,
+  getCapturedLogs,
+} from '../utils/log-capture.utils';
+import {
+  assertLogContainsContext,
+  assertLogHasLevel,
+  assertLogHasTimestamp,
+  assertLogIsFormatted,
+} from '../utils/assertion.utils';
+import {
+  createHealthJourneyContext,
+  createCareJourneyContext,
+  createPlanJourneyContext,
+  createRequestContext,
+  createUserContext,
+} from '../utils/test-context.utils';
+import { MockTracingService } from '../utils/mocks';
+import { journeyData } from '../fixtures/journey-data.fixture';
+import { configOptions } from '../fixtures/config-options.fixture';
+import { errorObjects } from '../fixtures/error-objects.fixture';
+import { logContexts } from '../fixtures/log-contexts.fixture';
+import { logEntries } from '../fixtures/log-entries.fixture';
 
 describe('Logging Integration', () => {
   let loggerService: LoggerService;
   let contextManager: ContextManager;
-  let mockTransport: MockTransport;
   let jsonFormatter: JsonFormatter;
+  let textFormatter: TextFormatter;
+  let cloudwatchFormatter: CloudWatchFormatter;
+  let consoleTransport: ConsoleTransport;
+  let fileTransport: FileTransport;
+  let cloudwatchTransport: CloudWatchTransport;
+  let transportFactory: TransportFactory;
+  let mockTracingService: MockTracingService;
 
   beforeEach(async () => {
-    // Create formatters
-    jsonFormatter = new JsonFormatter();
+    resetCapturedLogs();
+    mockTracingService = new MockTracingService();
     
-    // Create mock transport with the JSON formatter
-    mockTransport = new MockTransport(jsonFormatter);
-    
-    // Create a spy on the TransportFactory to return our mock transport
-    jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-      return [mockTransport];
-    });
-
-    // Create context manager
-    contextManager = new ContextManager();
-
-    // Create logger config
-    const config: LoggerConfig = {
-      level: LogLevel.DEBUG,
-      appName: 'test-app',
-      serviceName: 'test-service',
-      transports: {
-        console: { enabled: true },
-      },
-    };
-
-    // Create the module with LoggerService
+    // Create test module with real implementations
     const moduleRef = await Test.createTestingModule({
+      imports: [LoggerModule.forRoot(configOptions.testing)],
       providers: [
         {
-          provide: 'LOGGER_CONFIG',
-          useValue: config,
-        },
-        LoggerService,
-        {
-          provide: ContextManager,
-          useValue: contextManager,
+          provide: 'TracingService',
+          useValue: mockTracingService,
         },
       ],
     }).compile();
 
-    // Get the LoggerService instance
+    // Get service instances
     loggerService = moduleRef.get<LoggerService>(LoggerService);
+    contextManager = moduleRef.get<ContextManager>(ContextManager);
+    jsonFormatter = moduleRef.get<JsonFormatter>(JsonFormatter);
+    textFormatter = moduleRef.get<TextFormatter>(TextFormatter);
+    cloudwatchFormatter = moduleRef.get<CloudWatchFormatter>(CloudWatchFormatter);
+    consoleTransport = moduleRef.get<ConsoleTransport>(ConsoleTransport);
+    transportFactory = moduleRef.get<TransportFactory>(TransportFactory);
+
+    // Setup log capture
+    captureLogOutput();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
-    mockTransport.logs = [];
   });
 
-  describe('End-to-end logging flow', () => {
-    it('should log a message through the entire pipeline', () => {
+  describe('End-to-end logging pipeline', () => {
+    it('should log messages through the entire pipeline with proper formatting', () => {
+      // Arrange
+      const message = 'Test log message';
+      const context = { service: 'test-service' };
+
       // Act
-      loggerService.log('Test message');
+      loggerService.log(message, context);
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0]).toHaveProperty('message', 'Test message');
-      expect(mockTransport.logs[0]).toHaveProperty('level', 'INFO');
-      expect(mockTransport.logs[0]).toHaveProperty('timestamp');
-      expect(mockTransport.logs[0]).toHaveProperty('context');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain(message);
+      expect(logs[0]).toContain('test-service');
+      assertLogHasLevel(logs[0], LogLevel.INFO);
+      assertLogHasTimestamp(logs[0]);
     });
 
-    it('should log an error with stack trace through the entire pipeline', () => {
+    it('should log errors with stack traces through the entire pipeline', () => {
       // Arrange
-      const error = new Error('Test error');
+      const errorMessage = 'Test error message';
+      const error = new Error(errorMessage);
+      const context = { service: 'test-service' };
 
       // Act
-      loggerService.error('Error occurred', error.stack);
+      loggerService.error(errorMessage, error.stack, context);
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0]).toHaveProperty('message', 'Error occurred');
-      expect(mockTransport.logs[0]).toHaveProperty('level', 'ERROR');
-      expect(mockTransport.logs[0]).toHaveProperty('error');
-      expect(mockTransport.logs[0].error).toContain('Test error');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain(errorMessage);
+      expect(logs[0]).toContain('test-service');
+      expect(logs[0]).toContain('Error:');
+      expect(logs[0]).toContain('stack');
+      assertLogHasLevel(logs[0], LogLevel.ERROR);
     });
 
     it('should respect log level configuration', () => {
-      // Arrange - Create a new logger with WARN level
-      const warnConfig: LoggerConfig = {
-        level: LogLevel.WARN,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          console: { enabled: true },
-        },
-      };
+      // Arrange - Create a logger with INFO level
+      const infoLevelConfig = { ...configOptions.testing, level: LogLevel.INFO };
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(infoLevelConfig)],
+      }).compile();
 
-      // Reset the mock transport
-      mockTransport.logs = [];
+      const infoLevelLogger = moduleRef.get<LoggerService>(LoggerService);
 
-      // Create a new logger service with WARN level
-      const warnLogger = new LoggerService(warnConfig, contextManager);
-
-      // Act - Log at different levels
-      warnLogger.debug('Debug message'); // Should be filtered out
-      warnLogger.info('Info message');   // Should be filtered out
-      warnLogger.warn('Warn message');   // Should be logged
-      warnLogger.error('Error message'); // Should be logged
+      // Act
+      infoLevelLogger.debug('This should not be logged');
+      infoLevelLogger.info('This should be logged');
+      infoLevelLogger.warn('This should be logged');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(2);
-      expect(mockTransport.logs[0]).toHaveProperty('message', 'Warn message');
-      expect(mockTransport.logs[0]).toHaveProperty('level', 'WARN');
-      expect(mockTransport.logs[1]).toHaveProperty('message', 'Error message');
-      expect(mockTransport.logs[1]).toHaveProperty('level', 'ERROR');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(2);
+      expect(logs[0]).toContain('This should be logged');
+      expect(logs[1]).toContain('This should be logged');
+      expect(logs.some(log => log.includes('This should not be logged'))).toBe(false);
+    });
+
+    it('should log messages with all log levels', () => {
+      // Act
+      loggerService.debug('Debug message');
+      loggerService.log('Info message');
+      loggerService.warn('Warning message');
+      loggerService.error('Error message');
+      
+      // Assert
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(4);
+      assertLogHasLevel(logs[0], LogLevel.DEBUG);
+      assertLogHasLevel(logs[1], LogLevel.INFO);
+      assertLogHasLevel(logs[2], LogLevel.WARN);
+      assertLogHasLevel(logs[3], LogLevel.ERROR);
     });
   });
 
   describe('Context propagation', () => {
     it('should include request context in logs', () => {
       // Arrange
-      const requestId = 'test-request-id';
-      const requestContext = contextManager.createRequestContext({
-        requestId,
-        method: 'GET',
-        url: '/api/test',
-        ip: '127.0.0.1',
-        userAgent: 'test-agent',
-      });
+      const requestContext = createRequestContext();
+      contextManager.setContext(requestContext);
 
-      // Act - Log with request context
-      loggerService.log('Request received', { context: requestContext });
+      // Act
+      loggerService.log('Request log message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0].context).toHaveProperty('requestId', requestId);
-      expect(mockTransport.logs[0].context).toHaveProperty('method', 'GET');
-      expect(mockTransport.logs[0].context).toHaveProperty('url', '/api/test');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      assertLogContainsContext(logs[0], requestContext);
     });
 
     it('should include user context in logs', () => {
       // Arrange
-      const userId = 'test-user-id';
-      const userContext = contextManager.createUserContext({
-        userId,
-        isAuthenticated: true,
-        roles: ['user'],
-      });
+      const userContext = createUserContext();
+      contextManager.setContext(userContext);
 
-      // Act - Log with user context
-      loggerService.log('User action', { context: userContext });
+      // Act
+      loggerService.log('User log message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0].context).toHaveProperty('userId', userId);
-      expect(mockTransport.logs[0].context).toHaveProperty('isAuthenticated', true);
-      expect(mockTransport.logs[0].context.roles).toContain('user');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      assertLogContainsContext(logs[0], userContext);
     });
 
     it('should include journey context in logs', () => {
       // Arrange
-      const journeyContext = contextManager.createJourneyContext({
-        journeyType: JourneyType.HEALTH,
-        journeyState: { step: 'metrics-input' },
-      });
+      const journeyContext = createHealthJourneyContext();
+      contextManager.setContext(journeyContext);
 
-      // Act - Log with journey context
-      loggerService.log('Journey progress', { context: journeyContext });
+      // Act
+      loggerService.log('Journey log message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0].context).toHaveProperty('journeyType', JourneyType.HEALTH);
-      expect(mockTransport.logs[0].context.journeyState).toHaveProperty('step', 'metrics-input');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      assertLogContainsContext(logs[0], journeyContext);
     });
 
     it('should merge multiple contexts correctly', () => {
       // Arrange
-      const requestContext = contextManager.createRequestContext({
-        requestId: 'test-request-id',
-        method: 'POST',
-        url: '/api/health/metrics',
-      });
+      const requestContext = createRequestContext();
+      const userContext = createUserContext();
+      const journeyContext = createHealthJourneyContext();
+      
+      contextManager.setContext(requestContext);
+      contextManager.setContext(userContext);
+      contextManager.setContext(journeyContext);
 
-      const userContext = contextManager.createUserContext({
-        userId: 'test-user-id',
-        isAuthenticated: true,
-      });
-
-      const journeyContext = contextManager.createJourneyContext({
-        journeyType: JourneyType.HEALTH,
-        journeyState: { action: 'save-metrics' },
-      });
-
-      // Merge contexts
-      const mergedContext = contextManager.mergeContexts([
-        requestContext,
-        userContext,
-        journeyContext,
-      ]);
-
-      // Act - Log with merged context
-      loggerService.log('Complex operation', { context: mergedContext });
+      // Act
+      loggerService.log('Combined context log message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0].context).toHaveProperty('requestId', 'test-request-id');
-      expect(mockTransport.logs[0].context).toHaveProperty('userId', 'test-user-id');
-      expect(mockTransport.logs[0].context).toHaveProperty('journeyType', JourneyType.HEALTH);
-      expect(mockTransport.logs[0].context.journeyState).toHaveProperty('action', 'save-metrics');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      assertLogContainsContext(logs[0], requestContext);
+      assertLogContainsContext(logs[0], userContext);
+      assertLogContainsContext(logs[0], journeyContext);
+    });
+
+    it('should maintain context across async operations', async () => {
+      // Arrange
+      const journeyContext = createHealthJourneyContext();
+      contextManager.setContext(journeyContext);
+
+      // Act
+      await new Promise<void>(resolve => {
+        setTimeout(() => {
+          loggerService.log('Async log message');
+          resolve();
+        }, 10);
+      });
+
+      // Assert
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      assertLogContainsContext(logs[0], journeyContext);
     });
   });
 
-  describe('Formatter integration', () => {
-    it('should format logs correctly with JsonFormatter', () => {
+  describe('Formatter and transport integration', () => {
+    it('should format logs using the configured formatter', () => {
+      // Arrange - Create a logger with JSON formatter
+      const jsonConfig = { 
+        ...configOptions.testing, 
+        formatter: 'json',
+        transports: ['console']
+      };
+      
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(jsonConfig)],
+      }).compile();
+
+      const jsonLogger = moduleRef.get<LoggerService>(LoggerService);
+
       // Act
-      loggerService.log('JSON formatted message');
+      jsonLogger.log('JSON formatted message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(typeof mockTransport.logs[0]).toBe('object');
-      expect(mockTransport.logs[0]).toHaveProperty('message', 'JSON formatted message');
-      expect(mockTransport.logs[0]).toHaveProperty('timestamp');
-      expect(new Date(mockTransport.logs[0].timestamp)).toBeInstanceOf(Date);
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(() => JSON.parse(logs[0])).not.toThrow();
+      const parsedLog = JSON.parse(logs[0]);
+      expect(parsedLog.message).toBe('JSON formatted message');
+      expect(parsedLog.level).toBe('info');
     });
 
-    it('should format logs correctly with TextFormatter', () => {
-      // Arrange
-      const textFormatter = new TextFormatter();
-      const textTransport = new MockTransport(textFormatter);
+    it('should use text formatter for development environment', () => {
+      // Arrange - Create a logger with development config
+      const devConfig = configOptions.development;
       
-      // Replace the mock transport with text formatter
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [textTransport];
-      });
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(devConfig)],
+      }).compile();
 
-      // Create a new logger service with text formatter
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          console: { enabled: true, formatter: 'text' },
-        },
-      };
-      const textLogger = new LoggerService(config, contextManager);
+      const devLogger = moduleRef.get<LoggerService>(LoggerService);
 
       // Act
-      textLogger.log('Text formatted message');
+      devLogger.log('Development log message');
 
       // Assert
-      expect(textTransport.logs).toHaveLength(1);
-      expect(typeof textTransport.logs[0]).toBe('string');
-      expect(textTransport.logs[0]).toContain('Text formatted message');
-      expect(textTransport.logs[0]).toContain('INFO');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      // Text formatter doesn't produce JSON, so this should throw
+      expect(() => JSON.parse(logs[0])).toThrow();
+      expect(logs[0]).toContain('Development log message');
     });
 
-    it('should format logs correctly with CloudWatchFormatter', () => {
-      // Arrange
-      const cloudWatchFormatter = new CloudWatchFormatter();
-      const cloudWatchTransport = new MockTransport(cloudWatchFormatter);
+    it('should use CloudWatch formatter for production environment', () => {
+      // Arrange - Create a logger with production config
+      const prodConfig = configOptions.production;
       
-      // Replace the mock transport with CloudWatch formatter
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [cloudWatchTransport];
-      });
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(prodConfig)],
+      }).compile();
 
-      // Create a new logger service with CloudWatch formatter
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          cloudwatch: { enabled: true },
-        },
-      };
-      const cloudWatchLogger = new LoggerService(config, contextManager);
+      const prodLogger = moduleRef.get<LoggerService>(LoggerService);
 
       // Act
-      cloudWatchLogger.log('CloudWatch formatted message');
+      prodLogger.log('Production log message');
 
       // Assert
-      expect(cloudWatchTransport.logs).toHaveLength(1);
-      expect(typeof cloudWatchTransport.logs[0]).toBe('object');
-      expect(cloudWatchTransport.logs[0]).toHaveProperty('message', 'CloudWatch formatted message');
-      expect(cloudWatchTransport.logs[0]).toHaveProperty('aws');
-      expect(cloudWatchTransport.logs[0].aws).toHaveProperty('service', 'test-service');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(() => JSON.parse(logs[0])).not.toThrow();
+      const parsedLog = JSON.parse(logs[0]);
+      expect(parsedLog.message).toBe('Production log message');
+      // CloudWatch formatter adds AWS-specific fields
+      expect(parsedLog.aws).toBeDefined();
+    });
+
+    it('should route logs to the configured transport', () => {
+      // We'll use the console transport with a spy
+      const consoleSpy = jest.spyOn(consoleTransport, 'write');
+      
+      // Act
+      loggerService.log('Transport test message');
+      
+      // Assert
+      expect(consoleSpy).toHaveBeenCalled();
+      const transportedLog = consoleSpy.mock.calls[0][0];
+      expect(transportedLog).toContain('Transport test message');
     });
   });
 
-  describe('Transport integration', () => {
-    it('should support multiple transports simultaneously', () => {
-      // Arrange
-      const jsonFormatter = new JsonFormatter();
-      const textFormatter = new TextFormatter();
-      
-      const jsonTransport = new MockTransport(jsonFormatter);
-      const textTransport = new MockTransport(textFormatter);
-      
-      // Replace the mock transport with multiple transports
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [jsonTransport, textTransport];
-      });
-
-      // Create a new logger service with multiple transports
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          console: { enabled: true, formatter: 'json' },
-          file: { enabled: true, formatter: 'text' },
-        },
-      };
-      const multiTransportLogger = new LoggerService(config, contextManager);
-
-      // Act
-      multiTransportLogger.log('Multi-transport message');
-
-      // Assert
-      expect(jsonTransport.logs).toHaveLength(1);
-      expect(textTransport.logs).toHaveLength(1);
-      expect(typeof jsonTransport.logs[0]).toBe('object');
-      expect(typeof textTransport.logs[0]).toBe('string');
-      expect(jsonTransport.logs[0]).toHaveProperty('message', 'Multi-transport message');
-      expect(textTransport.logs[0]).toContain('Multi-transport message');
-    });
-
-    it('should handle transport-specific configuration', () => {
-      // Arrange
-      const consoleTransport = new ConsoleTransport(new TextFormatter(), { colorize: true });
-      const fileTransport = new FileTransport(new JsonFormatter(), { filename: 'test.log', maxSize: '10m' });
-      
-      // Spy on the write methods
-      const consoleSpy = jest.spyOn(consoleTransport, 'write').mockResolvedValue();
-      const fileSpy = jest.spyOn(fileTransport, 'write').mockResolvedValue();
-      
-      // Replace the mock transport with configured transports
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [consoleTransport, fileTransport];
-      });
-
-      // Create a new logger service with configured transports
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          console: { 
-            enabled: true, 
-            formatter: 'text',
-            options: { colorize: true } 
-          },
-          file: { 
-            enabled: true, 
-            formatter: 'json',
-            options: { filename: 'test.log', maxSize: '10m' } 
-          },
-        },
-      };
-      const configuredLogger = new LoggerService(config, contextManager);
-
-      // Act
-      configuredLogger.log('Configured transport message');
-
-      // Assert
-      expect(consoleSpy).toHaveBeenCalledTimes(1);
-      expect(fileSpy).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('Error handling', () => {
+  describe('Error handling across component boundaries', () => {
     it('should handle formatter errors gracefully', () => {
       // Arrange - Create a formatter that throws an error
-      const errorFormatter = new JsonFormatter();
-      jest.spyOn(errorFormatter, 'format').mockImplementation(() => {
-        throw new Error('Formatter error');
-      });
-
-      const errorTransport = new MockTransport(errorFormatter);
-      
-      // Replace the mock transport with error transport
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [errorTransport];
-      });
-
-      // Create a new logger service with error formatter
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          console: { enabled: true },
-        },
+      const errorFormatter: Formatter = {
+        format: () => {
+          throw new Error('Formatter error');
+        }
       };
-      const errorLogger = new LoggerService(config, contextManager);
-
-      // Create a console spy to verify error is logged
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act - This should not throw despite formatter error
-      errorLogger.log('Message with formatter error');
-
-      // Assert
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Error in log formatter'),
-        expect.any(Error)
-      );
+      
+      // Replace the formatter in the logger service
+      (loggerService as any).formatter = errorFormatter;
+      
+      // Act & Assert - Should not throw
+      expect(() => {
+        loggerService.log('This should not throw');
+      }).not.toThrow();
+      
+      // Should fall back to a simple string format
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain('This should not throw');
+      expect(logs[0]).toContain('Formatter error');
     });
 
     it('should handle transport errors gracefully', () => {
       // Arrange - Create a transport that throws an error
-      const transportError = new Error('Transport error');
-      mockTransport.write = jest.fn().mockRejectedValue(transportError);
+      const errorTransport: Transport = {
+        write: () => {
+          throw new Error('Transport error');
+        },
+        initialize: jest.fn(),
+        close: jest.fn()
+      };
       
-      // Create a console spy to verify error is logged
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      // Replace the transport in the logger service
+      (loggerService as any).transports = [errorTransport];
+      
+      // Act & Assert - Should not throw
+      expect(() => {
+        loggerService.log('This should not throw');
+      }).not.toThrow();
+    });
 
-      // Act - This should not throw despite transport error
-      loggerService.log('Message with transport error');
-
-      // Wait for the promise to resolve/reject
-      return new Promise<void>(resolve => {
-        setTimeout(() => {
-          // Assert
-          expect(consoleSpy).toHaveBeenCalledWith(
-            expect.stringContaining('Error in log transport'),
-            transportError
-          );
-          resolve();
-        }, 100);
+    it('should handle context errors gracefully', () => {
+      // Arrange - Create a context manager that throws an error
+      jest.spyOn(contextManager, 'getContext').mockImplementation(() => {
+        throw new Error('Context error');
       });
+      
+      // Act & Assert - Should not throw
+      expect(() => {
+        loggerService.log('This should not throw');
+      }).not.toThrow();
+      
+      // Should log without context
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain('This should not throw');
     });
 
     it('should handle circular references in log objects', () => {
       // Arrange - Create an object with circular reference
       const circular: any = { name: 'circular' };
       circular.self = circular;
+      
+      // Act
+      loggerService.log('Circular reference test', { circular });
+      
+      // Assert - Should not throw and should handle the circular reference
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain('Circular reference test');
+      expect(logs[0]).toContain('circular');
+    });
+  });
 
-      // Act - This should not throw despite circular reference
-      loggerService.log('Message with circular reference', { data: circular });
+  describe('Configuration inheritance', () => {
+    it('should apply default configuration when not specified', () => {
+      // Arrange - Create a logger with minimal config
+      const minimalConfig = {};
+      
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(minimalConfig)],
+      }).compile();
+
+      const minimalLogger = moduleRef.get<LoggerService>(LoggerService);
+
+      // Act
+      minimalLogger.log('Minimal config message');
+
+      // Assert - Should use default console transport and formatter
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain('Minimal config message');
+    });
+
+    it('should override specific configuration options', () => {
+      // Arrange - Create a logger with specific overrides
+      const overrideConfig = { 
+        level: LogLevel.WARN,
+        formatter: 'json',
+        transports: ['console']
+      };
+      
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(overrideConfig)],
+      }).compile();
+
+      const overrideLogger = moduleRef.get<LoggerService>(LoggerService);
+
+      // Act
+      overrideLogger.debug('Should not be logged');
+      overrideLogger.info('Should not be logged');
+      overrideLogger.warn('Should be logged');
+      overrideLogger.error('Should be logged');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0]).toHaveProperty('message', 'Message with circular reference');
-      // The circular reference should be replaced with '[Circular]'
-      expect(JSON.stringify(mockTransport.logs[0])).toContain('"self":"[Circular]"');
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(2);
+      expect(logs[0]).toContain('Should be logged');
+      expect(logs[1]).toContain('Should be logged');
+      expect(logs.some(log => log.includes('Should not be logged'))).toBe(false);
+      
+      // Should be JSON formatted
+      expect(() => JSON.parse(logs[0])).not.toThrow();
+    });
+
+    it('should apply journey-specific configuration', () => {
+      // Arrange - Create a logger with journey-specific config
+      const journeyConfig = {
+        journeys: {
+          health: { level: LogLevel.DEBUG },
+          care: { level: LogLevel.INFO },
+          plan: { level: LogLevel.WARN }
+        }
+      };
+      
+      const moduleRef = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(journeyConfig)],
+      }).compile();
+
+      const journeyLogger = moduleRef.get<LoggerService>(LoggerService);
+      const journeyContextManager = moduleRef.get<ContextManager>(ContextManager);
+
+      // Act - Test with Health journey context
+      journeyContextManager.setContext(createHealthJourneyContext());
+      journeyLogger.debug('Health debug - should be logged');
+      
+      // Switch to Care journey context
+      journeyContextManager.setContext(createCareJourneyContext());
+      journeyLogger.debug('Care debug - should not be logged');
+      journeyLogger.info('Care info - should be logged');
+      
+      // Switch to Plan journey context
+      journeyContextManager.setContext(createPlanJourneyContext());
+      journeyLogger.debug('Plan debug - should not be logged');
+      journeyLogger.info('Plan info - should not be logged');
+      journeyLogger.warn('Plan warn - should be logged');
+
+      // Assert
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(3);
+      expect(logs[0]).toContain('Health debug - should be logged');
+      expect(logs[1]).toContain('Care info - should be logged');
+      expect(logs[2]).toContain('Plan warn - should be logged');
+    });
+
+    it('should apply environment-specific configuration', () => {
+      // Arrange - Create loggers for different environments
+      const devLogger = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(configOptions.development)],
+      }).compile().get<LoggerService>(LoggerService);
+      
+      const testLogger = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(configOptions.testing)],
+      }).compile().get<LoggerService>(LoggerService);
+      
+      const prodLogger = Test.createTestingModule({
+        imports: [LoggerModule.forRoot(configOptions.production)],
+      }).compile().get<LoggerService>(LoggerService);
+
+      // Act
+      devLogger.log('Development environment log');
+      testLogger.log('Testing environment log');
+      prodLogger.log('Production environment log');
+
+      // Assert
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(3);
+      
+      // Development should use text formatter
+      expect(() => JSON.parse(logs[0])).toThrow();
+      expect(logs[0]).toContain('Development environment log');
+      
+      // Testing should use JSON formatter
+      expect(() => JSON.parse(logs[1])).not.toThrow();
+      expect(JSON.parse(logs[1]).message).toBe('Testing environment log');
+      
+      // Production should use CloudWatch formatter
+      expect(() => JSON.parse(logs[2])).not.toThrow();
+      expect(JSON.parse(logs[2]).message).toBe('Production environment log');
+      expect(JSON.parse(logs[2]).aws).toBeDefined();
     });
   });
 
   describe('Tracing integration', () => {
-    it('should include trace IDs in log context', () => {
-      // Arrange - Mock trace IDs
+    it('should include trace context in logs', () => {
+      // Arrange
       const traceId = 'test-trace-id';
       const spanId = 'test-span-id';
-      
-      // Create a context with trace information
-      const contextWithTrace = contextManager.createRequestContext({
-        requestId: 'test-request-id',
-        traceId,
-        spanId,
-      });
+      mockTracingService.getCurrentTraceId.mockReturnValue(traceId);
+      mockTracingService.getCurrentSpanId.mockReturnValue(spanId);
 
       // Act
-      loggerService.log('Traced message', { context: contextWithTrace });
+      loggerService.log('Traced log message');
 
       // Assert
-      expect(mockTransport.logs).toHaveLength(1);
-      expect(mockTransport.logs[0].context).toHaveProperty('traceId', traceId);
-      expect(mockTransport.logs[0].context).toHaveProperty('spanId', spanId);
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain(traceId);
+      expect(logs[0]).toContain(spanId);
     });
 
-    it('should propagate trace context through the logging pipeline', () => {
-      // Arrange - Create a CloudWatch transport that expects trace IDs
-      const cloudWatchFormatter = new CloudWatchFormatter();
-      const cloudWatchTransport = new MockTransport(cloudWatchFormatter);
-      
-      // Replace the mock transport with CloudWatch transport
-      jest.spyOn(TransportFactory, 'create').mockImplementation(() => {
-        return [cloudWatchTransport];
-      });
+    it('should correlate logs with the same trace', () => {
+      // Arrange
+      const traceId = 'correlation-trace-id';
+      mockTracingService.getCurrentTraceId.mockReturnValue(traceId);
 
-      // Create a new logger service with CloudWatch transport
-      const config: LoggerConfig = {
-        level: LogLevel.DEBUG,
-        appName: 'test-app',
-        serviceName: 'test-service',
-        transports: {
-          cloudwatch: { enabled: true },
-        },
-      };
-      const cloudWatchLogger = new LoggerService(config, contextManager);
-
-      // Create a context with trace information
-      const traceId = 'aws-xray-trace-id';
-      const contextWithTrace = contextManager.createRequestContext({
-        requestId: 'test-request-id',
-        traceId,
-      });
-
-      // Act
-      cloudWatchLogger.log('AWS traced message', { context: contextWithTrace });
+      // Act - Log multiple messages in the same trace
+      loggerService.log('First traced message');
+      loggerService.log('Second traced message');
+      loggerService.error('Error in trace');
 
       // Assert
-      expect(cloudWatchTransport.logs).toHaveLength(1);
-      expect(cloudWatchTransport.logs[0].context).toHaveProperty('traceId', traceId);
-      // CloudWatch formatter should add AWS X-Ray trace ID in the expected format
-      expect(cloudWatchTransport.logs[0].aws).toHaveProperty('xray', expect.objectContaining({
-        trace_id: traceId
-      }));
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(3);
+      expect(logs.every(log => log.includes(traceId))).toBe(true);
+    });
+
+    it('should handle missing trace context gracefully', () => {
+      // Arrange
+      mockTracingService.getCurrentTraceId.mockReturnValue(null);
+      mockTracingService.getCurrentSpanId.mockReturnValue(null);
+
+      // Act
+      loggerService.log('No trace context message');
+
+      // Assert - Should log without trace context
+      const logs = getCapturedLogs();
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain('No trace context message');
     });
   });
 });

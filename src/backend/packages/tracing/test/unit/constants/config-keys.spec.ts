@@ -1,230 +1,203 @@
-import {
-  TRACING_CONFIG_NAMESPACE,
-  SERVICE_NAME_CONFIG_KEY,
-  TRACING_ENABLED_CONFIG_KEY,
-  TRACING_SAMPLING_RATE_CONFIG_KEY,
-  TRACING_EXPORTER_TYPE_CONFIG_KEY,
-  TRACING_EXPORTER_ENDPOINT_CONFIG_KEY,
-  TRACING_MAX_ATTRIBUTES_CONFIG_KEY,
-  TRACING_MAX_EVENTS_CONFIG_KEY,
-  TRACING_MAX_LINKS_CONFIG_KEY,
-  TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY,
-  TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY
-} from '../../../src/constants/config-keys';
+/**
+ * @file Unit tests for tracing configuration key constants.
+ * 
+ * These tests verify that configuration keys used by the tracing package
+ * follow consistent patterns, match environment variable names, and provide
+ * complete coverage for all necessary configuration options.
+ */
 
-describe('Tracing Configuration Key Constants', () => {
-  describe('TRACING_CONFIG_NAMESPACE', () => {
-    it('should be defined', () => {
-      expect(TRACING_CONFIG_NAMESPACE).toBeDefined();
-    });
+import { CONFIG_KEYS, SERVICE, EXPORTER, SAMPLING, RESOURCE, BATCH_PROCESSOR, JOURNEY, GENERAL } from '../../../src/constants/config-keys';
 
-    it('should have the correct value', () => {
-      expect(TRACING_CONFIG_NAMESPACE).toBe('tracing');
-    });
+describe('Tracing Configuration Keys', () => {
+  const TRACING_NAMESPACE = 'tracing';
 
-    it('should be a non-empty string', () => {
-      expect(typeof TRACING_CONFIG_NAMESPACE).toBe('string');
-      expect(TRACING_CONFIG_NAMESPACE.length).toBeGreaterThan(0);
-    });
-
-    it('should be lowercase for consistency', () => {
-      expect(TRACING_CONFIG_NAMESPACE).toBe(TRACING_CONFIG_NAMESPACE.toLowerCase());
-    });
-  });
-
-  describe('SERVICE_NAME_CONFIG_KEY', () => {
-    it('should be defined', () => {
-      expect(SERVICE_NAME_CONFIG_KEY).toBeDefined();
-    });
-
-    it('should have the correct value', () => {
-      expect(SERVICE_NAME_CONFIG_KEY).toBe('service.name');
-    });
-
-    it('should be a non-empty string', () => {
-      expect(typeof SERVICE_NAME_CONFIG_KEY).toBe('string');
-      expect(SERVICE_NAME_CONFIG_KEY.length).toBeGreaterThan(0);
-    });
-
-    it('should follow dot notation for hierarchical configuration', () => {
-      expect(SERVICE_NAME_CONFIG_KEY.split('.')).toHaveLength(2);
-      expect(SERVICE_NAME_CONFIG_KEY).toContain('.');
-    });
-
-    it('should map to a valid environment variable name', () => {
-      // Convert from camelCase or dot notation to uppercase with underscores
-      const envVarName = SERVICE_NAME_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('SERVICE_NAME');
-    });
-  });
-
-  describe('Tracing-specific configuration keys', () => {
-    const tracingSpecificKeys = [
-      TRACING_ENABLED_CONFIG_KEY,
-      TRACING_SAMPLING_RATE_CONFIG_KEY,
-      TRACING_EXPORTER_TYPE_CONFIG_KEY,
-      TRACING_EXPORTER_ENDPOINT_CONFIG_KEY,
-      TRACING_MAX_ATTRIBUTES_CONFIG_KEY,
-      TRACING_MAX_EVENTS_CONFIG_KEY,
-      TRACING_MAX_LINKS_CONFIG_KEY,
-      TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY,
-      TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY
-    ];
-
-    it('should all be defined', () => {
-      tracingSpecificKeys.forEach(key => {
-        expect(key).toBeDefined();
-      });
-    });
-
-    it('should all be non-empty strings', () => {
-      tracingSpecificKeys.forEach(key => {
-        expect(typeof key).toBe('string');
-        expect(key.length).toBeGreaterThan(0);
-      });
-    });
-
-    it('should all start with the tracing namespace', () => {
-      tracingSpecificKeys.forEach(key => {
-        expect(key.startsWith(`${TRACING_CONFIG_NAMESPACE}.`)).toBe(true);
-      });
-    });
-
-    it('should all follow dot notation for hierarchical configuration', () => {
-      tracingSpecificKeys.forEach(key => {
-        const parts = key.split('.');
-        expect(parts.length).toBeGreaterThanOrEqual(2);
-        expect(parts[0]).toBe(TRACING_CONFIG_NAMESPACE);
-      });
-    });
-
-    it('should all be lowercase for consistency', () => {
-      tracingSpecificKeys.forEach(key => {
-        expect(key).toBe(key.toLowerCase());
-      });
-    });
-
-    it('should all map to valid environment variable names', () => {
-      tracingSpecificKeys.forEach(key => {
-        // Convert from camelCase or dot notation to uppercase with underscores
-        const envVarName = key
-          .replace(/\./g, '_')
-          .toUpperCase();
-        
-        // Ensure it follows environment variable naming conventions
-        expect(envVarName).toMatch(/^[A-Z][A-Z0-9_]*$/);
-        expect(envVarName).not.toContain('.');
+  describe('Namespace', () => {
+    it('should prefix all configuration keys with the tracing namespace', () => {
+      // Check all exported configuration objects
+      const allConfigObjects = [SERVICE, EXPORTER, SAMPLING, RESOURCE, BATCH_PROCESSOR, JOURNEY, GENERAL];
+      
+      // Flatten all configuration keys into a single array
+      const allKeys = allConfigObjects.flatMap(obj => Object.values(obj));
+      
+      // Verify each key starts with the tracing namespace
+      allKeys.forEach(key => {
+        expect(key).toEqual(expect.stringContaining(`${TRACING_NAMESPACE}.`));
       });
     });
   });
 
-  describe('Functional grouping of configuration keys', () => {
-    it('should have keys for basic configuration', () => {
-      expect(TRACING_ENABLED_CONFIG_KEY).toContain('enabled');
-      expect(TRACING_SAMPLING_RATE_CONFIG_KEY).toContain('sampling.rate');
+  describe('Service Configuration Keys', () => {
+    it('should define the service name key', () => {
+      expect(SERVICE.NAME).toBe(`${TRACING_NAMESPACE}.service.name`);
     });
 
-    it('should have keys for exporter configuration', () => {
-      expect(TRACING_EXPORTER_TYPE_CONFIG_KEY).toContain('exporter.type');
-      expect(TRACING_EXPORTER_ENDPOINT_CONFIG_KEY).toContain('exporter.endpoint');
+    it('should define the service version key', () => {
+      expect(SERVICE.VERSION).toBe(`${TRACING_NAMESPACE}.service.version`);
     });
 
-    it('should have keys for span configuration', () => {
-      expect(TRACING_MAX_ATTRIBUTES_CONFIG_KEY).toContain('span.maxAttributes');
-      expect(TRACING_MAX_EVENTS_CONFIG_KEY).toContain('span.maxEvents');
-      expect(TRACING_MAX_LINKS_CONFIG_KEY).toContain('span.maxLinks');
+    it('should define the service environment key', () => {
+      expect(SERVICE.ENVIRONMENT).toBe(`${TRACING_NAMESPACE}.service.environment`);
     });
 
-    it('should have keys for integration configuration', () => {
-      expect(TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY).toContain('journeyContext.enabled');
-      expect(TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY).toContain('logCorrelation.enabled');
+    it('should include all service keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.SERVICE).toBe(SERVICE);
+      expect(CONFIG_KEYS.SERVICE_NAME).toBe(SERVICE.NAME);
     });
   });
 
-  describe('Configuration key relationships', () => {
-    it('should have consistent naming for enabled flags', () => {
-      expect(TRACING_ENABLED_CONFIG_KEY.endsWith('enabled')).toBe(true);
-      expect(TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY.endsWith('enabled')).toBe(true);
-      expect(TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY.endsWith('enabled')).toBe(true);
+  describe('Exporter Configuration Keys', () => {
+    it('should define the exporter type key', () => {
+      expect(EXPORTER.TYPE).toBe(`${TRACING_NAMESPACE}.exporter.type`);
     });
 
-    it('should have consistent naming for exporter configuration', () => {
-      expect(TRACING_EXPORTER_TYPE_CONFIG_KEY).toContain('exporter');
-      expect(TRACING_EXPORTER_ENDPOINT_CONFIG_KEY).toContain('exporter');
+    it('should define the exporter endpoint key', () => {
+      expect(EXPORTER.ENDPOINT).toBe(`${TRACING_NAMESPACE}.exporter.endpoint`);
     });
 
-    it('should have consistent naming for span limits', () => {
-      expect(TRACING_MAX_ATTRIBUTES_CONFIG_KEY).toContain('span.max');
-      expect(TRACING_MAX_EVENTS_CONFIG_KEY).toContain('span.max');
-      expect(TRACING_MAX_LINKS_CONFIG_KEY).toContain('span.max');
+    it('should define the exporter headers key', () => {
+      expect(EXPORTER.HEADERS).toBe(`${TRACING_NAMESPACE}.exporter.headers`);
+    });
+
+    it('should define the exporter timeout key', () => {
+      expect(EXPORTER.TIMEOUT).toBe(`${TRACING_NAMESPACE}.exporter.timeout`);
+    });
+
+    it('should include all exporter keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.EXPORTER).toBe(EXPORTER);
     });
   });
 
-  describe('Environment variable mapping', () => {
-    it('should map SERVICE_NAME_CONFIG_KEY to SERVICE_NAME', () => {
-      const envVarName = SERVICE_NAME_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('SERVICE_NAME');
+  describe('Sampling Configuration Keys', () => {
+    it('should define the sampling ratio key', () => {
+      expect(SAMPLING.RATIO).toBe(`${TRACING_NAMESPACE}.sampling.ratio`);
     });
 
-    it('should map TRACING_ENABLED_CONFIG_KEY to TRACING_ENABLED', () => {
-      const envVarName = TRACING_ENABLED_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('TRACING_ENABLED');
+    it('should define the sampling strategy key', () => {
+      expect(SAMPLING.STRATEGY).toBe(`${TRACING_NAMESPACE}.sampling.strategy`);
     });
 
-    it('should map TRACING_SAMPLING_RATE_CONFIG_KEY to TRACING_SAMPLING_RATE', () => {
-      const envVarName = TRACING_SAMPLING_RATE_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('TRACING_SAMPLING_RATE');
+    it('should include all sampling keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.SAMPLING).toBe(SAMPLING);
+    });
+  });
+
+  describe('Resource Configuration Keys', () => {
+    it('should define the resource attributes key', () => {
+      expect(RESOURCE.ATTRIBUTES).toBe(`${TRACING_NAMESPACE}.resource.attributes`);
     });
 
-    it('should map TRACING_EXPORTER_TYPE_CONFIG_KEY to TRACING_EXPORTER_TYPE', () => {
-      const envVarName = TRACING_EXPORTER_TYPE_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('TRACING_EXPORTER_TYPE');
+    it('should define the resource auto-detect key', () => {
+      expect(RESOURCE.AUTO_DETECT).toBe(`${TRACING_NAMESPACE}.resource.autoDetect`);
     });
 
-    it('should map TRACING_EXPORTER_ENDPOINT_CONFIG_KEY to TRACING_EXPORTER_ENDPOINT', () => {
-      const envVarName = TRACING_EXPORTER_ENDPOINT_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(envVarName).toBe('TRACING_EXPORTER_ENDPOINT');
+    it('should include all resource keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.RESOURCE).toBe(RESOURCE);
+    });
+  });
+
+  describe('Batch Processor Configuration Keys', () => {
+    it('should define the max batch size key', () => {
+      expect(BATCH_PROCESSOR.MAX_BATCH_SIZE).toBe(`${TRACING_NAMESPACE}.batchProcessor.maxBatchSize`);
     });
 
-    it('should map span configuration keys to appropriate environment variables', () => {
-      const maxAttributesEnvVar = TRACING_MAX_ATTRIBUTES_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(maxAttributesEnvVar).toBe('TRACING_SPAN_MAXATTRIBUTES');
-
-      const maxEventsEnvVar = TRACING_MAX_EVENTS_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(maxEventsEnvVar).toBe('TRACING_SPAN_MAXEVENTS');
-
-      const maxLinksEnvVar = TRACING_MAX_LINKS_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(maxLinksEnvVar).toBe('TRACING_SPAN_MAXLINKS');
+    it('should define the max export batch size key', () => {
+      expect(BATCH_PROCESSOR.MAX_EXPORT_BATCH_SIZE).toBe(`${TRACING_NAMESPACE}.batchProcessor.maxExportBatchSize`);
     });
 
-    it('should map integration configuration keys to appropriate environment variables', () => {
-      const journeyContextEnvVar = TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(journeyContextEnvVar).toBe('TRACING_JOURNEYCONTEXT_ENABLED');
+    it('should define the export timeout key', () => {
+      expect(BATCH_PROCESSOR.EXPORT_TIMEOUT).toBe(`${TRACING_NAMESPACE}.batchProcessor.exportTimeout`);
+    });
 
-      const logCorrelationEnvVar = TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY
-        .replace(/\./g, '_')
-        .toUpperCase();
-      expect(logCorrelationEnvVar).toBe('TRACING_LOGCORRELATION_ENABLED');
+    it('should define the schedule delay key', () => {
+      expect(BATCH_PROCESSOR.SCHEDULE_DELAY).toBe(`${TRACING_NAMESPACE}.batchProcessor.scheduleDelay`);
+    });
+
+    it('should include all batch processor keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.BATCH_PROCESSOR).toBe(BATCH_PROCESSOR);
+    });
+  });
+
+  describe('Journey-specific Configuration Keys', () => {
+    it('should define the health journey enabled key', () => {
+      expect(JOURNEY.HEALTH_ENABLED).toBe(`${TRACING_NAMESPACE}.journey.health.enabled`);
+    });
+
+    it('should define the care journey enabled key', () => {
+      expect(JOURNEY.CARE_ENABLED).toBe(`${TRACING_NAMESPACE}.journey.care.enabled`);
+    });
+
+    it('should define the plan journey enabled key', () => {
+      expect(JOURNEY.PLAN_ENABLED).toBe(`${TRACING_NAMESPACE}.journey.plan.enabled`);
+    });
+
+    it('should define the health journey sampling ratio key', () => {
+      expect(JOURNEY.HEALTH_SAMPLING_RATIO).toBe(`${TRACING_NAMESPACE}.journey.health.samplingRatio`);
+    });
+
+    it('should define the care journey sampling ratio key', () => {
+      expect(JOURNEY.CARE_SAMPLING_RATIO).toBe(`${TRACING_NAMESPACE}.journey.care.samplingRatio`);
+    });
+
+    it('should define the plan journey sampling ratio key', () => {
+      expect(JOURNEY.PLAN_SAMPLING_RATIO).toBe(`${TRACING_NAMESPACE}.journey.plan.samplingRatio`);
+    });
+
+    it('should include all journey keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.JOURNEY).toBe(JOURNEY);
+    });
+  });
+
+  describe('General Configuration Keys', () => {
+    it('should define the enabled key', () => {
+      expect(GENERAL.ENABLED).toBe(`${TRACING_NAMESPACE}.enabled`);
+    });
+
+    it('should define the log level key', () => {
+      expect(GENERAL.LOG_LEVEL).toBe(`${TRACING_NAMESPACE}.logLevel`);
+    });
+
+    it('should define the context propagation enabled key', () => {
+      expect(GENERAL.CONTEXT_PROPAGATION_ENABLED).toBe(`${TRACING_NAMESPACE}.contextPropagation.enabled`);
+    });
+
+    it('should include all general keys in the main CONFIG_KEYS export', () => {
+      expect(CONFIG_KEYS.GENERAL).toBe(GENERAL);
+    });
+  });
+
+  describe('Environment Variable Mapping', () => {
+    it('should follow a consistent pattern for mapping to environment variables', () => {
+      // Define a function to convert config key to expected environment variable name
+      const toEnvVar = (key: string): string => {
+        return key.toUpperCase().replace(/\./g, '_');
+      };
+
+      // Test a sample of keys from different categories
+      expect(toEnvVar(SERVICE.NAME)).toBe('TRACING_SERVICE_NAME');
+      expect(toEnvVar(EXPORTER.TYPE)).toBe('TRACING_EXPORTER_TYPE');
+      expect(toEnvVar(SAMPLING.RATIO)).toBe('TRACING_SAMPLING_RATIO');
+      expect(toEnvVar(JOURNEY.HEALTH_ENABLED)).toBe('TRACING_JOURNEY_HEALTH_ENABLED');
+      expect(toEnvVar(GENERAL.ENABLED)).toBe('TRACING_ENABLED');
+    });
+  });
+
+  describe('Deprecated Keys', () => {
+    it('should mark SERVICE_NAME as deprecated but still functional', () => {
+      // Verify the deprecated key still points to the correct value
+      expect(CONFIG_KEYS.SERVICE_NAME).toBe(SERVICE.NAME);
+    });
+  });
+
+  describe('Key Organization', () => {
+    it('should organize keys by functional area', () => {
+      // Verify that each category has the expected number of keys
+      expect(Object.keys(SERVICE).length).toBe(3); // NAME, VERSION, ENVIRONMENT
+      expect(Object.keys(EXPORTER).length).toBe(4); // TYPE, ENDPOINT, HEADERS, TIMEOUT
+      expect(Object.keys(SAMPLING).length).toBe(2); // RATIO, STRATEGY
+      expect(Object.keys(RESOURCE).length).toBe(2); // ATTRIBUTES, AUTO_DETECT
+      expect(Object.keys(BATCH_PROCESSOR).length).toBe(4); // MAX_BATCH_SIZE, MAX_EXPORT_BATCH_SIZE, EXPORT_TIMEOUT, SCHEDULE_DELAY
+      expect(Object.keys(JOURNEY).length).toBe(6); // HEALTH_ENABLED, CARE_ENABLED, PLAN_ENABLED, HEALTH_SAMPLING_RATIO, CARE_SAMPLING_RATIO, PLAN_SAMPLING_RATIO
+      expect(Object.keys(GENERAL).length).toBe(3); // ENABLED, LOG_LEVEL, CONTEXT_PROPAGATION_ENABLED
     });
   });
 });

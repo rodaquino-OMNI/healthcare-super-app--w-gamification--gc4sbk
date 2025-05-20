@@ -1,1126 +1,600 @@
+/**
+ * @file medication-event.dto.spec.ts
+ * @description Unit tests for the MedicationEventDto class that validate medication adherence events
+ * (taken, skipped, missed). Tests verify medication identification, dosage validation, schedule
+ * compliance tracking, and adherence state transitions. These tests ensure that medication adherence
+ * data is properly validated for gamification and notification purposes.
+ *
+ * @module events/test/unit/dto
+ */
+
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { v4 as uuidv4 } from 'uuid';
 
+// Import the DTO to test
+import { MedicationEventDto } from '../../../src/dto/medication-event.dto';
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+
+// Import test utilities
 import {
-  MedicationEventDto,
-  MedicationTakenEventDto,
-  MedicationMissedEventDto,
-  MedicationAddedEventDto,
-  MedicationRefilledEventDto,
-  MedicationIdentifierDto,
-  MedicationDosageDto,
-  MedicationAdherenceStatusDto,
+  createMedicationData,
+  createMedicationTakenEvent,
   MedicationAdherenceStatus,
-  MedicationDosageUnit
-} from '../../../src/dto/medication-event.dto';
-import { CareEventType } from '../../../src/interfaces/journey-events.interface';
-import {
-  validateDto,
-  hasValidationErrors,
-  hasPropertyValidationError,
-  hasConstraintValidationError
+  createInvalidEvent,
+  createEventWithInvalidValues,
+  validateEventDto,
+  isValidEventDto,
+  TestFactoryOptions
 } from './test-utils';
 
 describe('MedicationEventDto', () => {
-  // Helper function to create a valid medication identifier
-  const createValidMedicationIdentifier = (): MedicationIdentifierDto => {
-    return {
-      id: uuidv4(),
-      name: 'Lisinopril',
-      code: '12345-6789-01',
-      type: 'antihypertensive'
-    };
-  };
-
-  // Helper function to create a valid medication dosage
-  const createValidMedicationDosage = (): MedicationDosageDto => {
-    return {
-      amount: 10,
-      unit: MedicationDosageUnit.MG,
-      instructions: 'Take with food'
-    };
-  };
-
-  // Helper function to create a valid base medication event
-  const createValidMedicationEvent = (): MedicationEventDto => {
-    return {
-      type: CareEventType.MEDICATION_TAKEN,
-      userId: uuidv4(),
-      medication: createValidMedicationIdentifier(),
-      timestamp: new Date().toISOString(),
-      correlationId: uuidv4()
-    };
-  };
-
-  describe('MedicationIdentifierDto', () => {
-    it('should validate a valid medication identifier', async () => {
-      // Arrange
-      const medicationIdentifier = createValidMedicationIdentifier();
-      const dto = plainToInstance(MedicationIdentifierDto, medicationIdentifier);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+  // Test valid medication events
+  describe('Valid medication events', () => {
+    it('should validate a medication taken event with ON_TIME status', async () => {
+      // Create a valid medication taken event with ON_TIME status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
-
-    it('should require id and name fields', async () => {
-      // Arrange
-      const medicationIdentifier = {
-        code: '12345-6789-01',
-        type: 'antihypertensive'
-      };
-      const dto = plainToInstance(MedicationIdentifierDto, medicationIdentifier);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'id')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'name')).toBe(true);
+    
+    it('should validate a medication taken event with LATE status', async () => {
+      // Create a valid medication taken event with LATE status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.LATE);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
-
-    it('should validate id as UUID', async () => {
-      // Arrange
-      const medicationIdentifier = {
-        ...createValidMedicationIdentifier(),
-        id: 'not-a-uuid'
-      };
-      const dto = plainToInstance(MedicationIdentifierDto, medicationIdentifier);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'id')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'id', 'isUuid')).toBe(true);
+    
+    it('should validate a medication taken event with SKIPPED status', async () => {
+      // Create a valid medication taken event with SKIPPED status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.SKIPPED);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
-
-    it('should allow optional fields to be omitted', async () => {
-      // Arrange
-      const medicationIdentifier = {
-        id: uuidv4(),
-        name: 'Lisinopril'
-      };
-      const dto = plainToInstance(MedicationIdentifierDto, medicationIdentifier);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+    
+    it('should validate a medication taken event with MISSED status', async () => {
+      // Create a valid medication taken event with MISSED status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.MISSED);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
+    });
+    
+    it('should validate a medication event with additional notes', async () => {
+      // Create a valid medication taken event with additional notes
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME, {
+        notes: 'Medication taken with food as directed'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
   });
-
-  describe('MedicationDosageDto', () => {
-    it('should validate a valid medication dosage', async () => {
-      // Arrange
-      const medicationDosage = createValidMedicationDosage();
-      const dto = plainToInstance(MedicationDosageDto, medicationDosage);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+  
+  // Test invalid medication events (missing required fields)
+  describe('Invalid medication events - missing required fields', () => {
+    it('should not validate a medication event without medicationId', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Remove medicationId to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.medicationId']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing medicationId
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'medicationId' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('medicationId')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should require amount and unit fields', async () => {
-      // Arrange
-      const medicationDosage = {
-        instructions: 'Take with food'
-      };
-      const dto = plainToInstance(MedicationDosageDto, medicationDosage);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'amount')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'unit')).toBe(true);
+    
+    it('should not validate a medication event without medicationName', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Remove medicationName to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.medicationName']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing medicationName
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'medicationName' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('medicationName')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should validate amount as a positive number', async () => {
-      // Arrange
-      const medicationDosage = {
-        ...createValidMedicationDosage(),
-        amount: -5
-      };
-      const dto = plainToInstance(MedicationDosageDto, medicationDosage);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'amount')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'amount', 'min')).toBe(true);
+    
+    it('should not validate a medication event without dosage', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Remove dosage to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.dosage']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing dosage
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'dosage' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('dosage')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should validate unit as a valid enum value', async () => {
-      // Arrange
-      const medicationDosage = {
-        ...createValidMedicationDosage(),
-        unit: 'invalid-unit'
-      };
-      const dto = plainToInstance(MedicationDosageDto, medicationDosage);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'unit')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'unit', 'isEnum')).toBe(true);
+    
+    it('should not validate a medication event without scheduledAt', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Remove scheduledAt to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.scheduledAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing scheduledAt
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'scheduledAt' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('scheduledAt')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should allow instructions to be omitted', async () => {
-      // Arrange
-      const medicationDosage = {
-        amount: 10,
-        unit: MedicationDosageUnit.MG
-      };
-      const dto = plainToInstance(MedicationDosageDto, medicationDosage);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-  });
-
-  describe('MedicationEventDto', () => {
-    it('should validate a valid medication event', async () => {
-      // Arrange
-      const medicationEvent = createValidMedicationEvent();
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should require type, userId, medication, and timestamp fields', async () => {
-      // Arrange
-      const medicationEvent = {
-        correlationId: uuidv4()
-      };
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'userId')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'medication')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'timestamp')).toBe(true);
-    });
-
-    it('should validate type as a valid enum value', async () => {
-      // Arrange
-      const medicationEvent = {
-        ...createValidMedicationEvent(),
-        type: 'INVALID_TYPE'
-      };
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'type', 'isEnum')).toBe(true);
-    });
-
-    it('should validate userId as UUID', async () => {
-      // Arrange
-      const medicationEvent = {
-        ...createValidMedicationEvent(),
-        userId: 'not-a-uuid'
-      };
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'userId')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'userId', 'isUuid')).toBe(true);
-    });
-
-    it('should validate timestamp as ISO 8601 format', async () => {
-      // Arrange
-      const medicationEvent = {
-        ...createValidMedicationEvent(),
-        timestamp: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'timestamp')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'timestamp', 'isIso8601')).toBe(true);
-    });
-
-    it('should validate nested medication object', async () => {
-      // Arrange
-      const medicationEvent = {
-        ...createValidMedicationEvent(),
-        medication: {
-          // Missing required fields
-        }
-      };
-      const dto = plainToInstance(MedicationEventDto, medicationEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'medication')).toBe(true);
-    });
-
-    it('should allow correlationId to be omitted', async () => {
-      // Arrange
-      const { correlationId, ...medicationEventWithoutCorrelationId } = createValidMedicationEvent();
-      const dto = plainToInstance(MedicationEventDto, medicationEventWithoutCorrelationId);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+    
+    it('should not validate a medication event without adherenceStatus', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Remove adherenceStatus to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.adherenceStatus']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing adherenceStatus
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'adherenceStatus' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('adherenceStatus')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
   });
-
-  describe('MedicationTakenEventDto', () => {
-    // Helper function to create a valid medication taken event
-    const createValidMedicationTakenEvent = (): MedicationTakenEventDto => {
-      return {
-        type: CareEventType.MEDICATION_TAKEN,
-        userId: uuidv4(),
-        medication: createValidMedicationIdentifier(),
-        timestamp: new Date().toISOString(),
-        correlationId: uuidv4(),
-        dosage: createValidMedicationDosage(),
-        scheduledTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        takenOnTime: true,
-        notes: 'Feeling good after taking medication'
-      };
-    };
-
-    it('should validate a valid medication taken event', async () => {
-      // Arrange
-      const medicationTakenEvent = createValidMedicationTakenEvent();
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+  
+  // Test invalid medication events (invalid values)
+  describe('Invalid medication events - invalid values', () => {
+    it('should not validate a medication event with invalid adherenceStatus', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Set invalid adherenceStatus
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.adherenceStatus': 'INVALID_STATUS'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about invalid adherenceStatus
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'adherenceStatus' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('adherenceStatus') && msg.includes('valid')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should require dosage, scheduledTime, and takenOnTime fields', async () => {
-      // Arrange
-      const { dosage, scheduledTime, takenOnTime, ...incompleteEvent } = createValidMedicationTakenEvent();
-      const dto = plainToInstance(MedicationTakenEventDto, incompleteEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosage')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'scheduledTime')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'takenOnTime')).toBe(true);
+    
+    it('should not validate a medication event with invalid scheduledAt date format', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Set invalid scheduledAt date format
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.scheduledAt': 'not-a-date'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about invalid scheduledAt date format
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'scheduledAt' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('scheduledAt') && msg.includes('date')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should validate type as MEDICATION_TAKEN', async () => {
-      // Arrange
-      const medicationTakenEvent = {
-        ...createValidMedicationTakenEvent(),
-        type: CareEventType.MEDICATION_MISSED
-      };
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
+    
+    it('should not validate a medication event with invalid takenAt date format', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      
+      // Set invalid takenAt date format
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.takenAt': 'not-a-date'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about invalid takenAt date format
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'takenAt' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('takenAt') && msg.includes('date')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should validate scheduledTime as ISO 8601 format', async () => {
-      // Arrange
-      const medicationTakenEvent = {
-        ...createValidMedicationTakenEvent(),
-        scheduledTime: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'scheduledTime')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'scheduledTime', 'isIso8601')).toBe(true);
+    
+    it('should not validate a medication event with empty medicationName', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Set empty medicationName
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.medicationName': ''
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about empty medicationName
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'medicationName' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('medicationName') && msg.includes('empty')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
-
-    it('should validate takenOnTime as boolean', async () => {
-      // Arrange
-      const medicationTakenEvent = {
-        ...createValidMedicationTakenEvent(),
-        takenOnTime: 'not-a-boolean'
-      };
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'takenOnTime')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'takenOnTime', 'isBoolean')).toBe(true);
-    });
-
-    it('should validate delayMinutes as a positive number when provided', async () => {
-      // Arrange
-      const medicationTakenEvent = {
-        ...createValidMedicationTakenEvent(),
-        takenOnTime: false,
-        delayMinutes: -10
-      };
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'delayMinutes')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'delayMinutes', 'min')).toBe(true);
-    });
-
-    it('should allow notes to be omitted', async () => {
-      // Arrange
-      const { notes, ...medicationTakenEventWithoutNotes } = createValidMedicationTakenEvent();
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEventWithoutNotes);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should validate nested dosage object', async () => {
-      // Arrange
-      const medicationTakenEvent = {
-        ...createValidMedicationTakenEvent(),
-        dosage: {
-          // Missing required fields
-        }
-      };
-      const dto = plainToInstance(MedicationTakenEventDto, medicationTakenEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      // The validation errors will be in the nested object
-    });
-  });
-
-  describe('MedicationMissedEventDto', () => {
-    // Helper function to create a valid medication missed event
-    const createValidMedicationMissedEvent = (): MedicationMissedEventDto => {
-      return {
-        type: CareEventType.MEDICATION_MISSED,
-        userId: uuidv4(),
-        medication: createValidMedicationIdentifier(),
-        timestamp: new Date().toISOString(),
-        correlationId: uuidv4(),
-        scheduledTime: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        reason: 'Forgot to take medication',
-        remindersSent: 3,
-        isCritical: true
-      };
-    };
-
-    it('should validate a valid medication missed event', async () => {
-      // Arrange
-      const medicationMissedEvent = createValidMedicationMissedEvent();
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should require scheduledTime, remindersSent, and isCritical fields', async () => {
-      // Arrange
-      const { scheduledTime, remindersSent, isCritical, ...incompleteEvent } = createValidMedicationMissedEvent();
-      const dto = plainToInstance(MedicationMissedEventDto, incompleteEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'scheduledTime')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remindersSent')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'isCritical')).toBe(true);
-    });
-
-    it('should validate type as MEDICATION_MISSED', async () => {
-      // Arrange
-      const medicationMissedEvent = {
-        ...createValidMedicationMissedEvent(),
-        type: CareEventType.MEDICATION_TAKEN
-      };
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
-    });
-
-    it('should validate scheduledTime as ISO 8601 format', async () => {
-      // Arrange
-      const medicationMissedEvent = {
-        ...createValidMedicationMissedEvent(),
-        scheduledTime: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'scheduledTime')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'scheduledTime', 'isIso8601')).toBe(true);
-    });
-
-    it('should validate remindersSent as a non-negative number', async () => {
-      // Arrange
-      const medicationMissedEvent = {
-        ...createValidMedicationMissedEvent(),
-        remindersSent: -1
-      };
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remindersSent')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'remindersSent', 'min')).toBe(true);
-    });
-
-    it('should validate isCritical as boolean', async () => {
-      // Arrange
-      const medicationMissedEvent = {
-        ...createValidMedicationMissedEvent(),
-        isCritical: 'not-a-boolean'
-      };
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'isCritical')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'isCritical', 'isBoolean')).toBe(true);
-    });
-
-    it('should allow reason to be omitted', async () => {
-      // Arrange
-      const { reason, ...medicationMissedEventWithoutReason } = createValidMedicationMissedEvent();
-      const dto = plainToInstance(MedicationMissedEventDto, medicationMissedEventWithoutReason);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
+    
+    it('should not validate a medication event with empty dosage', async () => {
+      // Create a valid event first
+      const validEvent = createMedicationTakenEvent();
+      
+      // Set empty dosage
+      const invalidEvent = createEventWithInvalidValues(validEvent, {
+        'data.dosage': ''
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about empty dosage
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          child.property === 'dosage' && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('dosage') && msg.includes('empty')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
     });
   });
-
-  describe('MedicationAddedEventDto', () => {
-    // Helper function to create a valid medication added event
-    const createValidMedicationAddedEvent = (): MedicationAddedEventDto => {
+  
+  // Test adherence status validation
+  describe('Adherence status validation', () => {
+    it('should validate MISSED status without takenAt', async () => {
+      // Create a medication event with MISSED status and no takenAt
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.MISSED, {
+        takenAt: undefined
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
+    });
+    
+    it('should not validate ON_TIME status without takenAt', async () => {
+      // Create a medication event with ON_TIME status
+      const validEvent = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      
+      // Remove takenAt to make it invalid
+      const invalidEvent = createInvalidEvent(validEvent, ['data.takenAt']);
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, invalidEvent);
+      
+      // Validate
+      const errors = await validateEventDto(dto);
+      expect(errors).not.toBeNull();
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific error about missing takenAt for ON_TIME status
+      const hasExpectedError = errors.some(error => 
+        error.property === 'data' && 
+        error.children.some(child => 
+          (child.property === 'takenAt' || child.property === 'adherenceStatus') && 
+          child.constraints && 
+          Object.values(child.constraints).some(msg => 
+            msg.includes('takenAt') || msg.includes('adherenceStatus')
+          )
+        )
+      );
+      
+      expect(hasExpectedError).toBe(true);
+    });
+    
+    it('should validate SKIPPED status with reason', async () => {
+      // Create a medication event with SKIPPED status and a reason
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.SKIPPED, {
+        notes: 'Skipped due to doctor\'s advice'
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
+    });
+    
+    it('should validate LATE status with takenAt after scheduledAt', async () => {
+      // Create a base event
       const now = new Date();
-      const startDate = new Date(now);
-      const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + 30); // 30 days later
-
-      return {
-        type: CareEventType.MEDICATION_ADDED,
-        userId: uuidv4(),
-        medication: createValidMedicationIdentifier(),
-        timestamp: now.toISOString(),
-        correlationId: uuidv4(),
-        prescriptionDate: now.toISOString(),
-        dosage: createValidMedicationDosage(),
-        frequency: 'twice daily',
-        duration: 30,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        remindersEnabled: true,
-        provider: 'Dr. Maria Silva'
-      };
-    };
-
-    it('should validate a valid medication added event', async () => {
-      // Arrange
-      const medicationAddedEvent = createValidMedicationAddedEvent();
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should require prescriptionDate, dosage, frequency, duration, startDate, and remindersEnabled fields', async () => {
-      // Arrange
-      const {
-        prescriptionDate,
-        dosage,
-        frequency,
-        duration,
-        startDate,
-        remindersEnabled,
-        ...incompleteEvent
-      } = createValidMedicationAddedEvent();
-      const dto = plainToInstance(MedicationAddedEventDto, incompleteEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'prescriptionDate')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosage')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'frequency')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'duration')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'startDate')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remindersEnabled')).toBe(true);
-    });
-
-    it('should validate type as MEDICATION_ADDED', async () => {
-      // Arrange
-      const medicationAddedEvent = {
-        ...createValidMedicationAddedEvent(),
-        type: CareEventType.MEDICATION_TAKEN
-      };
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
-    });
-
-    it('should validate prescriptionDate as ISO 8601 format', async () => {
-      // Arrange
-      const medicationAddedEvent = {
-        ...createValidMedicationAddedEvent(),
-        prescriptionDate: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'prescriptionDate')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'prescriptionDate', 'isIso8601')).toBe(true);
-    });
-
-    it('should validate duration as a positive number', async () => {
-      // Arrange
-      const medicationAddedEvent = {
-        ...createValidMedicationAddedEvent(),
-        duration: 0
-      };
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'duration')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'duration', 'min')).toBe(true);
-    });
-
-    it('should validate remindersEnabled as boolean', async () => {
-      // Arrange
-      const medicationAddedEvent = {
-        ...createValidMedicationAddedEvent(),
-        remindersEnabled: 'not-a-boolean'
-      };
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remindersEnabled')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'remindersEnabled', 'isBoolean')).toBe(true);
-    });
-
-    it('should allow endDate and provider to be omitted', async () => {
-      // Arrange
-      const { endDate, provider, ...medicationAddedEventWithoutOptionals } = createValidMedicationAddedEvent();
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEventWithoutOptionals);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should validate nested dosage object', async () => {
-      // Arrange
-      const medicationAddedEvent = {
-        ...createValidMedicationAddedEvent(),
-        dosage: {
-          // Missing required fields
-        }
-      };
-      const dto = plainToInstance(MedicationAddedEventDto, medicationAddedEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      // The validation errors will be in the nested object
+      const scheduledTime = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+      const takenTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
+      
+      // Create a medication event with LATE status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.LATE, {
+        scheduledAt: scheduledTime.toISOString(),
+        takenAt: takenTime.toISOString()
+      });
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
   });
-
-  describe('MedicationRefilledEventDto', () => {
-    // Helper function to create a valid medication refilled event
-    const createValidMedicationRefilledEvent = (): MedicationRefilledEventDto => {
-      return {
-        type: CareEventType.MEDICATION_REFILLED,
-        userId: uuidv4(),
-        medication: createValidMedicationIdentifier(),
-        timestamp: new Date().toISOString(),
-        correlationId: uuidv4(),
-        refillDate: new Date().toISOString(),
-        quantity: 30,
-        daysSupply: 30,
-        pharmacy: 'Farmácia São Paulo',
-        isAutoRefill: false,
-        remainingRefills: 2
-      };
-    };
-
-    it('should validate a valid medication refilled event', async () => {
-      // Arrange
-      const medicationRefilledEvent = createValidMedicationRefilledEvent();
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should require refillDate, quantity, daysSupply, isAutoRefill, and remainingRefills fields', async () => {
-      // Arrange
-      const {
-        refillDate,
-        quantity,
-        daysSupply,
-        isAutoRefill,
-        remainingRefills,
-        ...incompleteEvent
-      } = createValidMedicationRefilledEvent();
-      const dto = plainToInstance(MedicationRefilledEventDto, incompleteEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'refillDate')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'quantity')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'daysSupply')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'isAutoRefill')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remainingRefills')).toBe(true);
-    });
-
-    it('should validate type as MEDICATION_REFILLED', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        type: CareEventType.MEDICATION_TAKEN
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'type')).toBe(true);
-    });
-
-    it('should validate refillDate as ISO 8601 format', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        refillDate: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'refillDate')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'refillDate', 'isIso8601')).toBe(true);
-    });
-
-    it('should validate quantity as a positive number', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        quantity: 0
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'quantity')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'quantity', 'min')).toBe(true);
-    });
-
-    it('should validate daysSupply as a positive number', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        daysSupply: 0
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'daysSupply')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'daysSupply', 'min')).toBe(true);
-    });
-
-    it('should validate isAutoRefill as boolean', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        isAutoRefill: 'not-a-boolean'
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'isAutoRefill')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'isAutoRefill', 'isBoolean')).toBe(true);
-    });
-
-    it('should validate remainingRefills as a non-negative number', async () => {
-      // Arrange
-      const medicationRefilledEvent = {
-        ...createValidMedicationRefilledEvent(),
-        remainingRefills: -1
-      };
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEvent);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'remainingRefills')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'remainingRefills', 'min')).toBe(true);
-    });
-
-    it('should allow pharmacy to be omitted', async () => {
-      // Arrange
-      const { pharmacy, ...medicationRefilledEventWithoutPharmacy } = createValidMedicationRefilledEvent();
-      const dto = plainToInstance(MedicationRefilledEventDto, medicationRefilledEventWithoutPharmacy);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-  });
-
-  describe('MedicationAdherenceStatusDto', () => {
-    // Helper function to create a valid medication adherence status
-    const createValidMedicationAdherenceStatus = (): MedicationAdherenceStatusDto => {
-      return {
-        userId: uuidv4(),
-        medication: createValidMedicationIdentifier(),
-        status: MedicationAdherenceStatus.TAKEN,
-        adherenceRate: 85.5,
-        dosesTakenOnTime: 17,
-        dosesTakenLate: 3,
-        dosesMissed: 2,
-        currentStreak: 5,
-        longestStreak: 10,
-        lastUpdated: new Date().toISOString()
-      };
-    };
-
-    it('should validate a valid medication adherence status', async () => {
-      // Arrange
-      const medicationAdherenceStatus = createValidMedicationAdherenceStatus();
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(false);
-    });
-
-    it('should require all fields', async () => {
-      // Arrange
-      const dto = plainToInstance(MedicationAdherenceStatusDto, {});
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'userId')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'medication')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'status')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'adherenceRate')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesTakenOnTime')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesTakenLate')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesMissed')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'currentStreak')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'longestStreak')).toBe(true);
-      expect(hasPropertyValidationError(errors, 'lastUpdated')).toBe(true);
-    });
-
-    it('should validate userId as UUID', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        userId: 'not-a-uuid'
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'userId')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'userId', 'isUuid')).toBe(true);
-    });
-
-    it('should validate status as a valid enum value', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        status: 'INVALID_STATUS'
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'status')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'status', 'isEnum')).toBe(true);
-    });
-
-    it('should validate adherenceRate as a number between 0 and 100', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        adherenceRate: 120
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'adherenceRate')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'adherenceRate', 'max')).toBe(true);
-    });
-
-    it('should validate dosesTakenOnTime as a non-negative number', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        dosesTakenOnTime: -1
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesTakenOnTime')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'dosesTakenOnTime', 'min')).toBe(true);
-    });
-
-    it('should validate dosesTakenLate as a non-negative number', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        dosesTakenLate: -1
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesTakenLate')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'dosesTakenLate', 'min')).toBe(true);
-    });
-
-    it('should validate dosesMissed as a non-negative number', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        dosesMissed: -1
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'dosesMissed')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'dosesMissed', 'min')).toBe(true);
-    });
-
-    it('should validate currentStreak as a non-negative number', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        currentStreak: -1
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'currentStreak')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'currentStreak', 'min')).toBe(true);
-    });
-
-    it('should validate longestStreak as a non-negative number', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        longestStreak: -1
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'longestStreak')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'longestStreak', 'min')).toBe(true);
-    });
-
-    it('should validate lastUpdated as ISO 8601 format', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        lastUpdated: 'not-a-date'
-      };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'lastUpdated')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'lastUpdated', 'isIso8601')).toBe(true);
-    });
-
-    it('should validate nested medication object', async () => {
-      // Arrange
-      const medicationAdherenceStatus = {
-        ...createValidMedicationAdherenceStatus(),
-        medication: {
-          // Missing required fields
+  
+  // Test integration with gamification rules
+  describe('Integration with gamification rules', () => {
+    it('should validate a medication event with gamification points', async () => {
+      // Create a medication event with gamification points
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      
+      // Add gamification points
+      event.gamification = {
+        points: 10,
+        streakCount: 3,
+        achievementProgress: {
+          medication_adherence: 75 // 75% progress towards medication adherence achievement
         }
       };
-      const dto = plainToInstance(MedicationAdherenceStatusDto, medicationAdherenceStatus);
-
-      // Act
-      const errors = await validateDto(dto);
-
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      // The validation errors will be in the nested object
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
+    });
+    
+    it('should validate a medication event with achievement unlocked', async () => {
+      // Create a medication event with achievement unlocked
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      
+      // Add achievement unlocked
+      event.gamification = {
+        points: 25,
+        streakCount: 7,
+        achievementProgress: {
+          medication_adherence: 100 // 100% progress towards medication adherence achievement
+        },
+        achievementsUnlocked: [
+          {
+            id: 'medication-adherence-bronze',
+            name: 'Aderência ao Tratamento',
+            tier: 'bronze',
+            description: 'Tome seus medicamentos conforme prescrito por 7 dias consecutivos',
+            points: 50,
+            iconUrl: 'achievements/medication-adherence-bronze.png'
+          }
+        ]
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
+    });
+    
+    it('should validate different point values based on adherence status', async () => {
+      // Create events with different adherence statuses
+      const onTimeEvent = createMedicationTakenEvent(MedicationAdherenceStatus.ON_TIME);
+      const lateEvent = createMedicationTakenEvent(MedicationAdherenceStatus.LATE);
+      const skippedEvent = createMedicationTakenEvent(MedicationAdherenceStatus.SKIPPED);
+      const missedEvent = createMedicationTakenEvent(MedicationAdherenceStatus.MISSED);
+      
+      // Add gamification points based on adherence status
+      onTimeEvent.gamification = { points: 10, streakCount: 3 };
+      lateEvent.gamification = { points: 5, streakCount: 0 };
+      skippedEvent.gamification = { points: 0, streakCount: 0 };
+      missedEvent.gamification = { points: 0, streakCount: 0 };
+      
+      // Convert to DTO instances
+      const onTimeDto = plainToInstance(MedicationEventDto, onTimeEvent);
+      const lateDto = plainToInstance(MedicationEventDto, lateEvent);
+      const skippedDto = plainToInstance(MedicationEventDto, skippedEvent);
+      const missedDto = plainToInstance(MedicationEventDto, missedEvent);
+      
+      // Validate all events
+      const onTimeValid = await isValidEventDto(onTimeDto);
+      const lateValid = await isValidEventDto(lateDto);
+      const skippedValid = await isValidEventDto(skippedDto);
+      const missedValid = await isValidEventDto(missedDto);
+      
+      expect(onTimeValid).toBe(true);
+      expect(lateValid).toBe(true);
+      expect(skippedValid).toBe(true);
+      expect(missedValid).toBe(true);
+    });
+    
+    it('should validate a medication event with streak reset on missed dose', async () => {
+      // Create a medication event with MISSED status
+      const event = createMedicationTakenEvent(MedicationAdherenceStatus.MISSED);
+      
+      // Add gamification with streak reset
+      event.gamification = {
+        points: 0,
+        streakCount: 0, // Reset to 0
+        previousStreakCount: 5, // Was 5 before missing
+        achievementProgress: {
+          medication_adherence: 0 // Reset progress
+        }
+      };
+      
+      // Convert to DTO instance
+      const dto = plainToInstance(MedicationEventDto, event);
+      
+      // Validate
+      const isValid = await isValidEventDto(dto);
+      expect(isValid).toBe(true);
     });
   });
 });

@@ -1,13 +1,7 @@
 import { validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
+import { plainToClass } from 'class-transformer';
 import { BaseEventDto } from '../../../src/dto/base-event.dto';
 
-/**
- * Test suite for BaseEventDto validation
- * 
- * These tests ensure that the core event structure shared across all events
- * is properly validated and maintains data integrity during serialization/deserialization.
- */
 describe('BaseEventDto', () => {
   // Valid event data for testing
   const validEventData = {
@@ -18,374 +12,287 @@ describe('BaseEventDto', () => {
     data: { testKey: 'testValue' }
   };
 
-  describe('validation', () => {
+  describe('Field validation', () => {
     it('should validate a correctly formed event', async () => {
-      // Create instance from plain object
-      const eventDto = plainToInstance(BaseEventDto, validEventData);
+      // Arrange
+      const eventDto = plainToClass(BaseEventDto, validEventData);
       
-      // Validate the instance
+      // Act
       const errors = await validate(eventDto);
       
-      // Expect no validation errors
+      // Assert
       expect(errors.length).toBe(0);
     });
 
-    describe('type field validation', () => {
-      it('should fail validation when type is missing', async () => {
-        // Create event data without type
-        const { type, ...eventDataWithoutType } = validEventData;
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithoutType);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about missing type
-        const typeErrors = errors.filter(error => error.property === 'type');
-        expect(typeErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should fail validation when type is empty', async () => {
-        // Create event data with empty type
-        const eventDataWithEmptyType = { ...validEventData, type: '' };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithEmptyType);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about empty type
-        const typeErrors = errors.filter(error => error.property === 'type');
-        expect(typeErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should fail validation when type is not a string', async () => {
-        // Create event data with non-string type
-        const eventDataWithNonStringType = { 
-          ...validEventData, 
-          type: 123 // Number instead of string
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithNonStringType);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about type not being a string
-        const typeErrors = errors.filter(error => error.property === 'type');
-        expect(typeErrors.length).toBeGreaterThan(0);
-      });
+    it('should require type field', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, type: undefined };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('type');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
     });
 
-    describe('userId field validation', () => {
-      it('should fail validation when userId is missing', async () => {
-        // Create event data without userId
-        const { userId, ...eventDataWithoutUserId } = validEventData;
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithoutUserId);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about missing userId
-        const userIdErrors = errors.filter(error => error.property === 'userId');
-        expect(userIdErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should fail validation when userId is not a valid UUID', async () => {
-        // Create event data with invalid UUID
-        const eventDataWithInvalidUserId = { 
-          ...validEventData, 
-          userId: 'not-a-valid-uuid'
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithInvalidUserId);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about invalid UUID
-        const userIdErrors = errors.filter(error => error.property === 'userId');
-        expect(userIdErrors.length).toBeGreaterThan(0);
-      });
+    it('should validate type is a string', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, type: 123 };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('type');
+      expect(errors[0].constraints).toHaveProperty('isString');
     });
 
-    describe('journey field validation', () => {
-      it('should fail validation when journey is missing', async () => {
-        // Create event data without journey
-        const { journey, ...eventDataWithoutJourney } = validEventData;
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithoutJourney);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about missing journey
-        const journeyErrors = errors.filter(error => error.property === 'journey');
-        expect(journeyErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should fail validation when journey is not one of the allowed values', async () => {
-        // Create event data with invalid journey
-        const eventDataWithInvalidJourney = { 
-          ...validEventData, 
-          journey: 'invalid-journey' // Not one of 'health', 'care', 'plan'
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithInvalidJourney);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about invalid journey
-        const journeyErrors = errors.filter(error => error.property === 'journey');
-        expect(journeyErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should validate when journey is one of the allowed values', async () => {
-        // Test each valid journey value
-        const validJourneys = ['health', 'care', 'plan'];
-        
-        for (const journey of validJourneys) {
-          const eventDataWithValidJourney = { 
-            ...validEventData, 
-            journey
-          };
-          const eventDto = plainToInstance(BaseEventDto, eventDataWithValidJourney);
-          
-          // Validate the instance
-          const errors = await validate(eventDto);
-          
-          // Expect no validation errors
-          expect(errors.length).toBe(0);
-        }
-      });
+    it('should require userId field', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, userId: undefined };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('userId');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
     });
 
-    describe('timestamp field validation', () => {
-      it('should fail validation when timestamp is missing', async () => {
-        // Create event data without timestamp
-        const { timestamp, ...eventDataWithoutTimestamp } = validEventData;
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithoutTimestamp);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about missing timestamp
-        const timestampErrors = errors.filter(error => error.property === 'timestamp');
-        expect(timestampErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should fail validation when timestamp is not a valid ISO string', async () => {
-        // Create event data with invalid timestamp
-        const eventDataWithInvalidTimestamp = { 
-          ...validEventData, 
-          timestamp: 'not-a-valid-date'
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithInvalidTimestamp);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about invalid timestamp
-        const timestampErrors = errors.filter(error => error.property === 'timestamp');
-        expect(timestampErrors.length).toBeGreaterThan(0);
-      });
-
-      it('should validate with different valid ISO date formats', async () => {
-        // Test different valid ISO date formats
-        const validTimestamps = [
-          '2023-01-01T12:00:00Z',
-          '2023-01-01T12:00:00.000Z',
-          '2023-01-01T12:00:00+00:00'
-        ];
-        
-        for (const timestamp of validTimestamps) {
-          const eventDataWithValidTimestamp = { 
-            ...validEventData, 
-            timestamp
-          };
-          const eventDto = plainToInstance(BaseEventDto, eventDataWithValidTimestamp);
-          
-          // Validate the instance
-          const errors = await validate(eventDto);
-          
-          // Expect no validation errors
-          expect(errors.length).toBe(0);
-        }
-      });
+    it('should validate userId is a valid UUID', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, userId: 'not-a-uuid' };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('userId');
+      expect(errors[0].constraints).toHaveProperty('isUuid');
     });
 
-    describe('data field validation', () => {
-      it('should fail validation when data is missing', async () => {
-        // Create event data without data
-        const { data, ...eventDataWithoutData } = validEventData;
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithoutData);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about missing data
-        const dataErrors = errors.filter(error => error.property === 'data');
-        expect(dataErrors.length).toBeGreaterThan(0);
-      });
+    it('should require journey field', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, journey: undefined };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('journey');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    });
 
-      it('should fail validation when data is not an object', async () => {
-        // Create event data with non-object data
-        const eventDataWithNonObjectData = { 
-          ...validEventData, 
-          data: 'not-an-object' // String instead of object
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithNonObjectData);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect validation errors
-        expect(errors.length).toBeGreaterThan(0);
-        // Check for specific error about data not being an object
-        const dataErrors = errors.filter(error => error.property === 'data');
-        expect(dataErrors.length).toBeGreaterThan(0);
-      });
+    it('should validate journey is a string', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, journey: 123 };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('journey');
+      expect(errors[0].constraints).toHaveProperty('isString');
+    });
 
-      it('should validate with empty object as data', async () => {
-        // Create event data with empty object as data
-        const eventDataWithEmptyData = { 
-          ...validEventData, 
-          data: {}
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithEmptyData);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect no validation errors
-        expect(errors.length).toBe(0);
-      });
+    it('should validate journey is one of the allowed values', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, journey: 'invalid-journey' };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('journey');
+      expect(errors[0].constraints).toHaveProperty('isIn');
+    });
 
-      it('should validate with complex nested object as data', async () => {
-        // Create event data with complex nested object as data
-        const eventDataWithComplexData = { 
-          ...validEventData, 
-          data: {
-            stringProp: 'string value',
-            numberProp: 123,
-            booleanProp: true,
-            arrayProp: [1, 2, 3],
-            nestedProp: {
-              nestedStringProp: 'nested string value'
-            }
-          }
-        };
-        const eventDto = plainToInstance(BaseEventDto, eventDataWithComplexData);
-        
-        // Validate the instance
-        const errors = await validate(eventDto);
-        
-        // Expect no validation errors
-        expect(errors.length).toBe(0);
-      });
+    it('should require timestamp field', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, timestamp: undefined };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('timestamp');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    });
+
+    it('should validate timestamp is a valid ISO string', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, timestamp: 'not-a-date' };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('timestamp');
+      expect(errors[0].constraints).toHaveProperty('isIso8601');
+    });
+
+    it('should require data field', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, data: undefined };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('data');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    });
+
+    it('should validate data is an object', async () => {
+      // Arrange
+      const invalidEvent = { ...validEventData, data: 'not-an-object' };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('data');
+      expect(errors[0].constraints).toHaveProperty('isObject');
+    });
+
+    it('should validate all fields together and return multiple errors', async () => {
+      // Arrange
+      const invalidEvent = {
+        type: 123,
+        userId: 'not-a-uuid',
+        journey: 'invalid-journey',
+        timestamp: 'not-a-date',
+        data: 'not-an-object'
+      };
+      const eventDto = plainToClass(BaseEventDto, invalidEvent);
+      
+      // Act
+      const errors = await validate(eventDto);
+      
+      // Assert
+      expect(errors.length).toBe(5); // One error for each field
+      
+      // Check that we have errors for all fields
+      const errorProperties = errors.map(error => error.property);
+      expect(errorProperties).toContain('type');
+      expect(errorProperties).toContain('userId');
+      expect(errorProperties).toContain('journey');
+      expect(errorProperties).toContain('timestamp');
+      expect(errorProperties).toContain('data');
     });
   });
 
-  describe('serialization/deserialization', () => {
-    it('should maintain data integrity during serialization and deserialization', () => {
-      // Create instance from plain object
-      const eventDto = plainToInstance(BaseEventDto, validEventData);
+  describe('Serialization/Deserialization', () => {
+    it('should properly deserialize a plain object to a BaseEventDto', () => {
+      // Arrange & Act
+      const eventDto = plainToClass(BaseEventDto, validEventData);
       
-      // Serialize to JSON string
-      const serialized = JSON.stringify(eventDto);
-      
-      // Deserialize back to object
-      const deserialized = JSON.parse(serialized);
-      
-      // Convert back to instance
-      const deserializedDto = plainToInstance(BaseEventDto, deserialized);
-      
-      // Expect all properties to match the original
-      expect(deserializedDto.type).toBe(validEventData.type);
-      expect(deserializedDto.userId).toBe(validEventData.userId);
-      expect(deserializedDto.journey).toBe(validEventData.journey);
-      expect(deserializedDto.timestamp).toBe(validEventData.timestamp);
-      expect(deserializedDto.data).toEqual(validEventData.data);
+      // Assert
+      expect(eventDto).toBeInstanceOf(BaseEventDto);
+      expect(eventDto.type).toBe(validEventData.type);
+      expect(eventDto.userId).toBe(validEventData.userId);
+      expect(eventDto.journey).toBe(validEventData.journey);
+      expect(eventDto.timestamp).toBe(validEventData.timestamp);
+      expect(eventDto.data).toEqual(validEventData.data);
     });
 
-    it('should handle Date objects in timestamp field during serialization', () => {
-      // Create event data with Date object as timestamp
-      const eventDataWithDateTimestamp = { 
-        ...validEventData, 
-        timestamp: new Date()
+    it('should maintain data integrity during serialization/deserialization', () => {
+      // Arrange
+      const eventDto = plainToClass(BaseEventDto, validEventData);
+      
+      // Act
+      const serialized = JSON.stringify(eventDto);
+      const deserialized = plainToClass(BaseEventDto, JSON.parse(serialized));
+      
+      // Assert
+      expect(deserialized).toBeInstanceOf(BaseEventDto);
+      expect(deserialized.type).toBe(validEventData.type);
+      expect(deserialized.userId).toBe(validEventData.userId);
+      expect(deserialized.journey).toBe(validEventData.journey);
+      expect(deserialized.timestamp).toBe(validEventData.timestamp);
+      expect(deserialized.data).toEqual(validEventData.data);
+    });
+
+    it('should handle complex nested data objects', () => {
+      // Arrange
+      const complexData = {
+        type: 'HEALTH_METRIC_RECORDED',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        journey: 'health',
+        timestamp: new Date().toISOString(),
+        data: {
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          device: {
+            id: '987654',
+            name: 'Smartwatch',
+            manufacturer: 'HealthTech',
+            lastSync: new Date().toISOString()
+          },
+          readings: [
+            { time: '08:00', value: 72 },
+            { time: '12:00', value: 78 },
+            { time: '18:00', value: 75 }
+          ]
+        }
       };
       
-      // Create instance from plain object
-      const eventDto = plainToInstance(BaseEventDto, eventDataWithDateTimestamp);
-      
-      // Serialize to JSON string
+      // Act
+      const eventDto = plainToClass(BaseEventDto, complexData);
       const serialized = JSON.stringify(eventDto);
+      const deserialized = plainToClass(BaseEventDto, JSON.parse(serialized));
       
-      // Deserialize back to object
-      const deserialized = JSON.parse(serialized);
-      
-      // Expect timestamp to be serialized as ISO string
-      expect(typeof deserialized.timestamp).toBe('string');
-      // Verify it's a valid ISO date string
-      expect(() => new Date(deserialized.timestamp)).not.toThrow();
+      // Assert
+      expect(deserialized.data).toEqual(complexData.data);
+      expect(deserialized.data.metricType).toBe('HEART_RATE');
+      expect(deserialized.data.device.manufacturer).toBe('HealthTech');
+      expect(deserialized.data.readings.length).toBe(3);
+      expect(deserialized.data.readings[1].value).toBe(78);
     });
   });
 
-  describe('type safety', () => {
+  describe('Type safety', () => {
     it('should enforce type safety for event properties', () => {
-      // Create instance from plain object
-      const eventDto = plainToInstance(BaseEventDto, validEventData);
+      // Arrange
+      const eventDto = new BaseEventDto();
       
-      // TypeScript should enforce these types
+      // Act & Assert - TypeScript compilation would fail if types are incorrect
+      eventDto.type = 'TEST_EVENT';
+      eventDto.userId = '123e4567-e89b-12d3-a456-426614174000';
+      eventDto.journey = 'health';
+      eventDto.timestamp = new Date().toISOString();
+      eventDto.data = { testKey: 'testValue' };
+      
+      // Additional assertions
       expect(typeof eventDto.type).toBe('string');
       expect(typeof eventDto.userId).toBe('string');
       expect(typeof eventDto.journey).toBe('string');
-      // timestamp could be string or Date depending on implementation
-      expect(['string', 'object'].includes(typeof eventDto.timestamp)).toBeTruthy();
+      expect(typeof eventDto.timestamp).toBe('string');
       expect(typeof eventDto.data).toBe('object');
-    });
-
-    it('should allow accessing data properties in a type-safe way with generics', () => {
-      // Define a type for the data
-      interface TestEventData {
-        testKey: string;
-        optionalKey?: number;
-      }
-      
-      // Create event data with typed data
-      const eventDataWithTypedData = { 
-        ...validEventData, 
-        data: {
-          testKey: 'testValue',
-          optionalKey: 123
-        } as TestEventData
-      };
-      
-      // Create instance from plain object with generic type
-      const eventDto = plainToInstance(BaseEventDto<TestEventData>, eventDataWithTypedData);
-      
-      // Access data properties in a type-safe way
-      expect(eventDto.data.testKey).toBe('testValue');
-      expect(eventDto.data.optionalKey).toBe(123);
-      
-      // TypeScript should catch this at compile time, but we can test at runtime too
-      expect(() => (eventDto.data as any).nonExistentKey).not.toThrow();
-      expect((eventDto.data as any).nonExistentKey).toBeUndefined();
     });
   });
 });

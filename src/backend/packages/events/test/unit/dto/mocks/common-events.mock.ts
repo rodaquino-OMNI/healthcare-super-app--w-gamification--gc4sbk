@@ -1,427 +1,733 @@
 /**
  * @file common-events.mock.ts
- * 
- * Provides shared mock data patterns for events that apply across multiple journeys,
- * such as user profile updates, achievement unlocks, and system notifications.
- * This file centralizes common event structures to ensure consistency when testing
- * cross-journey functionality in the gamification engine.
+ * @description Provides shared mock data patterns for events that apply across multiple journeys,
+ * such as user profile updates, achievement unlocks, and system notifications. This file centralizes
+ * common event structures to ensure consistency when testing cross-journey functionality in the
+ * gamification engine, reducing duplication and standardizing the approach to multi-journey event testing.
+ *
+ * @module events/test/unit/dto/mocks
  */
 
-import { v4 as uuidv4 } from 'uuid';
-
-// Common user IDs for consistent testing
-const TEST_USER_ID = '12345678-1234-1234-1234-123456789012';
-const TEST_ADMIN_ID = '87654321-8765-4321-8765-432187654321';
+import { EventType, JourneyEvents } from '../../../../src/dto/event-types.enum';
+import { EventMetadataDto, EventOriginDto, EventVersionDto, createEventMetadata } from '../../../../src/dto/event-metadata.dto';
 
 /**
- * Base event structure that all events should follow
+ * Creates a standard event metadata object for testing.
+ * 
+ * @param service The service that generated the event
+ * @param overrides Optional overrides for the metadata
+ * @returns Event metadata object for testing
  */
-export interface MockEventBase {
-  type: string;
-  userId: string;
-  data: Record<string, any>;
-  journey?: string;
-  timestamp?: string | Date;
+export function createTestEventMetadata(
+  service: string = 'test-service',
+  overrides: Partial<EventMetadataDto> = {}
+): EventMetadataDto {
+  const metadata = createEventMetadata(service);
+  metadata.correlationId = overrides.correlationId || '550e8400-e29b-41d4-a716-446655440000';
+  metadata.eventId = overrides.eventId || '63f5f96d-f5d9-4c3e-9a8c-b9c3d6e9a1b2';
+  metadata.timestamp = overrides.timestamp || new Date('2023-04-15T10:30:00Z');
+  
+  if (overrides.origin) {
+    metadata.origin = {
+      ...metadata.origin,
+      ...overrides.origin
+    };
+  }
+  
+  if (overrides.version) {
+    metadata.version = {
+      ...metadata.version,
+      ...overrides.version
+    };
+  }
+  
+  if (overrides.context) {
+    metadata.context = {
+      ...metadata.context,
+      ...overrides.context
+    };
+  }
+  
+  return metadata;
 }
 
 /**
- * Creates a base event object with common properties
+ * Base interface for all mock event objects.
+ */
+export interface MockEvent {
+  type: EventType;
+  userId: string;
+  metadata: EventMetadataDto;
+  payload: Record<string, any>;
+}
+
+// ===== USER PROFILE EVENT MOCKS =====
+
+/**
+ * Mock for a user profile completed event.
+ * This event is triggered when a user completes their profile information.
  * 
- * @param type - The event type
- * @param userId - The user ID associated with the event
- * @param data - The event payload data
- * @param journey - Optional journey identifier
- * @returns A mock event object
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock user profile completed event
  */
-export const createMockEvent = (
-  type: string,
-  userId: string = TEST_USER_ID,
-  data: Record<string, any> = {},
-  journey?: string
-): MockEventBase => ({
-  type,
-  userId,
-  data,
-  journey,
-  timestamp: new Date().toISOString()
-});
+export function createUserProfileCompletedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.USER_PROFILE_COMPLETED,
+    userId,
+    metadata: createTestEventMetadata('auth-service', overrides.metadata),
+    payload: {
+      completionPercentage: 100,
+      completedSections: [
+        'personal',
+        'contact',
+        'health',
+        'insurance',
+        'preferences'
+      ],
+      completedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
+    }
+  };
+}
 
 /**
- * User profile event mocks applicable to all journeys
+ * Mock for a user login event.
+ * This event is triggered when a user logs into the application.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock user login event
  */
-export const userProfileEvents = {
-  /**
-   * User profile created event
-   * Triggered when a new user profile is created
-   */
-  profileCreated: (userId: string = TEST_USER_ID): MockEventBase => createMockEvent(
-    'USER_PROFILE_CREATED',
+export function createUserLoginEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.USER_LOGIN,
     userId,
-    {
-      email: `user-${userId.substring(0, 8)}@example.com`,
-      name: `Test User ${userId.substring(0, 4)}`,
-      createdAt: new Date().toISOString()
-    }
-  ),
-
-  /**
-   * User profile updated event
-   * Triggered when a user updates their profile information
-   */
-  profileUpdated: (userId: string = TEST_USER_ID, fields: Record<string, any> = {}): MockEventBase => createMockEvent(
-    'USER_PROFILE_UPDATED',
-    userId,
-    {
-      updatedFields: fields,
-      updatedAt: new Date().toISOString()
-    }
-  ),
-
-  /**
-   * User login event
-   * Triggered when a user logs into the system
-   */
-  userLogin: (userId: string = TEST_USER_ID): MockEventBase => createMockEvent(
-    'USER_LOGIN',
-    userId,
-    {
-      loginTime: new Date().toISOString(),
+    metadata: createTestEventMetadata('auth-service', overrides.metadata),
+    payload: {
+      loginMethod: 'password',
       deviceType: 'mobile',
-      ipAddress: '192.168.1.1'
+      loginAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
     }
-  ),
-
-  /**
-   * User logout event
-   * Triggered when a user logs out of the system
-   */
-  userLogout: (userId: string = TEST_USER_ID): MockEventBase => createMockEvent(
-    'USER_LOGOUT',
-    userId,
-    {
-      logoutTime: new Date().toISOString(),
-      sessionDuration: 3600 // seconds
-    }
-  ),
-
-  /**
-   * User journey started event
-   * Triggered when a user starts interacting with a specific journey
-   */
-  journeyStarted: (userId: string = TEST_USER_ID, journey: string): MockEventBase => createMockEvent(
-    'USER_JOURNEY_STARTED',
-    userId,
-    {
-      startTime: new Date().toISOString(),
-      entryPoint: 'app_home'
-    },
-    journey
-  ),
-
-  /**
-   * User journey completed event
-   * Triggered when a user completes a specific journey flow
-   */
-  journeyCompleted: (userId: string = TEST_USER_ID, journey: string): MockEventBase => createMockEvent(
-    'USER_JOURNEY_COMPLETED',
-    userId,
-    {
-      completionTime: new Date().toISOString(),
-      duration: 300 // seconds
-    },
-    journey
-  )
-};
+  };
+}
 
 /**
- * Achievement notification event templates
+ * Mock for a user onboarding completed event.
+ * This event is triggered when a user completes the onboarding process.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock user onboarding completed event
  */
-export const achievementEvents = {
-  /**
-   * Achievement unlocked event
-   * Triggered when a user unlocks a new achievement
-   */
-  achievementUnlocked: (
-    userId: string = TEST_USER_ID,
-    achievementId: string = uuidv4(),
-    achievementName: string = 'Test Achievement',
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'ACHIEVEMENT_UNLOCKED',
+export function createUserOnboardingCompletedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.USER_ONBOARDING_COMPLETED,
     userId,
-    {
-      achievementId,
-      achievementName,
-      level: 1,
-      unlockedAt: new Date().toISOString(),
-      description: `You've unlocked the ${achievementName} achievement!`,
-      iconUrl: `https://assets.austa.com.br/achievements/${achievementId}.png`
-    },
-    journey
-  ),
-
-  /**
-   * Achievement level up event
-   * Triggered when a user levels up an existing achievement
-   */
-  achievementLevelUp: (
-    userId: string = TEST_USER_ID,
-    achievementId: string = uuidv4(),
-    achievementName: string = 'Test Achievement',
-    level: number = 2,
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'ACHIEVEMENT_LEVEL_UP',
-    userId,
-    {
-      achievementId,
-      achievementName,
-      previousLevel: level - 1,
-      newLevel: level,
-      leveledUpAt: new Date().toISOString(),
-      description: `You've reached level ${level} of the ${achievementName} achievement!`,
-      iconUrl: `https://assets.austa.com.br/achievements/${achievementId}_${level}.png`
-    },
-    journey
-  ),
-
-  /**
-   * Achievement progress updated event
-   * Triggered when a user makes progress toward an achievement
-   */
-  achievementProgressUpdated: (
-    userId: string = TEST_USER_ID,
-    achievementId: string = uuidv4(),
-    achievementName: string = 'Test Achievement',
-    progress: number = 50,
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'ACHIEVEMENT_PROGRESS_UPDATED',
-    userId,
-    {
-      achievementId,
-      achievementName,
-      previousProgress: progress - 10,
-      currentProgress: progress,
-      threshold: 100,
-      updatedAt: new Date().toISOString()
-    },
-    journey
-  ),
-
-  /**
-   * Multi-journey achievement unlocked event
-   * Triggered when a user unlocks an achievement that spans multiple journeys
-   */
-  multiJourneyAchievementUnlocked: (
-    userId: string = TEST_USER_ID,
-    achievementId: string = uuidv4(),
-    achievementName: string = 'Cross-Journey Master',
-    journeys: string[] = ['health', 'care', 'plan']
-  ): MockEventBase => createMockEvent(
-    'MULTI_JOURNEY_ACHIEVEMENT_UNLOCKED',
-    userId,
-    {
-      achievementId,
-      achievementName,
-      level: 1,
-      unlockedAt: new Date().toISOString(),
-      description: `You've unlocked the ${achievementName} achievement across multiple journeys!`,
-      iconUrl: `https://assets.austa.com.br/achievements/multi/${achievementId}.png`,
-      journeys,
-      isSpecial: true
+    metadata: createTestEventMetadata('auth-service', overrides.metadata),
+    payload: {
+      completedSteps: [
+        'welcome',
+        'profile',
+        'journey-selection',
+        'preferences',
+        'tutorial'
+      ],
+      selectedJourneys: ['health', 'care', 'plan'],
+      duration: 300, // seconds
+      completedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
     }
-  )
-};
+  };
+}
 
 /**
- * System-level event mocks for cross-journey scenarios
+ * Mock for a user feedback submitted event.
+ * This event is triggered when a user submits feedback about the application.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock user feedback submitted event
  */
-export const systemEvents = {
-  /**
-   * System notification event
-   * Triggered for system-wide notifications
-   */
-  systemNotification: (
-    userId: string = TEST_USER_ID,
-    title: string = 'System Notification',
-    message: string = 'This is a system notification'
-  ): MockEventBase => createMockEvent(
-    'SYSTEM_NOTIFICATION',
+export function createUserFeedbackSubmittedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.USER_FEEDBACK_SUBMITTED,
     userId,
-    {
-      title,
-      message,
-      priority: 'normal',
-      sentAt: new Date().toISOString(),
-      requiresAction: false
+    metadata: createTestEventMetadata('feedback-service', overrides.metadata),
+    payload: {
+      feedbackType: 'app',
+      rating: 4,
+      comments: 'Great app, but could use more features.',
+      submittedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
     }
-  ),
+  };
+}
 
-  /**
-   * Feature announcement event
-   * Triggered when a new feature is announced
-   */
-  featureAnnouncement: (
-    userId: string = TEST_USER_ID,
-    featureName: string = 'New Feature',
-    description: string = 'A new feature has been added to the platform'
-  ): MockEventBase => createMockEvent(
-    'FEATURE_ANNOUNCEMENT',
-    userId,
-    {
-      featureName,
-      description,
-      announcedAt: new Date().toISOString(),
-      journeysAffected: ['health', 'care', 'plan'],
-      learnMoreUrl: `https://austa.com.br/features/${featureName.toLowerCase().replace(/\s+/g, '-')}`
-    }
-  ),
-
-  /**
-   * Maintenance notification event
-   * Triggered for system maintenance notifications
-   */
-  maintenanceNotification: (
-    userId: string = TEST_USER_ID,
-    startTime: Date = new Date(Date.now() + 86400000), // 24 hours from now
-    endTime: Date = new Date(Date.now() + 90000000) // 25 hours from now
-  ): MockEventBase => createMockEvent(
-    'MAINTENANCE_NOTIFICATION',
-    userId,
-    {
-      title: 'Scheduled Maintenance',
-      message: 'The system will be undergoing scheduled maintenance.',
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
-      affectedServices: ['all'],
-      priority: 'high'
-    }
-  ),
-
-  /**
-   * Achievement visualization event
-   * Triggered when an achievement is displayed to a user
-   */
-  achievementVisualization: (
-    userId: string = TEST_USER_ID,
-    achievementId: string = uuidv4(),
-    achievementName: string = 'Test Achievement'
-  ): MockEventBase => createMockEvent(
-    'ACHIEVEMENT_VISUALIZATION',
-    userId,
-    {
-      achievementId,
-      achievementName,
-      visualizedAt: new Date().toISOString(),
-      visualizationType: 'popup',
-      interactionDuration: 5 // seconds
-    }
-  )
-};
+// ===== ACHIEVEMENT EVENT MOCKS =====
 
 /**
- * Reward-related event mocks that apply across journeys
+ * Mock for a gamification points earned event.
+ * This event is triggered when a user earns points in the gamification system.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock gamification points earned event
  */
-export const rewardEvents = {
-  /**
-   * Reward earned event
-   * Triggered when a user earns a reward
-   */
-  rewardEarned: (
-    userId: string = TEST_USER_ID,
-    rewardId: string = uuidv4(),
-    rewardName: string = 'Test Reward',
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'REWARD_EARNED',
+export function createGamificationPointsEarnedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.GAMIFICATION_POINTS_EARNED,
     userId,
-    {
-      rewardId,
-      rewardName,
-      earnedAt: new Date().toISOString(),
-      description: `You've earned the ${rewardName} reward!`,
-      iconUrl: `https://assets.austa.com.br/rewards/${rewardId}.png`,
-      expiresAt: new Date(Date.now() + 2592000000).toISOString() // 30 days from now
-    },
-    journey
-  ),
-
-  /**
-   * Reward redeemed event
-   * Triggered when a user redeems a reward
-   */
-  rewardRedeemed: (
-    userId: string = TEST_USER_ID,
-    rewardId: string = uuidv4(),
-    rewardName: string = 'Test Reward',
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'REWARD_REDEEMED',
-    userId,
-    {
-      rewardId,
-      rewardName,
-      redeemedAt: new Date().toISOString(),
-      redemptionCode: `RED-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      value: 500 // points
-    },
-    journey
-  ),
-
-  /**
-   * Points earned event
-   * Triggered when a user earns points
-   */
-  pointsEarned: (
-    userId: string = TEST_USER_ID,
-    points: number = 100,
-    reason: string = 'Activity Completion',
-    journey?: string
-  ): MockEventBase => createMockEvent(
-    'POINTS_EARNED',
-    userId,
-    {
-      points,
-      reason,
-      earnedAt: new Date().toISOString(),
-      currentTotal: 1500 // example total points
-    },
-    journey
-  ),
-
-  /**
-   * Reward distribution event
-   * Triggered when rewards are distributed to users
-   */
-  rewardDistribution: (
-    userId: string = TEST_USER_ID,
-    rewardId: string = uuidv4(),
-    rewardName: string = 'Special Reward',
-    distributionReason: string = 'Special Event'
-  ): MockEventBase => createMockEvent(
-    'REWARD_DISTRIBUTION',
-    userId,
-    {
-      rewardId,
-      rewardName,
-      distributedAt: new Date().toISOString(),
-      reason: distributionReason,
-      description: `You've received the ${rewardName} as part of ${distributionReason}!`,
-      iconUrl: `https://assets.austa.com.br/rewards/special/${rewardId}.png`,
-      expiresAt: new Date(Date.now() + 7776000000).toISOString() // 90 days from now
+    metadata: createTestEventMetadata('gamification-engine', overrides.metadata),
+    payload: {
+      sourceType: 'health',
+      sourceId: 'health-metric-123',
+      points: 50,
+      reason: 'Recorded daily health metrics',
+      earnedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
     }
-  )
-};
+  };
+}
 
 /**
- * Combined export of all common event mocks
+ * Mock for a gamification achievement unlocked event.
+ * This event is triggered when a user unlocks an achievement in the gamification system.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock gamification achievement unlocked event
  */
-export const commonEventMocks = {
-  userProfileEvents,
-  achievementEvents,
-  systemEvents,
-  rewardEvents
-};
+export function createGamificationAchievementUnlockedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+    userId,
+    metadata: createTestEventMetadata('gamification-engine', overrides.metadata),
+    payload: {
+      achievementId: 'achievement-123',
+      achievementType: 'health-check-streak',
+      tier: 'silver',
+      points: 100,
+      unlockedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
+    }
+  };
+}
 
-export default commonEventMocks;
+/**
+ * Mock for a gamification level up event.
+ * This event is triggered when a user levels up in the gamification system.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock gamification level up event
+ */
+export function createGamificationLevelUpEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.GAMIFICATION_LEVEL_UP,
+    userId,
+    metadata: createTestEventMetadata('gamification-engine', overrides.metadata),
+    payload: {
+      previousLevel: 2,
+      newLevel: 3,
+      totalPoints: 1000,
+      leveledUpAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
+    }
+  };
+}
+
+/**
+ * Mock for a gamification quest completed event.
+ * This event is triggered when a user completes a quest in the gamification system.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock gamification quest completed event
+ */
+export function createGamificationQuestCompletedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.GAMIFICATION_QUEST_COMPLETED,
+    userId,
+    metadata: createTestEventMetadata('gamification-engine', overrides.metadata),
+    payload: {
+      questId: 'quest-123',
+      questType: 'daily',
+      difficulty: 'medium',
+      points: 75,
+      completedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
+    }
+  };
+}
+
+// ===== REWARD EVENT MOCKS =====
+
+/**
+ * Mock for a plan reward redeemed event.
+ * This event is triggered when a user redeems a reward in the plan journey.
+ * 
+ * @param userId User ID for the event
+ * @param overrides Optional overrides for the event
+ * @returns Mock plan reward redeemed event
+ */
+export function createPlanRewardRedeemedEvent(
+  userId: string = 'user-123',
+  overrides: Partial<MockEvent> = {}
+): MockEvent {
+  return {
+    type: EventType.PLAN_REWARD_REDEEMED,
+    userId,
+    metadata: createTestEventMetadata('plan-service', overrides.metadata),
+    payload: {
+      rewardId: 'reward-123',
+      rewardType: 'gift_card',
+      pointsRedeemed: 500,
+      value: 50.00,
+      redeemedAt: '2023-04-15T10:30:00Z',
+      ...overrides.payload
+    }
+  };
+}
+
+// ===== CROSS-JOURNEY EVENT MOCKS =====
+
+/**
+ * Creates a mock event for a specific journey type.
+ * This is a helper function to create events for different journeys with consistent structure.
+ * 
+ * @param journeyType The journey type (health, care, plan)
+ * @param eventType The specific event type
+ * @param userId User ID for the event
+ * @param payload Event payload
+ * @param metadata Event metadata
+ * @returns Mock journey-specific event
+ */
+export function createJourneyEvent(
+  journeyType: 'health' | 'care' | 'plan',
+  eventType: EventType,
+  userId: string = 'user-123',
+  payload: Record<string, any> = {},
+  metadata: Partial<EventMetadataDto> = {}
+): MockEvent {
+  const serviceName = `${journeyType}-service`;
+  
+  return {
+    type: eventType,
+    userId,
+    metadata: createTestEventMetadata(serviceName, metadata),
+    payload
+  };
+}
+
+/**
+ * Creates a collection of mock events that represent a complete user journey flow.
+ * This is useful for testing cross-journey interactions and gamification rules.
+ * 
+ * @param userId User ID for the events
+ * @param journeyType The journey type to create events for
+ * @returns Array of mock events representing a journey flow
+ */
+export function createJourneyFlowEvents(
+  userId: string = 'user-123',
+  journeyType: 'health' | 'care' | 'plan' = 'health'
+): MockEvent[] {
+  const events: MockEvent[] = [];
+  const timestamp = new Date('2023-04-15T10:00:00Z');
+  const correlationId = '550e8400-e29b-41d4-a716-446655440000';
+  
+  // Add login event
+  events.push(createUserLoginEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp)
+    }
+  }));
+  
+  // Add journey-specific events based on the journey type
+  if (journeyType === 'health') {
+    // Health journey flow
+    events.push(createJourneyEvent('health', EventType.HEALTH_METRIC_RECORDED, userId, {
+      metricType: 'blood_pressure',
+      value: 120,
+      unit: 'mmHg',
+      timestamp: new Date(timestamp.getTime() + 5 * 60000).toISOString(),
+      source: 'manual'
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 5 * 60000) }));
+    
+    events.push(createJourneyEvent('health', EventType.HEALTH_GOAL_CREATED, userId, {
+      goalId: 'goal-123',
+      goalType: 'steps',
+      targetValue: 10000,
+      startValue: 0,
+      createdAt: new Date(timestamp.getTime() + 10 * 60000).toISOString()
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 10 * 60000) }));
+    
+    events.push(createJourneyEvent('health', EventType.HEALTH_GOAL_ACHIEVED, userId, {
+      goalId: 'goal-123',
+      goalType: 'steps',
+      targetValue: 10000,
+      achievedValue: 10500,
+      completedAt: new Date(timestamp.getTime() + 15 * 60000).toISOString()
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 15 * 60000) }));
+  } else if (journeyType === 'care') {
+    // Care journey flow
+    events.push(createJourneyEvent('care', EventType.CARE_APPOINTMENT_BOOKED, userId, {
+      appointmentId: 'appointment-123',
+      providerId: 'provider-123',
+      specialtyType: 'Cardiologia',
+      appointmentType: 'in_person',
+      scheduledAt: new Date(timestamp.getTime() + 86400000).toISOString(), // Next day
+      bookedAt: new Date(timestamp.getTime() + 5 * 60000).toISOString()
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 5 * 60000) }));
+    
+    events.push(createJourneyEvent('care', EventType.CARE_MEDICATION_TAKEN, userId, {
+      medicationId: 'medication-123',
+      medicationName: 'Aspirin',
+      dosage: '100mg',
+      takenAt: new Date(timestamp.getTime() + 10 * 60000).toISOString(),
+      adherence: 'on_time'
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 10 * 60000) }));
+    
+    events.push(createJourneyEvent('care', EventType.CARE_APPOINTMENT_COMPLETED, userId, {
+      appointmentId: 'appointment-123',
+      providerId: 'provider-123',
+      appointmentType: 'in_person',
+      scheduledAt: new Date(timestamp.getTime() + 86400000).toISOString(),
+      completedAt: new Date(timestamp.getTime() + 86400000 + 30 * 60000).toISOString(),
+      duration: 30
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 86400000 + 30 * 60000) }));
+  } else if (journeyType === 'plan') {
+    // Plan journey flow
+    events.push(createJourneyEvent('plan', EventType.PLAN_SELECTED, userId, {
+      planId: 'plan-123',
+      planType: 'health',
+      coverageLevel: 'individual',
+      premium: 250.00,
+      startDate: new Date(timestamp.getTime() + 30 * 86400000).toISOString(), // 30 days later
+      selectedAt: new Date(timestamp.getTime() + 5 * 60000).toISOString()
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 5 * 60000) }));
+    
+    events.push(createJourneyEvent('plan', EventType.PLAN_CLAIM_SUBMITTED, userId, {
+      claimId: 'claim-123',
+      claimType: 'medical',
+      providerId: 'provider-123',
+      serviceDate: new Date(timestamp.getTime() - 5 * 86400000).toISOString(), // 5 days ago
+      amount: 150.00,
+      submittedAt: new Date(timestamp.getTime() + 10 * 60000).toISOString()
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 10 * 60000) }));
+    
+    events.push(createJourneyEvent('plan', EventType.PLAN_CLAIM_PROCESSED, userId, {
+      claimId: 'claim-123',
+      status: 'approved',
+      amount: 150.00,
+      coveredAmount: 120.00,
+      processedAt: new Date(timestamp.getTime() + 3 * 86400000).toISOString() // 3 days later
+    }, { correlationId, timestamp: new Date(timestamp.getTime() + 3 * 86400000) }));
+  }
+  
+  // Add achievement events that would result from the journey flow
+  events.push(createGamificationPointsEarnedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 20 * 60000)
+    },
+    payload: {
+      sourceType: journeyType,
+      sourceId: `${journeyType}-action-123`,
+      points: 50,
+      reason: `Completed ${journeyType} journey action`,
+      earnedAt: new Date(timestamp.getTime() + 20 * 60000).toISOString()
+    }
+  }));
+  
+  events.push(createGamificationAchievementUnlockedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 25 * 60000)
+    },
+    payload: {
+      achievementId: 'achievement-123',
+      achievementType: `${journeyType}-achievement`,
+      tier: 'bronze',
+      points: 100,
+      unlockedAt: new Date(timestamp.getTime() + 25 * 60000).toISOString()
+    }
+  }));
+  
+  return events;
+}
+
+/**
+ * Creates a collection of mock events that represent a multi-journey achievement scenario.
+ * This is useful for testing cross-journey achievement tracking and gamification rules.
+ * 
+ * @param userId User ID for the events
+ * @returns Array of mock events representing a multi-journey achievement scenario
+ */
+export function createMultiJourneyAchievementEvents(
+  userId: string = 'user-123'
+): MockEvent[] {
+  const events: MockEvent[] = [];
+  const timestamp = new Date('2023-04-15T10:00:00Z');
+  const correlationId = '550e8400-e29b-41d4-a716-446655440000';
+  
+  // Health journey event
+  events.push(createJourneyEvent('health', EventType.HEALTH_METRIC_RECORDED, userId, {
+    metricType: 'blood_pressure',
+    value: 120,
+    unit: 'mmHg',
+    timestamp: new Date(timestamp.getTime()).toISOString(),
+    source: 'manual'
+  }, { correlationId, timestamp: new Date(timestamp.getTime()) }));
+  
+  // Care journey event
+  events.push(createJourneyEvent('care', EventType.CARE_MEDICATION_TAKEN, userId, {
+    medicationId: 'medication-123',
+    medicationName: 'Aspirin',
+    dosage: '100mg',
+    takenAt: new Date(timestamp.getTime() + 5 * 60000).toISOString(),
+    adherence: 'on_time'
+  }, { correlationId, timestamp: new Date(timestamp.getTime() + 5 * 60000) }));
+  
+  // Plan journey event
+  events.push(createJourneyEvent('plan', EventType.PLAN_BENEFIT_UTILIZED, userId, {
+    benefitId: 'benefit-123',
+    benefitType: 'wellness',
+    utilizationDate: new Date(timestamp.getTime() + 10 * 60000).toISOString(),
+    savingsAmount: 50.00
+  }, { correlationId, timestamp: new Date(timestamp.getTime() + 10 * 60000) }));
+  
+  // Points earned from each journey
+  events.push(createGamificationPointsEarnedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 15 * 60000)
+    },
+    payload: {
+      sourceType: 'health',
+      sourceId: 'health-metric-123',
+      points: 25,
+      reason: 'Recorded health metrics',
+      earnedAt: new Date(timestamp.getTime() + 15 * 60000).toISOString()
+    }
+  }));
+  
+  events.push(createGamificationPointsEarnedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 16 * 60000)
+    },
+    payload: {
+      sourceType: 'care',
+      sourceId: 'medication-123',
+      points: 25,
+      reason: 'Medication adherence',
+      earnedAt: new Date(timestamp.getTime() + 16 * 60000).toISOString()
+    }
+  }));
+  
+  events.push(createGamificationPointsEarnedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 17 * 60000)
+    },
+    payload: {
+      sourceType: 'plan',
+      sourceId: 'benefit-123',
+      points: 25,
+      reason: 'Benefit utilization',
+      earnedAt: new Date(timestamp.getTime() + 17 * 60000).toISOString()
+    }
+  }));
+  
+  // Cross-journey achievement unlocked
+  events.push(createGamificationAchievementUnlockedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 20 * 60000)
+    },
+    payload: {
+      achievementId: 'cross-journey-achievement-123',
+      achievementType: 'wellness-master',
+      tier: 'gold',
+      points: 200,
+      unlockedAt: new Date(timestamp.getTime() + 20 * 60000).toISOString()
+    }
+  }));
+  
+  // Level up event resulting from cross-journey achievement
+  events.push(createGamificationLevelUpEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 25 * 60000)
+    },
+    payload: {
+      previousLevel: 3,
+      newLevel: 4,
+      totalPoints: 1500,
+      leveledUpAt: new Date(timestamp.getTime() + 25 * 60000).toISOString()
+    }
+  }));
+  
+  return events;
+}
+
+/**
+ * Creates a collection of mock events that represent a reward distribution scenario.
+ * This is useful for testing reward distribution mechanisms and redemption flows.
+ * 
+ * @param userId User ID for the events
+ * @returns Array of mock events representing a reward distribution scenario
+ */
+export function createRewardDistributionEvents(
+  userId: string = 'user-123'
+): MockEvent[] {
+  const events: MockEvent[] = [];
+  const timestamp = new Date('2023-04-15T10:00:00Z');
+  const correlationId = '550e8400-e29b-41d4-a716-446655440000';
+  
+  // Achievement unlocked that grants a reward
+  events.push(createGamificationAchievementUnlockedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime())
+    },
+    payload: {
+      achievementId: 'achievement-123',
+      achievementType: 'health-check-streak',
+      tier: 'gold',
+      points: 200,
+      unlockedAt: new Date(timestamp.getTime()).toISOString()
+    }
+  }));
+  
+  // Points earned from achievement
+  events.push(createGamificationPointsEarnedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 1000)
+    },
+    payload: {
+      sourceType: 'achievement',
+      sourceId: 'achievement-123',
+      points: 200,
+      reason: 'Achievement unlocked: Health Check Streak (Gold)',
+      earnedAt: new Date(timestamp.getTime() + 1000).toISOString()
+    }
+  }));
+  
+  // Reward redemption
+  events.push(createPlanRewardRedeemedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 5 * 60000)
+    },
+    payload: {
+      rewardId: 'reward-123',
+      rewardType: 'premium_discount',
+      pointsRedeemed: 500,
+      value: 25.00,
+      redeemedAt: new Date(timestamp.getTime() + 5 * 60000).toISOString()
+    }
+  }));
+  
+  return events;
+}
+
+/**
+ * Creates a collection of mock events that represent an achievement notification scenario.
+ * This is useful for testing achievement notification systems and visualization components.
+ * 
+ * @param userId User ID for the events
+ * @returns Array of mock events representing an achievement notification scenario
+ */
+export function createAchievementNotificationEvents(
+  userId: string = 'user-123'
+): MockEvent[] {
+  const events: MockEvent[] = [];
+  const timestamp = new Date('2023-04-15T10:00:00Z');
+  const correlationId = '550e8400-e29b-41d4-a716-446655440000';
+  
+  // Achievement unlocked
+  events.push(createGamificationAchievementUnlockedEvent(userId, {
+    metadata: {
+      correlationId,
+      timestamp: new Date(timestamp.getTime())
+    },
+    payload: {
+      achievementId: 'achievement-123',
+      achievementType: 'steps-goal',
+      tier: 'silver',
+      points: 100,
+      unlockedAt: new Date(timestamp.getTime()).toISOString()
+    }
+  }));
+  
+  // System notification for achievement (would be created by notification service)
+  events.push({
+    type: EventType.USER_FEEDBACK_SUBMITTED, // Using this as a proxy for notification event
+    userId,
+    metadata: createTestEventMetadata('notification-service', {
+      correlationId,
+      timestamp: new Date(timestamp.getTime() + 1000)
+    }),
+    payload: {
+      notificationType: 'achievement',
+      title: 'Achievement Unlocked!',
+      message: 'You earned the Caminhante Dedicado (Silver) achievement!',
+      achievementId: 'achievement-123',
+      achievementType: 'steps-goal',
+      tier: 'silver',
+      points: 100,
+      iconUrl: 'https://austa.com.br/assets/achievements/steps-goal-silver.png',
+      createdAt: new Date(timestamp.getTime() + 1000).toISOString(),
+      expiresAt: new Date(timestamp.getTime() + 86400000).toISOString() // 24 hours later
+    }
+  });
+  
+  return events;
+}
+
+// Export all mock event creators
+export const CommonEventMocks = {
+  createUserProfileCompletedEvent,
+  createUserLoginEvent,
+  createUserOnboardingCompletedEvent,
+  createUserFeedbackSubmittedEvent,
+  createGamificationPointsEarnedEvent,
+  createGamificationAchievementUnlockedEvent,
+  createGamificationLevelUpEvent,
+  createGamificationQuestCompletedEvent,
+  createPlanRewardRedeemedEvent,
+  createJourneyEvent,
+  createJourneyFlowEvents,
+  createMultiJourneyAchievementEvents,
+  createRewardDistributionEvents,
+  createAchievementNotificationEvents
+};

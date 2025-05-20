@@ -1,80 +1,100 @@
-import { JourneyType } from '../interfaces/log-entry.interface';
-
 /**
- * Base interface for all logging context types in the AUSTA SuperApp.
- * Provides common context properties that are essential for proper log aggregation,
- * correlation, and analysis across all services and journeys.
+ * Base interface for all logging contexts in the AUSTA SuperApp.
+ * Provides common properties that are included in all log entries for proper
+ * correlation, aggregation, and analysis.
+ *
+ * This interface serves as the foundation for more specific context types
+ * like RequestContext, UserContext, and JourneyContext.
  */
 export interface LoggingContext {
   /**
-   * Unique identifier for the request or transaction.
-   * Used to correlate logs from the same request across different services.
+   * Unique identifier that correlates logs, traces, and metrics across service boundaries.
+   * This ID is propagated through the entire request lifecycle and enables end-to-end
+   * request tracking and visualization.
    */
-  requestId?: string;
+  correlationId: string;
 
   /**
-   * Unique identifier for the user associated with the log.
-   * Used for user-specific log filtering and analysis.
+   * ISO 8601 timestamp when the log entry was created.
+   * Format: YYYY-MM-DDTHH:mm:ss.sssZ
    */
-  userId?: string;
+  timestamp: string;
 
   /**
-   * Unique identifier for distributed tracing.
-   * Connects logs with traces in the observability system.
+   * Name of the service generating the log entry.
+   * Examples: 'api-gateway', 'auth-service', 'health-service'
+   */
+  serviceName: string;
+
+  /**
+   * Identifier for the specific service instance.
+   * Useful in distributed environments with multiple instances of the same service.
+   */
+  serviceInstanceId?: string;
+
+  /**
+   * Name of the application or system component.
+   * Examples: 'backend', 'mobile-app', 'web-app'
+   */
+  applicationName: string;
+
+  /**
+   * Current environment where the application is running.
+   * Examples: 'development', 'staging', 'production'
+   */
+  environment: string;
+
+  /**
+   * Application version, typically following semantic versioning.
+   * Format: MAJOR.MINOR.PATCH (e.g., '1.2.3')
+   */
+  version: string;
+
+  /**
+   * Optional trace ID from the distributed tracing system.
+   * When present, allows direct correlation between logs and traces.
    */
   traceId?: string;
 
   /**
-   * Identifier for a specific operation within a trace.
-   * Used to correlate logs with specific spans in the tracing system.
+   * Optional span ID from the distributed tracing system.
+   * When present, identifies the specific operation within a trace.
    */
   spanId?: string;
 
   /**
-   * Identifier of the parent span.
-   * Used to establish the hierarchy of operations in distributed tracing.
+   * Optional parent span ID for nested operations.
+   * Enables hierarchical visualization of operations.
    */
   parentSpanId?: string;
 
   /**
-   * Timestamp when the context was created.
-   * Useful for timing analysis and log ordering.
+   * Optional journey identifier.
+   * Indicates which journey (Health, Care, Plan) the log is associated with.
    */
-  timestamp?: Date;
+  journeyType?: 'health' | 'care' | 'plan' | 'cross-journey';
 
   /**
-   * The service that generated the log.
-   * Identifies which microservice produced the log entry.
+   * Optional user identifier.
+   * When present, allows filtering logs by specific user.
    */
-  service?: string;
+  userId?: string;
 
   /**
-   * The environment in which the service is running (e.g., 'development', 'staging', 'production').
-   * Used for environment-specific log filtering and analysis.
+   * Optional request identifier for HTTP requests.
+   * Enables correlation of all logs related to a single HTTP request.
    */
-  environment?: string;
+  requestId?: string;
 
   /**
-   * The version of the service or application.
-   * Useful for tracking issues across different versions.
+   * Optional session identifier.
+   * Enables tracking of user sessions across multiple requests.
    */
-  version?: string;
+  sessionId?: string;
 
   /**
-   * The hostname of the server or container running the service.
-   * Helps identify the specific instance that generated the log.
-   */
-  hostname?: string;
-
-  /**
-   * The journey associated with the log (health, care, plan, or cross-journey).
-   * Essential for journey-specific log filtering and analysis.
-   */
-  journey?: JourneyType;
-
-  /**
-   * Additional context information as key-value pairs.
-   * Allows for flexible extension with custom properties.
+   * Additional context properties that don't fit into the standard fields.
+   * Allows for extensibility without modifying the interface.
    */
   [key: string]: any;
 }

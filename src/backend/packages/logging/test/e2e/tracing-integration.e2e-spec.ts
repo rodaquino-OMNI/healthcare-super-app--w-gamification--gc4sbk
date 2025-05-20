@@ -1,617 +1,433 @@
-import { Test } from '@nestjs/testing';
-import { INestApplication, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { context, trace, SpanStatusCode, SpanKind, Span } from '@opentelemetry/api';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
-import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { LoggerModule } from '../../src/logger.module';
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import { LoggerService } from '../../src/logger.service';
-import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { LogEntry } from '../../src/interfaces/log-entry.interface';
-import { Transport } from '../../src/interfaces/transport.interface';
-import { JourneyType } from '../../src/context/context.constants';
+import { TracingService } from '@austa/tracing';
+import { Context, SpanStatusCode, trace } from '@opentelemetry/api';
+import { TestAppModule } from './test-app.module';
 import {
-  mockTransport,
-  logCapture,
-  testApp,
-  traceContext,
-  journeyContext,
-} from './utils';
+  captureLogOutput,
+  clearCapturedLogs,
+  getCapturedLogs,
+} from '../utils/log-capture.utils';
+import {
+  assertLogContainsTraceId,
+  assertLogContainsSpanId,
+  assertLogsCorrelateWithTrace,
+} from '../utils/assertion.utils';
+import { createTestTraceContext } from '../utils/test-context.utils';
+import { MockTracerProvider, createMockSpan } from '@austa/tracing/test/utils';
 
-/**
- * Mock implementation of the TracingService for testing purposes
- */
-class MockTracingService {
-  private currentTraceId: string | null = null;
-  private currentSpanId: string | null = null;
-
-  setCurrentTraceContext(traceId: string, spanId: string): void {
-    this.currentTraceId = traceId;
-    this.currentSpanId = spanId;
-  }
-
-  getCurrentTraceId(): string | null {
-    return this.currentTraceId;
-  }
-
-  getCurrentSpanId(): string | null {
-    return this.currentSpanId;
-  }
-
-  clearCurrentTraceContext(): void {
-    this.currentTraceId = null;
-    this.currentSpanId = null;
-  }
-
-  async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    // Generate a new trace ID and span ID for this span
-    const traceId = traceContext.generateTraceId();
-    const spanId = traceContext.generateSpanId();
-    
-    // Set the current trace context
-    this.setCurrentTraceContext(traceId, spanId);
-    
-    try {
-      // Execute the function within the span context
-      return await fn();
-    } finally {
-      // Clear the trace context when the span is complete
-      this.clearCurrentTraceContext();
-    }
-  }
-}
-
-/**
- * Test module that provides both logging and tracing services
- */
-@Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      load: [() => ({
-        logger: {
-          level: 'debug',
-          tracing: { enabled: true },
-          defaultContext: {
-            application: 'austa-superapp',
-            service: 'test-service',
-            environment: 'test',
-          },
-        },
-      })],
-    }),
-    LoggerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        level: configService.get('logger.level', 'info'),
-        tracing: { enabled: true },
-        defaultContext: configService.get('logger.defaultContext', {}),
-      }),
-    }),
-  ],
-  providers: [
-    {
-      provide: 'TRACING_SERVICE',
-      useClass: MockTracingService,
-    },
-  ],
-  exports: ['TRACING_SERVICE'],
-})
-class TestModule {}
-
-/**
- * Real OpenTelemetry setup for more realistic testing
- */
-class OpenTelemetryTestSetup {
-  private provider: NodeTracerProvider;
-  private exporter: InMemorySpanExporter;
-  private tracer: any;
-
-  constructor() {
-    // Create an in-memory exporter for testing
-    this.exporter = new InMemorySpanExporter();
-    
-    // Create a tracer provider
-    this.provider = new NodeTracerProvider();
-    
-    // Add the exporter to the provider
-    this.provider.addSpanProcessor(new SimpleSpanProcessor(this.exporter));
-    
-    // Register the provider
-    this.provider.register();
-    
-    // Get a tracer
-    this.tracer = trace.getTracer('test-tracer');
-  }
-
-  /**
-   * Creates a span and executes a function within its context
-   */
-  async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    const span = this.tracer.startSpan(name, {
-      kind: SpanKind.INTERNAL,
-    });
-    
-    return await context.with(trace.setSpan(context.active(), span), async () => {
-      try {
-        const result = await fn();
-        span.setStatus({ code: SpanStatusCode.OK });
-        return result;
-      } catch (error) {
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: error.message,
-        });
-        span.recordException(error);
-        throw error;
-      } finally {
-        span.end();
-      }
-    });
-  }
-
-  /**
-   * Gets the current trace ID from the active span
-   */
-  getCurrentTraceId(): string | undefined {
-    const span = trace.getSpan(context.active());
-    return span?.spanContext().traceId;
-  }
-
-  /**
-   * Gets the current span ID from the active span
-   */
-  getCurrentSpanId(): string | undefined {
-    const span = trace.getSpan(context.active());
-    return span?.spanContext().spanId;
-  }
-
-  /**
-   * Gets all captured spans
-   */
-  getSpans() {
-    return this.exporter.getFinishedSpans();
-  }
-
-  /**
-   * Clears all captured spans
-   */
-  clearSpans() {
-    this.exporter.reset();
-  }
-}
-
-describe('Tracing Integration with Logging', () => {
+describe('Tracing Integration with Logging (E2E)', () => {
   let app: INestApplication;
   let loggerService: LoggerService;
-  let mockTracingService: MockTracingService;
-  let capturedLogs: LogEntry[];
-  let memoryTransport: Transport;
-  let otelSetup: OpenTelemetryTestSetup;
+  let tracingService: TracingService;
+  let mockTracerProvider: MockTracerProvider;
 
   beforeAll(async () => {
-    // Create a memory transport to capture logs
-    memoryTransport = mockTransport.createMemoryTransport();
-    
-    // Create the test module
-    const moduleRef = await Test.createTestingModule({
-      imports: [TestModule],
+    // Set up log capture before initializing the application
+    captureLogOutput();
+
+    // Create a test module with both logging and tracing
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [TestAppModule],
     }).compile();
 
-    // Create the application
-    app = moduleRef.createNestApplication();
+    app = moduleFixture.createNestApplication();
     await app.init();
 
-    // Get the logger service
-    loggerService = moduleRef.get<LoggerService>(LoggerService);
-    
-    // Add the memory transport to the logger service
-    (loggerService as any).transports.push(memoryTransport);
-
-    // Get the tracing service
-    mockTracingService = moduleRef.get<MockTracingService>('TRACING_SERVICE');
-
-    // Create the OpenTelemetry setup
-    otelSetup = new OpenTelemetryTestSetup();
-  });
-
-  beforeEach(() => {
-    // Clear captured logs before each test
-    capturedLogs = [];
-    (memoryTransport as any).logs = capturedLogs;
-    
-    // Clear any trace context
-    mockTracingService.clearCurrentTraceContext();
-    
-    // Clear OpenTelemetry spans
-    otelSetup.clearSpans();
+    // Get the services we need for testing
+    loggerService = app.get<LoggerService>(LoggerService);
+    tracingService = app.get<TracingService>(TracingService);
+    mockTracerProvider = app.get<MockTracerProvider>(MockTracerProvider);
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  describe('Mock Tracing Service Integration', () => {
-    it('should include trace ID in logs when trace context is available', () => {
-      // Set up a trace context
-      const traceId = 'test-trace-id-12345';
-      const spanId = 'test-span-id-67890';
-      mockTracingService.setCurrentTraceContext(traceId, spanId);
+  beforeEach(() => {
+    // Clear captured logs before each test
+    clearCapturedLogs();
+    // Reset the mock tracer provider
+    mockTracerProvider.reset();
+  });
 
-      // Log a message
-      loggerService.log('Test message with trace context');
-
-      // Verify the log includes the trace ID
-      expect(capturedLogs.length).toBe(1);
-      expect(capturedLogs[0].traceId).toBe(traceId);
-      expect(capturedLogs[0].spanId).toBe(spanId);
-    });
-
-    it('should not include trace ID in logs when trace context is not available', () => {
-      // Log a message without setting trace context
-      loggerService.log('Test message without trace context');
-
-      // Verify the log does not include a trace ID
-      expect(capturedLogs.length).toBe(1);
-      expect(capturedLogs[0].traceId).toBeUndefined();
-      expect(capturedLogs[0].spanId).toBeUndefined();
-    });
-
-    it('should maintain trace context across multiple log entries', async () => {
+  describe('Basic Trace ID Propagation', () => {
+    it('should include trace ID in logs when logging within a traced context', async () => {
       // Create a span and log within it
-      await mockTracingService.createSpan('test-span', async () => {
-        // Get the current trace ID and span ID
-        const traceId = mockTracingService.getCurrentTraceId();
-        const spanId = mockTracingService.getCurrentSpanId();
-
-        // Log multiple messages
-        loggerService.log('First message within span');
-        loggerService.warn('Warning message within span');
-        loggerService.error('Error message within span');
-
-        // Verify all logs have the same trace ID and span ID
-        expect(capturedLogs.length).toBe(3);
-        capturedLogs.forEach(log => {
-          expect(log.traceId).toBe(traceId);
-          expect(log.spanId).toBe(spanId);
-        });
+      await tracingService.createSpan('test-operation', async () => {
+        loggerService.log('Test log message within a traced context');
+        return true;
       });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toBeGreaterThan(0);
+
+      // Verify that the log contains a trace ID
+      assertLogContainsTraceId(logs[0]);
+
+      // Verify that the log contains a span ID
+      assertLogContainsSpanId(logs[0]);
     });
 
-    it('should include trace context in journey-specific logs', async () => {
-      // Create a span and log within it
-      await mockTracingService.createSpan('journey-span', async () => {
-        // Get the current trace ID and span ID
-        const traceId = mockTracingService.getCurrentTraceId();
-        const spanId = mockTracingService.getCurrentSpanId();
-
-        // Create journey-specific loggers
-        const healthLogger = loggerService.withJourneyContext({ journeyType: JourneyType.HEALTH });
-        const careLogger = loggerService.withJourneyContext({ journeyType: JourneyType.CARE });
-        const planLogger = loggerService.withJourneyContext({ journeyType: JourneyType.PLAN });
-
-        // Log messages with each logger
-        healthLogger.log('Health journey log');
-        careLogger.log('Care journey log');
-        planLogger.log('Plan journey log');
-
-        // Verify all logs have the same trace ID and span ID
-        expect(capturedLogs.length).toBe(3);
-        capturedLogs.forEach(log => {
-          expect(log.traceId).toBe(traceId);
-          expect(log.spanId).toBe(spanId);
-        });
-
-        // Verify journey context is preserved
-        expect(capturedLogs[0].context.journeyType).toBe(JourneyType.HEALTH);
-        expect(capturedLogs[1].context.journeyType).toBe(JourneyType.CARE);
-        expect(capturedLogs[2].context.journeyType).toBe(JourneyType.PLAN);
+    it('should include the same trace ID in multiple logs within the same trace', async () => {
+      // Create a span and log multiple times within it
+      await tracingService.createSpan('multi-log-operation', async () => {
+        loggerService.log('First log message');
+        loggerService.log('Second log message');
+        loggerService.log('Third log message');
+        return true;
       });
-    });
 
-    it('should handle errors within traced context', async () => {
-      // Create a span that will contain an error
-      try {
-        await mockTracingService.createSpan('error-span', async () => {
-          // Get the current trace ID and span ID
-          const traceId = mockTracingService.getCurrentTraceId();
-          const spanId = mockTracingService.getCurrentSpanId();
+      // Get the captured logs
+      const logs = getCapturedLogs();
 
-          // Log a message before the error
-          loggerService.log('Message before error');
+      // Verify that logs were captured
+      expect(logs.length).toEqual(3);
 
-          // Throw an error
-          throw new Error('Test error in span');
-        });
-      } catch (error) {
-        // Log the error after the span has completed
-        loggerService.error('Caught error', error);
-      }
+      // Get the trace ID from the first log
+      const traceId = logs[0].traceId;
 
-      // Verify logs
-      expect(capturedLogs.length).toBe(2);
-      
-      // First log should have trace context
-      expect(capturedLogs[0].traceId).toBeDefined();
-      expect(capturedLogs[0].spanId).toBeDefined();
-      
-      // Error log should not have trace context since it's outside the span
-      expect(capturedLogs[1].traceId).toBeUndefined();
-      expect(capturedLogs[1].spanId).toBeUndefined();
-      expect(capturedLogs[1].level).toBe(LogLevel.ERROR);
-      expect(capturedLogs[1].message).toBe('Caught error');
+      // Verify that all logs have the same trace ID
+      expect(logs[1].traceId).toEqual(traceId);
+      expect(logs[2].traceId).toEqual(traceId);
     });
   });
 
-  describe('OpenTelemetry Integration', () => {
-    it('should capture trace context from OpenTelemetry', async () => {
-      // Create a real OpenTelemetry span
-      await otelSetup.createSpan('otel-test-span', async () => {
-        // Get the current trace ID and span ID from OpenTelemetry
-        const traceId = otelSetup.getCurrentTraceId();
-        const spanId = otelSetup.getCurrentSpanId();
-
-        // Manually set the trace context in our mock service to simulate integration
-        mockTracingService.setCurrentTraceContext(traceId, spanId);
-
-        // Log a message
-        loggerService.log('Message within OpenTelemetry span');
-
-        // Verify the log includes the trace ID and span ID
-        expect(capturedLogs.length).toBe(1);
-        expect(capturedLogs[0].traceId).toBe(traceId);
-        expect(capturedLogs[0].spanId).toBe(spanId);
-      });
-
-      // Verify that the span was created and completed
-      const spans = otelSetup.getSpans();
-      expect(spans.length).toBe(1);
-      expect(spans[0].name).toBe('otel-test-span');
-    });
-
-    it('should handle nested spans with correct context', async () => {
+  describe('Nested Span Context', () => {
+    it('should include parent-child span relationship in logs for nested spans', async () => {
       // Create a parent span
-      await otelSetup.createSpan('parent-span', async () => {
-        const parentTraceId = otelSetup.getCurrentTraceId();
-        const parentSpanId = otelSetup.getCurrentSpanId();
-
-        // Set the trace context
-        mockTracingService.setCurrentTraceContext(parentTraceId, parentSpanId);
-
-        // Log in parent span
-        loggerService.log('Parent span log');
+      await tracingService.createSpan('parent-operation', async () => {
+        loggerService.log('Log in parent span');
 
         // Create a child span
-        await otelSetup.createSpan('child-span', async () => {
-          const childTraceId = otelSetup.getCurrentTraceId();
-          const childSpanId = otelSetup.getCurrentSpanId();
-
-          // Set the trace context for the child span
-          mockTracingService.setCurrentTraceContext(childTraceId, childSpanId);
-
-          // Log in child span
-          loggerService.log('Child span log');
-
-          // Verify child span log
-          expect(capturedLogs.length).toBe(2);
-          expect(capturedLogs[1].traceId).toBe(childTraceId);
-          expect(capturedLogs[1].spanId).toBe(childSpanId);
-          
-          // Trace ID should be the same for parent and child, but span IDs should differ
-          expect(childTraceId).toBe(parentTraceId);
-          expect(childSpanId).not.toBe(parentSpanId);
+        await tracingService.createSpan('child-operation', async () => {
+          loggerService.log('Log in child span');
+          return true;
         });
+
+        return true;
       });
 
-      // Verify spans
-      const spans = otelSetup.getSpans();
-      expect(spans.length).toBe(2);
-      expect(spans.some(span => span.name === 'parent-span')).toBe(true);
-      expect(spans.some(span => span.name === 'child-span')).toBe(true);
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toEqual(2);
+
+      // Both logs should have the same trace ID
+      expect(logs[0].traceId).toEqual(logs[1].traceId);
+
+      // But different span IDs
+      expect(logs[0].spanId).not.toEqual(logs[1].spanId);
+
+      // The second log should have the first log's span ID as its parent span ID
+      expect(logs[1].parentSpanId).toEqual(logs[0].spanId);
     });
+  });
 
-    it('should record errors in spans and logs', async () => {
+  describe('Error Scenarios', () => {
+    it('should include trace context in error logs', async () => {
+      // Create a span that will throw an error
       try {
-        await otelSetup.createSpan('error-span', async () => {
-          const traceId = otelSetup.getCurrentTraceId();
-          const spanId = otelSetup.getCurrentSpanId();
-
-          // Set the trace context
-          mockTracingService.setCurrentTraceContext(traceId, spanId);
-
-          // Log before error
-          loggerService.log('Before error');
-
-          // Throw an error
-          throw new Error('Test error in OpenTelemetry span');
+        await tracingService.createSpan('error-operation', async () => {
+          throw new Error('Test error');
         });
       } catch (error) {
-        // Error is caught outside the span
-        loggerService.error('Caught OpenTelemetry error', error);
+        // Error is expected, we'll check the logs
       }
 
-      // Verify logs
-      expect(capturedLogs.length).toBe(2);
-      expect(capturedLogs[0].message).toBe('Before error');
-      expect(capturedLogs[0].traceId).toBeDefined();
-      expect(capturedLogs[1].message).toBe('Caught OpenTelemetry error');
-      expect(capturedLogs[1].traceId).toBeUndefined(); // Outside the span
+      // Get the captured logs
+      const logs = getCapturedLogs();
 
-      // Verify span has error status
-      const spans = otelSetup.getSpans();
-      expect(spans.length).toBe(1);
-      expect(spans[0].name).toBe('error-span');
-      expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+      // Find the error log
+      const errorLog = logs.find(log => log.level === 'error');
+
+      // Verify that an error log was captured
+      expect(errorLog).toBeDefined();
+
+      // Verify that the error log contains trace context
+      assertLogContainsTraceId(errorLog);
+      assertLogContainsSpanId(errorLog);
+
+      // Verify that the error log contains the error message
+      expect(errorLog.message).toContain('Test error');
     });
   });
 
   describe('Cross-Service Trace Propagation', () => {
-    // Simulate trace context propagation across service boundaries
-    it('should maintain trace context across simulated service boundaries', async () => {
-      // Create a trace ID and span ID that would be propagated from another service
-      const upstreamTraceId = traceContext.generateTraceId();
-      const upstreamSpanId = traceContext.generateSpanId();
-
-      // Simulate receiving this context from an upstream service
-      mockTracingService.setCurrentTraceContext(upstreamTraceId, upstreamSpanId);
-
-      // Log in the current service with the propagated context
-      loggerService.log('Log with propagated trace context');
-
-      // Verify the log includes the propagated trace ID
-      expect(capturedLogs.length).toBe(1);
-      expect(capturedLogs[0].traceId).toBe(upstreamTraceId);
-      expect(capturedLogs[0].spanId).toBe(upstreamSpanId);
-
-      // Simulate creating a new span in the current service that is a child of the upstream span
-      await mockTracingService.createSpan('downstream-service-span', async () => {
-        // Get the new span ID (trace ID should remain the same)
-        const currentTraceId = mockTracingService.getCurrentTraceId();
-        const currentSpanId = mockTracingService.getCurrentSpanId();
-
-        // Log with the new span context
-        loggerService.log('Log in downstream service span');
-
-        // Verify the log includes the correct trace context
-        expect(capturedLogs.length).toBe(2);
-        expect(capturedLogs[1].traceId).toBe(currentTraceId);
-        expect(capturedLogs[1].spanId).toBe(currentSpanId);
-        
-        // Trace ID should be preserved across services
-        expect(currentTraceId).toBe(upstreamTraceId);
-        // But span ID should be different
-        expect(currentSpanId).not.toBe(upstreamSpanId);
+    it('should maintain trace context when propagated across service boundaries', async () => {
+      // Create a mock trace context as if it came from another service
+      const externalTraceContext = createTestTraceContext({
+        traceId: '0af7651916cd43dd8448eb211c80319c',
+        spanId: 'b7ad6b7169203331',
+        traceFlags: 1, // sampled
       });
+
+      // Simulate receiving a request from another service with trace context
+      await trace.with(externalTraceContext, async () => {
+        // This simulates processing in the current service
+        await tracingService.createSpan('cross-service-operation', async () => {
+          loggerService.log('Processing request from another service');
+          return true;
+        });
+      });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toBeGreaterThan(0);
+
+      // Verify that the log contains the external trace ID
+      expect(logs[0].traceId).toEqual('0af7651916cd43dd8448eb211c80319c');
+
+      // Verify that the log contains a new span ID (not the external one)
+      expect(logs[0].spanId).not.toEqual('b7ad6b7169203331');
+
+      // Verify that the log contains the external span ID as the parent
+      expect(logs[0].parentSpanId).toEqual('b7ad6b7169203331');
     });
 
-    it('should handle complex request flows across multiple services', async () => {
-      // Simulate a request flow: API Gateway -> Auth Service -> User Service -> Notification Service
+    it('should propagate trace context through multiple service hops', async () => {
+      // Simulate a three-service call chain: Service A -> Service B -> Service C
       
-      // 1. API Gateway receives request and creates initial span
-      const gatewayTraceId = traceContext.generateTraceId();
-      const gatewaySpanId = traceContext.generateSpanId();
-      mockTracingService.setCurrentTraceContext(gatewayTraceId, gatewaySpanId);
-      
-      // Log in API Gateway
-      const gatewayLogger = loggerService.withContext({ service: 'api-gateway' });
-      gatewayLogger.log('Received request in API Gateway');
-      
-      // 2. Auth Service receives the request with propagated trace context
-      await mockTracingService.createSpan('auth-service-span', async () => {
-        const authSpanId = mockTracingService.getCurrentSpanId();
-        const authLogger = loggerService.withContext({ service: 'auth-service' });
-        
-        // Log in Auth Service
-        authLogger.log('Authenticating user in Auth Service');
-        
-        // 3. User Service is called by Auth Service
-        await mockTracingService.createSpan('user-service-span', async () => {
-          const userSpanId = mockTracingService.getCurrentSpanId();
-          const userLogger = loggerService.withContext({ service: 'user-service' });
-          
-          // Log in User Service
-          userLogger.log('Retrieving user data in User Service');
-          
-          // 4. Notification Service is called by User Service
-          await mockTracingService.createSpan('notification-service-span', async () => {
-            const notificationSpanId = mockTracingService.getCurrentSpanId();
-            const notificationLogger = loggerService.withContext({ service: 'notification-service' });
-            
-            // Log in Notification Service
-            notificationLogger.log('Sending notification in Notification Service');
-            
-            // Verify Notification Service log
-            const notificationLog = capturedLogs[capturedLogs.length - 1];
-            expect(notificationLog.traceId).toBe(gatewayTraceId);
-            expect(notificationLog.spanId).toBe(notificationSpanId);
-            expect(notificationLog.context.service).toBe('notification-service');
-          });
-          
-          // Verify User Service log
-          const userLog = capturedLogs[capturedLogs.length - 2];
-          expect(userLog.traceId).toBe(gatewayTraceId);
-          expect(userLog.spanId).toBe(userSpanId);
-          expect(userLog.context.service).toBe('user-service');
-        });
-        
-        // Verify Auth Service log
-        const authLog = capturedLogs[capturedLogs.length - 3];
-        expect(authLog.traceId).toBe(gatewayTraceId);
-        expect(authLog.spanId).toBe(authSpanId);
-        expect(authLog.context.service).toBe('auth-service');
+      // Service A creates the initial trace
+      const serviceATraceContext = createTestTraceContext({
+        traceId: 'abcdef0123456789abcdef0123456789',
+        spanId: 'aaaaaaaabbbbbbbb',
+        traceFlags: 1, // sampled
       });
-      
-      // Verify API Gateway log
-      const gatewayLog = capturedLogs[0];
-      expect(gatewayLog.traceId).toBe(gatewayTraceId);
-      expect(gatewayLog.spanId).toBe(gatewaySpanId);
-      expect(gatewayLog.context.service).toBe('api-gateway');
-      
-      // Verify total number of logs
-      expect(capturedLogs.length).toBe(4);
-      
-      // Verify all logs have the same trace ID but different span IDs
-      const uniqueTraceIds = new Set(capturedLogs.map(log => log.traceId));
-      const uniqueSpanIds = new Set(capturedLogs.map(log => log.spanId));
-      expect(uniqueTraceIds.size).toBe(1);
-      expect(uniqueSpanIds.size).toBe(4);
+
+      await trace.with(serviceATraceContext, async () => {
+        // Service A logs
+        loggerService.log('Service A processing');
+
+        // Service A calls Service B
+        const serviceBSpan = createMockSpan('service-b-operation');
+        await trace.with(trace.setSpan(trace.context(), serviceBSpan), async () => {
+          // Service B logs
+          loggerService.log('Service B processing');
+
+          // Service B calls Service C
+          const serviceCSpan = createMockSpan('service-c-operation');
+          await trace.with(trace.setSpan(trace.context(), serviceCSpan), async () => {
+            // Service C logs
+            loggerService.log('Service C processing');
+          });
+        });
+      });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured for all three services
+      expect(logs.length).toEqual(3);
+
+      // All logs should have the same trace ID (from Service A)
+      expect(logs[0].traceId).toEqual('abcdef0123456789abcdef0123456789');
+      expect(logs[1].traceId).toEqual('abcdef0123456789abcdef0123456789');
+      expect(logs[2].traceId).toEqual('abcdef0123456789abcdef0123456789');
+
+      // Verify the span hierarchy
+      expect(logs[0].spanId).toEqual('aaaaaaaabbbbbbbb'); // Service A's span ID
+      expect(logs[1].parentSpanId).toEqual('aaaaaaaabbbbbbbb'); // Service B's parent is Service A
+      expect(logs[2].parentSpanId).toEqual(logs[1].spanId); // Service C's parent is Service B
     });
   });
 
-  describe('Journey-Specific Tracing', () => {
-    it('should include journey context in traced logs', async () => {
-      // Create a span for a health journey operation
-      await mockTracingService.createSpan('health-journey-operation', async () => {
-        const traceId = mockTracingService.getCurrentTraceId();
-        const spanId = mockTracingService.getCurrentSpanId();
-        
-        // Create a health journey logger
-        const healthLogger = loggerService.forHealthJourney({
-          userId: 'user-123',
-          journeyId: 'health-journey-456',
-        });
-        
-        // Log with the health journey logger
-        healthLogger.log('Health metrics recorded');
-        
-        // Verify the log includes both trace context and journey context
-        expect(capturedLogs.length).toBe(1);
-        expect(capturedLogs[0].traceId).toBe(traceId);
-        expect(capturedLogs[0].spanId).toBe(spanId);
-        expect(capturedLogs[0].context.journeyType).toBe(JourneyType.HEALTH);
-        expect(capturedLogs[0].context.userId).toBe('user-123');
-        expect(capturedLogs[0].context.journeyId).toBe('health-journey-456');
+  describe('Trace Context in Different Log Levels', () => {
+    it('should include trace context in logs of all levels', async () => {
+      // Create a span and log at different levels within it
+      await tracingService.createSpan('multi-level-operation', async () => {
+        loggerService.log('Info level log');
+        loggerService.error('Error level log');
+        loggerService.warn('Warning level log');
+        loggerService.debug('Debug level log');
+        loggerService.verbose('Verbose level log');
+        return true;
       });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured for all levels
+      expect(logs.length).toEqual(5);
+
+      // Get the trace ID from the first log
+      const traceId = logs[0].traceId;
+
+      // Verify that all logs have the same trace ID regardless of level
+      logs.forEach(log => {
+        expect(log.traceId).toEqual(traceId);
+        assertLogContainsSpanId(log);
+      });
+
+      // Verify that we have logs of each level
+      const levels = logs.map(log => log.level);
+      expect(levels).toContain('info');
+      expect(levels).toContain('error');
+      expect(levels).toContain('warn');
+      expect(levels).toContain('debug');
+      expect(levels).toContain('verbose');
     });
-    
-    it('should trace operations across multiple journeys', async () => {
-      // Create a span for a cross-journey operation
-      await mockTracingService.createSpan('cross-journey-operation', async () => {
-        const traceId = mockTracingService.getCurrentTraceId();
-        
-        // Create loggers for different journeys
-        const healthLogger = loggerService.forHealthJourney({ userId: 'user-123' });
-        const careLogger = loggerService.forCareJourney({ userId: 'user-123' });
-        const planLogger = loggerService.forPlanJourney({ userId: 'user-123' });
-        
-        // Log with each journey logger
-        healthLogger.log('Health journey operation');
-        careLogger.log('Care journey operation');
-        planLogger.log('Plan journey operation');
-        
-        // Verify all logs have the same trace ID
-        expect(capturedLogs.length).toBe(3);
-        capturedLogs.forEach(log => {
-          expect(log.traceId).toBe(traceId);
+  });
+
+  describe('Journey-Specific Trace Context', () => {
+    it('should include journey information in trace context for Health journey', async () => {
+      // Create a span with Health journey context
+      await tracingService.createSpan('health-journey-operation', async () => {
+        // Set journey context for the log
+        loggerService.setContext({
+          journeyType: 'Health',
+          journeyId: 'health-123',
+          userId: 'user-456',
         });
         
-        // Verify journey context is preserved
-        expect(capturedLogs[0].context.journeyType).toBe(JourneyType.HEALTH);
-        expect(capturedLogs[1].context.journeyType).toBe(JourneyType.CARE);
-        expect(capturedLogs[2].context.journeyType).toBe(JourneyType.PLAN);
+        loggerService.log('Health journey operation');
+        return true;
       });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toBeGreaterThan(0);
+
+      // Verify that the log contains trace context
+      assertLogContainsTraceId(logs[0]);
+      assertLogContainsSpanId(logs[0]);
+
+      // Verify that the log contains journey context
+      expect(logs[0].journeyType).toEqual('Health');
+      expect(logs[0].journeyId).toEqual('health-123');
+      expect(logs[0].userId).toEqual('user-456');
+    });
+
+    it('should include journey information in trace context for Care journey', async () => {
+      // Create a span with Care journey context
+      await tracingService.createSpan('care-journey-operation', async () => {
+        // Set journey context for the log
+        loggerService.setContext({
+          journeyType: 'Care',
+          journeyId: 'care-789',
+          userId: 'user-456',
+        });
+        
+        loggerService.log('Care journey operation');
+        return true;
+      });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toBeGreaterThan(0);
+
+      // Verify that the log contains trace context
+      assertLogContainsTraceId(logs[0]);
+      assertLogContainsSpanId(logs[0]);
+
+      // Verify that the log contains journey context
+      expect(logs[0].journeyType).toEqual('Care');
+      expect(logs[0].journeyId).toEqual('care-789');
+      expect(logs[0].userId).toEqual('user-456');
+    });
+
+    it('should include journey information in trace context for Plan journey', async () => {
+      // Create a span with Plan journey context
+      await tracingService.createSpan('plan-journey-operation', async () => {
+        // Set journey context for the log
+        loggerService.setContext({
+          journeyType: 'Plan',
+          journeyId: 'plan-101',
+          userId: 'user-456',
+        });
+        
+        loggerService.log('Plan journey operation');
+        return true;
+      });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured
+      expect(logs.length).toBeGreaterThan(0);
+
+      // Verify that the log contains trace context
+      assertLogContainsTraceId(logs[0]);
+      assertLogContainsSpanId(logs[0]);
+
+      // Verify that the log contains journey context
+      expect(logs[0].journeyType).toEqual('Plan');
+      expect(logs[0].journeyId).toEqual('plan-101');
+      expect(logs[0].userId).toEqual('user-456');
+    });
+  });
+
+  describe('Business Transaction Tracking', () => {
+    it('should track business transactions across multiple spans', async () => {
+      // Create a business transaction with multiple steps
+      await tracingService.createSpan('business-transaction', async () => {
+        // Add business transaction ID to the span
+        const currentSpan = trace.getSpan(trace.context());
+        currentSpan.setAttribute('business.transactionId', 'tx-12345');
+        
+        loggerService.log('Starting business transaction');
+
+        // Step 1: Validate input
+        await tracingService.createSpan('validate-input', async () => {
+          loggerService.log('Validating input data');
+          return true;
+        });
+
+        // Step 2: Process data
+        await tracingService.createSpan('process-data', async () => {
+          loggerService.log('Processing data');
+          return true;
+        });
+
+        // Step 3: Save results
+        await tracingService.createSpan('save-results', async () => {
+          loggerService.log('Saving results');
+          return true;
+        });
+
+        loggerService.log('Completed business transaction');
+        return true;
+      });
+
+      // Get the captured logs
+      const logs = getCapturedLogs();
+
+      // Verify that logs were captured for all steps
+      expect(logs.length).toEqual(5);
+
+      // All logs should have the same trace ID
+      const traceId = logs[0].traceId;
+      logs.forEach(log => {
+        expect(log.traceId).toEqual(traceId);
+      });
+
+      // Verify that the business transaction ID is included in the logs
+      // This would typically be added by the LoggerService when it detects the attribute in the span
+      logs.forEach(log => {
+        expect(log.businessTransactionId).toEqual('tx-12345');
+      });
+
+      // Verify the span hierarchy for the business transaction
+      const parentSpanId = logs[0].spanId; // First log's span ID is the parent
+      
+      // The validate, process, and save spans should have the parent span ID as their parent
+      expect(logs[1].parentSpanId).toEqual(parentSpanId);
+      expect(logs[2].parentSpanId).toEqual(parentSpanId);
+      expect(logs[3].parentSpanId).toEqual(parentSpanId);
+      
+      // The last log should have the same span ID as the first (they're in the same span)
+      expect(logs[4].spanId).toEqual(parentSpanId);
     });
   });
 });

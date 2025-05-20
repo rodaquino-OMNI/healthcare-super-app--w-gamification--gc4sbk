@@ -1,1250 +1,775 @@
 /**
  * @file validation.helper.ts
  * @description Helper utilities for testing event validation logic across all event types.
- * This file provides functions to validate event DTOs, test validation rules, check error
- * handling, and verify schema compliance. These utilities ensure consistent validation
- * testing across the event system and simplify test implementation for validation-related
- * functionality.
+ * This file provides functions to validate event DTOs, test validation rules, check error handling,
+ * and verify schema compliance. These utilities ensure consistent validation testing across the
+ * event system and simplify test implementation for validation-related functionality.
+ *
+ * @module events/test/unit/helpers
  */
 
-import { ClassConstructor, plainToInstance } from 'class-transformer';
-import { validate, validateSync, ValidationError } from 'class-validator';
-import { ZodSchema } from 'zod';
-
-import { BaseEventDto } from '../../../src/dto/base-event.dto';
-import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
-import { EventTypes } from '../../../src/dto/event-types.enum';
-import { HealthEventDto } from '../../../src/dto/health-event.dto';
-import { CareEventDto } from '../../../src/dto/care-event.dto';
-import { PlanEventDto } from '../../../src/dto/plan-event.dto';
-import { VersionDto } from '../../../src/dto/version.dto';
-
-import { 
-  validateObject, 
-  validateObjectSync, 
-  validateWithZod,
-  validateEventOrThrow,
-  validateEventOrThrowSync,
-  HealthValidation,
-  CareValidation,
-  PlanValidation
-} from '../../../src/dto/validation';
-
-import {
-  ValidationIssue,
-  ValidationResult,
-  ValidationResultFactory,
-  ValidationSeverity
-} from '../../../src/interfaces/event-validation.interface';
-
-import { EventError, EventValidationError } from '../../../src/errors/event-errors';
-
-// ===================================================================
-// Test Data Generation Utilities
-// ===================================================================
+import { validate, ValidationError as ClassValidatorError } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import { PrismaClient } from '@prisma/client';
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+import { ValidationError, formatValidationErrors, validateObject } from '../../../src/dto/validation';
+import { EventMetadataDto, EventVersionDto } from '../../../src/dto/event-metadata.dto';
+import { VersionedEventDto, compareVersions, isVersionCompatible } from '../../../src/dto/version.dto';
+import { ERROR_CODES } from '../../../src/constants/errors.constants';
 
 /**
- * Journey types supported by the application
+ * Interface for test case definition
  */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan'
+export interface ValidationTestCase<T> {
+  description: string;
+  data: Partial<T>;
+  expectedErrors?: string[];
+  shouldPass: boolean;
 }
 
 /**
- * Options for generating test events
+ * Interface for validation test result
  */
-export interface TestEventOptions {
-  /**
-   * Whether to include invalid data to trigger validation errors
-   * @default false
-   */
-  invalid?: boolean;
-  
-  /**
-   * Specific fields to make invalid (if invalid is true)
-   */
-  invalidFields?: string[];
-  
-  /**
-   * Whether to include metadata
-   * @default true
-   */
-  includeMetadata?: boolean;
-  
-  /**
-   * Whether to include version information
-   * @default true
-   */
-  includeVersion?: boolean;
-  
-  /**
-   * Custom data to override default test data
-   */
-  customData?: Record<string, any>;
+export interface ValidationTestResult {
+  passed: boolean;
+  errors: ValidationError[] | null;
+  errorProperties?: string[];
+  errorCodes?: string[];
 }
 
 /**
- * Generates a test event for the specified journey and event type
+ * Creates a valid event metadata object for testing
  * 
- * @param journey The journey type (health, care, plan)
- * @param eventType The specific event type
- * @param options Options for customizing the test event
+ * @param overrides Optional properties to override in the metadata
+ * @returns A valid EventMetadataDto instance
+ */
+export function createTestEventMetadata(overrides: Partial<EventMetadataDto> = {}): EventMetadataDto {
+  const metadata = new EventMetadataDto({
+    correlationId: '550e8400-e29b-41d4-a716-446655440000',
+    timestamp: new Date(),
+    origin: {
+      service: 'test-service',
+      instance: 'test-instance',
+      component: 'test-component'
+    },
+    version: new EventVersionDto()
+  });
+
+  return { ...metadata, ...overrides };
+}
+
+/**
+ * Creates a test event with the specified type and data
+ * 
+ * @param eventType The type of event to create
+ * @param data The event data
+ * @param metadata Optional event metadata
  * @returns A test event object
  */
-export function generateTestEvent(
-  journey: JourneyType,
-  eventType: string,
-  options: TestEventOptions = {}
-): Record<string, any> {
-  // Set default options
-  const {
-    invalid = false,
-    invalidFields = [],
-    includeMetadata = true,
-    includeVersion = true,
-    customData = {}
-  } = options;
-  
-  // Generate base event
-  const baseEvent = {
-    eventId: `test-${journey}-${Date.now()}`,
+export function createTestEvent<T>(eventType: EventType | string, data: T, metadata?: EventMetadataDto): any {
+  return {
     type: eventType,
-    userId: 'test-user-id',
-    journey,
-    timestamp: new Date().toISOString(),
-    data: {}
+    data,
+    metadata: metadata || createTestEventMetadata()
   };
-  
-  // Add journey-specific data
-  switch (journey) {
-    case JourneyType.HEALTH:
-      baseEvent.data = generateHealthEventData(eventType, invalid, invalidFields);
-      break;
-    case JourneyType.CARE:
-      baseEvent.data = generateCareEventData(eventType, invalid, invalidFields);
-      break;
-    case JourneyType.PLAN:
-      baseEvent.data = generatePlanEventData(eventType, invalid, invalidFields);
-      break;
-  }
-  
-  // Override with custom data if provided
-  if (customData) {
-    baseEvent.data = { ...baseEvent.data, ...customData };
-  }
-  
-  // Add metadata if requested
-  if (includeMetadata) {
-    baseEvent['metadata'] = {
-      correlationId: `corr-${Date.now()}`,
-      source: 'test-service',
-      version: '1.0.0',
-      timestamp: new Date().toISOString()
-    };
-  }
-  
-  // Wrap with version if requested
-  if (includeVersion) {
-    return {
-      version: {
-        major: 1,
-        minor: 0,
-        patch: 0
-      },
-      payload: baseEvent
-    };
-  }
-  
-  return baseEvent;
 }
 
 /**
- * Generates test data for health journey events
+ * Creates a versioned test event with the specified type, data, and version
  * 
- * @param eventType The specific health event type
- * @param invalid Whether to include invalid data
- * @param invalidFields Specific fields to make invalid
- * @returns Health event data
+ * @param eventType The type of event to create
+ * @param data The event data
+ * @param version The event version
+ * @returns A VersionedEventDto instance
  */
-function generateHealthEventData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Generate data based on event type
-  if (eventType.startsWith('health.metric.')) {
-    return generateHealthMetricData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('health.goal.')) {
-    return generateHealthGoalData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('health.device.')) {
-    return generateDeviceConnectionData(eventType, invalid, invalidFields);
+export function createVersionedTestEvent<T>(
+  eventType: EventType | string,
+  data: T,
+  version?: string
+): VersionedEventDto<T> {
+  let versionObj: EventVersionDto | undefined;
+  
+  if (version) {
+    const parts = version.split('.');
+    versionObj = new EventVersionDto();
+    versionObj.major = parts[0] || '1';
+    versionObj.minor = parts[1] || '0';
+    versionObj.patch = parts[2] || '0';
   }
   
-  // Default empty data for unknown event types
-  return {};
+  return new VersionedEventDto<T>(eventType.toString(), data, versionObj);
 }
 
 /**
- * Generates test data for health metric events
- */
-function generateHealthMetricData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid metric data
-  const metricData: Record<string, any> = {
-    type: 'heartRate',
-    value: 75,
-    unit: 'bpm',
-    timestamp: new Date().toISOString(),
-    source: 'manual'
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('type')) {
-      metricData.type = 'invalidMetricType';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('value')) {
-      metricData.value = 'not-a-number';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('timestamp')) {
-      metricData.timestamp = 'invalid-date';
-    }
-  }
-  
-  return metricData;
-}
-
-/**
- * Generates test data for health goal events
- */
-function generateHealthGoalData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid goal data
-  const goalData: Record<string, any> = {
-    type: 'steps',
-    target: 10000,
-    current: 2500,
-    unit: 'steps',
-    startDate: new Date().toISOString(),
-    frequency: 'daily',
-    reminderEnabled: true
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('type')) {
-      goalData.type = 'invalidGoalType';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('target')) {
-      goalData.target = -100; // Negative value
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('startDate')) {
-      goalData.startDate = 'invalid-date';
-    }
-  }
-  
-  return goalData;
-}
-
-/**
- * Generates test data for device connection events
- */
-function generateDeviceConnectionData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid device data
-  const deviceData: Record<string, any> = {
-    deviceId: `device-${Date.now()}`,
-    deviceType: 'smartwatch',
-    manufacturer: 'TestManufacturer',
-    model: 'TestModel',
-    connectionStatus: 'connected',
-    lastSyncTimestamp: new Date().toISOString(),
-    permissions: ['read_heart_rate', 'read_steps']
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('deviceType')) {
-      deviceData.deviceType = 'invalidDeviceType';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('connectionStatus')) {
-      deviceData.connectionStatus = 'invalid-status';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('lastSyncTimestamp')) {
-      deviceData.lastSyncTimestamp = 'invalid-date';
-    }
-  }
-  
-  return deviceData;
-}
-
-/**
- * Generates test data for care journey events
+ * Validates a DTO instance against its class-validator decorators
  * 
- * @param eventType The specific care event type
- * @param invalid Whether to include invalid data
- * @param invalidFields Specific fields to make invalid
- * @returns Care event data
+ * @param dto The DTO instance to validate
+ * @param dtoClass The class of the DTO
+ * @returns Promise resolving to validation result
  */
-function generateCareEventData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Generate data based on event type
-  if (eventType.startsWith('care.appointment.')) {
-    return generateAppointmentData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('care.medication.')) {
-    return generateMedicationData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('care.telemedicine.')) {
-    return generateTelemedicineSessionData(eventType, invalid, invalidFields);
-  }
+export async function validateDto<T extends object>(
+  dto: T,
+  dtoClass: new () => T
+): Promise<ValidationTestResult> {
+  // Convert plain object to class instance if needed
+  const instance = dto instanceof dtoClass ? dto : plainToInstance(dtoClass, dto);
   
-  // Default empty data for unknown event types
-  return {};
-}
-
-/**
- * Generates test data for appointment events
- */
-function generateAppointmentData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Create a future date for the appointment (tomorrow at 10:00 AM)
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(10, 0, 0, 0);
-  
-  // Base valid appointment data
-  const appointmentData: Record<string, any> = {
-    providerId: `provider-${Date.now()}`,
-    specialization: 'Cardiologia',
-    appointmentType: 'in-person',
-    dateTime: tomorrow.toISOString(),
-    duration: 30, // 30 minutes
-    reason: 'Regular check-up',
-    location: {
-      address: 'Av. Paulista, 1000',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01310-100',
-      country: 'Brazil'
-    },
-    status: 'scheduled'
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('appointmentType')) {
-      appointmentData.appointmentType = 'invalid-type';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('dateTime')) {
-      appointmentData.dateTime = 'invalid-date';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('status')) {
-      appointmentData.status = 'invalid-status';
-    }
-  }
-  
-  return appointmentData;
-}
-
-/**
- * Generates test data for medication events
- */
-function generateMedicationData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid medication data
-  const medicationData: Record<string, any> = {
-    medicationId: `med-${Date.now()}`,
-    name: 'Test Medication',
-    dosage: {
-      amount: 10,
-      unit: 'mg'
-    },
-    frequency: {
-      times: 2,
-      period: 'day'
-    },
-    schedule: [
-      {
-        time: '08:00',
-        taken: true,
-        takenAt: new Date().toISOString()
-      },
-      {
-        time: '20:00',
-        taken: false
-      }
-    ],
-    startDate: new Date().toISOString(),
-    instructions: 'Take with food',
-    prescribedBy: 'Dr. Test Doctor'
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('dosage')) {
-      medicationData.dosage = { amount: 'not-a-number', unit: 'invalid-unit' };
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('frequency')) {
-      medicationData.frequency = { times: -1, period: 'invalid-period' };
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('startDate')) {
-      medicationData.startDate = 'invalid-date';
-    }
-  }
-  
-  return medicationData;
-}
-
-/**
- * Generates test data for telemedicine session events
- */
-function generateTelemedicineSessionData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid telemedicine session data
-  const sessionData: Record<string, any> = {
-    sessionId: `session-${Date.now()}`,
-    providerId: `provider-${Date.now()}`,
-    appointmentId: `appointment-${Date.now()}`,
-    startTime: new Date().toISOString(),
-    status: 'scheduled',
-    sessionType: 'video',
-    technicalDetails: {
-      platform: 'web',
-      browserInfo: 'Chrome 98.0.4758.102',
-      deviceInfo: 'Windows 10',
-      connectionQuality: 'good'
-    }
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('status')) {
-      sessionData.status = 'invalid-status';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('sessionType')) {
-      sessionData.sessionType = 'invalid-type';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('startTime')) {
-      sessionData.startTime = 'invalid-date';
-    }
-  }
-  
-  return sessionData;
-}
-
-/**
- * Generates test data for plan journey events
- * 
- * @param eventType The specific plan event type
- * @param invalid Whether to include invalid data
- * @param invalidFields Specific fields to make invalid
- * @returns Plan event data
- */
-function generatePlanEventData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Generate data based on event type
-  if (eventType.startsWith('plan.claim.')) {
-    return generateClaimData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('plan.benefit.')) {
-    return generateBenefitData(eventType, invalid, invalidFields);
-  } else if (eventType.startsWith('plan.plan.')) {
-    return generatePlanSelectionData(eventType, invalid, invalidFields);
-  }
-  
-  // Default empty data for unknown event types
-  return {};
-}
-
-/**
- * Generates test data for claim events
- */
-function generateClaimData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid claim data
-  const claimData: Record<string, any> = {
-    claimId: `claim-${Date.now()}`,
-    serviceDate: new Date().toISOString(),
-    providerName: 'Test Provider',
-    providerId: `provider-${Date.now()}`,
-    serviceType: 'Consulta Médica',
-    diagnosisCodes: ['A00.0', 'B01.1'],
-    procedureCodes: ['99201', '99202'],
-    amount: {
-      total: 150.00,
-      covered: 120.00,
-      patientResponsibility: 30.00,
-      currency: 'BRL'
-    },
-    status: 'submitted',
-    documents: [
-      {
-        documentId: `doc-${Date.now()}`,
-        documentType: 'receipt',
-        uploadDate: new Date().toISOString()
-      }
-    ],
-    notes: 'Test claim for validation'
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('amount')) {
-      claimData.amount = { total: 'not-a-number', currency: 'INVALID' };
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('status')) {
-      claimData.status = 'invalid-status';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('serviceDate')) {
-      claimData.serviceDate = 'invalid-date';
-    }
-  }
-  
-  return claimData;
-}
-
-/**
- * Generates test data for benefit events
- */
-function generateBenefitData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid benefit data
-  const benefitData: Record<string, any> = {
-    benefitId: `benefit-${Date.now()}`,
-    category: 'medical',
-    type: 'consultation',
-    description: 'Medical consultation benefit',
-    coverage: {
-      coinsurance: 20, // 20%
-      copay: 30.00,
-      deductible: 100.00,
-      outOfPocketMax: 1000.00,
-      currency: 'BRL'
-    },
-    limits: {
-      visitsPerYear: 12,
-      amountPerYear: 5000.00
-    },
-    network: 'in-network',
-    requiresPreauthorization: false,
-    effectiveDate: new Date().toISOString()
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('category')) {
-      benefitData.category = 'invalid-category';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('coverage')) {
-      benefitData.coverage = { coinsurance: 120, currency: 'INVALID' }; // Over 100%
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('network')) {
-      benefitData.network = 'invalid-network';
-    }
-  }
-  
-  return benefitData;
-}
-
-/**
- * Generates test data for plan selection events
- */
-function generatePlanSelectionData(
-  eventType: string,
-  invalid: boolean = false,
-  invalidFields: string[] = []
-): Record<string, any> {
-  // Base valid plan selection data
-  const planData: Record<string, any> = {
-    planId: `plan-${Date.now()}`,
-    planName: 'Test Plan',
-    planType: 'PPO',
-    premium: {
-      amount: 500.00,
-      frequency: 'monthly',
-      currency: 'BRL'
-    },
-    coverage: {
-      individual: true,
-      family: false,
-      dependents: []
-    },
-    effectiveDate: new Date().toISOString(),
-    selectionDate: new Date().toISOString(),
-    reason: 'Better coverage'
-  };
-  
-  // Make data invalid if requested
-  if (invalid) {
-    if (invalidFields.length === 0 || invalidFields.includes('planType')) {
-      planData.planType = 'invalid-type';
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('premium')) {
-      planData.premium = { amount: -100, frequency: 'invalid-frequency' };
-    }
-    if (invalidFields.length === 0 || invalidFields.includes('effectiveDate')) {
-      planData.effectiveDate = 'invalid-date';
-    }
-  }
-  
-  return planData;
-}
-
-// ===================================================================
-// Validation Testing Utilities
-// ===================================================================
-
-/**
- * Options for testing validation
- */
-export interface ValidationTestOptions {
-  /**
-   * Whether to expect validation to pass
-   * @default true
-   */
-  expectValid?: boolean;
-  
-  /**
-   * Expected error codes if validation fails
-   */
-  expectedErrorCodes?: string[];
-  
-  /**
-   * Expected error fields if validation fails
-   */
-  expectedErrorFields?: string[];
-  
-  /**
-   * Whether to use async validation
-   * @default false
-   */
-  async?: boolean;
-  
-  /**
-   * Whether to throw on validation failure
-   * @default false
-   */
-  throwOnFailure?: boolean;
-}
-
-/**
- * Tests validation of an event against a DTO class
- * 
- * @param event The event to validate
- * @param dtoClass The DTO class to validate against
- * @param options Validation test options
- * @returns Promise resolving to the validation result
- */
-export async function testEventValidation<T extends object>(
-  event: Record<string, any>,
-  dtoClass: ClassConstructor<T>,
-  options: ValidationTestOptions = {}
-): Promise<ValidationResult> {
-  // Set default options
-  const {
-    expectValid = true,
-    expectedErrorCodes = [],
-    expectedErrorFields = [],
-    async = false,
-    throwOnFailure = false
-  } = options;
-  
-  try {
-    let result: ValidationResult;
-    
-    // Perform validation based on options
-    if (throwOnFailure) {
-      if (async) {
-        await validateEventOrThrow(event, dtoClass, {
-          journey: event.journey,
-          eventType: event.type
-        });
-        result = ValidationResultFactory.valid(event.journey);
-      } else {
-        validateEventOrThrowSync(event, dtoClass, {
-          journey: event.journey,
-          eventType: event.type
-        });
-        result = ValidationResultFactory.valid(event.journey);
-      }
-    } else {
-      if (async) {
-        result = await validateObject(event, dtoClass, {
-          journey: event.journey,
-          eventType: event.type
-        });
-      } else {
-        result = validateObjectSync(event, dtoClass, {
-          journey: event.journey,
-          eventType: event.type
-        });
-      }
-    }
-    
-    // Verify validation result
-    if (expectValid) {
-      expect(result.isValid).toBe(true);
-      expect(result.issues).toHaveLength(0);
-    } else {
-      expect(result.isValid).toBe(false);
-      expect(result.issues.length).toBeGreaterThan(0);
-      
-      // Check expected error codes
-      if (expectedErrorCodes.length > 0) {
-        const actualErrorCodes = result.issues.map(issue => issue.code);
-        expectedErrorCodes.forEach(code => {
-          expect(actualErrorCodes).toContain(code);
-        });
-      }
-      
-      // Check expected error fields
-      if (expectedErrorFields.length > 0) {
-        const actualErrorFields = result.issues
-          .filter(issue => issue.field)
-          .map(issue => issue.field);
-        
-        expectedErrorFields.forEach(field => {
-          expect(actualErrorFields).toContain(field);
-        });
-      }
-    }
-    
-    return result;
-  } catch (error) {
-    if (throwOnFailure && !expectValid) {
-      // Expected to throw, verify error type and details
-      expect(error).toBeInstanceOf(EventValidationError);
-      
-      if (expectedErrorCodes.length > 0) {
-        const validationError = error as EventValidationError;
-        const issues = validationError.context?.details?.validationIssues || [];
-        const actualErrorCodes = issues.map((issue: ValidationIssue) => issue.code);
-        
-        expectedErrorCodes.forEach(code => {
-          expect(actualErrorCodes).toContain(code);
-        });
-      }
-      
-      // Return a synthetic validation result for consistency
-      return ValidationResultFactory.invalid(
-        (error as EventValidationError).context?.details?.validationIssues || [],
-        event.journey
-      );
-    }
-    
-    // Unexpected error
-    throw error;
-  }
-}
-
-/**
- * Tests validation of an event against a Zod schema
- * 
- * @param event The event to validate
- * @param schema The Zod schema to validate against
- * @param options Validation test options
- * @returns The validation result
- */
-export function testZodValidation<T extends ZodSchema>(
-  event: unknown,
-  schema: T,
-  options: ValidationTestOptions = {}
-): ValidationResult {
-  // Set default options
-  const {
-    expectValid = true,
-    expectedErrorCodes = [],
-    expectedErrorFields = []
-  } = options;
-  
-  // Perform validation
-  const result = validateWithZod(event, schema, {
-    journey: (event as any)?.journey,
-    eventType: (event as any)?.type
+  // Validate the instance
+  const errors = await validate(instance, {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    validationError: { target: false, value: false }
   });
   
-  // Verify validation result
-  if (expectValid) {
-    expect(result.isValid).toBe(true);
-    expect(result.issues).toHaveLength(0);
-  } else {
-    expect(result.isValid).toBe(false);
-    expect(result.issues.length).toBeGreaterThan(0);
-    
-    // Check expected error codes
-    if (expectedErrorCodes.length > 0) {
-      const actualErrorCodes = result.issues.map(issue => issue.code);
-      expectedErrorCodes.forEach(code => {
-        expect(actualErrorCodes).toContain(code);
-      });
-    }
-    
-    // Check expected error fields
-    if (expectedErrorFields.length > 0) {
-      const actualErrorFields = result.issues
-        .filter(issue => issue.field)
-        .map(issue => issue.field);
-      
-      expectedErrorFields.forEach(field => {
-        expect(actualErrorFields).toContain(field);
-      });
-    }
+  if (errors.length === 0) {
+    return { passed: true, errors: null };
   }
   
-  return result;
+  // Format the errors
+  const formattedErrors = formatValidationErrors(errors as any[]);
+  
+  // Extract error properties and codes
+  const errorProperties = formattedErrors.map(error => error.property);
+  const errorCodes = formattedErrors.map(error => error.errorCode);
+  
+  return {
+    passed: false,
+    errors: formattedErrors,
+    errorProperties,
+    errorCodes
+  };
 }
 
 /**
- * Tests journey-specific validation functions
+ * Runs a series of validation test cases against a DTO class
  * 
- * @param journey The journey type
- * @param eventType The event type
- * @param data The data to validate
- * @param options Validation test options
- * @returns The validation result
+ * @param testCases Array of test cases
+ * @param dtoClass The class of the DTO to test
+ * @returns Promise resolving to an array of test results
  */
-export function testJourneyValidation(
-  journey: JourneyType,
-  eventType: string,
-  data: Record<string, any>,
-  options: ValidationTestOptions = {}
-): ValidationResult {
-  // Set default options
-  const {
-    expectValid = true,
-    expectedErrorCodes = [],
-    expectedErrorFields = []
-  } = options;
+export async function runValidationTestCases<T extends object>(
+  testCases: ValidationTestCase<T>[],
+  dtoClass: new () => T
+): Promise<Array<ValidationTestCase<T> & ValidationTestResult>> {
+  const results: Array<ValidationTestCase<T> & ValidationTestResult> = [];
   
-  let result: ValidationResult;
-  
-  // Call the appropriate journey validation function
-  switch (journey) {
-    case JourneyType.HEALTH:
-      if (eventType.startsWith('health.metric.')) {
-        result = HealthValidation.validateHealthMetric(data);
-      } else if (eventType.startsWith('health.goal.')) {
-        result = HealthValidation.validateHealthGoal(data);
-      } else if (eventType.startsWith('health.device.')) {
-        result = HealthValidation.validateDeviceConnection(data);
-      } else {
-        throw new Error(`Unsupported health event type: ${eventType}`);
-      }
-      break;
-      
-    case JourneyType.CARE:
-      if (eventType.startsWith('care.appointment.')) {
-        result = CareValidation.validateAppointment(data);
-      } else if (eventType.startsWith('care.medication.')) {
-        result = CareValidation.validateMedication(data);
-      } else if (eventType.startsWith('care.telemedicine.')) {
-        result = CareValidation.validateTelemedicineSession(data);
-      } else {
-        throw new Error(`Unsupported care event type: ${eventType}`);
-      }
-      break;
-      
-    case JourneyType.PLAN:
-      if (eventType.startsWith('plan.claim.')) {
-        result = PlanValidation.validateClaim(data);
-      } else if (eventType.startsWith('plan.benefit.')) {
-        result = PlanValidation.validateBenefit(data);
-      } else if (eventType.startsWith('plan.plan.')) {
-        result = PlanValidation.validatePlanSelection(data);
-      } else {
-        throw new Error(`Unsupported plan event type: ${eventType}`);
-      }
-      break;
-      
-    default:
-      throw new Error(`Unsupported journey: ${journey}`);
-  }
-  
-  // Verify validation result
-  if (expectValid) {
-    expect(result.isValid).toBe(true);
-    expect(result.issues).toHaveLength(0);
-  } else {
-    expect(result.isValid).toBe(false);
-    expect(result.issues.length).toBeGreaterThan(0);
+  for (const testCase of testCases) {
+    const instance = plainToInstance(dtoClass, testCase.data);
+    const result = await validateDto(instance, dtoClass);
     
-    // Check expected error codes
-    if (expectedErrorCodes.length > 0) {
-      const actualErrorCodes = result.issues.map(issue => issue.code);
-      expectedErrorCodes.forEach(code => {
-        expect(actualErrorCodes).toContain(code);
-      });
+    // Check if the test passed as expected
+    const expectedResult = testCase.shouldPass ? result.passed : !result.passed;
+    
+    // Check if the expected error properties are present
+    let expectedErrorsFound = true;
+    if (testCase.expectedErrors && testCase.expectedErrors.length > 0 && result.errorProperties) {
+      expectedErrorsFound = testCase.expectedErrors.every(prop => result.errorProperties!.includes(prop));
     }
     
-    // Check expected error fields
-    if (expectedErrorFields.length > 0) {
-      const actualErrorFields = result.issues
-        .filter(issue => issue.field)
-        .map(issue => issue.field);
-      
-      expectedErrorFields.forEach(field => {
-        expect(actualErrorFields).toContain(field);
-      });
-    }
+    results.push({
+      ...testCase,
+      ...result,
+      passed: expectedResult && (testCase.shouldPass || expectedErrorsFound)
+    });
   }
   
-  return result;
+  return results;
 }
 
-// ===================================================================
-// Custom Validator Testing Utilities
-// ===================================================================
+/**
+ * Creates test data for health journey events based on seed data patterns
+ * 
+ * @param eventType The type of health event
+ * @returns Test data for the specified event type
+ */
+export function createHealthEventTestData(eventType: JourneyEvents.Health | string): any {
+  switch (eventType) {
+    case JourneyEvents.Health.METRIC_RECORDED:
+      return {
+        metricType: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        recordedAt: new Date().toISOString(),
+        deviceId: '550e8400-e29b-41d4-a716-446655440000'
+      };
+    case JourneyEvents.Health.GOAL_ACHIEVED:
+      return {
+        goalId: '550e8400-e29b-41d4-a716-446655440000',
+        goalType: 'STEPS_TARGET',
+        description: 'Walk 10,000 steps daily',
+        targetValue: 10000,
+        unit: 'steps',
+        achievedAt: new Date().toISOString(),
+        progressPercentage: 100
+      };
+    case JourneyEvents.Health.DEVICE_CONNECTED:
+      return {
+        deviceId: '550e8400-e29b-41d4-a716-446655440000',
+        deviceType: 'SMARTWATCH',
+        deviceName: 'Apple Watch Series 7',
+        syncedAt: new Date().toISOString(),
+        syncSuccessful: true,
+        dataPointsCount: 150,
+        metricTypes: ['HEART_RATE', 'STEPS']
+      };
+    case JourneyEvents.Health.INSIGHT_GENERATED:
+      return {
+        insightId: '550e8400-e29b-41d4-a716-446655440000',
+        insightType: 'TREND_ANALYSIS',
+        title: 'Improving Sleep Pattern',
+        description: 'Your sleep duration has improved by 15% over the last week.',
+        relatedMetricTypes: ['SLEEP'],
+        confidenceScore: 85,
+        generatedAt: new Date().toISOString(),
+        userAcknowledged: false
+      };
+    default:
+      return {};
+  }
+}
 
 /**
- * Tests a custom validator decorator
+ * Creates test data for care journey events based on seed data patterns
+ * 
+ * @param eventType The type of care event
+ * @returns Test data for the specified event type
+ */
+export function createCareEventTestData(eventType: JourneyEvents.Care | string): any {
+  switch (eventType) {
+    case JourneyEvents.Care.APPOINTMENT_BOOKED:
+      return {
+        appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+        providerId: '550e8400-e29b-41d4-a716-446655440001',
+        specialtyType: 'Cardiologia',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+        bookedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Care.APPOINTMENT_COMPLETED:
+      return {
+        appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+        providerId: '550e8400-e29b-41d4-a716-446655440001',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+        completedAt: new Date().toISOString(),
+        duration: 30 // 30 minutes
+      };
+    case JourneyEvents.Care.MEDICATION_TAKEN:
+      return {
+        medicationId: '550e8400-e29b-41d4-a716-446655440000',
+        medicationName: 'Atorvastatina',
+        dosage: '20mg',
+        takenAt: new Date().toISOString(),
+        adherence: 'on_time'
+      };
+    case JourneyEvents.Care.TELEMEDICINE_STARTED:
+      return {
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        appointmentId: '550e8400-e29b-41d4-a716-446655440001',
+        providerId: '550e8400-e29b-41d4-a716-446655440002',
+        startedAt: new Date().toISOString(),
+        deviceType: 'mobile'
+      };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Creates test data for plan journey events based on seed data patterns
+ * 
+ * @param eventType The type of plan event
+ * @returns Test data for the specified event type
+ */
+export function createPlanEventTestData(eventType: JourneyEvents.Plan | string): any {
+  switch (eventType) {
+    case JourneyEvents.Plan.CLAIM_SUBMITTED:
+      return {
+        claimId: '550e8400-e29b-41d4-a716-446655440000',
+        claimType: 'Consulta Médica',
+        providerId: '550e8400-e29b-41d4-a716-446655440001',
+        serviceDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+        amount: 250.00,
+        submittedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Plan.CLAIM_PROCESSED:
+      return {
+        claimId: '550e8400-e29b-41d4-a716-446655440000',
+        status: 'approved',
+        amount: 250.00,
+        coveredAmount: 200.00,
+        processedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Plan.PLAN_SELECTED:
+      return {
+        planId: '550e8400-e29b-41d4-a716-446655440000',
+        planType: 'Premium',
+        coverageLevel: 'family',
+        premium: 850.00,
+        startDate: new Date(Date.now() + 15 * 86400000).toISOString(), // 15 days from now
+        selectedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Plan.BENEFIT_UTILIZED:
+      return {
+        benefitId: '550e8400-e29b-41d4-a716-446655440000',
+        benefitType: 'wellness',
+        providerId: '550e8400-e29b-41d4-a716-446655440001',
+        utilizationDate: new Date().toISOString(),
+        savingsAmount: 150.00
+      };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Creates test data for gamification events based on seed data patterns
+ * 
+ * @param eventType The type of gamification event
+ * @returns Test data for the specified event type
+ */
+export function createGamificationEventTestData(eventType: JourneyEvents.Gamification | string): any {
+  switch (eventType) {
+    case JourneyEvents.Gamification.POINTS_EARNED:
+      return {
+        sourceType: 'health',
+        sourceId: '550e8400-e29b-41d4-a716-446655440000',
+        points: 50,
+        reason: 'Completed daily step goal',
+        earnedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Gamification.ACHIEVEMENT_UNLOCKED:
+      return {
+        achievementId: '550e8400-e29b-41d4-a716-446655440000',
+        achievementType: 'health-check-streak',
+        tier: 'silver',
+        points: 100,
+        unlockedAt: new Date().toISOString()
+      };
+    case JourneyEvents.Gamification.LEVEL_UP:
+      return {
+        previousLevel: 2,
+        newLevel: 3,
+        totalPoints: 500,
+        leveledUpAt: new Date().toISOString()
+      };
+    case JourneyEvents.Gamification.QUEST_COMPLETED:
+      return {
+        questId: '550e8400-e29b-41d4-a716-446655440000',
+        questType: 'weekly_challenge',
+        difficulty: 'medium',
+        points: 75,
+        completedAt: new Date().toISOString()
+      };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Creates test data for user events based on seed data patterns
+ * 
+ * @param eventType The type of user event
+ * @returns Test data for the specified event type
+ */
+export function createUserEventTestData(eventType: JourneyEvents.User | string): any {
+  switch (eventType) {
+    case JourneyEvents.User.PROFILE_COMPLETED:
+      return {
+        completionPercentage: 100,
+        completedSections: ['personal', 'medical', 'insurance', 'preferences'],
+        completedAt: new Date().toISOString()
+      };
+    case JourneyEvents.User.LOGIN:
+      return {
+        loginMethod: 'password',
+        deviceType: 'mobile',
+        loginAt: new Date().toISOString()
+      };
+    case JourneyEvents.User.ONBOARDING_COMPLETED:
+      return {
+        completedSteps: ['welcome', 'profile', 'journeys', 'notifications'],
+        selectedJourneys: ['health', 'care', 'plan'],
+        duration: 300, // 5 minutes
+        completedAt: new Date().toISOString()
+      };
+    case JourneyEvents.User.FEEDBACK_SUBMITTED:
+      return {
+        feedbackType: 'app',
+        rating: 4,
+        comments: 'Great app, very useful for managing my health!',
+        submittedAt: new Date().toISOString()
+      };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Creates test data for any event type based on journey and event type
+ * 
+ * @param eventType The type of event
+ * @returns Test data for the specified event type
+ */
+export function createEventTestData(eventType: EventType | string): any {
+  const eventTypeStr = eventType.toString();
+  
+  if (eventTypeStr.startsWith('HEALTH_')) {
+    return createHealthEventTestData(eventTypeStr);
+  } else if (eventTypeStr.startsWith('CARE_')) {
+    return createCareEventTestData(eventTypeStr);
+  } else if (eventTypeStr.startsWith('PLAN_')) {
+    return createPlanEventTestData(eventTypeStr);
+  } else if (eventTypeStr.startsWith('GAMIFICATION_')) {
+    return createGamificationEventTestData(eventTypeStr);
+  } else if (eventTypeStr.startsWith('USER_')) {
+    return createUserEventTestData(eventTypeStr);
+  }
+  
+  return {};
+}
+
+/**
+ * Creates an invalid test case by modifying a valid event data object
+ * 
+ * @param eventType The type of event
+ * @param fieldToInvalidate The field to make invalid
+ * @param invalidValue The invalid value to set
+ * @returns An object with invalid test data
+ */
+export function createInvalidEventTestData(
+  eventType: EventType | string,
+  fieldToInvalidate: string,
+  invalidValue: any
+): any {
+  const validData = createEventTestData(eventType);
+  
+  // Create a deep copy to avoid modifying the original
+  const invalidData = JSON.parse(JSON.stringify(validData));
+  
+  // Set the invalid value
+  if (fieldToInvalidate.includes('.')) {
+    // Handle nested fields
+    const parts = fieldToInvalidate.split('.');
+    let current = invalidData;
+    
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!current[parts[i]]) {
+        current[parts[i]] = {};
+      }
+      current = current[parts[i]];
+    }
+    
+    current[parts[parts.length - 1]] = invalidValue;
+  } else {
+    // Handle top-level fields
+    invalidData[fieldToInvalidate] = invalidValue;
+  }
+  
+  return invalidData;
+}
+
+/**
+ * Tests a custom validator function with various inputs
+ * 
+ * @param validatorFn The validator function to test
+ * @param testCases Array of test cases with input and expected result
+ * @returns Array of test results
+ */
+export function testCustomValidator(
+  validatorFn: (value: any) => boolean,
+  testCases: Array<{ input: any; expected: boolean; description: string }>
+): Array<{ input: any; expected: boolean; actual: boolean; passed: boolean; description: string }> {
+  return testCases.map(testCase => {
+    const actual = validatorFn(testCase.input);
+    return {
+      ...testCase,
+      actual,
+      passed: actual === testCase.expected
+    };
+  });
+}
+
+/**
+ * Tests version compatibility between different event schema versions
+ * 
+ * @param testCases Array of test cases with versions and expected compatibility
+ * @returns Array of test results
+ */
+export function testVersionCompatibility(
+  testCases: Array<{ currentVersion: string; requiredVersion: string; expected: boolean; description: string }>
+): Array<{ currentVersion: string; requiredVersion: string; expected: boolean; actual: boolean; passed: boolean; description: string }> {
+  return testCases.map(testCase => {
+    const actual = isVersionCompatible(testCase.currentVersion, testCase.requiredVersion);
+    return {
+      ...testCase,
+      actual,
+      passed: actual === testCase.expected
+    };
+  });
+}
+
+/**
+ * Tests version comparison between different event schema versions
+ * 
+ * @param testCases Array of test cases with versions and expected comparison result
+ * @returns Array of test results
+ */
+export function testVersionComparison(
+  testCases: Array<{ version1: string; version2: string; expected: number; description: string }>
+): Array<{ version1: string; version2: string; expected: number; actual: number; passed: boolean; description: string }> {
+  return testCases.map(testCase => {
+    const actual = compareVersions(testCase.version1, testCase.version2);
+    return {
+      ...testCase,
+      actual,
+      passed: actual === testCase.expected
+    };
+  });
+}
+
+/**
+ * Creates a set of validation test cases for an event type
+ * 
+ * @param eventType The type of event
+ * @param dtoClass The class of the DTO to test
+ * @returns Array of test cases
+ */
+export function createEventValidationTestCases<T>(
+  eventType: EventType | string,
+  dtoClass: new () => T
+): ValidationTestCase<T>[] {
+  const validData = createEventTestData(eventType);
+  
+  // Create a basic set of test cases
+  const testCases: ValidationTestCase<T>[] = [
+    {
+      description: 'Valid event data should pass validation',
+      data: validData as any,
+      shouldPass: true
+    }
+  ];
+  
+  // Add test cases for required fields
+  Object.keys(validData).forEach(field => {
+    testCases.push({
+      description: `Missing required field '${field}' should fail validation`,
+      data: { ...validData, [field]: undefined } as any,
+      expectedErrors: [field],
+      shouldPass: false
+    });
+  });
+  
+  return testCases;
+}
+
+/**
+ * Loads test data from the database using Prisma
+ * 
+ * @param prisma PrismaClient instance
+ * @param modelName Name of the Prisma model to query
+ * @param where Optional filter conditions
+ * @returns Promise resolving to an array of records
+ */
+export async function loadTestDataFromDb<T>(
+  prisma: PrismaClient,
+  modelName: string,
+  where: any = {}
+): Promise<T[]> {
+  const model = prisma[modelName as keyof PrismaClient] as any;
+  
+  if (!model || typeof model.findMany !== 'function') {
+    throw new Error(`Invalid model name: ${modelName}`);
+  }
+  
+  return model.findMany({ where }) as Promise<T[]>;
+}
+
+/**
+ * Creates a validation error object for testing
+ * 
+ * @param property The property that failed validation
+ * @param message The error message
+ * @param constraints Optional validation constraints
+ * @returns A ValidationError object
+ */
+export function createValidationError(
+  property: string,
+  message: string = 'Message failed schema validation',
+  constraints: Record<string, string> = {}
+): ValidationError {
+  return {
+    property,
+    errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+    message,
+    constraints
+  };
+}
+
+/**
+ * Asserts that a validation result contains errors for specific properties
+ * 
+ * @param result The validation result to check
+ * @param expectedErrorProperties Array of property names that should have errors
+ * @returns Boolean indicating if the assertion passed
+ */
+export function assertValidationErrorsForProperties(
+  result: ValidationTestResult,
+  expectedErrorProperties: string[]
+): boolean {
+  if (result.passed) {
+    return false;
+  }
+  
+  if (!result.errorProperties) {
+    return false;
+  }
+  
+  return expectedErrorProperties.every(prop => result.errorProperties!.includes(prop));
+}
+
+/**
+ * Asserts that a validation result contains specific error codes
+ * 
+ * @param result The validation result to check
+ * @param expectedErrorCodes Array of error codes that should be present
+ * @returns Boolean indicating if the assertion passed
+ */
+export function assertValidationErrorCodes(
+  result: ValidationTestResult,
+  expectedErrorCodes: string[]
+): boolean {
+  if (result.passed) {
+    return false;
+  }
+  
+  if (!result.errorCodes) {
+    return false;
+  }
+  
+  return expectedErrorCodes.every(code => result.errorCodes!.includes(code));
+}
+
+/**
+ * Generates a set of test cases for testing a custom validator decorator
  * 
  * @param decorator The decorator function to test
  * @param validValues Array of values that should pass validation
  * @param invalidValues Array of values that should fail validation
- * @param decoratorArgs Arguments to pass to the decorator
+ * @param propertyName The name of the property being validated
+ * @returns Array of test cases
  */
-export function testValidatorDecorator(
+export function generateDecoratorTestCases<T>(
   decorator: Function,
   validValues: any[],
   invalidValues: any[],
-  decoratorArgs: any[] = []
-): void {
+  propertyName: string = 'testProperty'
+): ValidationTestCase<T>[] {
+  const testCases: ValidationTestCase<T>[] = [];
+  
   // Create a test class with the decorator
   class TestClass {
-    @(decorator as any)(...decoratorArgs)
-    testProperty: any;
+    @decorator()
+    [propertyName]: any;
   }
   
-  // Test valid values
-  for (const value of validValues) {
-    const instance = new TestClass();
-    instance.testProperty = value;
-    
-    const errors = validateSync(instance);
-    expect(errors.length).toBe(0);
-  }
+  // Add test cases for valid values
+  validValues.forEach((value, index) => {
+    testCases.push({
+      description: `Valid value #${index + 1} should pass validation`,
+      data: { [propertyName]: value } as any,
+      shouldPass: true
+    });
+  });
   
-  // Test invalid values
-  for (const value of invalidValues) {
-    const instance = new TestClass();
-    instance.testProperty = value;
-    
-    const errors = validateSync(instance);
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0].property).toBe('testProperty');
-  }
+  // Add test cases for invalid values
+  invalidValues.forEach((value, index) => {
+    testCases.push({
+      description: `Invalid value #${index + 1} should fail validation`,
+      data: { [propertyName]: value } as any,
+      expectedErrors: [propertyName],
+      shouldPass: false
+    });
+  });
+  
+  return testCases;
 }
 
 /**
- * Tests a custom validator constraint
+ * Generates a set of test cases for testing conditional validation
  * 
- * @param constraintClass The validator constraint class to test
- * @param validValues Array of values that should pass validation
- * @param invalidValues Array of values that should fail validation
- * @param constraintArgs Arguments to pass to the constraint
+ * @param conditionProperty The property that controls the condition
+ * @param conditionValues The values of the condition property that trigger validation
+ * @param targetProperty The property being conditionally validated
+ * @param validValues Values for the target property that should pass validation
+ * @param invalidValues Values for the target property that should fail validation
+ * @returns Array of test cases
  */
-export function testValidatorConstraint(
-  constraintClass: new () => any,
+export function generateConditionalValidationTestCases<T>(
+  conditionProperty: string,
+  conditionValues: any[],
+  targetProperty: string,
   validValues: any[],
-  invalidValues: any[],
-  constraintArgs: any[] = []
-): void {
-  const constraint = new constraintClass();
+  invalidValues: any[]
+): ValidationTestCase<T>[] {
+  const testCases: ValidationTestCase<T>[] = [];
   
-  // Test valid values
-  for (const value of validValues) {
-    const isValid = constraint.validate(value, { constraints: constraintArgs } as any);
-    expect(isValid).toBe(true);
-  }
-  
-  // Test invalid values
-  for (const value of invalidValues) {
-    const isValid = constraint.validate(value, { constraints: constraintArgs } as any);
-    expect(isValid).toBe(false);
-  }
-  
-  // Test error message
-  expect(typeof constraint.defaultMessage({ property: 'testProperty', constraints: constraintArgs } as any)).toBe('string');
-}
-
-// ===================================================================
-// Schema Evolution Testing Utilities
-// ===================================================================
-
-/**
- * Options for testing schema evolution
- */
-export interface SchemaEvolutionTestOptions {
-  /**
-   * The old version of the schema
-   */
-  oldVersion: { major: number; minor: number; patch: number };
-  
-  /**
-   * The new version of the schema
-   */
-  newVersion: { major: number; minor: number; patch: number };
-  
-  /**
-   * Whether backward compatibility is expected
-   * @default true for minor and patch versions, false for major versions
-   */
-  expectBackwardCompatible?: boolean;
-  
-  /**
-   * Fields that are expected to be added in the new version
-   */
-  expectedAddedFields?: string[];
-  
-  /**
-   * Fields that are expected to be removed in the new version
-   */
-  expectedRemovedFields?: string[];
-  
-  /**
-   * Fields that are expected to be modified in the new version
-   */
-  expectedModifiedFields?: string[];
-}
-
-/**
- * Tests schema evolution between versions
- * 
- * @param oldSchema The old schema (DTO class or Zod schema)
- * @param newSchema The new schema (DTO class or Zod schema)
- * @param testData Test data that conforms to the old schema
- * @param options Schema evolution test options
- */
-export function testSchemaEvolution(
-  oldSchema: any,
-  newSchema: any,
-  testData: Record<string, any>,
-  options: SchemaEvolutionTestOptions
-): void {
-  const { oldVersion, newVersion } = options;
-  
-  // Determine if backward compatibility is expected based on version changes
-  const isMajorChange = newVersion.major > oldVersion.major;
-  const expectBackwardCompatible = options.expectBackwardCompatible ?? !isMajorChange;
-  
-  // Create versioned test data
-  const versionedTestData = {
-    version: oldVersion,
-    payload: testData
-  };
-  
-  // Test backward compatibility
-  if (expectBackwardCompatible) {
-    // Data that conforms to the old schema should be valid with the new schema
-    if (oldSchema.prototype && newSchema.prototype) {
-      // Class-validator schemas (DTO classes)
-      const oldInstance = plainToInstance(oldSchema, testData);
-      const oldErrors = validateSync(oldInstance);
-      
-      const newInstance = plainToInstance(newSchema, testData);
-      const newErrors = validateSync(newInstance);
-      
-      // If data is valid with old schema, it should be valid with new schema
-      if (oldErrors.length === 0) {
-        expect(newErrors.length).toBe(0);
-      }
-    } else {
-      // Zod schemas
-      const oldResult = oldSchema.safeParse(testData);
-      const newResult = newSchema.safeParse(testData);
-      
-      // If data is valid with old schema, it should be valid with new schema
-      if (oldResult.success) {
-        expect(newResult.success).toBe(true);
-      }
-    }
-  }
-  
-  // Test field changes
-  if (options.expectedAddedFields || options.expectedRemovedFields || options.expectedModifiedFields) {
-    // Get schema properties
-    const oldProperties = getSchemaProperties(oldSchema);
-    const newProperties = getSchemaProperties(newSchema);
-    
-    // Check added fields
-    if (options.expectedAddedFields) {
-      options.expectedAddedFields.forEach(field => {
-        expect(oldProperties).not.toContain(field);
-        expect(newProperties).toContain(field);
+  // Test cases where the condition is met and validation should occur
+  conditionValues.forEach(conditionValue => {
+    // Valid values should pass
+    validValues.forEach((validValue, index) => {
+      testCases.push({
+        description: `When ${conditionProperty}=${JSON.stringify(conditionValue)}, valid ${targetProperty} #${index + 1} should pass`,
+        data: { [conditionProperty]: conditionValue, [targetProperty]: validValue } as any,
+        shouldPass: true
       });
-    }
+    });
     
-    // Check removed fields
-    if (options.expectedRemovedFields) {
-      options.expectedRemovedFields.forEach(field => {
-        expect(oldProperties).toContain(field);
-        expect(newProperties).not.toContain(field);
+    // Invalid values should fail
+    invalidValues.forEach((invalidValue, index) => {
+      testCases.push({
+        description: `When ${conditionProperty}=${JSON.stringify(conditionValue)}, invalid ${targetProperty} #${index + 1} should fail`,
+        data: { [conditionProperty]: conditionValue, [targetProperty]: invalidValue } as any,
+        expectedErrors: [targetProperty],
+        shouldPass: false
       });
-    }
-    
-    // Check modified fields (present in both but with different validation rules)
-    if (options.expectedModifiedFields) {
-      options.expectedModifiedFields.forEach(field => {
-        expect(oldProperties).toContain(field);
-        expect(newProperties).toContain(field);
-        
-        // Additional checks for modified fields could be added here
-        // This would require more detailed schema introspection
-      });
-    }
-  }
-}
-
-/**
- * Gets the property names from a schema
- * 
- * @param schema The schema (DTO class or Zod schema)
- * @returns Array of property names
- */
-function getSchemaProperties(schema: any): string[] {
-  if (schema.prototype) {
-    // Class-validator schema (DTO class)
-    // Get metadata or use reflection to get properties
-    return Object.getOwnPropertyNames(schema.prototype)
-      .filter(prop => prop !== 'constructor');
-  } else {
-    // Zod schema
-    // This is a simplified approach; actual Zod schema introspection is more complex
-    try {
-      const shape = (schema as any)._def?.shape;
-      return shape ? Object.keys(shape) : [];
-    } catch (error) {
-      return [];
-    }
-  }
-}
-
-// ===================================================================
-// Error Handling Testing Utilities
-// ===================================================================
-
-/**
- * Tests error handling for validation failures
- * 
- * @param journey The journey type
- * @param eventType The event type
- * @param invalidData Invalid event data that should fail validation
- * @param expectedErrorType Expected error type
- * @param expectedErrorProperties Expected properties on the error object
- */
-export function testValidationErrorHandling(
-  journey: JourneyType,
-  eventType: string,
-  invalidData: Record<string, any>,
-  expectedErrorType: new (...args: any[]) => Error = EventValidationError,
-  expectedErrorProperties: string[] = []
-): void {
-  // Create an invalid event
-  const invalidEvent = generateTestEvent(journey, eventType, {
-    invalid: true,
-    customData: invalidData
+    });
   });
   
-  // Determine the appropriate DTO class based on journey
-  let dtoClass: ClassConstructor<any>;
+  return testCases;
+}
+
+/**
+ * Generates test data for all event types in a journey
+ * 
+ * @param journey The journey to generate test data for
+ * @returns Object mapping event types to test data
+ */
+export function generateJourneyTestData(journey: 'health' | 'care' | 'plan' | 'user' | 'gamification'): Record<string, any> {
+  const result: Record<string, any> = {};
+  let eventTypes: string[] = [];
+  
   switch (journey) {
-    case JourneyType.HEALTH:
-      dtoClass = HealthEventDto;
+    case 'health':
+      eventTypes = Object.values(JourneyEvents.Health);
       break;
-    case JourneyType.CARE:
-      dtoClass = CareEventDto;
+    case 'care':
+      eventTypes = Object.values(JourneyEvents.Care);
       break;
-    case JourneyType.PLAN:
-      dtoClass = PlanEventDto;
+    case 'plan':
+      eventTypes = Object.values(JourneyEvents.Plan);
       break;
-    default:
-      dtoClass = BaseEventDto;
+    case 'user':
+      eventTypes = Object.values(JourneyEvents.User);
+      break;
+    case 'gamification':
+      eventTypes = Object.values(JourneyEvents.Gamification);
+      break;
   }
   
-  // Test that validation throws the expected error
-  expect(() => {
-    validateEventOrThrowSync(invalidEvent, dtoClass, {
-      journey: journey,
-      eventType: eventType
-    });
-  }).toThrow(expectedErrorType);
-  
-  // Test that the error has the expected properties
-  try {
-    validateEventOrThrowSync(invalidEvent, dtoClass, {
-      journey: journey,
-      eventType: eventType
-    });
-  } catch (error) {
-    expect(error).toBeInstanceOf(expectedErrorType);
-    
-    // Check expected error properties
-    expectedErrorProperties.forEach(prop => {
-      expect(error).toHaveProperty(prop);
-    });
-    
-    // Check that error context contains validation issues
-    if (error instanceof EventValidationError) {
-      expect(error.context).toBeDefined();
-      expect(error.context.details).toBeDefined();
-      expect(error.context.details.validationIssues).toBeDefined();
-      expect(error.context.details.validationIssues.length).toBeGreaterThan(0);
-    }
+  for (const eventType of eventTypes) {
+    result[eventType] = createEventTestData(eventType);
   }
-}
-
-/**
- * Tests that validation errors are properly propagated through the event processing pipeline
- * 
- * @param journey The journey type
- * @param eventType The event type
- * @param invalidData Invalid event data that should fail validation
- * @param processingFunction Function that processes the event (should propagate validation errors)
- */
-export function testValidationErrorPropagation(
-  journey: JourneyType,
-  eventType: string,
-  invalidData: Record<string, any>,
-  processingFunction: (event: any) => any
-): void {
-  // Create an invalid event
-  const invalidEvent = generateTestEvent(journey, eventType, {
-    invalid: true,
-    customData: invalidData
-  });
   
-  // Test that the processing function propagates validation errors
-  expect(() => {
-    processingFunction(invalidEvent);
-  }).toThrow(EventValidationError);
+  return result;
 }

@@ -1,62 +1,41 @@
 /**
- * Default values used throughout the tracing package.
- * These defaults ensure tracing works correctly even with minimal configuration.
+ * Default values for the tracing package.
+ * These defaults ensure consistent tracing behavior across the application
+ * even with minimal configuration.
  */
 
 /**
- * Default service name used when no service name is provided in configuration.
+ * Default service name used when no service name is provided.
  * This ensures traces are properly attributed even without explicit configuration.
  */
 export const DEFAULT_SERVICE_NAME = 'austa-service';
 
 /**
  * Default span name used for unnamed spans.
- * Following OpenTelemetry best practices, unnamed spans should have a descriptive default name.
+ * This helps identify spans that were created without explicit names.
  */
-export const DEFAULT_SPAN_NAME = 'unnamed-span';
+export const DEFAULT_SPAN_NAME = 'unnamed-operation';
 
 /**
  * Default logger context used for tracing-related log messages.
- * This standardizes the context for all tracing logs across the application.
+ * This ensures consistent log categorization for tracing operations.
  */
 export const DEFAULT_LOGGER_CONTEXT = 'AustaTracing';
 
 /**
- * Default sampling rate for traces when not explicitly configured.
- * 1.0 means 100% of traces are sampled.
+ * Default sampling rate for traces (1.0 = 100% of traces are sampled).
+ * Can be overridden through configuration.
  */
 export const DEFAULT_SAMPLING_RATE = 1.0;
 
 /**
- * Default maximum number of retry attempts for trace export operations.
+ * Maximum number of attributes that can be added to a span.
+ * This prevents excessive memory usage from spans with too many attributes.
  */
-export const DEFAULT_EXPORT_RETRY_ATTEMPTS = 3;
+export const MAX_SPAN_ATTRIBUTES = 128;
 
 /**
- * Default timeout in milliseconds for tracing operations.
+ * Default timeout in milliseconds for span operations.
+ * Used to automatically time out spans that might be left open.
  */
-export const DEFAULT_TRACING_TIMEOUT_MS = 30000; // 30 seconds
-
-/**
- * Default batch size for span processor.
- * Controls how many spans are batched together before being exported.
- */
-export const DEFAULT_BATCH_SIZE = 512;
-
-/**
- * Default maximum queue size for the span processor.
- * If the queue is full, spans may be dropped.
- */
-export const DEFAULT_QUEUE_SIZE = 2048;
-
-/**
- * Default schedule delay in milliseconds for the batch span processor.
- * Controls how often the processor exports spans even if the batch size isn't reached.
- */
-export const DEFAULT_SCHEDULE_DELAY_MS = 5000; // 5 seconds
-
-/**
- * Default journey context attribute name.
- * Used to associate spans with specific user journeys in the AUSTA SuperApp.
- */
-export const DEFAULT_JOURNEY_CONTEXT_ATTRIBUTE = 'austa.journey.context';
+export const DEFAULT_SPAN_TIMEOUT_MS = 30000; // 30 seconds

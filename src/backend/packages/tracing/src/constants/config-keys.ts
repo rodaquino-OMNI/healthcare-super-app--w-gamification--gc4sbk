@@ -1,67 +1,232 @@
 /**
- * Configuration keys used by the tracing package to retrieve values from environment variables or config files.
- * Centralizing these keys ensures consistent configuration access throughout the application.
+ * @file Configuration key constants for the tracing package.
+ * 
+ * This file defines standardized configuration keys used throughout the tracing package
+ * to retrieve values from environment variables or configuration files. Centralizing these
+ * keys ensures consistent configuration access throughout the application.
  */
 
 /**
- * Base namespace for all tracing-related configuration keys
+ * Base namespace for all tracing-related configuration keys.
  */
-export const TRACING_CONFIG_NAMESPACE = 'tracing';
+const TRACING_NAMESPACE = 'tracing';
 
 /**
- * Configuration key for the service name used in traces
- * This is used to identify the service in distributed traces
+ * Service configuration keys.
  */
-export const SERVICE_NAME_CONFIG_KEY = 'service.name';
+export const SERVICE = {
+  /**
+   * Key for the service name used in traces.
+   * This is used to identify the service in distributed traces.
+   */
+  NAME: `${TRACING_NAMESPACE}.service.name`,
+  
+  /**
+   * Key for the service version used in traces.
+   * This is used to identify the version of the service in distributed traces.
+   */
+  VERSION: `${TRACING_NAMESPACE}.service.version`,
+  
+  /**
+   * Key for the service environment used in traces.
+   * This is used to identify the environment (e.g., production, staging) in distributed traces.
+   */
+  ENVIRONMENT: `${TRACING_NAMESPACE}.service.environment`,
+};
 
 /**
- * Configuration key for enabling/disabling tracing
+ * Exporter configuration keys.
  */
-export const TRACING_ENABLED_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.enabled`;
+export const EXPORTER = {
+  /**
+   * Key for the exporter type configuration.
+   * Supported values: 'jaeger', 'zipkin', 'otlp', 'console', 'none'
+   */
+  TYPE: `${TRACING_NAMESPACE}.exporter.type`,
+  
+  /**
+   * Key for the exporter endpoint configuration.
+   * This is the URL where traces will be sent.
+   */
+  ENDPOINT: `${TRACING_NAMESPACE}.exporter.endpoint`,
+  
+  /**
+   * Key for the exporter headers configuration.
+   * These are additional headers to include when sending traces to the endpoint.
+   */
+  HEADERS: `${TRACING_NAMESPACE}.exporter.headers`,
+  
+  /**
+   * Key for the exporter timeout configuration in milliseconds.
+   */
+  TIMEOUT: `${TRACING_NAMESPACE}.exporter.timeout`,
+};
 
 /**
- * Configuration key for the tracing sampling rate
- * Value should be between 0.0 and 1.0, where:
- * - 0.0 means no traces are sampled
- * - 1.0 means all traces are sampled
+ * Sampling configuration keys.
  */
-export const TRACING_SAMPLING_RATE_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.sampling.rate`;
+export const SAMPLING = {
+  /**
+   * Key for the sampling ratio configuration.
+   * Value between 0.0 and 1.0 representing the percentage of traces to sample.
+   */
+  RATIO: `${TRACING_NAMESPACE}.sampling.ratio`,
+  
+  /**
+   * Key for the sampling strategy configuration.
+   * Supported values: 'always', 'never', 'probability', 'parentbased'
+   */
+  STRATEGY: `${TRACING_NAMESPACE}.sampling.strategy`,
+};
 
 /**
- * Configuration key for the OpenTelemetry exporter type
- * Supported values: 'jaeger', 'zipkin', 'otlp', 'console'
+ * Resource attribute configuration keys.
  */
-export const TRACING_EXPORTER_TYPE_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.exporter.type`;
+export const RESOURCE = {
+  /**
+   * Key for additional resource attributes to include in all spans.
+   * This should be a JSON string of key-value pairs.
+   */
+  ATTRIBUTES: `${TRACING_NAMESPACE}.resource.attributes`,
+  
+  /**
+   * Key for enabling or disabling automatic resource detection.
+   */
+  AUTO_DETECT: `${TRACING_NAMESPACE}.resource.autoDetect`,
+};
 
 /**
- * Configuration key for the OpenTelemetry exporter endpoint
- * This is the URL where traces will be sent
+ * Batch processor configuration keys.
  */
-export const TRACING_EXPORTER_ENDPOINT_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.exporter.endpoint`;
+export const BATCH_PROCESSOR = {
+  /**
+   * Key for the maximum batch size configuration.
+   * This is the maximum number of spans to include in a batch.
+   */
+  MAX_BATCH_SIZE: `${TRACING_NAMESPACE}.batchProcessor.maxBatchSize`,
+  
+  /**
+   * Key for the maximum export batch size configuration.
+   * This is the maximum number of spans to export in a single batch.
+   */
+  MAX_EXPORT_BATCH_SIZE: `${TRACING_NAMESPACE}.batchProcessor.maxExportBatchSize`,
+  
+  /**
+   * Key for the export timeout configuration in milliseconds.
+   * This is the maximum time to wait for a batch to be exported.
+   */
+  EXPORT_TIMEOUT: `${TRACING_NAMESPACE}.batchProcessor.exportTimeout`,
+  
+  /**
+   * Key for the schedule delay configuration in milliseconds.
+   * This is the delay between two consecutive exports.
+   */
+  SCHEDULE_DELAY: `${TRACING_NAMESPACE}.batchProcessor.scheduleDelay`,
+};
 
 /**
- * Configuration key for the maximum number of attributes per span
+ * Journey-specific configuration keys.
  */
-export const TRACING_MAX_ATTRIBUTES_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.span.maxAttributes`;
+export const JOURNEY = {
+  /**
+   * Key for enabling or disabling health journey tracing.
+   */
+  HEALTH_ENABLED: `${TRACING_NAMESPACE}.journey.health.enabled`,
+  
+  /**
+   * Key for enabling or disabling care journey tracing.
+   */
+  CARE_ENABLED: `${TRACING_NAMESPACE}.journey.care.enabled`,
+  
+  /**
+   * Key for enabling or disabling plan journey tracing.
+   */
+  PLAN_ENABLED: `${TRACING_NAMESPACE}.journey.plan.enabled`,
+  
+  /**
+   * Key for health journey sampling ratio configuration.
+   * Value between 0.0 and 1.0 representing the percentage of health journey traces to sample.
+   */
+  HEALTH_SAMPLING_RATIO: `${TRACING_NAMESPACE}.journey.health.samplingRatio`,
+  
+  /**
+   * Key for care journey sampling ratio configuration.
+   * Value between 0.0 and 1.0 representing the percentage of care journey traces to sample.
+   */
+  CARE_SAMPLING_RATIO: `${TRACING_NAMESPACE}.journey.care.samplingRatio`,
+  
+  /**
+   * Key for plan journey sampling ratio configuration.
+   * Value between 0.0 and 1.0 representing the percentage of plan journey traces to sample.
+   */
+  PLAN_SAMPLING_RATIO: `${TRACING_NAMESPACE}.journey.plan.samplingRatio`,
+};
 
 /**
- * Configuration key for the maximum number of events per span
+ * General tracing configuration keys.
  */
-export const TRACING_MAX_EVENTS_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.span.maxEvents`;
+export const GENERAL = {
+  /**
+   * Key for enabling or disabling tracing globally.
+   */
+  ENABLED: `${TRACING_NAMESPACE}.enabled`,
+  
+  /**
+   * Key for the log level for tracing operations.
+   * Supported values: 'debug', 'info', 'warn', 'error'
+   */
+  LOG_LEVEL: `${TRACING_NAMESPACE}.logLevel`,
+  
+  /**
+   * Key for enabling or disabling trace context propagation.
+   */
+  CONTEXT_PROPAGATION_ENABLED: `${TRACING_NAMESPACE}.contextPropagation.enabled`,
+};
 
 /**
- * Configuration key for the maximum number of links per span
+ * Aggregated configuration keys for the tracing package.
+ * This is the main export that should be used by consumers of this file.
  */
-export const TRACING_MAX_LINKS_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.span.maxLinks`;
-
-/**
- * Configuration key for the journey context propagation
- * When enabled, journey-specific context will be included in traces
- */
-export const TRACING_JOURNEY_CONTEXT_ENABLED_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.journeyContext.enabled`;
-
-/**
- * Configuration key for the log correlation
- * When enabled, trace IDs will be included in logs for correlation
- */
-export const TRACING_LOG_CORRELATION_ENABLED_CONFIG_KEY = `${TRACING_CONFIG_NAMESPACE}.logCorrelation.enabled`;
+export const CONFIG_KEYS = {
+  /**
+   * Key for the service name used in traces.
+   * This is used to identify the service in distributed traces.
+   * @deprecated Use SERVICE.NAME instead for better organization.
+   */
+  SERVICE_NAME: SERVICE.NAME,
+  
+  /**
+   * All service-related configuration keys.
+   */
+  SERVICE,
+  
+  /**
+   * All exporter-related configuration keys.
+   */
+  EXPORTER,
+  
+  /**
+   * All sampling-related configuration keys.
+   */
+  SAMPLING,
+  
+  /**
+   * All resource-related configuration keys.
+   */
+  RESOURCE,
+  
+  /**
+   * All batch processor-related configuration keys.
+   */
+  BATCH_PROCESSOR,
+  
+  /**
+   * All journey-specific configuration keys.
+   */
+  JOURNEY,
+  
+  /**
+   * All general tracing configuration keys.
+   */
+  GENERAL,
+};

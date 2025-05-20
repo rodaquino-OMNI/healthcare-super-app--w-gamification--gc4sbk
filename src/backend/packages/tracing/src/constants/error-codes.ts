@@ -1,68 +1,75 @@
 /**
- * Error code constants for tracing operations.
+ * @file Error code constants for tracing operations.
  * 
- * These constants provide standardized error codes for consistent error reporting
- * and logging throughout the tracing implementation. Each error code follows the
- * format TRACING_[CATEGORY]_[DESCRIPTION] for easy identification and categorization.
+ * This file defines standardized error codes used throughout the tracing package
+ * for consistent error reporting and logging. Each error code follows the format
+ * 'TRACING_XXX' where XXX is a specific error identifier.
  */
 
 /**
- * Error codes related to tracer initialization and configuration.
+ * Error codes related to tracer initialization.
  */
-export const TRACER_INITIALIZATION_ERROR = 'TRACING_INIT_FAILED';
-export const TRACER_CONFIGURATION_ERROR = 'TRACING_CONFIG_INVALID';
-export const TRACER_PROVIDER_NOT_FOUND = 'TRACING_PROVIDER_NOT_FOUND';
-export const TRACER_SERVICE_NAME_MISSING = 'TRACING_SERVICE_NAME_MISSING';
-export const TRACER_EXPORTER_ERROR = 'TRACING_EXPORTER_FAILED';
+export const TRACER_INIT_FAILED = 'TRACING_001';
+export const TRACER_CONFIG_INVALID = 'TRACING_002';
+export const TRACER_PROVIDER_NOT_FOUND = 'TRACING_003';
 
 /**
  * Error codes related to span operations.
  */
-export const SPAN_CREATION_ERROR = 'TRACING_SPAN_CREATION_FAILED';
-export const SPAN_RECORDING_ERROR = 'TRACING_SPAN_RECORDING_FAILED';
-export const SPAN_ENDING_ERROR = 'TRACING_SPAN_ENDING_FAILED';
-export const SPAN_ATTRIBUTE_ERROR = 'TRACING_SPAN_ATTRIBUTE_INVALID';
-export const SPAN_EVENT_ERROR = 'TRACING_SPAN_EVENT_FAILED';
+export const SPAN_CREATION_FAILED = 'TRACING_101';
+export const SPAN_RECORDING_FAILED = 'TRACING_102';
+export const SPAN_ATTRIBUTE_INVALID = 'TRACING_103';
+export const SPAN_CONTEXT_LOST = 'TRACING_104';
 
 /**
  * Error codes related to context propagation.
  */
-export const CONTEXT_EXTRACTION_ERROR = 'TRACING_CONTEXT_EXTRACTION_FAILED';
-export const CONTEXT_INJECTION_ERROR = 'TRACING_CONTEXT_INJECTION_FAILED';
-export const CONTEXT_INVALID_ERROR = 'TRACING_CONTEXT_INVALID';
-export const CONTEXT_MISSING_ERROR = 'TRACING_CONTEXT_MISSING';
+export const CONTEXT_PROPAGATION_FAILED = 'TRACING_201';
+export const CONTEXT_EXTRACTION_FAILED = 'TRACING_202';
+export const CONTEXT_INJECTION_FAILED = 'TRACING_203';
 
 /**
- * Error codes related to journey-specific tracing.
+ * Error codes related to exporter configuration.
  */
-export const JOURNEY_CONTEXT_ERROR = 'TRACING_JOURNEY_CONTEXT_INVALID';
-export const JOURNEY_ATTRIBUTE_ERROR = 'TRACING_JOURNEY_ATTRIBUTE_INVALID';
-export const JOURNEY_CORRELATION_ERROR = 'TRACING_JOURNEY_CORRELATION_FAILED';
+export const EXPORTER_INIT_FAILED = 'TRACING_301';
+export const EXPORTER_CONNECTION_FAILED = 'TRACING_302';
+export const EXPORTER_CONFIGURATION_INVALID = 'TRACING_303';
+
+/**
+ * Error codes related to resource detection and configuration.
+ */
+export const RESOURCE_DETECTION_FAILED = 'TRACING_401';
+export const RESOURCE_ATTRIBUTE_INVALID = 'TRACING_402';
+
+/**
+ * Error codes related to sampling configuration.
+ */
+export const SAMPLER_CONFIGURATION_INVALID = 'TRACING_501';
+export const SAMPLING_DECISION_FAILED = 'TRACING_502';
+
+/**
+ * Error codes related to instrumentation.
+ */
+export const INSTRUMENTATION_INIT_FAILED = 'TRACING_601';
+export const INSTRUMENTATION_CONFLICT = 'TRACING_602';
+export const INSTRUMENTATION_DISABLED = 'TRACING_603';
+
+/**
+ * Error codes related to batch processing.
+ */
+export const BATCH_PROCESSOR_INIT_FAILED = 'TRACING_701';
+export const BATCH_PROCESSING_FAILED = 'TRACING_702';
+export const BATCH_EXPORT_TIMEOUT = 'TRACING_703';
+
+/**
+ * Error codes related to shutdown operations.
+ */
+export const SHUTDOWN_TIMEOUT = 'TRACING_801';
+export const FLUSH_FAILED = 'TRACING_802';
 
 /**
  * Error codes related to general tracing operations.
  */
-export const TRACING_DISABLED_ERROR = 'TRACING_DISABLED';
-export const TRACING_SAMPLING_ERROR = 'TRACING_SAMPLING_FAILED';
-export const TRACING_RESOURCE_ERROR = 'TRACING_RESOURCE_INVALID';
-export const TRACING_PROPAGATOR_ERROR = 'TRACING_PROPAGATOR_FAILED';
-
-/**
- * Error codes related to external system integration.
- */
-export const EXTERNAL_SYSTEM_TRACING_ERROR = 'TRACING_EXTERNAL_SYSTEM_FAILED';
-export const EXTERNAL_CONTEXT_PROPAGATION_ERROR = 'TRACING_EXTERNAL_CONTEXT_FAILED';
-
-/**
- * Error codes related to performance and resource constraints.
- */
-export const TRACING_RATE_LIMIT_EXCEEDED = 'TRACING_RATE_LIMIT_EXCEEDED';
-export const TRACING_RESOURCE_EXHAUSTED = 'TRACING_RESOURCE_EXHAUSTED';
-
-/**
- * Error codes related to OpenTelemetry status codes.
- * These map to the standard OpenTelemetry status codes for spans.
- */
-export const OTEL_STATUS_UNSET = 'TRACING_STATUS_UNSET';
-export const OTEL_STATUS_OK = 'TRACING_STATUS_OK';
-export const OTEL_STATUS_ERROR = 'TRACING_STATUS_ERROR';
+export const TRACING_DISABLED = 'TRACING_901';
+export const TRACING_CONFIGURATION_INVALID = 'TRACING_902';
+export const TRACING_OPERATION_FAILED = 'TRACING_999';
