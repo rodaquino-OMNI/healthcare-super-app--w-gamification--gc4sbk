@@ -1,361 +1,329 @@
 /**
- * Retry mechanism for HTTP requests
- * 
- * This module provides a configurable retry mechanism for HTTP requests with
- * exponential backoff, jitter, and timeout handling. It enhances the reliability
- * of network operations by automatically retrying failed requests according to
- * configurable policies.
+ * @file HTTP retry utility with exponential backoff, jitter, and timeout handling
+ * @description Provides a configurable retry mechanism for HTTP requests to enhance
+ * reliability during transient network failures or service unavailability.
  */
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 
 /**
- * Retry policy configuration
+ * Configuration options for retry mechanism
  */
-export interface RetryPolicy {
-  /** Maximum number of retry attempts (default: 3) */
+export interface RetryConfig {
+  /** Maximum number of retry attempts */
   maxRetries: number;
-  /** Initial delay in milliseconds before the first retry (default: 300) */
-  initialDelayMs: number;
-  /** Maximum delay in milliseconds between retries (default: 30000) */
-  maxDelayMs: number;
-  /** Backoff factor for exponential delay calculation (default: 2) */
-  backoffFactor: number;
-  /** Jitter factor to randomize delay (0-1, default: 0.25) */
-  jitterFactor: number;
-  /** Request timeout in milliseconds (default: 10000) */
-  timeoutMs: number;
-  /** Custom function to determine if a request should be retried */
-  retryCondition?: (error: any) => boolean;
-  /** Optional callback for retry attempts */
-  onRetry?: (retryCount: number, error: any, delayMs: number) => void;
+  /** Base delay in milliseconds between retries */
+  retryDelay: number;
+  /** Maximum delay in milliseconds between retries */
+  maxRetryDelay?: number;
+  /** Whether to apply jitter to retry delays to prevent thundering herd problem */
+  useJitter?: boolean;
+  /** Timeout in milliseconds for each retry attempt */
+  timeout?: number;
+  /** 
+   * Function to determine if a request should be retried based on the error
+   * @param error The error that occurred during the request
+   * @returns Whether the request should be retried
+   */
+  retryCondition?: (error: AxiosError) => boolean;
+  /** 
+   * Function to calculate delay between retries
+   * @param retryCount Current retry attempt number (starting from 1)
+   * @param error The error that occurred during the request
+   * @returns Delay in milliseconds before the next retry
+   */
+  retryDelayCalculator?: (retryCount: number, error: AxiosError) => number;
+  /**
+   * Callback function that is called before each retry attempt
+   * @param retryCount Current retry attempt number (starting from 1)
+   * @param error The error that occurred during the request
+   * @param config The request configuration
+   */
+  onRetry?: (retryCount: number, error: AxiosError, config: AxiosRequestConfig) => void;
 }
 
 /**
- * Default retry policy suitable for most operations
- * Attempts 3 retries with exponential backoff starting at 300ms
+ * Default retry policy with moderate settings suitable for most scenarios
  */
-export const DEFAULT_RETRY_POLICY: RetryPolicy = {
+export const DEFAULT_RETRY_POLICY: RetryConfig = {
   maxRetries: 3,
-  initialDelayMs: 300,
-  maxDelayMs: 30000,
-  backoffFactor: 2,
-  jitterFactor: 0.25,
-  timeoutMs: 10000,
-  retryCondition: isRetryableError
+  retryDelay: 300,
+  maxRetryDelay: 30000,
+  useJitter: true,
+  timeout: 10000,
+  retryCondition: isRetryableError,
 };
 
 /**
  * Aggressive retry policy for critical operations
- * Attempts 5 retries with exponential backoff starting at 100ms
+ * Uses more retry attempts and longer delays
  */
-export const AGGRESSIVE_RETRY_POLICY: RetryPolicy = {
+export const AGGRESSIVE_RETRY_POLICY: RetryConfig = {
   maxRetries: 5,
-  initialDelayMs: 100,
-  maxDelayMs: 20000,
-  backoffFactor: 2,
-  jitterFactor: 0.2,
-  timeoutMs: 15000,
-  retryCondition: isRetryableError
+  retryDelay: 500,
+  maxRetryDelay: 60000,
+  useJitter: true,
+  timeout: 15000,
+  retryCondition: isRetryableError,
 };
 
 /**
  * Minimal retry policy for less critical operations
- * Attempts 2 retries with exponential backoff starting at 500ms
+ * Uses fewer retry attempts and shorter delays
  */
-export const MINIMAL_RETRY_POLICY: RetryPolicy = {
+export const MINIMAL_RETRY_POLICY: RetryConfig = {
   maxRetries: 2,
-  initialDelayMs: 500,
-  maxDelayMs: 10000,
-  backoffFactor: 2,
-  jitterFactor: 0.1,
-  timeoutMs: 5000,
-  retryCondition: isRetryableError
+  retryDelay: 200,
+  maxRetryDelay: 10000,
+  useJitter: true,
+  timeout: 5000,
+  retryCondition: isRetryableError,
 };
 
 /**
- * Retry statistics
+ * Extended Axios request config with retry-specific properties
  */
-export interface RetryStats {
-  /** Total number of requests attempted (including retries) */
-  totalAttempts: number;
-  /** Number of successful requests */
-  successfulRequests: number;
-  /** Number of failed requests */
-  failedRequests: number;
-  /** Number of retried requests */
-  retriedRequests: number;
-  /** Average retry count per request */
-  averageRetries: number;
-  /** Maximum retries for a single request */
-  maxRetriesUsed: number;
-  /** Timestamp of last retry */
-  lastRetry: Date | null;
+export interface RetryableRequestConfig extends AxiosRequestConfig {
+  /** Current retry attempt number (starting from 0) */
+  _retryCount?: number;
+  /** Original request timeout before applying retry-specific timeout */
+  _originalRequestTimeout?: number;
+  /** Retry configuration for this specific request */
+  retryConfig?: Partial<RetryConfig>;
 }
 
 /**
  * Determines if an error is retryable based on its type and status code
- * 
- * @param error - The error to check
- * @returns True if the error is retryable, false otherwise
+ * @param error The error to check
+ * @returns Whether the error is retryable
  */
-export function isRetryableError(error: any): boolean {
-  // Network errors are always retryable
-  if (!error.response && error.code === 'ECONNABORTED') {
+export function isRetryableError(error: AxiosError): boolean {
+  // Don't retry if the request was cancelled
+  if (axios.isCancel(error)) {
+    return false;
+  }
+
+  // Retry network errors (no response received)
+  if (!error.response) {
     return true;
   }
-  
-  // Timeout errors are retryable
-  if (!error.response && error.code === 'ETIMEDOUT') {
-    return true;
-  }
-  
-  // Connection refused errors are retryable
-  if (!error.response && error.code === 'ECONNREFUSED') {
-    return true;
-  }
-  
-  // Socket hangup errors are retryable
-  if (!error.response && error.code === 'ECONNRESET') {
-    return true;
-  }
-  
-  // DNS resolution errors are retryable
-  if (!error.response && error.code === 'ENOTFOUND') {
-    return true;
-  }
-  
-  // Check for Axios error with response
-  if (error.isAxiosError && error.response) {
-    const status = error.response.status;
-    
-    // Server errors (5xx) are retryable
-    if (status >= 500 && status < 600) {
-      return true;
-    }
-    
-    // Specific 4xx errors that may be retryable
-    if (status === 408) { // Request Timeout
-      return true;
-    }
-    
-    if (status === 429) { // Too Many Requests
-      return true;
-    }
-    
-    if (status === 423) { // Locked
-      return true;
-    }
-  }
-  
-  return false;
+
+  // Retry server errors (5xx) and too many requests (429)
+  const status = error.response.status;
+  return (
+    status >= 500 || // Server errors
+    status === 429 || // Too many requests
+    status === 408    // Request timeout
+  );
 }
 
 /**
- * Calculates the delay for a retry attempt with exponential backoff and jitter
- * 
- * @param retryCount - Current retry attempt number (0-based)
- * @param policy - Retry policy configuration
- * @returns Delay in milliseconds for the next retry
+ * Calculates the delay before the next retry attempt using exponential backoff with optional jitter
+ * @param retryCount Current retry attempt number (starting from 1)
+ * @param config Retry configuration
+ * @param error The error that occurred during the request
+ * @returns Delay in milliseconds before the next retry
  */
-export function calculateBackoffDelay(retryCount: number, policy: RetryPolicy): number {
-  // Calculate exponential backoff: initialDelay * (backoffFactor ^ retryCount)
-  const exponentialDelay = policy.initialDelayMs * Math.pow(policy.backoffFactor, retryCount);
-  
-  // Apply maximum delay cap
-  const cappedDelay = Math.min(exponentialDelay, policy.maxDelayMs);
-  
-  // Apply jitter: delay * (1 - jitterFactor/2 + jitterFactor * random)
-  // This creates a range of [delay * (1 - jitterFactor/2), delay * (1 + jitterFactor/2)]
-  const jitterMultiplier = 1 - (policy.jitterFactor / 2) + (policy.jitterFactor * Math.random());
-  
-  // Calculate final delay with jitter
-  const finalDelay = Math.floor(cappedDelay * jitterMultiplier);
-  
-  return finalDelay;
+export function calculateRetryDelay(
+  retryCount: number,
+  config: RetryConfig,
+  error: AxiosError
+): number {
+  // Use custom calculator if provided
+  if (config.retryDelayCalculator) {
+    return config.retryDelayCalculator(retryCount, error);
+  }
+
+  // Check for Retry-After header in 429 or 503 responses
+  if (error.response) {
+    const retryAfterHeader = error.response.headers['retry-after'];
+    if (retryAfterHeader) {
+      // Retry-After can be a date string or seconds
+      if (isNaN(Number(retryAfterHeader))) {
+        // It's a date string
+        const retryAfterDate = new Date(retryAfterHeader);
+        const now = new Date();
+        return Math.max(0, retryAfterDate.getTime() - now.getTime());
+      } else {
+        // It's seconds
+        return parseInt(retryAfterHeader, 10) * 1000;
+      }
+    }
+  }
+
+  // Calculate exponential backoff: baseDelay * 2^retryCount
+  let delay = config.retryDelay * Math.pow(2, retryCount - 1);
+
+  // Apply maximum delay limit if specified
+  if (config.maxRetryDelay) {
+    delay = Math.min(delay, config.maxRetryDelay);
+  }
+
+  // Apply jitter to prevent thundering herd problem
+  if (config.useJitter) {
+    // Add random jitter between 0% and 25% of the delay
+    const jitter = Math.random() * 0.25 * delay;
+    delay = Math.floor(delay + jitter);
+  }
+
+  return delay;
 }
 
 /**
- * Creates a promise that resolves after a specified delay
- * 
- * @param delayMs - Delay in milliseconds
- * @returns Promise that resolves after the delay
+ * Creates a new Axios instance with retry capability
+ * @param axiosInstance The Axios instance to wrap with retry capability
+ * @param defaultConfig Default retry configuration to use for all requests
+ * @returns Axios instance with retry capability
  */
-export function delay(delayMs: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, delayMs));
+export function createRetryableAxios(
+  axiosInstance: AxiosInstance = axios.create(),
+  defaultConfig: Partial<RetryConfig> = DEFAULT_RETRY_POLICY
+): AxiosInstance {
+  // Merge default config with provided config
+  const retryConfig: RetryConfig = {
+    ...DEFAULT_RETRY_POLICY,
+    ...defaultConfig,
+  };
+
+  // Add response interceptor to handle retries
+  axiosInstance.interceptors.response.use(
+    // Success handler - just pass through the response
+    (response) => response,
+    // Error handler - handle retries
+    async (error: AxiosError) => {
+      const config = error.config as RetryableRequestConfig;
+      
+      // Initialize retry count if not already set
+      if (config._retryCount === undefined) {
+        config._retryCount = 0;
+        config._originalRequestTimeout = config.timeout;
+      }
+
+      // Merge request-specific retry config with default config
+      const requestRetryConfig: RetryConfig = {
+        ...retryConfig,
+        ...(config.retryConfig || {}),
+      };
+
+      // Check if we should retry the request
+      const shouldRetry =
+        config._retryCount < requestRetryConfig.maxRetries &&
+        (requestRetryConfig.retryCondition ? requestRetryConfig.retryCondition(error) : isRetryableError(error));
+
+      if (!shouldRetry) {
+        return Promise.reject(error);
+      }
+
+      // Increment retry count
+      config._retryCount++;
+
+      // Calculate delay before next retry
+      const delay = calculateRetryDelay(config._retryCount, requestRetryConfig, error);
+
+      // Call onRetry callback if provided
+      if (requestRetryConfig.onRetry) {
+        requestRetryConfig.onRetry(config._retryCount, error, config);
+      }
+
+      // Apply timeout for this retry if specified
+      if (requestRetryConfig.timeout) {
+        config.timeout = requestRetryConfig.timeout;
+      }
+
+      // Wait for the calculated delay
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      // Retry the request
+      return axiosInstance(config);
+    }
+  );
+
+  return axiosInstance;
 }
 
 /**
- * Retries an async function according to the provided retry policy
- * 
- * @param fn - Async function to retry
- * @param policy - Retry policy configuration
- * @returns Promise resolving to the function result or rejecting with the last error
+ * Performs an HTTP request with retry capability
+ * @param config The request configuration
+ * @param retryConfig Retry configuration for this request
+ * @returns Promise resolving to the response
  */
-export async function retryRequest<T>(
-  fn: () => Promise<T>,
-  policy: RetryPolicy = DEFAULT_RETRY_POLICY
+export async function retryRequest<T = any>(
+  config: AxiosRequestConfig,
+  retryConfig: Partial<RetryConfig> = {}
+): Promise<AxiosResponse<T>> {
+  // Create a new Axios instance with retry capability
+  const client = createRetryableAxios(axios.create(), retryConfig);
+  
+  // Make the request
+  return client.request<T>(config);
+}
+
+/**
+ * Creates a retry function that can be used with any promise-based operation
+ * @param operation The operation to retry
+ * @param retryConfig Retry configuration
+ * @returns Promise resolving to the operation result
+ */
+export async function retryOperation<T>(
+  operation: () => Promise<T>,
+  retryConfig: Partial<RetryConfig> = {}
 ): Promise<T> {
+  // Merge with default config
+  const config: RetryConfig = {
+    ...DEFAULT_RETRY_POLICY,
+    ...retryConfig,
+  };
+
+  let retryCount = 0;
   let lastError: any;
-  
-  for (let attempt = 0; attempt <= policy.maxRetries; attempt++) {
+
+  while (retryCount <= config.maxRetries) {
     try {
-      // First attempt (attempt = 0) or retry attempts
-      return await fn();
+      // If not the first attempt, wait before retrying
+      if (retryCount > 0) {
+        const delay = calculateRetryDelay(
+          retryCount,
+          config,
+          lastError
+        );
+
+        // Call onRetry callback if provided
+        if (config.onRetry) {
+          config.onRetry(retryCount, lastError, {} as AxiosRequestConfig);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      // Try the operation
+      return await operation();
     } catch (error) {
       lastError = error;
       
-      // Check if we've used all retry attempts
-      if (attempt >= policy.maxRetries) {
-        break;
-      }
-      
-      // Check if this error should be retried
-      const shouldRetry = policy.retryCondition ? policy.retryCondition(error) : isRetryableError(error);
+      // Check if we should retry
+      const shouldRetry =
+        retryCount < config.maxRetries &&
+        (config.retryCondition ? config.retryCondition(error as AxiosError) : isRetryableError(error as AxiosError));
+
       if (!shouldRetry) {
-        break;
+        throw error;
       }
-      
-      // Calculate delay for this retry attempt
-      const delayMs = calculateBackoffDelay(attempt, policy);
-      
-      // Call the onRetry callback if provided
-      if (policy.onRetry) {
-        policy.onRetry(attempt + 1, error, delayMs);
-      }
-      
-      // Wait before the next retry attempt
-      await delay(delayMs);
+
+      retryCount++;
     }
   }
-  
-  // If we've exhausted all retries or encountered a non-retryable error, throw the last error
+
+  // This should never be reached due to the throw in the catch block
   throw lastError;
 }
 
-/**
- * Creates an Axios instance wrapped with retry functionality
- * 
- * @param axiosInstance - The Axios instance to wrap
- * @param policy - Retry policy configuration
- * @returns Axios instance with retry functionality
- */
-export function createRetryableAxios(
-  axiosInstance: AxiosInstance,
-  policy: RetryPolicy = DEFAULT_RETRY_POLICY
-): AxiosInstance {
-  // Retry statistics
-  let stats: RetryStats = {
-    totalAttempts: 0,
-    successfulRequests: 0,
-    failedRequests: 0,
-    retriedRequests: 0,
-    averageRetries: 0,
-    maxRetriesUsed: 0,
-    lastRetry: null
-  };
-  
-  // Create a new Axios instance that wraps the provided instance
-  const retryableInstance = axios.create();
-  
-  // Override the request method to implement retry logic
-  retryableInstance.request = async function<T = any, R = AxiosResponse<T>>(
-    config: AxiosRequestConfig
-  ): Promise<R> {
-    // Apply timeout from retry policy if not specified in the request config
-    const requestConfig = {
-      ...config,
-      timeout: config.timeout || policy.timeoutMs
-    };
-    
-    // Track total requests for statistics
-    let requestRetries = 0;
-    
-    // Use the retryRequest function to handle retries
-    try {
-      const result = await retryRequest<R>(
-        async () => {
-          stats.totalAttempts++;
-          
-          try {
-            // Forward the request to the wrapped Axios instance
-            return await axiosInstance.request<T, R>(requestConfig);
-          } catch (error) {
-            // Update retry timestamp if this is a retry attempt
-            if (requestRetries > 0) {
-              stats.lastRetry = new Date();
-            }
-            
-            // Rethrow the error to be handled by retryRequest
-            throw error;
-          }
-        },
-        {
-          ...policy,
-          onRetry: (retryCount, error, delayMs) => {
-            // Track retry statistics
-            if (retryCount === 1) {
-              stats.retriedRequests++;
-            }
-            
-            requestRetries = retryCount;
-            stats.maxRetriesUsed = Math.max(stats.maxRetriesUsed, retryCount);
-            
-            // Call the original onRetry callback if provided
-            if (policy.onRetry) {
-              policy.onRetry(retryCount, error, delayMs);
-            }
-          }
-        }
-      );
-      
-      // Update success statistics
-      stats.successfulRequests++;
-      stats.averageRetries = stats.retriedRequests > 0 
-        ? stats.totalAttempts / stats.retriedRequests 
-        : 0;
-      
-      return result;
-    } catch (error) {
-      // Update failure statistics
-      stats.failedRequests++;
-      stats.averageRetries = stats.retriedRequests > 0 
-        ? stats.totalAttempts / stats.retriedRequests 
-        : 0;
-      
-      // Rethrow the error
-      throw error;
-    }
-  };
-  
-  // Add retry-specific methods to the instance
-  (retryableInstance as any).getRetryStats = () => ({ ...stats });
-  (retryableInstance as any).resetRetryStats = () => {
-    stats = {
-      totalAttempts: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
-      retriedRequests: 0,
-      averageRetries: 0,
-      maxRetriesUsed: 0,
-      lastRetry: null
-    };
-  };
-  
-  return retryableInstance;
-}
-
-/**
- * Creates an Axios instance with retry functionality
- * 
- * @param config - Axios configuration
- * @param policy - Retry policy configuration
- * @returns Axios instance with retry functionality
- */
-export function createRetryableClient(
-  config: AxiosRequestConfig = {},
-  policy: RetryPolicy = DEFAULT_RETRY_POLICY
-): AxiosInstance {
-  const axiosInstance = axios.create(config);
-  return createRetryableAxios(axiosInstance, policy);
-}
+export default {
+  createRetryableAxios,
+  retryRequest,
+  retryOperation,
+  isRetryableError,
+  calculateRetryDelay,
+  DEFAULT_RETRY_POLICY,
+  AGGRESSIVE_RETRY_POLICY,
+  MINIMAL_RETRY_POLICY,
+};
