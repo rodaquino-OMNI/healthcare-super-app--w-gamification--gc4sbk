@@ -12,3 +12,6 @@ export * from './config-keys';
 
 // Re-export all constants from defaults.ts
 export * from './defaults';
+
+// Re-export all constants from span-attributes.ts
+export * from './span-attributes';
