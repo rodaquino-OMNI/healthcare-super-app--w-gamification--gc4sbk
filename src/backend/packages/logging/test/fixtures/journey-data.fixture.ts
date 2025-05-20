@@ -1,399 +1,360 @@
 /**
  * Journey Data Fixture
  * 
- * This file provides sample journey-specific data for testing logging integration with the journey-centered architecture.
- * It contains journey identifiers, context objects, events, and metadata for the three core journeys (Health, Care, Plan).
+ * This file provides sample journey-specific data for testing logging integration
+ * with the journey-centered architecture. It contains journey identifiers, context objects,
+ * events, and metadata for the three core journeys (Health, Care, Plan).
  * 
- * This fixture is essential for verifying that the logging system properly handles journey-specific context
- * and provides appropriate journey-aware logging capabilities.
+ * This fixture is essential for verifying that the logging system properly handles
+ * journey-specific context and provides appropriate journey-aware logging capabilities.
  */
 
-import { JourneyType, LogContext, LogLevel } from '../../src/interfaces';
-import { JOURNEY_IDS, JOURNEY_NAMES } from '../../../../shared/src/constants/journey.constants';
+import { JOURNEY_IDS, JOURNEY_NAMES, JOURNEY_COLORS } from '../../../../shared/src/constants/journey.constants';
 
 /**
- * Sample user IDs for testing
+ * Sample user IDs for testing different user contexts
  */
 export const SAMPLE_USER_IDS = {
   STANDARD: '550e8400-e29b-41d4-a716-446655440000',
-  PREMIUM: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-  NEW: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+  ADMIN: '38a52be4-9352-453e-af97-5c3b448652b0',
+  PROVIDER: 'c2d10e1a-0d1f-4b1d-9e3a-c8d3b2f2d1b2',
+  ANONYMOUS: 'anonymous',
 };
 
 /**
- * Sample request IDs for testing
+ * Sample request IDs for testing request context and correlation
  */
 export const SAMPLE_REQUEST_IDS = {
-  HEALTH_JOURNEY: 'health-req-7b23ec53-e83c-4b78-a877-49ab160c7bb0',
-  CARE_JOURNEY: 'care-req-9c47ec12-a237-4b2a-b8e5-3f2a8a3d5c9b',
-  PLAN_JOURNEY: 'plan-req-5e9f8a7b-6c2d-4e3f-9a1b-2c8d7e6f5a4b',
-  CROSS_JOURNEY: 'cross-req-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
+  HEALTH_JOURNEY: '7b15e8d7-95a1-4d13-89ca-c78b6abcdef1',
+  CARE_JOURNEY: '9c24f7e8-6b3a-4d12-87fb-d45e2abcdef2',
+  PLAN_JOURNEY: '5a31d9c6-7e2b-4f15-9d8a-e67f3abcdef3',
+  CROSS_JOURNEY: 'f8e7d6c5-b4a3-42d1-9e8f-765a4abcdef4',
 };
 
 /**
- * Sample trace IDs for testing
- */
-export const SAMPLE_TRACE_IDS = {
-  HEALTH_JOURNEY: 'trace-health-8a7b6c5d-4e3f-2a1b-9c8d-7e6f5a4b3c2d',
-  CARE_JOURNEY: 'trace-care-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
-  PLAN_JOURNEY: 'trace-plan-7b23ec53-e83c-4b78-a877-49ab160c7bb0',
-  CROSS_JOURNEY: 'trace-cross-9c47ec12-a237-4b2a-b8e5-3f2a8a3d5c9b',
-};
-
-/**
- * Sample span IDs for testing
- */
-export const SAMPLE_SPAN_IDS = {
-  HEALTH_JOURNEY: 'span-health-1234567890',
-  CARE_JOURNEY: 'span-care-0987654321',
-  PLAN_JOURNEY: 'span-plan-1357924680',
-  CROSS_JOURNEY: 'span-cross-2468013579',
-};
-
-/**
- * Sample correlation IDs for testing
+ * Sample correlation IDs for tracking business transactions across services
  */
 export const SAMPLE_CORRELATION_IDS = {
-  HEALTH_JOURNEY: 'corr-health-a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6',
-  CARE_JOURNEY: 'corr-care-q1w2e3r4-t5y6-u7i8-o9p0-a1s2d3f4g5h6',
-  PLAN_JOURNEY: 'corr-plan-z1x2c3v4-b5n6-m7k8-j9h0-g1f2d3s4a5',
-  CROSS_JOURNEY: 'corr-cross-1q2w3e4r-5t6y-7u8i-9o0p-a1s2d3f4g5',
+  HEALTH_METRIC_SYNC: 'health-metric-sync-12345',
+  APPOINTMENT_BOOKING: 'appointment-booking-67890',
+  CLAIM_SUBMISSION: 'claim-submission-24680',
+  ACHIEVEMENT_UNLOCK: 'achievement-unlock-13579',
 };
 
 /**
- * Health journey context objects for testing
+ * Sample trace IDs for distributed tracing integration
  */
-export const HEALTH_JOURNEY_CONTEXTS: Record<string, LogContext> = {
-  METRICS_RECORDING: {
-    journey: 'health',
-    userId: SAMPLE_USER_IDS.STANDARD,
+export const SAMPLE_TRACE_IDS = {
+  HEALTH_JOURNEY: '0af7651916cd43dd8448eb211c80319c',
+  CARE_JOURNEY: '1bf8762027de54ee9559fc322d91420d',
+  PLAN_JOURNEY: '2cf9873138ef65ff0660fd433ea2531e',
+  CROSS_JOURNEY: '3da0984249fg76gg1771ge544fb3642f',
+};
+
+/**
+ * Sample session IDs for user session tracking
+ */
+export const SAMPLE_SESSION_IDS = {
+  WEB_SESSION: 'web-session-abcdef123456',
+  MOBILE_SESSION: 'mobile-session-fedcba654321',
+  EXPIRED_SESSION: 'expired-session-123abc456def',
+};
+
+/**
+ * Journey-specific context objects for the Health journey
+ */
+export const HEALTH_JOURNEY_CONTEXTS = {
+  /**
+   * Basic context with essential journey information
+   */
+  BASIC: {
+    journeyId: JOURNEY_IDS.HEALTH,
+    journeyName: JOURNEY_NAMES.HEALTH,
     requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.HEALTH_JOURNEY,
-    spanId: SAMPLE_SPAN_IDS.HEALTH_JOURNEY,
-    service: 'health-service',
-    operation: 'recordMetric',
-    metadata: {
-      metricType: 'blood_pressure',
-      deviceId: 'device-123456',
-      value: '120/80',
-      unit: 'mmHg',
-      timestamp: new Date().toISOString(),
-    },
   },
+
+  /**
+   * Context for health metric recording
+   */
+  METRIC_RECORDING: {
+    journeyId: JOURNEY_IDS.HEALTH,
+    journeyName: JOURNEY_NAMES.HEALTH,
+    requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
+    traceId: SAMPLE_TRACE_IDS.HEALTH_JOURNEY,
+    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_METRIC_SYNC,
+    metricType: 'blood_pressure',
+    deviceId: 'device-123456',
+    timestamp: new Date('2023-06-15T10:30:00Z').toISOString(),
+  },
+
+  /**
+   * Context for health goal tracking
+   */
   GOAL_TRACKING: {
-    journey: 'health',
-    userId: SAMPLE_USER_IDS.PREMIUM,
+    journeyId: JOURNEY_IDS.HEALTH,
+    journeyName: JOURNEY_NAMES.HEALTH,
     requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
     traceId: SAMPLE_TRACE_IDS.HEALTH_JOURNEY,
-    spanId: 'span-health-goal-tracking',
-    service: 'health-service',
-    operation: 'updateGoalProgress',
-    metadata: {
-      goalId: 'goal-789012',
-      goalType: 'steps',
-      targetValue: 10000,
-      currentValue: 8500,
-      progressPercentage: 85,
-      startDate: '2023-01-01',
-      endDate: '2023-01-31',
-    },
+    goalId: 'goal-789012',
+    goalType: 'steps',
+    targetValue: 10000,
+    currentValue: 8500,
+    progressPercentage: 85,
   },
+
+  /**
+   * Context for device synchronization
+   */
   DEVICE_SYNC: {
-    journey: 'health',
+    journeyId: JOURNEY_IDS.HEALTH,
+    journeyName: JOURNEY_NAMES.HEALTH,
+    requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.HEALTH_JOURNEY,
-    spanId: 'span-health-device-sync',
-    service: 'health-service',
-    operation: 'syncDevice',
-    metadata: {
-      deviceId: 'device-123456',
-      deviceType: 'smartwatch',
-      manufacturer: 'FitBit',
-      model: 'Versa 3',
-      lastSyncTime: new Date().toISOString(),
-      dataPoints: 42,
-      syncDuration: 3.5, // seconds
-    },
-  },
-  HEALTH_INSIGHT: {
-    journey: 'health',
-    userId: SAMPLE_USER_IDS.PREMIUM,
-    requestId: SAMPLE_REQUEST_IDS.HEALTH_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_JOURNEY,
-    traceId: SAMPLE_TRACE_IDS.HEALTH_JOURNEY,
-    spanId: 'span-health-insight',
-    service: 'health-service',
-    operation: 'generateInsight',
-    metadata: {
-      insightId: 'insight-345678',
-      insightType: 'trend',
-      metricType: 'heart_rate',
-      timeRange: '30d',
-      severity: 'info',
-      generatedAt: new Date().toISOString(),
-    },
+    correlationId: SAMPLE_CORRELATION_IDS.HEALTH_METRIC_SYNC,
+    deviceId: 'device-123456',
+    deviceType: 'smartwatch',
+    deviceModel: 'HealthTracker Pro',
+    syncStartTime: new Date('2023-06-15T10:25:00Z').toISOString(),
+    syncEndTime: new Date('2023-06-15T10:30:00Z').toISOString(),
+    syncStatus: 'success',
+    recordsProcessed: 42,
   },
 };
 
 /**
- * Care journey context objects for testing
+ * Journey-specific context objects for the Care journey
  */
-export const CARE_JOURNEY_CONTEXTS: Record<string, LogContext> = {
+export const CARE_JOURNEY_CONTEXTS = {
+  /**
+   * Basic context with essential journey information
+   */
+  BASIC: {
+    journeyId: JOURNEY_IDS.CARE,
+    journeyName: JOURNEY_NAMES.CARE,
+    requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
+    traceId: SAMPLE_TRACE_IDS.CARE_JOURNEY,
+  },
+
+  /**
+   * Context for appointment booking
+   */
   APPOINTMENT_BOOKING: {
-    journey: 'care',
-    userId: SAMPLE_USER_IDS.STANDARD,
+    journeyId: JOURNEY_IDS.CARE,
+    journeyName: JOURNEY_NAMES.CARE,
     requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CARE_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
     traceId: SAMPLE_TRACE_IDS.CARE_JOURNEY,
-    spanId: SAMPLE_SPAN_IDS.CARE_JOURNEY,
-    service: 'care-service',
-    operation: 'bookAppointment',
-    metadata: {
-      appointmentId: 'appt-123456',
-      providerId: 'provider-789012',
-      specialtyId: 'specialty-345678',
-      appointmentType: 'consultation',
-      appointmentDate: '2023-02-15T14:30:00Z',
-      appointmentDuration: 30, // minutes
-      appointmentStatus: 'scheduled',
-    },
+    correlationId: SAMPLE_CORRELATION_IDS.APPOINTMENT_BOOKING,
+    providerId: 'provider-456789',
+    specialtyId: 'specialty-123',
+    appointmentType: 'video_consultation',
+    appointmentDate: new Date('2023-06-20T14:00:00Z').toISOString(),
+    appointmentDuration: 30, // minutes
+    appointmentStatus: 'confirmed',
   },
+
+  /**
+   * Context for medication tracking
+   */
   MEDICATION_TRACKING: {
-    journey: 'care',
-    userId: SAMPLE_USER_IDS.PREMIUM,
+    journeyId: JOURNEY_IDS.CARE,
+    journeyName: JOURNEY_NAMES.CARE,
     requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CARE_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.CARE_JOURNEY,
-    spanId: 'span-care-medication',
-    service: 'care-service',
-    operation: 'recordMedicationAdherence',
-    metadata: {
-      medicationId: 'med-456789',
-      medicationName: 'Lisinopril',
-      dosage: '10mg',
-      frequency: 'daily',
-      takenAt: new Date().toISOString(),
-      adherenceStatus: 'taken',
-      reminderSent: true,
-    },
+    medicationId: 'medication-345678',
+    medicationName: 'Medication XYZ',
+    dosage: '10mg',
+    frequency: 'twice_daily',
+    adherenceRate: 92, // percentage
+    lastTaken: new Date('2023-06-15T08:00:00Z').toISOString(),
   },
+
+  /**
+   * Context for telemedicine session
+   */
   TELEMEDICINE_SESSION: {
-    journey: 'care',
+    journeyId: JOURNEY_IDS.CARE,
+    journeyName: JOURNEY_NAMES.CARE,
+    requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CARE_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
     traceId: SAMPLE_TRACE_IDS.CARE_JOURNEY,
-    spanId: 'span-care-telemedicine',
-    service: 'care-service',
-    operation: 'startTelemedicineSession',
-    metadata: {
-      sessionId: 'session-567890',
-      appointmentId: 'appt-123456',
-      providerId: 'provider-789012',
-      startTime: new Date().toISOString(),
-      platform: 'webrtc',
-      deviceType: 'mobile',
-      networkQuality: 'good',
-    },
-  },
-  SYMPTOM_CHECK: {
-    journey: 'care',
-    userId: SAMPLE_USER_IDS.NEW,
-    requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CARE_JOURNEY,
-    traceId: SAMPLE_TRACE_IDS.CARE_JOURNEY,
-    spanId: 'span-care-symptom',
-    service: 'care-service',
-    operation: 'checkSymptoms',
-    metadata: {
-      checkId: 'check-678901',
-      symptoms: ['headache', 'fever', 'fatigue'],
-      severity: 'moderate',
-      duration: '2d',
-      recommendationType: 'appointment',
-      urgency: 'medium',
-    },
+    correlationId: SAMPLE_CORRELATION_IDS.APPOINTMENT_BOOKING,
+    providerId: 'provider-456789',
+    providerName: 'Dr. Smith',
+    callId: 'call-987654',
+    callStartTime: new Date('2023-06-15T14:00:00Z').toISOString(),
+    callEndTime: new Date('2023-06-15T14:25:00Z').toISOString(),
+    callDuration: 1500, // seconds
+    callQuality: 'good',
+    callStatus: 'completed',
   },
 };
 
 /**
- * Plan journey context objects for testing
+ * Journey-specific context objects for the Plan journey
  */
-export const PLAN_JOURNEY_CONTEXTS: Record<string, LogContext> = {
+export const PLAN_JOURNEY_CONTEXTS = {
+  /**
+   * Basic context with essential journey information
+   */
+  BASIC: {
+    journeyId: JOURNEY_IDS.PLAN,
+    journeyName: JOURNEY_NAMES.PLAN,
+    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
+    traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
+  },
+
+  /**
+   * Context for claim submission
+   */
   CLAIM_SUBMISSION: {
-    journey: 'plan',
+    journeyId: JOURNEY_IDS.PLAN,
+    journeyName: JOURNEY_NAMES.PLAN,
+    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.PLAN_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
     traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
-    spanId: SAMPLE_SPAN_IDS.PLAN_JOURNEY,
-    service: 'plan-service',
-    operation: 'submitClaim',
-    metadata: {
-      claimId: 'claim-123456',
-      planId: 'plan-789012',
-      claimType: 'medical',
-      claimAmount: 250.75,
-      serviceDate: '2023-01-20',
-      providerName: 'Dr. Smith',
-      providerNPI: '1234567890',
-      submissionDate: new Date().toISOString(),
-      attachmentCount: 2,
-    },
+    correlationId: SAMPLE_CORRELATION_IDS.CLAIM_SUBMISSION,
+    claimId: 'claim-234567',
+    claimType: 'medical',
+    claimAmount: 150.75,
+    claimDate: new Date('2023-06-10T09:15:00Z').toISOString(),
+    providerName: 'Medical Center ABC',
+    claimStatus: 'submitted',
+    attachmentCount: 3,
   },
-  BENEFIT_CHECK: {
-    journey: 'plan',
-    userId: SAMPLE_USER_IDS.PREMIUM,
+
+  /**
+   * Context for benefit utilization
+   */
+  BENEFIT_UTILIZATION: {
+    journeyId: JOURNEY_IDS.PLAN,
+    journeyName: JOURNEY_NAMES.PLAN,
     requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.PLAN_JOURNEY,
-    traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
-    spanId: 'span-plan-benefit',
-    service: 'plan-service',
-    operation: 'checkBenefitCoverage',
-    metadata: {
-      benefitId: 'benefit-456789',
-      planId: 'plan-789012',
-      benefitType: 'prescription',
-      coveragePercentage: 80,
-      remainingDeductible: 500.00,
-      outOfPocketMax: 2000.00,
-      effectiveDate: '2023-01-01',
-      expirationDate: '2023-12-31',
-    },
-  },
-  PLAN_COMPARISON: {
-    journey: 'plan',
-    userId: SAMPLE_USER_IDS.NEW,
-    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.PLAN_JOURNEY,
-    traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
-    spanId: 'span-plan-comparison',
-    service: 'plan-service',
-    operation: 'comparePlans',
-    metadata: {
-      comparisonId: 'comparison-567890',
-      planIds: ['plan-789012', 'plan-345678', 'plan-901234'],
-      comparisonCriteria: ['premium', 'deductible', 'coverage', 'network'],
-      userPreferences: {
-        maxPremium: 500,
-        preferredProviders: ['provider-123456'],
-        essentialBenefits: ['prescription', 'specialist'],
-      },
-      generatedAt: new Date().toISOString(),
-    },
-  },
-  DOCUMENT_UPLOAD: {
-    journey: 'plan',
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.PLAN_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
-    spanId: 'span-plan-document',
-    service: 'plan-service',
-    operation: 'uploadDocument',
-    metadata: {
-      documentId: 'doc-678901',
-      documentType: 'claim_receipt',
-      claimId: 'claim-123456',
-      fileName: 'receipt_2023-01-20.pdf',
-      fileSize: 1024 * 1024 * 2.5, // 2.5 MB
-      mimeType: 'application/pdf',
-      uploadedAt: new Date().toISOString(),
-      storageLocation: 's3://austa-documents/claims/claim-123456/receipt_2023-01-20.pdf',
-    },
+    benefitId: 'benefit-567890',
+    benefitType: 'dental',
+    benefitName: 'Annual Dental Checkup',
+    utilizationDate: new Date('2023-06-05T11:30:00Z').toISOString(),
+    utilizationPercentage: 50,
+    remainingAmount: 500.00,
+    totalAmount: 1000.00,
+  },
+
+  /**
+   * Context for plan selection
+   */
+  PLAN_SELECTION: {
+    journeyId: JOURNEY_IDS.PLAN,
+    journeyName: JOURNEY_NAMES.PLAN,
+    requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
+    traceId: SAMPLE_TRACE_IDS.PLAN_JOURNEY,
+    currentPlanId: 'plan-123456',
+    newPlanId: 'plan-789012',
+    comparisonId: 'comparison-345678',
+    selectionDate: new Date('2023-06-01T15:45:00Z').toISOString(),
+    effectiveDate: new Date('2023-07-01T00:00:00Z').toISOString(),
+    annualSavings: 1200.00,
   },
 };
 
 /**
- * Cross-journey context objects for testing
+ * Cross-journey context objects for testing interactions between journeys
  */
-export const CROSS_JOURNEY_CONTEXTS: Record<string, LogContext> = {
-  HEALTH_TO_CARE_REFERRAL: {
-    journey: 'health',
+export const CROSS_JOURNEY_CONTEXTS = {
+  /**
+   * Context for gamification achievement unlocked across journeys
+   */
+  ACHIEVEMENT_UNLOCK: {
+    requestId: SAMPLE_REQUEST_IDS.CROSS_JOURNEY,
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.CROSS_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CROSS_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.CROSS_JOURNEY,
-    spanId: SAMPLE_SPAN_IDS.CROSS_JOURNEY,
-    service: 'health-service',
-    operation: 'referToCare',
-    metadata: {
-      sourceJourney: JOURNEY_IDS.HEALTH,
-      targetJourney: JOURNEY_IDS.CARE,
-      healthMetricId: 'metric-123456',
-      metricType: 'blood_pressure',
-      metricValue: '160/100',
-      referralReason: 'elevated_blood_pressure',
-      urgency: 'medium',
-      recommendedAction: 'schedule_appointment',
-      timestamp: new Date().toISOString(),
-    },
+    correlationId: SAMPLE_CORRELATION_IDS.ACHIEVEMENT_UNLOCK,
+    achievementId: 'achievement-123456',
+    achievementName: 'Health and Wellness Master',
+    achievementDescription: 'Complete health goals and attend medical appointments',
+    xpEarned: 500,
+    unlockedAt: new Date('2023-06-15T16:30:00Z').toISOString(),
+    sourceJourneys: [
+      {
+        journeyId: JOURNEY_IDS.HEALTH,
+        journeyName: JOURNEY_NAMES.HEALTH,
+        contribution: 'Completed 5 health goals',
+      },
+      {
+        journeyId: JOURNEY_IDS.CARE,
+        journeyName: JOURNEY_NAMES.CARE,
+        contribution: 'Attended 2 medical appointments',
+      },
+    ],
   },
-  CARE_TO_PLAN_CLAIM: {
-    journey: 'care',
-    userId: SAMPLE_USER_IDS.PREMIUM,
+
+  /**
+   * Context for user journey transition
+   */
+  JOURNEY_TRANSITION: {
     requestId: SAMPLE_REQUEST_IDS.CROSS_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CROSS_JOURNEY,
-    traceId: SAMPLE_TRACE_IDS.CROSS_JOURNEY,
-    spanId: 'span-cross-care-to-plan',
-    service: 'care-service',
-    operation: 'initiateClaim',
-    metadata: {
-      sourceJourney: JOURNEY_IDS.CARE,
-      targetJourney: JOURNEY_IDS.PLAN,
-      appointmentId: 'appt-123456',
-      providerId: 'provider-789012',
-      serviceDate: '2023-02-15',
-      serviceCost: 150.00,
-      serviceDescription: 'General consultation',
-      diagnosisCodes: ['J00', 'R50.9'],
-      timestamp: new Date().toISOString(),
-    },
-  },
-  PLAN_TO_HEALTH_BENEFIT: {
-    journey: 'plan',
     userId: SAMPLE_USER_IDS.STANDARD,
-    requestId: SAMPLE_REQUEST_IDS.CROSS_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CROSS_JOURNEY,
+    sessionId: SAMPLE_SESSION_IDS.WEB_SESSION,
     traceId: SAMPLE_TRACE_IDS.CROSS_JOURNEY,
-    spanId: 'span-cross-plan-to-health',
-    service: 'plan-service',
-    operation: 'activateHealthBenefit',
-    metadata: {
-      sourceJourney: JOURNEY_IDS.PLAN,
-      targetJourney: JOURNEY_IDS.HEALTH,
-      benefitId: 'benefit-456789',
-      benefitType: 'wellness_program',
-      benefitName: 'Fitness Tracker Discount',
-      discountAmount: 50.00,
-      eligibleDevices: ['FitBit', 'Apple Watch', 'Garmin'],
-      activationDate: new Date().toISOString(),
-      expirationDate: '2023-12-31',
+    sourceJourney: {
+      journeyId: JOURNEY_IDS.HEALTH,
+      journeyName: JOURNEY_NAMES.HEALTH,
+      context: 'Viewing health metrics',
     },
+    destinationJourney: {
+      journeyId: JOURNEY_IDS.CARE,
+      journeyName: JOURNEY_NAMES.CARE,
+      context: 'Scheduling appointment based on health metrics',
+    },
+    transitionReason: 'health_metric_threshold_exceeded',
+    transitionTimestamp: new Date('2023-06-15T10:45:00Z').toISOString(),
   },
-  GAMIFICATION_ACHIEVEMENT: {
-    journey: 'shared',
-    userId: SAMPLE_USER_IDS.PREMIUM,
+
+  /**
+   * Context for cross-journey data sharing
+   */
+  DATA_SHARING: {
     requestId: SAMPLE_REQUEST_IDS.CROSS_JOURNEY,
-    correlationId: SAMPLE_CORRELATION_IDS.CROSS_JOURNEY,
+    userId: SAMPLE_USER_IDS.STANDARD,
+    sessionId: SAMPLE_SESSION_IDS.MOBILE_SESSION,
     traceId: SAMPLE_TRACE_IDS.CROSS_JOURNEY,
-    spanId: 'span-cross-gamification',
-    service: 'gamification-engine',
-    operation: 'unlockAchievement',
-    metadata: {
-      achievementId: 'achievement-123456',
-      achievementName: 'Health Explorer',
-      achievementDescription: 'Complete activities in all three journeys',
-      journeysInvolved: [JOURNEY_IDS.HEALTH, JOURNEY_IDS.CARE, JOURNEY_IDS.PLAN],
-      pointsAwarded: 500,
-      unlockedAt: new Date().toISOString(),
-      userLevel: 5,
-      userTotalPoints: 2500,
+    sourceJourney: {
+      journeyId: JOURNEY_IDS.CARE,
+      journeyName: JOURNEY_NAMES.CARE,
+      dataType: 'appointment_summary',
+      dataId: 'appointment-123456',
     },
+    destinationJourney: {
+      journeyId: JOURNEY_IDS.PLAN,
+      journeyName: JOURNEY_NAMES.PLAN,
+      dataType: 'claim_submission',
+      dataId: 'claim-234567',
+    },
+    sharingTimestamp: new Date('2023-06-16T09:30:00Z').toISOString(),
+    sharingReason: 'auto_claim_submission',
   },
 };
 
@@ -401,480 +362,426 @@ export const CROSS_JOURNEY_CONTEXTS: Record<string, LogContext> = {
  * Sample journey events that trigger logging
  */
 export const JOURNEY_EVENTS = {
+  /**
+   * Health journey events
+   */
   HEALTH: {
     METRIC_RECORDED: {
-      eventType: 'health.metric.recorded',
-      userId: SAMPLE_USER_IDS.STANDARD,
+      type: 'HEALTH_METRIC_RECORDED',
       journeyId: JOURNEY_IDS.HEALTH,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T10:30:00Z').toISOString(),
       data: {
-        metricId: 'metric-123456',
         metricType: 'blood_pressure',
-        value: '120/80',
-        unit: 'mmHg',
+        metricValue: {
+          systolic: 120,
+          diastolic: 80,
+        },
         deviceId: 'device-123456',
-        recordedAt: new Date().toISOString(),
+        recordedAt: new Date('2023-06-15T10:28:00Z').toISOString(),
       },
     },
     GOAL_ACHIEVED: {
-      eventType: 'health.goal.achieved',
-      userId: SAMPLE_USER_IDS.PREMIUM,
+      type: 'HEALTH_GOAL_ACHIEVED',
       journeyId: JOURNEY_IDS.HEALTH,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T18:45:00Z').toISOString(),
       data: {
         goalId: 'goal-789012',
         goalType: 'steps',
         targetValue: 10000,
         achievedValue: 10250,
-        achievedAt: new Date().toISOString(),
-        streakCount: 3,
+        achievedAt: new Date('2023-06-15T18:43:00Z').toISOString(),
       },
     },
     DEVICE_CONNECTED: {
-      eventType: 'health.device.connected',
-      userId: SAMPLE_USER_IDS.STANDARD,
+      type: 'HEALTH_DEVICE_CONNECTED',
       journeyId: JOURNEY_IDS.HEALTH,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T10:25:00Z').toISOString(),
       data: {
         deviceId: 'device-123456',
         deviceType: 'smartwatch',
-        manufacturer: 'FitBit',
-        model: 'Versa 3',
+        deviceModel: 'HealthTracker Pro',
         connectionMethod: 'bluetooth',
-        connectedAt: new Date().toISOString(),
+        connectedAt: new Date('2023-06-15T10:25:00Z').toISOString(),
       },
     },
   },
+
+  /**
+   * Care journey events
+   */
   CARE: {
     APPOINTMENT_BOOKED: {
-      eventType: 'care.appointment.booked',
-      userId: SAMPLE_USER_IDS.STANDARD,
+      type: 'CARE_APPOINTMENT_BOOKED',
       journeyId: JOURNEY_IDS.CARE,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T11:15:00Z').toISOString(),
       data: {
-        appointmentId: 'appt-123456',
-        providerId: 'provider-789012',
-        specialtyId: 'specialty-345678',
-        appointmentType: 'consultation',
-        appointmentDate: '2023-02-15T14:30:00Z',
+        appointmentId: 'appointment-123456',
+        providerId: 'provider-456789',
+        specialtyId: 'specialty-123',
+        appointmentType: 'video_consultation',
+        appointmentDate: new Date('2023-06-20T14:00:00Z').toISOString(),
         appointmentDuration: 30, // minutes
-        bookedAt: new Date().toISOString(),
+        bookedAt: new Date('2023-06-15T11:15:00Z').toISOString(),
       },
     },
     MEDICATION_TAKEN: {
-      eventType: 'care.medication.taken',
-      userId: SAMPLE_USER_IDS.PREMIUM,
+      type: 'CARE_MEDICATION_TAKEN',
       journeyId: JOURNEY_IDS.CARE,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T08:00:00Z').toISOString(),
       data: {
-        medicationId: 'med-456789',
-        medicationName: 'Lisinopril',
+        medicationId: 'medication-345678',
+        medicationName: 'Medication XYZ',
         dosage: '10mg',
-        takenAt: new Date().toISOString(),
-        scheduledFor: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
+        takenAt: new Date('2023-06-15T08:00:00Z').toISOString(),
+        scheduledFor: new Date('2023-06-15T08:00:00Z').toISOString(),
         adherenceStatus: 'on_time',
       },
     },
     TELEMEDICINE_COMPLETED: {
-      eventType: 'care.telemedicine.completed',
-      userId: SAMPLE_USER_IDS.STANDARD,
+      type: 'CARE_TELEMEDICINE_COMPLETED',
       journeyId: JOURNEY_IDS.CARE,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T14:25:00Z').toISOString(),
       data: {
-        sessionId: 'session-567890',
-        appointmentId: 'appt-123456',
-        providerId: 'provider-789012',
-        startTime: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 minutes ago
-        endTime: new Date().toISOString(),
-        duration: 30, // minutes
-        quality: 'good',
-        followUpRecommended: true,
+        appointmentId: 'appointment-123456',
+        providerId: 'provider-456789',
+        callId: 'call-987654',
+        callStartTime: new Date('2023-06-15T14:00:00Z').toISOString(),
+        callEndTime: new Date('2023-06-15T14:25:00Z').toISOString(),
+        callDuration: 1500, // seconds
+        callQuality: 'good',
+        callStatus: 'completed',
       },
     },
   },
+
+  /**
+   * Plan journey events
+   */
   PLAN: {
     CLAIM_SUBMITTED: {
-      eventType: 'plan.claim.submitted',
-      userId: SAMPLE_USER_IDS.STANDARD,
+      type: 'PLAN_CLAIM_SUBMITTED',
       journeyId: JOURNEY_IDS.PLAN,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T09:30:00Z').toISOString(),
       data: {
-        claimId: 'claim-123456',
-        planId: 'plan-789012',
+        claimId: 'claim-234567',
         claimType: 'medical',
-        claimAmount: 250.75,
-        serviceDate: '2023-01-20',
-        providerName: 'Dr. Smith',
-        submittedAt: new Date().toISOString(),
-        attachmentIds: ['doc-678901', 'doc-678902'],
+        claimAmount: 150.75,
+        claimDate: new Date('2023-06-10T09:15:00Z').toISOString(),
+        providerName: 'Medical Center ABC',
+        submittedAt: new Date('2023-06-15T09:30:00Z').toISOString(),
+        attachmentCount: 3,
       },
     },
-    BENEFIT_USED: {
-      eventType: 'plan.benefit.used',
-      userId: SAMPLE_USER_IDS.PREMIUM,
+    BENEFIT_UTILIZED: {
+      type: 'PLAN_BENEFIT_UTILIZED',
       journeyId: JOURNEY_IDS.PLAN,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T11:30:00Z').toISOString(),
       data: {
-        benefitId: 'benefit-456789',
-        planId: 'plan-789012',
-        benefitType: 'prescription',
-        usageAmount: 75.50,
-        coverageAmount: 60.40,
-        outOfPocketAmount: 15.10,
-        usedAt: new Date().toISOString(),
-        transactionId: 'tx-123456',
+        benefitId: 'benefit-567890',
+        benefitType: 'dental',
+        benefitName: 'Annual Dental Checkup',
+        utilizationAmount: 500.00,
+        utilizationDate: new Date('2023-06-05T11:30:00Z').toISOString(),
+        remainingAmount: 500.00,
+        totalAmount: 1000.00,
       },
     },
     PLAN_SELECTED: {
-      eventType: 'plan.plan.selected',
-      userId: SAMPLE_USER_IDS.NEW,
+      type: 'PLAN_SELECTED',
       journeyId: JOURNEY_IDS.PLAN,
-      timestamp: new Date().toISOString(),
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T15:45:00Z').toISOString(),
       data: {
-        planId: 'plan-789012',
-        planName: 'Premium Health Plus',
-        planType: 'PPO',
-        premium: 450.00,
-        deductible: 1000.00,
-        outOfPocketMax: 5000.00,
-        coverageStartDate: '2023-03-01',
-        coverageEndDate: '2024-02-29',
-        selectedAt: new Date().toISOString(),
+        currentPlanId: 'plan-123456',
+        newPlanId: 'plan-789012',
+        selectionDate: new Date('2023-06-01T15:45:00Z').toISOString(),
+        effectiveDate: new Date('2023-07-01T00:00:00Z').toISOString(),
+        annualSavings: 1200.00,
       },
     },
   },
+
+  /**
+   * Cross-journey events
+   */
   CROSS_JOURNEY: {
     ACHIEVEMENT_UNLOCKED: {
-      eventType: 'gamification.achievement.unlocked',
-      userId: SAMPLE_USER_IDS.PREMIUM,
-      journeyId: 'cross_journey',
-      timestamp: new Date().toISOString(),
+      type: 'GAMIFICATION_ACHIEVEMENT_UNLOCKED',
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-15T16:30:00Z').toISOString(),
       data: {
         achievementId: 'achievement-123456',
-        achievementName: 'Health Explorer',
-        achievementDescription: 'Complete activities in all three journeys',
-        journeysInvolved: [JOURNEY_IDS.HEALTH, JOURNEY_IDS.CARE, JOURNEY_IDS.PLAN],
-        pointsAwarded: 500,
-        unlockedAt: new Date().toISOString(),
-        userLevel: 5,
-        userTotalPoints: 2500,
+        achievementName: 'Health and Wellness Master',
+        achievementDescription: 'Complete health goals and attend medical appointments',
+        xpEarned: 500,
+        unlockedAt: new Date('2023-06-15T16:30:00Z').toISOString(),
+        sourceJourneys: [
+          {
+            journeyId: JOURNEY_IDS.HEALTH,
+            journeyName: JOURNEY_NAMES.HEALTH,
+            contribution: 'Completed 5 health goals',
+          },
+          {
+            journeyId: JOURNEY_IDS.CARE,
+            journeyName: JOURNEY_NAMES.CARE,
+            contribution: 'Attended 2 medical appointments',
+          },
+        ],
       },
     },
-    CROSS_JOURNEY_REFERRAL: {
-      eventType: 'journey.referral.created',
+    JOURNEY_TRANSITIONED: {
+      type: 'USER_JOURNEY_TRANSITIONED',
       userId: SAMPLE_USER_IDS.STANDARD,
-      journeyId: 'cross_journey',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date('2023-06-15T10:45:00Z').toISOString(),
       data: {
-        referralId: 'referral-123456',
-        sourceJourney: JOURNEY_IDS.HEALTH,
-        targetJourney: JOURNEY_IDS.CARE,
-        referralReason: 'elevated_blood_pressure',
-        urgency: 'medium',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(), // 7 days from now
+        sourceJourney: {
+          journeyId: JOURNEY_IDS.HEALTH,
+          journeyName: JOURNEY_NAMES.HEALTH,
+          context: 'Viewing health metrics',
+        },
+        destinationJourney: {
+          journeyId: JOURNEY_IDS.CARE,
+          journeyName: JOURNEY_NAMES.CARE,
+          context: 'Scheduling appointment based on health metrics',
+        },
+        transitionReason: 'health_metric_threshold_exceeded',
+        transitionTimestamp: new Date('2023-06-15T10:45:00Z').toISOString(),
+      },
+    },
+    DATA_SHARED: {
+      type: 'CROSS_JOURNEY_DATA_SHARED',
+      userId: SAMPLE_USER_IDS.STANDARD,
+      timestamp: new Date('2023-06-16T09:30:00Z').toISOString(),
+      data: {
+        sourceJourney: {
+          journeyId: JOURNEY_IDS.CARE,
+          journeyName: JOURNEY_NAMES.CARE,
+          dataType: 'appointment_summary',
+          dataId: 'appointment-123456',
+        },
+        destinationJourney: {
+          journeyId: JOURNEY_IDS.PLAN,
+          journeyName: JOURNEY_NAMES.PLAN,
+          dataType: 'claim_submission',
+          dataId: 'claim-234567',
+        },
+        sharingTimestamp: new Date('2023-06-16T09:30:00Z').toISOString(),
+        sharingReason: 'auto_claim_submission',
       },
     },
   },
 };
 
 /**
- * Sample journey metadata for testing
+ * Journey-specific metadata structures for enriching logs
  */
 export const JOURNEY_METADATA = {
-  [JOURNEY_IDS.HEALTH]: {
-    journeyName: JOURNEY_NAMES.HEALTH,
-    metrics: ['steps', 'heart_rate', 'blood_pressure', 'weight', 'sleep', 'blood_glucose'],
-    goals: ['daily_steps', 'weight_loss', 'sleep_improvement', 'blood_pressure_management'],
+  /**
+   * Health journey metadata
+   */
+  HEALTH: {
+    color: JOURNEY_COLORS.HEALTH.primary,
+    metrics: ['steps', 'heart_rate', 'blood_pressure', 'sleep', 'weight'],
     devices: ['smartwatch', 'scale', 'blood_pressure_monitor', 'glucose_meter'],
-    insights: ['trend', 'anomaly', 'recommendation', 'achievement'],
+    goals: ['steps', 'active_minutes', 'sleep_duration', 'weight_loss'],
+    insights: ['activity_trends', 'sleep_quality', 'health_score'],
   },
-  [JOURNEY_IDS.CARE]: {
-    journeyName: JOURNEY_NAMES.CARE,
-    appointmentTypes: ['consultation', 'follow_up', 'specialist', 'emergency', 'annual_checkup'],
+
+  /**
+   * Care journey metadata
+   */
+  CARE: {
+    color: JOURNEY_COLORS.CARE.primary,
+    appointmentTypes: ['video_consultation', 'in_person', 'chat', 'phone_call'],
+    specialties: ['general_practice', 'cardiology', 'dermatology', 'orthopedics'],
     medicationCategories: ['prescription', 'over_the_counter', 'supplement'],
-    providerSpecialties: ['general_practice', 'cardiology', 'dermatology', 'orthopedics', 'pediatrics'],
-    telemedicineOptions: ['video', 'audio', 'chat'],
+    careServices: ['telemedicine', 'lab_tests', 'imaging', 'specialist_referral'],
   },
-  [JOURNEY_IDS.PLAN]: {
-    journeyName: JOURNEY_NAMES.PLAN,
-    planTypes: ['HMO', 'PPO', 'EPO', 'POS', 'HDHP'],
-    claimCategories: ['medical', 'dental', 'vision', 'pharmacy', 'wellness'],
-    benefitTypes: ['preventive_care', 'specialist_visit', 'emergency', 'hospitalization', 'prescription', 'wellness_program'],
-    documentTypes: ['insurance_card', 'claim_receipt', 'explanation_of_benefits', 'referral', 'prior_authorization'],
+
+  /**
+   * Plan journey metadata
+   */
+  PLAN: {
+    color: JOURNEY_COLORS.PLAN.primary,
+    claimTypes: ['medical', 'dental', 'vision', 'pharmacy', 'wellness'],
+    benefitCategories: ['preventive', 'emergency', 'hospitalization', 'outpatient'],
+    planTypes: ['individual', 'family', 'employer', 'government'],
+    paymentMethods: ['credit_card', 'bank_transfer', 'payroll_deduction'],
+  },
+
+  /**
+   * Cross-journey metadata
+   */
+  CROSS_JOURNEY: {
+    achievementTypes: ['milestone', 'streak', 'collection', 'challenge'],
+    rewardTypes: ['points', 'badge', 'discount', 'premium_feature'],
+    transitionTypes: ['user_initiated', 'system_suggested', 'automated'],
+    dataShareTypes: ['user_authorized', 'automatic', 'temporary'],
   },
 };
 
 /**
- * Sample business transaction tracking data for testing
+ * Sample log entry objects for testing log formatting and serialization
  */
-export const BUSINESS_TRANSACTIONS = {
-  APPOINTMENT_BOOKING_FLOW: [
-    {
-      step: 'initiate_booking',
-      journey: 'care',
-      service: 'care-service',
-      operation: 'searchProviders',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
-      level: LogLevel.INFO,
-      message: 'User initiated appointment booking flow',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-      },
-    },
-    {
-      step: 'select_provider',
-      journey: 'care',
-      service: 'care-service',
-      operation: 'getProviderDetails',
-      timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString(), // 4 minutes ago
-      level: LogLevel.INFO,
-      message: 'User selected healthcare provider',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-        metadata: {
-          providerId: 'provider-789012',
-          specialtyId: 'specialty-345678',
+export const SAMPLE_LOG_ENTRIES = {
+  /**
+   * Health journey log entries
+   */
+  HEALTH: {
+    INFO: {
+      level: 'INFO',
+      message: 'Health metric recorded successfully',
+      timestamp: new Date('2023-06-15T10:30:00Z').toISOString(),
+      context: HEALTH_JOURNEY_CONTEXTS.METRIC_RECORDING,
+      metadata: {
+        journeyColor: JOURNEY_METADATA.HEALTH.color,
+        metricType: 'blood_pressure',
+        metricValue: {
+          systolic: 120,
+          diastolic: 80,
         },
       },
     },
-    {
-      step: 'select_timeslot',
-      journey: 'care',
-      service: 'care-service',
-      operation: 'getAvailableTimeslots',
-      timestamp: new Date(Date.now() - 1000 * 60 * 3).toISOString(), // 3 minutes ago
-      level: LogLevel.INFO,
-      message: 'User selected appointment timeslot',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-        metadata: {
-          providerId: 'provider-789012',
-          appointmentDate: '2023-02-15T14:30:00Z',
-          appointmentDuration: 30,
-        },
+    ERROR: {
+      level: 'ERROR',
+      message: 'Failed to sync health device data',
+      timestamp: new Date('2023-06-15T10:32:00Z').toISOString(),
+      context: HEALTH_JOURNEY_CONTEXTS.DEVICE_SYNC,
+      error: {
+        name: 'DeviceSyncError',
+        message: 'Connection timeout while syncing device data',
+        code: 'DEVICE_SYNC_TIMEOUT',
+        stack: 'DeviceSyncError: Connection timeout while syncing device data\n    at DeviceSyncService.syncData (/src/services/device-sync.service.ts:42:11)\n    at HealthController.syncDevice (/src/controllers/health.controller.ts:87:23)',
+      },
+      metadata: {
+        journeyColor: JOURNEY_METADATA.HEALTH.color,
+        deviceId: 'device-123456',
+        deviceType: 'smartwatch',
+        retryCount: 2,
       },
     },
-    {
-      step: 'confirm_appointment',
-      journey: 'care',
-      service: 'care-service',
-      operation: 'bookAppointment',
-      timestamp: new Date(Date.now() - 1000 * 60 * 2).toISOString(), // 2 minutes ago
-      level: LogLevel.INFO,
-      message: 'User confirmed appointment booking',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-        metadata: {
-          appointmentId: 'appt-123456',
-          providerId: 'provider-789012',
-          appointmentDate: '2023-02-15T14:30:00Z',
-          appointmentStatus: 'scheduled',
-        },
-      },
-    },
-    {
-      step: 'check_insurance',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'verifyProviderCoverage',
-      timestamp: new Date(Date.now() - 1000 * 60 * 1).toISOString(), // 1 minute ago
-      level: LogLevel.INFO,
-      message: 'System verified insurance coverage for appointment',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-        metadata: {
-          appointmentId: 'appt-123456',
-          planId: 'plan-789012',
-          providerId: 'provider-789012',
-          coverageStatus: 'covered',
-          copayAmount: 25.00,
-        },
-      },
-    },
-    {
-      step: 'send_notification',
-      journey: 'care',
-      service: 'notification-service',
-      operation: 'sendAppointmentConfirmation',
-      timestamp: new Date().toISOString(), // now
-      level: LogLevel.INFO,
-      message: 'Appointment confirmation notification sent',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.CARE_JOURNEY,
-        correlationId: 'tx-appointment-booking-123456',
-        metadata: {
-          appointmentId: 'appt-123456',
-          notificationType: 'appointment_confirmation',
-          channels: ['push', 'email'],
-          deliveryStatus: 'sent',
-        },
-      },
-    },
-  ],
-  CLAIM_SUBMISSION_FLOW: [
-    {
-      step: 'initiate_claim',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'initiateClaim',
-      timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(), // 10 minutes ago
-      level: LogLevel.INFO,
-      message: 'User initiated claim submission flow',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-      },
-    },
-    {
-      step: 'select_claim_type',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'getClaimTypes',
-      timestamp: new Date(Date.now() - 1000 * 60 * 9).toISOString(), // 9 minutes ago
-      level: LogLevel.INFO,
-      message: 'User selected claim type',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          claimType: 'medical',
-          planId: 'plan-789012',
-        },
-      },
-    },
-    {
-      step: 'enter_claim_details',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'validateClaimDetails',
-      timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString(), // 8 minutes ago
-      level: LogLevel.INFO,
-      message: 'User entered claim details',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          claimAmount: 250.75,
-          serviceDate: '2023-01-20',
-          providerName: 'Dr. Smith',
-          providerNPI: '1234567890',
-          diagnosisCodes: ['J00', 'R50.9'],
-        },
-      },
-    },
-    {
-      step: 'upload_documents',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'uploadClaimDocuments',
-      timestamp: new Date(Date.now() - 1000 * 60 * 7).toISOString(), // 7 minutes ago
-      level: LogLevel.INFO,
-      message: 'User uploaded claim documents',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          documentIds: ['doc-678901', 'doc-678902'],
-          documentTypes: ['claim_receipt', 'medical_report'],
-          totalSize: 1024 * 1024 * 3.5, // 3.5 MB
-        },
-      },
-    },
-    {
-      step: 'submit_claim',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'submitClaim',
-      timestamp: new Date(Date.now() - 1000 * 60 * 6).toISOString(), // 6 minutes ago
-      level: LogLevel.INFO,
-      message: 'User submitted claim',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          claimId: 'claim-123456',
-          submissionStatus: 'submitted',
-          submissionTimestamp: new Date(Date.now() - 1000 * 60 * 6).toISOString(),
-        },
-      },
-    },
-    {
-      step: 'process_claim',
-      journey: 'plan',
-      service: 'plan-service',
-      operation: 'processClaimSubmission',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
-      level: LogLevel.INFO,
-      message: 'System processed claim submission',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          claimId: 'claim-123456',
-          processingStatus: 'processing',
-          estimatedCompletionTime: '2-3 business days',
-        },
-      },
-    },
-    {
-      step: 'send_confirmation',
-      journey: 'plan',
-      service: 'notification-service',
-      operation: 'sendClaimConfirmation',
-      timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString(), // 4 minutes ago
-      level: LogLevel.INFO,
-      message: 'Claim submission confirmation sent',
-      context: {
-        userId: SAMPLE_USER_IDS.STANDARD,
-        requestId: SAMPLE_REQUEST_IDS.PLAN_JOURNEY,
-        correlationId: 'tx-claim-submission-123456',
-        metadata: {
-          claimId: 'claim-123456',
-          notificationType: 'claim_confirmation',
-          channels: ['push', 'email'],
-          deliveryStatus: 'sent',
-        },
-      },
-    },
-  ],
-};
+  },
 
-/**
- * Comprehensive journey data fixture for testing
- */
-export const JOURNEY_DATA_FIXTURE = {
-  JOURNEY_IDS,
-  JOURNEY_NAMES,
-  SAMPLE_USER_IDS,
-  SAMPLE_REQUEST_IDS,
-  SAMPLE_TRACE_IDS,
-  SAMPLE_SPAN_IDS,
-  SAMPLE_CORRELATION_IDS,
-  HEALTH_JOURNEY_CONTEXTS,
-  CARE_JOURNEY_CONTEXTS,
-  PLAN_JOURNEY_CONTEXTS,
-  CROSS_JOURNEY_CONTEXTS,
-  JOURNEY_EVENTS,
-  JOURNEY_METADATA,
-  BUSINESS_TRANSACTIONS,
-};
+  /**
+   * Care journey log entries
+   */
+  CARE: {
+    INFO: {
+      level: 'INFO',
+      message: 'Appointment booked successfully',
+      timestamp: new Date('2023-06-15T11:15:00Z').toISOString(),
+      context: CARE_JOURNEY_CONTEXTS.APPOINTMENT_BOOKING,
+      metadata: {
+        journeyColor: JOURNEY_METADATA.CARE.color,
+        appointmentId: 'appointment-123456',
+        appointmentType: 'video_consultation',
+        appointmentDate: new Date('2023-06-20T14:00:00Z').toISOString(),
+      },
+    },
+    ERROR: {
+      level: 'ERROR',
+      message: 'Failed to start telemedicine session',
+      timestamp: new Date('2023-06-15T14:00:30Z').toISOString(),
+      context: CARE_JOURNEY_CONTEXTS.TELEMEDICINE_SESSION,
+      error: {
+        name: 'TelemedicineError',
+        message: 'Failed to establish video connection',
+        code: 'VIDEO_CONNECTION_FAILED',
+        stack: 'TelemedicineError: Failed to establish video connection\n    at TelemedicineService.startSession (/src/services/telemedicine.service.ts:78:15)\n    at CareController.startVideoCall (/src/controllers/care.controller.ts:124:28)',
+      },
+      metadata: {
+        journeyColor: JOURNEY_METADATA.CARE.color,
+        callId: 'call-987654',
+        providerId: 'provider-456789',
+        browserInfo: 'Chrome 114.0.5735.106',
+        networkStatus: 'unstable',
+      },
+    },
+  },
 
-export default JOURNEY_DATA_FIXTURE;
+  /**
+   * Plan journey log entries
+   */
+  PLAN: {
+    INFO: {
+      level: 'INFO',
+      message: 'Claim submitted successfully',
+      timestamp: new Date('2023-06-15T09:30:00Z').toISOString(),
+      context: PLAN_JOURNEY_CONTEXTS.CLAIM_SUBMISSION,
+      metadata: {
+        journeyColor: JOURNEY_METADATA.PLAN.color,
+        claimId: 'claim-234567',
+        claimType: 'medical',
+        claimAmount: 150.75,
+        processingTime: 2.3, // seconds
+      },
+    },
+    ERROR: {
+      level: 'ERROR',
+      message: 'Failed to process plan selection',
+      timestamp: new Date('2023-06-15T15:46:00Z').toISOString(),
+      context: PLAN_JOURNEY_CONTEXTS.PLAN_SELECTION,
+      error: {
+        name: 'PlanSelectionError',
+        message: 'Invalid plan transition during enrollment period',
+        code: 'INVALID_PLAN_TRANSITION',
+        stack: 'PlanSelectionError: Invalid plan transition during enrollment period\n    at PlanService.selectPlan (/src/services/plan.service.ts:156:18)\n    at PlanController.updatePlan (/src/controllers/plan.controller.ts:92:25)',
+      },
+      metadata: {
+        journeyColor: JOURNEY_METADATA.PLAN.color,
+        currentPlanId: 'plan-123456',
+        newPlanId: 'plan-789012',
+        enrollmentPeriod: 'special',
+        validationErrors: ['PLAN_TRANSITION_RESTRICTED'],
+      },
+    },
+  },
+
+  /**
+   * Cross-journey log entries
+   */
+  CROSS_JOURNEY: {
+    INFO: {
+      level: 'INFO',
+      message: 'Achievement unlocked across multiple journeys',
+      timestamp: new Date('2023-06-15T16:30:00Z').toISOString(),
+      context: CROSS_JOURNEY_CONTEXTS.ACHIEVEMENT_UNLOCK,
+      metadata: {
+        achievementId: 'achievement-123456',
+        achievementName: 'Health and Wellness Master',
+        xpEarned: 500,
+        journeyContributions: [
+          { journeyId: JOURNEY_IDS.HEALTH, contribution: 'Completed 5 health goals' },
+          { journeyId: JOURNEY_IDS.CARE, contribution: 'Attended 2 medical appointments' },
+        ],
+      },
+    },
+    ERROR: {
+      level: 'ERROR',
+      message: 'Failed to share data between journeys',
+      timestamp: new Date('2023-06-16T09:31:00Z').toISOString(),
+      context: CROSS_JOURNEY_CONTEXTS.DATA_SHARING,
+      error: {
+        name: 'DataSharingError',
+        message: 'Insufficient permissions for cross-journey data access',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        stack: 'DataSharingError: Insufficient permissions for cross-journey data access\n    at DataSharingService.shareData (/src/services/data-sharing.service.ts:89:14)\n    at JourneyController.shareJourneyData (/src/controllers/journey.controller.ts:67:22)',
+      },
+      metadata: {
+        sourceJourneyId: JOURNEY_IDS.CARE,
+        destinationJourneyId: JOURNEY_IDS.PLAN,
+        dataType: 'appointment_summary',
+        requiredPermissions: ['CARE_READ', 'PLAN_WRITE'],
+        missingPermissions: ['PLAN_WRITE'],
+      },
+    },
+  },
+};
