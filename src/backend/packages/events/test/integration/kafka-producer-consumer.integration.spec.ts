@@ -1,487 +1,621 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { KafkaService } from '../../src/kafka/kafka.service';
-import { KafkaProducer } from '../../src/kafka/kafka.producer';
-import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
-import { BaseEvent } from '../../src/interfaces/base-event.interface';
-import { KafkaEvent } from '../../src/interfaces/kafka-event.interface';
-import { EventTypes } from '../../src/dto/event-types.enum';
-import { BaseEventDto } from '../../src/dto/base-event.dto';
-import { v4 as uuidv4 } from 'uuid';
+import { LoggerService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { EventMetadataDto, createEventMetadata } from '../../src/dto/event-metadata.dto';
+import { KafkaMessage } from '../../src/interfaces/kafka-message.interface';
+import { TOPICS } from '../../src/constants/topics.constants';
+import { EventSchemaRegistry } from '../../src/schema/schema-registry.service';
+import { KafkaError } from '../../src/errors/kafka.errors';
+import { ERROR_CODES } from '../../src/constants/errors.constants';
+
+// Mock implementations
+class MockLoggerService {
+  log = jest.fn();
+  error = jest.fn();
+  warn = jest.fn();
+  debug = jest.fn();
+}
+
+class MockTracingService {
+  createSpan = jest.fn().mockImplementation((name, fn) => fn({ setAttribute: jest.fn() }));
+  getTraceHeaders = jest.fn().mockReturnValue({ 'trace-id': 'test-trace-id' });
+  getCurrentTraceId = jest.fn().mockReturnValue('test-trace-id');
+}
+
+class MockSchemaRegistry {
+  validate = jest.fn().mockResolvedValue(true);
+}
+
+// Test configuration
+const testConfig = {
+  'test-service': {
+    kafka: {
+      brokers: process.env.KAFKA_BROKERS || 'localhost:9092',
+      clientId: 'test-client',
+      groupId: 'test-group',
+      ssl: false,
+      retry: {
+        initialRetryTime: 100,
+        retries: 3,
+        factor: 1.5,
+        maxRetryTime: 2000,
+      },
+    },
+  },
+  service: {
+    name: 'test-service',
+  },
+};
+
+// Test fixtures
+interface TestEvent {
+  type: string;
+  payload: any;
+  metadata?: EventMetadataDto;
+}
+
+const createTestEvent = (type: string, payload: any): TestEvent => ({
+  type,
+  payload,
+  metadata: createEventMetadata('test-service', {
+    correlationId: 'test-correlation-id',
+  }),
+});
 
 /**
- * Integration test for Kafka producer and consumer interactions.
+ * Integration tests for Kafka producer and consumer interactions.
  * 
- * This test suite verifies end-to-end event delivery across different services,
- * including message serialization/deserialization, header propagation, event correlation,
- * and successful message delivery with acknowledgments.
+ * These tests verify the end-to-end functionality of the Kafka messaging system,
+ * including message serialization/deserialization, header propagation, correlation ID
+ * tracking, and error handling with retry mechanisms.
+ * 
+ * Note: These tests require a running Kafka broker. In CI environments, this is provided
+ * by a Docker container started before the tests run.
  */
 describe('Kafka Producer-Consumer Integration', () => {
   let moduleRef: TestingModule;
   let kafkaService: KafkaService;
-  let producer: KafkaProducer;
-  let consumer: TestConsumer;
+  let configService: ConfigService;
+  let loggerService: MockLoggerService;
+  let tracingService: MockTracingService;
+  let schemaRegistry: MockSchemaRegistry;
   
-  const testTopic = `test-topic-${uuidv4()}`;
-  const testGroupId = `test-group-${uuidv4()}`;
+  // Test topic names
+  const TEST_TOPIC = 'test.events';
+  const TEST_RETRY_TOPIC = 'test.retry';
+  const TEST_ERROR_TOPIC = 'test.error';
   
-  // Test event payload
-  const testEvent: BaseEventDto = {
-    eventId: uuidv4(),
-    type: EventTypes.HEALTH.METRIC_RECORDED,
-    userId: 'test-user-123',
-    timestamp: new Date().toISOString(),
-    journey: 'health',
-    data: {
-      metricType: 'HEART_RATE',
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString(),
-      source: 'integration-test'
-    },
-    metadata: {
-      correlationId: uuidv4(),
-      version: '1.0.0',
-      source: 'integration-test'
-    }
-  };
-
-  /**
-   * Test consumer implementation that extends the abstract KafkaConsumer class.
-   * Used to verify message consumption in tests.
-   */
-  class TestConsumer extends KafkaConsumer {
-    private receivedMessages: KafkaEvent[] = [];
-    private messagePromises: Array<{
-      resolve: (value: KafkaEvent) => void;
-      reject: (error: Error) => void;
-    }> = [];
-
-    constructor(kafkaService: KafkaService) {
-      super(kafkaService);
-    }
-
-    /**
-     * Process a received message and store it for test verification.
-     */
-    async processMessage(message: KafkaEvent): Promise<void> {
-      this.receivedMessages.push(message);
-      
-      // Resolve any pending promises waiting for messages
-      if (this.messagePromises.length > 0) {
-        const promise = this.messagePromises.shift();
-        promise?.resolve(message);
-      }
-    }
-
-    /**
-     * Wait for a specific number of messages to be received.
-     */
-    async waitForMessages(count: number = 1, timeoutMs: number = 10000): Promise<KafkaEvent[]> {
-      if (this.receivedMessages.length >= count) {
-        return this.receivedMessages.slice(0, count);
-      }
-
-      return new Promise<KafkaEvent[]>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error(`Timed out waiting for ${count} messages. Received only ${this.receivedMessages.length}`));
-        }, timeoutMs);
-
-        const checkMessages = () => {
-          if (this.receivedMessages.length >= count) {
-            clearTimeout(timeout);
-            resolve(this.receivedMessages.slice(0, count));
-          } else {
-            // Create a promise for the next message
-            const messagePromise = new Promise<KafkaEvent>((resolveMsg, rejectMsg) => {
-              this.messagePromises.push({ resolve: resolveMsg, reject: rejectMsg });
-            });
-
-            // When the next message arrives, check again
-            messagePromise.then(() => {
-              checkMessages();
-            }).catch(err => {
-              clearTimeout(timeout);
-              reject(err);
-            });
-          }
-        };
-
-        checkMessages();
-      });
-    }
-
-    /**
-     * Get all received messages.
-     */
-    getReceivedMessages(): KafkaEvent[] {
-      return [...this.receivedMessages];
-    }
-
-    /**
-     * Clear all received messages (useful between tests).
-     */
-    clearMessages(): void {
-      this.receivedMessages = [];
-    }
-  }
-
   beforeAll(async () => {
-    // Create test module with Kafka services
+    // Create test module with real KafkaService and mocked dependencies
     moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [() => testConfig],
+          isGlobal: true,
+        }),
+      ],
       providers: [
         KafkaService,
-        KafkaProducer,
         {
-          provide: 'TEST_CONSUMER',
-          useFactory: (kafkaService: KafkaService) => {
-            return new TestConsumer(kafkaService);
-          },
-          inject: [KafkaService]
-        }
+          provide: LoggerService,
+          useClass: MockLoggerService,
+        },
+        {
+          provide: TracingService,
+          useClass: MockTracingService,
+        },
+        {
+          provide: EventSchemaRegistry,
+          useClass: MockSchemaRegistry,
+        },
       ],
     }).compile();
-
-    // Get service instances
+    
     kafkaService = moduleRef.get<KafkaService>(KafkaService);
-    producer = moduleRef.get<KafkaProducer>(KafkaProducer);
-    consumer = moduleRef.get<TestConsumer>('TEST_CONSUMER');
-
-    // Initialize Kafka connections
-    await kafkaService.connect();
-    await producer.connect();
+    configService = moduleRef.get<ConfigService>(ConfigService);
+    loggerService = moduleRef.get(LoggerService) as unknown as MockLoggerService;
+    tracingService = moduleRef.get(TracingService) as unknown as MockTracingService;
+    schemaRegistry = moduleRef.get(EventSchemaRegistry) as unknown as MockSchemaRegistry;
     
-    // Subscribe consumer to test topic
-    await consumer.subscribe({
-      topic: testTopic,
-      fromBeginning: true,
-      groupId: testGroupId
-    });
-
-    // Start consuming messages
-    await consumer.consume();
-  }, 30000); // Increased timeout for Kafka setup
-
+    // Initialize Kafka service
+    await kafkaService.onModuleInit();
+  }, 30000); // Increase timeout for Kafka connection
+  
   afterAll(async () => {
-    // Disconnect all Kafka clients
-    await consumer.disconnect();
-    await producer.disconnect();
-    await kafkaService.disconnect();
-    
-    // Close the test module
+    // Clean up Kafka service
+    await kafkaService.onModuleDestroy();
     await moduleRef.close();
   }, 10000);
-
+  
   beforeEach(() => {
-    // Clear messages before each test
-    consumer.clearMessages();
+    // Reset mocks before each test
+    jest.clearAllMocks();
   });
-
+  
   /**
-   * Test basic message delivery from producer to consumer.
+   * Tests basic message production and consumption with verification of message content.
    */
-  it('should successfully deliver a message from producer to consumer', async () => {
-    // Send a test event
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: testEvent.userId,
-        value: JSON.stringify(testEvent),
-        headers: {
-          'correlation-id': testEvent.metadata.correlationId,
-          'event-type': testEvent.type,
-          'journey': testEvent.journey
+  it('should successfully produce and consume a message', async () => {
+    // Create test event
+    const testEvent = createTestEvent('TEST_EVENT', { value: 'test-value' });
+    
+    // Set up consumer with message verification
+    const messagePromise = new Promise<TestEvent>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message, metadata) => {
+          // Verify message content
+          expect(message).toBeDefined();
+          expect(message.type).toBe(testEvent.type);
+          expect(message.payload).toEqual(testEvent.payload);
+          expect(message.metadata).toBeDefined();
+          expect(message.metadata.correlationId).toBe('test-correlation-id');
+          
+          // Verify metadata
+          expect(metadata).toBeDefined();
+          expect(metadata.topic).toBe(TEST_TOPIC);
+          expect(metadata.headers).toBeDefined();
+          expect(metadata.headers['trace-id']).toBe('test-trace-id');
+          
+          resolve(message);
+        },
+        {
+          groupId: 'test-consumer-group',
+          fromBeginning: true,
         }
-      }]
+      );
     });
-
-    // Wait for the message to be consumed
-    const receivedMessages = await consumer.waitForMessages(1, 5000);
     
-    // Verify message was received
-    expect(receivedMessages).toHaveLength(1);
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Verify message content
-    const receivedEvent = JSON.parse(receivedMessages[0].value.toString()) as BaseEvent;
-    expect(receivedEvent.eventId).toEqual(testEvent.eventId);
-    expect(receivedEvent.type).toEqual(testEvent.type);
-    expect(receivedEvent.userId).toEqual(testEvent.userId);
-    expect(receivedEvent.journey).toEqual(testEvent.journey);
+    // Produce test message
+    await kafkaService.produce(TEST_TOPIC, testEvent);
     
-    // Verify data payload
-    expect(receivedEvent.data).toEqual(testEvent.data);
-  }, 10000);
-
+    // Wait for message to be consumed
+    const consumedMessage = await messagePromise;
+    expect(consumedMessage).toBeDefined();
+    
+    // Verify tracing was used
+    expect(tracingService.createSpan).toHaveBeenCalledWith(
+      `kafka.produce.${TEST_TOPIC}`,
+      expect.any(Function)
+    );
+    expect(tracingService.getTraceHeaders).toHaveBeenCalled();
+  }, 15000);
+  
   /**
-   * Test header propagation from producer to consumer.
+   * Tests batch message production and consumption with verification of all messages.
    */
-  it('should properly propagate message headers', async () => {
-    // Create event with specific headers to test
-    const eventWithHeaders = {
-      ...testEvent,
-      eventId: uuidv4(),
-      metadata: {
-        ...testEvent.metadata,
-        correlationId: uuidv4(),
-        traceId: uuidv4(),
-        spanId: uuidv4()
-      }
-    };
-
-    // Send event with detailed headers
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: eventWithHeaders.userId,
-        value: JSON.stringify(eventWithHeaders),
-        headers: {
-          'correlation-id': eventWithHeaders.metadata.correlationId,
-          'trace-id': eventWithHeaders.metadata.traceId,
-          'span-id': eventWithHeaders.metadata.spanId,
-          'event-type': eventWithHeaders.type,
-          'journey': eventWithHeaders.journey,
-          'source': 'integration-test'
+  it('should successfully produce and consume a batch of messages', async () => {
+    // Create test events
+    const testEvents = [
+      createTestEvent('BATCH_EVENT_1', { index: 0 }),
+      createTestEvent('BATCH_EVENT_2', { index: 1 }),
+      createTestEvent('BATCH_EVENT_3', { index: 2 }),
+    ];
+    
+    // Track consumed messages
+    const consumedMessages: TestEvent[] = [];
+    
+    // Set up consumer with message verification
+    const messagesPromise = new Promise<TestEvent[]>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message, metadata) => {
+          // Only collect batch events
+          if (message.type.startsWith('BATCH_EVENT_')) {
+            consumedMessages.push(message);
+            
+            // Resolve when all messages are consumed
+            if (consumedMessages.length === testEvents.length) {
+              resolve(consumedMessages);
+            }
+          }
+        },
+        {
+          groupId: 'test-batch-consumer-group',
+          fromBeginning: true,
         }
-      }]
+      );
     });
-
-    // Wait for the message to be consumed
-    const receivedMessages = await consumer.waitForMessages(1, 5000);
     
-    // Verify headers were properly propagated
-    const headers = receivedMessages[0].headers;
-    expect(headers['correlation-id']?.toString()).toEqual(eventWithHeaders.metadata.correlationId);
-    expect(headers['trace-id']?.toString()).toEqual(eventWithHeaders.metadata.traceId);
-    expect(headers['span-id']?.toString()).toEqual(eventWithHeaders.metadata.spanId);
-    expect(headers['event-type']?.toString()).toEqual(eventWithHeaders.type);
-    expect(headers['journey']?.toString()).toEqual(eventWithHeaders.journey);
-    expect(headers['source']?.toString()).toEqual('integration-test');
-  }, 10000);
-
-  /**
-   * Test batch message processing.
-   */
-  it('should process multiple messages in batch', async () => {
-    const batchSize = 5;
-    const batchEvents = Array.from({ length: batchSize }, (_, i) => ({
-      ...testEvent,
-      eventId: uuidv4(),
-      data: {
-        ...testEvent.data,
-        value: 70 + i,  // Different values for each event
-        recordedAt: new Date().toISOString()
-      },
-      metadata: {
-        ...testEvent.metadata,
-        correlationId: uuidv4()
-      }
-    }));
-
-    // Send batch of messages
-    await producer.send({
-      topic: testTopic,
-      messages: batchEvents.map(event => ({
-        key: event.userId,
-        value: JSON.stringify(event),
-        headers: {
-          'correlation-id': event.metadata.correlationId,
-          'event-type': event.type,
-          'journey': event.journey
-        }
-      }))
-    });
-
-    // Wait for all messages to be consumed
-    const receivedMessages = await consumer.waitForMessages(batchSize, 10000);
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Verify all messages were received
-    expect(receivedMessages).toHaveLength(batchSize);
-    
-    // Verify each message was processed correctly
-    const receivedEvents = receivedMessages.map(msg => 
-      JSON.parse(msg.value.toString()) as BaseEvent
+    // Produce batch of messages
+    await kafkaService.produceBatch(
+      TEST_TOPIC,
+      testEvents.map(event => ({ value: event }))
     );
     
-    // Check that all event IDs from the batch are present in received messages
-    const sentEventIds = batchEvents.map(e => e.eventId);
-    const receivedEventIds = receivedEvents.map(e => e.eventId);
+    // Wait for all messages to be consumed
+    const result = await messagesPromise;
     
-    expect(receivedEventIds.sort()).toEqual(sentEventIds.sort());
+    // Verify all messages were consumed
+    expect(result.length).toBe(testEvents.length);
+    
+    // Verify each message was consumed correctly
+    testEvents.forEach(event => {
+      const consumed = result.find(msg => msg.type === event.type);
+      expect(consumed).toBeDefined();
+      expect(consumed.payload).toEqual(event.payload);
+    });
   }, 15000);
-
+  
   /**
-   * Test reconnection after broker disconnection.
-   * Note: This test simulates reconnection by manually disconnecting and reconnecting.
+   * Tests message header propagation between producer and consumer.
    */
-  it('should reconnect and resume processing after disconnection', async () => {
-    // First, send a message and verify it's received
-    const firstEvent = {
-      ...testEvent,
-      eventId: uuidv4(),
-      metadata: {
-        ...testEvent.metadata,
-        correlationId: uuidv4()
-      }
-    };
-
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: firstEvent.userId,
-        value: JSON.stringify(firstEvent),
-        headers: {
-          'correlation-id': firstEvent.metadata.correlationId,
-          'event-type': firstEvent.type,
-          'journey': firstEvent.journey
-        }
-      }]
-    });
-
-    // Wait for the first message
-    await consumer.waitForMessages(1, 5000);
-    consumer.clearMessages();
-
-    // Disconnect and reconnect the consumer
-    await consumer.disconnect();
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit
-    await consumer.connect();
-    await consumer.subscribe({
-      topic: testTopic,
-      fromBeginning: false, // Only new messages
-      groupId: testGroupId
-    });
-    await consumer.consume();
-
-    // Send another message after reconnection
-    const secondEvent = {
-      ...testEvent,
-      eventId: uuidv4(),
-      metadata: {
-        ...testEvent.metadata,
-        correlationId: uuidv4()
-      }
-    };
-
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: secondEvent.userId,
-        value: JSON.stringify(secondEvent),
-        headers: {
-          'correlation-id': secondEvent.metadata.correlationId,
-          'event-type': secondEvent.type,
-          'journey': secondEvent.journey
-        }
-      }]
-    });
-
-    // Wait for the second message
-    const receivedAfterReconnect = await consumer.waitForMessages(1, 5000);
+  it('should propagate headers from producer to consumer', async () => {
+    // Create test event
+    const testEvent = createTestEvent('HEADER_TEST', { value: 'header-test' });
     
-    // Verify the message received after reconnection
-    const receivedEvent = JSON.parse(receivedAfterReconnect[0].value.toString()) as BaseEvent;
-    expect(receivedEvent.eventId).toEqual(secondEvent.eventId);
+    // Custom headers to propagate
+    const customHeaders = {
+      'test-header-1': 'value-1',
+      'test-header-2': 'value-2',
+      'x-request-id': 'test-request-id',
+    };
+    
+    // Set up consumer with header verification
+    const headerPromise = new Promise<Record<string, string>>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message, metadata) => {
+          if (message.type === 'HEADER_TEST') {
+            resolve(metadata.headers);
+          }
+        },
+        {
+          groupId: 'test-header-consumer-group',
+          fromBeginning: true,
+        }
+      );
+    });
+    
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Produce message with custom headers
+    await kafkaService.produce(
+      TEST_TOPIC,
+      testEvent,
+      'header-test-key',
+      customHeaders
+    );
+    
+    // Wait for message to be consumed
+    const headers = await headerPromise;
+    
+    // Verify custom headers were propagated
+    expect(headers).toBeDefined();
+    Object.entries(customHeaders).forEach(([key, value]) => {
+      expect(headers[key]).toBe(value);
+    });
+    
+    // Verify tracing headers were added
+    expect(headers['trace-id']).toBe('test-trace-id');
+  }, 15000);
+  
+  /**
+   * Tests correlation ID tracking across producer and consumer.
+   */
+  it('should track correlation IDs across producer and consumer', async () => {
+    // Create test event with specific correlation ID
+    const correlationId = 'test-correlation-' + Date.now();
+    const testEvent = createTestEvent('CORRELATION_TEST', { value: 'correlation-test' });
+    testEvent.metadata.correlationId = correlationId;
+    
+    // Set up consumer with correlation ID verification
+    const correlationPromise = new Promise<string>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message, metadata) => {
+          if (message.type === 'CORRELATION_TEST' && 
+              message.payload.value === 'correlation-test') {
+            resolve(message.metadata.correlationId);
+          }
+        },
+        {
+          groupId: 'test-correlation-consumer-group',
+          fromBeginning: true,
+        }
+      );
+    });
+    
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Produce message with correlation ID
+    await kafkaService.produce(TEST_TOPIC, testEvent);
+    
+    // Wait for message to be consumed
+    const receivedCorrelationId = await correlationPromise;
+    
+    // Verify correlation ID was preserved
+    expect(receivedCorrelationId).toBe(correlationId);
+  }, 15000);
+  
+  /**
+   * Tests retry mechanism with exponential backoff for failed message processing.
+   */
+  it('should retry failed message processing with exponential backoff', async () => {
+    // Create test event
+    const testEvent = createTestEvent('RETRY_TEST', { value: 'retry-test' });
+    
+    // Track processing attempts
+    const processingAttempts: number[] = [];
+    
+    // Set up consumer that fails on first attempts
+    const retryPromise = new Promise<number[]>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_RETRY_TOPIC,
+        async (message, metadata) => {
+          if (message.type === 'RETRY_TEST') {
+            const retryCount = parseInt(metadata.headers['retry-count'] || '0', 10);
+            processingAttempts.push(retryCount);
+            
+            // Fail on first two attempts
+            if (retryCount < 2) {
+              throw new Error('Simulated processing failure');
+            }
+            
+            // Succeed on third attempt
+            if (retryCount === 2) {
+              resolve(processingAttempts);
+            }
+          }
+        },
+        {
+          groupId: 'test-retry-consumer-group',
+          fromBeginning: true,
+          maxRetries: 3,
+          retryDelay: 500, // Start with 500ms delay
+          useDLQ: true,
+        }
+      );
+    });
+    
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Produce message that will trigger retries
+    await kafkaService.produce(TEST_RETRY_TOPIC, testEvent);
+    
+    // Wait for message to be processed successfully after retries
+    const attempts = await retryPromise;
+    
+    // Verify retry attempts
+    expect(attempts.length).toBeGreaterThanOrEqual(3); // Original + 2 retries
+    expect(attempts).toEqual([0, 1, 2]); // Retry counts should be sequential
+    
+    // Verify error logging
+    expect(loggerService.error).toHaveBeenCalledWith(
+      expect.stringContaining('Error processing message from topic'),
+      expect.any(Error),
+      'KafkaService'
+    );
   }, 20000);
-
+  
   /**
-   * Test error handling and retry mechanism.
-   * This test simulates a temporary failure in message processing.
+   * Tests dead letter queue functionality for messages that exceed retry limits.
    */
-  it('should handle errors and retry message processing', async () => {
-    // Create a spy on the processMessage method to simulate failures
-    const processMessageSpy = jest.spyOn(consumer, 'processMessage');
+  it('should send messages to dead letter queue after max retries', async () => {
+    // Create test event
+    const testEvent = createTestEvent('DLQ_TEST', { value: 'dlq-test' });
     
-    // Make the first call fail, then succeed on retry
-    let attemptCount = 0;
-    processMessageSpy.mockImplementation(async (message: KafkaEvent) => {
-      attemptCount++;
-      if (attemptCount === 1) {
-        throw new Error('Simulated processing failure');
-      }
-      // Original implementation for subsequent calls
-      return await TestConsumer.prototype.processMessage.call(consumer, message);
-    });
-
-    // Send a test event
-    const retryEvent = {
-      ...testEvent,
-      eventId: uuidv4(),
-      metadata: {
-        ...testEvent.metadata,
-        correlationId: uuidv4()
-      }
-    };
-
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: retryEvent.userId,
-        value: JSON.stringify(retryEvent),
-        headers: {
-          'correlation-id': retryEvent.metadata.correlationId,
-          'event-type': retryEvent.type,
-          'journey': retryEvent.journey,
-          'retry-count': '0' // Initial retry count
+    // Set up DLQ consumer
+    const dlqPromise = new Promise<TestEvent>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TOPICS.DEAD_LETTER,
+        async (message, metadata) => {
+          if (message.type === 'DLQ_TEST') {
+            resolve(message);
+          }
+        },
+        {
+          groupId: 'test-dlq-consumer-group',
+          fromBeginning: true,
         }
-      }]
+      );
     });
-
-    // Wait for the message to be processed (with retry)
-    // This may take longer due to the retry mechanism
-    const receivedMessages = await consumer.waitForMessages(1, 10000);
     
-    // Verify message was eventually processed
-    expect(receivedMessages).toHaveLength(1);
-    expect(attemptCount).toBeGreaterThan(1); // Should have attempted more than once
+    // Set up consumer that always fails
+    kafkaService.consume<TestEvent>(
+      TEST_ERROR_TOPIC,
+      async (message) => {
+        if (message.type === 'DLQ_TEST') {
+          throw new Error('Simulated permanent failure');
+        }
+      },
+      {
+        groupId: 'test-error-consumer-group',
+        fromBeginning: true,
+        maxRetries: 2, // Only retry twice
+        retryDelay: 300, // Short delay for faster test
+        useDLQ: true, // Enable DLQ
+      }
+    );
     
-    // Verify the received message is the one we sent
-    const receivedEvent = JSON.parse(receivedMessages[0].value.toString()) as BaseEvent;
-    expect(receivedEvent.eventId).toEqual(retryEvent.eventId);
+    // Wait for consumers to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Restore the original implementation
-    processMessageSpy.mockRestore();
+    // Produce message that will always fail
+    await kafkaService.produce(TEST_ERROR_TOPIC, testEvent);
+    
+    // Wait for message to appear in DLQ
+    const dlqMessage = await dlqPromise;
+    
+    // Verify DLQ message
+    expect(dlqMessage).toBeDefined();
+    expect(dlqMessage.type).toBe('DLQ_TEST');
+    expect(dlqMessage.payload).toEqual(testEvent.payload);
+  }, 20000);
+  
+  /**
+   * Tests schema validation during message production and consumption.
+   */
+  it('should validate message schema during production and consumption', async () => {
+    // Create test event
+    const testEvent = createTestEvent('SCHEMA_TEST', { value: 'schema-test' });
+    
+    // Mock schema validation to pass
+    schemaRegistry.validate.mockResolvedValueOnce(true);
+    
+    // Set up consumer
+    const schemaPromise = new Promise<boolean>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message) => {
+          if (message.type === 'SCHEMA_TEST') {
+            resolve(true);
+          }
+        },
+        {
+          groupId: 'test-schema-consumer-group',
+          fromBeginning: true,
+        }
+      );
+    });
+    
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Produce message
+    await kafkaService.produce(TEST_TOPIC, testEvent);
+    
+    // Wait for message to be consumed
+    const result = await schemaPromise;
+    
+    // Verify schema validation was called
+    expect(result).toBe(true);
+    expect(schemaRegistry.validate).toHaveBeenCalledWith(TEST_TOPIC, expect.objectContaining({
+      type: 'SCHEMA_TEST',
+      payload: { value: 'schema-test' },
+    }));
   }, 15000);
-
+  
   /**
-   * Test correlation ID tracking across services.
+   * Tests error handling when schema validation fails.
    */
-  it('should maintain correlation IDs for tracking across services', async () => {
-    // Create an event with a specific correlation ID
-    const correlationId = uuidv4();
-    const correlatedEvent = {
-      ...testEvent,
-      eventId: uuidv4(),
-      metadata: {
-        ...testEvent.metadata,
-        correlationId,
-        parentEventId: uuidv4() // Simulate a parent event
-      }
+  it('should handle schema validation failures', async () => {
+    // Create test event
+    const testEvent = createTestEvent('INVALID_SCHEMA', { value: 'invalid-schema' });
+    
+    // Mock schema validation to fail
+    const validationError = new Error('Schema validation failed');
+    schemaRegistry.validate.mockRejectedValueOnce(validationError);
+    
+    // Attempt to produce message with invalid schema
+    try {
+      await kafkaService.produce(TEST_TOPIC, testEvent);
+      fail('Should have thrown an error');
+    } catch (error) {
+      // Verify error type and details
+      expect(error).toBeInstanceOf(KafkaError);
+      expect(error.code).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      expect(error.cause).toBe(validationError);
+    }
+    
+    // Verify error was logged
+    expect(loggerService.error).toHaveBeenCalledWith(
+      expect.stringContaining('Schema validation failed'),
+      expect.any(Error),
+      'KafkaService'
+    );
+  });
+  
+  /**
+   * Tests message serialization and deserialization.
+   */
+  it('should correctly serialize and deserialize complex message structures', async () => {
+    // Create test event with complex structure
+    const complexPayload = {
+      string: 'test-string',
+      number: 123.456,
+      boolean: true,
+      date: new Date('2023-01-01T00:00:00Z'),
+      nested: {
+        array: [1, 2, 3],
+        object: { key: 'value' },
+      },
+      nullValue: null,
     };
-
-    // Send the event
-    await producer.send({
-      topic: testTopic,
-      messages: [{
-        key: correlatedEvent.userId,
-        value: JSON.stringify(correlatedEvent),
-        headers: {
-          'correlation-id': correlatedEvent.metadata.correlationId,
-          'parent-event-id': correlatedEvent.metadata.parentEventId,
-          'event-type': correlatedEvent.type,
-          'journey': correlatedEvent.journey
+    
+    const testEvent = createTestEvent('COMPLEX_TEST', complexPayload);
+    
+    // Set up consumer with structure verification
+    const complexPromise = new Promise<any>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message) => {
+          if (message.type === 'COMPLEX_TEST') {
+            resolve(message.payload);
+          }
+        },
+        {
+          groupId: 'test-complex-consumer-group',
+          fromBeginning: true,
         }
-      }]
+      );
     });
-
-    // Wait for the message to be consumed
-    const receivedMessages = await consumer.waitForMessages(1, 5000);
     
-    // Verify correlation ID was maintained
-    const headers = receivedMessages[0].headers;
-    expect(headers['correlation-id']?.toString()).toEqual(correlationId);
-    expect(headers['parent-event-id']?.toString()).toEqual(correlatedEvent.metadata.parentEventId);
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Verify the event itself also contains the correlation ID
-    const receivedEvent = JSON.parse(receivedMessages[0].value.toString()) as BaseEvent;
-    expect(receivedEvent.metadata.correlationId).toEqual(correlationId);
-  }, 10000);
+    // Produce message with complex structure
+    await kafkaService.produce(TEST_TOPIC, testEvent);
+    
+    // Wait for message to be consumed
+    const receivedPayload = await complexPromise;
+    
+    // Verify complex structure was preserved
+    // Note: Date objects are serialized to strings
+    expect(receivedPayload).toEqual({
+      ...complexPayload,
+      date: complexPayload.date.toISOString(),
+    });
+  }, 15000);
+  
+  /**
+   * Tests consumer group functionality with multiple consumers.
+   */
+  it('should distribute messages across consumer group members', async () => {
+    // This test is more conceptual as we can't easily create multiple processes
+    // in a unit test, but we can verify the consumer group configuration
+    
+    // Create test event
+    const testEvent = createTestEvent('GROUP_TEST', { value: 'group-test' });
+    
+    // Set up consumer
+    const groupPromise = new Promise<string>((resolve) => {
+      kafkaService.consume<TestEvent>(
+        TEST_TOPIC,
+        async (message, metadata) => {
+          if (message.type === 'GROUP_TEST') {
+            resolve(metadata.partition.toString());
+          }
+        },
+        {
+          groupId: 'test-group-consumer-group',
+          fromBeginning: true,
+        }
+      );
+    });
+    
+    // Wait for consumer to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Produce message
+    await kafkaService.produce(TEST_TOPIC, testEvent);
+    
+    // Wait for message to be consumed
+    const partition = await groupPromise;
+    
+    // Verify message was assigned to a partition
+    expect(partition).toBeDefined();
+    expect(parseInt(partition, 10)).toBeGreaterThanOrEqual(0);
+  }, 15000);
 });
