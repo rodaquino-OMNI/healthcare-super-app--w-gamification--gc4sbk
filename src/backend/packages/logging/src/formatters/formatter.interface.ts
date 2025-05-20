@@ -1,116 +1,106 @@
-import { LogLevel } from '../interfaces/log-level.enum';
-
 /**
- * Represents a structured log entry before formatting.
- * This interface defines the standard structure of log entries that will be passed to formatters.
+ * Interface defining the structure of a log entry before formatting.
+ * This represents the standardized log data structure used across all services
+ * in the AUSTA SuperApp.
  */
 export interface LogEntry {
   /**
-   * The log message
+   * Timestamp when the log entry was created
    */
-  message: string;
-  
+  timestamp: Date;
+
   /**
-   * The log level
+   * Log level indicating the severity of the log entry
    */
   level: LogLevel;
-  
+
   /**
-   * Timestamp of the log entry
+   * The main log message
    */
-  timestamp: string | number | Date;
-  
+  message: string;
+
   /**
-   * Optional error object or message
+   * Optional context information about where the log was generated
    */
-  error?: any;
-  
+  context?: string;
+
   /**
-   * Optional context information for the log entry
+   * Optional error object or stack trace for error logs
    */
-  context?: {
-    /**
-     * Service name or identifier
-     */
-    service?: string;
-    
-    /**
-     * Journey identifier (health, care, plan)
-     */
-    journey?: string;
-    
-    /**
-     * Request-specific context
-     */
-    request?: {
-      /**
-       * Request ID for correlation
-       */
-      id?: string;
-      
-      /**
-       * HTTP method
-       */
-      method?: string;
-      
-      /**
-       * Request path
-       */
-      path?: string;
-      
-      /**
-       * User ID associated with the request
-       */
-      userId?: string;
-      
-      /**
-       * Request duration in milliseconds
-       */
-      duration?: number;
-    };
-    
-    /**
-     * Trace context for distributed tracing
-     */
-    trace?: {
-      /**
-       * Trace ID for correlation across services
-       */
-      id?: string;
-      
-      /**
-       * Current span ID
-       */
-      spanId?: string;
-      
-      /**
-       * Parent span ID for nested spans
-       */
-      parentSpanId?: string;
-    };
-    
-    /**
-     * Additional metadata for the log entry
-     */
-    [key: string]: any;
-  };
-  
+  error?: Error | string;
+
   /**
-   * Additional properties for the log entry
+   * Optional metadata providing additional structured information
    */
-  [key: string]: any;
+  metadata?: Record<string, any>;
+
+  /**
+   * Optional correlation ID for distributed tracing
+   */
+  traceId?: string;
+
+  /**
+   * Optional span ID for distributed tracing
+   */
+  spanId?: string;
+
+  /**
+   * Optional user ID associated with the log entry
+   */
+  userId?: string;
+
+  /**
+   * Optional request ID associated with the log entry
+   */
+  requestId?: string;
+
+  /**
+   * Optional journey identifier (Health, Care, Plan) associated with the log entry
+   */
+  journey?: JourneyType;
+
+  /**
+   * Optional service name that generated the log
+   */
+  service?: string;
+
+  /**
+   * Optional environment information (development, staging, production)
+   */
+  environment?: string;
 }
 
 /**
- * Formatter interface that all log formatters must implement.
- * This interface establishes a contract for transforming log entries into formatted output.
+ * Enum defining the standard log levels used across the application
+ */
+export enum LogLevel {
+  DEBUG = 'DEBUG',
+  INFO = 'INFO',
+  WARN = 'WARN',
+  ERROR = 'ERROR',
+  FATAL = 'FATAL'
+}
+
+/**
+ * Enum defining the journey types in the AUSTA SuperApp
+ */
+export enum JourneyType {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan'
+}
+
+/**
+ * Interface that all log formatters must implement.
+ * Formatters are responsible for transforming LogEntry objects into formatted output
+ * strings or objects suitable for various logging transports.
  */
 export interface Formatter {
   /**
-   * Formats a log entry into a string representation.
+   * Formats a log entry into the desired output format.
    * 
    * @param entry The log entry to format
-   * @returns A formatted string representation of the log entry
+   * @returns The formatted log entry as a string or object, depending on the formatter implementation
    */
-  format(entry: LogEntry): string;
+  format(entry: LogEntry): string | Record<string, any>;
 }
