@@ -1,789 +1,663 @@
 /**
  * @file event-versions.ts
- * @description Test fixtures for verifying event versioning capabilities and schema evolution.
- * This file provides event samples of the same type but with different versions, allowing tests
- * to verify backward compatibility, upgrade paths, and version handling strategies.
+ * @description Contains test fixtures for verifying event versioning capabilities and schema evolution.
+ * This file provides event samples of the same type but with different versions, allowing tests to
+ * verify backward compatibility, upgrade paths, and version handling strategies.
+ *
+ * These fixtures are crucial for ensuring the system can handle both old and new event formats
+ * during transitional periods.
+ *
+ * @module events/test/fixtures
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import { EventVersion, VersionCompatibility } from '../../src/interfaces/event-versioning.interface';
-import { VersionedEventDto, EventVersionDto } from '../../src/dto/version.dto';
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../src/dto/event-metadata.dto';
+import { VersionedEventDto, registerVersionMigration, createVersionedEvent, createVersionFromString } from '../../src/dto/version.dto';
+import { HealthMetricType } from '../../src/dto/health-event.dto';
 
-// Constants for common versions used in tests
-export const VERSIONS = {
-  V1_0_0: { major: 1, minor: 0, patch: 0 },
-  V1_1_0: { major: 1, minor: 1, patch: 0 },
-  V1_2_0: { major: 1, minor: 2, patch: 0 },
-  V1_0_1: { major: 1, minor: 0, patch: 1 },
-  V2_0_0: { major: 2, minor: 0, patch: 0 },
-  V3_0_0: { major: 3, minor: 0, patch: 0 },
-};
-
-// Constants for expected compatibility results
-export const COMPATIBILITY_RESULTS = {
-  // Same version is always compatible
-  SAME_VERSION: VersionCompatibility.COMPATIBLE,
-  
-  // Minor version changes are backward compatible
-  MINOR_UPGRADE: VersionCompatibility.BACKWARD_COMPATIBLE,
-  MINOR_DOWNGRADE: VersionCompatibility.FORWARD_COMPATIBLE,
-  
-  // Patch version changes are fully compatible
-  PATCH_CHANGE: VersionCompatibility.COMPATIBLE,
-  
-  // Major version changes are incompatible
-  MAJOR_CHANGE: VersionCompatibility.INCOMPATIBLE,
-};
+// ===== HEALTH METRIC RECORDED EVENT VERSIONS =====
 
 /**
- * Helper function to create a versioned event with a specific version
+ * Health metric recorded event v1.0.0 (initial version)
+ * 
+ * This is the original schema for health metric events with basic fields.
  */
-function createVersionedEvent<T>(type: string, payload: T, version: EventVersion, userId = '123e4567-e89b-12d3-a456-426614174000'): VersionedEventDto<T> {
-  return new VersionedEventDto<T>(
-    type,
-    payload,
-    version,
-    {
-      userId,
-      timestamp: new Date().toISOString(),
-      correlationId: uuidv4(),
-      source: 'test',
-    }
+export const healthMetricRecordedV1_0_0 = createVersionedEvent(
+  EventType.HEALTH_METRIC_RECORDED,
+  {
+    metricType: HealthMetricType.HEART_RATE,
+    value: 72,
+    unit: 'bpm',
+    timestamp: '2023-04-15T10:30:00Z',
+    source: 'manual',
+    userId: 'user-123',
+  },
+  createVersionFromString('1.0.0')
+);
+
+/**
+ * Health metric recorded event v1.1.0 (non-breaking change)
+ * 
+ * Added optional fields:
+ * - deviceId: Optional ID of the device that recorded the metric
+ * - notes: Optional user notes about the measurement
+ */
+export const healthMetricRecordedV1_1_0 = createVersionedEvent(
+  EventType.HEALTH_METRIC_RECORDED,
+  {
+    metricType: HealthMetricType.HEART_RATE,
+    value: 72,
+    unit: 'bpm',
+    timestamp: '2023-04-15T10:30:00Z',
+    source: 'device',
+    userId: 'user-123',
+    deviceId: 'device-456', // New optional field
+    notes: 'Measured after exercise', // New optional field
+  },
+  createVersionFromString('1.1.0')
+);
+
+/**
+ * Health metric recorded event v2.0.0 (breaking change)
+ * 
+ * Breaking changes:
+ * - Renamed 'timestamp' to 'recordedAt' for consistency
+ * - Changed 'source' to an enum with specific values
+ * 
+ * Added required fields:
+ * - locationContext: Where the measurement was taken
+ */
+export const healthMetricRecordedV2_0_0 = createVersionedEvent(
+  EventType.HEALTH_METRIC_RECORDED,
+  {
+    metricType: HealthMetricType.HEART_RATE,
+    value: 72,
+    unit: 'bpm',
+    recordedAt: '2023-04-15T10:30:00Z', // Renamed from 'timestamp'
+    source: 'DEVICE', // Now uppercase enum value
+    userId: 'user-123',
+    deviceId: 'device-456',
+    notes: 'Measured after exercise',
+    locationContext: 'HOME', // New required field
+  },
+  createVersionFromString('2.0.0')
+);
+
+// Register migration from v1.0.0 to v1.1.0 (non-breaking)
+export const healthMetricV1_0_0_to_V1_1_0 = (oldData: any) => ({
+  ...oldData,
+  deviceId: oldData.deviceId || null,
+  notes: oldData.notes || '',
+});
+
+// Register migration from v1.1.0 to v2.0.0 (breaking)
+export const healthMetricV1_1_0_to_V2_0_0 = (oldData: any) => {
+  const sourceMap: Record<string, string> = {
+    'manual': 'MANUAL',
+    'device': 'DEVICE',
+    'integration': 'INTEGRATION',
+    'imported': 'IMPORTED',
+  };
+
+  return {
+    ...oldData,
+    recordedAt: oldData.timestamp, // Rename field
+    source: sourceMap[oldData.source] || 'UNKNOWN', // Transform to enum
+    locationContext: 'UNKNOWN', // Add required field with default
+  };
+};
+
+// ===== CARE APPOINTMENT EVENTS =====
+
+/**
+ * Care appointment booked event v1.0.0 (initial version)
+ */
+export const careAppointmentBookedV1_0_0 = createVersionedEvent(
+  EventType.CARE_APPOINTMENT_BOOKED,
+  {
+    appointmentId: 'appt-789',
+    providerId: 'provider-123',
+    specialtyType: 'Cardiologia',
+    appointmentType: 'in_person',
+    scheduledAt: '2023-05-20T14:00:00Z',
+    bookedAt: '2023-04-15T11:45:00Z',
+    patientNotes: 'First cardiology appointment',
+    duration: 30, // Duration in minutes
+    locationId: 'location-456',
+    status: 'scheduled',
+  },
+  createVersionFromString('1.0.0')
+);
+
+/**
+ * Care appointment booked event v1.1.0 (non-breaking change)
+ * 
+ * Added optional fields:
+ * - videoCallUrl: URL for telemedicine appointments
+ * - reminderSent: Whether a reminder was sent
+ */
+export const careAppointmentBookedV1_1_0 = createVersionedEvent(
+  EventType.CARE_APPOINTMENT_BOOKED,
+  {
+    appointmentId: 'appt-789',
+    providerId: 'provider-123',
+    specialtyType: 'Cardiologia',
+    appointmentType: 'in_person',
+    scheduledAt: '2023-05-20T14:00:00Z',
+    bookedAt: '2023-04-15T11:45:00Z',
+    patientNotes: 'First cardiology appointment',
+    duration: 30,
+    locationId: 'location-456',
+    status: 'scheduled',
+    videoCallUrl: null, // New optional field
+    reminderSent: false, // New optional field
+  },
+  createVersionFromString('1.1.0')
+);
+
+/**
+ * Care appointment booked event v2.0.0 (breaking change)
+ * 
+ * Breaking changes:
+ * - Removed 'patientNotes' field (moved to separate entity)
+ * - Changed 'status' to an enum with specific values
+ * - Restructured location information into a nested object
+ */
+export const careAppointmentBookedV2_0_0 = createVersionedEvent(
+  EventType.CARE_APPOINTMENT_BOOKED,
+  {
+    appointmentId: 'appt-789',
+    providerId: 'provider-123',
+    specialtyType: 'Cardiologia',
+    appointmentType: 'IN_PERSON', // Now an enum
+    scheduledAt: '2023-05-20T14:00:00Z',
+    bookedAt: '2023-04-15T11:45:00Z',
+    duration: 30,
+    status: 'SCHEDULED', // Now an enum
+    videoCallUrl: null,
+    reminderSent: false,
+    location: { // Restructured into an object
+      id: 'location-456',
+      name: 'Clínica Central',
+      address: 'Av. Paulista, 1000',
+    },
+  },
+  createVersionFromString('2.0.0')
+);
+
+// Register migration from v1.0.0 to v1.1.0 (non-breaking)
+export const careAppointmentV1_0_0_to_V1_1_0 = (oldData: any) => ({
+  ...oldData,
+  videoCallUrl: null,
+  reminderSent: false,
+});
+
+// Register migration from v1.1.0 to v2.0.0 (breaking)
+export const careAppointmentV1_1_0_to_V2_0_0 = (oldData: any) => {
+  const { patientNotes, locationId, ...rest } = oldData;
+  
+  const appointmentTypeMap: Record<string, string> = {
+    'in_person': 'IN_PERSON',
+    'telemedicine': 'TELEMEDICINE',
+    'home_visit': 'HOME_VISIT',
+  };
+  
+  const statusMap: Record<string, string> = {
+    'scheduled': 'SCHEDULED',
+    'confirmed': 'CONFIRMED',
+    'cancelled': 'CANCELLED',
+    'completed': 'COMPLETED',
+    'no_show': 'NO_SHOW',
+  };
+  
+  return {
+    ...rest,
+    appointmentType: appointmentTypeMap[oldData.appointmentType] || 'UNKNOWN',
+    status: statusMap[oldData.status] || 'UNKNOWN',
+    location: {
+      id: locationId,
+      name: 'Unknown Location', // Default value
+      address: '', // Default value
+    },
+  };
+};
+
+// ===== PLAN CLAIM EVENTS =====
+
+/**
+ * Plan claim submitted event v1.0.0 (initial version)
+ */
+export const planClaimSubmittedV1_0_0 = createVersionedEvent(
+  EventType.PLAN_CLAIM_SUBMITTED,
+  {
+    claimId: 'claim-456',
+    claimType: 'medical',
+    providerId: 'provider-789',
+    serviceDate: '2023-04-10T09:30:00Z',
+    amount: '150.75', // Amount as string
+    submittedAt: '2023-04-15T13:20:00Z',
+    receiptUrls: ['https://storage.example.com/receipts/r123.jpg'],
+    status: 'submitted',
+  },
+  createVersionFromString('1.0.0')
+);
+
+/**
+ * Plan claim submitted event v1.1.0 (non-breaking change)
+ * 
+ * Changed field types:
+ * - amount: Changed from string to number
+ * 
+ * Added optional fields:
+ * - description: Description of the claim
+ * - category: Category of the claim
+ */
+export const planClaimSubmittedV1_1_0 = createVersionedEvent(
+  EventType.PLAN_CLAIM_SUBMITTED,
+  {
+    claimId: 'claim-456',
+    claimType: 'medical',
+    providerId: 'provider-789',
+    serviceDate: '2023-04-10T09:30:00Z',
+    amount: 150.75, // Now a number
+    submittedAt: '2023-04-15T13:20:00Z',
+    receiptUrls: ['https://storage.example.com/receipts/r123.jpg'],
+    status: 'submitted',
+    description: 'Annual checkup', // New optional field
+    category: 'preventive', // New optional field
+  },
+  createVersionFromString('1.1.0')
+);
+
+/**
+ * Plan claim submitted event v2.0.0 (breaking change)
+ * 
+ * Breaking changes:
+ * - Restructured receipt URLs into a documents array with type information
+ * - Changed status to an enum
+ * - Made description and category required
+ */
+export const planClaimSubmittedV2_0_0 = createVersionedEvent(
+  EventType.PLAN_CLAIM_SUBMITTED,
+  {
+    claimId: 'claim-456',
+    claimType: 'MEDICAL', // Now an enum
+    providerId: 'provider-789',
+    serviceDate: '2023-04-10T09:30:00Z',
+    amount: 150.75,
+    submittedAt: '2023-04-15T13:20:00Z',
+    documents: [ // Restructured from receiptUrls
+      {
+        type: 'RECEIPT',
+        url: 'https://storage.example.com/receipts/r123.jpg',
+        uploadedAt: '2023-04-15T13:15:00Z',
+      },
+    ],
+    status: 'SUBMITTED', // Now an enum
+    description: 'Annual checkup', // Now required
+    category: 'PREVENTIVE', // Now required and an enum
+  },
+  createVersionFromString('2.0.0')
+);
+
+// Register migration from v1.0.0 to v1.1.0 (non-breaking but with type conversion)
+export const planClaimV1_0_0_to_V1_1_0 = (oldData: any) => ({
+  ...oldData,
+  amount: parseFloat(oldData.amount), // Convert string to number
+  description: '', // Default value for new field
+  category: '', // Default value for new field
+});
+
+// Register migration from v1.1.0 to v2.0.0 (breaking)
+export const planClaimV1_1_0_to_V2_0_0 = (oldData: any) => {
+  const { receiptUrls, ...rest } = oldData;
+  
+  const claimTypeMap: Record<string, string> = {
+    'medical': 'MEDICAL',
+    'dental': 'DENTAL',
+    'vision': 'VISION',
+    'pharmacy': 'PHARMACY',
+  };
+  
+  const statusMap: Record<string, string> = {
+    'submitted': 'SUBMITTED',
+    'in_review': 'IN_REVIEW',
+    'approved': 'APPROVED',
+    'rejected': 'REJECTED',
+    'paid': 'PAID',
+  };
+  
+  const categoryMap: Record<string, string> = {
+    'preventive': 'PREVENTIVE',
+    'diagnostic': 'DIAGNOSTIC',
+    'treatment': 'TREATMENT',
+    'emergency': 'EMERGENCY',
+    'routine': 'ROUTINE',
+    '': 'OTHER',
+  };
+  
+  // Convert receipt URLs to document objects
+  const documents = (receiptUrls || []).map((url: string) => ({
+    type: 'RECEIPT',
+    url,
+    uploadedAt: oldData.submittedAt, // Use submission time as default
+  }));
+  
+  return {
+    ...rest,
+    claimType: claimTypeMap[oldData.claimType] || 'OTHER',
+    status: statusMap[oldData.status] || 'UNKNOWN',
+    description: oldData.description || 'No description provided',
+    category: categoryMap[oldData.category] || 'OTHER',
+    documents,
+  };
+};
+
+// ===== GAMIFICATION ACHIEVEMENT EVENTS =====
+
+/**
+ * Gamification achievement unlocked event v1.0.0 (initial version)
+ */
+export const gamificationAchievementUnlockedV1_0_0 = createVersionedEvent(
+  EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+  {
+    achievementId: 'achievement-123',
+    achievementType: 'health-check-streak',
+    tier: 'silver',
+    points: 50,
+    unlockedAt: '2023-04-15T14:30:00Z',
+    userId: 'user-123',
+  },
+  createVersionFromString('1.0.0')
+);
+
+/**
+ * Gamification achievement unlocked event v1.1.0 (non-breaking change)
+ * 
+ * Added optional fields:
+ * - progress: Achievement progress information
+ * - displayName: Localized display name
+ * - iconUrl: URL to the achievement icon
+ */
+export const gamificationAchievementUnlockedV1_1_0 = createVersionedEvent(
+  EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+  {
+    achievementId: 'achievement-123',
+    achievementType: 'health-check-streak',
+    tier: 'silver',
+    points: 50,
+    unlockedAt: '2023-04-15T14:30:00Z',
+    userId: 'user-123',
+    progress: { // New optional field
+      current: 7,
+      target: 7,
+      unit: 'days',
+    },
+    displayName: 'Monitor de Saúde - Prata', // New optional field
+    iconUrl: 'https://assets.example.com/achievements/health-streak-silver.png', // New optional field
+  },
+  createVersionFromString('1.1.0')
+);
+
+/**
+ * Gamification achievement unlocked event v2.0.0 (breaking change)
+ * 
+ * Breaking changes:
+ * - Restructured achievement information into a nested object
+ * - Changed tier to an enum
+ * - Added required journey field
+ */
+export const gamificationAchievementUnlockedV2_0_0 = createVersionedEvent(
+  EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+  {
+    userId: 'user-123',
+    unlockedAt: '2023-04-15T14:30:00Z',
+    journey: 'health', // New required field
+    achievement: { // Restructured into an object
+      id: 'achievement-123',
+      type: 'health-check-streak',
+      tier: 'SILVER', // Now an enum
+      points: 50,
+      displayName: 'Monitor de Saúde - Prata',
+      iconUrl: 'https://assets.example.com/achievements/health-streak-silver.png',
+      progress: {
+        current: 7,
+        target: 7,
+        unit: 'days',
+        isComplete: true, // New field
+      },
+    },
+    notification: { // New nested object
+      shouldNotify: true,
+      message: 'Você completou 7 dias consecutivos de monitoramento de saúde!',
+    },
+  },
+  createVersionFromString('2.0.0')
+);
+
+// Register migration from v1.0.0 to v1.1.0 (non-breaking)
+export const gamificationAchievementV1_0_0_to_V1_1_0 = (oldData: any) => ({
+  ...oldData,
+  progress: null,
+  displayName: null,
+  iconUrl: null,
+});
+
+// Register migration from v1.1.0 to v2.0.0 (breaking)
+export const gamificationAchievementV1_1_0_to_V2_0_0 = (oldData: any) => {
+  const { achievementId, achievementType, tier, points, progress, displayName, iconUrl, ...rest } = oldData;
+  
+  const tierMap: Record<string, string> = {
+    'bronze': 'BRONZE',
+    'silver': 'SILVER',
+    'gold': 'GOLD',
+    'platinum': 'PLATINUM',
+  };
+  
+  // Determine journey from achievement type
+  let journey = 'unknown';
+  if (achievementType.startsWith('health-')) {
+    journey = 'health';
+  } else if (achievementType.startsWith('care-')) {
+    journey = 'care';
+  } else if (achievementType.startsWith('plan-')) {
+    journey = 'plan';
+  }
+  
+  return {
+    ...rest,
+    journey,
+    achievement: {
+      id: achievementId,
+      type: achievementType,
+      tier: tierMap[tier] || 'UNKNOWN',
+      points,
+      displayName: displayName || `Achievement ${achievementId}`,
+      iconUrl: iconUrl || null,
+      progress: progress ? {
+        ...progress,
+        isComplete: progress.current >= progress.target,
+      } : {
+        current: 1,
+        target: 1,
+        unit: 'completion',
+        isComplete: true,
+      },
+    },
+    notification: {
+      shouldNotify: true,
+      message: `You've unlocked the ${displayName || achievementType} achievement!`,
+    },
+  };
+};
+
+// ===== VERSION COMPATIBILITY TEST CASES =====
+
+/**
+ * Test cases for version compatibility checks.
+ * Each case includes source and target versions and expected compatibility result.
+ */
+export const versionCompatibilityTestCases = [
+  // Same version is always compatible
+  { source: '1.0.0', target: '1.0.0', compatible: true },
+  
+  // Minor version upgrades are backward compatible
+  { source: '1.1.0', target: '1.0.0', compatible: true },
+  { source: '1.2.0', target: '1.0.0', compatible: true },
+  { source: '1.2.0', target: '1.1.0', compatible: true },
+  
+  // Patch version upgrades are backward compatible
+  { source: '1.0.1', target: '1.0.0', compatible: true },
+  { source: '1.1.2', target: '1.1.0', compatible: true },
+  
+  // Major version changes are not backward compatible
+  { source: '2.0.0', target: '1.0.0', compatible: false },
+  { source: '2.0.0', target: '1.1.0', compatible: false },
+  
+  // Older versions are not forward compatible
+  { source: '1.0.0', target: '1.1.0', compatible: false },
+  { source: '1.0.0', target: '2.0.0', compatible: false },
+  { source: '1.1.0', target: '1.2.0', compatible: false },
+];
+
+// ===== MIGRATION PATH TEST CASES =====
+
+/**
+ * Test cases for finding migration paths between versions.
+ * Each case includes source and target versions and expected migration steps.
+ */
+export const migrationPathTestCases = [
+  // Direct migrations
+  {
+    eventType: EventType.HEALTH_METRIC_RECORDED,
+    source: '1.0.0',
+    target: '1.1.0',
+    expectedPath: ['1.0.0->1.1.0'],
+  },
+  {
+    eventType: EventType.HEALTH_METRIC_RECORDED,
+    source: '1.1.0',
+    target: '2.0.0',
+    expectedPath: ['1.1.0->2.0.0'],
+  },
+  
+  // Multi-step migrations
+  {
+    eventType: EventType.HEALTH_METRIC_RECORDED,
+    source: '1.0.0',
+    target: '2.0.0',
+    expectedPath: ['1.0.0->1.1.0', '1.1.0->2.0.0'],
+  },
+  
+  // No migration path
+  {
+    eventType: 'UNKNOWN_EVENT_TYPE',
+    source: '1.0.0',
+    target: '2.0.0',
+    expectedPath: null,
+  },
+];
+
+// ===== REGISTER MIGRATIONS =====
+
+// Register all migrations for testing
+export function registerTestMigrations() {
+  // Health metric recorded event migrations
+  registerVersionMigration(
+    EventType.HEALTH_METRIC_RECORDED,
+    '1.0.0',
+    '1.1.0',
+    healthMetricV1_0_0_to_V1_1_0
+  );
+  
+  registerVersionMigration(
+    EventType.HEALTH_METRIC_RECORDED,
+    '1.1.0',
+    '2.0.0',
+    healthMetricV1_1_0_to_V2_0_0
+  );
+  
+  // Care appointment booked event migrations
+  registerVersionMigration(
+    EventType.CARE_APPOINTMENT_BOOKED,
+    '1.0.0',
+    '1.1.0',
+    careAppointmentV1_0_0_to_V1_1_0
+  );
+  
+  registerVersionMigration(
+    EventType.CARE_APPOINTMENT_BOOKED,
+    '1.1.0',
+    '2.0.0',
+    careAppointmentV1_1_0_to_V2_0_0
+  );
+  
+  // Plan claim submitted event migrations
+  registerVersionMigration(
+    EventType.PLAN_CLAIM_SUBMITTED,
+    '1.0.0',
+    '1.1.0',
+    planClaimV1_0_0_to_V1_1_0
+  );
+  
+  registerVersionMigration(
+    EventType.PLAN_CLAIM_SUBMITTED,
+    '1.1.0',
+    '2.0.0',
+    planClaimV1_1_0_to_V2_0_0
+  );
+  
+  // Gamification achievement unlocked event migrations
+  registerVersionMigration(
+    EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+    '1.0.0',
+    '1.1.0',
+    gamificationAchievementV1_0_0_to_V1_1_0
+  );
+  
+  registerVersionMigration(
+    EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+    '1.1.0',
+    '2.0.0',
+    gamificationAchievementV1_1_0_to_V2_0_0
   );
 }
 
-// ===== HEALTH JOURNEY EVENT VERSIONS =====
+// ===== EXPORT ALL FIXTURES =====
 
-/**
- * Health Metric Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const healthMetricEventV1_0_0 = createVersionedEvent(
-  'HEALTH_METRIC_RECORDED',
-  {
-    metricType: 'HEART_RATE',
-    value: 75,
-    unit: 'bpm',
-    recordedAt: '2023-05-15T10:30:00Z',
-    source: 'MANUAL_ENTRY',
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Health Metric Event - Version 1.1.0
- * Non-breaking change: Added optional fields (deviceId, notes)
- */
-export const healthMetricEventV1_1_0 = createVersionedEvent(
-  'HEALTH_METRIC_RECORDED',
-  {
-    metricType: 'HEART_RATE',
-    value: 75,
-    unit: 'bpm',
-    recordedAt: '2023-05-15T10:30:00Z',
-    source: 'MANUAL_ENTRY',
-    deviceId: 'device-123', // New optional field
-    notes: 'After morning exercise', // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Health Metric Event - Version 2.0.0
- * Breaking change: Restructured payload (nested values, renamed fields)
- */
-export const healthMetricEventV2_0_0 = createVersionedEvent(
-  'HEALTH_METRIC_RECORDED',
-  {
-    metricType: 'HEART_RATE',
-    measurement: { // Restructured: value and unit now nested under measurement
-      value: 75,
-      unit: 'bpm',
-    },
-    metadata: { // Restructured: metadata fields grouped
-      recordedAt: '2023-05-15T10:30:00Z',
-      source: 'MANUAL_ENTRY',
-      deviceId: 'device-123',
-      notes: 'After morning exercise',
-    },
-    context: { // New field structure
-      location: 'home',
-      activity: 'resting',
-    },
-  },
-  VERSIONS.V2_0_0
-);
-
-/**
- * Health Goal Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const healthGoalEventV1_0_0 = createVersionedEvent(
-  'HEALTH_GOAL_CREATED',
-  {
-    goalType: 'STEPS',
-    targetValue: 10000,
-    unit: 'steps',
-    startDate: '2023-05-01T00:00:00Z',
-    endDate: '2023-05-31T23:59:59Z',
-    frequency: 'DAILY',
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Health Goal Event - Version 1.1.0
- * Non-breaking change: Added optional fields (reminderEnabled, priority)
- */
-export const healthGoalEventV1_1_0 = createVersionedEvent(
-  'HEALTH_GOAL_CREATED',
-  {
-    goalType: 'STEPS',
-    targetValue: 10000,
-    unit: 'steps',
-    startDate: '2023-05-01T00:00:00Z',
-    endDate: '2023-05-31T23:59:59Z',
-    frequency: 'DAILY',
-    reminderEnabled: true, // New optional field
-    priority: 'HIGH', // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Health Goal Event - Version 2.0.0
- * Breaking change: Changed field types and structure
- */
-export const healthGoalEventV2_0_0 = createVersionedEvent(
-  'HEALTH_GOAL_CREATED',
-  {
-    goalType: 'STEPS',
-    target: { // Restructured: value and unit now nested under target
-      value: 10000,
-      unit: 'steps',
-    },
-    schedule: { // Restructured: date fields grouped under schedule
-      startDate: '2023-05-01T00:00:00Z',
-      endDate: '2023-05-31T23:59:59Z',
-      frequency: 'DAILY',
-      reminderTime: '08:00:00', // New field
-    },
-    settings: { // New structure for settings
-      reminderEnabled: true,
-      priority: 'HIGH',
-      visibility: 'PUBLIC', // New field
-    },
-    milestones: [ // New array field for milestones
-      { value: 2500, reward: 10 },
-      { value: 5000, reward: 20 },
-      { value: 7500, reward: 30 },
-      { value: 10000, reward: 50 },
-    ],
-  },
-  VERSIONS.V2_0_0
-);
-
-// ===== CARE JOURNEY EVENT VERSIONS =====
-
-/**
- * Appointment Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const appointmentEventV1_0_0 = createVersionedEvent(
-  'APPOINTMENT_BOOKED',
-  {
-    providerId: 'provider-123',
-    specialtyId: 'specialty-456',
-    appointmentDate: '2023-06-15T14:30:00Z',
-    duration: 30, // minutes
-    location: 'CLINIC',
-    status: 'SCHEDULED',
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Appointment Event - Version 1.1.0
- * Non-breaking change: Added optional fields (reason, notes, virtual)
- */
-export const appointmentEventV1_1_0 = createVersionedEvent(
-  'APPOINTMENT_BOOKED',
-  {
-    providerId: 'provider-123',
-    specialtyId: 'specialty-456',
-    appointmentDate: '2023-06-15T14:30:00Z',
-    duration: 30, // minutes
-    location: 'CLINIC',
-    status: 'SCHEDULED',
-    reason: 'Annual checkup', // New optional field
-    notes: 'First visit with this provider', // New optional field
-    virtual: false, // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Appointment Event - Version 2.0.0
- * Breaking change: Restructured payload and changed field types
- */
-export const appointmentEventV2_0_0 = createVersionedEvent(
-  'APPOINTMENT_BOOKED',
-  {
-    provider: { // Restructured: provider details grouped
-      id: 'provider-123',
-      specialtyId: 'specialty-456',
-      name: 'Dr. Smith', // New field
-    },
-    schedule: { // Restructured: timing details grouped
-      startTime: '2023-06-15T14:30:00Z',
-      endTime: '2023-06-15T15:00:00Z', // Changed from duration to explicit end time
-      timeZone: 'America/Sao_Paulo', // New field
-    },
-    details: { // Restructured: appointment details grouped
-      location: 'CLINIC',
-      status: 'SCHEDULED',
-      reason: 'Annual checkup',
-      notes: 'First visit with this provider',
-      virtual: false,
-    },
-    patient: { // New structure for patient details
-      id: '123e4567-e89b-12d3-a456-426614174000',
-      name: 'João Silva',
-      contactPhone: '+5511999999999',
-    },
-    reminders: [ // New array field for reminders
-      { type: 'SMS', scheduledFor: '2023-06-14T14:30:00Z' },
-      { type: 'EMAIL', scheduledFor: '2023-06-15T08:30:00Z' },
-    ],
-  },
-  VERSIONS.V2_0_0
-);
-
-/**
- * Medication Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const medicationEventV1_0_0 = createVersionedEvent(
-  'MEDICATION_TAKEN',
-  {
-    medicationId: 'med-123',
-    name: 'Aspirin',
-    dosage: '100mg',
-    takenAt: '2023-05-15T08:00:00Z',
-    scheduled: true,
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Medication Event - Version 1.1.0
- * Non-breaking change: Added optional fields (notes, mealRelation)
- */
-export const medicationEventV1_1_0 = createVersionedEvent(
-  'MEDICATION_TAKEN',
-  {
-    medicationId: 'med-123',
-    name: 'Aspirin',
-    dosage: '100mg',
-    takenAt: '2023-05-15T08:00:00Z',
-    scheduled: true,
-    notes: 'Taken with water', // New optional field
-    mealRelation: 'AFTER_MEAL', // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Medication Event - Version 2.0.0
- * Breaking change: Restructured payload and changed field types
- */
-export const medicationEventV2_0_0 = createVersionedEvent(
-  'MEDICATION_TAKEN',
-  {
-    medication: { // Restructured: medication details grouped
-      id: 'med-123',
-      name: 'Aspirin',
-      dosage: { // Restructured: dosage as structured data
-        value: 100,
-        unit: 'mg',
-        form: 'TABLET',
-        quantity: 1,
-      },
-    },
-    adherence: { // Restructured: adherence details grouped
-      status: 'TAKEN', // Changed from implicit in event type to explicit status
-      scheduledTime: '2023-05-15T08:00:00Z',
-      actualTime: '2023-05-15T08:05:00Z', // New field: actual time vs scheduled
-      deviation: 5, // New field: minutes of deviation
-      scheduled: true,
-    },
-    context: { // New structure for context
-      notes: 'Taken with water',
-      mealRelation: 'AFTER_MEAL',
-      location: 'HOME', // New field
-    },
-    reminder: { // New structure for reminder details
-      sent: true,
-      sentAt: '2023-05-15T07:45:00Z',
-      acknowledged: true,
-    },
-  },
-  VERSIONS.V2_0_0
-);
-
-// ===== PLAN JOURNEY EVENT VERSIONS =====
-
-/**
- * Claim Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const claimEventV1_0_0 = createVersionedEvent(
-  'CLAIM_SUBMITTED',
-  {
-    claimId: 'claim-123',
-    claimType: 'MEDICAL_CONSULTATION',
-    amount: 150.00,
-    currency: 'BRL',
-    serviceDate: '2023-04-10T15:30:00Z',
-    status: 'SUBMITTED',
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Claim Event - Version 1.1.0
- * Non-breaking change: Added optional fields (providerName, receiptUrl)
- */
-export const claimEventV1_1_0 = createVersionedEvent(
-  'CLAIM_SUBMITTED',
-  {
-    claimId: 'claim-123',
-    claimType: 'MEDICAL_CONSULTATION',
-    amount: 150.00,
-    currency: 'BRL',
-    serviceDate: '2023-04-10T15:30:00Z',
-    status: 'SUBMITTED',
-    providerName: 'Clínica São Paulo', // New optional field
-    receiptUrl: 'https://storage.austa.com.br/receipts/claim-123.pdf', // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Claim Event - Version 2.0.0
- * Breaking change: Restructured payload and changed field types
- */
-export const claimEventV2_0_0 = createVersionedEvent(
-  'CLAIM_SUBMITTED',
-  {
-    id: 'claim-123', // Renamed from claimId
-    type: 'MEDICAL_CONSULTATION', // Renamed from claimType
-    financial: { // Restructured: financial details grouped
-      amount: 150.00,
-      currency: 'BRL',
-      reimbursementPercentage: 80, // New field
-      estimatedReimbursement: 120.00, // New field
-    },
-    service: { // Restructured: service details grouped
-      date: '2023-04-10T15:30:00Z', // Renamed from serviceDate
-      provider: { // New structure for provider
-        name: 'Clínica São Paulo',
-        id: 'provider-456',
-        network: 'IN_NETWORK', // New field
-      },
-      category: 'CONSULTATION', // New field
-      specialty: 'CARDIOLOGY', // New field
-    },
-    documents: [ // Changed from single receiptUrl to array of documents
-      {
-        type: 'RECEIPT',
-        url: 'https://storage.austa.com.br/receipts/claim-123.pdf',
-        uploadedAt: '2023-04-10T16:45:00Z',
-      },
-      {
-        type: 'MEDICAL_REPORT',
-        url: 'https://storage.austa.com.br/reports/claim-123.pdf',
-        uploadedAt: '2023-04-10T16:50:00Z',
-      },
-    ],
-    status: {
-      current: 'SUBMITTED', // Renamed from status
-      updatedAt: '2023-04-10T16:55:00Z', // New field
-      history: [ // New array for status history
-        { status: 'DRAFT', timestamp: '2023-04-10T16:40:00Z' },
-        { status: 'SUBMITTED', timestamp: '2023-04-10T16:55:00Z' },
-      ],
-    },
-  },
-  VERSIONS.V2_0_0
-);
-
-/**
- * Benefit Event - Version 1.0.0
- * Initial version with basic fields
- */
-export const benefitEventV1_0_0 = createVersionedEvent(
-  'BENEFIT_UTILIZED',
-  {
-    benefitId: 'benefit-123',
-    benefitType: 'GYM_MEMBERSHIP',
-    utilizedAt: '2023-05-20T10:00:00Z',
-    status: 'UTILIZED',
-  },
-  VERSIONS.V1_0_0
-);
-
-/**
- * Benefit Event - Version 1.1.0
- * Non-breaking change: Added optional fields (location, value)
- */
-export const benefitEventV1_1_0 = createVersionedEvent(
-  'BENEFIT_UTILIZED',
-  {
-    benefitId: 'benefit-123',
-    benefitType: 'GYM_MEMBERSHIP',
-    utilizedAt: '2023-05-20T10:00:00Z',
-    status: 'UTILIZED',
-    location: 'Academia SmartFit - Paulista', // New optional field
-    value: 100.00, // New optional field
-  },
-  VERSIONS.V1_1_0
-);
-
-/**
- * Benefit Event - Version 2.0.0
- * Breaking change: Restructured payload and changed field types
- */
-export const benefitEventV2_0_0 = createVersionedEvent(
-  'BENEFIT_UTILIZED',
-  {
-    benefit: { // Restructured: benefit details grouped
-      id: 'benefit-123', // Renamed from benefitId
-      type: 'GYM_MEMBERSHIP', // Renamed from benefitType
-      name: 'Academia Premium', // New field
-      category: 'WELLNESS', // New field
-    },
-    utilization: { // Restructured: utilization details grouped
-      timestamp: '2023-05-20T10:00:00Z', // Renamed from utilizedAt
-      status: 'UTILIZED',
-      location: {
-        name: 'Academia SmartFit - Paulista',
-        address: 'Av. Paulista, 1000', // New field
-        coordinates: { // New structure
-          latitude: -23.5505,
-          longitude: -46.6333,
-        },
-      },
-    },
-    financial: { // New structure for financial details
-      value: 100.00,
-      currency: 'BRL',
-      remainingBalance: 400.00, // New field
-      periodUsage: { // New structure
-        used: 100.00,
-        total: 500.00,
-        periodStart: '2023-05-01T00:00:00Z',
-        periodEnd: '2023-05-31T23:59:59Z',
-      },
-    },
-    gamification: { // New structure for gamification
-      pointsEarned: 50,
-      achievements: ['WELLNESS_WARRIOR'],
-    },
-  },
-  VERSIONS.V2_0_0
-);
-
-// ===== MIGRATION TEST CASES =====
-
-/**
- * Migration test case: Health Metric Event V1.0.0 to V1.1.0
- * Demonstrates a non-breaking change migration (adding optional fields)
- */
-export const healthMetricMigrationV1_0_0_to_V1_1_0 = {
-  source: healthMetricEventV1_0_0,
-  target: healthMetricEventV1_1_0,
-  compatibility: VersionCompatibility.BACKWARD_COMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const newPayload = { ...event.payload, deviceId: null, notes: null };
-    return event.withPayload(newPayload, VERSIONS.V1_1_0);
-  },
-};
-
-/**
- * Migration test case: Health Metric Event V1.1.0 to V2.0.0
- * Demonstrates a breaking change migration (restructuring fields)
- */
-export const healthMetricMigrationV1_1_0_to_V2_0_0 = {
-  source: healthMetricEventV1_1_0,
-  target: healthMetricEventV2_0_0,
-  compatibility: VersionCompatibility.INCOMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const { value, unit, recordedAt, source, deviceId, notes, ...rest } = event.payload;
-    
-    const newPayload = {
-      ...rest,
-      metricType: event.payload.metricType,
-      measurement: { value, unit },
-      metadata: { recordedAt, source, deviceId, notes },
-      context: { location: 'unknown', activity: 'unknown' },
-    };
-    
-    return event.withPayload(newPayload, VERSIONS.V2_0_0);
-  },
-};
-
-/**
- * Migration test case: Appointment Event V1.0.0 to V1.1.0
- * Demonstrates a non-breaking change migration (adding optional fields)
- */
-export const appointmentMigrationV1_0_0_to_V1_1_0 = {
-  source: appointmentEventV1_0_0,
-  target: appointmentEventV1_1_0,
-  compatibility: VersionCompatibility.BACKWARD_COMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const newPayload = { 
-      ...event.payload, 
-      reason: null, 
-      notes: null, 
-      virtual: false 
-    };
-    return event.withPayload(newPayload, VERSIONS.V1_1_0);
-  },
-};
-
-/**
- * Migration test case: Appointment Event V1.1.0 to V2.0.0
- * Demonstrates a breaking change migration (restructuring fields)
- */
-export const appointmentMigrationV1_1_0_to_V2_0_0 = {
-  source: appointmentEventV1_1_0,
-  target: appointmentEventV2_0_0,
-  compatibility: VersionCompatibility.INCOMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const { 
-      providerId, specialtyId, appointmentDate, duration, 
-      location, status, reason, notes, virtual 
-    } = event.payload;
-    
-    // Calculate end time based on duration
-    const startTime = new Date(appointmentDate);
-    const endTime = new Date(startTime.getTime() + duration * 60000);
-    
-    const newPayload = {
-      provider: {
-        id: providerId,
-        specialtyId,
-        name: 'Unknown Provider', // Default value for missing field
-      },
-      schedule: {
-        startTime: appointmentDate,
-        endTime: endTime.toISOString(),
-        timeZone: 'America/Sao_Paulo',
-      },
-      details: {
-        location,
-        status,
-        reason: reason || 'Not specified',
-        notes: notes || '',
-        virtual: virtual || false,
-      },
-      patient: {
-        id: event.metadata?.userId || 'unknown',
-        name: 'Unknown Patient',
-        contactPhone: 'unknown',
-      },
-      reminders: [],
-    };
-    
-    return event.withPayload(newPayload, VERSIONS.V2_0_0);
-  },
-};
-
-/**
- * Migration test case: Claim Event V1.0.0 to V1.1.0
- * Demonstrates a non-breaking change migration (adding optional fields)
- */
-export const claimMigrationV1_0_0_to_V1_1_0 = {
-  source: claimEventV1_0_0,
-  target: claimEventV1_1_0,
-  compatibility: VersionCompatibility.BACKWARD_COMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const newPayload = { 
-      ...event.payload, 
-      providerName: null, 
-      receiptUrl: null 
-    };
-    return event.withPayload(newPayload, VERSIONS.V1_1_0);
-  },
-};
-
-/**
- * Migration test case: Claim Event V1.1.0 to V2.0.0
- * Demonstrates a breaking change migration (restructuring fields)
- */
-export const claimMigrationV1_1_0_to_V2_0_0 = {
-  source: claimEventV1_1_0,
-  target: claimEventV2_0_0,
-  compatibility: VersionCompatibility.INCOMPATIBLE,
-  transformation: (event: VersionedEventDto<any>): VersionedEventDto<any> => {
-    const { 
-      claimId, claimType, amount, currency, 
-      serviceDate, status, providerName, receiptUrl 
-    } = event.payload;
-    
-    const newPayload = {
-      id: claimId,
-      type: claimType,
-      financial: {
-        amount,
-        currency,
-        reimbursementPercentage: 80, // Default value
-        estimatedReimbursement: amount * 0.8, // Calculated value
-      },
-      service: {
-        date: serviceDate,
-        provider: {
-          name: providerName || 'Unknown Provider',
-          id: 'unknown',
-          network: 'UNKNOWN',
-        },
-        category: 'CONSULTATION', // Default value
-        specialty: 'UNKNOWN', // Default value
-      },
-      documents: receiptUrl ? [
-        {
-          type: 'RECEIPT',
-          url: receiptUrl,
-          uploadedAt: event.metadata?.timestamp || new Date().toISOString(),
-        }
-      ] : [],
-      status: {
-        current: status,
-        updatedAt: event.metadata?.timestamp || new Date().toISOString(),
-        history: [
-          { 
-            status, 
-            timestamp: event.metadata?.timestamp || new Date().toISOString() 
-          },
-        ],
-      },
-    };
-    
-    return event.withPayload(newPayload, VERSIONS.V2_0_0);
-  },
-};
-
-// ===== COLLECTIONS OF VERSIONED EVENTS =====
-
-/**
- * Collection of health journey events with different versions
- */
-export const healthJourneyEvents = {
-  metric: {
-    v1_0_0: healthMetricEventV1_0_0,
-    v1_1_0: healthMetricEventV1_1_0,
-    v2_0_0: healthMetricEventV2_0_0,
-  },
-  goal: {
-    v1_0_0: healthGoalEventV1_0_0,
-    v1_1_0: healthGoalEventV1_1_0,
-    v2_0_0: healthGoalEventV2_0_0,
-  },
-};
-
-/**
- * Collection of care journey events with different versions
- */
-export const careJourneyEvents = {
-  appointment: {
-    v1_0_0: appointmentEventV1_0_0,
-    v1_1_0: appointmentEventV1_1_0,
-    v2_0_0: appointmentEventV2_0_0,
-  },
-  medication: {
-    v1_0_0: medicationEventV1_0_0,
-    v1_1_0: medicationEventV1_1_0,
-    v2_0_0: medicationEventV2_0_0,
-  },
-};
-
-/**
- * Collection of plan journey events with different versions
- */
-export const planJourneyEvents = {
-  claim: {
-    v1_0_0: claimEventV1_0_0,
-    v1_1_0: claimEventV1_1_0,
-    v2_0_0: claimEventV2_0_0,
-  },
-  benefit: {
-    v1_0_0: benefitEventV1_0_0,
-    v1_1_0: benefitEventV1_1_0,
-    v2_0_0: benefitEventV2_0_0,
-  },
-};
-
-/**
- * Collection of migration test cases
- */
-export const migrationTestCases = {
-  healthMetric: {
-    v1_0_0_to_v1_1_0: healthMetricMigrationV1_0_0_to_V1_1_0,
-    v1_1_0_to_v2_0_0: healthMetricMigrationV1_1_0_to_V2_0_0,
-  },
-  appointment: {
-    v1_0_0_to_v1_1_0: appointmentMigrationV1_0_0_to_V1_1_0,
-    v1_1_0_to_v2_0_0: appointmentMigrationV1_1_0_to_V2_0_0,
-  },
-  claim: {
-    v1_0_0_to_v1_1_0: claimMigrationV1_0_0_to_V1_1_0,
-    v1_1_0_to_v2_0_0: claimMigrationV1_1_0_to_V2_0_0,
-  },
-};
-
-/**
- * Examples of breaking vs. non-breaking changes
- */
-export const schemaChangeExamples = {
-  nonBreaking: [
-    {
-      description: 'Adding optional fields',
-      before: healthMetricEventV1_0_0,
-      after: healthMetricEventV1_1_0,
-      compatibility: VersionCompatibility.BACKWARD_COMPATIBLE,
-    },
-    {
-      description: 'Adding optional nested structures',
-      before: appointmentEventV1_0_0,
-      after: appointmentEventV1_1_0,
-      compatibility: VersionCompatibility.BACKWARD_COMPATIBLE,
-    },
-    {
-      description: 'Patch version update with documentation changes only',
-      before: createVersionedEvent('DOCUMENTATION_TEST', { field: 'value' }, VERSIONS.V1_0_0),
-      after: createVersionedEvent('DOCUMENTATION_TEST', { field: 'value' }, VERSIONS.V1_0_1),
-      compatibility: VersionCompatibility.COMPATIBLE,
-    },
-  ],
-  breaking: [
-    {
-      description: 'Restructuring fields (nesting previously flat fields)',
-      before: healthMetricEventV1_1_0,
-      after: healthMetricEventV2_0_0,
-      compatibility: VersionCompatibility.INCOMPATIBLE,
-    },
-    {
-      description: 'Renaming fields',
-      before: claimEventV1_1_0,
-      after: claimEventV2_0_0,
-      compatibility: VersionCompatibility.INCOMPATIBLE,
-    },
-    {
-      description: 'Changing field types or structure',
-      before: appointmentEventV1_1_0,
-      after: appointmentEventV2_0_0,
-      compatibility: VersionCompatibility.INCOMPATIBLE,
-    },
-  ],
+export default {
+  // Health metric recorded event versions
+  healthMetricRecordedV1_0_0,
+  healthMetricRecordedV1_1_0,
+  healthMetricRecordedV2_0_0,
+  healthMetricV1_0_0_to_V1_1_0,
+  healthMetricV1_1_0_to_V2_0_0,
+  
+  // Care appointment booked event versions
+  careAppointmentBookedV1_0_0,
+  careAppointmentBookedV1_1_0,
+  careAppointmentBookedV2_0_0,
+  careAppointmentV1_0_0_to_V1_1_0,
+  careAppointmentV1_1_0_to_V2_0_0,
+  
+  // Plan claim submitted event versions
+  planClaimSubmittedV1_0_0,
+  planClaimSubmittedV1_1_0,
+  planClaimSubmittedV2_0_0,
+  planClaimV1_0_0_to_V1_1_0,
+  planClaimV1_1_0_to_V2_0_0,
+  
+  // Gamification achievement unlocked event versions
+  gamificationAchievementUnlockedV1_0_0,
+  gamificationAchievementUnlockedV1_1_0,
+  gamificationAchievementUnlockedV2_0_0,
+  gamificationAchievementV1_0_0_to_V1_1_0,
+  gamificationAchievementV1_1_0_to_V2_0_0,
+  
+  // Test cases
+  versionCompatibilityTestCases,
+  migrationPathTestCases,
+  
+  // Helper functions
+  registerTestMigrations,
 };
