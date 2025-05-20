@@ -1,643 +1,1013 @@
 /**
  * @file validation.fixtures.ts
- * @description Test fixtures for event validation logic, including edge cases, boundary values, and invalid data patterns.
- * These fixtures provide comprehensive test scenarios for validating the event DTOs and ensuring proper error handling.
+ * @description Contains fixtures for testing event validation logic, including edge cases,
+ * boundary values, and invalid data patterns. These fixtures provide comprehensive test
+ * scenarios for validating the event DTOs and ensuring proper error handling for invalid events.
+ * 
+ * @module events/test/unit/fixtures
  */
 
-import { JourneyType, HealthEventType, CareEventType, PlanEventType } from '../../../src/interfaces/journey-events.interface';
-import { ValidationSeverity } from '../../../src/interfaces/event-validation.interface';
+import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+import { 
+  HealthMetricType, 
+  HealthGoalType, 
+  DeviceType, 
+  HealthInsightType 
+} from '../../../src/dto/health-event.dto';
+import { ERROR_CODES } from '../../../src/constants/errors.constants';
 
 // ===== VALID EVENT FIXTURES =====
 
 /**
- * Valid base event fixture with all required fields
+ * Valid event fixtures for testing basic validation
  */
-export const validBaseEventFixture = {
-  eventId: '123e4567-e89b-12d3-a456-426614174000',
-  timestamp: new Date().toISOString(),
-  version: '1.0.0',
-  source: 'test-service',
-  type: 'test.event.created',
-  payload: { test: 'data' },
-  metadata: {
-    correlationId: 'corr-123456',
-    userId: 'user-123456',
-  },
-};
-
-/**
- * Valid journey event fixture with all required fields
- */
-export const validJourneyEventFixture = {
-  ...validBaseEventFixture,
-  journeyType: JourneyType.HEALTH,
-  userId: 'user-123456',
-  correlationId: 'corr-123456',
-  sessionId: 'session-123456',
-  deviceInfo: {
-    type: 'mobile',
-    id: 'device-123456',
-    model: 'iPhone 13',
-    os: 'iOS 15.4',
-    appVersion: '1.2.3',
-  },
-};
-
-// ===== HEALTH JOURNEY EVENT FIXTURES =====
-
-/**
- * Valid health metric recorded event fixture
- */
-export const validHealthMetricRecordedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.HEALTH,
-  type: HealthEventType.METRIC_RECORDED,
-  payload: {
-    metric: {
-      id: 'metric-123456',
-      userId: 'user-123456',
-      type: 'HEART_RATE',
-    },
-    metricType: 'HEART_RATE',
-    value: 75,
-    unit: 'bpm',
+export const validEventFixtures = {
+  /**
+   * Minimal valid event with only required fields
+   */
+  minimalValidEvent: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
     timestamp: new Date().toISOString(),
-    source: 'manual',
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm'
+    }
   },
-};
 
-/**
- * Valid health goal achieved event fixture
- */
-export const validHealthGoalAchievedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.HEALTH,
-  type: HealthEventType.GOAL_ACHIEVED,
-  payload: {
-    goal: {
-      id: 'goal-123456',
-      userId: 'user-123456',
-      type: 'STEPS',
+  /**
+   * Complete valid event with all fields populated
+   */
+  completeValidEvent: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    correlationId: '123e4567-e89b-12d3-a456-426614174001',
+    version: '1.0.0',
+    source: 'mobile-app',
+    metadata: {
+      deviceId: 'device-123',
+      appVersion: '1.2.3',
+      platform: 'iOS',
+      sessionId: 'session-456'
     },
-    achievedValue: 10000,
-    targetValue: 8000,
-    achievedDate: new Date().toISOString(),
-    daysToAchieve: 5,
-    streakCount: 3,
-  },
-};
-
-/**
- * Valid device connected event fixture
- */
-export const validDeviceConnectedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.HEALTH,
-  type: HealthEventType.DEVICE_CONNECTED,
-  payload: {
-    device: {
-      id: 'device-123456',
-      userId: 'user-123456',
-      type: 'Smartwatch',
-    },
-    deviceType: 'Smartwatch',
-    connectionDate: new Date().toISOString(),
-    isFirstConnection: true,
-    permissions: ['heart_rate', 'steps', 'sleep'],
-  },
-};
-
-// ===== CARE JOURNEY EVENT FIXTURES =====
-
-/**
- * Valid appointment booked event fixture
- */
-export const validAppointmentBookedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.CARE,
-  type: CareEventType.APPOINTMENT_BOOKED,
-  payload: {
-    appointment: {
-      id: 'appointment-123456',
-      userId: 'user-123456',
-      status: 'SCHEDULED',
-    },
-    provider: 'Dr. Smith',
-    appointmentDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    appointmentType: 'Consultation',
-    isFirstAppointment: false,
-    isUrgent: false,
-  },
-};
-
-/**
- * Valid medication taken event fixture
- */
-export const validMedicationTakenEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.CARE,
-  type: CareEventType.MEDICATION_TAKEN,
-  payload: {
-    medication: {
-      id: 'medication-123456',
-      userId: 'user-123456',
-      name: 'Aspirin',
-    },
-    takenDate: new Date().toISOString(),
-    scheduledTime: new Date().toISOString(),
-    takenOnTime: true,
-    dosageTaken: '100mg',
-  },
-};
-
-/**
- * Valid telemedicine completed event fixture
- */
-export const validTelemedicineCompletedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.CARE,
-  type: CareEventType.TELEMEDICINE_COMPLETED,
-  payload: {
-    session: {
-      id: 'session-123456',
-      userId: 'user-123456',
-      status: 'COMPLETED',
-    },
-    provider: 'Dr. Johnson',
-    endDate: new Date().toISOString(),
-    duration: 15, // 15 minutes
-    connectionIssues: false,
-    followUpRequired: true,
-    prescriptionIssued: true,
-    patientRating: 5,
-  },
-};
-
-// ===== PLAN JOURNEY EVENT FIXTURES =====
-
-/**
- * Valid claim submitted event fixture
- */
-export const validClaimSubmittedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.PLAN,
-  type: PlanEventType.CLAIM_SUBMITTED,
-  payload: {
-    claim: {
-      id: 'claim-123456',
-      userId: 'user-123456',
-      status: 'SUBMITTED',
-    },
-    submissionDate: new Date().toISOString(),
-    amount: 150.75,
-    serviceDate: new Date(Date.now() - 604800000).toISOString(), // 7 days ago
-    provider: 'City Hospital',
-    hasDocuments: true,
-    documentCount: 2,
-    isFirstClaim: false,
-  },
-};
-
-/**
- * Valid benefit used event fixture
- */
-export const validBenefitUsedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.PLAN,
-  type: PlanEventType.BENEFIT_USED,
-  payload: {
-    benefit: {
-      id: 'benefit-123456',
-      userId: 'user-123456',
-      name: 'Dental Coverage',
-    },
-    usageDate: new Date().toISOString(),
-    serviceDescription: 'Dental Cleaning',
-    amountUsed: 75.0,
-    remainingAmount: 425.0,
-    remainingPercentage: 85,
-    isFirstUse: false,
-  },
-};
-
-/**
- * Valid plan selected event fixture
- */
-export const validPlanSelectedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.PLAN,
-  type: PlanEventType.PLAN_SELECTED,
-  payload: {
-    plan: {
-      id: 'plan-123456',
-      userId: 'user-123456',
-      name: 'Premium Health Plan',
-    },
-    selectionDate: new Date().toISOString(),
-    effectiveDate: new Date(Date.now() + 2592000000).toISOString(), // 30 days from now
-    premium: 350.0,
-    paymentFrequency: 'monthly',
-    isFirstPlan: false,
-    comparedPlansCount: 3,
-  },
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      notes: 'After morning exercise',
+      deviceId: 'fitbit-123'
+    }
+  }
 };
 
 // ===== INVALID EVENT FIXTURES =====
 
 /**
- * Invalid base event fixture missing required fields
+ * Invalid event fixtures for testing validation failures
  */
-export const invalidBaseEventFixture = {
-  // Missing eventId
-  timestamp: new Date().toISOString(),
-  // Missing version
-  source: 'test-service',
-  type: 'test.event.created',
-  payload: { test: 'data' },
+export const invalidEventFixtures = {
+  /**
+   * Event missing required fields
+   */
+  missingRequiredFields: {
+    // Missing type
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm'
+    }
+  },
+
+  /**
+   * Event with invalid journey value
+   */
+  invalidJourney: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'invalid-journey', // Invalid journey name
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm'
+    }
+  },
+
+  /**
+   * Event with mismatched journey and event type
+   */
+  mismatchedJourneyAndType: {
+    type: EventType.CARE_APPOINTMENT_BOOKED, // Care journey event type
+    journey: 'health', // Health journey
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      specialtyType: 'Cardiology',
+      appointmentType: 'in_person',
+      scheduledAt: new Date().toISOString(),
+      bookedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Event with invalid UUID format
+   */
+  invalidUUID: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: 'not-a-valid-uuid', // Invalid UUID format
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm'
+    }
+  },
+
+  /**
+   * Event with invalid timestamp format
+   */
+  invalidTimestamp: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: '2023-13-45T25:70:99Z', // Invalid date format
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm'
+    }
+  },
+
+  /**
+   * Event with invalid data structure
+   */
+  invalidDataStructure: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: 'not-an-object' // Data should be an object
+  },
+
+  /**
+   * Event with empty data object
+   */
+  emptyData: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {} // Empty data object
+  }
 };
 
-/**
- * Invalid journey event fixture missing required fields
- */
-export const invalidJourneyEventFixture = {
-  ...validBaseEventFixture,
-  // Missing journeyType
-  // Missing userId
-};
+// ===== JOURNEY-SPECIFIC VALIDATION FIXTURES =====
 
 /**
- * Invalid health metric recorded event fixture with invalid data
+ * Health journey validation fixtures
  */
-export const invalidHealthMetricRecordedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.HEALTH,
-  type: HealthEventType.METRIC_RECORDED,
-  payload: {
-    // Missing metric object
-    metricType: 'INVALID_TYPE', // Invalid metric type
-    value: -10, // Invalid negative value
-    // Missing unit
-    timestamp: 'not-a-date', // Invalid date format
-    source: 'unknown', // Invalid source
+export const healthValidationFixtures = {
+  /**
+   * Valid health metric recorded event
+   */
+  validHealthMetricRecorded: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
   },
-};
 
-/**
- * Invalid appointment booked event fixture with invalid data
- */
-export const invalidAppointmentBookedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.CARE,
-  type: CareEventType.APPOINTMENT_BOOKED,
-  payload: {
-    // Missing appointment object
-    // Missing provider
-    appointmentDate: new Date(Date.now() - 86400000).toISOString(), // Invalid past date
-    appointmentType: '', // Empty string
-    isFirstAppointment: 'yes', // Invalid boolean
-    isUrgent: null, // Invalid null
+  /**
+   * Invalid health metric with value out of range
+   */
+  invalidHealthMetricValue: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 300, // Heart rate too high (out of range)
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
   },
-};
 
-/**
- * Invalid claim submitted event fixture with invalid data
- */
-export const invalidClaimSubmittedEventFixture = {
-  ...validJourneyEventFixture,
-  journeyType: JourneyType.PLAN,
-  type: PlanEventType.CLAIM_SUBMITTED,
-  payload: {
-    claim: {
-      // Missing id
-      userId: 'user-123456',
-      status: 'INVALID_STATUS', // Invalid status
-    },
-    submissionDate: new Date().toISOString(),
-    amount: 'one-hundred', // Invalid amount
-    serviceDate: new Date(Date.now() + 86400000).toISOString(), // Invalid future date
-    // Missing provider
-    hasDocuments: true,
-    documentCount: -1, // Invalid negative count
-    isFirstClaim: null, // Invalid null
+  /**
+   * Invalid health metric with incorrect unit
+   */
+  invalidHealthMetricUnit: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'kg', // Incorrect unit for heart rate
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
   },
-};
 
-// ===== BOUNDARY VALUE TEST FIXTURES =====
-
-/**
- * Boundary value test fixtures for numeric fields
- */
-export const numericBoundaryValueFixtures = {
-  // Zero values
-  zeroValue: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      value: 0,
-    },
-  },
-  
-  // Minimum valid values
-  minValidValue: {
-    ...validHealthGoalAchievedEventFixture,
-    payload: {
-      ...validHealthGoalAchievedEventFixture.payload,
-      achievedValue: 1,
-      daysToAchieve: 1,
-    },
-  },
-  
-  // Maximum valid values
-  maxValidValue: {
-    ...validClaimSubmittedEventFixture,
-    payload: {
-      ...validClaimSubmittedEventFixture.payload,
-      amount: 999999.99,
-    },
-  },
-  
-  // Just below valid range
-  belowMinValue: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      value: -0.1, // Negative value for health metric
-    },
-  },
-  
-  // Just above valid range
-  aboveMaxValue: {
-    ...validTelemedicineCompletedEventFixture,
-    payload: {
-      ...validTelemedicineCompletedEventFixture.payload,
-      patientRating: 6, // Above 5 scale
-    },
-  },
-  
-  // Fractional values
-  fractionalValue: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      value: 72.5, // Fractional heart rate
-    },
-  },
-  
-  // Very large values
-  veryLargeValue: {
-    ...validClaimSubmittedEventFixture,
-    payload: {
-      ...validClaimSubmittedEventFixture.payload,
-      amount: 1000000000000, // Unrealistically large claim
-    },
-  },
-};
-
-/**
- * Boundary value test fixtures for date fields
- */
-export const dateBoundaryValueFixtures = {
-  // Current date
-  currentDate: {
-    ...validAppointmentBookedEventFixture,
-    payload: {
-      ...validAppointmentBookedEventFixture.payload,
-      appointmentDate: new Date().toISOString(),
-    },
-  },
-  
-  // Past date (minimum valid)
-  pastDate: {
-    ...validClaimSubmittedEventFixture,
-    payload: {
-      ...validClaimSubmittedEventFixture.payload,
-      serviceDate: new Date(Date.now() - 31536000000).toISOString(), // 1 year ago
-    },
-  },
-  
-  // Future date (maximum valid)
-  futureDate: {
-    ...validAppointmentBookedEventFixture,
-    payload: {
-      ...validAppointmentBookedEventFixture.payload,
-      appointmentDate: new Date(Date.now() + 31536000000).toISOString(), // 1 year in future
-    },
-  },
-  
-  // Invalid date format
-  invalidDateFormat: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      timestamp: '2023-13-45T25:70:99Z', // Invalid date
-    },
-  },
-  
-  // Empty date string
-  emptyDateString: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      timestamp: '',
-    },
-  },
-  
-  // Non-ISO format
-  nonIsoFormat: {
-    ...validHealthMetricRecordedEventFixture,
-    payload: {
-      ...validHealthMetricRecordedEventFixture.payload,
-      timestamp: '04/15/2023 2:30 PM',
-    },
-  },
-};
-
-// ===== COMPLEX VALIDATION SCENARIOS =====
-
-/**
- * Cross-field dependency validation fixtures
- */
-export const crossFieldDependencyFixtures = {
-  // Start date after end date
-  startAfterEnd: {
-    ...validJourneyEventFixture,
-    journeyType: JourneyType.HEALTH,
-    type: HealthEventType.GOAL_CREATED,
-    payload: {
-      goal: {
-        id: 'goal-123456',
-        userId: 'user-123456',
-        type: 'STEPS',
-      },
-      goalType: 'STEPS',
+  /**
+   * Valid health goal achieved event
+   */
+  validHealthGoalAchieved: {
+    type: EventType.HEALTH_GOAL_ACHIEVED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      goalId: '123e4567-e89b-12d3-a456-426614174000',
+      goalType: HealthGoalType.STEPS_TARGET,
       targetValue: 10000,
-      unit: 'steps',
-      startDate: new Date(Date.now() + 604800000).toISOString(), // 7 days in future
-      endDate: new Date(Date.now() + 86400000).toISOString(), // 1 day in future
-      recurrence: 'daily',
-    },
+      achievedValue: 10500,
+      completedAt: new Date().toISOString()
+    }
   },
-  
-  // Achieved value less than target value
-  achievedLessThanTarget: {
-    ...validHealthGoalAchievedEventFixture,
-    payload: {
-      ...validHealthGoalAchievedEventFixture.payload,
-      achievedValue: 6000,
-      targetValue: 8000,
-    },
+
+  /**
+   * Valid device connected event
+   */
+  validDeviceConnected: {
+    type: EventType.HEALTH_DEVICE_CONNECTED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      deviceId: '123e4567-e89b-12d3-a456-426614174000',
+      deviceType: DeviceType.SMARTWATCH,
+      connectionMethod: 'bluetooth',
+      connectedAt: new Date().toISOString()
+    }
   },
-  
-  // Remaining amount inconsistent with used amount
-  inconsistentAmounts: {
-    ...validBenefitUsedEventFixture,
-    payload: {
-      ...validBenefitUsedEventFixture.payload,
-      amountUsed: 75.0,
-      remainingAmount: 425.0,
-      remainingPercentage: 50, // Inconsistent percentage
-    },
+
+  /**
+   * Invalid device type
+   */
+  invalidDeviceType: {
+    type: EventType.HEALTH_DEVICE_CONNECTED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      deviceId: '123e4567-e89b-12d3-a456-426614174000',
+      deviceType: 'INVALID_DEVICE_TYPE', // Invalid device type
+      connectionMethod: 'bluetooth',
+      connectedAt: new Date().toISOString()
+    }
   },
-  
-  // Medication taken before scheduled time
-  takenBeforeScheduled: {
-    ...validMedicationTakenEventFixture,
-    payload: {
-      ...validMedicationTakenEventFixture.payload,
-      takenDate: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-      scheduledTime: new Date().toISOString(), // Now
-      takenOnTime: true, // Inconsistent with times
+
+  /**
+   * Health metric boundary values for testing range validation
+   */
+  healthMetricBoundaryValues: {
+    heartRateMin: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 30, // Minimum valid heart rate
+        unit: 'bpm',
+        recordedAt: new Date().toISOString()
+      }
     },
-  },
+    heartRateMax: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 220, // Maximum valid heart rate
+        unit: 'bpm',
+        recordedAt: new Date().toISOString()
+      }
+    },
+    bloodGlucoseMin: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.BLOOD_GLUCOSE,
+        value: 20, // Minimum valid blood glucose
+        unit: 'mg/dL',
+        recordedAt: new Date().toISOString()
+      }
+    },
+    bloodGlucoseMax: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.BLOOD_GLUCOSE,
+        value: 600, // Maximum valid blood glucose
+        unit: 'mg/dL',
+        recordedAt: new Date().toISOString()
+      }
+    },
+    stepsZero: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.STEPS,
+        value: 0, // Minimum valid steps
+        unit: 'steps',
+        recordedAt: new Date().toISOString()
+      }
+    },
+    stepsMax: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.STEPS,
+        value: 100000, // Maximum valid steps
+        unit: 'steps',
+        recordedAt: new Date().toISOString()
+      }
+    }
+  }
 };
 
 /**
- * Cross-journey validation fixtures
+ * Care journey validation fixtures
  */
-export const crossJourneyValidationFixtures = {
-  // Health event with care journey type
-  healthEventWithCareJourney: {
-    ...validHealthMetricRecordedEventFixture,
-    journeyType: JourneyType.CARE, // Inconsistent journey type
+export const careValidationFixtures = {
+  /**
+   * Valid appointment booked event
+   */
+  validAppointmentBooked: {
+    type: EventType.CARE_APPOINTMENT_BOOKED,
+    journey: 'care',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      specialtyType: 'Cardiology',
+      appointmentType: 'in_person',
+      scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+      bookedAt: new Date().toISOString()
+    }
   },
-  
-  // Care event with plan journey type
-  careEventWithPlanJourney: {
-    ...validAppointmentBookedEventFixture,
-    journeyType: JourneyType.PLAN, // Inconsistent journey type
+
+  /**
+   * Invalid appointment with past scheduled date
+   */
+  invalidAppointmentPastDate: {
+    type: EventType.CARE_APPOINTMENT_BOOKED,
+    journey: 'care',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      specialtyType: 'Cardiology',
+      appointmentType: 'in_person',
+      scheduledAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+      bookedAt: new Date().toISOString()
+    }
   },
-  
-  // Plan event with health journey type
-  planEventWithHealthJourney: {
-    ...validClaimSubmittedEventFixture,
-    journeyType: JourneyType.HEALTH, // Inconsistent journey type
+
+  /**
+   * Valid medication taken event
+   */
+  validMedicationTaken: {
+    type: EventType.CARE_MEDICATION_TAKEN,
+    journey: 'care',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      medicationId: '123e4567-e89b-12d3-a456-426614174000',
+      medicationName: 'Aspirin',
+      dosage: '100mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'on_time'
+    }
   },
+
+  /**
+   * Invalid medication taken event with invalid adherence value
+   */
+  invalidMedicationAdherence: {
+    type: EventType.CARE_MEDICATION_TAKEN,
+    journey: 'care',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      medicationId: '123e4567-e89b-12d3-a456-426614174000',
+      medicationName: 'Aspirin',
+      dosage: '100mg',
+      takenAt: new Date().toISOString(),
+      adherence: 'invalid_adherence' // Invalid adherence value
+    }
+  },
+
+  /**
+   * Valid appointment status values
+   */
+  appointmentStatusValues: {
+    scheduled: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        specialtyType: 'Cardiology',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        bookedAt: new Date().toISOString(),
+        status: 'SCHEDULED'
+      }
+    },
+    completed: {
+      type: EventType.CARE_APPOINTMENT_COMPLETED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() - 3600000).toISOString(),
+        completedAt: new Date().toISOString(),
+        duration: 30,
+        status: 'COMPLETED'
+      }
+    },
+    cancelled: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        specialtyType: 'Cardiology',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        bookedAt: new Date(Date.now() - 86400000).toISOString(),
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: 'Patient request',
+        status: 'CANCELLED'
+      }
+    }
+  }
 };
 
 /**
- * Validation error fixtures for testing error handling
+ * Plan journey validation fixtures
  */
-export const validationErrorFixtures = {
-  // Missing required field
-  missingRequiredField: {
-    code: 'VALIDATION_ERROR_001',
-    message: 'Required field is missing',
-    field: 'payload.metric',
-    severity: ValidationSeverity.ERROR,
+export const planValidationFixtures = {
+  /**
+   * Valid claim submitted event
+   */
+  validClaimSubmitted: {
+    type: EventType.PLAN_CLAIM_SUBMITTED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      claimId: '123e4567-e89b-12d3-a456-426614174000',
+      claimType: 'medical',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      serviceDate: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
+      amount: 150.75,
+      submittedAt: new Date().toISOString()
+    }
   },
-  
-  // Invalid field type
-  invalidFieldType: {
-    code: 'VALIDATION_ERROR_002',
-    message: 'Field has invalid type',
-    field: 'payload.value',
-    severity: ValidationSeverity.ERROR,
-    context: { expected: 'number', received: 'string' },
+
+  /**
+   * Invalid claim with negative amount
+   */
+  invalidClaimNegativeAmount: {
+    type: EventType.PLAN_CLAIM_SUBMITTED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      claimId: '123e4567-e89b-12d3-a456-426614174000',
+      claimType: 'medical',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      serviceDate: new Date(Date.now() - 604800000).toISOString(),
+      amount: -50.25, // Negative amount
+      submittedAt: new Date().toISOString()
+    }
   },
-  
-  // Invalid date format
-  invalidDateFormat: {
-    code: 'VALIDATION_ERROR_003',
-    message: 'Invalid date format',
-    field: 'payload.timestamp',
-    severity: ValidationSeverity.ERROR,
-    context: { expected: 'ISO 8601', received: '04/15/2023' },
+
+  /**
+   * Valid claim processed event
+   */
+  validClaimProcessed: {
+    type: EventType.PLAN_CLAIM_PROCESSED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      claimId: '123e4567-e89b-12d3-a456-426614174000',
+      status: 'approved',
+      amount: 150.75,
+      coveredAmount: 120.60,
+      processedAt: new Date().toISOString()
+    }
   },
-  
-  // Value out of range
-  valueOutOfRange: {
-    code: 'VALIDATION_ERROR_004',
-    message: 'Value is out of allowed range',
-    field: 'payload.patientRating',
-    severity: ValidationSeverity.ERROR,
-    context: { min: 1, max: 5, received: 6 },
+
+  /**
+   * Invalid claim status
+   */
+  invalidClaimStatus: {
+    type: EventType.PLAN_CLAIM_PROCESSED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      claimId: '123e4567-e89b-12d3-a456-426614174000',
+      status: 'invalid_status', // Invalid status
+      amount: 150.75,
+      coveredAmount: 120.60,
+      processedAt: new Date().toISOString()
+    }
   },
-  
-  // Cross-field validation error
-  crossFieldValidationError: {
-    code: 'VALIDATION_ERROR_005',
-    message: 'Fields are inconsistent with each other',
-    field: 'payload',
-    severity: ValidationSeverity.ERROR,
-    context: { fields: ['startDate', 'endDate'], reason: 'startDate must be before endDate' },
+
+  /**
+   * Valid benefit utilized event
+   */
+  validBenefitUtilized: {
+    type: EventType.PLAN_BENEFIT_UTILIZED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      benefitId: '123e4567-e89b-12d3-a456-426614174000',
+      benefitType: 'wellness',
+      providerId: '123e4567-e89b-12d3-a456-426614174001',
+      utilizationDate: new Date().toISOString(),
+      savingsAmount: 75.50
+    }
   },
-  
-  // Warning level validation issue
-  warningValidationIssue: {
-    code: 'VALIDATION_WARNING_001',
-    message: 'Unusual value detected',
-    field: 'payload.value',
-    severity: ValidationSeverity.WARNING,
-    context: { typical: '60-100', received: '150' },
+
+  /**
+   * Valid reward redeemed event
+   */
+  validRewardRedeemed: {
+    type: EventType.PLAN_REWARD_REDEEMED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      rewardId: '123e4567-e89b-12d3-a456-426614174000',
+      rewardType: 'gift_card',
+      pointsRedeemed: 1000,
+      value: 25.00,
+      redeemedAt: new Date().toISOString()
+    }
   },
-  
-  // Info level validation issue
-  infoValidationIssue: {
-    code: 'VALIDATION_INFO_001',
-    message: 'Field will be deprecated in future versions',
-    field: 'payload.legacyField',
-    severity: ValidationSeverity.INFO,
-    context: { deprecatedVersion: '2.0.0', alternative: 'payload.newField' },
-  },
+
+  /**
+   * Invalid reward with insufficient points
+   */
+  invalidRewardInsufficientPoints: {
+    type: EventType.PLAN_REWARD_REDEEMED,
+    journey: 'plan',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      rewardId: '123e4567-e89b-12d3-a456-426614174000',
+      rewardType: 'gift_card',
+      pointsRedeemed: -100, // Negative points
+      value: 25.00,
+      redeemedAt: new Date().toISOString()
+    }
+  }
 };
 
 /**
- * Schema validation fixtures for testing Zod/class-validator integration
+ * Gamification validation fixtures
  */
-export const schemaValidationFixtures = {
-  // Zod validation errors
-  zodValidationErrors: [
-    {
-      code: 'invalid_type',
-      expected: 'number',
-      received: 'string',
-      path: ['payload', 'value'],
-      message: 'Expected number, received string',
-    },
-    {
-      code: 'invalid_string',
-      validation: 'regex',
-      path: ['type'],
-      message: 'Invalid event type format',
-    },
-  ],
-  
-  // Class-validator validation errors
-  classValidatorErrors: [
-    {
-      property: 'payload.value',
-      constraints: {
-        isNumber: 'value must be a number',
-        min: 'value must be at least 0',
-      },
-      value: -10,
-    },
-    {
-      property: 'type',
-      constraints: {
-        matches: 'type must match pattern ^[a-z]+\\.[a-z]+\\.[a-z]+$',
-      },
-      value: 'invalid-type',
-    },
-  ],
+export const gamificationValidationFixtures = {
+  /**
+   * Valid points earned event
+   */
+  validPointsEarned: {
+    type: EventType.GAMIFICATION_POINTS_EARNED,
+    journey: 'gamification',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      sourceType: 'health',
+      sourceId: '123e4567-e89b-12d3-a456-426614174000',
+      points: 50,
+      reason: 'Completed daily step goal',
+      earnedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Invalid points with zero value
+   */
+  invalidZeroPoints: {
+    type: EventType.GAMIFICATION_POINTS_EARNED,
+    journey: 'gamification',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      sourceType: 'health',
+      sourceId: '123e4567-e89b-12d3-a456-426614174000',
+      points: 0, // Zero points
+      reason: 'Completed daily step goal',
+      earnedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Valid achievement unlocked event
+   */
+  validAchievementUnlocked: {
+    type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+    journey: 'gamification',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      achievementId: '123e4567-e89b-12d3-a456-426614174000',
+      achievementType: 'health-check-streak',
+      tier: 'silver',
+      points: 100,
+      unlockedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Valid level up event
+   */
+  validLevelUp: {
+    type: EventType.GAMIFICATION_LEVEL_UP,
+    journey: 'gamification',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      previousLevel: 2,
+      newLevel: 3,
+      totalPoints: 1500,
+      leveledUpAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Invalid level up with level decrease
+   */
+  invalidLevelDecrease: {
+    type: EventType.GAMIFICATION_LEVEL_UP,
+    journey: 'gamification',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      previousLevel: 3,
+      newLevel: 2, // Level decrease
+      totalPoints: 1500,
+      leveledUpAt: new Date().toISOString()
+    }
+  }
 };
+
+/**
+ * User validation fixtures
+ */
+export const userValidationFixtures = {
+  /**
+   * Valid profile completed event
+   */
+  validProfileCompleted: {
+    type: EventType.USER_PROFILE_COMPLETED,
+    journey: 'user',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      completionPercentage: 100,
+      completedSections: ['personal', 'contact', 'health', 'preferences'],
+      completedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Invalid profile completion percentage
+   */
+  invalidProfileCompletionPercentage: {
+    type: EventType.USER_PROFILE_COMPLETED,
+    journey: 'user',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      completionPercentage: 120, // Over 100%
+      completedSections: ['personal', 'contact', 'health', 'preferences'],
+      completedAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Valid login event
+   */
+  validLogin: {
+    type: EventType.USER_LOGIN,
+    journey: 'user',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      loginMethod: 'password',
+      deviceType: 'mobile',
+      loginAt: new Date().toISOString()
+    }
+  },
+
+  /**
+   * Valid onboarding completed event
+   */
+  validOnboardingCompleted: {
+    type: EventType.USER_ONBOARDING_COMPLETED,
+    journey: 'user',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    data: {
+      completedSteps: ['welcome', 'profile', 'preferences', 'journeys'],
+      selectedJourneys: ['health', 'care', 'plan'],
+      duration: 300, // 5 minutes in seconds
+      completedAt: new Date().toISOString()
+    }
+  }
+};
+
+// ===== CROSS-FIELD VALIDATION FIXTURES =====
+
+/**
+ * Fixtures for testing cross-field validation rules
+ */
+export const crossFieldValidationFixtures = {
+  /**
+   * Required field based on another field's value
+   */
+  requiredWhenFixtures: {
+    /**
+     * Valid: providerId is required when appointmentType is 'in_person'
+     */
+    validRequiredField: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001', // Required for in_person
+        specialtyType: 'Cardiology',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        bookedAt: new Date().toISOString()
+      }
+    },
+    
+    /**
+     * Invalid: missing providerId when appointmentType is 'in_person'
+     */
+    missingRequiredField: {
+      type: EventType.CARE_APPOINTMENT_BOOKED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        // Missing providerId
+        specialtyType: 'Cardiology',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        bookedAt: new Date().toISOString()
+      }
+    }
+  },
+  
+  /**
+   * Prohibited field based on another field's value
+   */
+  prohibitedWhenFixtures: {
+    /**
+     * Valid: deviceId should not be present when source is 'manual'
+     */
+    validProhibitedField: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        recordedAt: new Date().toISOString(),
+        source: 'manual'
+        // No deviceId as expected
+      }
+    },
+    
+    /**
+     * Invalid: deviceId present when source is 'manual'
+     */
+    invalidProhibitedFieldPresent: {
+      type: EventType.HEALTH_METRIC_RECORDED,
+      journey: 'health',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        metricType: HealthMetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        recordedAt: new Date().toISOString(),
+        source: 'manual',
+        deviceId: 'device-123' // Should not be present with manual source
+      }
+    }
+  },
+  
+  /**
+   * Logical relationship between fields
+   */
+  logicalRelationshipFixtures: {
+    /**
+     * Valid: completedAt is after scheduledAt
+     */
+    validDateSequence: {
+      type: EventType.CARE_APPOINTMENT_COMPLETED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+        completedAt: new Date().toISOString(), // Now
+        duration: 30
+      }
+    },
+    
+    /**
+     * Invalid: completedAt is before scheduledAt
+     */
+    invalidDateSequence: {
+      type: EventType.CARE_APPOINTMENT_COMPLETED,
+      journey: 'care',
+      userId: '123e4567-e89b-12d3-a456-426614174000',
+      timestamp: new Date().toISOString(),
+      data: {
+        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        appointmentType: 'in_person',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
+        completedAt: new Date().toISOString(), // Now
+        duration: 30
+      }
+    }
+  }
+};
+
+// ===== METADATA VALIDATION FIXTURES =====
+
+/**
+ * Fixtures for testing event metadata validation
+ */
+export const metadataValidationFixtures = {
+  /**
+   * Valid event with complete metadata
+   */
+  validCompleteMetadata: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    correlationId: '123e4567-e89b-12d3-a456-426614174001',
+    version: '1.0.0',
+    source: 'mobile-app',
+    metadata: {
+      deviceId: 'device-123',
+      appVersion: '1.2.3',
+      platform: 'iOS',
+      sessionId: 'session-456',
+      ipAddress: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+      locale: 'pt-BR',
+      timezone: 'America/Sao_Paulo'
+    },
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
+  },
+  
+  /**
+   * Valid event with minimal metadata
+   */
+  validMinimalMetadata: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      // Minimal valid metadata
+      deviceId: 'device-123'
+    },
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
+  },
+  
+  /**
+   * Invalid event with malformed metadata
+   */
+  invalidMetadataStructure: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    metadata: 'not-an-object', // Should be an object
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
+  },
+  
+  /**
+   * Invalid event with invalid metadata fields
+   */
+  invalidMetadataFields: {
+    type: EventType.HEALTH_METRIC_RECORDED,
+    journey: 'health',
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      deviceId: 123, // Should be a string
+      appVersion: true, // Should be a string
+      platform: null // Should be a string
+    },
+    data: {
+      metricType: HealthMetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual'
+    }
+  }
+};
+
+// ===== EXPORT ALL FIXTURES =====
+
+/**
+ * All validation fixtures grouped by category
+ */
+export const validationFixtures = {
+  validEventFixtures,
+  invalidEventFixtures,
+  healthValidationFixtures,
+  careValidationFixtures,
+  planValidationFixtures,
+  gamificationValidationFixtures,
+  userValidationFixtures,
+  crossFieldValidationFixtures,
+  metadataValidationFixtures
+};
+
+export default validationFixtures;
