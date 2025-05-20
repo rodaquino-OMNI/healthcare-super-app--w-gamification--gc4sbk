@@ -1,1002 +1,563 @@
 /**
  * @file version.fixtures.ts
- * @description Test fixtures for event schema versioning, including events with different schema versions,
- * compatibility test cases, and version migration scenarios. These fixtures are essential for testing
- * the event versioning system, ensuring backward compatibility, and validating version evolution strategies.
+ * @description Provides test fixtures for event schema versioning, including events with different
+ * schema versions, compatibility test cases, and version migration scenarios. These fixtures are
+ * essential for testing the event versioning system, ensuring backward compatibility, and validating
+ * version evolution strategies across the events package.
+ *
+ * @module events/test/unit/fixtures
  */
 
-import { EventVersion, IVersionedEvent, VersionCompatibility } from '../../../src/interfaces/event-versioning.interface';
-import { IBaseEvent } from '../../../src/interfaces/base-event.interface';
-import { JourneyType, HealthEventType, CareEventType, PlanEventType } from '../../../src/interfaces/journey-events.interface';
-import { VERSION_CONSTANTS } from '../../../src/versioning/constants';
+import { EventType } from '../../../src/dto/event-types.enum';
+import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../../src/dto/event-metadata.dto';
+import {
+  VersionedEventDto,
+  VersionMigrationFn,
+  createVersionedEvent,
+  createVersionFromString,
+  compareVersions,
+  isVersionCompatible,
+  registerVersionMigration,
+  canMigrate,
+  getLatestVersion,
+  upgradeEventPayload,
+  registerMigrationChain
+} from '../../../src/dto/version.dto';
 
-// ===== VERSION OBJECTS =====
+// ===== BASIC VERSION OBJECTS =====
 
 /**
- * Sample semantic versions for testing
+ * Collection of EventVersionDto objects for testing version comparison and compatibility.
  */
-export const VERSIONS = {
-  /** Initial version */
-  V1_0_0: '1.0.0',
-  
-  /** Minor update with backward compatibility */
-  V1_1_0: '1.1.0',
-  
-  /** Patch update with full compatibility */
-  V1_1_1: '1.1.1',
-  
-  /** Major update with breaking changes */
-  V2_0_0: '2.0.0',
-  
-  /** Future version for testing forward compatibility */
-  V2_1_0: '2.1.0',
-  
-  /** Invalid version format */
-  INVALID: '1.0',
-  
-  /** Non-numeric version */
-  INVALID_CHARS: '1.x.0',
-  
-  /** Negative version numbers */
-  INVALID_NEGATIVE: '1.-1.0',
+export const versionObjects = {
+  v1_0_0: createVersionFromString('1.0.0'),
+  v1_0_1: createVersionFromString('1.0.1'),
+  v1_1_0: createVersionFromString('1.1.0'),
+  v1_1_1: createVersionFromString('1.1.1'),
+  v1_2_0: createVersionFromString('1.2.0'),
+  v2_0_0: createVersionFromString('2.0.0'),
+  v2_1_0: createVersionFromString('2.1.0'),
+  v3_0_0: createVersionFromString('3.0.0'),
 };
 
 /**
- * Sample parsed versions for testing
+ * Collection of version strings for testing version parsing and formatting.
  */
-export const PARSED_VERSIONS = {
-  V1_0_0: { major: 1, minor: 0, patch: 0 },
-  V1_1_0: { major: 1, minor: 1, patch: 0 },
-  V1_1_1: { major: 1, minor: 1, patch: 1 },
-  V2_0_0: { major: 2, minor: 0, patch: 0 },
-  V2_1_0: { major: 2, minor: 1, patch: 0 },
+export const versionStrings = {
+  valid: [
+    '1.0.0',
+    '1.0.1',
+    '1.1.0',
+    '2.0.0',
+    '10.20.30',
+  ],
+  invalid: [
+    '1.0',       // Missing patch version
+    '1',          // Missing minor and patch versions
+    'a.b.c',      // Non-numeric components
+    '1.0.0.0',    // Too many components
+    '',           // Empty string
+    '1.0.0-beta',  // Pre-release not supported
+    '1.0.0+build', // Build metadata not supported
+  ],
+  malformed: [
+    '01.02.03',   // Leading zeros
+    ' 1.0.0 ',     // Extra whitespace
+    '1..0',        // Missing component
+    '.1.0',        // Missing component
+    '1.0.',        // Missing component
+  ],
 };
 
-// ===== SAMPLE EVENTS WITH DIFFERENT VERSIONS =====
+// ===== VERSION COMPARISON TEST CASES =====
 
 /**
- * Base event template for creating test events
+ * Test cases for the compareVersions function.
+ * Each case includes two versions and the expected comparison result.
  */
-const baseEvent: IBaseEvent = {
-  eventId: '123e4567-e89b-12d3-a456-426614174000',
-  timestamp: '2023-04-15T14:32:17.123Z',
-  version: VERSIONS.V1_0_0,
-  source: 'test-service',
-  type: 'test.event',
-  payload: {},
-  metadata: {
-    correlationId: 'corr-123',
-    userId: 'user-123',
-  },
-};
-
-/**
- * Creates a versioned event with the specified version and type
- * @param version The event schema version
- * @param type The event type
- * @param payload Optional custom payload
- * @returns A versioned event for testing
- */
-export function createVersionedEvent<T = unknown>(
-  version: string = VERSIONS.V1_0_0,
-  type: string = 'test.event',
-  payload: T = {} as T
-): IVersionedEvent<T> {
-  return {
-    ...baseEvent,
-    version,
-    type,
-    payload,
-    minConsumerVersion: version,
-    deprecated: false,
-  };
-}
-
-/**
- * Sample events with different versions for testing
- */
-export const VERSIONED_EVENTS = {
-  /** Event with version 1.0.0 */
-  V1_0_0: createVersionedEvent(VERSIONS.V1_0_0),
+export const versionComparisonTestCases = [
+  // Equal versions
+  { version1: '1.0.0', version2: '1.0.0', expected: 0 },
   
-  /** Event with version 1.1.0 */
-  V1_1_0: createVersionedEvent(VERSIONS.V1_1_0),
+  // First version is less than second
+  { version1: '1.0.0', version2: '1.0.1', expected: -1 },
+  { version1: '1.0.0', version2: '1.1.0', expected: -1 },
+  { version1: '1.0.0', version2: '2.0.0', expected: -1 },
+  { version1: '1.1.0', version2: '1.2.0', expected: -1 },
+  { version1: '1.9.9', version2: '2.0.0', expected: -1 },
   
-  /** Event with version 1.1.1 */
-  V1_1_1: createVersionedEvent(VERSIONS.V1_1_1),
+  // First version is greater than second
+  { version1: '1.0.1', version2: '1.0.0', expected: 1 },
+  { version1: '1.1.0', version2: '1.0.0', expected: 1 },
+  { version1: '2.0.0', version2: '1.0.0', expected: 1 },
+  { version1: '1.2.0', version2: '1.1.0', expected: 1 },
+  { version1: '2.0.0', version2: '1.9.9', expected: 1 },
   
-  /** Event with version 2.0.0 */
-  V2_0_0: createVersionedEvent(VERSIONS.V2_0_0),
-  
-  /** Event with version 2.1.0 */
-  V2_1_0: createVersionedEvent(VERSIONS.V2_1_0),
-  
-  /** Event with invalid version */
-  INVALID: createVersionedEvent(VERSIONS.INVALID),
-  
-  /** Event with no version field */
-  NO_VERSION: { ...baseEvent, version: undefined } as unknown as IVersionedEvent,
-  
-  /** Event with empty version string */
-  EMPTY_VERSION: createVersionedEvent(''),
-};
-
-// ===== JOURNEY-SPECIFIC EVENTS WITH DIFFERENT VERSIONS =====
-
-/**
- * Health metric event with different versions
- */
-export const HEALTH_METRIC_EVENTS = {
-  /** Version 1.0.0 - Initial version */
-  V1_0_0: createVersionedEvent<any>(
-    VERSIONS.V1_0_0,
-    HealthEventType.METRIC_RECORDED,
-    {
-      metricType: 'HEART_RATE',
-      value: 75,
-      unit: 'bpm',
-      timestamp: '2023-04-15T14:30:00.000Z',
-      source: 'manual',
-    }
-  ),
-  
-  /** 
-   * Version 1.1.0 - Added previousValue and changePercentage fields 
-   * (backward compatible change)
-   */
-  V1_1_0: createVersionedEvent<any>(
-    VERSIONS.V1_1_0,
-    HealthEventType.METRIC_RECORDED,
-    {
-      metricType: 'HEART_RATE',
-      value: 75,
-      unit: 'bpm',
-      timestamp: '2023-04-15T14:30:00.000Z',
-      source: 'manual',
-      previousValue: 72,
-      changePercentage: 4.17,
-    }
-  ),
-  
-  /**
-   * Version 2.0.0 - Restructured payload with metric object
-   * (breaking change)
-   */
-  V2_0_0: createVersionedEvent<any>(
-    VERSIONS.V2_0_0,
-    HealthEventType.METRIC_RECORDED,
-    {
-      metric: {
-        type: 'HEART_RATE',
-        value: 75,
-        unit: 'bpm',
-        recordedAt: '2023-04-15T14:30:00.000Z',
-      },
-      source: 'manual',
-      trend: {
-        previousValue: 72,
-        changePercentage: 4.17,
-      },
-    }
-  ),
-};
-
-/**
- * Appointment event with different versions
- */
-export const APPOINTMENT_EVENTS = {
-  /** Version 1.0.0 - Initial version */
-  V1_0_0: createVersionedEvent<any>(
-    VERSIONS.V1_0_0,
-    CareEventType.APPOINTMENT_BOOKED,
-    {
-      provider: 'Dr. Smith',
-      appointmentDate: '2023-05-10T10:00:00.000Z',
-      appointmentType: 'Consultation',
-      isFirstAppointment: true,
-      isUrgent: false,
-    }
-  ),
-  
-  /**
-   * Version 1.1.0 - Added location and notes fields
-   * (backward compatible change)
-   */
-  V1_1_0: createVersionedEvent<any>(
-    VERSIONS.V1_1_0,
-    CareEventType.APPOINTMENT_BOOKED,
-    {
-      provider: 'Dr. Smith',
-      appointmentDate: '2023-05-10T10:00:00.000Z',
-      appointmentType: 'Consultation',
-      isFirstAppointment: true,
-      isUrgent: false,
-      location: 'Main Clinic',
-      notes: 'Please arrive 15 minutes early',
-    }
-  ),
-  
-  /**
-   * Version 2.0.0 - Restructured with appointment object and provider details
-   * (breaking change)
-   */
-  V2_0_0: createVersionedEvent<any>(
-    VERSIONS.V2_0_0,
-    CareEventType.APPOINTMENT_BOOKED,
-    {
-      appointment: {
-        id: 'appt-123',
-        scheduledFor: '2023-05-10T10:00:00.000Z',
-        type: 'Consultation',
-        status: 'SCHEDULED',
-        location: 'Main Clinic',
-        notes: 'Please arrive 15 minutes early',
-      },
-      provider: {
-        id: 'prov-456',
-        name: 'Dr. Smith',
-        specialty: 'Cardiologia',
-      },
-      patientContext: {
-        isFirstAppointment: true,
-        isUrgent: false,
-      },
-    }
-  ),
-};
-
-/**
- * Claim event with different versions
- */
-export const CLAIM_EVENTS = {
-  /** Version 1.0.0 - Initial version */
-  V1_0_0: createVersionedEvent<any>(
-    VERSIONS.V1_0_0,
-    PlanEventType.CLAIM_SUBMITTED,
-    {
-      submissionDate: '2023-06-20T09:15:00.000Z',
-      amount: 150.00,
-      serviceDate: '2023-06-15T14:30:00.000Z',
-      provider: 'General Hospital',
-      hasDocuments: true,
-      documentCount: 2,
-      isFirstClaim: true,
-    }
-  ),
-  
-  /**
-   * Version 1.1.0 - Added claimType and expectedReimbursement fields
-   * (backward compatible change)
-   */
-  V1_1_0: createVersionedEvent<any>(
-    VERSIONS.V1_1_0,
-    PlanEventType.CLAIM_SUBMITTED,
-    {
-      submissionDate: '2023-06-20T09:15:00.000Z',
-      amount: 150.00,
-      serviceDate: '2023-06-15T14:30:00.000Z',
-      provider: 'General Hospital',
-      hasDocuments: true,
-      documentCount: 2,
-      isFirstClaim: true,
-      claimType: 'Consulta Médica',
-      expectedReimbursement: 120.00,
-    }
-  ),
-  
-  /**
-   * Version 2.0.0 - Restructured with claim object and service details
-   * (breaking change)
-   */
-  V2_0_0: createVersionedEvent<any>(
-    VERSIONS.V2_0_0,
-    PlanEventType.CLAIM_SUBMITTED,
-    {
-      claim: {
-        id: 'claim-789',
-        submittedAt: '2023-06-20T09:15:00.000Z',
-        status: 'PENDING',
-        type: 'Consulta Médica',
-        documents: {
-          count: 2,
-          types: ['receipt', 'medical_report'],
-        },
-      },
-      service: {
-        date: '2023-06-15T14:30:00.000Z',
-        provider: 'General Hospital',
-        description: 'Routine checkup',
-        cost: 150.00,
-      },
-      reimbursement: {
-        expected: 120.00,
-        coverage: 0.8,
-      },
-      userContext: {
-        isFirstClaim: true,
-      },
-    }
-  ),
-};
+  // Complex comparisons
+  { version1: '2.1.0', version2: '2.0.1', expected: 1 },
+  { version1: '2.0.1', version2: '2.1.0', expected: -1 },
+  { version1: '10.0.0', version2: '2.0.0', expected: 1 },
+  { version1: '1.10.0', version2: '1.2.0', expected: 1 },
+  { version1: '1.0.10', version2: '1.0.2', expected: 1 },
+];
 
 // ===== VERSION COMPATIBILITY TEST CASES =====
 
 /**
- * Test cases for version compatibility checking
+ * Test cases for the isVersionCompatible function.
+ * Each case includes current and required versions and the expected compatibility result.
  */
-export const VERSION_COMPATIBILITY_CASES = [
-  {
-    name: 'Exact same version',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V1_0_0,
-    expectedResult: {
-      compatible: true,
-      details: {
-        isNewer: false,
-        isSameMajor: true,
-        breakingChange: false,
-      },
-    },
-  },
-  {
-    name: 'Same major, newer minor (backward compatible)',
-    sourceVersion: VERSIONS.V1_1_0,
-    targetVersion: VERSIONS.V1_0_0,
-    expectedResult: {
-      compatible: false,
-      details: {
-        isNewer: true,
-        isSameMajor: true,
-        breakingChange: true,
-      },
-    },
-  },
-  {
-    name: 'Same major, older minor (forward compatible)',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V1_1_0,
-    expectedResult: {
-      compatible: true,
-      details: {
-        isNewer: false,
-        isSameMajor: true,
-        breakingChange: false,
-      },
-    },
-  },
-  {
-    name: 'Different major versions (incompatible)',
-    sourceVersion: VERSIONS.V2_0_0,
-    targetVersion: VERSIONS.V1_0_0,
-    expectedResult: {
-      compatible: false,
-      details: {
-        isNewer: true,
-        isSameMajor: false,
-        breakingChange: true,
-      },
-    },
-  },
-  {
-    name: 'Different major versions, older source (incompatible)',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V2_0_0,
-    expectedResult: {
-      compatible: false,
-      details: {
-        isNewer: false,
-        isSameMajor: false,
-        breakingChange: true,
-      },
-    },
-  },
-  {
-    name: 'Same major and minor, newer patch (fully compatible)',
-    sourceVersion: VERSIONS.V1_1_1,
-    targetVersion: VERSIONS.V1_1_0,
-    expectedResult: {
-      compatible: false,
-      details: {
-        isNewer: true,
-        isSameMajor: true,
-        breakingChange: true,
-      },
-    },
-  },
-  {
-    name: 'Same major and minor, older patch (fully compatible)',
-    sourceVersion: VERSIONS.V1_1_0,
-    targetVersion: VERSIONS.V1_1_1,
-    expectedResult: {
-      compatible: true,
-      details: {
-        isNewer: false,
-        isSameMajor: true,
-        breakingChange: false,
-      },
-    },
-  },
+export const versionCompatibilityTestCases = [
+  // Same version is always compatible
+  { currentVersion: '1.0.0', requiredVersion: '1.0.0', compatible: true },
+  
+  // Higher minor version is compatible with lower minor version
+  { currentVersion: '1.1.0', requiredVersion: '1.0.0', compatible: true },
+  { currentVersion: '1.2.0', requiredVersion: '1.0.0', compatible: true },
+  { currentVersion: '1.2.0', requiredVersion: '1.1.0', compatible: true },
+  
+  // Higher patch version is compatible with lower patch version
+  { currentVersion: '1.0.1', requiredVersion: '1.0.0', compatible: true },
+  { currentVersion: '1.1.2', requiredVersion: '1.1.0', compatible: true },
+  { currentVersion: '1.1.2', requiredVersion: '1.1.1', compatible: true },
+  
+  // Different major versions are not compatible
+  { currentVersion: '2.0.0', requiredVersion: '1.0.0', compatible: false },
+  { currentVersion: '1.0.0', requiredVersion: '2.0.0', compatible: false },
+  { currentVersion: '3.0.0', requiredVersion: '2.0.0', compatible: false },
+  
+  // Lower minor version is not compatible with higher minor version
+  { currentVersion: '1.0.0', requiredVersion: '1.1.0', compatible: false },
+  { currentVersion: '1.1.0', requiredVersion: '1.2.0', compatible: false },
+  
+  // Lower patch version is not compatible with higher patch version
+  { currentVersion: '1.0.0', requiredVersion: '1.0.1', compatible: false },
+  { currentVersion: '1.1.0', requiredVersion: '1.1.1', compatible: false },
+  
+  // Edge cases
+  { currentVersion: '1.0.0', requiredVersion: '1.0.0-beta', compatible: false }, // Pre-release not supported
+  { currentVersion: '1.0.0-beta', requiredVersion: '1.0.0', compatible: false }, // Pre-release not supported
 ];
 
-/**
- * Test cases for version compatibility with different compatibility modes
- */
-export const VERSION_COMPATIBILITY_MODE_CASES = [
-  {
-    name: 'Strict mode - exact match',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'strict',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Strict mode - different minor',
-    sourceVersion: VERSIONS.V1_1_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'strict',
-    expectedResult: { compatible: false },
-  },
-  {
-    name: 'Standard mode - same major, older minor',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V1_1_0,
-    mode: 'standard',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Standard mode - same major, newer minor',
-    sourceVersion: VERSIONS.V1_1_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'standard',
-    expectedResult: { compatible: false },
-  },
-  {
-    name: 'Standard mode - same major, newer minor, allowNewer=true',
-    sourceVersion: VERSIONS.V1_1_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'standard',
-    allowNewer: true,
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Relaxed mode - older major',
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V2_0_0,
-    mode: 'relaxed',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Relaxed mode - newer major',
-    sourceVersion: VERSIONS.V2_0_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'relaxed',
-    expectedResult: { compatible: false },
-  },
-  {
-    name: 'Relaxed mode - newer major, allowNewer=true',
-    sourceVersion: VERSIONS.V2_0_0,
-    targetVersion: VERSIONS.V1_0_0,
-    mode: 'relaxed',
-    allowNewer: true,
-    expectedResult: { compatible: true },
-  },
-];
-
-// ===== EVENT MIGRATION SCENARIOS =====
+// ===== GENERIC EVENT FIXTURES =====
 
 /**
- * Sample schemas for different versions of the health metric event
+ * Generic event type for testing versioning without specific event schemas.
  */
-export const HEALTH_METRIC_SCHEMAS = {
-  [VERSIONS.V1_0_0]: {
-    type: 'object',
-    required: ['metricType', 'value', 'unit', 'timestamp', 'source'],
-    properties: {
-      metricType: { type: 'string' },
-      value: { type: 'number' },
-      unit: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
-      source: { type: 'string', enum: ['manual', 'device', 'integration'] },
-      deviceId: { type: 'string' },
+export interface GenericEvent {
+  id: string;
+  name: string;
+  timestamp: string;
+  data: Record<string, any>;
+}
+
+/**
+ * Creates a generic event with the specified version.
+ * 
+ * @param version Version string in 'major.minor.patch' format
+ * @param data Optional custom data to include in the event
+ * @returns A versioned generic event
+ */
+export function createGenericEvent(
+  version: string,
+  data: Partial<GenericEvent> = {}
+): VersionedEventDto<GenericEvent> {
+  return createVersionedEvent<GenericEvent>(
+    'GENERIC_EVENT',
+    {
+      id: data.id || `event-${Date.now()}`,
+      name: data.name || 'Generic Event',
+      timestamp: data.timestamp || new Date().toISOString(),
+      data: data.data || {},
     },
-  },
-  [VERSIONS.V1_1_0]: {
-    type: 'object',
-    required: ['metricType', 'value', 'unit', 'timestamp', 'source'],
-    properties: {
-      metricType: { type: 'string' },
-      value: { type: 'number' },
-      unit: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
-      source: { type: 'string', enum: ['manual', 'device', 'integration'] },
-      deviceId: { type: 'string' },
-      previousValue: { type: 'number' },
-      changePercentage: { type: 'number' },
-    },
-  },
-  [VERSIONS.V2_0_0]: {
-    type: 'object',
-    required: ['metric', 'source'],
-    properties: {
-      metric: {
-        type: 'object',
-        required: ['type', 'value', 'unit', 'recordedAt'],
-        properties: {
-          type: { type: 'string' },
-          value: { type: 'number' },
-          unit: { type: 'string' },
-          recordedAt: { type: 'string', format: 'date-time' },
-        },
-      },
-      source: { type: 'string', enum: ['manual', 'device', 'integration'] },
-      deviceId: { type: 'string' },
-      trend: {
-        type: 'object',
-        properties: {
-          previousValue: { type: 'number' },
-          changePercentage: { type: 'number' },
-        },
-      },
-    },
-  },
+    createVersionFromString(version)
+  );
+}
+
+/**
+ * Collection of generic events with different versions for testing.
+ */
+export const genericEvents = {
+  v1_0_0: createGenericEvent('1.0.0', {
+    data: { version: '1.0.0', features: ['basic'] },
+  }),
+  v1_1_0: createGenericEvent('1.1.0', {
+    data: { version: '1.1.0', features: ['basic', 'enhanced'] },
+  }),
+  v2_0_0: createGenericEvent('2.0.0', {
+    data: { version: '2.0.0', features: ['basic', 'enhanced', 'advanced'] },
+  }),
 };
 
-/**
- * Migration functions for health metric events
- */
-export const HEALTH_METRIC_MIGRATIONS = {
-  // Upgrade from 1.0.0 to 1.1.0 (add trend fields with default values)
-  '1.0.0->1.1.0': (event: IVersionedEvent<any>): IVersionedEvent<any> => {
-    const newPayload = { ...event.payload, previousValue: null, changePercentage: 0 };
-    return { ...event, version: VERSIONS.V1_1_0, payload: newPayload };
-  },
-  
-  // Upgrade from 1.1.0 to 2.0.0 (restructure payload)
-  '1.1.0->2.0.0': (event: IVersionedEvent<any>): IVersionedEvent<any> => {
-    const { metricType, value, unit, timestamp, source, deviceId, previousValue, changePercentage, ...rest } = event.payload;
-    
-    const newPayload = {
-      metric: {
-        type: metricType,
-        value,
-        unit,
-        recordedAt: timestamp,
-      },
-      source,
-      ...(deviceId ? { deviceId } : {}),
-      ...(previousValue || changePercentage ? {
-        trend: {
-          previousValue,
-          changePercentage,
-        },
-      } : {}),
-      ...rest,
-    };
-    
-    return { ...event, version: VERSIONS.V2_0_0, payload: newPayload };
-  },
-  
-  // Downgrade from 2.0.0 to 1.1.0 (flatten structure)
-  '2.0.0->1.1.0': (event: IVersionedEvent<any>): IVersionedEvent<any> => {
-    const { metric, source, deviceId, trend, ...rest } = event.payload;
-    
-    const newPayload = {
-      metricType: metric.type,
-      value: metric.value,
-      unit: metric.unit,
-      timestamp: metric.recordedAt,
-      source,
-      ...(deviceId ? { deviceId } : {}),
-      ...(trend?.previousValue !== undefined ? { previousValue: trend.previousValue } : {}),
-      ...(trend?.changePercentage !== undefined ? { changePercentage: trend.changePercentage } : {}),
-      ...rest,
-    };
-    
-    return { ...event, version: VERSIONS.V1_1_0, payload: newPayload };
-  },
-  
-  // Downgrade from 1.1.0 to 1.0.0 (remove trend fields)
-  '1.1.0->1.0.0': (event: IVersionedEvent<any>): IVersionedEvent<any> => {
-    const { previousValue, changePercentage, ...payload } = event.payload;
-    return { ...event, version: VERSIONS.V1_0_0, payload };
-  },
-};
+// ===== VERSION MIGRATION FIXTURES =====
 
 /**
- * Migration scenarios for testing event transformations
+ * Migration function from v1.0.0 to v1.1.0 for generic events.
+ * Adds the 'enhanced' feature to the features array.
  */
-export const MIGRATION_SCENARIOS = [
-  {
-    name: 'Upgrade health metric from 1.0.0 to 1.1.0',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    targetVersion: VERSIONS.V1_1_0,
-    migrationFunction: HEALTH_METRIC_MIGRATIONS['1.0.0->1.1.0'],
-    expectedFields: ['previousValue', 'changePercentage'],
+export const genericEventV1_0_0_to_V1_1_0: VersionMigrationFn<GenericEvent> = (oldData) => ({
+  ...oldData,
+  data: {
+    ...oldData.data,
+    version: '1.1.0',
+    features: [...(oldData.data.features || []), 'enhanced'],
   },
-  {
-    name: 'Upgrade health metric from 1.1.0 to 2.0.0',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_1_0,
-    targetVersion: VERSIONS.V2_0_0,
-    migrationFunction: HEALTH_METRIC_MIGRATIONS['1.1.0->2.0.0'],
-    expectedFields: ['metric', 'trend'],
-  },
-  {
-    name: 'Downgrade health metric from 2.0.0 to 1.1.0',
-    sourceEvent: HEALTH_METRIC_EVENTS.V2_0_0,
-    targetVersion: VERSIONS.V1_1_0,
-    migrationFunction: HEALTH_METRIC_MIGRATIONS['2.0.0->1.1.0'],
-    expectedFields: ['metricType', 'value', 'unit', 'timestamp', 'previousValue', 'changePercentage'],
-  },
-  {
-    name: 'Downgrade health metric from 1.1.0 to 1.0.0',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_1_0,
-    targetVersion: VERSIONS.V1_0_0,
-    migrationFunction: HEALTH_METRIC_MIGRATIONS['1.1.0->1.0.0'],
-    unexpectedFields: ['previousValue', 'changePercentage'],
-  },
-];
-
-// ===== VERSION VALIDATION AND EDGE CASES =====
+});
 
 /**
- * Test cases for version validation
+ * Migration function from v1.1.0 to v2.0.0 for generic events.
+ * Adds the 'advanced' feature to the features array and restructures some fields.
  */
-export const VERSION_VALIDATION_CASES = [
-  {
-    name: 'Valid version - 1.0.0',
-    version: VERSIONS.V1_0_0,
-    isValid: true,
-  },
-  {
-    name: 'Valid version - 2.10.5',
-    version: '2.10.5',
-    isValid: true,
-  },
-  {
-    name: 'Invalid format - missing patch',
-    version: VERSIONS.INVALID,
-    isValid: false,
-  },
-  {
-    name: 'Invalid format - non-numeric',
-    version: VERSIONS.INVALID_CHARS,
-    isValid: false,
-  },
-  {
-    name: 'Invalid format - negative number',
-    version: VERSIONS.INVALID_NEGATIVE,
-    isValid: false,
-  },
-  {
-    name: 'Invalid format - empty string',
-    version: '',
-    isValid: false,
-  },
-  {
-    name: 'Invalid format - null',
-    version: null as unknown as string,
-    isValid: false,
-  },
-  {
-    name: 'Invalid format - undefined',
-    version: undefined as unknown as string,
-    isValid: false,
-  },
-];
-
-/**
- * Edge cases for version detection and handling
- */
-export const VERSION_EDGE_CASES = {
-  /** Event with version in a non-standard field */
-  CUSTOM_VERSION_FIELD: {
-    ...baseEvent,
-    version: undefined,
-    schemaVersion: VERSIONS.V1_0_0,
-    payload: {},
-  },
-  
-  /** Event with version in metadata */
-  VERSION_IN_METADATA: {
-    ...baseEvent,
-    version: undefined,
+export const genericEventV1_1_0_to_V2_0_0: VersionMigrationFn<GenericEvent> = (oldData) => ({
+  ...oldData,
+  data: {
+    ...oldData.data,
+    version: '2.0.0',
+    features: [...(oldData.data.features || []), 'advanced'],
     metadata: {
-      ...baseEvent.metadata,
-      version: VERSIONS.V1_0_0,
-    },
-    payload: {},
-  },
-  
-  /** Event with version in payload */
-  VERSION_IN_PAYLOAD: {
-    ...baseEvent,
-    version: undefined,
-    payload: {
-      _version: VERSIONS.V1_0_0,
-      data: {},
+      originalVersion: oldData.data.version,
+      migrated: true,
+      migratedAt: new Date().toISOString(),
     },
   },
+});
+
+/**
+ * Migration function from v2.0.0 to v3.0.0 for generic events.
+ * Completely restructures the event format with breaking changes.
+ */
+export const genericEventV2_0_0_to_V3_0_0: VersionMigrationFn<GenericEvent> = (oldData) => {
+  // Extract features from old data
+  const features = oldData.data.features || [];
   
-  /** Event with multiple conflicting versions */
-  CONFLICTING_VERSIONS: {
-    ...baseEvent,
-    version: VERSIONS.V1_0_0,
-    schemaVersion: VERSIONS.V1_1_0,
-    payload: {
-      _version: VERSIONS.V2_0_0,
+  // Create a completely new structure
+  return {
+    id: oldData.id,
+    name: `${oldData.name} (Migrated to v3)`,
+    timestamp: oldData.timestamp,
+    data: {
+      version: '3.0.0',
+      capabilities: features.map(f => ({ name: f, enabled: true })),
+      config: {
+        settings: {
+          advanced: features.includes('advanced'),
+          enhanced: features.includes('enhanced'),
+          basic: features.includes('basic'),
+        },
+      },
+      history: [
+        {
+          previousVersion: oldData.data.version,
+          migratedAt: new Date().toISOString(),
+        },
+      ],
     },
-  },
-  
-  /** Event with malformed JSON in payload */
-  MALFORMED_PAYLOAD: {
-    ...baseEvent,
-    payload: '{"malformed":true',
-  },
+  };
 };
 
+// ===== MIGRATION PATH TEST CASES =====
+
 /**
- * Test cases for version detection strategies
+ * Test cases for finding migration paths between versions.
+ * Each case includes event type, source and target versions, and expected migration steps.
  */
-export const VERSION_DETECTION_CASES = [
+export const migrationPathTestCases = [
+  // Direct migrations
   {
-    name: 'Explicit version field',
-    event: VERSIONED_EVENTS.V1_0_0,
-    strategy: 'explicit',
-    expectedVersion: VERSIONS.V1_0_0,
+    eventType: 'GENERIC_EVENT',
+    source: '1.0.0',
+    target: '1.1.0',
+    expectedPath: ['1.0.0->1.1.0'],
   },
   {
-    name: 'Version in custom field',
-    event: VERSION_EDGE_CASES.CUSTOM_VERSION_FIELD,
-    strategy: 'structure',
-    fieldName: 'schemaVersion',
-    expectedVersion: VERSIONS.V1_0_0,
+    eventType: 'GENERIC_EVENT',
+    source: '1.1.0',
+    target: '2.0.0',
+    expectedPath: ['1.1.0->2.0.0'],
   },
   {
-    name: 'Version in metadata',
-    event: VERSION_EDGE_CASES.VERSION_IN_METADATA,
-    strategy: 'structure',
-    fieldPath: 'metadata.version',
-    expectedVersion: VERSIONS.V1_0_0,
+    eventType: 'GENERIC_EVENT',
+    source: '2.0.0',
+    target: '3.0.0',
+    expectedPath: ['2.0.0->3.0.0'],
+  },
+  
+  // Multi-step migrations
+  {
+    eventType: 'GENERIC_EVENT',
+    source: '1.0.0',
+    target: '2.0.0',
+    expectedPath: ['1.0.0->1.1.0', '1.1.0->2.0.0'],
   },
   {
-    name: 'Version in payload',
-    event: VERSION_EDGE_CASES.VERSION_IN_PAYLOAD,
-    strategy: 'structure',
-    fieldPath: 'payload._version',
-    expectedVersion: VERSIONS.V1_0_0,
+    eventType: 'GENERIC_EVENT',
+    source: '1.0.0',
+    target: '3.0.0',
+    expectedPath: ['1.0.0->1.1.0', '1.1.0->2.0.0', '2.0.0->3.0.0'],
+  },
+  
+  // No migration path
+  {
+    eventType: 'UNKNOWN_EVENT_TYPE',
+    source: '1.0.0',
+    target: '2.0.0',
+    expectedPath: null,
   },
   {
-    name: 'Fallback to default version',
-    event: VERSIONED_EVENTS.NO_VERSION,
-    strategy: 'fallback',
-    expectedVersion: VERSION_CONSTANTS.DEFAULT_VERSION,
+    eventType: 'GENERIC_EVENT',
+    source: '1.0.0',
+    target: '4.0.0', // No path to this version
+    expectedPath: null,
   },
 ];
 
-/**
- * Test cases for schema compatibility checking
- */
-export const SCHEMA_COMPATIBILITY_CASES = [
-  {
-    name: 'Backward compatible - new schema can read old data',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_1_0],
-    mode: 'backward',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Not backward compatible - new schema cannot read old data',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V2_0_0],
-    mode: 'backward',
-    expectedResult: { compatible: false },
-  },
-  {
-    name: 'Forward compatible - old schema can read new data',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_1_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    mode: 'forward',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Not forward compatible - old schema cannot read new data',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V2_0_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    mode: 'forward',
-    expectedResult: { compatible: false },
-  },
-  {
-    name: 'Full compatibility - schemas are equivalent',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    mode: 'full',
-    expectedResult: { compatible: true },
-  },
-  {
-    name: 'Not fully compatible - schemas have differences',
-    sourceSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    targetSchema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_1_0],
-    mode: 'full',
-    expectedResult: { compatible: false },
-  },
-];
-
-// ===== TRANSFORMATION PIPELINE TEST CASES =====
+// ===== EDGE CASES =====
 
 /**
- * Field mapping test cases for transformation
+ * Edge cases for version handling.
  */
-export const FIELD_MAPPING_CASES = [
-  {
-    name: 'Simple field mapping',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    fieldMappings: {
-      'payload.metricType': 'payload.metricType',
-      'payload.value': 'payload.value',
-      'payload.unit': 'payload.unit',
-      'payload.timestamp': 'payload.recordedAt',
+export const versionEdgeCases = {
+  // Events with invalid versions
+  invalidVersions: [
+    // Missing version
+    createVersionedEvent('GENERIC_EVENT', { id: 'no-version' }, undefined),
+    
+    // Invalid version format
+    (() => {
+      const event = createVersionedEvent('GENERIC_EVENT', { id: 'invalid-format' });
+      event.version.major = 'a'; // Non-numeric major version
+      return event;
+    })(),
+    
+    // Zero major version
+    createVersionedEvent(
+      'GENERIC_EVENT',
+      { id: 'zero-major' },
+      createVersionFromString('0.1.0')
+    ),
+  ],
+  
+  // Events with extreme versions
+  extremeVersions: [
+    // Very high version numbers
+    createVersionedEvent(
+      'GENERIC_EVENT',
+      { id: 'high-version' },
+      createVersionFromString('999.999.999')
+    ),
+    
+    // Very low version numbers
+    createVersionedEvent(
+      'GENERIC_EVENT',
+      { id: 'low-version' },
+      createVersionFromString('1.0.0')
+    ),
+  ],
+  
+  // Events with missing migration paths
+  missingMigrationPaths: [
+    // Gap in migration path
+    {
+      source: createGenericEvent('1.0.0'),
+      target: '3.0.0',
+      missingStep: '2.0.0->3.0.0', // If this migration is removed
     },
-    expectedFields: ['metricType', 'value', 'unit', 'recordedAt'],
-  },
-  {
-    name: 'Nested field mapping',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    fieldMappings: {
-      'payload.metricType': 'payload.metric.type',
-      'payload.value': 'payload.metric.value',
-      'payload.unit': 'payload.metric.unit',
-      'payload.timestamp': 'payload.metric.recordedAt',
-      'payload.source': 'payload.source',
+    
+    // No migrations registered
+    {
+      source: createVersionedEvent('UNKNOWN_EVENT', { id: 'unknown' }),
+      target: '2.0.0',
     },
-    expectedFields: ['metric', 'source'],
-    expectedNestedFields: ['metric.type', 'metric.value', 'metric.unit', 'metric.recordedAt'],
-  },
-  {
-    name: 'Field transformation with defaults',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    fieldMappings: {
-      'payload.metricType': 'payload.metricType',
-      'payload.value': 'payload.value',
-      'payload.unit': 'payload.unit',
-      'payload.timestamp': 'payload.timestamp',
-    },
-    defaultValues: {
-      'payload.previousValue': null,
-      'payload.changePercentage': 0,
-    },
-    expectedFields: ['metricType', 'value', 'unit', 'timestamp', 'previousValue', 'changePercentage'],
-  },
-];
+  ],
+};
+
+// ===== CIRCULAR MIGRATION TEST CASES =====
 
 /**
- * Field transformer test cases
+ * Test cases for circular migration paths (which should be detected and prevented).
  */
-export const FIELD_TRANSFORMER_CASES = [
+export const circularMigrationTestCases = [
+  // Simple circular reference
   {
-    name: 'Transform specific fields',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    fieldTransformers: {
-      'payload.value': (value: number) => value * 2,
-      'payload.metricType': (type: string) => type.toLowerCase(),
-    },
-    expectedTransforms: {
-      'payload.value': HEALTH_METRIC_EVENTS.V1_0_0.payload.value * 2,
-      'payload.metricType': HEALTH_METRIC_EVENTS.V1_0_0.payload.metricType.toLowerCase(),
-    },
-  },
-  {
-    name: 'Add calculated fields',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_1_0,
-    fieldTransformers: {
-      'payload.changePercentage': (value: number, event: any) => {
-        if (event.payload.previousValue && event.payload.value) {
-          return ((event.payload.value - event.payload.previousValue) / event.payload.previousValue) * 100;
-        }
-        return value;
-      },
-    },
-    expectedTransforms: {
-      'payload.changePercentage': ((HEALTH_METRIC_EVENTS.V1_1_0.payload.value - HEALTH_METRIC_EVENTS.V1_1_0.payload.previousValue) / HEALTH_METRIC_EVENTS.V1_1_0.payload.previousValue) * 100,
-    },
-  },
-];
-
-/**
- * Transformation pipeline test cases
- */
-export const TRANSFORMATION_PIPELINE_CASES = [
-  {
-    name: 'Multi-step transformation',
-    sourceEvent: HEALTH_METRIC_EVENTS.V1_0_0,
-    pipeline: [
-      // Step 1: Add trend fields
-      (event: IVersionedEvent<any>) => ({
-        ...event,
-        payload: {
-          ...event.payload,
-          previousValue: 70,
-          changePercentage: 7.14,
-        },
-      }),
-      // Step 2: Update version
-      (event: IVersionedEvent<any>) => ({
-        ...event,
-        version: VERSIONS.V1_1_0,
-      }),
-      // Step 3: Add metadata
-      (event: IVersionedEvent<any>) => ({
-        ...event,
-        metadata: {
-          ...event.metadata,
-          migrated: true,
-          migrationDate: new Date().toISOString(),
-        },
-      }),
+    eventType: 'CIRCULAR_EVENT',
+    migrations: [
+      { from: '1.0.0', to: '1.1.0' },
+      { from: '1.1.0', to: '1.0.0' }, // Creates a cycle
     ],
-    expectedVersion: VERSIONS.V1_1_0,
-    expectedFields: ['previousValue', 'changePercentage'],
-    expectedMetadataFields: ['migrated', 'migrationDate'],
+  },
+  
+  // Complex circular reference
+  {
+    eventType: 'COMPLEX_CIRCULAR_EVENT',
+    migrations: [
+      { from: '1.0.0', to: '1.1.0' },
+      { from: '1.1.0', to: '1.2.0' },
+      { from: '1.2.0', to: '1.3.0' },
+      { from: '1.3.0', to: '1.1.0' }, // Creates a cycle
+    ],
   },
 ];
 
-// ===== VERSIONING STRATEGY TEST CASES =====
-
-/**
- * Test cases for versioning strategies
- */
-export const VERSIONING_STRATEGY_CASES = [
-  {
-    name: 'Health journey strategy',
-    eventTypes: [HealthEventType.METRIC_RECORDED, HealthEventType.GOAL_ACHIEVED],
-    latestVersions: {
-      [HealthEventType.METRIC_RECORDED]: VERSIONS.V2_0_0,
-      [HealthEventType.GOAL_ACHIEVED]: VERSIONS.V1_1_0,
-    },
-    compatibilityMode: 'standard',
-  },
-  {
-    name: 'Care journey strategy',
-    eventTypes: [CareEventType.APPOINTMENT_BOOKED, CareEventType.MEDICATION_TAKEN],
-    latestVersions: {
-      [CareEventType.APPOINTMENT_BOOKED]: VERSIONS.V2_0_0,
-      [CareEventType.MEDICATION_TAKEN]: VERSIONS.V1_0_0,
-    },
-    compatibilityMode: 'relaxed',
-  },
-  {
-    name: 'Plan journey strategy',
-    eventTypes: [PlanEventType.CLAIM_SUBMITTED, PlanEventType.BENEFIT_USED],
-    latestVersions: {
-      [PlanEventType.CLAIM_SUBMITTED]: VERSIONS.V2_0_0,
-      [PlanEventType.BENEFIT_USED]: VERSIONS.V1_1_0,
-    },
-    compatibilityMode: 'strict',
-  },
-];
+// ===== MIGRATION CHAIN TEST CASES =====
 
 /**
- * Test cases for version registry operations
+ * Test cases for migration chains (multiple migrations registered at once).
  */
-export const VERSION_REGISTRY_CASES = [
+export const migrationChainTestCases = [
+  // Simple chain
   {
-    name: 'Register and retrieve transformation',
-    eventType: HealthEventType.METRIC_RECORDED,
-    sourceVersion: VERSIONS.V1_0_0,
-    targetVersion: VERSIONS.V1_1_0,
-    transformation: HEALTH_METRIC_MIGRATIONS['1.0.0->1.1.0'],
+    eventType: 'CHAIN_EVENT',
+    chain: [
+      { fromVersion: '1.0.0', toVersion: '1.1.0', migrationFn: (data: any) => ({ ...data, version: '1.1.0' }) },
+      { fromVersion: '1.1.0', toVersion: '1.2.0', migrationFn: (data: any) => ({ ...data, version: '1.2.0' }) },
+      { fromVersion: '1.2.0', toVersion: '2.0.0', migrationFn: (data: any) => ({ ...data, version: '2.0.0' }) },
+    ],
+    testCases: [
+      { source: '1.0.0', target: '2.0.0', expectedPath: ['1.0.0->1.1.0', '1.1.0->1.2.0', '1.2.0->2.0.0'] },
+      { source: '1.1.0', target: '2.0.0', expectedPath: ['1.1.0->1.2.0', '1.2.0->2.0.0'] },
+    ],
   },
+  
+  // Branched chain
   {
-    name: 'Register and retrieve schema',
-    eventType: HealthEventType.METRIC_RECORDED,
-    version: VERSIONS.V1_0_0,
-    schema: HEALTH_METRIC_SCHEMAS[VERSIONS.V1_0_0],
-    isLatest: false,
-  },
-  {
-    name: 'Register latest schema',
-    eventType: HealthEventType.METRIC_RECORDED,
-    version: VERSIONS.V2_0_0,
-    schema: HEALTH_METRIC_SCHEMAS[VERSIONS.V2_0_0],
-    isLatest: true,
+    eventType: 'BRANCHED_CHAIN_EVENT',
+    chain: [
+      // Main path
+      { fromVersion: '1.0.0', toVersion: '2.0.0', migrationFn: (data: any) => ({ ...data, version: '2.0.0' }) },
+      
+      // Alternative path
+      { fromVersion: '1.0.0', toVersion: '1.5.0', migrationFn: (data: any) => ({ ...data, version: '1.5.0' }) },
+      { fromVersion: '1.5.0', toVersion: '2.0.0', migrationFn: (data: any) => ({ ...data, version: '2.0.0' }) },
+    ],
+    testCases: [
+      { source: '1.0.0', target: '2.0.0', expectedPath: ['1.0.0->2.0.0'] }, // Should choose shortest path
+    ],
   },
 ];
+
+// ===== REGISTER TEST MIGRATIONS =====
+
+/**
+ * Registers all test migrations for the generic event type.
+ */
+export function registerGenericEventMigrations(): void {
+  // Register migrations for GENERIC_EVENT
+  registerVersionMigration(
+    'GENERIC_EVENT',
+    '1.0.0',
+    '1.1.0',
+    genericEventV1_0_0_to_V1_1_0
+  );
+  
+  registerVersionMigration(
+    'GENERIC_EVENT',
+    '1.1.0',
+    '2.0.0',
+    genericEventV1_1_0_to_V2_0_0
+  );
+  
+  registerVersionMigration(
+    'GENERIC_EVENT',
+    '2.0.0',
+    '3.0.0',
+    genericEventV2_0_0_to_V3_0_0
+  );
+}
+
+/**
+ * Registers circular migrations for testing cycle detection.
+ */
+export function registerCircularMigrations(): void {
+  // Simple circular reference
+  registerVersionMigration(
+    'CIRCULAR_EVENT',
+    '1.0.0',
+    '1.1.0',
+    (data) => ({ ...data, version: '1.1.0' })
+  );
+  
+  registerVersionMigration(
+    'CIRCULAR_EVENT',
+    '1.1.0',
+    '1.0.0',
+    (data) => ({ ...data, version: '1.0.0' })
+  );
+  
+  // Complex circular reference
+  registerVersionMigration(
+    'COMPLEX_CIRCULAR_EVENT',
+    '1.0.0',
+    '1.1.0',
+    (data) => ({ ...data, version: '1.1.0' })
+  );
+  
+  registerVersionMigration(
+    'COMPLEX_CIRCULAR_EVENT',
+    '1.1.0',
+    '1.2.0',
+    (data) => ({ ...data, version: '1.2.0' })
+  );
+  
+  registerVersionMigration(
+    'COMPLEX_CIRCULAR_EVENT',
+    '1.2.0',
+    '1.3.0',
+    (data) => ({ ...data, version: '1.3.0' })
+  );
+  
+  registerVersionMigration(
+    'COMPLEX_CIRCULAR_EVENT',
+    '1.3.0',
+    '1.1.0',
+    (data) => ({ ...data, version: '1.1.0' })
+  );
+}
+
+/**
+ * Registers migration chains for testing the registerMigrationChain function.
+ */
+export function registerMigrationChains(): void {
+  // Simple chain
+  registerMigrationChain(
+    'CHAIN_EVENT',
+    migrationChainTestCases[0].chain
+  );
+  
+  // Branched chain
+  registerMigrationChain(
+    'BRANCHED_CHAIN_EVENT',
+    migrationChainTestCases[1].chain
+  );
+}
+
+// ===== EXPORT ALL FIXTURES =====
+
+export default {
+  // Version objects and strings
+  versionObjects,
+  versionStrings,
+  
+  // Test cases
+  versionComparisonTestCases,
+  versionCompatibilityTestCases,
+  migrationPathTestCases,
+  circularMigrationTestCases,
+  migrationChainTestCases,
+  
+  // Generic events
+  genericEvents,
+  createGenericEvent,
+  
+  // Migration functions
+  genericEventV1_0_0_to_V1_1_0,
+  genericEventV1_1_0_to_V2_0_0,
+  genericEventV2_0_0_to_V3_0_0,
+  
+  // Edge cases
+  versionEdgeCases,
+  
+  // Registration functions
+  registerGenericEventMigrations,
+  registerCircularMigrations,
+  registerMigrationChains,
+};
