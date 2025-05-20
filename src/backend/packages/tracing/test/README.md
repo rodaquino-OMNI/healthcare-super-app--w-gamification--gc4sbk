@@ -2,383 +2,312 @@
 
 ## Overview
 
-This directory contains the comprehensive test suite for the `@austa/tracing` package, which provides distributed tracing capabilities across the AUSTA SuperApp microservices architecture. The tests ensure that the tracing functionality works correctly across all three user journeys (Health, Care, and Plan) and properly integrates with the OpenTelemetry ecosystem.
+This directory contains the test suite for the AUSTA SuperApp tracing package, which provides distributed tracing capabilities across all journey services. The tests verify the correct functioning of the tracing infrastructure, including span creation, context propagation, error handling, and integration with the logging system.
 
-## Test Architecture
+The tracing package is a critical component of the AUSTA SuperApp's observability infrastructure, enabling end-to-end request tracking across service boundaries and providing insights into system performance and error conditions.
 
-The test suite is organized into three main categories, each with increasing scope and complexity:
+## Test Structure
 
-1. **Unit Tests**: Verify individual components in isolation with mocked dependencies
-2. **Integration Tests**: Verify interactions between components within the tracing package
-3. **End-to-End Tests**: Verify tracing functionality across service boundaries in a multi-service environment
-
-## Directory Structure
+The test suite is organized into the following directories:
 
 ```
-test/
-├── fixtures/            # Test data and mock objects
-│   ├── error-scenarios.ts       # Predefined error scenarios for testing
-│   ├── mock-spans.ts            # Pre-configured mock spans for different journeys
-│   ├── service-config.ts        # Mock configuration objects for services
-│   ├── span-attributes.ts       # Common span attributes for different journeys
-│   ├── trace-contexts.ts        # Sample trace context objects
-│   └── tracing-headers.ts       # Mock HTTP headers with trace context
-├── mocks/               # Mock implementations for testing
-│   ├── index.ts                 # Barrel file for all mocks
-│   ├── mock-config.service.ts   # Mock NestJS ConfigService
-│   ├── mock-context.ts          # Mock OpenTelemetry Context
-│   ├── mock-logger.service.ts   # Mock NestJS LoggerService
-│   ├── mock-span.ts             # Mock OpenTelemetry Span
-│   ├── mock-tracer.ts           # Mock OpenTelemetry Tracer
-│   └── mock-tracing.service.ts  # Mock TracingService
-├── utils/               # Testing utilities
-│   ├── index.ts                 # Barrel file for all utilities
-│   ├── mock-tracer.utils.ts     # Configurable mock TracingService
-│   ├── span-assertion.utils.ts  # Assertion utilities for spans
-│   ├── span-capture.utils.ts    # Utilities for capturing spans
-│   ├── test-module.utils.ts     # Utilities for NestJS test modules
-│   └── trace-context.utils.ts   # Utilities for trace contexts
-├── unit/                # Unit tests
-│   ├── index.spec.ts            # Tests for package exports
-│   ├── tracing.module.spec.ts   # Tests for TracingModule
-│   └── tracing.service.spec.ts  # Tests for TracingService
-├── integration/         # Integration tests
-│   ├── fixtures.ts              # Test fixtures for integration tests
-│   ├── tracing-context-propagation.integration.spec.ts  # Tests for context propagation
-│   ├── tracing-error-handling.integration.spec.ts       # Tests for error handling
-│   ├── tracing-module.integration.spec.ts              # Tests for module integration
-│   ├── tracing-service-logger.integration.spec.ts      # Tests for logger integration
-│   ├── tracing-service-opentelemetry.integration.spec.ts # Tests for OpenTelemetry integration
-│   └── utils.ts                 # Utilities for integration tests
-├── e2e/                 # End-to-end tests
-│   ├── integration.e2e-spec.ts  # E2E tests for tracing
-│   ├── jest-e2e.config.json     # Jest configuration for E2E tests
-│   ├── mock-services.ts         # Mock microservices for testing
-│   ├── tracing-collector.ts     # Trace collector for E2E tests
-│   └── tracing-setup.util.ts    # Setup utilities for E2E tests
-├── jest.config.js       # Jest configuration
-├── README.md            # This documentation file
-├── setup.ts             # Test setup file
-├── teardown.ts          # Test teardown file
-└── test-constants.ts    # Constants used across tests
+/test
+  ├── unit/                 # Unit tests for individual components
+  ├── integration/          # Tests for component interactions
+  ├── e2e/                  # End-to-end tests for cross-service tracing
+  ├── fixtures/             # Test data and scenarios
+  ├── utils/                # Testing utilities and helpers
+  ├── mocks/                # Mock implementations for testing
+  ├── setup.ts              # Test environment setup
+  ├── teardown.ts           # Test environment cleanup
+  ├── jest.config.js        # Jest configuration
+  └── README.md             # This file
 ```
+
+### Unit Tests
+
+Unit tests focus on testing individual components in isolation:
+
+- `tracing.module.spec.ts` - Tests for the TracingModule class
+- `tracing.service.spec.ts` - Tests for the TracingService class
+- `index.spec.ts` - Tests for the package exports
+
+### Integration Tests
+
+Integration tests verify the correct interaction between components:
+
+- `tracing-service-opentelemetry.integration.spec.ts` - Tests TracingService interaction with OpenTelemetry
+- `tracing-service-logger.integration.spec.ts` - Tests integration with LoggerService
+- `tracing-context-propagation.integration.spec.ts` - Tests trace context propagation
+- `tracing-error-handling.integration.spec.ts` - Tests error handling in traces
+- `tracing-module.integration.spec.ts` - Tests TracingModule integration with NestJS
+
+### E2E Tests
+
+End-to-end tests verify tracing functionality across service boundaries:
+
+- Tests for trace context propagation across HTTP requests
+- Tests for trace context propagation across Kafka messages
+- Tests for end-to-end request visualization
+
+### Test Utilities
+
+The `utils` directory contains helper functions for testing:
+
+- `test-module.utils.ts` - Utilities for creating test modules
+- `span-assertion.utils.ts` - Custom assertions for verifying spans
+- `mock-tracer.utils.ts` - Mock implementation of TracingService
+
+### Mocks
+
+The `mocks` directory contains mock implementations for testing:
+
+- `mock-tracer.ts` - Mock implementation of OpenTelemetry Tracer
+- `mock-logger.service.ts` - Mock implementation of LoggerService
+
+### Fixtures
+
+The `fixtures` directory contains test data and scenarios:
+
+- `error-scenarios.ts` - Predefined error scenarios for testing
+- `span-attributes.ts` - Common span attributes for testing
+- `mock-spans.ts` - Pre-configured mock spans for different journeys
 
 ## Running Tests
 
-### Prerequisites
-
-Before running the tests, ensure you have the following installed:
-
-- Node.js (v16+)
-- Yarn (v1.22+)
-
 ### Running All Tests
 
-From the package root directory:
+To run all tests for the tracing package:
 
 ```bash
-yarn test
+# From the root of the monorepo
+npm run test:tracing
+
+# Or from the tracing package directory
+cd src/backend/packages/tracing
+npm run test
 ```
 
 ### Running Specific Test Types
 
+To run only unit tests:
+
 ```bash
-# Run only unit tests
-yarn test:unit
+npm run test:unit
+```
 
-# Run only integration tests
-yarn test:integration
+To run only integration tests:
 
-# Run only end-to-end tests
-yarn test:e2e
+```bash
+npm run test:integration
+```
 
-# Run tests with coverage report
-yarn test:cov
+To run only e2e tests:
+
+```bash
+npm run test:e2e
 ```
 
 ### Running Individual Test Files
 
-```bash
-# Run a specific test file
-yarn test -- -t "TracingService"
+To run a specific test file:
 
-# Run tests in watch mode during development
-yarn test:watch
+```bash
+npm run test -- -t "TracingService"
 ```
 
-## Testing Approach
+### Running Tests with Coverage
 
-### Unit Testing
+To run tests with coverage reporting:
 
-Unit tests focus on testing individual components in isolation:
+```bash
+npm run test:cov
+```
 
-- **TracingModule**: Tests verify proper module configuration, dependency imports, and exports
-- **TracingService**: Tests verify span creation, error handling, and interaction with OpenTelemetry
-- **Package Exports**: Tests verify that all public components are properly exported
+## Testing Guidelines
 
-Example unit test for TracingService:
+### Testing with Mocked OpenTelemetry Components
+
+The tracing package provides mock implementations of OpenTelemetry components for testing. These mocks allow you to verify tracing behavior without requiring actual telemetry infrastructure.
+
+Example of testing with a mocked tracer:
 
 ```typescript
+import { MockTracer } from '../mocks/mock-tracer';
+import { TracingService } from '../../src/tracing.service';
+
 describe('TracingService', () => {
-  let service: TracingService;
-  let configService: MockConfigService;
-  let logger: MockLoggerService;
-  
+  let tracingService: TracingService;
+  let mockTracer: MockTracer;
+
   beforeEach(() => {
-    configService = new MockConfigService();
-    logger = new MockLoggerService();
-    service = new TracingService(configService, logger);
+    mockTracer = new MockTracer();
+    tracingService = new TracingService(mockConfigService, mockLogger);
+    // Replace the real tracer with the mock
+    (tracingService as any).tracer = mockTracer;
   });
-  
-  it('should create spans with the correct name', async () => {
-    const result = await service.createSpan('test-span', async () => {
-      return 'test-result';
+
+  it('should create a span with the correct name', async () => {
+    await tracingService.createSpan('test-span', async () => {
+      // Operation being traced
     });
-    
-    expect(result).toBe('test-result');
-    // Verify span was created with correct name
+
+    expect(mockTracer.getSpans()).toHaveLength(1);
+    expect(mockTracer.getSpans()[0].name).toBe('test-span');
   });
-  
-  it('should handle errors properly', async () => {
-    const error = new Error('test error');
-    
-    await expect(service.createSpan('error-span', async () => {
+});
+```
+
+### Testing Trace Context Propagation
+
+Testing trace context propagation across service boundaries is a critical aspect of the tracing package. The integration tests provide examples of how to verify context propagation across different transport mechanisms.
+
+Example of testing HTTP context propagation:
+
+```typescript
+import { TestingModule, Test } from '@nestjs/testing';
+import { TracingModule } from '../../src/tracing.module';
+import { HttpService } from '@nestjs/axios';
+import { createTestModule } from '../utils/test-module.utils';
+
+describe('Trace Context Propagation - HTTP', () => {
+  let moduleA: TestingModule;
+  let moduleB: TestingModule;
+  let httpService: HttpService;
+
+  beforeEach(async () => {
+    // Create two test modules to simulate two services
+    moduleA = await createTestModule('service-a');
+    moduleB = await createTestModule('service-b');
+    httpService = moduleA.get<HttpService>(HttpService);
+  });
+
+  it('should propagate trace context across HTTP requests', async () => {
+    // Make a request from service A to service B
+    const response = await httpService.get('http://service-b/api').toPromise();
+
+    // Verify that the trace ID is the same in both services
+    const traceIdA = getActiveTraceId(moduleA);
+    const traceIdB = response.data.traceId;
+    expect(traceIdA).toBe(traceIdB);
+  });
+});
+```
+
+### Testing Error Handling in Traces
+
+The tracing package includes comprehensive error handling to ensure that errors are properly recorded in spans and that spans are properly completed even in error scenarios.
+
+Example of testing error handling:
+
+```typescript
+import { TracingService } from '../../src/tracing.service';
+import { SpanStatusCode } from '@opentelemetry/api';
+
+describe('TracingService - Error Handling', () => {
+  let tracingService: TracingService;
+  let mockTracer: MockTracer;
+
+  beforeEach(() => {
+    mockTracer = new MockTracer();
+    tracingService = new TracingService(mockConfigService, mockLogger);
+    (tracingService as any).tracer = mockTracer;
+  });
+
+  it('should record an exception and set status to ERROR when an error occurs', async () => {
+    const error = new Error('Test error');
+
+    await expect(tracingService.createSpan('error-span', async () => {
       throw error;
     })).rejects.toThrow(error);
-    
-    // Verify error was recorded in span
+
+    const span = mockTracer.getSpans()[0];
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span.events).toContainEqual(expect.objectContaining({
+      name: 'exception',
+      attributes: expect.objectContaining({
+        'exception.message': 'Test error'
+      })
+    }));
   });
 });
 ```
 
-### Integration Testing
+### Testing Journey-Specific Tracing
 
-Integration tests verify interactions between components:
+The AUSTA SuperApp has three distinct user journeys (Health, Care, and Plan), each with specific tracing requirements. The test fixtures include journey-specific span attributes and mock spans for testing these scenarios.
 
-- **Context Propagation**: Tests verify trace context is properly propagated across service boundaries
-- **Error Handling**: Tests verify errors are properly recorded in spans and propagated to logs
-- **OpenTelemetry Integration**: Tests verify correct interaction with OpenTelemetry API
-- **Logger Integration**: Tests verify correlation between traces and logs
-
-Example integration test for context propagation:
+Example of testing journey-specific tracing:
 
 ```typescript
-describe('Trace Context Propagation', () => {
-  let moduleRef: TestingModule;
+import { TracingService } from '../../src/tracing.service';
+import { healthJourneyAttributes } from '../fixtures/span-attributes';
+
+describe('Health Journey Tracing', () => {
   let tracingService: TracingService;
-  let httpService: HttpService;
-  
-  beforeEach(async () => {
-    moduleRef = await Test.createTestingModule({
-      imports: [TracingModule, HttpModule],
-      providers: [/* ... */],
-    }).compile();
-    
-    tracingService = moduleRef.get<TracingService>(TracingService);
-    httpService = moduleRef.get<HttpService>(HttpService);
+  let mockTracer: MockTracer;
+
+  beforeEach(() => {
+    mockTracer = new MockTracer();
+    tracingService = new TracingService(mockConfigService, mockLogger);
+    (tracingService as any).tracer = mockTracer;
   });
-  
-  it('should propagate trace context in HTTP headers', async () => {
-    // Test HTTP request with trace context
-    // Verify trace context is properly propagated
-  });
-});
-```
 
-### End-to-End Testing
+  it('should add health journey attributes to spans', async () => {
+    await tracingService.createSpan('health-metric-update', async () => {
+      // Health journey operation
+    }, healthJourneyAttributes);
 
-End-to-end tests verify tracing functionality in a multi-service environment:
-
-- **Cross-Service Tracing**: Tests verify trace context flows correctly between services
-- **Real HTTP Requests**: Tests use actual HTTP requests between services
-- **Complete Trace Lifecycle**: Tests verify the complete lifecycle of traces
-
-Example E2E test setup:
-
-```typescript
-describe('Tracing E2E', () => {
-  let healthService: INestApplication;
-  let careService: INestApplication;
-  let planService: INestApplication;
-  let traceCollector: TraceCollector;
-  
-  beforeAll(async () => {
-    // Set up multiple NestJS applications with TracingModule
-    // Configure trace collector
-  });
-  
-  it('should maintain trace context across service boundaries', async () => {
-    // Make request from health service to care service to plan service
-    // Verify trace context is maintained across all services
-    // Check span hierarchy and relationships
+    const span = mockTracer.getSpans()[0];
+    expect(span.attributes['journey.type']).toBe('health');
+    expect(span.attributes['health.metric.type']).toBe('heart-rate');
   });
 });
 ```
-
-## Testing with Mocked OpenTelemetry Components
-
-The test suite uses mock implementations of OpenTelemetry components to avoid dependencies on external tracing infrastructure:
-
-- **MockTracer**: Simulates the OpenTelemetry Tracer interface
-- **MockSpan**: Simulates the OpenTelemetry Span interface
-- **MockContext**: Simulates the OpenTelemetry Context
-
-These mocks allow tests to verify tracing behavior without requiring actual telemetry backends.
-
-## Journey-Specific Testing
-
-The test suite includes specific fixtures and utilities for testing tracing in each journey context:
-
-### Health Journey
-
-Tests verify tracing for health-specific operations:
-
-- Health metric recording
-- Goal achievement tracking
-- Device synchronization
-- Health insight generation
-
-### Care Journey
-
-Tests verify tracing for care-specific operations:
-
-- Appointment booking
-- Medication adherence
-- Telemedicine sessions
-- Care plan progress
-
-### Plan Journey
-
-Tests verify tracing for plan-specific operations:
-
-- Claim submission
-- Benefit utilization
-- Plan selection and comparison
-- Reward redemption
-
-## Testing Trace Context Propagation
-
-The test suite includes utilities for testing trace context propagation across different transport mechanisms:
-
-- **HTTP Headers**: Tests verify W3C Trace Context headers
-- **Kafka Messages**: Tests verify trace context in message headers
-- **gRPC Metadata**: Tests verify trace context in gRPC metadata
-
-Example of testing HTTP header propagation:
-
-```typescript
-it('should propagate trace context in HTTP headers', async () => {
-  const headers = {};
-  
-  await tracingService.createSpan('http-request', async () => {
-    // Inject trace context into headers
-    const context = trace.getActiveContext();
-    propagator.inject(context, headers, contextSetter);
-    
-    // Make HTTP request with headers
-    return httpService.get('https://example.com', { headers }).toPromise();
-  });
-  
-  // Verify headers contain trace context (traceparent, tracestate)
-  expect(headers).toHaveProperty('traceparent');
-});
-```
-
-## Contributing New Tests
-
-### Adding Unit Tests
-
-1. Create a new test file in the `unit/` directory
-2. Import the component to test and any necessary mocks
-3. Write test cases that verify component behavior in isolation
-4. Run tests with `yarn test:unit` to verify
-
-### Adding Integration Tests
-
-1. Create a new test file in the `integration/` directory with the `.integration.spec.ts` suffix
-2. Use the `test-module.utils.ts` to create NestJS test modules
-3. Write test cases that verify interactions between components
-4. Run tests with `yarn test:integration` to verify
-
-### Adding End-to-End Tests
-
-1. Create a new test file in the `e2e/` directory with the `.e2e-spec.ts` suffix
-2. Use the `tracing-setup.util.ts` to create a multi-service test environment
-3. Write test cases that verify tracing across service boundaries
-4. Run tests with `yarn test:e2e` to verify
 
 ## Best Practices
 
-### Span Verification
+### 1. Use the Provided Test Utilities
 
-Use the `span-assertion.utils.ts` utilities to verify span content:
+The test utilities in the `utils` directory provide a consistent way to create test modules, assert span properties, and mock tracing components. Always use these utilities to ensure consistent testing patterns.
 
-```typescript
-// Verify span has the correct attributes
-expect(span).toHaveAttribute('http.method', 'GET');
-expect(span).toHaveAttribute('http.url', 'https://example.com');
+### 2. Test All Aspects of Tracing
 
-// Verify span has the correct status
-expect(span).toHaveStatus(SpanStatusCode.OK);
+Ensure that your tests cover all aspects of tracing:
 
-// Verify span has recorded an exception
-expect(span).toHaveRecordedException(error);
-```
+- Span creation and completion
+- Attribute annotation
+- Error handling
+- Context propagation
+- Integration with logging
 
-### Context Propagation
+### 3. Use Journey-Specific Fixtures
 
-Use the `trace-context.utils.ts` utilities to test context propagation:
+When testing journey-specific functionality, use the provided fixtures to ensure consistent testing across all journeys:
 
-```typescript
-// Create a trace context for a specific journey
-const context = createHealthJourneyContext(userId, sessionId);
+- `healthJourneyAttributes` for Health journey
+- `careJourneyAttributes` for Care journey
+- `planJourneyAttributes` for Plan journey
 
-// Inject context into carriers (headers, metadata)
-injectContext(context, headers);
+### 4. Test Both Success and Error Scenarios
 
-// Extract context from carriers
-const extractedContext = extractContext(headers);
+Always test both successful operations and error scenarios to ensure that tracing works correctly in all cases.
 
-// Verify context is properly propagated
-expect(extractedContext).toMatchTraceContext(context);
-```
+### 5. Verify Trace Context Propagation
 
-### Error Handling
+When testing services that communicate with each other, always verify that trace context is properly propagated across service boundaries.
 
-Test both successful and error scenarios:
+## Contributing
 
-```typescript
-// Test successful case
-it('should complete span successfully', async () => {
-  // Test successful operation
-});
+When adding new tests to the tracing package, follow these guidelines:
 
-// Test error case
-it('should record exception in span', async () => {
-  // Test operation that throws an error
-});
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Context Not Propagating**: Ensure the W3C Trace Context propagator is configured correctly
-2. **Spans Not Being Created**: Verify the tracer is properly initialized with the correct service name
-3. **Tests Interfering With Each Other**: Ensure proper cleanup in `afterEach` and `afterAll` hooks
-
-### Debugging Tips
-
-1. Use the `span-capture.utils.ts` to capture and inspect spans during tests
-2. Enable debug logging with `DEBUG=true yarn test` for more detailed output
-3. Use the `tracing-collector.ts` in E2E tests to capture and analyze complete traces
+1. Place tests in the appropriate directory based on their type (unit, integration, e2e)
+2. Use the provided test utilities and mocks
+3. Follow the existing naming conventions
+4. Update this README.md if you add new test categories or utilities
 
 ## Additional Resources
 
 - [OpenTelemetry Documentation](https://opentelemetry.io/docs/)
 - [NestJS Testing Documentation](https://docs.nestjs.com/fundamentals/testing)
 - [Jest Documentation](https://jestjs.io/docs/getting-started)
-
-## License
-
-This test suite is part of the AUSTA SuperApp and is subject to the same licensing terms as the main application.
