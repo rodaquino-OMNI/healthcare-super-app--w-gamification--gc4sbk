@@ -1,557 +1,289 @@
-import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
+import { BaseError } from '../../src/base';
+import { ErrorType } from '../../src/types';
 import { HttpStatus } from '@nestjs/common';
 
-// Import the BaseError class and related types
-import { BaseError, ErrorType, ErrorContext } from '../../src/base';
-import { HTTP_STATUS_MAPPINGS } from '../../src/constants';
-
-/**
- * Test suite for the BaseError class
- * Verifies error classification, serialization, HTTP status code mapping, and context propagation
- */
 describe('BaseError', () => {
-  // Sample error data for testing
-  const errorMessage = 'Test error message';
-  const errorType = ErrorType.VALIDATION;
-  const errorCode = 'TEST_001';
-  const errorDetails = { field: 'email', issue: 'format' };
-  const originalError = new Error('Original error');
-  
-  // Sample context data for testing
-  const errorContext: ErrorContext = {
-    requestId: 'req-123',
-    userId: 'user-456',
-    journeyContext: 'health',
-    timestamp: new Date('2023-01-01T12:00:00Z')
-  };
-
-  describe('Basic Error Creation', () => {
-    it('should create a BaseError with all required properties', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        details: errorDetails,
-        cause: originalError,
-        context: errorContext
-      });
-
-      // Verify all properties are set correctly
-      expect(error.message).toBe(errorMessage);
-      expect(error.type).toBe(errorType);
-      expect(error.code).toBe(errorCode);
-      expect(error.details).toEqual(errorDetails);
-      expect(error.cause).toBe(originalError);
-      expect(error.context).toEqual(errorContext);
+  describe('constructor', () => {
+    it('should create an error with the correct message', () => {
+      const message = 'Test error message';
+      const error = new BaseError(message, ErrorType.TECHNICAL, 'TEST_001');
+      
+      expect(error.message).toBe(message);
       expect(error.name).toBe('BaseError');
     });
 
-    it('should create a BaseError with minimal required properties', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
-
-      // Verify required properties are set correctly
-      expect(error.message).toBe(errorMessage);
-      expect(error.type).toBe(errorType);
-      expect(error.code).toBe(errorCode);
-      expect(error.details).toBeUndefined();
-      expect(error.cause).toBeUndefined();
+    it('should create an error with the correct type', () => {
+      const error = new BaseError('Test error', ErrorType.VALIDATION, 'TEST_002');
       
-      // Context should be initialized with defaults
-      expect(error.context).toBeDefined();
-      expect(error.context.timestamp).toBeInstanceOf(Date);
+      expect(error.type).toBe(ErrorType.VALIDATION);
     });
 
-    it('should properly extend Error class', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
+    it('should create an error with the correct code', () => {
+      const error = new BaseError('Test error', ErrorType.BUSINESS, 'BIZ_001');
+      
+      expect(error.code).toBe('BIZ_001');
+    });
 
-      expect(error instanceof Error).toBe(true);
-      expect(error instanceof BaseError).toBe(true);
+    it('should create an error with optional details', () => {
+      const details = { field: 'username', constraint: 'required' };
+      const error = new BaseError('Test error', ErrorType.VALIDATION, 'VAL_001', details);
+      
+      expect(error.details).toEqual(details);
+    });
+
+    it('should create an error with an optional cause', () => {
+      const cause = new Error('Original error');
+      const error = new BaseError('Test error', ErrorType.TECHNICAL, 'TECH_001', undefined, cause);
+      
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should create an error with both details and cause', () => {
+      const details = { field: 'email', constraint: 'format' };
+      const cause = new Error('Original error');
+      const error = new BaseError('Test error', ErrorType.VALIDATION, 'VAL_002', details, cause);
+      
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
     it('should capture stack trace', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
-
+      const error = new BaseError('Test error', ErrorType.TECHNICAL, 'TECH_002');
+      
       expect(error.stack).toBeDefined();
       expect(typeof error.stack).toBe('string');
-      expect(error.stack.includes('BaseError')).toBe(true);
+      expect(error.stack).toContain('Test error');
+    });
+
+    it('should set the correct prototype for instanceof checks', () => {
+      const error = new BaseError('Test error', ErrorType.TECHNICAL, 'TECH_003');
+      
+      expect(error instanceof BaseError).toBe(true);
+      expect(error instanceof Error).toBe(true);
     });
   });
 
-  describe('Context Capture and Propagation', () => {
-    it('should capture provided context', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        context: errorContext
-      });
-
-      expect(error.context).toEqual(errorContext);
-    });
-
-    it('should generate default context when not provided', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
-
-      expect(error.context).toBeDefined();
-      expect(error.context.timestamp).toBeInstanceOf(Date);
-      expect(error.context.requestId).toBeUndefined();
-      expect(error.context.userId).toBeUndefined();
-      expect(error.context.journeyContext).toBeUndefined();
-    });
-
-    it('should merge provided context with defaults', () => {
-      const partialContext = {
-        requestId: 'req-123',
-        userId: 'user-456'
-      };
-
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        context: partialContext
-      });
-
-      expect(error.context.requestId).toBe(partialContext.requestId);
-      expect(error.context.userId).toBe(partialContext.userId);
-      expect(error.context.timestamp).toBeInstanceOf(Date);
-      expect(error.context.journeyContext).toBeUndefined();
-    });
-
-    it('should propagate context from cause error if available', () => {
-      // Create a cause error with context
-      const causeError = new BaseError({
-        message: 'Cause error',
-        type: ErrorType.TECHNICAL,
-        code: 'CAUSE_001',
-        context: {
-          requestId: 'req-original',
-          journeyContext: 'care'
-        }
-      });
-
-      // Create a new error with the cause but without explicit context
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        cause: causeError
-      });
-
-      // Context should be propagated from cause
-      expect(error.context.requestId).toBe('req-original');
-      expect(error.context.journeyContext).toBe('care');
-      expect(error.context.timestamp).toBeInstanceOf(Date);
-    });
-
-    it('should override propagated context with explicitly provided context', () => {
-      // Create a cause error with context
-      const causeError = new BaseError({
-        message: 'Cause error',
-        type: ErrorType.TECHNICAL,
-        code: 'CAUSE_001',
-        context: {
-          requestId: 'req-original',
-          journeyContext: 'care',
-          userId: 'user-original'
-        }
-      });
-
-      // Create a new error with both cause and explicit context
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        cause: causeError,
-        context: {
-          requestId: 'req-override',
-          userId: 'user-override'
-        }
-      });
-
-      // Explicitly provided context should override propagated context
-      expect(error.context.requestId).toBe('req-override');
-      expect(error.context.userId).toBe('user-override');
-      // Non-overridden fields should be propagated
-      expect(error.context.journeyContext).toBe('care');
-    });
-  });
-
-  describe('Serialization', () => {
-    it('should properly serialize to JSON with all properties', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        details: errorDetails,
-        context: errorContext
-      });
-
+  describe('toJSON', () => {
+    it('should serialize the error to a JSON object with all properties', () => {
+      const message = 'Validation failed';
+      const type = ErrorType.VALIDATION;
+      const code = 'VAL_003';
+      const details = { field: 'password', constraint: 'minLength' };
+      
+      const error = new BaseError(message, type, code, details);
       const json = error.toJSON();
-
-      // Verify JSON structure
+      
       expect(json).toEqual({
         error: {
-          type: errorType,
-          code: errorCode,
-          message: errorMessage,
-          details: errorDetails,
-          context: {
-            requestId: errorContext.requestId,
-            userId: errorContext.userId,
-            journeyContext: errorContext.journeyContext,
-            timestamp: errorContext.timestamp.toISOString()
-          }
+          type,
+          code,
+          message,
+          details
         }
       });
     });
 
-    it('should properly serialize to JSON with minimal properties', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
-
+    it('should serialize the error without details if not provided', () => {
+      const message = 'Internal error';
+      const type = ErrorType.TECHNICAL;
+      const code = 'TECH_004';
+      
+      const error = new BaseError(message, type, code);
       const json = error.toJSON();
-
-      // Verify JSON structure with minimal properties
-      expect(json.error.type).toBe(errorType);
-      expect(json.error.code).toBe(errorCode);
-      expect(json.error.message).toBe(errorMessage);
-      expect(json.error.details).toBeUndefined();
-      expect(json.error.context).toBeDefined();
-      expect(json.error.context.timestamp).toBeDefined();
-      expect(typeof json.error.context.timestamp).toBe('string');
+      
+      expect(json).toEqual({
+        error: {
+          type,
+          code,
+          message,
+          details: undefined
+        }
+      });
     });
 
-    it('should include cause error in serialization when includeStack option is true', () => {
-      const causeError = new Error('Cause error');
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        cause: causeError
-      });
-
-      const json = error.toJSON({ includeStack: true });
-
-      // Verify cause and stack are included
-      expect(json.error.stack).toBeDefined();
-      expect(json.error.cause).toBeDefined();
-      expect(json.error.cause.message).toBe('Cause error');
-      expect(json.error.cause.stack).toBeDefined();
-    });
-
-    it('should not include cause error in serialization by default', () => {
-      const causeError = new Error('Cause error');
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        cause: causeError
-      });
-
+    it('should not include cause in the serialized output', () => {
+      const cause = new Error('Original error');
+      const error = new BaseError('Test error', ErrorType.EXTERNAL, 'EXT_001', undefined, cause);
       const json = error.toJSON();
-
-      // Verify cause and stack are not included
-      expect(json.error.stack).toBeUndefined();
+      
       expect(json.error.cause).toBeUndefined();
     });
   });
 
-  describe('HTTP Status Code Mapping', () => {
-    it('should convert to HttpException with correct status code for VALIDATION errors', () => {
-      const error = new BaseError({
-        message: 'Validation error',
-        type: ErrorType.VALIDATION,
-        code: 'TEST_VALIDATION_001'
-      });
-
+  describe('toHttpException', () => {
+    it('should convert VALIDATION error to BAD_REQUEST status', () => {
+      const error = new BaseError('Validation error', ErrorType.VALIDATION, 'VAL_004');
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.VALIDATION);
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
       expect(httpException.getResponse()).toEqual(error.toJSON());
     });
 
-    it('should convert to HttpException with correct status code for BUSINESS errors', () => {
-      const error = new BaseError({
-        message: 'Business error',
-        type: ErrorType.BUSINESS,
-        code: 'TEST_BUSINESS_001'
-      });
-
+    it('should convert BUSINESS error to UNPROCESSABLE_ENTITY status', () => {
+      const error = new BaseError('Business rule violation', ErrorType.BUSINESS, 'BIZ_002');
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
       expect(httpException.getResponse()).toEqual(error.toJSON());
     });
 
-    it('should convert to HttpException with correct status code for TECHNICAL errors', () => {
-      const error = new BaseError({
-        message: 'Technical error',
-        type: ErrorType.TECHNICAL,
-        code: 'TEST_TECHNICAL_001'
-      });
-
+    it('should convert TECHNICAL error to INTERNAL_SERVER_ERROR status', () => {
+      const error = new BaseError('System error', ErrorType.TECHNICAL, 'TECH_005');
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
       expect(httpException.getResponse()).toEqual(error.toJSON());
     });
 
-    it('should convert to HttpException with correct status code for EXTERNAL errors', () => {
-      const error = new BaseError({
-        message: 'External error',
-        type: ErrorType.EXTERNAL,
-        code: 'TEST_EXTERNAL_001'
-      });
-
+    it('should convert EXTERNAL error to BAD_GATEWAY status', () => {
+      const error = new BaseError('External service error', ErrorType.EXTERNAL, 'EXT_002');
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
-      expect(httpException.getResponse()).toEqual(error.toJSON());
-    });
-
-    it('should allow overriding the HTTP status code', () => {
-      const error = new BaseError({
-        message: 'Custom status error',
-        type: ErrorType.VALIDATION,
-        code: 'TEST_CUSTOM_001'
-      });
-
-      const customStatus = HttpStatus.NOT_ACCEPTABLE; // 406
-      const httpException = error.toHttpException(customStatus);
-      
-      expect(httpException.getStatus()).toBe(customStatus);
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
       expect(httpException.getResponse()).toEqual(error.toJSON());
     });
   });
 
-  describe('Error Cause Chain', () => {
-    it('should properly handle nested cause errors', () => {
-      // Create a chain of errors
-      const level3Error = new Error('Level 3 error');
+  describe('context handling', () => {
+    it('should create an error with context information', () => {
+      const context = { userId: '123', requestId: 'abc-123', journey: 'health' };
+      const error = new BaseError(
+        'Test error', 
+        ErrorType.TECHNICAL, 
+        'TECH_006', 
+        undefined, 
+        undefined, 
+        context
+      );
       
-      const level2Error = new BaseError({
-        message: 'Level 2 error',
-        type: ErrorType.TECHNICAL,
-        code: 'LEVEL2_001',
-        cause: level3Error
-      });
-      
-      const level1Error = new BaseError({
-        message: 'Level 1 error',
-        type: ErrorType.BUSINESS,
-        code: 'LEVEL1_001',
-        cause: level2Error
-      });
-
-      // Verify the error chain
-      expect(level1Error.cause).toBe(level2Error);
-      expect(level2Error.cause).toBe(level3Error);
+      expect(error.context).toEqual(context);
     });
 
-    it('should extract root cause from error chain', () => {
-      // Create a chain of errors
-      const rootCause = new Error('Root cause error');
+    it('should include context in serialized output when includeContext is true', () => {
+      const context = { userId: '123', requestId: 'abc-123', journey: 'health' };
+      const error = new BaseError(
+        'Test error', 
+        ErrorType.TECHNICAL, 
+        'TECH_007', 
+        undefined, 
+        undefined, 
+        context
+      );
       
-      const middleError = new BaseError({
-        message: 'Middle error',
-        type: ErrorType.TECHNICAL,
-        code: 'MIDDLE_001',
-        cause: rootCause
-      });
+      const json = error.toJSON(true);
       
-      const topError = new BaseError({
-        message: 'Top error',
-        type: ErrorType.BUSINESS,
-        code: 'TOP_001',
-        cause: middleError
-      });
-
-      // Extract root cause
-      const extractedRootCause = topError.getRootCause();
-      
-      expect(extractedRootCause).toBe(rootCause);
+      expect(json.error.context).toEqual(context);
     });
 
-    it('should return self as root cause when no cause is present', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
-
-      const rootCause = error.getRootCause();
+    it('should not include context in serialized output by default', () => {
+      const context = { userId: '123', requestId: 'abc-123', journey: 'health' };
+      const error = new BaseError(
+        'Test error', 
+        ErrorType.TECHNICAL, 
+        'TECH_008', 
+        undefined, 
+        undefined, 
+        context
+      );
       
-      expect(rootCause).toBe(error);
-    });
-
-    it('should format error chain as string', () => {
-      // Create a chain of errors
-      const level3Error = new Error('Level 3 error');
+      const json = error.toJSON();
       
-      const level2Error = new BaseError({
-        message: 'Level 2 error',
-        type: ErrorType.TECHNICAL,
-        code: 'LEVEL2_001',
-        cause: level3Error
-      });
-      
-      const level1Error = new BaseError({
-        message: 'Level 1 error',
-        type: ErrorType.BUSINESS,
-        code: 'LEVEL1_001',
-        cause: level2Error
-      });
-
-      const chainString = level1Error.formatErrorChain();
-      
-      // Verify the chain string contains all error messages
-      expect(chainString).toContain('Level 1 error');
-      expect(chainString).toContain('Level 2 error');
-      expect(chainString).toContain('Level 3 error');
-      expect(chainString).toContain('LEVEL1_001');
-      expect(chainString).toContain('LEVEL2_001');
+      expect(json.error.context).toBeUndefined();
     });
   });
 
-  describe('Observability Integration', () => {
-    // Mock logger and tracer for testing
-    let mockLogger;
-    let mockTracer;
-
-    beforeEach(() => {
-      // Setup mock logger
-      mockLogger = {
-        error: jest.fn(),
-        warn: jest.fn(),
-        info: jest.fn(),
-        debug: jest.fn()
-      };
-
-      // Setup mock tracer
-      mockTracer = {
-        setSpanError: jest.fn(),
-        addEvent: jest.fn()
-      };
-
-      // Set the mocks on the BaseError class
-      BaseError.setLogger(mockLogger);
-      BaseError.setTracer(mockTracer);
-    });
-
-    it('should log error with appropriate level based on error type', () => {
-      // Create different types of errors
-      const validationError = new BaseError({
-        message: 'Validation error',
-        type: ErrorType.VALIDATION,
-        code: 'TEST_VALIDATION_001'
-      });
-
-      const businessError = new BaseError({
-        message: 'Business error',
-        type: ErrorType.BUSINESS,
-        code: 'TEST_BUSINESS_001'
-      });
-
-      const technicalError = new BaseError({
-        message: 'Technical error',
-        type: ErrorType.TECHNICAL,
-        code: 'TEST_TECHNICAL_001'
-      });
-
-      const externalError = new BaseError({
-        message: 'External error',
-        type: ErrorType.EXTERNAL,
-        code: 'TEST_EXTERNAL_001'
-      });
-
-      // Log each error
-      validationError.log();
-      businessError.log();
-      technicalError.log();
-      externalError.log();
-
-      // Verify appropriate log levels were used
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.objectContaining({ code: 'TEST_VALIDATION_001' }) })
+  describe('error cause chain', () => {
+    it('should support error cause chains with multiple levels', () => {
+      const rootCause = new Error('Root cause');
+      const intermediateCause = new BaseError(
+        'Intermediate error', 
+        ErrorType.EXTERNAL, 
+        'EXT_003', 
+        undefined, 
+        rootCause
+      );
+      const topError = new BaseError(
+        'Top level error', 
+        ErrorType.TECHNICAL, 
+        'TECH_009', 
+        undefined, 
+        intermediateCause
       );
       
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.objectContaining({ code: 'TEST_BUSINESS_001' }) })
-      );
-      
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.objectContaining({ code: 'TEST_TECHNICAL_001' }) })
-      );
-      
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.objectContaining({ code: 'TEST_EXTERNAL_001' }) })
-      );
+      expect(topError.cause).toBe(intermediateCause);
+      expect(intermediateCause.cause).toBe(rootCause);
     });
 
-    it('should record error in active span when tracing is enabled', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode,
-        details: errorDetails,
-        context: errorContext
-      });
-
-      // Record error in tracer
-      error.recordInSpan();
-
-      // Verify tracer was called with error details
-      expect(mockTracer.setSpanError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'BaseError',
-          message: errorMessage,
-          code: errorCode,
-          type: errorType
-        }),
-        expect.objectContaining({
-          'error.type': errorType,
-          'error.code': errorCode,
-          'error.details': JSON.stringify(errorDetails),
-          'error.context.requestId': errorContext.requestId,
-          'error.context.userId': errorContext.userId,
-          'error.context.journeyContext': errorContext.journeyContext
-        })
+    it('should provide a method to get the root cause of an error chain', () => {
+      const rootCause = new Error('Root cause');
+      const intermediateCause = new BaseError(
+        'Intermediate error', 
+        ErrorType.EXTERNAL, 
+        'EXT_004', 
+        undefined, 
+        rootCause
       );
+      const topError = new BaseError(
+        'Top level error', 
+        ErrorType.TECHNICAL, 
+        'TECH_010', 
+        undefined, 
+        intermediateCause
+      );
+      
+      expect(topError.getRootCause()).toBe(rootCause);
     });
 
-    it('should both log and record in span with a single method call', () => {
-      const error = new BaseError({
-        message: errorMessage,
-        type: errorType,
-        code: errorCode
-      });
+    it('should return self as root cause if no cause is present', () => {
+      const error = new BaseError('No cause error', ErrorType.BUSINESS, 'BIZ_003');
+      
+      expect(error.getRootCause()).toBe(error);
+    });
+  });
 
-      // Log and record in one call
-      error.logAndRecord();
+  describe('observability integration', () => {
+    it('should provide a method to format error for logging', () => {
+      const error = new BaseError('Log this error', ErrorType.TECHNICAL, 'TECH_011');
+      const logFormat = error.toLogFormat();
+      
+      expect(logFormat).toHaveProperty('message', 'Log this error');
+      expect(logFormat).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(logFormat).toHaveProperty('code', 'TECH_011');
+      expect(logFormat).toHaveProperty('stack');
+    });
 
-      // Verify both logger and tracer were called
-      expect(mockLogger.warn).toHaveBeenCalled();
-      expect(mockTracer.setSpanError).toHaveBeenCalled();
+    it('should include context in log format when available', () => {
+      const context = { userId: '123', requestId: 'abc-123' };
+      const error = new BaseError(
+        'Contextual error', 
+        ErrorType.BUSINESS, 
+        'BIZ_004', 
+        undefined, 
+        undefined, 
+        context
+      );
+      
+      const logFormat = error.toLogFormat();
+      
+      expect(logFormat).toHaveProperty('context', context);
+    });
+
+    it('should include cause information in log format', () => {
+      const cause = new Error('Original error');
+      const error = new BaseError(
+        'Caused error', 
+        ErrorType.EXTERNAL, 
+        'EXT_005', 
+        undefined, 
+        cause
+      );
+      
+      const logFormat = error.toLogFormat();
+      
+      expect(logFormat).toHaveProperty('cause');
+      expect(logFormat.cause).toHaveProperty('message', 'Original error');
+      expect(logFormat.cause).toHaveProperty('stack');
     });
   });
 });
