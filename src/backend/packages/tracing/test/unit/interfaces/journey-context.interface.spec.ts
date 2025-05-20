@@ -1,957 +1,437 @@
-import {
-  BaseJourneyContext,
-  JourneyType,
-  HealthJourneyContext,
-  CareJourneyContext,
-  PlanJourneyContext,
-  GamificationContext,
-  JourneyContext,
-  TraceContext
-} from '../../../src/interfaces/journey-context.interface';
+import { Context, Span, SpanContext, SpanKind, trace } from '@opentelemetry/api';
+import { JourneyContextInfo } from '../../../src/interfaces/trace-context.interface';
+import { JourneyType, addHealthJourneyAttributes, addCareJourneyAttributes, addPlanJourneyAttributes } from '../../../src/utils/span-attributes';
 
-describe('Journey Context Interfaces', () => {
-  // Helper function to check if an object conforms to an interface
-  const conformsToInterface = <T>(obj: any): obj is T => {
-    return obj !== null && typeof obj === 'object';
-  };
+// Mock implementation of TraceContext for testing
+class MockTraceContext {
+  private context: Context;
+  private journeyContext?: JourneyContextInfo;
 
-  describe('JourneyType Enum', () => {
-    it('should have the correct journey types', () => {
-      expect(JourneyType.HEALTH).toBe('health');
-      expect(JourneyType.CARE).toBe('care');
-      expect(JourneyType.PLAN).toBe('plan');
+  constructor() {
+    this.context = trace.context();
+  }
+
+  getContext(): Context {
+    return this.context;
+  }
+
+  withJourneyContext(journeyContext: JourneyContextInfo): MockTraceContext {
+    const newContext = new MockTraceContext();
+    newContext.journeyContext = journeyContext;
+    return newContext;
+  }
+
+  getJourneyContext(): JourneyContextInfo | undefined {
+    return this.journeyContext;
+  }
+
+  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+    return this.withJourneyContext({
+      journeyType: 'health',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+    return this.withJourneyContext({
+      journeyType: 'care',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+    return this.withJourneyContext({
+      journeyType: 'plan',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  getCorrelationInfo() {
+    return {
+      traceId: undefined,
+      spanId: undefined,
+      traceFlags: undefined,
+      isSampled: false,
+      journeyType: this.journeyContext?.journeyType,
+      journeyId: this.journeyContext?.journeyId,
+      userId: this.journeyContext?.userId,
+      sessionId: this.journeyContext?.sessionId,
+      requestId: this.journeyContext?.requestId,
+    };
+  }
+}
+
+// Mock implementation of Span for testing
+class MockSpan implements Span {
+  private attributes: Record<string, any> = {};
+
+  setAttribute(key: string, value: any): this {
+    this.attributes[key] = value;
+    return this;
+  }
+
+  setAttributes(attributes: Record<string, any>): this {
+    Object.entries(attributes).forEach(([key, value]) => {
+      this.attributes[key] = value;
+    });
+    return this;
+  }
+
+  getAttributes(): Record<string, any> {
+    return this.attributes;
+  }
+
+  // Implement other required methods with minimal functionality for testing
+  addEvent(): this { return this; }
+  setStatus(): this { return this; }
+  updateName(): this { return this; }
+  end(): void {}
+  isRecording(): boolean { return true; }
+  recordException(): void {}
+  spanContext(): SpanContext { return {} as SpanContext; }
+}
+
+describe('Journey Context Interface', () => {
+  describe('JourneyContextInfo interface', () => {
+    it('should have the correct structure', () => {
+      const healthJourneyContext: JourneyContextInfo = {
+        journeyType: 'health',
+        journeyId: 'health-journey-123',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        requestId: 'request-123',
+      };
+
+      expect(healthJourneyContext.journeyType).toBe('health');
+      expect(healthJourneyContext.journeyId).toBe('health-journey-123');
+      expect(healthJourneyContext.userId).toBe('user-123');
+      expect(healthJourneyContext.sessionId).toBe('session-123');
+      expect(healthJourneyContext.requestId).toBe('request-123');
+
+      // Test with minimal required fields
+      const minimalJourneyContext: JourneyContextInfo = {
+        journeyType: 'care',
+        journeyId: 'care-journey-456',
+      };
+
+      expect(minimalJourneyContext.journeyType).toBe('care');
+      expect(minimalJourneyContext.journeyId).toBe('care-journey-456');
+      expect(minimalJourneyContext.userId).toBeUndefined();
+      expect(minimalJourneyContext.sessionId).toBeUndefined();
+      expect(minimalJourneyContext.requestId).toBeUndefined();
     });
 
-    it('should be used as a discriminator in journey contexts', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
+    it('should validate journey types', () => {
+      // Valid journey types
+      const healthJourney: JourneyContextInfo = { journeyType: 'health', journeyId: 'id-1' };
+      const careJourney: JourneyContextInfo = { journeyType: 'care', journeyId: 'id-2' };
+      const planJourney: JourneyContextInfo = { journeyType: 'plan', journeyId: 'id-3' };
 
-      const careContext: CareJourneyContext = {
-        journeyId: 'journey-789',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString()
-      };
+      expect(healthJourney.journeyType).toBe('health');
+      expect(careJourney.journeyType).toBe('care');
+      expect(planJourney.journeyType).toBe('plan');
 
-      const planContext: PlanJourneyContext = {
-        journeyId: 'journey-abc',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString()
-      };
-
-      expect(healthContext.journeyType).toBe(JourneyType.HEALTH);
-      expect(careContext.journeyType).toBe(JourneyType.CARE);
-      expect(planContext.journeyType).toBe(JourneyType.PLAN);
-    });
-  });
-
-  describe('BaseJourneyContext Interface', () => {
-    it('should have required properties', () => {
-      const context: BaseJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
-
-      expect(context.journeyId).toBe('journey-123');
-      expect(context.userId).toBe('user-456');
-      expect(context.journeyType).toBe(JourneyType.HEALTH);
-      expect(context.startedAt).toBeDefined();
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
-    });
-
-    it('should allow optional properties', () => {
-      const context: BaseJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        currentStep: 'input-metrics',
-        previousStep: 'select-metric-type',
-        deviceInfo: {
-          type: 'mobile',
-          platform: 'iOS',
-          appVersion: '1.2.3'
-        },
-        correlationIds: {
-          requestId: 'req-123',
-          sessionId: 'session-456',
-          transactionId: 'tx-789'
-        }
-      };
-
-      expect(context.currentStep).toBe('input-metrics');
-      expect(context.previousStep).toBe('select-metric-type');
-      expect(context.deviceInfo?.type).toBe('mobile');
-      expect(context.deviceInfo?.platform).toBe('iOS');
-      expect(context.deviceInfo?.appVersion).toBe('1.2.3');
-      expect(context.correlationIds?.requestId).toBe('req-123');
-      expect(context.correlationIds?.sessionId).toBe('session-456');
-      expect(context.correlationIds?.transactionId).toBe('tx-789');
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
-    });
-
-    it('should support correlation IDs for cross-service tracing', () => {
-      const context: BaseJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        correlationIds: {
-          requestId: 'req-123',
-          sessionId: 'session-456',
-          transactionId: 'tx-789'
-        }
-      };
-
-      expect(context.correlationIds?.requestId).toBe('req-123');
-      expect(context.correlationIds?.sessionId).toBe('session-456');
-      expect(context.correlationIds?.transactionId).toBe('tx-789');
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
-    });
-  });
-
-  describe('HealthJourneyContext Interface', () => {
-    it('should extend BaseJourneyContext with health-specific properties', () => {
-      const context: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        metrics: {
-          metricType: 'blood_pressure',
-          timePeriod: 'last_week'
-        },
-        goals: {
-          goalId: 'goal-789',
-          goalType: 'weight_loss',
-          progress: 75
-        },
-        devices: {
-          deviceId: 'device-abc',
-          deviceType: 'fitbit',
-          lastSyncAt: new Date().toISOString()
-        },
-        medicalHistory: {
-          recordType: 'medications',
-          timePeriod: 'last_year'
-        }
-      };
-
-      // Verify base properties
-      expect(context.journeyId).toBe('journey-123');
-      expect(context.userId).toBe('user-456');
-      expect(context.journeyType).toBe(JourneyType.HEALTH);
-      expect(context.startedAt).toBeDefined();
-
-      // Verify health-specific properties
-      expect(context.metrics?.metricType).toBe('blood_pressure');
-      expect(context.metrics?.timePeriod).toBe('last_week');
-      expect(context.goals?.goalId).toBe('goal-789');
-      expect(context.goals?.goalType).toBe('weight_loss');
-      expect(context.goals?.progress).toBe(75);
-      expect(context.devices?.deviceId).toBe('device-abc');
-      expect(context.devices?.deviceType).toBe('fitbit');
-      expect(context.devices?.lastSyncAt).toBeDefined();
-      expect(context.medicalHistory?.recordType).toBe('medications');
-      expect(context.medicalHistory?.timePeriod).toBe('last_year');
-
-      expect(conformsToInterface<HealthJourneyContext>(context)).toBe(true);
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
-    });
-
-    it('should enforce the correct journey type', () => {
-      const context: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
-
-      expect(context.journeyType).toBe(JourneyType.HEALTH);
-
-      // TypeScript should prevent assigning a different journey type
-      // @ts-expect-error - This should fail because journeyType must be JourneyType.HEALTH
-      const invalidContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString()
-      };
-    });
-
-    it('should allow partial health-specific properties', () => {
-      const context: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        metrics: {
-          metricType: 'blood_pressure'
-          // timePeriod is optional
-        },
-        goals: {
-          // goalId is optional
-          goalType: 'weight_loss',
-          // progress is optional
-        }
-        // devices and medicalHistory are optional
-      };
-
-      expect(context.metrics?.metricType).toBe('blood_pressure');
-      expect(context.metrics?.timePeriod).toBeUndefined();
-      expect(context.goals?.goalId).toBeUndefined();
-      expect(context.goals?.goalType).toBe('weight_loss');
-      expect(context.goals?.progress).toBeUndefined();
-      expect(context.devices).toBeUndefined();
-      expect(context.medicalHistory).toBeUndefined();
-
-      expect(conformsToInterface<HealthJourneyContext>(context)).toBe(true);
+      // TypeScript would catch this at compile time, but we're testing the runtime behavior
+      // @ts-expect-error - Invalid journey type
+      const invalidJourney: JourneyContextInfo = { journeyType: 'invalid', journeyId: 'id-4' };
+      
+      // In runtime, this would still work but wouldn't be type-safe
+      expect(invalidJourney.journeyType).toBe('invalid');
     });
   });
 
-  describe('CareJourneyContext Interface', () => {
-    it('should extend BaseJourneyContext with care-specific properties', () => {
-      const context: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString(),
-        appointment: {
-          appointmentId: 'appointment-789',
-          appointmentType: 'consultation',
-          status: 'scheduled',
-          provider: {
-            providerId: 'provider-abc',
-            providerType: 'physician'
-          }
-        },
-        telemedicine: {
-          sessionId: 'session-def',
-          status: 'in_progress',
-          durationSeconds: 600
-        },
-        symptomChecker: {
-          assessmentId: 'assessment-ghi',
-          primarySymptom: 'headache',
-          completed: false
-        },
-        treatmentPlan: {
-          planId: 'plan-jkl',
-          planType: 'medication',
-          progress: 50
-        }
-      };
+  describe('TraceContext journey methods', () => {
+    let traceContext: MockTraceContext;
 
-      // Verify base properties
-      expect(context.journeyId).toBe('journey-123');
-      expect(context.userId).toBe('user-456');
-      expect(context.journeyType).toBe(JourneyType.CARE);
-      expect(context.startedAt).toBeDefined();
-
-      // Verify care-specific properties
-      expect(context.appointment?.appointmentId).toBe('appointment-789');
-      expect(context.appointment?.appointmentType).toBe('consultation');
-      expect(context.appointment?.status).toBe('scheduled');
-      expect(context.appointment?.provider?.providerId).toBe('provider-abc');
-      expect(context.appointment?.provider?.providerType).toBe('physician');
-      expect(context.telemedicine?.sessionId).toBe('session-def');
-      expect(context.telemedicine?.status).toBe('in_progress');
-      expect(context.telemedicine?.durationSeconds).toBe(600);
-      expect(context.symptomChecker?.assessmentId).toBe('assessment-ghi');
-      expect(context.symptomChecker?.primarySymptom).toBe('headache');
-      expect(context.symptomChecker?.completed).toBe(false);
-      expect(context.treatmentPlan?.planId).toBe('plan-jkl');
-      expect(context.treatmentPlan?.planType).toBe('medication');
-      expect(context.treatmentPlan?.progress).toBe(50);
-
-      expect(conformsToInterface<CareJourneyContext>(context)).toBe(true);
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
+    beforeEach(() => {
+      traceContext = new MockTraceContext();
     });
 
-    it('should enforce the correct journey type', () => {
-      const context: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString()
-      };
+    it('should create a health journey context', () => {
+      const healthContext = traceContext.withHealthJourney(
+        'health-journey-123',
+        'user-123',
+        'session-123',
+        'request-123'
+      );
 
-      expect(context.journeyType).toBe(JourneyType.CARE);
-
-      // TypeScript should prevent assigning a different journey type
-      // @ts-expect-error - This should fail because journeyType must be JourneyType.CARE
-      const invalidContext: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
+      const journeyContext = healthContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('health');
+      expect(journeyContext?.journeyId).toBe('health-journey-123');
+      expect(journeyContext?.userId).toBe('user-123');
+      expect(journeyContext?.sessionId).toBe('session-123');
+      expect(journeyContext?.requestId).toBe('request-123');
     });
 
-    it('should allow partial care-specific properties', () => {
-      const context: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString(),
-        appointment: {
-          appointmentId: 'appointment-789',
-          // appointmentType is optional
-          // status is optional
-          provider: {
-            providerId: 'provider-abc'
-            // providerType is optional
-          }
-        }
-        // telemedicine, symptomChecker, and treatmentPlan are optional
-      };
+    it('should create a care journey context', () => {
+      const careContext = traceContext.withCareJourney(
+        'care-journey-456',
+        'user-456',
+        'session-456',
+        'request-456'
+      );
 
-      expect(context.appointment?.appointmentId).toBe('appointment-789');
-      expect(context.appointment?.appointmentType).toBeUndefined();
-      expect(context.appointment?.status).toBeUndefined();
-      expect(context.appointment?.provider?.providerId).toBe('provider-abc');
-      expect(context.appointment?.provider?.providerType).toBeUndefined();
-      expect(context.telemedicine).toBeUndefined();
-      expect(context.symptomChecker).toBeUndefined();
-      expect(context.treatmentPlan).toBeUndefined();
+      const journeyContext = careContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('care');
+      expect(journeyContext?.journeyId).toBe('care-journey-456');
+      expect(journeyContext?.userId).toBe('user-456');
+      expect(journeyContext?.sessionId).toBe('session-456');
+      expect(journeyContext?.requestId).toBe('request-456');
+    });
 
-      expect(conformsToInterface<CareJourneyContext>(context)).toBe(true);
+    it('should create a plan journey context', () => {
+      const planContext = traceContext.withPlanJourney(
+        'plan-journey-789',
+        'user-789',
+        'session-789',
+        'request-789'
+      );
+
+      const journeyContext = planContext.getJourneyContext();
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('plan');
+      expect(journeyContext?.journeyId).toBe('plan-journey-789');
+      expect(journeyContext?.userId).toBe('user-789');
+      expect(journeyContext?.sessionId).toBe('session-789');
+      expect(journeyContext?.requestId).toBe('request-789');
+    });
+
+    it('should create journey context with minimal information', () => {
+      const healthContext = traceContext.withHealthJourney('health-journey-123');
+      const journeyContext = healthContext.getJourneyContext();
+      
+      expect(journeyContext).toBeDefined();
+      expect(journeyContext?.journeyType).toBe('health');
+      expect(journeyContext?.journeyId).toBe('health-journey-123');
+      expect(journeyContext?.userId).toBeUndefined();
+      expect(journeyContext?.sessionId).toBeUndefined();
+      expect(journeyContext?.requestId).toBeUndefined();
+    });
+
+    it('should include journey context in correlation info', () => {
+      const healthContext = traceContext.withHealthJourney(
+        'health-journey-123',
+        'user-123',
+        'session-123',
+        'request-123'
+      );
+
+      const correlationInfo = healthContext.getCorrelationInfo();
+      expect(correlationInfo.journeyType).toBe('health');
+      expect(correlationInfo.journeyId).toBe('health-journey-123');
+      expect(correlationInfo.userId).toBe('user-123');
+      expect(correlationInfo.sessionId).toBe('session-123');
+      expect(correlationInfo.requestId).toBe('request-123');
     });
   });
 
-  describe('PlanJourneyContext Interface', () => {
-    it('should extend BaseJourneyContext with plan-specific properties', () => {
-      const context: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString(),
-        plan: {
-          planId: 'plan-789',
-          planType: 'health_insurance',
-          status: 'active'
-        },
-        claim: {
-          claimId: 'claim-abc',
-          claimType: 'medical',
-          status: 'submitted',
-          amount: 1500.50
-        },
-        benefit: {
-          benefitId: 'benefit-def',
-          benefitType: 'dental',
-          utilization: 75
-        },
-        costEstimation: {
-          serviceType: 'surgery',
-          estimatedCost: 5000,
-          coveragePercentage: 80
-        }
-      };
+  describe('Journey-specific span attributes', () => {
+    let mockSpan: MockSpan;
 
-      // Verify base properties
-      expect(context.journeyId).toBe('journey-123');
-      expect(context.userId).toBe('user-456');
-      expect(context.journeyType).toBe(JourneyType.PLAN);
-      expect(context.startedAt).toBeDefined();
-
-      // Verify plan-specific properties
-      expect(context.plan?.planId).toBe('plan-789');
-      expect(context.plan?.planType).toBe('health_insurance');
-      expect(context.plan?.status).toBe('active');
-      expect(context.claim?.claimId).toBe('claim-abc');
-      expect(context.claim?.claimType).toBe('medical');
-      expect(context.claim?.status).toBe('submitted');
-      expect(context.claim?.amount).toBe(1500.50);
-      expect(context.benefit?.benefitId).toBe('benefit-def');
-      expect(context.benefit?.benefitType).toBe('dental');
-      expect(context.benefit?.utilization).toBe(75);
-      expect(context.costEstimation?.serviceType).toBe('surgery');
-      expect(context.costEstimation?.estimatedCost).toBe(5000);
-      expect(context.costEstimation?.coveragePercentage).toBe(80);
-
-      expect(conformsToInterface<PlanJourneyContext>(context)).toBe(true);
-      expect(conformsToInterface<BaseJourneyContext>(context)).toBe(true);
+    beforeEach(() => {
+      mockSpan = new MockSpan();
     });
 
-    it('should enforce the correct journey type', () => {
-      const context: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString()
-      };
+    it('should add health journey attributes to span', () => {
+      const span = addHealthJourneyAttributes(
+        mockSpan,
+        'heart_rate',
+        'device-123',
+        'goal-123',
+        { activity_type: 'running' }
+      );
 
-      expect(context.journeyType).toBe(JourneyType.PLAN);
-
-      // TypeScript should prevent assigning a different journey type
-      // @ts-expect-error - This should fail because journeyType must be JourneyType.PLAN
-      const invalidContext: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString()
-      };
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.HEALTH);
+      expect(attributes['austa.journey.health.metric_type']).toBe('heart_rate');
+      expect(attributes['austa.journey.health.device_id']).toBe('device-123');
+      expect(attributes['austa.journey.health.goal_id']).toBe('goal-123');
+      expect(attributes['austa.journey.health.activity_type']).toBe('running');
     });
 
-    it('should allow partial plan-specific properties', () => {
-      const context: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString(),
-        plan: {
-          planId: 'plan-789'
-          // planType is optional
-          // status is optional
-        },
-        claim: {
-          claimId: 'claim-abc',
-          claimType: 'medical'
-          // status is optional
-          // amount is optional
-        }
-        // benefit and costEstimation are optional
-      };
+    it('should add care journey attributes to span', () => {
+      const span = addCareJourneyAttributes(
+        mockSpan,
+        'appointment-123',
+        'provider-123',
+        'telemedicine-123',
+        'treatment-123',
+        { specialty: 'cardiology' }
+      );
 
-      expect(context.plan?.planId).toBe('plan-789');
-      expect(context.plan?.planType).toBeUndefined();
-      expect(context.plan?.status).toBeUndefined();
-      expect(context.claim?.claimId).toBe('claim-abc');
-      expect(context.claim?.claimType).toBe('medical');
-      expect(context.claim?.status).toBeUndefined();
-      expect(context.claim?.amount).toBeUndefined();
-      expect(context.benefit).toBeUndefined();
-      expect(context.costEstimation).toBeUndefined();
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.CARE);
+      expect(attributes['austa.journey.care.appointment_id']).toBe('appointment-123');
+      expect(attributes['austa.journey.care.provider_id']).toBe('provider-123');
+      expect(attributes['austa.journey.care.session_id']).toBe('telemedicine-123');
+      expect(attributes['austa.journey.care.treatment_plan_id']).toBe('treatment-123');
+      expect(attributes['austa.journey.care.specialty']).toBe('cardiology');
+    });
 
-      expect(conformsToInterface<PlanJourneyContext>(context)).toBe(true);
+    it('should add plan journey attributes to span', () => {
+      const span = addPlanJourneyAttributes(
+        mockSpan,
+        'plan-123',
+        'claim-123',
+        'benefit-123',
+        { coverage_type: 'family' }
+      );
+
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.PLAN);
+      expect(attributes['austa.journey.plan.plan_id']).toBe('plan-123');
+      expect(attributes['austa.journey.plan.claim_id']).toBe('claim-123');
+      expect(attributes['austa.journey.plan.benefit_id']).toBe('benefit-123');
+      expect(attributes['austa.journey.plan.coverage_type']).toBe('family');
+    });
+
+    it('should add minimal health journey attributes to span', () => {
+      const span = addHealthJourneyAttributes(mockSpan);
+
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.HEALTH);
+      expect(attributes['austa.journey.health.metric_type']).toBeUndefined();
+      expect(attributes['austa.journey.health.device_id']).toBeUndefined();
+      expect(attributes['austa.journey.health.goal_id']).toBeUndefined();
+    });
+
+    it('should add minimal care journey attributes to span', () => {
+      const span = addCareJourneyAttributes(mockSpan);
+
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.CARE);
+      expect(attributes['austa.journey.care.appointment_id']).toBeUndefined();
+      expect(attributes['austa.journey.care.provider_id']).toBeUndefined();
+      expect(attributes['austa.journey.care.session_id']).toBeUndefined();
+      expect(attributes['austa.journey.care.treatment_plan_id']).toBeUndefined();
+    });
+
+    it('should add minimal plan journey attributes to span', () => {
+      const span = addPlanJourneyAttributes(mockSpan);
+
+      const attributes = span.getAttributes();
+      expect(attributes['austa.journey.type']).toBe(JourneyType.PLAN);
+      expect(attributes['austa.journey.plan.plan_id']).toBeUndefined();
+      expect(attributes['austa.journey.plan.claim_id']).toBeUndefined();
+      expect(attributes['austa.journey.plan.benefit_id']).toBeUndefined();
     });
   });
 
-  describe('GamificationContext Interface', () => {
-    it('should have gamification-specific properties', () => {
-      const context: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 100
-        },
-        achievement: {
-          achievementId: 'achievement-456',
-          achievementType: 'health_milestone',
-          progress: 100,
-          unlocked: true,
-          unlockedAt: new Date().toISOString()
-        },
-        quest: {
-          questId: 'quest-789',
-          questType: 'daily_challenge',
-          progress: 75,
-          completed: false
-        },
-        reward: {
-          rewardId: 'reward-abc',
-          rewardType: 'discount',
-          claimed: true,
-          claimedAt: new Date().toISOString()
-        },
-        profile: {
-          level: 5,
-          totalPoints: 1250,
-          streakDays: 7
-        }
-      };
+  describe('Cross-journey correlation', () => {
+    let traceContext: MockTraceContext;
 
-      // Verify gamification properties
-      expect(context.event?.eventId).toBe('event-123');
-      expect(context.event?.eventType).toBe('achievement_unlocked');
-      expect(context.event?.sourceJourney).toBe(JourneyType.HEALTH);
-      expect(context.event?.pointsAwarded).toBe(100);
-      expect(context.achievement?.achievementId).toBe('achievement-456');
-      expect(context.achievement?.achievementType).toBe('health_milestone');
-      expect(context.achievement?.progress).toBe(100);
-      expect(context.achievement?.unlocked).toBe(true);
-      expect(context.achievement?.unlockedAt).toBeDefined();
-      expect(context.quest?.questId).toBe('quest-789');
-      expect(context.quest?.questType).toBe('daily_challenge');
-      expect(context.quest?.progress).toBe(75);
-      expect(context.quest?.completed).toBe(false);
-      expect(context.reward?.rewardId).toBe('reward-abc');
-      expect(context.reward?.rewardType).toBe('discount');
-      expect(context.reward?.claimed).toBe(true);
-      expect(context.reward?.claimedAt).toBeDefined();
-      expect(context.profile?.level).toBe(5);
-      expect(context.profile?.totalPoints).toBe(1250);
-      expect(context.profile?.streakDays).toBe(7);
-
-      expect(conformsToInterface<GamificationContext>(context)).toBe(true);
+    beforeEach(() => {
+      traceContext = new MockTraceContext();
     });
 
-    it('should allow partial gamification properties', () => {
-      const context: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH
-          // pointsAwarded is optional
-        }
-        // achievement, quest, reward, and profile are optional
-      };
+    it('should maintain correlation attributes across journey transitions', () => {
+      // Start with a health journey
+      const userId = 'user-123';
+      const sessionId = 'session-123';
+      const requestId = 'request-123';
+      
+      const healthContext = traceContext.withHealthJourney(
+        'health-journey-123',
+        userId,
+        sessionId,
+        requestId
+      );
 
-      expect(context.event?.eventId).toBe('event-123');
-      expect(context.event?.eventType).toBe('achievement_unlocked');
-      expect(context.event?.sourceJourney).toBe(JourneyType.HEALTH);
-      expect(context.event?.pointsAwarded).toBeUndefined();
-      expect(context.achievement).toBeUndefined();
-      expect(context.quest).toBeUndefined();
-      expect(context.reward).toBeUndefined();
-      expect(context.profile).toBeUndefined();
+      // Transition to a care journey while maintaining user context
+      const careContext = traceContext.withCareJourney(
+        'care-journey-456',
+        userId,
+        sessionId,
+        requestId
+      );
 
-      expect(conformsToInterface<GamificationContext>(context)).toBe(true);
-    });
+      // Transition to a plan journey while maintaining user context
+      const planContext = traceContext.withPlanJourney(
+        'plan-journey-789',
+        userId,
+        sessionId,
+        requestId
+      );
 
-    it('should support events from any journey type', () => {
-      const healthEvent: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH
-        }
-      };
+      // Verify health journey context
+      const healthJourneyContext = healthContext.getJourneyContext();
+      expect(healthJourneyContext?.journeyType).toBe('health');
+      expect(healthJourneyContext?.journeyId).toBe('health-journey-123');
+      expect(healthJourneyContext?.userId).toBe(userId);
+      expect(healthJourneyContext?.sessionId).toBe(sessionId);
+      expect(healthJourneyContext?.requestId).toBe(requestId);
 
-      const careEvent: GamificationContext = {
-        event: {
-          eventId: 'event-456',
-          eventType: 'points_earned',
-          sourceJourney: JourneyType.CARE
-        }
-      };
+      // Verify care journey context
+      const careJourneyContext = careContext.getJourneyContext();
+      expect(careJourneyContext?.journeyType).toBe('care');
+      expect(careJourneyContext?.journeyId).toBe('care-journey-456');
+      expect(careJourneyContext?.userId).toBe(userId);
+      expect(careJourneyContext?.sessionId).toBe(sessionId);
+      expect(careJourneyContext?.requestId).toBe(requestId);
 
-      const planEvent: GamificationContext = {
-        event: {
-          eventId: 'event-789',
-          eventType: 'quest_completed',
-          sourceJourney: JourneyType.PLAN
-        }
-      };
+      // Verify plan journey context
+      const planJourneyContext = planContext.getJourneyContext();
+      expect(planJourneyContext?.journeyType).toBe('plan');
+      expect(planJourneyContext?.journeyId).toBe('plan-journey-789');
+      expect(planJourneyContext?.userId).toBe(userId);
+      expect(planJourneyContext?.sessionId).toBe(sessionId);
+      expect(planJourneyContext?.requestId).toBe(requestId);
 
-      expect(healthEvent.event?.sourceJourney).toBe(JourneyType.HEALTH);
-      expect(careEvent.event?.sourceJourney).toBe(JourneyType.CARE);
-      expect(planEvent.event?.sourceJourney).toBe(JourneyType.PLAN);
+      // Verify correlation info for each journey
+      const healthCorrelation = healthContext.getCorrelationInfo();
+      const careCorrelation = careContext.getCorrelationInfo();
+      const planCorrelation = planContext.getCorrelationInfo();
 
-      expect(conformsToInterface<GamificationContext>(healthEvent)).toBe(true);
-      expect(conformsToInterface<GamificationContext>(careEvent)).toBe(true);
-      expect(conformsToInterface<GamificationContext>(planEvent)).toBe(true);
-    });
-  });
+      // All should have the same user, session, and request IDs
+      expect(healthCorrelation.userId).toBe(userId);
+      expect(careCorrelation.userId).toBe(userId);
+      expect(planCorrelation.userId).toBe(userId);
 
-  describe('JourneyContext Union Type', () => {
-    it('should accept HealthJourneyContext', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        metrics: {
-          metricType: 'blood_pressure'
-        }
-      };
+      expect(healthCorrelation.sessionId).toBe(sessionId);
+      expect(careCorrelation.sessionId).toBe(sessionId);
+      expect(planCorrelation.sessionId).toBe(sessionId);
 
-      const journeyContext: JourneyContext = healthContext;
+      expect(healthCorrelation.requestId).toBe(requestId);
+      expect(careCorrelation.requestId).toBe(requestId);
+      expect(planCorrelation.requestId).toBe(requestId);
 
-      expect(journeyContext.journeyType).toBe(JourneyType.HEALTH);
-      expect(conformsToInterface<JourneyContext>(journeyContext)).toBe(true);
-    });
+      // But different journey types and IDs
+      expect(healthCorrelation.journeyType).toBe('health');
+      expect(careCorrelation.journeyType).toBe('care');
+      expect(planCorrelation.journeyType).toBe('plan');
 
-    it('should accept CareJourneyContext', () => {
-      const careContext: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString(),
-        appointment: {
-          appointmentId: 'appointment-789'
-        }
-      };
-
-      const journeyContext: JourneyContext = careContext;
-
-      expect(journeyContext.journeyType).toBe(JourneyType.CARE);
-      expect(conformsToInterface<JourneyContext>(journeyContext)).toBe(true);
-    });
-
-    it('should accept PlanJourneyContext', () => {
-      const planContext: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString(),
-        plan: {
-          planId: 'plan-789'
-        }
-      };
-
-      const journeyContext: JourneyContext = planContext;
-
-      expect(journeyContext.journeyType).toBe(JourneyType.PLAN);
-      expect(conformsToInterface<JourneyContext>(journeyContext)).toBe(true);
-    });
-
-    it('should allow type discrimination based on journeyType', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        metrics: {
-          metricType: 'blood_pressure'
-        }
-      };
-
-      const journeyContext: JourneyContext = healthContext;
-
-      if (journeyContext.journeyType === JourneyType.HEALTH) {
-        // TypeScript should recognize this as a HealthJourneyContext
-        expect(journeyContext.metrics?.metricType).toBe('blood_pressure');
-      } else if (journeyContext.journeyType === JourneyType.CARE) {
-        // This branch should not be executed in this test
-        fail('Should not reach care journey branch');
-      } else if (journeyContext.journeyType === JourneyType.PLAN) {
-        // This branch should not be executed in this test
-        fail('Should not reach plan journey branch');
-      }
-    });
-  });
-
-  describe('TraceContext Interface', () => {
-    it('should allow journey context', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
-
-      const traceContext: TraceContext = {
-        journeyContext: healthContext
-      };
-
-      expect(traceContext.journeyContext).toBeDefined();
-      expect(traceContext.journeyContext?.journeyType).toBe(JourneyType.HEALTH);
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-
-    it('should allow gamification context', () => {
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH
-        }
-      };
-
-      const traceContext: TraceContext = {
-        gamificationContext: gamificationContext
-      };
-
-      expect(traceContext.gamificationContext).toBeDefined();
-      expect(traceContext.gamificationContext?.event?.eventType).toBe('achievement_unlocked');
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-
-    it('should allow both journey and gamification contexts', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString()
-      };
-
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH
-        }
-      };
-
-      const traceContext: TraceContext = {
-        journeyContext: healthContext,
-        gamificationContext: gamificationContext
-      };
-
-      expect(traceContext.journeyContext).toBeDefined();
-      expect(traceContext.journeyContext?.journeyType).toBe(JourneyType.HEALTH);
-      expect(traceContext.gamificationContext).toBeDefined();
-      expect(traceContext.gamificationContext?.event?.eventType).toBe('achievement_unlocked');
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-
-    it('should allow empty trace context', () => {
-      const traceContext: TraceContext = {};
-
-      expect(traceContext.journeyContext).toBeUndefined();
-      expect(traceContext.gamificationContext).toBeUndefined();
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-  });
-
-  describe('Cross-Journey Correlation', () => {
-    it('should support correlation between health journey and gamification', () => {
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date().toISOString(),
-        correlationIds: {
-          requestId: 'req-123',
-          transactionId: 'tx-789'
-        },
-        metrics: {
-          metricType: 'steps',
-          timePeriod: 'daily'
-        }
-      };
-
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.HEALTH,
-          pointsAwarded: 50
-        },
-        achievement: {
-          achievementId: 'achievement-456',
-          achievementType: 'steps_milestone',
-          progress: 100,
-          unlocked: true
-        }
-      };
-
-      const traceContext: TraceContext = {
-        journeyContext: healthContext,
-        gamificationContext: gamificationContext
-      };
-
-      // Verify correlation between health journey and gamification
-      expect(traceContext.journeyContext?.journeyType).toBe(JourneyType.HEALTH);
-      expect(traceContext.journeyContext?.correlationIds?.transactionId).toBe('tx-789');
-      expect(traceContext.gamificationContext?.event?.sourceJourney).toBe(JourneyType.HEALTH);
-      expect(traceContext.gamificationContext?.achievement?.achievementType).toBe('steps_milestone');
-
-      // The health metric type (steps) should match the achievement type (steps_milestone)
-      expect(traceContext.journeyContext?.journeyType).toBe(traceContext.gamificationContext?.event?.sourceJourney);
-      expect((traceContext.journeyContext as HealthJourneyContext).metrics?.metricType).toBe('steps');
-      expect(traceContext.gamificationContext?.achievement?.achievementType).toBe('steps_milestone');
-
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-
-    it('should support correlation between care journey and gamification', () => {
-      const careContext: CareJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date().toISOString(),
-        correlationIds: {
-          requestId: 'req-123',
-          transactionId: 'tx-789'
-        },
-        appointment: {
-          appointmentId: 'appointment-789',
-          appointmentType: 'checkup',
-          status: 'completed'
-        }
-      };
-
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'quest_completed',
-          sourceJourney: JourneyType.CARE,
-          pointsAwarded: 100
-        },
-        quest: {
-          questId: 'quest-456',
-          questType: 'appointment_attendance',
-          progress: 100,
-          completed: true
-        }
-      };
-
-      const traceContext: TraceContext = {
-        journeyContext: careContext,
-        gamificationContext: gamificationContext
-      };
-
-      // Verify correlation between care journey and gamification
-      expect(traceContext.journeyContext?.journeyType).toBe(JourneyType.CARE);
-      expect(traceContext.journeyContext?.correlationIds?.transactionId).toBe('tx-789');
-      expect(traceContext.gamificationContext?.event?.sourceJourney).toBe(JourneyType.CARE);
-      expect(traceContext.gamificationContext?.quest?.questType).toBe('appointment_attendance');
-
-      // The appointment status (completed) should match the quest status (completed)
-      expect(traceContext.journeyContext?.journeyType).toBe(traceContext.gamificationContext?.event?.sourceJourney);
-      expect((traceContext.journeyContext as CareJourneyContext).appointment?.status).toBe('completed');
-      expect(traceContext.gamificationContext?.quest?.completed).toBe(true);
-
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
-    });
-
-    it('should support correlation between plan journey and gamification', () => {
-      const planContext: PlanJourneyContext = {
-        journeyId: 'journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date().toISOString(),
-        correlationIds: {
-          requestId: 'req-123',
-          transactionId: 'tx-789'
-        },
-        claim: {
-          claimId: 'claim-789',
-          claimType: 'medical',
-          status: 'approved',
-          amount: 500
-        }
-      };
-
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'reward_claimed',
-          sourceJourney: JourneyType.PLAN,
-          pointsAwarded: 200
-        },
-        reward: {
-          rewardId: 'reward-456',
-          rewardType: 'cashback',
-          claimed: true,
-          claimedAt: new Date().toISOString()
-        }
-      };
-
-      const traceContext: TraceContext = {
-        journeyContext: planContext,
-        gamificationContext: gamificationContext
-      };
-
-      // Verify correlation between plan journey and gamification
-      expect(traceContext.journeyContext?.journeyType).toBe(JourneyType.PLAN);
-      expect(traceContext.journeyContext?.correlationIds?.transactionId).toBe('tx-789');
-      expect(traceContext.gamificationContext?.event?.sourceJourney).toBe(JourneyType.PLAN);
-      expect(traceContext.gamificationContext?.reward?.rewardType).toBe('cashback');
-
-      // The claim status (approved) should correlate with the reward (claimed)
-      expect(traceContext.journeyContext?.journeyType).toBe(traceContext.gamificationContext?.event?.sourceJourney);
-      expect((traceContext.journeyContext as PlanJourneyContext).claim?.status).toBe('approved');
-      expect(traceContext.gamificationContext?.reward?.claimed).toBe(true);
-
-      expect(conformsToInterface<TraceContext>(traceContext)).toBe(true);
+      expect(healthCorrelation.journeyId).toBe('health-journey-123');
+      expect(careCorrelation.journeyId).toBe('care-journey-456');
+      expect(planCorrelation.journeyId).toBe('plan-journey-789');
     });
 
     it('should support multi-journey achievement tracking', () => {
-      // Create contexts for all three journeys
-      const healthContext: HealthJourneyContext = {
-        journeyId: 'health-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.HEALTH,
-        startedAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-        correlationIds: {
-          requestId: 'health-req-123',
-          transactionId: 'multi-journey-tx-789'
-        }
-      };
+      // Create contexts for different journeys with the same user
+      const userId = 'user-123';
+      const healthContext = traceContext.withHealthJourney('health-journey-123', userId);
+      const careContext = traceContext.withCareJourney('care-journey-456', userId);
+      const planContext = traceContext.withPlanJourney('plan-journey-789', userId);
 
-      const careContext: CareJourneyContext = {
-        journeyId: 'care-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-        startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-        correlationIds: {
-          requestId: 'care-req-123',
-          transactionId: 'multi-journey-tx-789'
-        }
-      };
+      // Verify all contexts have the same user ID for achievement tracking
+      expect(healthContext.getJourneyContext()?.userId).toBe(userId);
+      expect(careContext.getJourneyContext()?.userId).toBe(userId);
+      expect(planContext.getJourneyContext()?.userId).toBe(userId);
 
-      const planContext: PlanJourneyContext = {
-        journeyId: 'plan-journey-123',
-        userId: 'user-456',
-        journeyType: JourneyType.PLAN,
-        startedAt: new Date(Date.now() - 900000).toISOString(), // 15 minutes ago
-        correlationIds: {
-          requestId: 'plan-req-123',
-          transactionId: 'multi-journey-tx-789'
-        }
-      };
-
-      // Create a gamification context for a multi-journey achievement
-      const gamificationContext: GamificationContext = {
-        event: {
-          eventId: 'event-123',
-          eventType: 'achievement_unlocked',
-          sourceJourney: JourneyType.PLAN, // The last journey that triggered the achievement
-          pointsAwarded: 500
-        },
-        achievement: {
-          achievementId: 'achievement-456',
-          achievementType: 'super_user', // A multi-journey achievement
-          progress: 100,
-          unlocked: true,
-          unlockedAt: new Date().toISOString()
-        },
-        profile: {
-          level: 10,
-          totalPoints: 5000,
-          streakDays: 30
-        }
-      };
-
-      // Create trace contexts for each journey, all with the same gamification context
-      const healthTraceContext: TraceContext = {
-        journeyContext: healthContext,
-        gamificationContext: gamificationContext
-      };
-
-      const careTraceContext: TraceContext = {
-        journeyContext: careContext,
-        gamificationContext: gamificationContext
-      };
-
-      const planTraceContext: TraceContext = {
-        journeyContext: planContext,
-        gamificationContext: gamificationContext
-      };
-
-      // Verify correlation across all three journeys
-      expect(healthTraceContext.journeyContext?.correlationIds?.transactionId).toBe('multi-journey-tx-789');
-      expect(careTraceContext.journeyContext?.correlationIds?.transactionId).toBe('multi-journey-tx-789');
-      expect(planTraceContext.journeyContext?.correlationIds?.transactionId).toBe('multi-journey-tx-789');
-
-      // All three trace contexts should have the same user ID
-      expect(healthTraceContext.journeyContext?.userId).toBe('user-456');
-      expect(careTraceContext.journeyContext?.userId).toBe('user-456');
-      expect(planTraceContext.journeyContext?.userId).toBe('user-456');
-
-      // All three trace contexts should have the same achievement
-      expect(healthTraceContext.gamificationContext?.achievement?.achievementId).toBe('achievement-456');
-      expect(careTraceContext.gamificationContext?.achievement?.achievementId).toBe('achievement-456');
-      expect(planTraceContext.gamificationContext?.achievement?.achievementId).toBe('achievement-456');
-
-      // The achievement should be a multi-journey achievement
-      expect(healthTraceContext.gamificationContext?.achievement?.achievementType).toBe('super_user');
-
-      expect(conformsToInterface<TraceContext>(healthTraceContext)).toBe(true);
-      expect(conformsToInterface<TraceContext>(careTraceContext)).toBe(true);
-      expect(conformsToInterface<TraceContext>(planTraceContext)).toBe(true);
+      // Verify correlation info contains the user ID for achievement tracking
+      expect(healthContext.getCorrelationInfo().userId).toBe(userId);
+      expect(careContext.getCorrelationInfo().userId).toBe(userId);
+      expect(planContext.getCorrelationInfo().userId).toBe(userId);
     });
   });
 });
