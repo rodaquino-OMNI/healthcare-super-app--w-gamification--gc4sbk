@@ -1,80 +1,49 @@
-import { JourneyType } from '../interfaces/log-entry.interface';
+/**
+ * @file Logging Context Interface
+ * @description Defines the base LoggingContext interface that all other context types extend,
+ * establishing the foundation for structured, context-enriched logging throughout the application.
+ */
 
 /**
- * Base interface for all logging context types in the AUSTA SuperApp.
- * Provides common context properties that are essential for proper log aggregation,
- * correlation, and analysis across all services and journeys.
+ * Base LoggingContext interface that all other context types extend.
+ * 
+ * This interface specifies common context properties like correlation IDs, timestamps,
+ * and service information that are essential for proper log aggregation and analysis.
+ * It serves as the foundation for the context system, ensuring type safety and
+ * consistent structure across all logging contexts.
  */
 export interface LoggingContext {
-  /**
-   * Unique identifier for the request or transaction.
-   * Used to correlate logs from the same request across different services.
-   */
+  /** Unique identifier for correlating logs, traces, and metrics */
+  correlationId?: string;
+  
+  /** Unique identifier for the current request or transaction */
   requestId?: string;
-
-  /**
-   * Unique identifier for the user associated with the log.
-   * Used for user-specific log filtering and analysis.
-   */
-  userId?: string;
-
-  /**
-   * Unique identifier for distributed tracing.
-   * Connects logs with traces in the observability system.
-   */
-  traceId?: string;
-
-  /**
-   * Identifier for a specific operation within a trace.
-   * Used to correlate logs with specific spans in the tracing system.
-   */
-  spanId?: string;
-
-  /**
-   * Identifier of the parent span.
-   * Used to establish the hierarchy of operations in distributed tracing.
-   */
-  parentSpanId?: string;
-
-  /**
-   * Timestamp when the context was created.
-   * Useful for timing analysis and log ordering.
-   */
-  timestamp?: Date;
-
-  /**
-   * The service that generated the log.
-   * Identifies which microservice produced the log entry.
-   */
-  service?: string;
-
-  /**
-   * The environment in which the service is running (e.g., 'development', 'staging', 'production').
-   * Used for environment-specific log filtering and analysis.
-   */
+  
+  /** Timestamp when the context was created */
+  timestamp?: string;
+  
+  /** Name of the service generating the log */
+  serviceName?: string;
+  
+  /** Version of the service generating the log */
+  serviceVersion?: string;
+  
+  /** Environment where the service is running (dev, staging, prod) */
   environment?: string;
-
-  /**
-   * The version of the service or application.
-   * Useful for tracking issues across different versions.
-   */
-  version?: string;
-
-  /**
-   * The hostname of the server or container running the service.
-   * Helps identify the specific instance that generated the log.
-   */
-  hostname?: string;
-
-  /**
-   * The journey associated with the log (health, care, plan, or cross-journey).
-   * Essential for journey-specific log filtering and analysis.
-   */
-  journey?: JourneyType;
-
-  /**
-   * Additional context information as key-value pairs.
-   * Allows for flexible extension with custom properties.
-   */
-  [key: string]: any;
+  
+  /** Host or container identifier where the service is running */
+  hostName?: string;
+  
+  /** Instance ID for horizontally scaled services */
+  instanceId?: string;
+  
+  /** Additional metadata relevant to the current context */
+  metadata?: Record<string, any>;
 }
+
+/**
+ * Re-export all context types for convenient access.
+ */
+export * from './journey-context.interface';
+export * from './user-context.interface';
+export * from './request-context.interface';
