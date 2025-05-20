@@ -1,281 +1,425 @@
 import { CloudWatchFormatter } from '../../../src/formatters/cloudwatch.formatter';
-import { LogEntry } from '../../../src/interfaces/log-entry.interface';
-import { LogLevel } from '../../../src/interfaces/log-level.enum';
+import { JsonFormatter } from '../../../src/formatters/json.formatter';
+import { LogEntry } from '../../../src/formatters/formatter.interface';
 
-/**
- * Test suite for the CloudWatch formatter that verifies its ability to transform
- * log entries into a format optimized for AWS CloudWatch Logs.
- */
 describe('CloudWatchFormatter', () => {
   let formatter: CloudWatchFormatter;
-  
-  // Sample log entries for testing
-  const basicLogEntry: LogEntry = {
-    timestamp: new Date('2023-01-01T12:00:00Z'),
-    level: LogLevel.INFO,
-    message: 'Test message',
-    context: { service: 'test-service' }
-  };
-
-  const errorLogEntry: LogEntry = {
-    timestamp: new Date('2023-01-01T12:00:00Z'),
-    level: LogLevel.ERROR,
-    message: 'Error occurred',
-    context: { 
-      service: 'test-service',
-      requestId: '123456',
-      userId: 'user-123',
-      journey: 'health'
-    },
-    error: new Error('Test error'),
-    traceId: 'trace-123',
-    spanId: 'span-456'
-  };
+  let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
+    // Save original environment variables
+    originalEnv = { ...process.env };
+    
+    // Set up test environment variables
+    process.env.NODE_ENV = 'test';
+    process.env.AWS_REGION = 'us-west-2';
+    
     formatter = new CloudWatchFormatter();
   });
 
-  describe('Basic Formatting', () => {
-    it('should implement the Formatter interface', () => {
-      expect(formatter.format).toBeDefined();
-      expect(typeof formatter.format).toBe('function');
-    });
-
-    it('should return a string or object when formatting a log entry', () => {
-      const result = formatter.format(basicLogEntry);
-      expect(result).toBeDefined();
-    });
-
-    it('should include all required fields from the log entry', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(result).toHaveProperty('timestamp');
-      expect(result).toHaveProperty('level');
-      expect(result).toHaveProperty('message');
-      expect(result).toHaveProperty('context');
-    });
+  afterEach(() => {
+    // Restore original environment variables
+    process.env = originalEnv;
   });
 
-  describe('CloudWatch-Specific Formatting', () => {
-    it('should format timestamps in CloudWatch-compatible ISO8601 format', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      // CloudWatch expects ISO8601 format
-      expect(result.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-      expect(result.timestamp).toBe('2023-01-01T12:00:00.000Z');
-    });
+  it('should be an instance of JsonFormatter', () => {
+    expect(formatter).toBeInstanceOf(JsonFormatter);
+  });
 
+  describe('format', () => {
     it('should add AWS-specific metadata fields', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      // AWS metadata fields for enhanced filtering
-      expect(result).toHaveProperty('aws');
-      expect(result.aws).toHaveProperty('region');
-      expect(result.aws).toHaveProperty('accountId');
-      expect(result.aws).toHaveProperty('requestId');
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Test message',
+        context: {
+          service: 'test-service',
+          journey: 'health',
+        },
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.aws).toBeDefined();
+      expect(result.aws.service).toBe('test-service');
+      expect(result.aws.environment).toBe('test');
+      expect(result.aws.region).toBe('us-west-2');
+      expect(result.aws.journey).toBe('health');
     });
 
-    it('should add environment information for filtering', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(result).toHaveProperty('environment');
-      expect(result).toHaveProperty('service');
+    it('should use default values for AWS metadata when not provided', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Test message',
+        context: {},
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.aws).toBeDefined();
+      expect(result.aws.service).toBe('austa-service');
+      expect(result.aws.environment).toBe('test');
+      expect(result.aws.region).toBe('us-west-2');
+      expect(result.aws.journey).toBe('unknown');
     });
 
-    it('should structure context for efficient CloudWatch Logs Insights queries', () => {
-      const result = JSON.parse(formatter.format(errorLogEntry) as string);
-      
-      // Context fields should be at the top level for easier querying
-      expect(result).toHaveProperty('requestId');
-      expect(result).toHaveProperty('userId');
-      expect(result).toHaveProperty('journey');
-      expect(result.requestId).toBe('123456');
-      expect(result.userId).toBe('user-123');
-      expect(result.journey).toBe('health');
+    it('should format timestamp as ISO string for CloudWatch indexing', () => {
+      // Arrange
+      const testDate = new Date('2023-01-01T12:00:00Z');
+      const entry: Partial<LogEntry> = {
+        timestamp: testDate,
+        level: 'INFO' as any,
+        message: 'Test message',
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.timestamp).toBe(testDate.toISOString());
     });
 
-    it('should include trace correlation IDs at the top level', () => {
-      const result = JSON.parse(formatter.format(errorLogEntry) as string);
+    it('should handle undefined timestamp by using current time', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        level: 'INFO' as any,
+        message: 'Test message',
+      };
       
-      expect(result).toHaveProperty('traceId');
-      expect(result).toHaveProperty('spanId');
-      expect(result.traceId).toBe('trace-123');
-      expect(result.spanId).toBe('span-456');
+      // Mock Date.now() to return a fixed timestamp
+      const mockNow = 1672574400000; // 2023-01-01T12:00:00Z
+      jest.spyOn(Date, 'now').mockImplementation(() => mockNow);
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.timestamp).toBe(new Date(mockNow).toISOString());
+      
+      // Restore Date.now
+      jest.restoreAllMocks();
+    });
+
+    it('should add log level as a top-level field for easier filtering', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'ERROR' as any,
+        message: 'Test error message',
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.logLevel).toBe('ERROR');
     });
   });
 
-  describe('Error Formatting', () => {
-    it('should format errors in a CloudWatch-optimized structure', () => {
-      const result = JSON.parse(formatter.format(errorLogEntry) as string);
+  describe('error formatting', () => {
+    it('should format Error objects for CloudWatch error detection', () => {
+      // Arrange
+      const testError = new Error('Test error');
+      testError.name = 'TestError';
+      testError.stack = 'Error: Test error\n    at Test.testMethod (/path/to/file.ts:123:45)';
       
-      expect(result).toHaveProperty('error');
-      expect(result.error).toHaveProperty('message');
-      expect(result.error).toHaveProperty('stack');
-      expect(result.error).toHaveProperty('name');
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'ERROR' as any,
+        message: 'Error occurred',
+        error: testError,
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.error).toBeDefined();
       expect(result.error.message).toBe('Test error');
-      expect(result.error.name).toBe('Error');
+      expect(result.error.name).toBe('TestError');
+      expect(result.error.stack).toBeDefined();
     });
 
-    it('should add error detection fields for CloudWatch Logs Insights', () => {
-      const result = JSON.parse(formatter.format(errorLogEntry) as string);
-      
-      // Special field for error filtering in CloudWatch
-      expect(result).toHaveProperty('errorFlag');
-      expect(result.errorFlag).toBe(true);
+    it('should handle string errors', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'ERROR' as any,
+        message: 'Error occurred',
+        error: 'String error message',
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.error).toBe('String error message');
     });
 
-    it('should handle nested errors in a CloudWatch-friendly way', () => {
-      const nestedError = new Error('Outer error');
-      (nestedError as any).cause = new Error('Inner error');
-      
-      const entryWithNestedError: LogEntry = {
-        ...errorLogEntry,
-        error: nestedError
+    it('should handle custom error objects with additional fields', () => {
+      // Arrange
+      const customError = {
+        message: 'Custom error',
+        name: 'CustomError',
+        code: 'CUSTOM_ERROR_CODE',
+        statusCode: 400,
+        details: { field: 'username', issue: 'required' },
+        journey: 'health',
       };
       
-      const result = JSON.parse(formatter.format(entryWithNestedError) as string);
-      
-      expect(result.error).toHaveProperty('cause');
-      expect(result.error.cause).toHaveProperty('message');
-      expect(result.error.cause).toHaveProperty('name');
-      expect(result.error.cause.message).toBe('Inner error');
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'ERROR' as any,
+        message: 'Error occurred',
+        error: customError,
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toBe('Custom error');
+      expect(result.error.name).toBe('CustomError');
+      expect(result.error.code).toBe('CUSTOM_ERROR_CODE');
+      expect(result.error.statusCode).toBe(400);
+      expect(result.error.details).toEqual({ field: 'username', issue: 'required' });
+      expect(result.error.journey).toBe('health');
+    });
+
+    it('should handle null or undefined errors', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'No error',
+        error: null,
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.error).toBeNull();
     });
   });
 
-  describe('CloudWatch Logs Insights Query Compatibility', () => {
-    it('should format log levels as strings for better filtering', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(typeof result.level).toBe('string');
-      expect(result.level).toBe('INFO');
+  describe('request context formatting', () => {
+    it('should format request context in a CloudWatch-friendly format', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Request processed',
+        context: {
+          request: {
+            id: 'req-123',
+            method: 'POST',
+            path: '/api/health/metrics',
+            userId: 'user-456',
+            duration: 123.45,
+            additionalField: 'value',
+          },
+        },
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.request).toBeDefined();
+      expect(result.request.id).toBe('req-123');
+      expect(result.request.method).toBe('POST');
+      expect(result.request.path).toBe('/api/health/metrics');
+      expect(result.request.userId).toBe('user-456');
+      expect(result.request.duration).toBe(123.45);
     });
 
-    it('should add a numeric log level for range queries', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(result).toHaveProperty('levelNumber');
-      expect(typeof result.levelNumber).toBe('number');
+    it('should handle missing request fields', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Request processed',
+        context: {
+          request: {
+            id: 'req-123',
+            // Other fields missing
+          },
+        },
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.request).toBeDefined();
+      expect(result.request.id).toBe('req-123');
+      expect(result.request.method).toBeUndefined();
+      expect(result.request.path).toBeUndefined();
+      expect(result.request.userId).toBeUndefined();
+      expect(result.request.duration).toBeUndefined();
+    });
+  });
+
+  describe('trace context formatting', () => {
+    it('should format trace context for distributed tracing correlation', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Operation traced',
+        context: {
+          trace: {
+            id: 'trace-123',
+            spanId: 'span-456',
+            parentSpanId: 'parent-span-789',
+            additionalField: 'value',
+          },
+        },
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.trace).toBeDefined();
+      expect(result.trace.id).toBe('trace-123');
+      expect(result.trace.spanId).toBe('span-456');
+      expect(result.trace.parentSpanId).toBe('parent-span-789');
     });
 
-    it('should include a searchable message field', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
+    it('should handle missing trace fields', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Operation traced',
+        context: {
+          trace: {
+            id: 'trace-123',
+            // Other fields missing
+          },
+        },
+      };
+
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
+
+      // Assert
+      expect(result.trace).toBeDefined();
+      expect(result.trace.id).toBe('trace-123');
+      expect(result.trace.spanId).toBeUndefined();
+      expect(result.trace.parentSpanId).toBeUndefined();
+    });
+  });
+
+  describe('integration with JsonFormatter', () => {
+    it('should preserve JsonFormatter functionality', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        level: 'INFO' as any,
+        message: 'Test message',
+        metadata: {
+          customField: 'customValue',
+          nestedObject: {
+            nestedField: 'nestedValue',
+          },
+        },
+      };
+
+      // Create both formatters for comparison
+      const cloudWatchFormatter = new CloudWatchFormatter();
+      const jsonFormatter = new JsonFormatter();
       
-      expect(result).toHaveProperty('message');
+      // Mock the JsonFormatter.format method to verify it's called
+      const jsonFormatSpy = jest.spyOn(JsonFormatter.prototype, 'format');
+
+      // Act
+      const result = JSON.parse(cloudWatchFormatter.format(entry as LogEntry));
+
+      // Assert
+      expect(jsonFormatSpy).toHaveBeenCalled();
       expect(result.message).toBe('Test message');
-    });
-
-    it('should add a timestamp epoch field for time-based queries', () => {
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
+      expect(result.metadata).toBeDefined();
+      expect(result.metadata.customField).toBe('customValue');
+      expect(result.metadata.nestedObject.nestedField).toBe('nestedValue');
       
-      expect(result).toHaveProperty('timestampEpoch');
-      expect(typeof result.timestampEpoch).toBe('number');
-      expect(result.timestampEpoch).toBe(new Date('2023-01-01T12:00:00Z').getTime());
+      // Restore the spy
+      jsonFormatSpy.mockRestore();
     });
   });
 
-  describe('Edge Cases', () => {
-    it('should handle log entries with missing context', () => {
-      const entryWithoutContext: LogEntry = {
+  describe('CloudWatch Logs Insights query compatibility', () => {
+    it('should structure logs for optimal CloudWatch Logs Insights filtering', () => {
+      // Arrange
+      const entry: Partial<LogEntry> = {
         timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'No context',
-        context: undefined
+        level: 'ERROR' as any,
+        message: 'Database connection failed',
+        context: {
+          service: 'database-service',
+          journey: 'health',
+          request: {
+            id: 'req-123',
+            method: 'GET',
+            path: '/api/health/metrics',
+            userId: 'user-456',
+            duration: 1500,
+          },
+          trace: {
+            id: 'trace-123',
+            spanId: 'span-456',
+          },
+        },
+        error: {
+          message: 'Connection refused',
+          name: 'ConnectionError',
+          code: 'ECONNREFUSED',
+          statusCode: 500,
+        },
       };
-      
-      expect(() => formatter.format(entryWithoutContext)).not.toThrow();
-      const result = JSON.parse(formatter.format(entryWithoutContext) as string);
-      expect(result).toHaveProperty('message');
-      expect(result.message).toBe('No context');
-    });
 
-    it('should handle log entries with circular references', () => {
-      const circularObject: any = { name: 'circular' };
-      circularObject.self = circularObject;
-      
-      const entryWithCircular: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'Circular reference',
-        context: { circular: circularObject }
-      };
-      
-      expect(() => formatter.format(entryWithCircular)).not.toThrow();
-      const result = JSON.parse(formatter.format(entryWithCircular) as string);
-      expect(result).toHaveProperty('message');
-      expect(result.message).toBe('Circular reference');
-    });
+      // Act
+      const result = JSON.parse(formatter.format(entry as LogEntry));
 
-    it('should handle very large log entries efficiently', () => {
-      // Create a large object with many nested properties
-      const largeObject = {};
-      for (let i = 0; i < 100; i++) {
-        (largeObject as any)[`property${i}`] = {
-          nestedValue: `value${i}`,
-          deepNested: {
-            evenDeeper: {
-              veryDeep: `deep${i}`
-            }
-          }
-        };
-      }
+      // Assert - Verify fields are structured for CloudWatch Logs Insights queries
       
-      const largeEntry: LogEntry = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: LogLevel.INFO,
-        message: 'Large log entry',
-        context: { large: largeObject }
-      };
+      // These fields should be at the top level for direct filtering
+      expect(result.logLevel).toBe('ERROR');
+      expect(result.timestamp).toBe('2023-01-01T12:00:00.000Z');
+      expect(result.message).toBe('Database connection failed');
       
-      expect(() => formatter.format(largeEntry)).not.toThrow();
-      const result = JSON.parse(formatter.format(largeEntry) as string);
-      expect(result).toHaveProperty('message');
-      expect(result.message).toBe('Large log entry');
-    });
-  });
-
-  describe('AWS Environment Detection', () => {
-    const originalEnv = process.env;
-    
-    beforeEach(() => {
-      // Reset environment variables before each test
-      process.env = { ...originalEnv };
-    });
-    
-    afterAll(() => {
-      // Restore original environment variables after all tests
-      process.env = originalEnv;
-    });
-    
-    it('should detect AWS Lambda environment', () => {
-      process.env.AWS_LAMBDA_FUNCTION_NAME = 'test-function';
-      process.env.AWS_REGION = 'us-east-1';
+      // AWS metadata should be structured for filtering
+      expect(result.aws.service).toBe('database-service');
+      expect(result.aws.journey).toBe('health');
+      expect(result.aws.environment).toBe('test');
+      expect(result.aws.region).toBe('us-west-2');
       
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
+      // Request context should be structured for filtering
+      expect(result.request.id).toBe('req-123');
+      expect(result.request.method).toBe('GET');
+      expect(result.request.path).toBe('/api/health/metrics');
+      expect(result.request.userId).toBe('user-456');
+      expect(result.request.duration).toBe(1500);
       
-      expect(result.aws).toHaveProperty('lambda');
-      expect(result.aws.lambda).toHaveProperty('functionName');
-      expect(result.aws.lambda.functionName).toBe('test-function');
-      expect(result.aws.region).toBe('us-east-1');
-    });
-    
-    it('should detect AWS ECS environment', () => {
-      process.env.ECS_CONTAINER_METADATA_URI = 'http://ecs-metadata';
+      // Trace context should be structured for filtering
+      expect(result.trace.id).toBe('trace-123');
+      expect(result.trace.spanId).toBe('span-456');
       
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(result.aws).toHaveProperty('ecs');
-      expect(result.aws.ecs).toBeDefined();
-    });
-    
-    it('should detect AWS EC2 environment', () => {
-      process.env.EC2_INSTANCE_ID = 'i-12345';
-      
-      const result = JSON.parse(formatter.format(basicLogEntry) as string);
-      
-      expect(result.aws).toHaveProperty('ec2');
-      expect(result.aws.ec2).toHaveProperty('instanceId');
-      expect(result.aws.ec2.instanceId).toBe('i-12345');
+      // Error should be structured for filtering
+      expect(result.error.message).toBe('Connection refused');
+      expect(result.error.name).toBe('ConnectionError');
+      expect(result.error.code).toBe('ECONNREFUSED');
+      expect(result.error.statusCode).toBe(500);
     });
   });
 });
