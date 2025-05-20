@@ -1,784 +1,613 @@
-/**
- * @file plan-journey-events.e2e-spec.ts
- * @description End-to-end tests for Plan Journey events, validating the complete flow
- * of plan-related events from production to consumption.
- */
-
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
-
-// Import test helpers
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { TOPICS } from '../../src/constants/topics.constants';
+import { KafkaService } from '../../src/kafka/kafka.service';
+import { EventSchemaRegistry } from '../../src/schema/schema-registry.service';
 import {
-  createTestEnvironment,
-  TestEnvironmentContext,
-  publishTestEvent,
-  waitForEvent,
+  TestEnvironment,
+  createTestUser,
+  createTestClaim,
   createTestEvent,
-  TestDatabaseSeeder,
+  assertEvent,
+  retry,
   waitForCondition,
+  seedTestDatabase
 } from './test-helpers';
 
-// Import event interfaces
-import {
-  JourneyType,
-  PlanEventType,
-  IClaimSubmittedEvent,
-  IClaimUpdatedEvent,
-  IClaimApprovedEvent,
-  IClaimDeniedEvent,
-  IBenefitUsedEvent,
-  IBenefitLimitReachedEvent,
-  IPlanSelectedEvent,
-  IPlanChangedEvent,
-  IPlanRenewedEvent,
-  IPlanComparedEvent,
-  IRewardRedeemedEvent,
-  PlanJourneyEvent,
-} from '../../src/interfaces/journey-events.interface';
-import { IEvent } from '../../src/interfaces/base-event.interface';
-import { EventVersion } from '../../src/interfaces/event-versioning.interface';
+/**
+ * Journey type enum for test usage
+ */
+enum JourneyType {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan',
+  USER = 'user',
+  GAMIFICATION = 'gamification'
+}
 
-// Import Plan Journey interfaces
-import {
-  IPlan,
-  IClaim,
-  IBenefit,
-  ClaimStatus,
-} from '@austa/interfaces/journey/plan';
-
-// Test configuration
-const KAFKA_TOPIC = 'plan.events';
-const TEST_TIMEOUT = 30000; // 30 seconds
-
+/**
+ * End-to-end tests for Plan Journey events
+ * 
+ * These tests validate the complete flow of plan-related events from production to consumption,
+ * ensuring proper event schema validation and processing through the event pipeline.
+ */
 describe('Plan Journey Events (e2e)', () => {
-  let testContext: TestEnvironmentContext;
-  let seeder: TestDatabaseSeeder;
-  
-  // Test data
+  let app: INestApplication;
+  let testEnv: TestEnvironment;
+  let prisma: PrismaClient;
+  let kafkaService: KafkaService;
+  let schemaRegistry: EventSchemaRegistry;
   let userId: string;
-  let testPlan: IPlan;
-  let testClaim: IClaim;
-  let testBenefit: IBenefit;
+  let claimId: string;
   
+  // Setup test environment before all tests
   beforeAll(async () => {
-    // Create test environment with Kafka and database
-    testContext = await createTestEnvironment({
-      topics: [KAFKA_TOPIC],
-      enableKafka: true,
-      enableDatabase: true,
+    // Create test environment with plan-specific topics
+    testEnv = new TestEnvironment({
+      topics: [
+        TOPICS.PLAN.EVENTS,
+        TOPICS.PLAN.CLAIMS,
+        TOPICS.PLAN.BENEFITS,
+        TOPICS.PLAN.SELECTION,
+        TOPICS.GAMIFICATION.EVENTS,
+      ],
     });
     
-    // Initialize database seeder
-    seeder = new TestDatabaseSeeder(testContext.prisma);
+    await testEnv.setup();
     
-    // Clean database and seed test data
-    await seeder.cleanDatabase();
-    const users = await seeder.seedTestUsers();
-    userId = users[0].id;
+    // Get NestJS app and services
+    app = testEnv.getApp();
+    prisma = testEnv.getPrisma();
     
-    // Seed Plan Journey specific data
-    await seeder.seedJourneyData('plan');
+    // Get Kafka service from the app
+    const moduleRef = await Test.createTestingModule({
+      imports: [ConfigModule.forRoot()],
+      providers: [KafkaService, ConfigService, EventSchemaRegistry],
+    }).compile();
     
-    // Create test data
-    testPlan = {
-      id: uuidv4(),
-      name: 'Premium Health Plan',
-      description: 'Comprehensive health coverage with premium benefits',
-      provider: 'AUSTA Insurance',
-      type: 'Premium',
-      price: 500.00,
-      currency: 'BRL',
-      coverageStartDate: new Date().toISOString(),
-      coverageEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
-      status: 'active',
-    };
+    kafkaService = moduleRef.get<KafkaService>(KafkaService);
+    schemaRegistry = moduleRef.get<EventSchemaRegistry>(EventSchemaRegistry);
     
-    testClaim = {
-      id: uuidv4(),
-      userId,
-      planId: testPlan.id,
-      type: 'Consulta Médica',
-      provider: 'Dr. Silva',
-      serviceDate: new Date().toISOString(),
-      submissionDate: new Date().toISOString(),
-      amount: 250.00,
-      status: ClaimStatus.SUBMITTED,
-      documents: [],
-    };
+    // Seed test database
+    await seedTestDatabase(prisma);
     
-    testBenefit = {
-      id: uuidv4(),
-      name: 'Annual Check-up',
-      description: 'Comprehensive annual health examination',
-      coveragePercentage: 100,
-      annualLimit: 1,
-      monetaryLimit: null,
-      requiresPreApproval: false,
-      planId: testPlan.id,
-    };
-  }, TEST_TIMEOUT);
+    // Create test user
+    const user = await createTestUser(prisma);
+    userId = user.id;
+    
+    // Create test claim
+    const claim = await createTestClaim(prisma, userId);
+    claimId = claim.id;
+  });
   
+  // Clean up after all tests
   afterAll(async () => {
-    // Clean up test environment
-    await testContext.cleanup();
-  }, TEST_TIMEOUT);
-  
-  describe('Claim Events', () => {
-    it('should process CLAIM_SUBMITTED events', async () => {
-      // Create claim submitted event
-      const event = createTestEvent<IClaimSubmittedEvent['payload']>(
-        PlanEventType.CLAIM_SUBMITTED,
-        {
-          claim: testClaim,
-          submissionDate: new Date().toISOString(),
-          amount: testClaim.amount,
-          serviceDate: testClaim.serviceDate,
-          provider: testClaim.provider,
-          hasDocuments: false,
-          documentCount: 0,
-          isFirstClaim: true,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IClaimSubmittedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IClaimSubmittedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.CLAIM_SUBMITTED && e.payload.claim.id === testClaim.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.CLAIM_SUBMITTED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.claim.id).toBe(testClaim.id);
-      expect(processedEvent.payload.amount).toBe(testClaim.amount);
-      expect(processedEvent.payload.provider).toBe(testClaim.provider);
-    });
-    
-    it('should process CLAIM_UPDATED events', async () => {
-      // Create claim updated event
-      const event = createTestEvent<IClaimUpdatedEvent['payload']>(
-        PlanEventType.CLAIM_UPDATED,
-        {
-          claim: {
-            ...testClaim,
-            status: ClaimStatus.UNDER_REVIEW,
-          },
-          updateDate: new Date().toISOString(),
-          previousStatus: ClaimStatus.SUBMITTED,
-          newStatus: ClaimStatus.UNDER_REVIEW,
-          updatedFields: ['status'],
-          documentsAdded: true,
-          documentCount: 2,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IClaimUpdatedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IClaimUpdatedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.CLAIM_UPDATED && e.payload.claim.id === testClaim.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.CLAIM_UPDATED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.claim.id).toBe(testClaim.id);
-      expect(processedEvent.payload.previousStatus).toBe(ClaimStatus.SUBMITTED);
-      expect(processedEvent.payload.newStatus).toBe(ClaimStatus.UNDER_REVIEW);
-      expect(processedEvent.payload.updatedFields).toContain('status');
-    });
-    
-    it('should process CLAIM_APPROVED events', async () => {
-      // Create claim approved event
-      const event = createTestEvent<IClaimApprovedEvent['payload']>(
-        PlanEventType.CLAIM_APPROVED,
-        {
-          claim: {
-            ...testClaim,
-            status: ClaimStatus.APPROVED,
-          },
-          approvalDate: new Date().toISOString(),
-          submittedAmount: testClaim.amount,
-          approvedAmount: testClaim.amount,
-          coveragePercentage: 80,
-          processingDays: 3,
-          paymentDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-          paymentMethod: 'bank_transfer',
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IClaimApprovedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IClaimApprovedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.CLAIM_APPROVED && e.payload.claim.id === testClaim.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.CLAIM_APPROVED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.claim.id).toBe(testClaim.id);
-      expect(processedEvent.payload.approvedAmount).toBe(testClaim.amount);
-      expect(processedEvent.payload.coveragePercentage).toBe(80);
-      expect(processedEvent.payload.paymentMethod).toBe('bank_transfer');
-    });
-    
-    it('should process CLAIM_DENIED events', async () => {
-      // Create claim denied event
-      const event = createTestEvent<IClaimDeniedEvent['payload']>(
-        PlanEventType.CLAIM_DENIED,
-        {
-          claim: {
-            ...testClaim,
-            status: ClaimStatus.DENIED,
-          },
-          denialDate: new Date().toISOString(),
-          denialReason: 'Service not covered by plan',
-          submittedAmount: testClaim.amount,
-          processingDays: 5,
-          appealEligible: true,
-          appealDeadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-          additionalInfoRequired: ['medical_report', 'prescription'],
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IClaimDeniedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IClaimDeniedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.CLAIM_DENIED && e.payload.claim.id === testClaim.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.CLAIM_DENIED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.claim.id).toBe(testClaim.id);
-      expect(processedEvent.payload.denialReason).toBe('Service not covered by plan');
-      expect(processedEvent.payload.appealEligible).toBe(true);
-      expect(processedEvent.payload.additionalInfoRequired).toContain('medical_report');
-    });
+    await testEnv.teardown();
   });
   
-  describe('Benefit Events', () => {
-    it('should process BENEFIT_USED events', async () => {
-      // Create benefit used event
-      const event = createTestEvent<IBenefitUsedEvent['payload']>(
-        PlanEventType.BENEFIT_USED,
-        {
-          benefit: testBenefit,
-          usageDate: new Date().toISOString(),
-          provider: 'Clínica São Lucas',
-          serviceDescription: 'Annual health check-up',
-          amountUsed: 1,
-          remainingAmount: 0,
-          remainingPercentage: 0,
-          isFirstUse: true,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IBenefitUsedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IBenefitUsedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.BENEFIT_USED && e.payload.benefit.id === testBenefit.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.BENEFIT_USED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.benefit.id).toBe(testBenefit.id);
-      expect(processedEvent.payload.serviceDescription).toBe('Annual health check-up');
-      expect(processedEvent.payload.isFirstUse).toBe(true);
-    });
-    
-    it('should process BENEFIT_LIMIT_REACHED events', async () => {
-      // Create benefit limit reached event
-      const event = createTestEvent<IBenefitLimitReachedEvent['payload']>(
-        PlanEventType.BENEFIT_LIMIT_REACHED,
-        {
-          benefit: testBenefit,
-          reachedDate: new Date().toISOString(),
-          limitType: 'visits',
-          limitValue: 1,
-          renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
-          alternativeBenefits: [],
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IBenefitLimitReachedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IBenefitLimitReachedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.BENEFIT_LIMIT_REACHED && e.payload.benefit.id === testBenefit.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.BENEFIT_LIMIT_REACHED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.benefit.id).toBe(testBenefit.id);
-      expect(processedEvent.payload.limitType).toBe('visits');
-      expect(processedEvent.payload.limitValue).toBe(1);
-    });
+  // Clear consumed messages before each test
+  beforeEach(() => {
+    testEnv.clearConsumedMessages();
   });
   
-  describe('Plan Events', () => {
-    it('should process PLAN_SELECTED events', async () => {
-      // Create plan selected event
-      const event = createTestEvent<IPlanSelectedEvent['payload']>(
-        PlanEventType.PLAN_SELECTED,
-        {
-          plan: testPlan,
-          selectionDate: new Date().toISOString(),
-          effectiveDate: testPlan.coverageStartDate,
-          premium: testPlan.price,
-          paymentFrequency: 'monthly',
-          isFirstPlan: true,
-          comparedPlansCount: 3,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IPlanSelectedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IPlanSelectedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.PLAN_SELECTED && e.payload.plan.id === testPlan.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.PLAN_SELECTED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.plan.id).toBe(testPlan.id);
-      expect(processedEvent.payload.premium).toBe(testPlan.price);
-      expect(processedEvent.payload.isFirstPlan).toBe(true);
-    });
-    
-    it('should process PLAN_CHANGED events', async () => {
-      // Create a new plan for comparison
-      const newPlan: IPlan = {
-        ...testPlan,
-        id: uuidv4(),
-        name: 'Premium Plus Health Plan',
-        price: 650.00,
+  /**
+   * Test for PLAN_CLAIM_SUBMITTED event
+   */
+  describe('Claim Submission Events', () => {
+    it('should process PLAN_CLAIM_SUBMITTED event', async () => {
+      // Create claim submission event data
+      const claimData = {
+        claimId,
+        claimType: 'medical',
+        providerId: uuidv4(),
+        serviceDate: new Date().toISOString(),
+        amount: 150.75,
+        submittedAt: new Date().toISOString()
       };
       
-      // Create plan changed event
-      const event = createTestEvent<IPlanChangedEvent['payload']>(
-        PlanEventType.PLAN_CHANGED,
-        {
-          oldPlan: testPlan,
-          newPlan: newPlan,
-          changeDate: new Date().toISOString(),
-          effectiveDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-          premiumDifference: newPlan.price - testPlan.price,
-          changeReason: 'Upgrade to better coverage',
-          benefitChanges: {
-            added: ['Dental coverage', 'Vision care'],
-            removed: [],
-            improved: ['Annual check-up limit increased'],
-            reduced: [],
-          },
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IPlanChangedEvent;
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_CLAIM_SUBMITTED,
+        JourneyType.PLAN,
+        userId,
+        claimData
+      );
       
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
+      await testEnv.publishEvent(event, TOPICS.PLAN.CLAIMS);
       
       // Wait for event to be processed
-      const processedEvent = await waitForEvent<IPlanChangedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.PLAN_CHANGED && e.payload.newPlan.id === newPlan.id,
-      });
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_CLAIM_SUBMITTED, userId);
       
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.PLAN_CHANGED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.oldPlan.id).toBe(testPlan.id);
-      expect(processedEvent.payload.newPlan.id).toBe(newPlan.id);
-      expect(processedEvent.payload.premiumDifference).toBe(150);
-      expect(processedEvent.payload.benefitChanges.added).toContain('Dental coverage');
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_CLAIM_SUBMITTED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(claimData);
+      
+      // Verify gamification points event is triggered
+      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
+      expect(pointsEvent).not.toBeNull();
+      expect(pointsEvent?.data.sourceType).toBe('plan');
+      expect(pointsEvent?.data.sourceId).toBe(claimId);
     });
     
-    it('should process PLAN_RENEWED events', async () => {
-      // Create plan renewed event
-      const event = createTestEvent<IPlanRenewedEvent['payload']>(
-        PlanEventType.PLAN_RENEWED,
-        {
-          plan: testPlan,
-          renewalDate: new Date().toISOString(),
-          previousEndDate: testPlan.coverageEndDate,
-          newEndDate: new Date(Date.now() + 2 * 365 * 24 * 60 * 60 * 1000).toISOString(), // 2 years from now
-          premiumChange: 25.00,
-          premiumChangePercentage: 5,
-          benefitChanges: true,
-          yearsWithPlan: 1,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IPlanRenewedEvent;
+    it('should reject invalid PLAN_CLAIM_SUBMITTED event', async () => {
+      // Create invalid claim submission event (missing required fields)
+      const invalidClaimData = {
+        // Missing claimId and other required fields
+        amount: 150.75,
+        submittedAt: new Date().toISOString()
+      };
       
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
+      // Create and publish invalid test event
+      const event = createTestEvent(
+        EventType.PLAN_CLAIM_SUBMITTED,
+        JourneyType.PLAN,
+        userId,
+        invalidClaimData
+      );
+      
+      // Expect error when publishing invalid event
+      await expect(kafkaService.produce(
+        TOPICS.PLAN.CLAIMS,
+        event,
+        userId
+      )).rejects.toThrow();
+    });
+    
+    it('should process PLAN_CLAIM_PROCESSED event', async () => {
+      // Create claim processed event data
+      const claimProcessedData = {
+        claimId,
+        status: 'approved',
+        amount: 150.75,
+        coveredAmount: 120.60,
+        processedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_CLAIM_PROCESSED,
+        JourneyType.PLAN,
+        userId,
+        claimProcessedData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.CLAIMS);
       
       // Wait for event to be processed
-      const processedEvent = await waitForEvent<IPlanRenewedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.PLAN_RENEWED && e.payload.plan.id === testPlan.id,
-      });
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_CLAIM_PROCESSED, userId);
       
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.PLAN_RENEWED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.plan.id).toBe(testPlan.id);
-      expect(processedEvent.payload.premiumChange).toBe(25.00);
-      expect(processedEvent.payload.premiumChangePercentage).toBe(5);
-      expect(processedEvent.payload.yearsWithPlan).toBe(1);
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_CLAIM_PROCESSED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(claimProcessedData);
+      
+      // Verify claim status is updated in database
+      await retry(async () => {
+        const updatedClaim = await prisma.insuranceClaim.findUnique({
+          where: { id: claimId },
+        });
+        
+        expect(updatedClaim?.status).toBe('APPROVED');
+        return true;
+      });
+    });
+  });
+  
+  /**
+   * Test for PLAN_BENEFIT_UTILIZED event
+   */
+  describe('Benefit Utilization Events', () => {
+    it('should process PLAN_BENEFIT_UTILIZED event', async () => {
+      // Create benefit ID for test
+      const benefitId = uuidv4();
+      
+      // Create benefit utilization event data
+      const benefitData = {
+        benefitId,
+        benefitType: 'wellness',
+        providerId: uuidv4(),
+        utilizationDate: new Date().toISOString(),
+        savingsAmount: 50.00
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_BENEFIT_UTILIZED,
+        JourneyType.PLAN,
+        userId,
+        benefitData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.BENEFITS);
+      
+      // Wait for event to be processed
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_BENEFIT_UTILIZED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_BENEFIT_UTILIZED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(benefitData);
+      
+      // Verify gamification points event is triggered
+      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
+      expect(pointsEvent).not.toBeNull();
+      expect(pointsEvent?.data.sourceType).toBe('plan');
+      expect(pointsEvent?.data.sourceId).toBe(benefitId);
     });
     
-    it('should process PLAN_COMPARED events', async () => {
-      // Create alternative plans for comparison
-      const alternativePlans: IPlan[] = [
-        {
-          ...testPlan,
-          id: uuidv4(),
-          name: 'Basic Health Plan',
-          price: 300.00,
-          type: 'Basic',
-        },
-        {
-          ...testPlan,
-          id: uuidv4(),
-          name: 'Standard Health Plan',
-          price: 400.00,
-          type: 'Standard',
-        },
-        testPlan,
+    it('should handle benefit utilization with missing optional fields', async () => {
+      // Create benefit ID for test
+      const benefitId = uuidv4();
+      
+      // Create benefit utilization event data with missing optional fields
+      const benefitData = {
+        benefitId,
+        benefitType: 'preventive',
+        utilizationDate: new Date().toISOString(),
+        // Missing providerId and savingsAmount (optional fields)
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_BENEFIT_UTILIZED,
+        JourneyType.PLAN,
+        userId,
+        benefitData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.BENEFITS);
+      
+      // Wait for event to be processed
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_BENEFIT_UTILIZED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_BENEFIT_UTILIZED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(benefitData);
+    });
+  });
+  
+  /**
+   * Test for PLAN_SELECTED event
+   */
+  describe('Plan Selection Events', () => {
+    it('should process PLAN_SELECTED event', async () => {
+      // Create plan ID for test
+      const planId = uuidv4();
+      
+      // Create plan selection event data
+      const planData = {
+        planId,
+        planType: 'health',
+        coverageLevel: 'family',
+        premium: 350.00,
+        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+        selectedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_SELECTED,
+        JourneyType.PLAN,
+        userId,
+        planData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.SELECTION);
+      
+      // Wait for event to be processed
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_SELECTED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_SELECTED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(planData);
+      
+      // Verify gamification points event is triggered for plan selection
+      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
+      expect(pointsEvent).not.toBeNull();
+      expect(pointsEvent?.data.sourceType).toBe('plan');
+      expect(pointsEvent?.data.reason).toContain('plan selection');
+    });
+    
+    it('should reject PLAN_SELECTED event with invalid date format', async () => {
+      // Create plan ID for test
+      const planId = uuidv4();
+      
+      // Create plan selection event data with invalid date format
+      const planData = {
+        planId,
+        planType: 'health',
+        coverageLevel: 'individual',
+        premium: 150.00,
+        startDate: '2023-13-45', // Invalid date format
+        selectedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_SELECTED,
+        JourneyType.PLAN,
+        userId,
+        planData
+      );
+      
+      // Expect error when publishing invalid event
+      await expect(kafkaService.produce(
+        TOPICS.PLAN.SELECTION,
+        event,
+        userId
+      )).rejects.toThrow();
+    });
+  });
+  
+  /**
+   * Test for PLAN_REWARD_REDEEMED event
+   */
+  describe('Reward Redemption Events', () => {
+    it('should process PLAN_REWARD_REDEEMED event', async () => {
+      // Create reward ID for test
+      const rewardId = uuidv4();
+      
+      // Create reward redemption event data
+      const rewardData = {
+        rewardId,
+        rewardType: 'gift_card',
+        pointsRedeemed: 500,
+        value: 25.00,
+        redeemedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_REWARD_REDEEMED,
+        JourneyType.PLAN,
+        userId,
+        rewardData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
+      
+      // Wait for event to be processed
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_REWARD_REDEEMED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_REWARD_REDEEMED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(rewardData);
+      
+      // Verify points are deducted in gamification system
+      // This would typically update a user's points balance in the database
+      // For this test, we'll just verify the event was processed
+      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
+      expect(pointsEvent).not.toBeNull();
+      expect(pointsEvent?.data.points).toBeLessThan(0); // Points should be negative for redemption
+      expect(Math.abs(pointsEvent?.data.points)).toBe(rewardData.pointsRedeemed);
+    });
+    
+    it('should reject PLAN_REWARD_REDEEMED event with insufficient points', async () => {
+      // Create reward ID for test
+      const rewardId = uuidv4();
+      
+      // Create reward redemption event data with excessive points
+      const rewardData = {
+        rewardId,
+        rewardType: 'premium_discount',
+        pointsRedeemed: 1000000, // Unreasonably high point value
+        value: 500.00,
+        redeemedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_REWARD_REDEEMED,
+        JourneyType.PLAN,
+        userId,
+        rewardData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
+      
+      // Wait for event to be processed
+      // In this case, we expect the event to be processed but rejected by business logic
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_REWARD_REDEEMED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_REWARD_REDEEMED, JourneyType.PLAN, userId);
+      
+      // We should not see a points deduction event since the redemption should be rejected
+      const pointsDeductionReceived = await waitForCondition(async () => {
+        const messages = testEnv.getConsumedMessages();
+        return messages.some(msg => {
+          try {
+            const event = JSON.parse(msg.value.toString());
+            return event.type === EventType.GAMIFICATION_POINTS_EARNED && 
+                   event.userId === userId && 
+                   event.data.points < 0;
+          } catch (e) {
+            return false;
+          }
+        });
+      }, 5000);
+      
+      expect(pointsDeductionReceived).toBe(false);
+    });
+  });
+  
+  /**
+   * Test for PLAN_DOCUMENT_COMPLETED event
+   */
+  describe('Document Completion Events', () => {
+    it('should process PLAN_DOCUMENT_COMPLETED event', async () => {
+      // Create document ID for test
+      const documentId = uuidv4();
+      
+      // Create document completion event data
+      const documentData = {
+        documentId,
+        documentType: 'enrollment',
+        completedAt: new Date().toISOString()
+      };
+      
+      // Create and publish test event
+      const event = createTestEvent(
+        EventType.PLAN_DOCUMENT_COMPLETED,
+        JourneyType.PLAN,
+        userId,
+        documentData
+      );
+      
+      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
+      
+      // Wait for event to be processed
+      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_DOCUMENT_COMPLETED, userId);
+      
+      // Assert event properties
+      assertEvent(receivedEvent, EventType.PLAN_DOCUMENT_COMPLETED, JourneyType.PLAN, userId);
+      expect(receivedEvent?.data).toMatchObject(documentData);
+      
+      // Verify gamification points event is triggered
+      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
+      expect(pointsEvent).not.toBeNull();
+      expect(pointsEvent?.data.sourceType).toBe('plan');
+      expect(pointsEvent?.data.sourceId).toBe(documentId);
+    });
+  });
+  
+  /**
+   * Test for cross-journey interactions with Plan events
+   */
+  describe('Cross-Journey Interactions', () => {
+    it('should trigger achievement when multiple plan events occur', async () => {
+      // Create multiple plan events to trigger an achievement
+      
+      // 1. Create claim submission event
+      const claimData = {
+        claimId: uuidv4(),
+        claimType: 'medical',
+        providerId: uuidv4(),
+        serviceDate: new Date().toISOString(),
+        amount: 200.50,
+        submittedAt: new Date().toISOString()
+      };
+      
+      const claimEvent = createTestEvent(
+        EventType.PLAN_CLAIM_SUBMITTED,
+        JourneyType.PLAN,
+        userId,
+        claimData
+      );
+      
+      // 2. Create benefit utilization event
+      const benefitData = {
+        benefitId: uuidv4(),
+        benefitType: 'wellness',
+        utilizationDate: new Date().toISOString()
+      };
+      
+      const benefitEvent = createTestEvent(
+        EventType.PLAN_BENEFIT_UTILIZED,
+        JourneyType.PLAN,
+        userId,
+        benefitData
+      );
+      
+      // 3. Create document completion event
+      const documentData = {
+        documentId: uuidv4(),
+        documentType: 'consent',
+        completedAt: new Date().toISOString()
+      };
+      
+      const documentEvent = createTestEvent(
+        EventType.PLAN_DOCUMENT_COMPLETED,
+        JourneyType.PLAN,
+        userId,
+        documentData
+      );
+      
+      // Publish all events
+      await testEnv.publishEvent(claimEvent, TOPICS.PLAN.CLAIMS);
+      await testEnv.publishEvent(benefitEvent, TOPICS.PLAN.BENEFITS);
+      await testEnv.publishEvent(documentEvent, TOPICS.PLAN.EVENTS);
+      
+      // Wait for achievement unlocked event
+      // This tests that the gamification engine correctly processes multiple plan events
+      // and triggers achievements based on cross-event criteria
+      const achievementEvent = await retry(async () => {
+        const event = await testEnv.waitForEvent(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED, userId);
+        if (!event) {
+          throw new Error('Achievement event not received');
+        }
+        return event;
+      }, 3, 2000);
+      
+      expect(achievementEvent).not.toBeNull();
+      expect(achievementEvent?.data.achievementType).toBe('claim-master');
+      expect(achievementEvent?.journey).toBe(JourneyType.GAMIFICATION);
+    });
+  });
+  
+  /**
+   * Test for health check system with Plan events
+   */
+  describe('Health Check System', () => {
+    it('should verify Plan event processing pipeline is healthy', async () => {
+      // Create a simple health check event
+      const healthCheckData = {
+        checkId: uuidv4(),
+        timestamp: new Date().toISOString(),
+        service: 'plan-journey-events-test'
+      };
+      
+      // Create and publish test event to each Plan topic
+      const topics = [
+        TOPICS.PLAN.EVENTS,
+        TOPICS.PLAN.CLAIMS,
+        TOPICS.PLAN.BENEFITS,
+        TOPICS.PLAN.SELECTION
       ];
       
-      // Create plan compared event
-      const event = createTestEvent<IPlanComparedEvent['payload']>(
-        PlanEventType.PLAN_COMPARED,
-        {
-          plansCompared: alternativePlans,
-          comparisonDate: new Date().toISOString(),
-          comparisonCriteria: ['price', 'coverage', 'network'],
-          selectedPlanId: testPlan.id,
-          comparisonDuration: 300, // 5 minutes in seconds
-          userPreferences: {
-            prioritizeCoverage: true,
-            maxBudget: 600,
-            preferredHospitals: ['Hospital São Paulo'],
-          },
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
+      // Track successful topics
+      const successfulTopics = [];
+      
+      // Test each topic
+      for (const topic of topics) {
+        // Clear messages before each topic test
+        testEnv.clearConsumedMessages();
+        
+        // Create a unique event for this topic
+        const event = createTestEvent(
+          EventType.USER_FEEDBACK_SUBMITTED, // Using a neutral event type for health check
+          JourneyType.USER,
+          'health-check-user',
+          { ...healthCheckData, topic }
+        );
+        
+        // Publish to the topic
+        await testEnv.publishEvent(event, topic);
+        
+        // Wait for event to be consumed
+        const received = await waitForCondition(async () => {
+          const messages = testEnv.getConsumedMessages();
+          return messages.some(msg => {
+            try {
+              const parsedEvent = JSON.parse(msg.value.toString());
+              return parsedEvent.data?.checkId === healthCheckData.checkId &&
+                     parsedEvent.data?.topic === topic;
+            } catch (e) {
+              return false;
+            }
+          });
+        }, 5000);
+        
+        if (received) {
+          successfulTopics.push(topic);
         }
-      ) as IPlanComparedEvent;
+      }
       
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IPlanComparedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.PLAN_COMPARED && e.payload.selectedPlanId === testPlan.id,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.PLAN_COMPARED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.plansCompared.length).toBe(3);
-      expect(processedEvent.payload.selectedPlanId).toBe(testPlan.id);
-      expect(processedEvent.payload.comparisonCriteria).toContain('price');
-    });
-  });
-  
-  describe('Reward Events', () => {
-    it('should process REWARD_REDEEMED events', async () => {
-      // Create reward redeemed event
-      const event = createTestEvent<IRewardRedeemedEvent['payload']>(
-        PlanEventType.REWARD_REDEEMED,
-        {
-          rewardId: uuidv4(),
-          rewardName: 'Premium Discount',
-          rewardType: 'discount',
-          redemptionDate: new Date().toISOString(),
-          pointsUsed: 1000,
-          monetaryValue: 50.00,
-          expirationDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
-          isFirstRedemption: true,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IRewardRedeemedEvent;
-      
-      // Publish event
-      await publishTestEvent(testContext, event, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait for event to be processed
-      const processedEvent = await waitForEvent<IRewardRedeemedEvent>(testContext, {
-        topic: KAFKA_TOPIC,
-        timeout: 5000,
-        filter: (e) => e.type === PlanEventType.REWARD_REDEEMED && e.payload.rewardId === event.payload.rewardId,
-      });
-      
-      // Verify event was processed correctly
-      expect(processedEvent).not.toBeNull();
-      expect(processedEvent.type).toBe(PlanEventType.REWARD_REDEEMED);
-      expect(processedEvent.journeyType).toBe(JourneyType.PLAN);
-      expect(processedEvent.userId).toBe(userId);
-      expect(processedEvent.payload.rewardId).toBe(event.payload.rewardId);
-      expect(processedEvent.payload.rewardName).toBe('Premium Discount');
-      expect(processedEvent.payload.pointsUsed).toBe(1000);
-      expect(processedEvent.payload.isFirstRedemption).toBe(true);
-    });
-  });
-  
-  describe('Error Cases', () => {
-    it('should reject events with missing required fields', async () => {
-      // Create an invalid event missing required fields
-      const invalidEvent = {
-        eventId: uuidv4(),
-        timestamp: new Date().toISOString(),
-        version: '1.0.0' as EventVersion,
-        source: 'test',
-        type: PlanEventType.CLAIM_SUBMITTED,
-        // Missing journeyType and userId
-        payload: {
-          // Missing claim and other required fields
-          submissionDate: new Date().toISOString(),
-        },
-      } as IEvent;
-      
-      // Publish invalid event
-      await publishTestEvent(testContext, invalidEvent, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait a short time to ensure event processing is attempted
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Verify that no valid event was processed (should be rejected by validation)
-      const processedEvent = await waitForEvent<IClaimSubmittedEvent>(testContext, {
-        topic: 'error.events', // Check error topic if available
-        timeout: 1000,
-        filter: (e) => e.eventId === invalidEvent.eventId,
-      });
-      
-      // Event should not be processed successfully
-      expect(processedEvent).toBeNull();
-    });
-    
-    it('should reject events with invalid field values', async () => {
-      // Create an event with invalid field values
-      const invalidEvent = createTestEvent<any>(
-        PlanEventType.CLAIM_SUBMITTED,
-        {
-          claim: {
-            ...testClaim,
-            status: 'INVALID_STATUS', // Invalid enum value
-          },
-          submissionDate: 'not-a-date', // Invalid date format
-          amount: 'not-a-number', // Invalid number
-          serviceDate: testClaim.serviceDate,
-          provider: testClaim.provider,
-          hasDocuments: 'not-a-boolean', // Invalid boolean
-          documentCount: -1, // Invalid negative count
-          isFirstClaim: true,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IEvent;
-      
-      // Publish invalid event
-      await publishTestEvent(testContext, invalidEvent, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait a short time to ensure event processing is attempted
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Verify that no valid event was processed (should be rejected by validation)
-      const processedEvent = await waitForEvent<IClaimSubmittedEvent>(testContext, {
-        topic: 'error.events', // Check error topic if available
-        timeout: 1000,
-        filter: (e) => e.eventId === invalidEvent.eventId,
-      });
-      
-      // Event should not be processed successfully
-      expect(processedEvent).toBeNull();
-    });
-    
-    it('should reject events with invalid event type', async () => {
-      // Create an event with invalid event type
-      const invalidEvent = createTestEvent<any>(
-        'plan.invalid.event.type', // Invalid event type
-        {
-          claim: testClaim,
-          submissionDate: new Date().toISOString(),
-          amount: testClaim.amount,
-          serviceDate: testClaim.serviceDate,
-          provider: testClaim.provider,
-          hasDocuments: false,
-          documentCount: 0,
-          isFirstClaim: true,
-        },
-        {
-          journeyType: JourneyType.PLAN,
-          userId,
-          version: '1.0.0' as EventVersion,
-        }
-      ) as IEvent;
-      
-      // Publish invalid event
-      await publishTestEvent(testContext, invalidEvent, {
-        topic: KAFKA_TOPIC,
-        waitForAck: true,
-      });
-      
-      // Wait a short time to ensure event processing is attempted
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Verify that no valid event was processed (should be rejected by validation)
-      const processedEvent = await waitForEvent<IEvent>(testContext, {
-        topic: 'error.events', // Check error topic if available
-        timeout: 1000,
-        filter: (e) => e.eventId === invalidEvent.eventId,
-      });
-      
-      // Event should not be processed successfully
-      expect(processedEvent).toBeNull();
+      // All topics should be healthy
+      expect(successfulTopics.length).toBe(topics.length);
+      expect(successfulTopics).toEqual(expect.arrayContaining(topics));
     });
   });
 });
