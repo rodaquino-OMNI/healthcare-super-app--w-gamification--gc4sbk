@@ -1,11 +1,13 @@
 /**
  * @file validation.ts
- * @description Specialized validation utilities and decorators for event validation beyond
- * what's available in standard class-validator. Includes custom validators for journey-specific
- * fields, complex object validation, conditional validation logic, and more.
+ * @description Provides specialized validation utilities and decorators for event validation
+ * beyond what's available in standard class-validator. This file includes custom validators
+ * for journey-specific fields, complex object validation, conditional validation logic, and more.
  * 
- * This file centralizes validation logic that's reused across multiple event DTOs and ensures
+ * It centralizes validation logic that's reused across multiple event DTOs and ensures
  * consistent validation behavior across the event processing pipeline.
+ *
+ * @module events/dto
  */
 
 import { 
@@ -14,489 +16,464 @@ import {
   ValidationArguments,
   ValidatorConstraint,
   ValidatorConstraintInterface,
-  validate,
-  validateSync,
-  Validator
+  validate
 } from 'class-validator';
-import { ClassConstructor, plainToInstance } from 'class-transformer';
-import { ZodSchema, z } from 'zod';
-import { EventError, EventValidationError, EventErrorContext, EventProcessingStage } from '../errors/event-errors';
-import { ValidationIssue, ValidationResult, ValidationResultFactory, ValidationSeverity } from '../interfaces/event-validation.interface';
-
-// ===================================================================
-// Custom Validator Constraints
-// ===================================================================
+import { ERROR_CODES, ERROR_MESSAGES } from '../constants/errors.constants';
+import { EventMetadataDto } from './event-metadata.dto';
 
 /**
- * Validator constraint for checking if a value is a valid ISO-8601 duration string
- * Example: 'PT1H30M' (1 hour and 30 minutes)
+ * Interface for validation error response
  */
-@ValidatorConstraint({ name: 'isIsoDuration', async: false })
-export class IsIsoDurationConstraint implements ValidatorConstraintInterface {
-  validate(value: any): boolean {
-    if (typeof value !== 'string') return false;
-    
-    // ISO 8601 duration regex pattern
-    // P is the duration designator, followed by:
-    // nY - number of years
-    // nM - number of months
-    // nW - number of weeks
-    // nD - number of days
-    // T - time designator, followed by:
-    // nH - number of hours
-    // nM - number of minutes
-    // nS - number of seconds
-    const pattern = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
-    return pattern.test(value);
-  }
-
-  defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid ISO 8601 duration string (e.g., 'PT1H30M')`;
-  }
+export interface ValidationError {
+  property: string;
+  errorCode: string;
+  message: string;
+  constraints?: Record<string, string>;
+  children?: ValidationError[];
 }
 
 /**
- * Validator constraint for checking if a value is within a physiologically plausible range
- * for health metrics (e.g., heart rate, blood pressure, weight)
+ * Validates that a value is a valid journey name
+ * 
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-@ValidatorConstraint({ name: 'isPhysiologicallyPlausible', async: false })
-export class IsPhysiologicallyPlausibleConstraint implements ValidatorConstraintInterface {
-  // Ranges for common health metrics
-  private readonly ranges: Record<string, { min: number; max: number }> = {
-    // Heart rate in BPM
-    heartRate: { min: 30, max: 220 },
-    // Blood pressure systolic in mmHg
-    bloodPressureSystolic: { min: 70, max: 250 },
-    // Blood pressure diastolic in mmHg
-    bloodPressureDiastolic: { min: 40, max: 150 },
-    // Weight in kg
-    weight: { min: 2, max: 500 },
-    // Height in cm
-    height: { min: 30, max: 250 },
-    // Body temperature in Celsius
-    temperatureCelsius: { min: 32, max: 43 },
-    // Blood glucose in mg/dL
-    bloodGlucose: { min: 20, max: 600 },
-    // Oxygen saturation in percentage
-    oxygenSaturation: { min: 50, max: 100 },
-    // Respiratory rate in breaths per minute
-    respiratoryRate: { min: 4, max: 60 },
-    // Steps per day
-    stepsDaily: { min: 0, max: 100000 },
-    // Sleep duration in hours
-    sleepHours: { min: 0, max: 24 },
-    // Body fat percentage
-    bodyFatPercentage: { min: 1, max: 60 },
-    // Body mass index
-    bmi: { min: 10, max: 60 }
+export function IsValidJourney(validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidJourney',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any) {
+          const validJourneys = ['health', 'care', 'plan', 'user', 'gamification'];
+          return typeof value === 'string' && validJourneys.includes(value.toLowerCase());
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must be a valid journey name (health, care, plan, user, gamification)`;
+        }
+      }
+    });
   };
-
-  validate(value: any, args: ValidationArguments): boolean {
-    if (typeof value !== 'number') return false;
-    
-    const [metricType] = args.constraints;
-    if (!metricType || !this.ranges[metricType]) {
-      throw new Error(`Unknown metric type: ${metricType}`);
-    }
-    
-    const { min, max } = this.ranges[metricType];
-    return value >= min && value <= max;
-  }
-
-  defaultMessage(args: ValidationArguments): string {
-    const [metricType] = args.constraints;
-    const { min, max } = this.ranges[metricType] || { min: 0, max: 0 };
-    return `${args.property} must be within physiologically plausible range for ${metricType} (${min} - ${max})`;
-  }
 }
 
 /**
- * Validator constraint for checking if a value is a valid medication dosage
- * with unit validation
+ * Validates that a value is a valid event type for the specified journey
+ * 
+ * @param journey The journey to validate against
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-@ValidatorConstraint({ name: 'isValidMedicationDosage', async: false })
-export class IsValidMedicationDosageConstraint implements ValidatorConstraintInterface {
-  // Valid medication units
-  private readonly validUnits = [
-    // Weight-based units
-    'mg', 'g', 'mcg', 'kg',
-    // Volume-based units
-    'ml', 'l', 'cc',
-    // International units
-    'IU', 'mIU',
-    // Percentage
-    '%',
-    // Count-based units
-    'tablet', 'capsule', 'pill', 'drop', 'spray', 'patch',
-    // Other common units
-    'dose', 'unit', 'application'
-  ];
+export function IsValidEventType(journey: string, validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidEventType',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          if (typeof value !== 'string') {
+            return false;
+          }
 
-  validate(value: any): boolean {
-    if (!value || typeof value !== 'object') return false;
-    
-    // Check if value has amount and unit properties
-    if (!('amount' in value) || !('unit' in value)) return false;
-    
-    // Check if amount is a positive number
-    if (typeof value.amount !== 'number' || value.amount <= 0) return false;
-    
-    // Check if unit is a valid medication unit
-    if (typeof value.unit !== 'string' || !this.validUnits.includes(value.unit.toLowerCase())) return false;
-    
-    return true;
-  }
+          // Get the actual journey value from the object if it's a property reference
+          let journeyValue = journey;
+          if (journey.startsWith('@')) {
+            const journeyProp = journey.substring(1);
+            journeyValue = (args.object as any)[journeyProp];
+          }
 
-  defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid medication dosage with a positive amount and valid unit`;
-  }
+          // Validate based on journey
+          switch (journeyValue.toLowerCase()) {
+            case 'health':
+              return [
+                'HEALTH_METRIC_RECORDED',
+                'HEALTH_GOAL_ACHIEVED',
+                'HEALTH_GOAL_CREATED',
+                'HEALTH_GOAL_UPDATED',
+                'DEVICE_SYNCHRONIZED',
+                'HEALTH_INSIGHT_GENERATED'
+              ].includes(value);
+            case 'care':
+              return [
+                'APPOINTMENT_BOOKED',
+                'APPOINTMENT_COMPLETED',
+                'APPOINTMENT_CANCELLED',
+                'MEDICATION_ADHERENCE',
+                'TELEMEDICINE_SESSION_STARTED',
+                'TELEMEDICINE_SESSION_ENDED',
+                'CARE_PLAN_UPDATED'
+              ].includes(value);
+            case 'plan':
+              return [
+                'CLAIM_SUBMITTED',
+                'CLAIM_UPDATED',
+                'CLAIM_APPROVED',
+                'CLAIM_REJECTED',
+                'BENEFIT_UTILIZED',
+                'PLAN_SELECTED',
+                'PLAN_COMPARED'
+              ].includes(value);
+            case 'user':
+              return [
+                'USER_REGISTERED',
+                'USER_LOGGED_IN',
+                'USER_PROFILE_UPDATED',
+                'USER_PREFERENCES_UPDATED'
+              ].includes(value);
+            case 'gamification':
+              return [
+                'ACHIEVEMENT_UNLOCKED',
+                'REWARD_EARNED',
+                'REWARD_REDEEMED',
+                'LEADERBOARD_UPDATED',
+                'LEVEL_UP'
+              ].includes(value);
+            default:
+              return false;
+          }
+        },
+        defaultMessage(args: ValidationArguments) {
+          let journeyValue = journey;
+          if (journey.startsWith('@')) {
+            const journeyProp = journey.substring(1);
+            journeyValue = (args.object as any)[journeyProp];
+          }
+          return `${args.property} must be a valid event type for the ${journeyValue} journey`;
+        }
+      }
+    });
+  };
 }
 
 /**
- * Validator constraint for checking if a value is a valid currency amount
- * with currency code validation
+ * Validates that a value is a valid UUID
+ * 
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-@ValidatorConstraint({ name: 'isValidCurrencyAmount', async: false })
-export class IsValidCurrencyAmountConstraint implements ValidatorConstraintInterface {
-  // ISO 4217 currency codes (subset of common currencies)
-  private readonly validCurrencyCodes = [
-    'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'BRL', 'INR'
-  ];
+export function IsValidUUID(validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidUUID',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any) {
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          return typeof value === 'string' && uuidRegex.test(value);
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must be a valid UUID`;
+        }
+      }
+    });
+  };
+}
 
-  validate(value: any): boolean {
-    if (!value || typeof value !== 'object') return false;
+/**
+ * Validates that a value is present only when another property has a specific value
+ * 
+ * @param property The property to check
+ * @param values The values that require this property
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ */
+export function IsRequiredWhen(property: string, values: any[], validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isRequiredWhen',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          const relatedValue = (args.object as any)[property];
+          if (values.includes(relatedValue)) {
+            return value !== undefined && value !== null && value !== '';
+          }
+          return true;
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} is required when ${property} is one of [${values.join(', ')}]`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that a value is not present when another property has a specific value
+ * 
+ * @param property The property to check
+ * @param values The values that prohibit this property
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ */
+export function IsProhibitedWhen(property: string, values: any[], validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isProhibitedWhen',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          const relatedValue = (args.object as any)[property];
+          if (values.includes(relatedValue)) {
+            return value === undefined || value === null || value === '';
+          }
+          return true;
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} is not allowed when ${property} is one of [${values.join(', ')}]`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that a value is a valid ISO 8601 date string
+ * 
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ */
+export function IsValidISODate(validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidISODate',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any) {
+          if (typeof value !== 'string') {
+            return false;
+          }
+          try {
+            const date = new Date(value);
+            return !isNaN(date.getTime()) && value === date.toISOString();
+          } catch (e) {
+            return false;
+          }
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must be a valid ISO 8601 date string`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that a value is a valid health metric value based on the metric type
+ */
+@ValidatorConstraint({ name: 'isValidHealthMetricValue', async: false })
+export class IsValidHealthMetricValueConstraint implements ValidatorConstraintInterface {
+  validate(value: any, args: ValidationArguments) {
+    const object = args.object as any;
+    const metricType = object.metricType;
     
-    // Check if value has amount and currency properties
-    if (!('amount' in value) || !('currency' in value)) return false;
-    
-    // Check if amount is a number (can be negative for refunds)
-    if (typeof value.amount !== 'number') return false;
-    
-    // Check if currency is a valid ISO 4217 currency code
-    if (typeof value.currency !== 'string' || 
-        !this.validCurrencyCodes.includes(value.currency.toUpperCase())) {
+    if (typeof value !== 'number') {
       return false;
     }
     
-    return true;
+    switch (metricType) {
+      case 'HEART_RATE':
+        return value >= 30 && value <= 220;
+      case 'BLOOD_GLUCOSE':
+        return value >= 20 && value <= 600;
+      case 'STEPS':
+        return value >= 0 && value <= 100000;
+      case 'SLEEP':
+        return value >= 0 && value <= 24; // Hours
+      case 'WEIGHT':
+        return value >= 0 && value <= 500; // kg
+      case 'TEMPERATURE':
+        return value >= 30 && value <= 45; // Celsius
+      case 'OXYGEN_SATURATION':
+        return value >= 50 && value <= 100; // Percentage
+      case 'RESPIRATORY_RATE':
+        return value >= 0 && value <= 100; // Breaths per minute
+      case 'WATER_INTAKE':
+        return value >= 0 && value <= 10000; // ml
+      case 'CALORIES':
+        return value >= 0 && value <= 10000;
+      default:
+        return true;
+    }
   }
-
-  defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid currency amount with a numeric amount and valid currency code`;
+  
+  defaultMessage(args: ValidationArguments) {
+    const object = args.object as any;
+    const metricType = object.metricType;
+    
+    switch (metricType) {
+      case 'HEART_RATE':
+        return `${args.property} must be between 30 and 220 for heart rate`;
+      case 'BLOOD_GLUCOSE':
+        return `${args.property} must be between 20 and 600 for blood glucose`;
+      case 'STEPS':
+        return `${args.property} must be between 0 and 100000 for steps`;
+      case 'SLEEP':
+        return `${args.property} must be between 0 and 24 for sleep hours`;
+      case 'WEIGHT':
+        return `${args.property} must be between 0 and 500 for weight in kg`;
+      case 'TEMPERATURE':
+        return `${args.property} must be between 30 and 45 for temperature in Celsius`;
+      case 'OXYGEN_SATURATION':
+        return `${args.property} must be between 50 and 100 for oxygen saturation percentage`;
+      case 'RESPIRATORY_RATE':
+        return `${args.property} must be between 0 and 100 for respiratory rate`;
+      case 'WATER_INTAKE':
+        return `${args.property} must be between 0 and 10000 for water intake in ml`;
+      case 'CALORIES':
+        return `${args.property} must be between 0 and 10000 for calories`;
+      default:
+        return `${args.property} must be a valid value for the given metric type`;
+    }
   }
 }
 
 /**
- * Validator constraint for checking if a value is a valid appointment time
- * (future date, within business hours, etc.)
+ * Decorator that validates a health metric value based on the metric type
+ * 
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-@ValidatorConstraint({ name: 'isValidAppointmentTime', async: false })
-export class IsValidAppointmentTimeConstraint implements ValidatorConstraintInterface {
-  validate(value: any, args: ValidationArguments): boolean {
-    if (!(value instanceof Date) && typeof value !== 'string') return false;
-    
-    const appointmentDate = typeof value === 'string' ? new Date(value) : value;
-    
-    // Check if date is valid
-    if (isNaN(appointmentDate.getTime())) return false;
-    
-    // Check if date is in the future
-    const now = new Date();
-    if (appointmentDate <= now) return false;
-    
-    // Check if date is within reasonable future timeframe (e.g., 1 year)
-    const oneYearFromNow = new Date();
-    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
-    if (appointmentDate > oneYearFromNow) return false;
-    
-    // Check if time is within business hours (8 AM to 6 PM)
-    // This can be customized based on provider availability
-    const [minHour, maxHour] = args.constraints || [8, 18];
-    const hour = appointmentDate.getHours();
-    if (hour < minHour || hour >= maxHour) return false;
-    
-    return true;
-  }
-
-  defaultMessage(args: ValidationArguments): string {
-    const [minHour, maxHour] = args.constraints || [8, 18];
-    return `${args.property} must be a valid future appointment time within business hours (${minHour}:00 - ${maxHour}:00)`;
-  }
-}
-
-/**
- * Validator constraint for checking if a value is a valid health goal
- * with appropriate target values
- */
-@ValidatorConstraint({ name: 'isValidHealthGoal', async: false })
-export class IsValidHealthGoalConstraint implements ValidatorConstraintInterface {
-  // Valid goal types and their value ranges
-  private readonly goalTypes: Record<string, { min: number; max: number; unit: string }> = {
-    'steps': { min: 1000, max: 50000, unit: 'steps' },
-    'weight': { min: 30, max: 200, unit: 'kg' },
-    'sleep': { min: 3, max: 12, unit: 'hours' },
-    'water': { min: 1, max: 5, unit: 'liters' },
-    'exercise': { min: 10, max: 300, unit: 'minutes' },
-    'meditation': { min: 5, max: 120, unit: 'minutes' },
-    'calories': { min: 500, max: 5000, unit: 'kcal' }
+export function IsValidHealthMetricValue(validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidHealthMetricValue',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: IsValidHealthMetricValueConstraint,
+    });
   };
-
-  validate(value: any): boolean {
-    if (!value || typeof value !== 'object') return false;
-    
-    // Check if value has type and target properties
-    if (!('type' in value) || !('target' in value)) return false;
-    
-    // Check if type is a valid goal type
-    if (typeof value.type !== 'string' || !this.goalTypes[value.type]) return false;
-    
-    // Check if target is a number within valid range for the goal type
-    if (typeof value.target !== 'number') return false;
-    
-    const { min, max } = this.goalTypes[value.type];
-    if (value.target < min || value.target > max) return false;
-    
-    return true;
-  }
-
-  defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid health goal with appropriate target values`;
-  }
 }
 
 /**
- * Validator constraint for checking if a value is a valid benefit type
- * with appropriate benefit details
+ * Validates that a value is a valid unit for the given health metric type
  */
-@ValidatorConstraint({ name: 'isValidBenefitType', async: false })
-export class IsValidBenefitTypeConstraint implements ValidatorConstraintInterface {
-  // Valid benefit categories and types
-  private readonly benefitCategories = {
-    'medical': ['consultation', 'hospitalization', 'surgery', 'emergency', 'preventive'],
-    'dental': ['cleaning', 'fillings', 'orthodontics', 'extraction', 'root-canal'],
-    'vision': ['exam', 'glasses', 'contacts', 'laser-surgery'],
-    'pharmacy': ['prescription', 'otc', 'specialty'],
-    'wellness': ['gym', 'nutrition', 'mental-health', 'alternative-medicine'],
-    'telehealth': ['video-consultation', 'chat', 'remote-monitoring']
-  };
-
-  validate(value: any): boolean {
-    if (!value || typeof value !== 'object') return false;
+@ValidatorConstraint({ name: 'isValidHealthMetricUnit', async: false })
+export class IsValidHealthMetricUnitConstraint implements ValidatorConstraintInterface {
+  validate(value: any, args: ValidationArguments) {
+    const object = args.object as any;
+    const metricType = object.metricType;
     
-    // Check if value has category and type properties
-    if (!('category' in value) || !('type' in value)) return false;
-    
-    // Check if category is valid
-    if (typeof value.category !== 'string' || 
-        !Object.keys(this.benefitCategories).includes(value.category)) {
+    if (typeof value !== 'string') {
       return false;
     }
     
-    // Check if type is valid for the category
-    if (typeof value.type !== 'string' || 
-        !this.benefitCategories[value.category].includes(value.type)) {
-      return false;
+    switch (metricType) {
+      case 'HEART_RATE':
+        return ['bpm'].includes(value);
+      case 'BLOOD_GLUCOSE':
+        return ['mg/dL', 'mmol/L'].includes(value);
+      case 'STEPS':
+        return ['steps'].includes(value);
+      case 'SLEEP':
+        return ['hours', 'minutes'].includes(value);
+      case 'WEIGHT':
+        return ['kg', 'lb'].includes(value);
+      case 'TEMPERATURE':
+        return ['°C', '°F'].includes(value);
+      case 'OXYGEN_SATURATION':
+        return ['%'].includes(value);
+      case 'RESPIRATORY_RATE':
+        return ['breaths/min'].includes(value);
+      case 'WATER_INTAKE':
+        return ['ml', 'oz'].includes(value);
+      case 'CALORIES':
+        return ['kcal'].includes(value);
+      default:
+        return true;
     }
-    
-    return true;
   }
-
-  defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid benefit with appropriate category and type`;
+  
+  defaultMessage(args: ValidationArguments) {
+    const object = args.object as any;
+    const metricType = object.metricType;
+    
+    switch (metricType) {
+      case 'HEART_RATE':
+        return `${args.property} must be 'bpm' for heart rate`;
+      case 'BLOOD_GLUCOSE':
+        return `${args.property} must be 'mg/dL' or 'mmol/L' for blood glucose`;
+      case 'STEPS':
+        return `${args.property} must be 'steps' for steps`;
+      case 'SLEEP':
+        return `${args.property} must be 'hours' or 'minutes' for sleep`;
+      case 'WEIGHT':
+        return `${args.property} must be 'kg' or 'lb' for weight`;
+      case 'TEMPERATURE':
+        return `${args.property} must be '°C' or '°F' for temperature`;
+      case 'OXYGEN_SATURATION':
+        return `${args.property} must be '%' for oxygen saturation`;
+      case 'RESPIRATORY_RATE':
+        return `${args.property} must be 'breaths/min' for respiratory rate`;
+      case 'WATER_INTAKE':
+        return `${args.property} must be 'ml' or 'oz' for water intake`;
+      case 'CALORIES':
+        return `${args.property} must be 'kcal' for calories`;
+      default:
+        return `${args.property} must be a valid unit for the given metric type`;
+    }
   }
 }
 
-// ===================================================================
-// Custom Validation Decorators
-// ===================================================================
-
 /**
- * Decorator that validates if a string is a valid ISO-8601 duration
+ * Decorator that validates a health metric unit based on the metric type
+ * 
  * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-export function IsIsoDuration(validationOptions?: ValidationOptions) {
+export function IsValidHealthMetricUnit(validationOptions?: ValidationOptions): PropertyDecorator {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isIsoDuration',
+      name: 'isValidHealthMetricUnit',
       target: object.constructor,
       propertyName: propertyName,
       options: validationOptions,
-      constraints: [],
-      validator: IsIsoDurationConstraint
+      validator: IsValidHealthMetricUnitConstraint,
     });
   };
 }
 
 /**
- * Decorator that validates if a number is within a physiologically plausible range
- * for a specific health metric type
- * @param metricType The type of health metric (e.g., 'heartRate', 'weight')
+ * Validates that a value is a valid device type
+ * 
  * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-export function IsPhysiologicallyPlausible(metricType: string, validationOptions?: ValidationOptions) {
+export function IsValidDeviceType(validationOptions?: ValidationOptions): PropertyDecorator {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isPhysiologicallyPlausible',
+      name: 'isValidDeviceType',
       target: object.constructor,
       propertyName: propertyName,
       options: validationOptions,
-      constraints: [metricType],
-      validator: IsPhysiologicallyPlausibleConstraint
-    });
-  };
-}
-
-/**
- * Decorator that validates if an object is a valid medication dosage
- * @param validationOptions Additional validation options
- */
-export function IsValidMedicationDosage(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidMedicationDosage',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [],
-      validator: IsValidMedicationDosageConstraint
-    });
-  };
-}
-
-/**
- * Decorator that validates if an object is a valid currency amount
- * @param validationOptions Additional validation options
- */
-export function IsValidCurrencyAmount(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidCurrencyAmount',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [],
-      validator: IsValidCurrencyAmountConstraint
-    });
-  };
-}
-
-/**
- * Decorator that validates if a date is a valid appointment time
- * @param minHour Minimum hour for appointments (default: 8)
- * @param maxHour Maximum hour for appointments (default: 18)
- * @param validationOptions Additional validation options
- */
-export function IsValidAppointmentTime(
-  minHour: number = 8,
-  maxHour: number = 18,
-  validationOptions?: ValidationOptions
-) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidAppointmentTime',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [minHour, maxHour],
-      validator: IsValidAppointmentTimeConstraint
-    });
-  };
-}
-
-/**
- * Decorator that validates if an object is a valid health goal
- * @param validationOptions Additional validation options
- */
-export function IsValidHealthGoal(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidHealthGoal',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [],
-      validator: IsValidHealthGoalConstraint
-    });
-  };
-}
-
-/**
- * Decorator that validates if an object is a valid benefit type
- * @param validationOptions Additional validation options
- */
-export function IsValidBenefitType(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidBenefitType',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [],
-      validator: IsValidBenefitTypeConstraint
-    });
-  };
-}
-
-/**
- * Decorator that conditionally applies validation decorators based on a condition
- * @param condition Function that determines if validation should be applied
- * @param decorators Validation decorators to apply if condition is true
- */
-export function ValidateIf(
-  condition: (object: any, value: any) => boolean,
-  ...decorators: PropertyDecorator[]
-) {
-  return function (object: Object, propertyName: string) {
-    // Store original property descriptor
-    const descriptor = Object.getOwnPropertyDescriptor(object, propertyName) || {
-      configurable: true,
-      enumerable: true
-    };
-    
-    // Define new property with getter/setter
-    Object.defineProperty(object, propertyName, {
-      configurable: descriptor.configurable,
-      enumerable: descriptor.enumerable,
-      get: function () {
-        return descriptor.value;
-      },
-      set: function (value: any) {
-        // Apply decorators if condition is met
-        if (condition(this, value)) {
-          decorators.forEach(decorator => decorator(object, propertyName));
-        }
-        descriptor.value = value;
-      }
-    });
-  };
-}
-
-/**
- * Decorator that validates an object against a Zod schema
- * @param schema Zod schema to validate against
- * @param validationOptions Additional validation options
- */
-export function ValidateWithZod(schema: ZodSchema, validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'validateWithZod',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      constraints: [schema],
       validator: {
-        validate(value: any, args: ValidationArguments) {
-          const [schema] = args.constraints as [ZodSchema];
-          const result = schema.safeParse(value);
-          return result.success;
+        validate(value: any) {
+          const validDeviceTypes = [
+            'FITNESS_TRACKER',
+            'SMARTWATCH',
+            'BLOOD_PRESSURE_MONITOR',
+            'GLUCOSE_MONITOR',
+            'SCALE',
+            'SLEEP_TRACKER',
+            'THERMOMETER',
+            'PULSE_OXIMETER'
+          ];
+          return typeof value === 'string' && validDeviceTypes.includes(value);
         },
         defaultMessage(args: ValidationArguments) {
-          const [schema] = args.constraints as [ZodSchema];
-          const result = schema.safeParse(args.value);
-          if (!result.success) {
-            return `${args.property} validation failed: ${result.error.message}`;
-          }
-          return `${args.property} validation failed`;
+          return `${args.property} must be a valid device type`;
         }
       }
     });
@@ -504,39 +481,34 @@ export function ValidateWithZod(schema: ZodSchema, validationOptions?: Validatio
 }
 
 /**
- * Decorator that validates if a property is valid based on the event type
- * @param eventTypeField Name of the field containing the event type
- * @param validEventTypes Array of event types for which validation should be applied
+ * Validates that a value is a valid appointment status
+ * 
  * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-export function ValidateForEventTypes(
-  eventTypeField: string,
-  validEventTypes: string[],
-  validationOptions?: ValidationOptions
-) {
+export function IsValidAppointmentStatus(validationOptions?: ValidationOptions): PropertyDecorator {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'validateForEventTypes',
+      name: 'isValidAppointmentStatus',
       target: object.constructor,
       propertyName: propertyName,
       options: validationOptions,
-      constraints: [eventTypeField, validEventTypes],
       validator: {
-        validate(value: any, args: ValidationArguments) {
-          const [eventTypeField, validEventTypes] = args.constraints;
-          const eventType = (args.object as any)[eventTypeField];
-          
-          // Skip validation if event type is not in the list
-          if (!validEventTypes.includes(eventType)) {
-            return true;
-          }
-          
-          // Validate value is present for the specified event types
-          return value !== undefined && value !== null;
+        validate(value: any) {
+          const validStatuses = [
+            'SCHEDULED',
+            'CONFIRMED',
+            'CHECKED_IN',
+            'IN_PROGRESS',
+            'COMPLETED',
+            'CANCELLED',
+            'NO_SHOW',
+            'RESCHEDULED'
+          ];
+          return typeof value === 'string' && validStatuses.includes(value);
         },
         defaultMessage(args: ValidationArguments) {
-          const [eventTypeField, validEventTypes] = args.constraints;
-          return `${args.property} is required for event types: ${validEventTypes.join(', ')}`;
+          return `${args.property} must be a valid appointment status`;
         }
       }
     });
@@ -544,688 +516,215 @@ export function ValidateForEventTypes(
 }
 
 /**
- * Decorator that validates if a property is valid based on the journey
- * @param journeyField Name of the field containing the journey
- * @param validJourneys Array of journeys for which validation should be applied
+ * Validates that a value is a valid claim status
+ * 
  * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-export function ValidateForJourneys(
-  journeyField: string,
-  validJourneys: string[],
-  validationOptions?: ValidationOptions
-) {
+export function IsValidClaimStatus(validationOptions?: ValidationOptions): PropertyDecorator {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'validateForJourneys',
+      name: 'isValidClaimStatus',
       target: object.constructor,
       propertyName: propertyName,
       options: validationOptions,
-      constraints: [journeyField, validJourneys],
       validator: {
-        validate(value: any, args: ValidationArguments) {
-          const [journeyField, validJourneys] = args.constraints;
-          const journey = (args.object as any)[journeyField];
-          
-          // Skip validation if journey is not in the list
-          if (!validJourneys.includes(journey)) {
-            return true;
-          }
-          
-          // Validate value is present for the specified journeys
-          return value !== undefined && value !== null;
+        validate(value: any) {
+          const validStatuses = [
+            'SUBMITTED',
+            'UNDER_REVIEW',
+            'ADDITIONAL_INFO_REQUIRED',
+            'APPROVED',
+            'PARTIALLY_APPROVED',
+            'REJECTED',
+            'PAYMENT_PENDING',
+            'PAYMENT_PROCESSED',
+            'APPEALED'
+          ];
+          return typeof value === 'string' && validStatuses.includes(value);
         },
         defaultMessage(args: ValidationArguments) {
-          const [journeyField, validJourneys] = args.constraints;
-          return `${args.property} is required for journeys: ${validJourneys.join(', ')}`;
+          return `${args.property} must be a valid claim status`;
         }
       }
     });
   };
 }
 
-// ===================================================================
-// Validation Utility Functions
-// ===================================================================
-
 /**
- * Validates an object against a class-validator decorated class
- * @param object Object to validate
- * @param validatorClass Class with validation decorators
- * @param options Additional validation options
- * @returns Validation result
+ * Validates that an event has valid metadata
+ * 
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
  */
-export async function validateObject<T extends object>(
-  object: object,
-  validatorClass: ClassConstructor<T>,
-  options: { journey?: string; eventType?: string } = {}
-): Promise<ValidationResult> {
-  try {
-    // Convert plain object to class instance
-    const instance = plainToInstance(validatorClass, object);
-    
-    // Validate instance
-    const errors = await validate(instance, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      forbidUnknownValues: true
-    });
-    
-    if (errors.length === 0) {
-      return ValidationResultFactory.valid(options.journey);
-    }
-    
-    // Map validation errors to validation issues
-    const issues: ValidationIssue[] = errors.flatMap(error => {
-      const constraints = error.constraints || {};
-      return Object.entries(constraints).map(([key, message]) => ({
-        code: `VALIDATION_${key.toUpperCase()}`,
-        message,
-        field: error.property,
-        severity: ValidationSeverity.ERROR,
-        context: {
-          value: error.value,
-          journey: options.journey,
-          eventType: options.eventType
+export function HasValidEventMetadata(validationOptions?: ValidationOptions): PropertyDecorator {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'hasValidEventMetadata',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        async validate(value: any) {
+          if (!value || typeof value !== 'object') {
+            return false;
+          }
+          
+          const metadata = value as EventMetadataDto;
+          const errors = await validate(metadata);
+          return errors.length === 0;
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must contain valid event metadata`;
         }
-      }));
-    });
-    
-    return ValidationResultFactory.invalid(issues, options.journey);
-  } catch (error) {
-    // Handle unexpected validation errors
-    const issue: ValidationIssue = {
-      code: 'VALIDATION_SYSTEM_ERROR',
-      message: `Validation system error: ${error.message}`,
-      severity: ValidationSeverity.ERROR,
-      context: {
-        journey: options.journey,
-        eventType: options.eventType,
-        error: error.toString()
       }
-    };
-    
-    return ValidationResultFactory.invalid([issue], options.journey);
-  }
+    });
+  };
 }
 
 /**
- * Validates an object against a class-validator decorated class synchronously
- * @param object Object to validate
- * @param validatorClass Class with validation decorators
- * @param options Additional validation options
- * @returns Validation result
+ * Utility function to format validation errors into a standardized structure
+ * 
+ * @param errors Array of validation errors from class-validator
+ * @returns Formatted validation errors
  */
-export function validateObjectSync<T extends object>(
-  object: object,
-  validatorClass: ClassConstructor<T>,
-  options: { journey?: string; eventType?: string } = {}
-): ValidationResult {
-  try {
-    // Convert plain object to class instance
-    const instance = plainToInstance(validatorClass, object);
+export function formatValidationErrors(errors: any[]): ValidationError[] {
+  return errors.map(error => {
+    const formattedError: ValidationError = {
+      property: error.property,
+      errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+      message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
+      constraints: error.constraints
+    };
     
-    // Validate instance
-    const errors = validateSync(instance, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      forbidUnknownValues: true
-    });
-    
-    if (errors.length === 0) {
-      return ValidationResultFactory.valid(options.journey);
+    if (error.children && error.children.length > 0) {
+      formattedError.children = formatValidationErrors(error.children);
     }
     
-    // Map validation errors to validation issues
-    const issues: ValidationIssue[] = errors.flatMap(error => {
-      const constraints = error.constraints || {};
-      return Object.entries(constraints).map(([key, message]) => ({
-        code: `VALIDATION_${key.toUpperCase()}`,
-        message,
-        field: error.property,
-        severity: ValidationSeverity.ERROR,
-        context: {
-          value: error.value,
-          journey: options.journey,
-          eventType: options.eventType
-        }
-      }));
-    });
-    
-    return ValidationResultFactory.invalid(issues, options.journey);
-  } catch (error) {
-    // Handle unexpected validation errors
-    const issue: ValidationIssue = {
-      code: 'VALIDATION_SYSTEM_ERROR',
-      message: `Validation system error: ${error.message}`,
-      severity: ValidationSeverity.ERROR,
-      context: {
-        journey: options.journey,
-        eventType: options.eventType,
-        error: error.toString()
-      }
-    };
-    
-    return ValidationResultFactory.invalid([issue], options.journey);
-  }
+    return formattedError;
+  });
 }
 
 /**
- * Validates an object against a Zod schema
- * @param object Object to validate
- * @param schema Zod schema
+ * Utility function to validate an object against its class-validator decorators
+ * 
+ * @param object The object to validate
  * @param options Additional validation options
- * @returns Validation result
+ * @returns Promise resolving to validation errors or null if valid
  */
-export function validateWithZod<T extends z.ZodType>(
-  object: unknown,
-  schema: T,
-  options: { journey?: string; eventType?: string } = {}
-): ValidationResult {
+export async function validateObject(object: any, options?: any): Promise<ValidationError[] | null> {
+  const errors = await validate(object, options);
+  
+  if (errors.length === 0) {
+    return null;
+  }
+  
+  return formatValidationErrors(errors);
+}
+
+/**
+ * Utility function to check if a value is a valid UUID
+ * 
+ * @param value The value to check
+ * @returns Boolean indicating if the value is a valid UUID
+ */
+export function isUUID(value: any): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
+}
+
+/**
+ * Utility function to check if a value is a valid ISO 8601 date string
+ * 
+ * @param value The value to check
+ * @returns Boolean indicating if the value is a valid ISO 8601 date string
+ */
+export function isISODate(value: any): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  
   try {
-    const result = schema.safeParse(object);
-    
-    if (result.success) {
-      return ValidationResultFactory.valid(options.journey);
-    }
-    
-    // Map Zod errors to validation issues
-    const issues: ValidationIssue[] = result.error.errors.map(error => ({
-      code: `VALIDATION_ZOD_${error.code}`,
-      message: error.message,
-      field: error.path.join('.'),
-      severity: ValidationSeverity.ERROR,
-      context: {
-        value: error.path.length > 0 ? getValueAtPath(object, error.path) : object,
-        journey: options.journey,
-        eventType: options.eventType
-      }
-    }));
-    
-    return ValidationResultFactory.invalid(issues, options.journey);
-  } catch (error) {
-    // Handle unexpected validation errors
-    const issue: ValidationIssue = {
-      code: 'VALIDATION_SYSTEM_ERROR',
-      message: `Zod validation error: ${error.message}`,
-      severity: ValidationSeverity.ERROR,
-      context: {
-        journey: options.journey,
-        eventType: options.eventType,
-        error: error.toString()
-      }
-    };
-    
-    return ValidationResultFactory.invalid([issue], options.journey);
+    const date = new Date(value);
+    return !isNaN(date.getTime()) && value === date.toISOString();
+  } catch (e) {
+    return false;
   }
 }
 
 /**
- * Helper function to get a value at a specific path in an object
- * @param obj Object to get value from
- * @param path Path to the value
- * @returns Value at the path or undefined
+ * Utility function to check if a value is a valid journey name
+ * 
+ * @param value The value to check
+ * @returns Boolean indicating if the value is a valid journey name
  */
-function getValueAtPath(obj: any, path: (string | number)[]): any {
-  return path.reduce((acc, key) => {
-    if (acc === undefined || acc === null) return undefined;
-    return acc[key];
-  }, obj);
+export function isValidJourney(value: any): boolean {
+  const validJourneys = ['health', 'care', 'plan', 'user', 'gamification'];
+  return typeof value === 'string' && validJourneys.includes(value.toLowerCase());
 }
 
 /**
- * Validates an event and throws an EventValidationError if validation fails
- * @param event Event to validate
- * @param validatorClass Class with validation decorators
- * @param options Additional validation options
- * @throws EventValidationError if validation fails
+ * Utility function to check if a value is a valid event type for a given journey
+ * 
+ * @param value The value to check
+ * @param journey The journey to validate against
+ * @returns Boolean indicating if the value is a valid event type for the journey
  */
-export async function validateEventOrThrow<T extends object>(
-  event: object,
-  validatorClass: ClassConstructor<T>,
-  options: { journey?: string; eventType?: string } = {}
-): Promise<void> {
-  const result = await validateObject(event, validatorClass, options);
-  
-  if (!result.isValid) {
-    const errorContext: EventErrorContext = {
-      eventType: options.eventType,
-      processingStage: EventProcessingStage.VALIDATION,
-      details: {
-        validationIssues: result.issues,
-        journey: options.journey
-      }
-    };
-    
-    const errorMessages = result.issues.map(issue => issue.message).join('; ');
-    throw new EventValidationError(`Event validation failed: ${errorMessages}`, errorContext);
-  }
-}
-
-/**
- * Validates an event synchronously and throws an EventValidationError if validation fails
- * @param event Event to validate
- * @param validatorClass Class with validation decorators
- * @param options Additional validation options
- * @throws EventValidationError if validation fails
- */
-export function validateEventOrThrowSync<T extends object>(
-  event: object,
-  validatorClass: ClassConstructor<T>,
-  options: { journey?: string; eventType?: string } = {}
-): void {
-  const result = validateObjectSync(event, validatorClass, options);
-  
-  if (!result.isValid) {
-    const errorContext: EventErrorContext = {
-      eventType: options.eventType,
-      processingStage: EventProcessingStage.VALIDATION,
-      details: {
-        validationIssues: result.issues,
-        journey: options.journey
-      }
-    };
-    
-    const errorMessages = result.issues.map(issue => issue.message).join('; ');
-    throw new EventValidationError(`Event validation failed: ${errorMessages}`, errorContext);
-  }
-}
-
-// ===================================================================
-// Journey-Specific Validation Functions
-// ===================================================================
-
-/**
- * Namespace for Health journey-specific validation functions
- */
-export namespace HealthValidation {
-  /**
-   * Validates health metric data
-   * @param metricData Health metric data to validate
-   * @returns Validation result
-   */
-  export function validateHealthMetric(metricData: any): ValidationResult {
-    // Define Zod schema for health metric data
-    const healthMetricSchema = z.object({
-      type: z.enum([
-        'heartRate', 'bloodPressure', 'weight', 'height', 'temperature',
-        'bloodGlucose', 'oxygenSaturation', 'respiratoryRate', 'steps',
-        'sleep', 'bodyFat', 'bmi', 'caloriesBurned', 'caloriesConsumed'
-      ]),
-      value: z.number(),
-      unit: z.string(),
-      timestamp: z.string().datetime(),
-      source: z.enum(['manual', 'device', 'integration']).optional(),
-      deviceId: z.string().optional()
-    });
-    
-    return validateWithZod(metricData, healthMetricSchema, { journey: 'health', eventType: 'health.metric.recorded' });
+export function isValidEventType(value: any, journey: string): boolean {
+  if (typeof value !== 'string' || typeof journey !== 'string') {
+    return false;
   }
   
-  /**
-   * Validates health goal data
-   * @param goalData Health goal data to validate
-   * @returns Validation result
-   */
-  export function validateHealthGoal(goalData: any): ValidationResult {
-    // Define Zod schema for health goal data
-    const healthGoalSchema = z.object({
-      type: z.enum([
-        'steps', 'weight', 'sleep', 'water', 'exercise',
-        'meditation', 'calories'
-      ]),
-      target: z.number(),
-      current: z.number().optional(),
-      unit: z.string(),
-      startDate: z.string().datetime(),
-      endDate: z.string().datetime().optional(),
-      frequency: z.enum(['daily', 'weekly', 'monthly']).optional(),
-      reminderEnabled: z.boolean().optional()
-    });
-    
-    return validateWithZod(goalData, healthGoalSchema, { journey: 'health', eventType: 'health.goal.created' });
-  }
-  
-  /**
-   * Validates device connection data
-   * @param deviceData Device connection data to validate
-   * @returns Validation result
-   */
-  export function validateDeviceConnection(deviceData: any): ValidationResult {
-    // Define Zod schema for device connection data
-    const deviceConnectionSchema = z.object({
-      deviceId: z.string(),
-      deviceType: z.enum([
-        'smartwatch', 'fitnessBand', 'smartScale', 'glucoseMeter',
-        'bloodPressureMonitor', 'sleepTracker', 'smartphone'
-      ]),
-      manufacturer: z.string(),
-      model: z.string(),
-      connectionStatus: z.enum(['connected', 'disconnected', 'pairing', 'failed']),
-      lastSyncTimestamp: z.string().datetime().optional(),
-      permissions: z.array(z.string()).optional()
-    });
-    
-    return validateWithZod(deviceData, deviceConnectionSchema, { journey: 'health', eventType: 'health.device.connected' });
-  }
-}
-
-/**
- * Namespace for Care journey-specific validation functions
- */
-export namespace CareValidation {
-  /**
-   * Validates appointment data
-   * @param appointmentData Appointment data to validate
-   * @returns Validation result
-   */
-  export function validateAppointment(appointmentData: any): ValidationResult {
-    // Define Zod schema for appointment data
-    const appointmentSchema = z.object({
-      providerId: z.string(),
-      specialization: z.string(),
-      appointmentType: z.enum(['in-person', 'video', 'phone']),
-      dateTime: z.string().datetime(),
-      duration: z.number().min(5).max(180), // Duration in minutes
-      reason: z.string(),
-      location: z.object({
-        address: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        zipCode: z.string().optional(),
-        country: z.string().optional()
-      }).optional(),
-      status: z.enum([
-        'scheduled', 'confirmed', 'checked-in', 'completed',
-        'cancelled', 'no-show', 'rescheduled'
-      ])
-    });
-    
-    return validateWithZod(appointmentData, appointmentSchema, { journey: 'care', eventType: 'care.appointment.booked' });
-  }
-  
-  /**
-   * Validates medication data
-   * @param medicationData Medication data to validate
-   * @returns Validation result
-   */
-  export function validateMedication(medicationData: any): ValidationResult {
-    // Define Zod schema for medication data
-    const medicationSchema = z.object({
-      medicationId: z.string(),
-      name: z.string(),
-      dosage: z.object({
-        amount: z.number().positive(),
-        unit: z.string()
-      }),
-      frequency: z.object({
-        times: z.number().positive(),
-        period: z.enum(['day', 'week', 'month'])
-      }),
-      schedule: z.array(z.object({
-        time: z.string(), // Format: HH:MM
-        taken: z.boolean().optional(),
-        takenAt: z.string().datetime().optional()
-      })).optional(),
-      startDate: z.string().datetime(),
-      endDate: z.string().datetime().optional(),
-      instructions: z.string().optional(),
-      prescribedBy: z.string().optional(),
-      refillReminder: z.boolean().optional()
-    });
-    
-    return validateWithZod(medicationData, medicationSchema, { journey: 'care', eventType: 'care.medication.added' });
-  }
-  
-  /**
-   * Validates telemedicine session data
-   * @param sessionData Telemedicine session data to validate
-   * @returns Validation result
-   */
-  export function validateTelemedicineSession(sessionData: any): ValidationResult {
-    // Define Zod schema for telemedicine session data
-    const telemedicineSessionSchema = z.object({
-      sessionId: z.string(),
-      providerId: z.string(),
-      appointmentId: z.string().optional(),
-      startTime: z.string().datetime(),
-      endTime: z.string().datetime().optional(),
-      status: z.enum([
-        'scheduled', 'waiting', 'in-progress', 'completed',
-        'cancelled', 'failed', 'no-show'
-      ]),
-      sessionType: z.enum(['video', 'audio', 'chat']),
-      technicalDetails: z.object({
-        platform: z.string().optional(),
-        browserInfo: z.string().optional(),
-        deviceInfo: z.string().optional(),
-        connectionQuality: z.enum(['excellent', 'good', 'fair', 'poor']).optional()
-      }).optional()
-    });
-    
-    return validateWithZod(sessionData, telemedicineSessionSchema, { journey: 'care', eventType: 'care.telemedicine.started' });
-  }
-}
-
-/**
- * Namespace for Plan journey-specific validation functions
- */
-export namespace PlanValidation {
-  /**
-   * Validates claim data
-   * @param claimData Claim data to validate
-   * @returns Validation result
-   */
-  export function validateClaim(claimData: any): ValidationResult {
-    // Define Zod schema for claim data
-    const claimSchema = z.object({
-      claimId: z.string(),
-      serviceDate: z.string().datetime(),
-      providerName: z.string(),
-      providerId: z.string().optional(),
-      serviceType: z.string(),
-      diagnosisCodes: z.array(z.string()).optional(),
-      procedureCodes: z.array(z.string()).optional(),
-      amount: z.object({
-        total: z.number().positive(),
-        covered: z.number().optional(),
-        patientResponsibility: z.number().optional(),
-        currency: z.string().default('USD')
-      }),
-      status: z.enum([
-        'submitted', 'in-review', 'approved', 'partially-approved',
-        'denied', 'appealed', 'paid', 'cancelled'
-      ]),
-      documents: z.array(z.object({
-        documentId: z.string(),
-        documentType: z.string(),
-        uploadDate: z.string().datetime()
-      })).optional(),
-      notes: z.string().optional()
-    });
-    
-    return validateWithZod(claimData, claimSchema, { journey: 'plan', eventType: 'plan.claim.submitted' });
-  }
-  
-  /**
-   * Validates benefit data
-   * @param benefitData Benefit data to validate
-   * @returns Validation result
-   */
-  export function validateBenefit(benefitData: any): ValidationResult {
-    // Define Zod schema for benefit data
-    const benefitSchema = z.object({
-      benefitId: z.string(),
-      category: z.enum([
-        'medical', 'dental', 'vision', 'pharmacy',
-        'wellness', 'telehealth'
-      ]),
-      type: z.string(),
-      description: z.string(),
-      coverage: z.object({
-        coinsurance: z.number().min(0).max(100).optional(), // Percentage
-        copay: z.number().min(0).optional(),
-        deductible: z.number().min(0).optional(),
-        outOfPocketMax: z.number().min(0).optional(),
-        currency: z.string().default('USD')
-      }),
-      limits: z.object({
-        visitsPerYear: z.number().optional(),
-        amountPerYear: z.number().optional(),
-        lifetime: z.number().optional()
-      }).optional(),
-      network: z.enum(['in-network', 'out-of-network', 'both']).optional(),
-      requiresPreauthorization: z.boolean().optional(),
-      effectiveDate: z.string().datetime(),
-      expirationDate: z.string().datetime().optional()
-    });
-    
-    return validateWithZod(benefitData, benefitSchema, { journey: 'plan', eventType: 'plan.benefit.utilized' });
-  }
-  
-  /**
-   * Validates plan selection data
-   * @param planData Plan selection data to validate
-   * @returns Validation result
-   */
-  export function validatePlanSelection(planData: any): ValidationResult {
-    // Define Zod schema for plan selection data
-    const planSelectionSchema = z.object({
-      planId: z.string(),
-      planName: z.string(),
-      planType: z.enum([
-        'HMO', 'PPO', 'EPO', 'POS', 'HDHP', 'Catastrophic',
-        'Bronze', 'Silver', 'Gold', 'Platinum'
-      ]),
-      premium: z.object({
-        amount: z.number().positive(),
-        frequency: z.enum(['monthly', 'quarterly', 'annually']),
-        currency: z.string().default('USD')
-      }),
-      coverage: z.object({
-        individual: z.boolean(),
-        family: z.boolean(),
-        dependents: z.array(z.string()).optional()
-      }),
-      effectiveDate: z.string().datetime(),
-      selectionDate: z.string().datetime(),
-      previousPlanId: z.string().optional(),
-      reason: z.string().optional()
-    });
-    
-    return validateWithZod(planData, planSelectionSchema, { journey: 'plan', eventType: 'plan.plan.selected' });
-  }
-}
-
-// ===================================================================
-// Cross-Journey Validation Functions
-// ===================================================================
-
-/**
- * Validates event data based on journey and event type
- * @param eventData Event data to validate
- * @param journey Journey (health, care, plan)
- * @param eventType Event type
- * @returns Validation result
- */
-export function validateJourneyEvent(
-  eventData: any,
-  journey: string,
-  eventType: string
-): ValidationResult {
-  // Validate based on journey and event type
-  switch (journey) {
+  switch (journey.toLowerCase()) {
     case 'health':
-      return validateHealthEvent(eventData, eventType);
+      return [
+        'HEALTH_METRIC_RECORDED',
+        'HEALTH_GOAL_ACHIEVED',
+        'HEALTH_GOAL_CREATED',
+        'HEALTH_GOAL_UPDATED',
+        'DEVICE_SYNCHRONIZED',
+        'HEALTH_INSIGHT_GENERATED'
+      ].includes(value);
     case 'care':
-      return validateCareEvent(eventData, eventType);
+      return [
+        'APPOINTMENT_BOOKED',
+        'APPOINTMENT_COMPLETED',
+        'APPOINTMENT_CANCELLED',
+        'MEDICATION_ADHERENCE',
+        'TELEMEDICINE_SESSION_STARTED',
+        'TELEMEDICINE_SESSION_ENDED',
+        'CARE_PLAN_UPDATED'
+      ].includes(value);
     case 'plan':
-      return validatePlanEvent(eventData, eventType);
+      return [
+        'CLAIM_SUBMITTED',
+        'CLAIM_UPDATED',
+        'CLAIM_APPROVED',
+        'CLAIM_REJECTED',
+        'BENEFIT_UTILIZED',
+        'PLAN_SELECTED',
+        'PLAN_COMPARED'
+      ].includes(value);
+    case 'user':
+      return [
+        'USER_REGISTERED',
+        'USER_LOGGED_IN',
+        'USER_PROFILE_UPDATED',
+        'USER_PREFERENCES_UPDATED'
+      ].includes(value);
+    case 'gamification':
+      return [
+        'ACHIEVEMENT_UNLOCKED',
+        'REWARD_EARNED',
+        'REWARD_REDEEMED',
+        'LEADERBOARD_UPDATED',
+        'LEVEL_UP'
+      ].includes(value);
     default:
-      return ValidationResultFactory.invalid([
-        {
-          code: 'VALIDATION_INVALID_JOURNEY',
-          message: `Invalid journey: ${journey}`,
-          severity: ValidationSeverity.ERROR,
-          context: { journey, eventType }
-        }
-      ]);
-  }
-}
-
-/**
- * Validates health journey event data based on event type
- * @param eventData Event data to validate
- * @param eventType Event type
- * @returns Validation result
- */
-function validateHealthEvent(eventData: any, eventType: string): ValidationResult {
-  // Validate based on event type
-  if (eventType.startsWith('health.metric.')) {
-    return HealthValidation.validateHealthMetric(eventData);
-  } else if (eventType.startsWith('health.goal.')) {
-    return HealthValidation.validateHealthGoal(eventData);
-  } else if (eventType.startsWith('health.device.')) {
-    return HealthValidation.validateDeviceConnection(eventData);
-  } else {
-    return ValidationResultFactory.invalid([
-      {
-        code: 'VALIDATION_INVALID_EVENT_TYPE',
-        message: `Invalid health event type: ${eventType}`,
-        severity: ValidationSeverity.ERROR,
-        context: { journey: 'health', eventType }
-      }
-    ]);
-  }
-}
-
-/**
- * Validates care journey event data based on event type
- * @param eventData Event data to validate
- * @param eventType Event type
- * @returns Validation result
- */
-function validateCareEvent(eventData: any, eventType: string): ValidationResult {
-  // Validate based on event type
-  if (eventType.startsWith('care.appointment.')) {
-    return CareValidation.validateAppointment(eventData);
-  } else if (eventType.startsWith('care.medication.')) {
-    return CareValidation.validateMedication(eventData);
-  } else if (eventType.startsWith('care.telemedicine.')) {
-    return CareValidation.validateTelemedicineSession(eventData);
-  } else {
-    return ValidationResultFactory.invalid([
-      {
-        code: 'VALIDATION_INVALID_EVENT_TYPE',
-        message: `Invalid care event type: ${eventType}`,
-        severity: ValidationSeverity.ERROR,
-        context: { journey: 'care', eventType }
-      }
-    ]);
-  }
-}
-
-/**
- * Validates plan journey event data based on event type
- * @param eventData Event data to validate
- * @param eventType Event type
- * @returns Validation result
- */
-function validatePlanEvent(eventData: any, eventType: string): ValidationResult {
-  // Validate based on event type
-  if (eventType.startsWith('plan.claim.')) {
-    return PlanValidation.validateClaim(eventData);
-  } else if (eventType.startsWith('plan.benefit.')) {
-    return PlanValidation.validateBenefit(eventData);
-  } else if (eventType.startsWith('plan.plan.')) {
-    return PlanValidation.validatePlanSelection(eventData);
-  } else {
-    return ValidationResultFactory.invalid([
-      {
-        code: 'VALIDATION_INVALID_EVENT_TYPE',
-        message: `Invalid plan event type: ${eventType}`,
-        severity: ValidationSeverity.ERROR,
-        context: { journey: 'plan', eventType }
-      }
-    ]);
+      return false;
   }
 }
