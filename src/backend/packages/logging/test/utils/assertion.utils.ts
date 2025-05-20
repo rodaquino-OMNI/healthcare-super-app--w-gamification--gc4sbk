@@ -1,617 +1,642 @@
-import { LogEntry, LogLevel, JourneyType, JourneyContext, ErrorObject } from '../../src/interfaces/log-entry.interface';
-import { LogLevelUtils } from '../../src/interfaces/log-level.enum';
+/**
+ * @file assertion.utils.ts
+ * @description Provides custom assertion utilities for verifying log content, format, and structure in tests.
+ * These utilities help ensure that logs adhere to the standardized format and contain all required information.
+ */
+
+import { LogLevel, JourneyType } from '../../src/interfaces/formatter.interface';
 
 /**
- * Utility functions for asserting log content, format, and structure in tests.
- * These utilities help verify that logs contain expected fields, follow the correct format,
- * include proper context information, and maintain correct log levels.
+ * Interface representing a parsed log entry for testing purposes.
+ * This is used to validate the structure and content of log entries.
  */
-export class LogAssertions {
+export interface ParsedLogEntry {
+  timestamp: string | Date;
+  level: string;
+  message: string;
+  context?: string;
+  error?: any;
+  metadata?: Record<string, any>;
+  traceId?: string;
+  spanId?: string;
+  userId?: string;
+  requestId?: string;
+  journey?: string;
+  service?: string;
+  environment?: string;
+  [key: string]: any; // Allow additional fields for extensibility
+}
+
+/**
+ * Options for log assertion functions.
+ */
+export interface LogAssertionOptions {
   /**
-   * Asserts that a log entry contains all required base fields.
-   * @param log The log entry to check
-   * @param message Optional expected message to verify
-   * @throws Error if any required field is missing or invalid
+   * Whether to perform strict validation of all required fields.
+   * @default true
    */
-  static assertBaseFields(log: LogEntry, message?: string): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
+  strict?: boolean;
+  
+  /**
+   * Custom error message to display when assertion fails.
+   */
+  message?: string;
+}
 
-    // Check required fields
-    if (!log.message) {
-      throw new Error('Log entry is missing required message field');
-    }
+/**
+ * Asserts that a string is valid JSON and can be parsed.
+ * 
+ * @param logString The log string to validate
+ * @param options Assertion options
+ * @throws Error if the string is not valid JSON
+ * @returns The parsed JSON object
+ */
+export function assertValidJson(logString: string, options: LogAssertionOptions = {}): any {
+  try {
+    return JSON.parse(logString);
+  } catch (error) {
+    const message = options.message || `Log is not valid JSON: ${logString}`;
+    throw new Error(message);
+  }
+}
 
-    if (log.level === undefined || log.level === null) {
-      throw new Error('Log entry is missing required level field');
-    }
-
-    if (!log.timestamp) {
-      throw new Error('Log entry is missing required timestamp field');
-    }
-
-    if (!log.service) {
-      throw new Error('Log entry is missing required service field');
-    }
-
-    // Validate timestamp is a valid Date
-    if (!(log.timestamp instanceof Date) && !(typeof log.timestamp === 'string')) {
-      throw new Error('Log timestamp must be a Date object or ISO string');
-    }
-
-    // Check message content if provided
-    if (message !== undefined && log.message !== message) {
-      throw new Error(`Log message does not match expected. Got: "${log.message}", Expected: "${message}"`);
+/**
+ * Asserts that a log entry contains all required fields.
+ * 
+ * @param logEntry The log entry to validate
+ * @param options Assertion options
+ * @throws Error if any required field is missing
+ */
+export function assertRequiredFields(logEntry: any, options: LogAssertionOptions = {}): void {
+  const strict = options.strict !== false;
+  const requiredFields = ['timestamp', 'level', 'message'];
+  
+  for (const field of requiredFields) {
+    if (logEntry[field] === undefined) {
+      const message = options.message || `Log entry is missing required field: ${field}`;
+      throw new Error(message);
     }
   }
-
-  /**
-   * Asserts that a log entry has the expected log level.
-   * @param log The log entry to check
-   * @param expectedLevel The expected log level
-   * @throws Error if the log level doesn't match the expected level
-   */
-  static assertLogLevel(log: LogEntry, expectedLevel: LogLevel): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (log.level !== expectedLevel) {
-      throw new Error(
-        `Log level does not match expected. Got: ${LogLevelUtils.toString(log.level)}, Expected: ${LogLevelUtils.toString(expectedLevel)}`
-      );
+  
+  // In strict mode, validate timestamp format
+  if (strict && logEntry.timestamp) {
+    const timestamp = new Date(logEntry.timestamp);
+    if (isNaN(timestamp.getTime())) {
+      const message = options.message || `Log entry has invalid timestamp format: ${logEntry.timestamp}`;
+      throw new Error(message);
     }
   }
+}
 
-  /**
-   * Asserts that a log entry contains the expected context information.
-   * @param log The log entry to check
-   * @param context The expected context object or key-value pairs
-   * @throws Error if any context field doesn't match the expected value
-   */
-  static assertContext(log: LogEntry, context: Record<string, any>): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
+/**
+ * Asserts that a log entry has the expected log level.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedLevel The expected log level
+ * @param options Assertion options
+ * @throws Error if the log level doesn't match the expected level
+ */
+export function assertLogLevel(logEntry: any, expectedLevel: LogLevel | string, options: LogAssertionOptions = {}): void {
+  const logLevel = typeof logEntry.level === 'string' ? logEntry.level.toUpperCase() : logEntry.level;
+  const expected = typeof expectedLevel === 'string' ? expectedLevel.toUpperCase() : expectedLevel;
+  
+  if (logLevel !== expected) {
+    const message = options.message || `Expected log level ${expected}, but got ${logLevel}`;
+    throw new Error(message);
+  }
+}
+
+/**
+ * Asserts that a log entry contains the expected message.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedMessage The expected message or a regular expression to match against the message
+ * @param options Assertion options
+ * @throws Error if the message doesn't match the expected message
+ */
+export function assertLogMessage(logEntry: any, expectedMessage: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (typeof expectedMessage === 'string') {
+    if (logEntry.message !== expectedMessage) {
+      const message = options.message || `Expected log message "${expectedMessage}", but got "${logEntry.message}"`;
+      throw new Error(message);
     }
-
-    if (!log.context) {
-      throw new Error('Log entry is missing context object');
+  } else if (expectedMessage instanceof RegExp) {
+    if (!expectedMessage.test(logEntry.message)) {
+      const message = options.message || `Expected log message to match ${expectedMessage}, but got "${logEntry.message}"`;
+      throw new Error(message);
     }
+  }
+}
 
-    for (const [key, value] of Object.entries(context)) {
-      if (log.context[key] === undefined) {
-        throw new Error(`Log context is missing expected key: ${key}`);
+/**
+ * Asserts that a log entry contains the expected context information.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedContext The expected context string or a regular expression to match against the context
+ * @param options Assertion options
+ * @throws Error if the context doesn't match the expected context
+ */
+export function assertLogContext(logEntry: any, expectedContext: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.context) {
+    const message = options.message || 'Log entry is missing context field';
+    throw new Error(message);
+  }
+  
+  if (typeof expectedContext === 'string') {
+    if (logEntry.context !== expectedContext) {
+      const message = options.message || `Expected log context "${expectedContext}", but got "${logEntry.context}"`;
+      throw new Error(message);
+    }
+  } else if (expectedContext instanceof RegExp) {
+    if (!expectedContext.test(logEntry.context)) {
+      const message = options.message || `Expected log context to match ${expectedContext}, but got "${logEntry.context}"`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Asserts that a log entry contains the expected metadata.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedMetadata The expected metadata object or a function that validates the metadata
+ * @param options Assertion options
+ * @throws Error if the metadata doesn't match the expected metadata
+ */
+export function assertLogMetadata(logEntry: any, expectedMetadata: Record<string, any> | ((metadata: any) => boolean), options: LogAssertionOptions = {}): void {
+  if (!logEntry.metadata) {
+    const message = options.message || 'Log entry is missing metadata field';
+    throw new Error(message);
+  }
+  
+  if (typeof expectedMetadata === 'function') {
+    if (!expectedMetadata(logEntry.metadata)) {
+      const message = options.message || 'Log metadata failed validation function';
+      throw new Error(message);
+    }
+  } else {
+    for (const [key, value] of Object.entries(expectedMetadata)) {
+      if (logEntry.metadata[key] === undefined) {
+        const message = options.message || `Log metadata is missing expected key: ${key}`;
+        throw new Error(message);
       }
-
+      
       if (typeof value === 'object' && value !== null) {
-        // For objects, check deep equality
-        try {
-          // Use JSON.stringify for deep comparison
-          if (JSON.stringify(log.context[key]) !== JSON.stringify(value)) {
-            throw new Error(`Log context value for key ${key} does not match expected object`);
-          }
-        } catch (error) {
-          throw new Error(`Error comparing context objects for key ${key}: ${error.message}`);
+        // Deep comparison for objects
+        if (JSON.stringify(logEntry.metadata[key]) !== JSON.stringify(value)) {
+          const message = options.message || `Expected metadata[${key}] to equal ${JSON.stringify(value)}, but got ${JSON.stringify(logEntry.metadata[key])}`;
+          throw new Error(message);
         }
-      } else if (log.context[key] !== value) {
-        throw new Error(
-          `Log context value for key ${key} does not match expected. Got: ${log.context[key]}, Expected: ${value}`
-        );
-      }
-    }
-  }
-
-  /**
-   * Asserts that a log entry contains the expected request ID.
-   * @param log The log entry to check
-   * @param requestId The expected request ID
-   * @throws Error if the request ID doesn't match the expected value
-   */
-  static assertRequestId(log: LogEntry, requestId: string): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.requestId) {
-      throw new Error('Log entry is missing requestId field');
-    }
-
-    if (log.requestId !== requestId) {
-      throw new Error(`Log requestId does not match expected. Got: ${log.requestId}, Expected: ${requestId}`);
-    }
-  }
-
-  /**
-   * Asserts that a log entry contains the expected user ID.
-   * @param log The log entry to check
-   * @param userId The expected user ID
-   * @throws Error if the user ID doesn't match the expected value
-   */
-  static assertUserId(log: LogEntry, userId: string): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.userId) {
-      throw new Error('Log entry is missing userId field');
-    }
-
-    if (log.userId !== userId) {
-      throw new Error(`Log userId does not match expected. Got: ${log.userId}, Expected: ${userId}`);
-    }
-  }
-
-  /**
-   * Asserts that a log entry contains the expected trace correlation IDs.
-   * @param log The log entry to check
-   * @param traceId The expected trace ID
-   * @param spanId Optional expected span ID
-   * @param parentSpanId Optional expected parent span ID
-   * @throws Error if any trace ID doesn't match the expected value
-   */
-  static assertTraceIds(log: LogEntry, traceId: string, spanId?: string, parentSpanId?: string): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.traceId) {
-      throw new Error('Log entry is missing traceId field');
-    }
-
-    if (log.traceId !== traceId) {
-      throw new Error(`Log traceId does not match expected. Got: ${log.traceId}, Expected: ${traceId}`);
-    }
-
-    if (spanId !== undefined) {
-      if (!log.spanId) {
-        throw new Error('Log entry is missing spanId field');
-      }
-
-      if (log.spanId !== spanId) {
-        throw new Error(`Log spanId does not match expected. Got: ${log.spanId}, Expected: ${spanId}`);
-      }
-    }
-
-    if (parentSpanId !== undefined) {
-      if (!log.parentSpanId) {
-        throw new Error('Log entry is missing parentSpanId field');
-      }
-
-      if (log.parentSpanId !== parentSpanId) {
-        throw new Error(
-          `Log parentSpanId does not match expected. Got: ${log.parentSpanId}, Expected: ${parentSpanId}`
-        );
-      }
-    }
-  }
-
-  /**
-   * Asserts that a log entry is associated with the expected journey.
-   * @param log The log entry to check
-   * @param journeyType The expected journey type
-   * @throws Error if the journey doesn't match the expected value
-   */
-  static assertJourney(log: LogEntry, journeyType: JourneyType): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.journey) {
-      throw new Error('Log entry is missing journey field');
-    }
-
-    if (log.journey !== journeyType) {
-      throw new Error(`Log journey does not match expected. Got: ${log.journey}, Expected: ${journeyType}`);
-    }
-  }
-
-  /**
-   * Asserts that a log entry contains the expected journey context information.
-   * @param log The log entry to check
-   * @param journeyContext The expected journey context object or key-value pairs
-   * @throws Error if any journey context field doesn't match the expected value
-   */
-  static assertJourneyContext(log: LogEntry, journeyContext: Partial<JourneyContext>): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.journeyContext) {
-      throw new Error('Log entry is missing journeyContext object');
-    }
-
-    // Check journeyId if provided
-    if (journeyContext.journeyId !== undefined) {
-      if (log.journeyContext.journeyId !== journeyContext.journeyId) {
-        throw new Error(
-          `Log journeyContext.journeyId does not match expected. Got: ${log.journeyContext.journeyId}, Expected: ${journeyContext.journeyId}`
-        );
-      }
-    }
-
-    // Check step if provided
-    if (journeyContext.step !== undefined) {
-      if (log.journeyContext.step !== journeyContext.step) {
-        throw new Error(
-          `Log journeyContext.step does not match expected. Got: ${log.journeyContext.step}, Expected: ${journeyContext.step}`
-        );
-      }
-    }
-
-    // Check health journey context if provided
-    if (journeyContext.health) {
-      if (!log.journeyContext.health) {
-        throw new Error('Log entry is missing health journey context');
-      }
-
-      this.assertObjectProperties(log.journeyContext.health, journeyContext.health, 'health journey context');
-    }
-
-    // Check care journey context if provided
-    if (journeyContext.care) {
-      if (!log.journeyContext.care) {
-        throw new Error('Log entry is missing care journey context');
-      }
-
-      this.assertObjectProperties(log.journeyContext.care, journeyContext.care, 'care journey context');
-    }
-
-    // Check plan journey context if provided
-    if (journeyContext.plan) {
-      if (!log.journeyContext.plan) {
-        throw new Error('Log entry is missing plan journey context');
-      }
-
-      this.assertObjectProperties(log.journeyContext.plan, journeyContext.plan, 'plan journey context');
-    }
-  }
-
-  /**
-   * Asserts that a log entry contains the expected error information.
-   * @param log The log entry to check
-   * @param error The expected error object or properties
-   * @throws Error if any error field doesn't match the expected value
-   */
-  static assertError(log: LogEntry, error: Partial<ErrorObject>): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    if (!log.error) {
-      throw new Error('Log entry is missing error object');
-    }
-
-    // Check required error fields
-    if (!log.error.message) {
-      throw new Error('Log error is missing required message field');
-    }
-
-    if (!log.error.name) {
-      throw new Error('Log error is missing required name field');
-    }
-
-    // Check error message if provided
-    if (error.message !== undefined) {
-      if (log.error.message !== error.message) {
-        throw new Error(
-          `Log error.message does not match expected. Got: ${log.error.message}, Expected: ${error.message}`
-        );
-      }
-    }
-
-    // Check error name if provided
-    if (error.name !== undefined) {
-      if (log.error.name !== error.name) {
-        throw new Error(`Log error.name does not match expected. Got: ${log.error.name}, Expected: ${error.name}`);
-      }
-    }
-
-    // Check other error properties
-    if (error.code !== undefined) {
-      if (log.error.code !== error.code) {
-        throw new Error(`Log error.code does not match expected. Got: ${log.error.code}, Expected: ${error.code}`);
-      }
-    }
-
-    if (error.statusCode !== undefined) {
-      if (log.error.statusCode !== error.statusCode) {
-        throw new Error(
-          `Log error.statusCode does not match expected. Got: ${log.error.statusCode}, Expected: ${error.statusCode}`
-        );
-      }
-    }
-
-    if (error.isOperational !== undefined) {
-      if (log.error.isOperational !== error.isOperational) {
-        throw new Error(
-          `Log error.isOperational does not match expected. Got: ${log.error.isOperational}, Expected: ${error.isOperational}`
-        );
-      }
-    }
-
-    // Check error details if provided
-    if (error.details) {
-      if (!log.error.details) {
-        throw new Error('Log error is missing details object');
-      }
-
-      this.assertObjectProperties(log.error.details, error.details, 'error details');
-    }
-  }
-
-  /**
-   * Asserts that a log entry can be properly serialized to JSON.
-   * @param log The log entry to check
-   * @throws Error if the log entry cannot be serialized to JSON
-   * @returns The serialized JSON string
-   */
-  static assertJsonSerializable(log: LogEntry): string {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    try {
-      const jsonString = JSON.stringify(log);
-      if (!jsonString) {
-        throw new Error('JSON serialization resulted in empty string');
-      }
-      return jsonString;
-    } catch (error) {
-      throw new Error(`Log entry is not JSON serializable: ${error.message}`);
-    }
-  }
-
-  /**
-   * Asserts that a serialized log entry contains all required fields in JSON format.
-   * @param jsonString The serialized JSON string to check
-   * @throws Error if the JSON string is missing required fields or has invalid format
-   * @returns The parsed log entry object
-   */
-  static assertValidLogJson(jsonString: string): LogEntry {
-    if (!jsonString) {
-      throw new Error('JSON string is null, undefined, or empty');
-    }
-
-    let parsedLog: LogEntry;
-    try {
-      parsedLog = JSON.parse(jsonString) as LogEntry;
-    } catch (error) {
-      throw new Error(`Invalid JSON format: ${error.message}`);
-    }
-
-    // Check required fields
-    if (!parsedLog.message) {
-      throw new Error('JSON log is missing required message field');
-    }
-
-    if (parsedLog.level === undefined || parsedLog.level === null) {
-      throw new Error('JSON log is missing required level field');
-    }
-
-    if (!parsedLog.timestamp) {
-      throw new Error('JSON log is missing required timestamp field');
-    }
-
-    if (!parsedLog.service) {
-      throw new Error('JSON log is missing required service field');
-    }
-
-    return parsedLog;
-  }
-
-  /**
-   * Asserts that a log entry matches a schema defined by a validation function.
-   * @param log The log entry to check
-   * @param validator A function that validates the log entry against a schema
-   * @param schemaName Optional name of the schema for error messages
-   * @throws Error if the log entry doesn't match the schema
-   */
-  static assertSchema(log: LogEntry, validator: (log: LogEntry) => boolean, schemaName = 'schema'): void {
-    if (!log) {
-      throw new Error('Log entry is null or undefined');
-    }
-
-    try {
-      const isValid = validator(log);
-      if (!isValid) {
-        throw new Error(`Log entry does not match ${schemaName}`);
-      }
-    } catch (error) {
-      throw new Error(`Error validating log entry against ${schemaName}: ${error.message}`);
-    }
-  }
-
-  /**
-   * Helper method to assert that an object contains all expected properties with matching values.
-   * @param actual The actual object to check
-   * @param expected The expected properties and values
-   * @param objectName The name of the object for error messages
-   * @throws Error if any property doesn't match the expected value
-   */
-  private static assertObjectProperties(
-    actual: Record<string, any>,
-    expected: Record<string, any>,
-    objectName: string
-  ): void {
-    for (const [key, value] of Object.entries(expected)) {
-      if (actual[key] === undefined) {
-        throw new Error(`${objectName} is missing expected key: ${key}`);
-      }
-
-      if (typeof value === 'object' && value !== null) {
-        // For objects, check deep equality
-        try {
-          // Use JSON.stringify for deep comparison
-          if (JSON.stringify(actual[key]) !== JSON.stringify(value)) {
-            throw new Error(`${objectName} value for key ${key} does not match expected object`);
-          }
-        } catch (error) {
-          throw new Error(`Error comparing ${objectName} objects for key ${key}: ${error.message}`);
-        }
-      } else if (actual[key] !== value) {
-        throw new Error(
-          `${objectName} value for key ${key} does not match expected. Got: ${actual[key]}, Expected: ${value}`
-        );
+      } else if (logEntry.metadata[key] !== value) {
+        const message = options.message || `Expected metadata[${key}] to equal ${value}, but got ${logEntry.metadata[key]}`;
+        throw new Error(message);
       }
     }
   }
 }
 
 /**
- * Utility functions for creating test log entries with default values.
- * These utilities help create consistent log entries for testing.
+ * Asserts that a log entry contains the expected error information.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedError The expected error object, message string, or a function that validates the error
+ * @param options Assertion options
+ * @throws Error if the error doesn't match the expected error
  */
-export class LogFactory {
-  /**
-   * Creates a basic log entry with default values.
-   * @param overrides Optional properties to override default values
-   * @returns A log entry with default values
-   */
-  static createLogEntry(overrides: Partial<LogEntry> = {}): LogEntry {
-    return {
-      message: 'Test log message',
-      level: LogLevel.INFO,
-      timestamp: new Date(),
-      service: 'test-service',
-      ...overrides,
-    };
+export function assertLogError(logEntry: any, expectedError: Error | string | RegExp | ((error: any) => boolean), options: LogAssertionOptions = {}): void {
+  if (!logEntry.error) {
+    const message = options.message || 'Log entry is missing error field';
+    throw new Error(message);
   }
-
-  /**
-   * Creates a log entry with journey context.
-   * @param journeyType The journey type
-   * @param journeyContext Optional journey context properties
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with journey context
-   */
-  static createJourneyLogEntry(
-    journeyType: JourneyType,
-    journeyContext: Partial<JourneyContext> = {},
-    overrides: Partial<LogEntry> = {}
-  ): LogEntry {
-    return this.createLogEntry({
-      journey: journeyType,
-      journeyContext: {
-        journeyId: 'test-journey-id',
-        step: 'test-step',
-        ...journeyContext,
-      },
-      ...overrides,
-    });
+  
+  if (typeof expectedError === 'function') {
+    if (!expectedError(logEntry.error)) {
+      const message = options.message || 'Log error failed validation function';
+      throw new Error(message);
+    }
+  } else if (expectedError instanceof Error) {
+    // Check error message
+    const errorMessage = typeof logEntry.error === 'string' ? logEntry.error : logEntry.error.message;
+    if (errorMessage !== expectedError.message) {
+      const message = options.message || `Expected error message "${expectedError.message}", but got "${errorMessage}"`;
+      throw new Error(message);
+    }
+    
+    // Check error name if available
+    if (typeof logEntry.error === 'object' && logEntry.error.name && expectedError.name !== logEntry.error.name) {
+      const message = options.message || `Expected error name "${expectedError.name}", but got "${logEntry.error.name}"`;
+      throw new Error(message);
+    }
+  } else if (typeof expectedError === 'string') {
+    const errorMessage = typeof logEntry.error === 'string' ? logEntry.error : logEntry.error.message;
+    if (errorMessage !== expectedError) {
+      const message = options.message || `Expected error message "${expectedError}", but got "${errorMessage}"`;
+      throw new Error(message);
+    }
+  } else if (expectedError instanceof RegExp) {
+    const errorMessage = typeof logEntry.error === 'string' ? logEntry.error : logEntry.error.message;
+    if (!expectedError.test(errorMessage)) {
+      const message = options.message || `Expected error message to match ${expectedError}, but got "${errorMessage}"`;
+      throw new Error(message);
+    }
   }
+}
 
-  /**
-   * Creates a log entry with error information.
-   * @param error The error object or properties
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with error information
-   */
-  static createErrorLogEntry(error: Partial<ErrorObject>, overrides: Partial<LogEntry> = {}): LogEntry {
-    return this.createLogEntry({
-      level: LogLevel.ERROR,
-      error: {
-        message: 'Test error message',
-        name: 'TestError',
-        stack: 'Test stack trace',
-        ...error,
-      },
-      ...overrides,
-    });
+/**
+ * Asserts that a log entry contains the expected trace ID.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedTraceId The expected trace ID or a regular expression to match against the trace ID
+ * @param options Assertion options
+ * @throws Error if the trace ID doesn't match the expected trace ID
+ */
+export function assertTraceId(logEntry: any, expectedTraceId: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.traceId) {
+    const message = options.message || 'Log entry is missing traceId field';
+    throw new Error(message);
   }
-
-  /**
-   * Creates a log entry with trace correlation IDs.
-   * @param traceId The trace ID
-   * @param spanId Optional span ID
-   * @param parentSpanId Optional parent span ID
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with trace correlation IDs
-   */
-  static createTraceLogEntry(
-    traceId: string,
-    spanId?: string,
-    parentSpanId?: string,
-    overrides: Partial<LogEntry> = {}
-  ): LogEntry {
-    return this.createLogEntry({
-      traceId,
-      spanId,
-      parentSpanId,
-      ...overrides,
-    });
+  
+  if (typeof expectedTraceId === 'string') {
+    if (logEntry.traceId !== expectedTraceId) {
+      const message = options.message || `Expected traceId "${expectedTraceId}", but got "${logEntry.traceId}"`;
+      throw new Error(message);
+    }
+  } else if (expectedTraceId instanceof RegExp) {
+    if (!expectedTraceId.test(logEntry.traceId)) {
+      const message = options.message || `Expected traceId to match ${expectedTraceId}, but got "${logEntry.traceId}"`;
+      throw new Error(message);
+    }
   }
+}
 
-  /**
-   * Creates a health journey log entry with health-specific context.
-   * @param healthContext The health journey context properties
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with health journey context
-   */
-  static createHealthJourneyLogEntry(
-    healthContext: Partial<JourneyContext['health']> = {},
-    overrides: Partial<LogEntry> = {}
-  ): LogEntry {
-    return this.createJourneyLogEntry(
-      JourneyType.HEALTH,
-      {
-        health: {
-          metricType: 'heart-rate',
-          deviceId: 'test-device-id',
-          goalId: 'test-goal-id',
-          ...healthContext,
-        },
-      },
-      overrides
-    );
+/**
+ * Asserts that a log entry contains the expected user ID.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedUserId The expected user ID or a regular expression to match against the user ID
+ * @param options Assertion options
+ * @throws Error if the user ID doesn't match the expected user ID
+ */
+export function assertUserId(logEntry: any, expectedUserId: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.userId) {
+    const message = options.message || 'Log entry is missing userId field';
+    throw new Error(message);
   }
-
-  /**
-   * Creates a care journey log entry with care-specific context.
-   * @param careContext The care journey context properties
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with care journey context
-   */
-  static createCareJourneyLogEntry(
-    careContext: Partial<JourneyContext['care']> = {},
-    overrides: Partial<LogEntry> = {}
-  ): LogEntry {
-    return this.createJourneyLogEntry(
-      JourneyType.CARE,
-      {
-        care: {
-          appointmentId: 'test-appointment-id',
-          providerId: 'test-provider-id',
-          sessionId: 'test-session-id',
-          medicationId: 'test-medication-id',
-          ...careContext,
-        },
-      },
-      overrides
-    );
+  
+  if (typeof expectedUserId === 'string') {
+    if (logEntry.userId !== expectedUserId) {
+      const message = options.message || `Expected userId "${expectedUserId}", but got "${logEntry.userId}"`;
+      throw new Error(message);
+    }
+  } else if (expectedUserId instanceof RegExp) {
+    if (!expectedUserId.test(logEntry.userId)) {
+      const message = options.message || `Expected userId to match ${expectedUserId}, but got "${logEntry.userId}"`;
+      throw new Error(message);
+    }
   }
+}
 
-  /**
-   * Creates a plan journey log entry with plan-specific context.
-   * @param planContext The plan journey context properties
-   * @param overrides Optional additional properties to override default values
-   * @returns A log entry with plan journey context
-   */
-  static createPlanJourneyLogEntry(
-    planContext: Partial<JourneyContext['plan']> = {},
-    overrides: Partial<LogEntry> = {}
-  ): LogEntry {
-    return this.createJourneyLogEntry(
-      JourneyType.PLAN,
-      {
-        plan: {
-          planId: 'test-plan-id',
-          claimId: 'test-claim-id',
-          benefitId: 'test-benefit-id',
-          ...planContext,
-        },
-      },
-      overrides
-    );
+/**
+ * Asserts that a log entry contains the expected request ID.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedRequestId The expected request ID or a regular expression to match against the request ID
+ * @param options Assertion options
+ * @throws Error if the request ID doesn't match the expected request ID
+ */
+export function assertRequestId(logEntry: any, expectedRequestId: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.requestId) {
+    const message = options.message || 'Log entry is missing requestId field';
+    throw new Error(message);
+  }
+  
+  if (typeof expectedRequestId === 'string') {
+    if (logEntry.requestId !== expectedRequestId) {
+      const message = options.message || `Expected requestId "${expectedRequestId}", but got "${logEntry.requestId}"`;
+      throw new Error(message);
+    }
+  } else if (expectedRequestId instanceof RegExp) {
+    if (!expectedRequestId.test(logEntry.requestId)) {
+      const message = options.message || `Expected requestId to match ${expectedRequestId}, but got "${logEntry.requestId}"`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Asserts that a log entry contains the expected journey information.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedJourney The expected journey type
+ * @param options Assertion options
+ * @throws Error if the journey doesn't match the expected journey
+ */
+export function assertJourney(logEntry: any, expectedJourney: JourneyType | string, options: LogAssertionOptions = {}): void {
+  if (!logEntry.journey) {
+    const message = options.message || 'Log entry is missing journey field';
+    throw new Error(message);
+  }
+  
+  const journeyValue = typeof logEntry.journey === 'string' ? logEntry.journey.toLowerCase() : logEntry.journey;
+  const expectedValue = typeof expectedJourney === 'string' ? expectedJourney.toLowerCase() : expectedJourney;
+  
+  if (journeyValue !== expectedValue) {
+    const message = options.message || `Expected journey "${expectedValue}", but got "${journeyValue}"`;
+    throw new Error(message);
+  }
+}
+
+/**
+ * Asserts that a log entry contains the expected service information.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedService The expected service name or a regular expression to match against the service name
+ * @param options Assertion options
+ * @throws Error if the service doesn't match the expected service
+ */
+export function assertService(logEntry: any, expectedService: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.service) {
+    const message = options.message || 'Log entry is missing service field';
+    throw new Error(message);
+  }
+  
+  if (typeof expectedService === 'string') {
+    if (logEntry.service !== expectedService) {
+      const message = options.message || `Expected service "${expectedService}", but got "${logEntry.service}"`;
+      throw new Error(message);
+    }
+  } else if (expectedService instanceof RegExp) {
+    if (!expectedService.test(logEntry.service)) {
+      const message = options.message || `Expected service to match ${expectedService}, but got "${logEntry.service}"`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Asserts that a log entry contains the expected environment information.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expectedEnvironment The expected environment name or a regular expression to match against the environment name
+ * @param options Assertion options
+ * @throws Error if the environment doesn't match the expected environment
+ */
+export function assertEnvironment(logEntry: any, expectedEnvironment: string | RegExp, options: LogAssertionOptions = {}): void {
+  if (!logEntry.environment) {
+    const message = options.message || 'Log entry is missing environment field';
+    throw new Error(message);
+  }
+  
+  if (typeof expectedEnvironment === 'string') {
+    if (logEntry.environment !== expectedEnvironment) {
+      const message = options.message || `Expected environment "${expectedEnvironment}", but got "${logEntry.environment}"`;
+      throw new Error(message);
+    }
+  } else if (expectedEnvironment instanceof RegExp) {
+    if (!expectedEnvironment.test(logEntry.environment)) {
+      const message = options.message || `Expected environment to match ${expectedEnvironment}, but got "${logEntry.environment}"`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Validates a complete log entry against an expected structure.
+ * This is a comprehensive validation that checks all specified fields.
+ * 
+ * @param logEntry The log entry to validate
+ * @param expected The expected log entry structure
+ * @param options Assertion options
+ * @throws Error if any field doesn't match the expected value
+ */
+export function assertLogEntry(logEntry: any, expected: Partial<ParsedLogEntry>, options: LogAssertionOptions = {}): void {
+  // Always validate required fields
+  assertRequiredFields(logEntry, options);
+  
+  // Validate specific fields if provided in the expected object
+  if (expected.level) {
+    assertLogLevel(logEntry, expected.level, options);
+  }
+  
+  if (expected.message) {
+    assertLogMessage(logEntry, expected.message, options);
+  }
+  
+  if (expected.context) {
+    assertLogContext(logEntry, expected.context, options);
+  }
+  
+  if (expected.metadata) {
+    assertLogMetadata(logEntry, expected.metadata, options);
+  }
+  
+  if (expected.error) {
+    assertLogError(logEntry, expected.error, options);
+  }
+  
+  if (expected.traceId) {
+    assertTraceId(logEntry, expected.traceId, options);
+  }
+  
+  if (expected.userId) {
+    assertUserId(logEntry, expected.userId, options);
+  }
+  
+  if (expected.requestId) {
+    assertRequestId(logEntry, expected.requestId, options);
+  }
+  
+  if (expected.journey) {
+    assertJourney(logEntry, expected.journey, options);
+  }
+  
+  if (expected.service) {
+    assertService(logEntry, expected.service, options);
+  }
+  
+  if (expected.environment) {
+    assertEnvironment(logEntry, expected.environment, options);
+  }
+  
+  // Check any additional fields specified in the expected object
+  const standardFields = [
+    'timestamp', 'level', 'message', 'context', 'error', 'metadata',
+    'traceId', 'spanId', 'userId', 'requestId', 'journey', 'service', 'environment'
+  ];
+  
+  for (const [key, value] of Object.entries(expected)) {
+    if (!standardFields.includes(key) && value !== undefined) {
+      if (logEntry[key] === undefined) {
+        const message = options.message || `Log entry is missing expected field: ${key}`;
+        throw new Error(message);
+      }
+      
+      if (typeof value === 'object' && value !== null) {
+        // Deep comparison for objects
+        if (JSON.stringify(logEntry[key]) !== JSON.stringify(value)) {
+          const message = options.message || `Expected ${key} to equal ${JSON.stringify(value)}, but got ${JSON.stringify(logEntry[key])}`;
+          throw new Error(message);
+        }
+      } else if (logEntry[key] !== value) {
+        const message = options.message || `Expected ${key} to equal ${value}, but got ${logEntry[key]}`;
+        throw new Error(message);
+      }
+    }
+  }
+}
+
+/**
+ * Parses a log string and validates it against an expected structure.
+ * This is a convenience function that combines parsing and validation.
+ * 
+ * @param logString The log string to parse and validate
+ * @param expected The expected log entry structure
+ * @param options Assertion options
+ * @throws Error if the log string is not valid JSON or if any field doesn't match the expected value
+ * @returns The parsed log entry
+ */
+export function assertLogString(logString: string, expected: Partial<ParsedLogEntry>, options: LogAssertionOptions = {}): any {
+  const logEntry = assertValidJson(logString, options);
+  assertLogEntry(logEntry, expected, options);
+  return logEntry;
+}
+
+/**
+ * Validates that a log entry follows the CloudWatch format requirements.
+ * 
+ * @param logEntry The log entry to validate
+ * @param options Assertion options
+ * @throws Error if the log entry doesn't follow the CloudWatch format
+ */
+export function assertCloudWatchFormat(logEntry: any, options: LogAssertionOptions = {}): void {
+  // CloudWatch requires a timestamp field in a specific format
+  if (!logEntry.timestamp) {
+    const message = options.message || 'CloudWatch log entry is missing timestamp field';
+    throw new Error(message);
+  }
+  
+  // Validate timestamp format (ISO string)
+  try {
+    const timestamp = new Date(logEntry.timestamp);
+    if (isNaN(timestamp.getTime())) {
+      const message = options.message || `CloudWatch log entry has invalid timestamp format: ${logEntry.timestamp}`;
+      throw new Error(message);
+    }
+  } catch (error) {
+    const message = options.message || `CloudWatch log entry has invalid timestamp format: ${logEntry.timestamp}`;
+    throw new Error(message);
+  }
+  
+  // CloudWatch expects certain fields for proper indexing
+  const recommendedFields = ['level', 'message', 'service', 'environment'];
+  for (const field of recommendedFields) {
+    if (logEntry[field] === undefined) {
+      const message = options.message || `CloudWatch log entry is missing recommended field: ${field}`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Validates that a batch of log entries all follow the expected format and structure.
+ * 
+ * @param logEntries Array of log entries to validate
+ * @param validator Validation function to apply to each log entry
+ * @param options Assertion options
+ * @throws Error if any log entry fails validation
+ */
+export function assertLogBatch(logEntries: any[], validator: (entry: any, options: LogAssertionOptions) => void, options: LogAssertionOptions = {}): void {
+  if (!Array.isArray(logEntries)) {
+    const message = options.message || 'Expected an array of log entries';
+    throw new Error(message);
+  }
+  
+  for (let i = 0; i < logEntries.length; i++) {
+    try {
+      validator(logEntries[i], options);
+    } catch (error) {
+      const message = options.message || `Log entry at index ${i} failed validation: ${error.message}`;
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Validates that a log entry contains all required journey-specific fields.
+ * 
+ * @param logEntry The log entry to validate
+ * @param journey The journey type to validate against
+ * @param options Assertion options
+ * @throws Error if the log entry is missing any required journey-specific fields
+ */
+export function assertJourneySpecificFields(logEntry: any, journey: JourneyType | string, options: LogAssertionOptions = {}): void {
+  // First, assert that the journey field is correct
+  assertJourney(logEntry, journey, options);
+  
+  // Define required fields for each journey type
+  const journeyFields: Record<string, string[]> = {
+    [JourneyType.HEALTH]: ['userId', 'requestId', 'metadata'],
+    [JourneyType.CARE]: ['userId', 'requestId', 'metadata'],
+    [JourneyType.PLAN]: ['userId', 'requestId', 'metadata']
+  };
+  
+  // Get the journey value in the correct format
+  const journeyValue = typeof journey === 'string' ? journey.toLowerCase() : journey;
+  
+  // Check that all required fields for this journey are present
+  const requiredFields = journeyFields[journeyValue] || [];
+  for (const field of requiredFields) {
+    if (logEntry[field] === undefined) {
+      const message = options.message || `Log entry for journey "${journeyValue}" is missing required field: ${field}`;
+      throw new Error(message);
+    }
+  }
+  
+  // Journey-specific metadata validation
+  if (journeyValue === JourneyType.HEALTH && logEntry.metadata) {
+    // Health journey should have health-specific metadata
+    if (!logEntry.metadata.healthMetric && !logEntry.metadata.healthGoal && !logEntry.metadata.healthDevice) {
+      const message = options.message || 'Health journey log entry is missing health-specific metadata';
+      throw new Error(message);
+    }
+  } else if (journeyValue === JourneyType.CARE && logEntry.metadata) {
+    // Care journey should have care-specific metadata
+    if (!logEntry.metadata.careProvider && !logEntry.metadata.careAppointment && !logEntry.metadata.careMedication) {
+      const message = options.message || 'Care journey log entry is missing care-specific metadata';
+      throw new Error(message);
+    }
+  } else if (journeyValue === JourneyType.PLAN && logEntry.metadata) {
+    // Plan journey should have plan-specific metadata
+    if (!logEntry.metadata.planCoverage && !logEntry.metadata.planClaim && !logEntry.metadata.planBenefit) {
+      const message = options.message || 'Plan journey log entry is missing plan-specific metadata';
+      throw new Error(message);
+    }
+  }
+}
+
+/**
+ * Validates that a log entry contains the expected schema structure using Zod.
+ * This function requires Zod to be installed as a dependency.
+ * 
+ * @param logEntry The log entry to validate
+ * @param schema The Zod schema to validate against
+ * @param options Assertion options
+ * @throws Error if the log entry doesn't match the schema
+ */
+export function assertLogSchema<T>(logEntry: any, schema: any, options: LogAssertionOptions = {}): T {
+  try {
+    // Attempt to parse and validate the log entry against the schema
+    return schema.parse(logEntry);
+  } catch (error) {
+    // Format the validation error message
+    let errorMessage = 'Log entry failed schema validation';
+    if (error.errors && Array.isArray(error.errors)) {
+      errorMessage += ': ' + error.errors.map((err: any) => {
+        return `${err.path.join('.')} - ${err.message}`;
+      }).join('; ');
+    }
+    
+    const message = options.message || errorMessage;
+    throw new Error(message);
   }
 }
