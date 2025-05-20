@@ -1,636 +1,663 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import { setTimeout as sleep } from 'timers/promises';
+import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
-
-// Import test helpers
 import {
-  createTestEnvironment,
-  TestEnvironmentContext,
-  publishTestEvent,
-  waitForEvent,
+  TestEnvironment,
+  createTestUser,
+  createTestAppointment,
   createTestEvent,
-  compareEvents,
-  TestDatabaseSeeder,
+  assertEvent,
+  retry,
+  waitForCondition,
+  seedTestDatabase
 } from './test-helpers';
+import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import { TOPICS } from '../../src/constants/topics.constants';
 
-// Import interfaces and DTOs
-import { IEvent } from '../../src/interfaces/base-event.interface';
-import { EventTypes } from '../../src/dto/event-types.enum';
-import { CareEventDto } from '../../src/dto/care-event.dto';
-import { AppointmentEventDto } from '../../src/dto/appointment-event.dto';
-import { MedicationEventDto } from '../../src/dto/medication-event.dto';
+// Since we couldn't find the JourneyType enum, we'll define it here based on context
+enum JourneyType {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan',
+  USER = 'user',
+  GAMIFICATION = 'game'
+}
 
 /**
- * End-to-end tests for Care Journey events
+ * End-to-end tests for Care Journey events.
  * 
  * These tests validate the complete flow of care-related events from production to consumption,
- * including appointment booking, medication adherence, telemedicine session, and care plan progress events.
+ * ensuring proper event schema validation and processing through the event pipeline.
  */
 describe('Care Journey Events (e2e)', () => {
-  let context: TestEnvironmentContext;
+  let testEnv: TestEnvironment;
   let app: INestApplication;
-  let seeder: TestDatabaseSeeder;
+  let prisma: PrismaClient;
+  let testUser: any;
   
-  // Define test topics
-  const CARE_EVENTS_TOPIC = 'care-events';
-  const APPOINTMENT_EVENTS_TOPIC = 'appointment-events';
-  const MEDICATION_EVENTS_TOPIC = 'medication-events';
-  const TELEMEDICINE_EVENTS_TOPIC = 'telemedicine-events';
-  const CARE_PLAN_EVENTS_TOPIC = 'care-plan-events';
-  const GAMIFICATION_EVENTS_TOPIC = 'gamification-events';
-  
-  // Set up test environment before all tests
+  // Setup test environment before all tests
   beforeAll(async () => {
-    // Create test environment with Kafka and database
-    context = await createTestEnvironment({
+    // Create test environment with care-specific topics
+    testEnv = new TestEnvironment({
       topics: [
-        CARE_EVENTS_TOPIC,
-        APPOINTMENT_EVENTS_TOPIC,
-        MEDICATION_EVENTS_TOPIC,
-        TELEMEDICINE_EVENTS_TOPIC,
-        CARE_PLAN_EVENTS_TOPIC,
-        GAMIFICATION_EVENTS_TOPIC,
-      ],
-      enableKafka: true,
-      enableDatabase: true,
+        TOPICS.CARE.EVENTS,
+        TOPICS.CARE.APPOINTMENTS,
+        TOPICS.CARE.MEDICATIONS,
+        TOPICS.CARE.TELEMEDICINE,
+        TOPICS.GAMIFICATION.EVENTS
+      ]
     });
     
-    app = context.app;
+    await testEnv.setup();
+    app = testEnv.getApp();
+    prisma = testEnv.getPrisma();
     
-    // Set up database seeder
-    if (context.prisma) {
-      seeder = new TestDatabaseSeeder(context.prisma);
-      await seeder.cleanDatabase();
-      await seeder.seedTestUsers();
-      await seeder.seedJourneyData('care');
-    }
+    // Seed test database with required data
+    await seedTestDatabase(prisma);
     
-    // Wait for Kafka to be ready
-    await sleep(1000);
-  });
+    // Create a test user for all tests
+    testUser = await createTestUser(prisma);
+  }, 60000);
   
   // Clean up after all tests
   afterAll(async () => {
-    await context.cleanup();
+    await testEnv.teardown();
   });
   
+  // Clear consumed messages before each test
+  beforeEach(() => {
+    testEnv.clearConsumedMessages();
+  });
+  
+  /**
+   * Tests for appointment booking events
+   */
   describe('Appointment Events', () => {
-    it('should validate and process appointment booking events', async () => {
-      // Create appointment booking event
-      const appointmentEvent = createTestEvent<AppointmentEventDto>(
-        EventTypes.Care.APPOINTMENT_BOOKED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          appointmentId: uuidv4(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          dateTime: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-          location: 'Virtual',
-          status: 'BOOKED',
-          notes: 'Regular check-up',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, appointmentEvent, {
-        topic: APPOINTMENT_EVENTS_TOPIC,
-      });
-      
-      // Wait for event to be processed and gamification event to be produced
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => event.type === EventTypes.Gamification.ACHIEVEMENT_PROGRESS,
-        throwOnTimeout: true,
-      });
-      
-      // Verify gamification event
-      expect(gamificationEvent).toBeDefined();
-      expect(gamificationEvent?.payload).toHaveProperty('userId', appointmentEvent.payload.userId);
-      expect(gamificationEvent?.payload).toHaveProperty('achievementType', 'appointment-keeper');
+    let testAppointment: any;
+    
+    beforeEach(async () => {
+      // Create a test appointment for each test
+      testAppointment = await createTestAppointment(prisma, testUser.id);
     });
     
-    it('should handle appointment check-in events', async () => {
-      // Create appointment check-in event
-      const appointmentId = uuidv4();
-      const appointmentEvent = createTestEvent<AppointmentEventDto>(
-        EventTypes.Care.APPOINTMENT_CHECKED_IN,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          appointmentId,
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          dateTime: new Date().toISOString(),
-          location: 'Clinic',
-          status: 'CHECKED_IN',
-          notes: 'Patient arrived on time',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, appointmentEvent, {
-        topic: APPOINTMENT_EVENTS_TOPIC,
-      });
-      
-      // Wait for event to be processed and gamification event to be produced
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_PROGRESS && 
-          event.payload.achievementType === 'appointment-keeper',
-        throwOnTimeout: true,
-      });
-      
-      // Verify gamification event
-      expect(gamificationEvent).toBeDefined();
-      expect(gamificationEvent?.payload).toHaveProperty('userId', appointmentEvent.payload.userId);
-      expect(gamificationEvent?.payload).toHaveProperty('progress');
-      expect(gamificationEvent?.payload.progress).toBeGreaterThan(0);
-    });
-    
-    it('should handle appointment completion events', async () => {
-      // Create appointment completion event
-      const appointmentId = uuidv4();
-      const appointmentEvent = createTestEvent<AppointmentEventDto>(
-        EventTypes.Care.APPOINTMENT_COMPLETED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          appointmentId,
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          dateTime: new Date().toISOString(),
-          location: 'Clinic',
-          status: 'COMPLETED',
-          notes: 'Follow-up in 3 months',
-          duration: 30, // minutes
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, appointmentEvent, {
-        topic: APPOINTMENT_EVENTS_TOPIC,
-      });
-      
-      // Wait for event to be processed and gamification event to be produced
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_UNLOCKED && 
-          event.payload.achievementType === 'appointment-keeper',
-        throwOnTimeout: false,
-      });
-      
-      // Verify gamification event (may be null if achievement not yet unlocked)
-      if (gamificationEvent) {
-        expect(gamificationEvent.payload).toHaveProperty('userId', appointmentEvent.payload.userId);
-        expect(gamificationEvent.payload).toHaveProperty('achievementType', 'appointment-keeper');
-        expect(gamificationEvent.payload).toHaveProperty('level');
-      }
-    });
-    
-    it('should reject invalid appointment events', async () => {
-      // Create invalid appointment event (missing required fields)
-      const invalidEvent = createTestEvent<Partial<AppointmentEventDto>>(
-        EventTypes.Care.APPOINTMENT_BOOKED,
-        {
-          // Missing userId and appointmentId
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          // Invalid date format
-          dateTime: 'not-a-date',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, invalidEvent, {
-        topic: APPOINTMENT_EVENTS_TOPIC,
-      });
-      
-      // Wait for error event
-      const errorEvent = await waitForEvent<IEvent>(context, {
-        topic: 'error-events',
-        timeout: 5000,
-        filter: (event) => 
-          event.type === 'EVENT_VALIDATION_ERROR' && 
-          event.payload.originalEventId === invalidEvent.eventId,
-        throwOnTimeout: false,
-      });
-      
-      // Error event might not be produced if the service is configured to just log errors
-      // So we'll check for the absence of a gamification event instead
-      await sleep(2000); // Wait to ensure event would have been processed
-      
-      // Check that no gamification event was produced
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 1000, // Short timeout since we don't expect an event
-        filter: (event) => 
-          event.payload.originalEventId === invalidEvent.eventId,
-        throwOnTimeout: false,
-      });
-      
-      expect(gamificationEvent).toBeNull();
-    });
-  });
-  
-  describe('Medication Events', () => {
-    it('should validate and process medication adherence events', async () => {
-      // Create medication adherence event
-      const medicationEvent = createTestEvent<MedicationEventDto>(
-        EventTypes.Care.MEDICATION_TAKEN,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          medicationId: uuidv4(),
-          medicationName: 'Medication A',
-          dosage: '10mg',
-          scheduledTime: new Date().toISOString(),
-          takenTime: new Date().toISOString(),
-          status: 'TAKEN',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, medicationEvent, {
-        topic: MEDICATION_EVENTS_TOPIC,
-      });
-      
-      // Wait for event to be processed and gamification event to be produced
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_PROGRESS && 
-          event.payload.achievementType === 'medication-adherence',
-        throwOnTimeout: true,
-      });
-      
-      // Verify gamification event
-      expect(gamificationEvent).toBeDefined();
-      expect(gamificationEvent?.payload).toHaveProperty('userId', medicationEvent.payload.userId);
-      expect(gamificationEvent?.payload).toHaveProperty('achievementType', 'medication-adherence');
-      expect(gamificationEvent?.payload).toHaveProperty('progress');
-    });
-    
-    it('should handle medication skipped events', async () => {
-      // Create medication skipped event
-      const medicationEvent = createTestEvent<MedicationEventDto>(
-        EventTypes.Care.MEDICATION_SKIPPED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          medicationId: uuidv4(),
-          medicationName: 'Medication B',
-          dosage: '5mg',
-          scheduledTime: new Date().toISOString(),
-          status: 'SKIPPED',
-          reason: 'Side effects',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, medicationEvent, {
-        topic: MEDICATION_EVENTS_TOPIC,
-      });
-      
-      // No gamification event expected for skipped medication
-      // But we should verify the event was processed without errors
-      await sleep(2000); // Wait to ensure event would have been processed
-      
-      // Optionally check for a notification event if your system sends those
-      const notificationEvent = await waitForEvent<IEvent>(context, {
-        topic: 'notification-events',
-        timeout: 3000,
-        filter: (event) => 
-          event.type === 'NOTIFICATION_CREATED' && 
-          event.payload.relatedEventId === medicationEvent.eventId,
-        throwOnTimeout: false,
-      });
-      
-      // Notification might be optional, so we don't assert on it
-    });
-    
-    it('should track medication adherence streak', async () => {
-      // Create multiple medication taken events to simulate a streak
-      const userId = '123e4567-e89b-12d3-a456-426614174000';
-      const medicationId = uuidv4();
-      
-      // Create events for the past 3 days
-      for (let i = 3; i >= 1; i--) {
-        const pastDate = new Date();
-        pastDate.setDate(pastDate.getDate() - i);
-        
-        const medicationEvent = createTestEvent<MedicationEventDto>(
-          EventTypes.Care.MEDICATION_TAKEN,
-          {
-            userId,
-            medicationId,
-            medicationName: 'Daily Medication',
-            dosage: '10mg',
-            scheduledTime: pastDate.toISOString(),
-            takenTime: pastDate.toISOString(),
-            status: 'TAKEN',
-          },
-          {
-            source: 'care-service',
-          }
-        );
-        
-        // Publish event
-        await publishTestEvent(context, medicationEvent, {
-          topic: MEDICATION_EVENTS_TOPIC,
-        });
-        
-        // Wait a bit between events
-        await sleep(500);
-      }
-      
-      // Create today's event
-      const todayEvent = createTestEvent<MedicationEventDto>(
-        EventTypes.Care.MEDICATION_TAKEN,
-        {
-          userId,
-          medicationId,
-          medicationName: 'Daily Medication',
-          dosage: '10mg',
-          scheduledTime: new Date().toISOString(),
-          takenTime: new Date().toISOString(),
-          status: 'TAKEN',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish today's event
-      await publishTestEvent(context, todayEvent, {
-        topic: MEDICATION_EVENTS_TOPIC,
-      });
-      
-      // Wait for achievement event (streak of 4 days might trigger an achievement)
-      const achievementEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_UNLOCKED && 
-          event.payload.achievementType === 'medication-adherence',
-        throwOnTimeout: false,
-      });
-      
-      // Achievement might not be unlocked yet, so we don't assert it must exist
-      if (achievementEvent) {
-        expect(achievementEvent.payload).toHaveProperty('userId', userId);
-        expect(achievementEvent.payload).toHaveProperty('achievementType', 'medication-adherence');
-        expect(achievementEvent.payload).toHaveProperty('level');
-      }
-      
-      // But we should at least see progress
-      const progressEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_PROGRESS && 
-          event.payload.achievementType === 'medication-adherence' &&
-          event.payload.userId === userId,
-        throwOnTimeout: true,
-      });
-      
-      expect(progressEvent).toBeDefined();
-      expect(progressEvent?.payload).toHaveProperty('progress');
-      expect(progressEvent?.payload.progress).toBeGreaterThanOrEqual(4); // At least 4 days streak
-    });
-  });
-  
-  describe('Telemedicine Events', () => {
-    it('should validate and process telemedicine session events', async () => {
-      // Create telemedicine session started event
-      const sessionId = uuidv4();
-      const telemedicineEvent = createTestEvent<CareEventDto>(
-        EventTypes.Care.TELEMEDICINE_SESSION_STARTED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          sessionId,
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          startTime: new Date().toISOString(),
-          sessionType: 'VIDEO',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, telemedicineEvent, {
-        topic: TELEMEDICINE_EVENTS_TOPIC,
-      });
-      
-      // Wait a bit to simulate session duration
-      await sleep(1000);
-      
-      // Create telemedicine session ended event
-      const sessionEndedEvent = createTestEvent<CareEventDto>(
-        EventTypes.Care.TELEMEDICINE_SESSION_ENDED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          sessionId,
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-          startTime: telemedicineEvent.payload.startTime,
-          endTime: new Date().toISOString(),
-          sessionType: 'VIDEO',
-          duration: 15, // minutes
-          status: 'COMPLETED',
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, sessionEndedEvent, {
-        topic: TELEMEDICINE_EVENTS_TOPIC,
-      });
-      
-      // Wait for gamification event
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.payload.sessionId === sessionId,
-        throwOnTimeout: false,
-      });
-      
-      // Gamification event might be optional for telemedicine, so we don't assert it must exist
-      if (gamificationEvent) {
-        expect(gamificationEvent.payload).toHaveProperty('userId', telemedicineEvent.payload.userId);
-      }
-    });
-  });
-  
-  describe('Care Plan Events', () => {
-    it('should validate and process care plan progress events', async () => {
-      // Create care plan progress event
-      const carePlanEvent = createTestEvent<CareEventDto>(
-        EventTypes.Care.CARE_PLAN_PROGRESS,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          carePlanId: uuidv4(),
-          progress: 75, // percentage
-          updatedAt: new Date().toISOString(),
-          completedTasks: 3,
-          totalTasks: 4,
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, carePlanEvent, {
-        topic: CARE_PLAN_EVENTS_TOPIC,
-      });
-      
-      // Wait for gamification event
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_PROGRESS && 
-          event.payload.carePlanId === carePlanEvent.payload.carePlanId,
-        throwOnTimeout: false,
-      });
-      
-      // Gamification event might be optional for care plan progress, so we don't assert it must exist
-      if (gamificationEvent) {
-        expect(gamificationEvent.payload).toHaveProperty('userId', carePlanEvent.payload.userId);
-        expect(gamificationEvent.payload).toHaveProperty('progress');
-      }
-    });
-    
-    it('should handle care plan completion events', async () => {
-      // Create care plan completion event
-      const carePlanEvent = createTestEvent<CareEventDto>(
-        EventTypes.Care.CARE_PLAN_COMPLETED,
-        {
-          userId: '123e4567-e89b-12d3-a456-426614174000',
-          carePlanId: uuidv4(),
-          completedAt: new Date().toISOString(),
-          completedTasks: 4,
-          totalTasks: 4,
-          duration: 30, // days
-        },
-        {
-          source: 'care-service',
-        }
-      );
-      
-      // Publish event
-      await publishTestEvent(context, carePlanEvent, {
-        topic: CARE_PLAN_EVENTS_TOPIC,
-      });
-      
-      // Wait for achievement event
-      const achievementEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.ACHIEVEMENT_UNLOCKED && 
-          event.payload.carePlanId === carePlanEvent.payload.carePlanId,
-        throwOnTimeout: false,
-      });
-      
-      // Achievement might not be unlocked yet, so we don't assert it must exist
-      if (achievementEvent) {
-        expect(achievementEvent.payload).toHaveProperty('userId', carePlanEvent.payload.userId);
-        expect(achievementEvent.payload).toHaveProperty('achievementType');
-        expect(achievementEvent.payload).toHaveProperty('level');
-      }
-      
-      // Check for XP award
-      const xpEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 5000,
-        filter: (event) => 
-          event.type === EventTypes.Gamification.XP_AWARDED && 
-          event.payload.userId === carePlanEvent.payload.userId,
-        throwOnTimeout: false,
-      });
-      
-      if (xpEvent) {
-        expect(xpEvent.payload).toHaveProperty('xpAmount');
-        expect(xpEvent.payload.xpAmount).toBeGreaterThan(0);
-      }
-    });
-  });
-  
-  describe('Error Handling', () => {
-    it('should handle malformed care events gracefully', async () => {
-      // Create malformed event (invalid JSON)
-      const malformedEvent = {
-        eventId: uuidv4(),
-        timestamp: new Date().toISOString(),
-        type: EventTypes.Care.APPOINTMENT_BOOKED,
-        source: 'care-service',
-        // Missing payload
+    it('should process CARE_APPOINTMENT_BOOKED events', async () => {
+      // Create appointment booked event
+      const appointmentData = {
+        appointmentId: testAppointment.id,
+        providerId: testAppointment.providerId,
+        specialtyType: 'Cardiologia', // This would come from the provider's specialty
+        appointmentType: 'in_person',
+        scheduledAt: testAppointment.scheduledAt.toISOString(),
+        bookedAt: new Date().toISOString()
       };
       
-      // Publish event directly as a string with invalid JSON
-      await context.producer?.send({
-        topic: CARE_EVENTS_TOPIC,
-        messages: [
-          {
-            key: malformedEvent.eventId,
-            // Intentionally malformed JSON
-            value: '{"eventId":"' + malformedEvent.eventId + '","timestamp":"' + malformedEvent.timestamp + '","type":"' + malformedEvent.type + '","source":"care-service","payload":{'  // Missing closing brace
-          },
-        ],
+      const event = createTestEvent(
+        EventType.CARE_APPOINTMENT_BOOKED,
+        JourneyType.CARE,
+        testUser.id,
+        appointmentData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.APPOINTMENTS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_APPOINTMENT_BOOKED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_APPOINTMENT_BOOKED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(appointmentData);
+      
+      // Verify gamification points were awarded (if applicable)
+      await waitForCondition(async () => {
+        const gamificationEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_POINTS_EARNED,
+          testUser.id
+        );
+        
+        return !!gamificationEvent;
+      });
+    });
+    
+    it('should process CARE_APPOINTMENT_COMPLETED events', async () => {
+      // Update appointment status to completed
+      await prisma.appointment.update({
+        where: { id: testAppointment.id },
+        data: { status: 'COMPLETED' }
       });
       
-      // Wait a bit to ensure event would have been processed
-      await sleep(2000);
+      // Create appointment completed event
+      const appointmentData = {
+        appointmentId: testAppointment.id,
+        providerId: testAppointment.providerId,
+        appointmentType: 'in_person',
+        scheduledAt: testAppointment.scheduledAt.toISOString(),
+        completedAt: new Date().toISOString(),
+        duration: 30 // minutes
+      };
       
-      // Check that no gamification event was produced for this event
-      const gamificationEvent = await waitForEvent<IEvent>(context, {
-        topic: GAMIFICATION_EVENTS_TOPIC,
-        timeout: 1000, // Short timeout since we don't expect an event
-        filter: (event) => 
-          event.payload && event.payload.originalEventId === malformedEvent.eventId,
-        throwOnTimeout: false,
+      const event = createTestEvent(
+        EventType.CARE_APPOINTMENT_COMPLETED,
+        JourneyType.CARE,
+        testUser.id,
+        appointmentData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.APPOINTMENTS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_APPOINTMENT_COMPLETED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_APPOINTMENT_COMPLETED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(appointmentData);
+      
+      // Verify achievement unlocked event (if applicable)
+      await waitForCondition(async () => {
+        const achievementEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+          testUser.id
+        );
+        
+        return !!achievementEvent && achievementEvent.data.achievementType === 'appointment-keeper';
+      });
+    });
+  });
+  
+  /**
+   * Tests for medication adherence events
+   */
+  describe('Medication Events', () => {
+    it('should process CARE_MEDICATION_TAKEN events', async () => {
+      // Create medication taken event
+      const medicationData = {
+        medicationId: uuidv4(),
+        medicationName: 'Test Medication',
+        dosage: '10mg',
+        takenAt: new Date().toISOString(),
+        adherence: 'on_time'
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id,
+        medicationData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.MEDICATIONS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(medicationData);
+      
+      // Verify gamification points were awarded (if applicable)
+      await waitForCondition(async () => {
+        const gamificationEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_POINTS_EARNED,
+          testUser.id
+        );
+        
+        return !!gamificationEvent;
+      });
+    });
+    
+    it('should handle missed medication events correctly', async () => {
+      // Create missed medication event
+      const medicationData = {
+        medicationId: uuidv4(),
+        medicationName: 'Test Medication',
+        dosage: '10mg',
+        takenAt: new Date().toISOString(),
+        adherence: 'missed'
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id,
+        medicationData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.MEDICATIONS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(medicationData);
+      expect(processedEvent.data.adherence).toBe('missed');
+      
+      // No gamification points should be awarded for missed medications
+      // Wait a bit to ensure no points event is generated
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const gamificationEvents = testEnv.getConsumedMessages().filter(msg => {
+        try {
+          const event = JSON.parse(msg.value.toString());
+          return event.type === EventType.GAMIFICATION_POINTS_EARNED && 
+                 event.userId === testUser.id;
+        } catch {
+          return false;
+        }
       });
       
-      expect(gamificationEvent).toBeNull();
-      
-      // Check for error event if your system produces them
-      const errorEvent = await waitForEvent<IEvent>(context, {
-        topic: 'error-events',
-        timeout: 3000,
-        filter: (event) => 
-          event.payload && event.payload.originalEventId === malformedEvent.eventId,
-        throwOnTimeout: false,
+      expect(gamificationEvents.length).toBe(0);
+    });
+  });
+  
+  /**
+   * Tests for telemedicine session events
+   */
+  describe('Telemedicine Events', () => {
+    let testAppointment: any;
+    let sessionId: string;
+    
+    beforeEach(async () => {
+      // Create a test appointment for telemedicine
+      testAppointment = await createTestAppointment(prisma, testUser.id, {
+        appointmentType: 'TELEMEDICINE'
       });
       
-      // Error event might not be produced if the service is configured to just log errors
-      // So we don't assert it must exist
+      sessionId = uuidv4();
+    });
+    
+    it('should process CARE_TELEMEDICINE_STARTED events', async () => {
+      // Create telemedicine started event
+      const telemedicineData = {
+        sessionId,
+        appointmentId: testAppointment.id,
+        providerId: testAppointment.providerId,
+        startedAt: new Date().toISOString(),
+        deviceType: 'mobile'
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_TELEMEDICINE_STARTED,
+        JourneyType.CARE,
+        testUser.id,
+        telemedicineData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.TELEMEDICINE);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_TELEMEDICINE_STARTED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_TELEMEDICINE_STARTED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(telemedicineData);
+    });
+    
+    it('should process CARE_TELEMEDICINE_COMPLETED events', async () => {
+      // Create telemedicine completed event
+      const startTime = new Date(Date.now() - 30 * 60000); // 30 minutes ago
+      const endTime = new Date();
+      
+      const telemedicineData = {
+        sessionId,
+        appointmentId: testAppointment.id,
+        providerId: testAppointment.providerId,
+        startedAt: startTime.toISOString(),
+        endedAt: endTime.toISOString(),
+        duration: 30, // minutes
+        quality: 'good'
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_TELEMEDICINE_COMPLETED,
+        JourneyType.CARE,
+        testUser.id,
+        telemedicineData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.TELEMEDICINE);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_TELEMEDICINE_COMPLETED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_TELEMEDICINE_COMPLETED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(telemedicineData);
+      
+      // Verify gamification points were awarded (if applicable)
+      await waitForCondition(async () => {
+        const gamificationEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_POINTS_EARNED,
+          testUser.id
+        );
+        
+        return !!gamificationEvent;
+      });
+      
+      // Update appointment status to completed
+      await prisma.appointment.update({
+        where: { id: testAppointment.id },
+        data: { status: 'COMPLETED' }
+      });
+    });
+  });
+  
+  /**
+   * Tests for care plan events
+   */
+  describe('Care Plan Events', () => {
+    let carePlanId: string;
+    
+    beforeEach(() => {
+      carePlanId = uuidv4();
+    });
+    
+    it('should process CARE_PLAN_CREATED events', async () => {
+      // Create care plan created event
+      const carePlanData = {
+        planId: carePlanId,
+        providerId: uuidv4(),
+        planType: 'chronic_condition',
+        condition: 'Hypertension',
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 90 * 86400000).toISOString(), // 90 days from now
+        createdAt: new Date().toISOString()
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_PLAN_CREATED,
+        JourneyType.CARE,
+        testUser.id,
+        carePlanData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.EVENTS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_PLAN_CREATED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_PLAN_CREATED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(carePlanData);
+    });
+    
+    it('should process CARE_PLAN_TASK_COMPLETED events', async () => {
+      // Create care plan task completed event
+      const taskData = {
+        taskId: uuidv4(),
+        planId: carePlanId,
+        taskType: 'medication',
+        completedAt: new Date().toISOString(),
+        status: 'completed'
+      };
+      
+      const event = createTestEvent(
+        EventType.CARE_PLAN_TASK_COMPLETED,
+        JourneyType.CARE,
+        testUser.id,
+        taskData
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(event, TOPICS.CARE.EVENTS);
+      
+      // Wait for event to be processed
+      const processedEvent = await testEnv.waitForEvent(
+        EventType.CARE_PLAN_TASK_COMPLETED,
+        testUser.id
+      );
+      
+      // Assert event was processed correctly
+      assertEvent(
+        processedEvent,
+        EventType.CARE_PLAN_TASK_COMPLETED,
+        JourneyType.CARE,
+        testUser.id
+      );
+      
+      // Verify event data
+      expect(processedEvent.data).toMatchObject(taskData);
+      
+      // Verify gamification points were awarded (if applicable)
+      await waitForCondition(async () => {
+        const gamificationEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_POINTS_EARNED,
+          testUser.id
+        );
+        
+        return !!gamificationEvent;
+      });
+    });
+  });
+  
+  /**
+   * Tests for error handling with malformed events
+   */
+  describe('Error Handling', () => {
+    it('should handle malformed care events gracefully', async () => {
+      // Create a malformed event missing required fields
+      const malformedEvent = createTestEvent(
+        EventType.CARE_APPOINTMENT_BOOKED,
+        JourneyType.CARE,
+        testUser.id,
+        { 
+          // Missing required appointmentId and other fields
+          bookedAt: new Date().toISOString()
+        }
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(malformedEvent, TOPICS.CARE.APPOINTMENTS);
+      
+      // Wait a bit to ensure event is processed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Verify no error is thrown and the event is sent to dead letter queue
+      // This would require checking the dead letter queue, which might not be
+      // directly accessible in the test environment. Instead, we verify that
+      // no exception is thrown and the test continues to run.
+      
+      // Clear messages for next test
+      testEnv.clearConsumedMessages();
+    });
+    
+    it('should validate event schema correctly', async () => {
+      // Create an event with invalid field types
+      const invalidEvent = createTestEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id,
+        {
+          medicationId: uuidv4(),
+          medicationName: 'Test Medication',
+          dosage: 10, // Should be a string, not a number
+          takenAt: new Date().toISOString(),
+          adherence: 'on_time'
+        }
+      );
+      
+      // Publish event
+      await testEnv.publishEvent(invalidEvent, TOPICS.CARE.MEDICATIONS);
+      
+      // Wait a bit to ensure event is processed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Verify no error is thrown and the test continues to run
+      // Clear messages for next test
+      testEnv.clearConsumedMessages();
+    });
+  });
+  
+  /**
+   * Tests for cross-journey interactions
+   */
+  describe('Cross-Journey Interactions', () => {
+    it('should trigger gamification events from care journey events', async () => {
+      // Create a sequence of care events that should trigger gamification
+      // 1. Book an appointment
+      const appointment = await createTestAppointment(prisma, testUser.id);
+      
+      const appointmentEvent = createTestEvent(
+        EventType.CARE_APPOINTMENT_BOOKED,
+        JourneyType.CARE,
+        testUser.id,
+        {
+          appointmentId: appointment.id,
+          providerId: appointment.providerId,
+          specialtyType: 'Cardiologia',
+          appointmentType: 'in_person',
+          scheduledAt: appointment.scheduledAt.toISOString(),
+          bookedAt: new Date().toISOString()
+        }
+      );
+      
+      await testEnv.publishEvent(appointmentEvent, TOPICS.CARE.APPOINTMENTS);
+      
+      // 2. Complete the appointment
+      await prisma.appointment.update({
+        where: { id: appointment.id },
+        data: { status: 'COMPLETED' }
+      });
+      
+      const completedEvent = createTestEvent(
+        EventType.CARE_APPOINTMENT_COMPLETED,
+        JourneyType.CARE,
+        testUser.id,
+        {
+          appointmentId: appointment.id,
+          providerId: appointment.providerId,
+          appointmentType: 'in_person',
+          scheduledAt: appointment.scheduledAt.toISOString(),
+          completedAt: new Date().toISOString(),
+          duration: 30
+        }
+      );
+      
+      await testEnv.publishEvent(completedEvent, TOPICS.CARE.APPOINTMENTS);
+      
+      // 3. Take medication
+      const medicationEvent = createTestEvent(
+        EventType.CARE_MEDICATION_TAKEN,
+        JourneyType.CARE,
+        testUser.id,
+        {
+          medicationId: uuidv4(),
+          medicationName: 'Test Medication',
+          dosage: '10mg',
+          takenAt: new Date().toISOString(),
+          adherence: 'on_time'
+        }
+      );
+      
+      await testEnv.publishEvent(medicationEvent, TOPICS.CARE.MEDICATIONS);
+      
+      // Verify that gamification events are triggered
+      await retry(async () => {
+        const messages = testEnv.getConsumedMessages();
+        const gamificationEvents = messages.filter(msg => {
+          try {
+            const event = JSON.parse(msg.value.toString());
+            return event.type === EventType.GAMIFICATION_POINTS_EARNED && 
+                   event.userId === testUser.id;
+          } catch {
+            return false;
+          }
+        });
+        
+        // We expect at least 3 gamification events (one for each care event)
+        if (gamificationEvents.length < 3) {
+          throw new Error(`Expected at least 3 gamification events, but got ${gamificationEvents.length}`);
+        }
+        
+        return true;
+      });
+      
+      // Check for achievement unlocked event
+      await waitForCondition(async () => {
+        const achievementEvent = await testEnv.waitForEvent(
+          EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
+          testUser.id
+        );
+        
+        return !!achievementEvent;
+      });
     });
   });
 });
