@@ -1,132 +1,211 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LoggerService } from '@nestjs/common';
 import { TracingModule } from '../../src/tracing.module';
 import { TracingService } from '../../src/tracing.service';
+import { CONFIG_KEYS } from '../../src/constants/config-keys';
 
-// Mock logger service for testing
+// Mock logger service to avoid actual logging during tests
 @Injectable()
-class MockLoggerService implements LoggerService {
-  log(message: any, context?: string): void {}
-  error(message: any, trace?: string, context?: string, ...rest: any[]): void {}
-  warn(message: any, context?: string): void {}
-  debug(message: any, context?: string): void {}
-  verbose(message: any, context?: string): void {}
+class MockLoggerService {
+  log(message: string, context?: string): void {}
+  error(message: string, trace?: string, context?: string): void {}
+  warn(message: string, context?: string): void {}
+  debug(message: string, context?: string): void {}
 }
 
-// Test consumer service that injects TracingService
+// Test service that directly imports TracingModule
 @Injectable()
-class TestConsumerService {
+class DirectConsumerService {
   constructor(public readonly tracingService: TracingService) {}
-
-  async performOperation(): Promise<string> {
-    return this.tracingService.createSpan('test-operation', async () => {
-      return 'operation completed';
-    });
-  }
 }
 
-// Module that doesn't import TracingModule but uses TracingService
+// Module that directly imports TracingModule
 @Module({
-  providers: [TestConsumerService],
-  exports: [TestConsumerService],
+  imports: [TracingModule],
+  providers: [DirectConsumerService],
+  exports: [DirectConsumerService],
 })
-class TestConsumerModule {}
+class DirectConsumerModule {}
 
-// Module that provides configuration for TracingModule
+// Test service that doesn't import TracingModule (tests @Global() functionality)
+@Injectable()
+class IndirectConsumerService {
+  constructor(public readonly tracingService: TracingService) {}
+}
+
+// Module that doesn't import TracingModule
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      load: [() => ({
-        tracing: {
-          serviceName: 'test-service',
-          serviceVersion: '1.0.0',
-        },
-      })],
-    }),
-  ],
-  exports: [ConfigModule],
+  providers: [IndirectConsumerService],
+  exports: [IndirectConsumerService],
 })
-class TestConfigModule {}
+class IndirectConsumerModule {}
+
+// Test configuration values
+const TEST_SERVICE_NAME = 'test-service';
+const TEST_CONFIG = {
+  [CONFIG_KEYS.SERVICE_NAME]: TEST_SERVICE_NAME,
+  [CONFIG_KEYS.GENERAL.ENABLED]: true,
+  [CONFIG_KEYS.SAMPLING.RATIO]: 0.5,
+};
 
 describe('TracingModule Integration', () => {
   let moduleRef: TestingModule;
-  let consumerService: TestConsumerService;
-  let tracingService: TracingService;
+  let directConsumerService: DirectConsumerService;
+  let indirectConsumerService: IndirectConsumerService;
   let configService: ConfigService;
 
-  beforeAll(async () => {
-    // Create a test module with TracingModule and a consumer module
+  beforeEach(async () => {
+    // Create a test module with TracingModule and test consumers
     moduleRef = await Test.createTestingModule({
       imports: [
-        TestConfigModule,
+        // Configure the ConfigModule with test values
+        ConfigModule.forRoot({
+          load: [() => TEST_CONFIG],
+          isGlobal: true,
+        }),
         TracingModule,
-        TestConsumerModule,
+        DirectConsumerModule,
+        IndirectConsumerModule,
       ],
       providers: [
-        { provide: LoggerService, useClass: MockLoggerService },
+        // Provide a mock logger service
+        {
+          provide: 'LoggerService',
+          useClass: MockLoggerService,
+        },
       ],
     }).compile();
 
-    // Get service instances
-    consumerService = moduleRef.get<TestConsumerService>(TestConsumerService);
-    tracingService = moduleRef.get<TracingService>(TracingService);
+    // Get service instances for testing
+    directConsumerService = moduleRef.get<DirectConsumerService>(DirectConsumerService);
+    indirectConsumerService = moduleRef.get<IndirectConsumerService>(IndirectConsumerService);
     configService = moduleRef.get<ConfigService>(ConfigService);
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await moduleRef.close();
   });
 
   it('should be defined', () => {
     expect(moduleRef).toBeDefined();
-    expect(consumerService).toBeDefined();
-    expect(tracingService).toBeDefined();
-    expect(configService).toBeDefined();
   });
 
-  it('should provide TracingService as a global service', () => {
-    // TestConsumerModule doesn't import TracingModule, but should have access to TracingService
-    // because TracingModule is marked as @Global()
-    expect(consumerService.tracingService).toBeDefined();
-    expect(consumerService.tracingService).toBeInstanceOf(TracingService);
+  it('should provide TracingService to direct consumer', () => {
+    expect(directConsumerService).toBeDefined();
+    expect(directConsumerService.tracingService).toBeDefined();
+    expect(directConsumerService.tracingService).toBeInstanceOf(TracingService);
   });
 
-  it('should properly inject TracingService into consumer services', async () => {
-    // Test that the consumer service can use TracingService methods
-    const result = await consumerService.performOperation();
-    expect(result).toBe('operation completed');
+  it('should provide TracingService to indirect consumer (via @Global())', () => {
+    expect(indirectConsumerService).toBeDefined();
+    expect(indirectConsumerService.tracingService).toBeDefined();
+    expect(indirectConsumerService.tracingService).toBeInstanceOf(TracingService);
   });
 
-  it('should integrate with ConfigModule for service configuration', () => {
-    // Verify that TracingService uses ConfigService to get configuration values
-    const serviceName = configService.get('tracing.serviceName');
-    const serviceVersion = configService.get('tracing.serviceVersion');
+  it('should configure TracingService with values from ConfigService', () => {
+    // Verify that the TracingService is using the configuration values
+    const tracingService = moduleRef.get<TracingService>(TracingService);
     
-    expect(serviceName).toBe('test-service');
-    expect(serviceVersion).toBe('1.0.0');
+    // We can't directly access private properties, but we can test the behavior
+    // by checking if the configuration was properly loaded
+    expect(configService.get(CONFIG_KEYS.SERVICE_NAME)).toBe(TEST_SERVICE_NAME);
+    
+    // Verify that the tracer is available
+    expect(tracingService.getTracer()).toBeDefined();
   });
 
-  it('should create a tracer with the configured service name', () => {
-    // This test verifies that TracingService initializes with the correct service name
-    // We can't directly test the private tracer property, but we can test that the service
-    // is properly initialized and doesn't throw errors
-    expect(() => tracingService.getCurrentTraceInfo()).not.toThrow();
+  it('should properly initialize with all dependencies', async () => {
+    // Create a new module with explicit initialization order
+    const orderedModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [() => TEST_CONFIG],
+        }),
+        TracingModule,
+      ],
+      providers: [
+        {
+          provide: 'LoggerService',
+          useClass: MockLoggerService,
+        },
+      ],
+    }).compile();
+
+    // Get the TracingService instance
+    const tracingService = orderedModule.get<TracingService>(TracingService);
+    expect(tracingService).toBeDefined();
+    expect(tracingService.getTracer()).toBeDefined();
+
+    // Clean up
+    await orderedModule.close();
   });
 
-  it('should provide methods for trace context propagation', () => {
-    // Verify that TracingService exposes methods for context propagation
-    expect(typeof tracingService.getTraceContextForPropagation).toBe('function');
-    expect(typeof tracingService.injectTraceContextIntoHeaders).toBe('function');
-    expect(typeof tracingService.extractTraceContextFromHeaders).toBe('function');
+  it('should create spans and propagate context correctly', async () => {
+    const tracingService = moduleRef.get<TracingService>(TracingService);
+    
+    // Test creating a span
+    const testFunction = jest.fn().mockResolvedValue('test-result');
+    const result = await tracingService.createSpan('test-span', testFunction, {
+      attributes: { testAttribute: 'test-value' },
+    });
+
+    // Verify the function was called and returned the expected result
+    expect(testFunction).toHaveBeenCalled();
+    expect(result).toBe('test-result');
   });
 
-  it('should provide methods for creating spans with different contexts', () => {
-    // Verify that TracingService exposes methods for creating different types of spans
-    expect(typeof tracingService.createSpan).toBe('function');
-    expect(typeof tracingService.createJourneySpan).toBe('function');
-    expect(typeof tracingService.createHttpSpan).toBe('function');
-    expect(typeof tracingService.createDatabaseSpan).toBe('function');
+  it('should create journey-specific spans', async () => {
+    const tracingService = moduleRef.get<TracingService>(TracingService);
+    
+    // Test creating a journey-specific span
+    const testFunction = jest.fn().mockResolvedValue('journey-result');
+    const result = await tracingService.createJourneySpan(
+      'health',
+      'test-operation',
+      testFunction,
+      {
+        userId: 'test-user',
+        requestId: 'test-request',
+      }
+    );
+
+    // Verify the function was called and returned the expected result
+    expect(testFunction).toHaveBeenCalled();
+    expect(result).toBe('journey-result');
+  });
+
+  it('should handle errors in spans correctly', async () => {
+    const tracingService = moduleRef.get<TracingService>(TracingService);
+    const testError = new Error('Test error');
+    
+    // Test error handling in a span
+    const errorFunction = jest.fn().mockRejectedValue(testError);
+    
+    await expect(
+      tracingService.createSpan('error-span', errorFunction)
+    ).rejects.toThrow(testError);
+
+    // Verify the function was called
+    expect(errorFunction).toHaveBeenCalled();
+  });
+
+  it('should extract and inject context into headers', () => {
+    const tracingService = moduleRef.get<TracingService>(TracingService);
+    
+    // Test header injection
+    const headers = {};
+    const headersWithContext = tracingService.injectContextIntoHeaders(headers);
+    
+    // The headers should be modified, but we can't predict the exact values
+    // since they depend on the actual trace context
+    expect(headersWithContext).toBeDefined();
+    
+    // Test context extraction
+    const extractedContext = tracingService.extractContextFromHeaders(headersWithContext);
+    
+    // The context might be null if no active span exists
+    // This is just a basic check that the function doesn't throw
+    expect(() => tracingService.extractContextFromHeaders(headersWithContext)).not.toThrow();
   });
 });
