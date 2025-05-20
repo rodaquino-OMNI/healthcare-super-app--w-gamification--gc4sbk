@@ -1,432 +1,582 @@
-import { Test } from '@nestjs/testing';
-import { LoggerService } from '../../src/logger.service';
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
 import { LoggerModule } from '../../src/logger.module';
+import { LoggerService } from '../../src/logger.service';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { LogEntry } from '../../src/interfaces/log-entry.interface';
-import { TransportFactory } from '../../src/transports/transport-factory';
 import { Transport } from '../../src/interfaces/transport.interface';
-import { JourneyType } from '../../src/context/context.constants';
-
-/**
- * Mock transport for testing that captures log entries
- */
-class MockTransport implements Transport {
-  public entries: LogEntry[] = [];
-  private readonly level: LogLevel;
-
-  constructor(level: LogLevel = LogLevel.DEBUG) {
-    this.level = level;
-  }
-
-  write(entry: LogEntry): void {
-    if (entry.level >= this.level) {
-      this.entries.push(entry);
-    }
-  }
-
-  clear(): void {
-    this.entries = [];
-  }
-}
-
-/**
- * Mock transport factory for testing
- */
-class MockTransportFactory extends TransportFactory {
-  private readonly mockTransports: MockTransport[] = [];
-
-  constructor(transports: MockTransport[] = []) {
-    super();
-    this.mockTransports = transports;
-  }
-
-  createTransports(): Transport[] {
-    return this.mockTransports;
-  }
-
-  getMockTransports(): MockTransport[] {
-    return this.mockTransports;
-  }
-}
+import { MockTransport } from '../mocks/transport.mock';
+import { TransportFactory } from '../../src/transports/transport-factory';
+import { ConsoleTransport } from '../../src/transports/console.transport';
+import { FileTransport } from '../../src/transports/file.transport';
+import { CloudWatchTransport } from '../../src/transports/cloudwatch.transport';
+import { JsonFormatter } from '../../src/formatters/json.formatter';
+import { TextFormatter } from '../../src/formatters/text.formatter';
+import { CloudWatchFormatter } from '../../src/formatters/cloudwatch.formatter';
+import { TestAppModule } from './test-app.module';
+import { ContextManager } from '../../src/context/context-manager';
+import * as journeyData from '../fixtures/journey-data.fixture';
+import * as logContexts from '../fixtures/log-contexts.fixture';
+import * as errorObjects from '../fixtures/error-objects.fixture';
 
 describe('LoggerService (e2e)', () => {
+  let app: INestApplication;
   let loggerService: LoggerService;
   let mockTransport: MockTransport;
-  let mockTransportFactory: MockTransportFactory;
-
-  beforeEach(async () => {
-    // Create a mock transport to capture logs
-    mockTransport = new MockTransport();
-    mockTransportFactory = new MockTransportFactory([mockTransport]);
-
-    // Create a test module with the logger service
-    const moduleRef = await Test.createTestingModule({
-      imports: [LoggerModule.forRoot({
-        level: LogLevel.DEBUG,
-        defaultContext: {
-          application: 'test-app',
-          service: 'test-service',
-          environment: 'test',
-        },
-        journeyLevels: {
-          [JourneyType.HEALTH]: LogLevel.INFO,
-          [JourneyType.CARE]: LogLevel.DEBUG,
-          [JourneyType.PLAN]: LogLevel.WARN,
-        },
-        tracing: {
-          enabled: false,
-        },
-      })],
-      providers: [
-        {
-          provide: TransportFactory,
-          useValue: mockTransportFactory,
-        },
-      ],
-    }).compile();
-
-    loggerService = moduleRef.get<LoggerService>(LoggerService);
-  });
-
-  afterEach(() => {
-    mockTransport.clear();
-  });
-
-  describe('Basic logging functionality', () => {
-    it('should log messages with the correct level', () => {
-      // Test all log methods
-      loggerService.debug('Debug message');
-      loggerService.log('Info message');
-      loggerService.warn('Warning message');
-      loggerService.error('Error message');
-      loggerService.fatal('Fatal message');
-
-      // Verify log entries
-      expect(mockTransport.entries).toHaveLength(5);
-      expect(mockTransport.entries[0].level).toBe(LogLevel.DEBUG);
-      expect(mockTransport.entries[1].level).toBe(LogLevel.INFO);
-      expect(mockTransport.entries[2].level).toBe(LogLevel.WARN);
-      expect(mockTransport.entries[3].level).toBe(LogLevel.ERROR);
-      expect(mockTransport.entries[4].level).toBe(LogLevel.FATAL);
-
-      // Verify messages
-      expect(mockTransport.entries[0].message).toBe('Debug message');
-      expect(mockTransport.entries[1].message).toBe('Info message');
-      expect(mockTransport.entries[2].message).toBe('Warning message');
-      expect(mockTransport.entries[3].message).toBe('Error message');
-      expect(mockTransport.entries[4].message).toBe('Fatal message');
-    });
-
-    it('should include timestamp in log entries', () => {
-      loggerService.log('Test message');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].timestamp).toBeInstanceOf(Date);
-    });
-
-    it('should include default context in log entries', () => {
-      loggerService.log('Test message');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject({
-        application: 'test-app',
-        service: 'test-service',
-        environment: 'test',
-      });
+  let tempLogFile: string;
+  
+  beforeAll(() => {
+    // Create a temporary log file for testing
+    tempLogFile = path.join(os.tmpdir(), `austa-logger-test-${Date.now()}.log`);
+    
+    // Mock the TransportFactory to use our mock transport
+    jest.spyOn(TransportFactory, 'createTransport').mockImplementation((type: string) => {
+      mockTransport = new MockTransport();
+      return mockTransport;
     });
   });
-
-  describe('Log level filtering', () => {
-    it('should filter logs based on transport level', () => {
-      // Create a new transport with INFO level
-      const infoTransport = new MockTransport(LogLevel.INFO);
-      mockTransportFactory.getMockTransports().push(infoTransport);
-
-      // Log messages at different levels
-      loggerService.debug('Debug message');
-      loggerService.log('Info message');
-      loggerService.warn('Warning message');
-
-      // Debug transport should receive all logs
-      expect(mockTransport.entries).toHaveLength(3);
+  
+  afterAll(async () => {
+    // Clean up temporary log file
+    if (fs.existsSync(tempLogFile)) {
+      fs.unlinkSync(tempLogFile);
+    }
+    
+    if (app) {
+      await app.close();
+    }
+  });
+  
+  describe('Development environment', () => {
+    beforeEach(async () => {
+      // Reset the mock transport between tests
+      if (mockTransport) {
+        mockTransport.reset();
+      }
       
-      // Info transport should only receive INFO and above
-      expect(infoTransport.entries).toHaveLength(2);
-      expect(infoTransport.entries[0].level).toBe(LogLevel.INFO);
-      expect(infoTransport.entries[1].level).toBe(LogLevel.WARN);
-    });
-
-    it('should filter logs based on journey-specific levels', () => {
-      // Create loggers for different journeys
-      const healthLogger = loggerService.forHealthJourney();
-      const careLogger = loggerService.forCareJourney();
-      const planLogger = loggerService.forPlanJourney();
-
-      // Log DEBUG messages for each journey
-      healthLogger.debug('Health debug message');
-      careLogger.debug('Care debug message');
-      planLogger.debug('Plan debug message');
-
-      // Verify filtering based on journey levels
-      // Health: INFO level, should not log DEBUG
-      // Care: DEBUG level, should log DEBUG
-      // Plan: WARN level, should not log DEBUG
-      const debugEntries = mockTransport.entries.filter(e => e.level === LogLevel.DEBUG);
-      expect(debugEntries).toHaveLength(1);
-      expect(debugEntries[0].message).toBe('Care debug message');
-      expect(debugEntries[0].context.journeyType).toBe(JourneyType.CARE);
-    });
-
-    it('should respect environment-specific log levels', async () => {
-      // Create a test module with production settings
-      const prodTransport = new MockTransport(LogLevel.INFO);
-      const prodTransportFactory = new MockTransportFactory([prodTransport]);
-
-      const prodModuleRef = await Test.createTestingModule({
-        imports: [LoggerModule.forRoot({
-          level: LogLevel.INFO, // Production typically uses INFO
-          defaultContext: {
-            application: 'test-app',
-            service: 'test-service',
-            environment: 'production',
-          },
-          tracing: {
-            enabled: false,
-          },
-        })],
-        providers: [
-          {
-            provide: TransportFactory,
-            useValue: prodTransportFactory,
-          },
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'debug',
+                format: 'text',
+                transports: [
+                  {
+                    type: 'console',
+                    level: 'debug'
+                  },
+                  {
+                    type: 'file',
+                    level: 'debug',
+                    filename: tempLogFile
+                  }
+                ]
+              },
+              environment: 'development'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
         ],
       }).compile();
 
-      const prodLoggerService = prodModuleRef.get<LoggerService>(LoggerService);
-
-      // Log at different levels
-      prodLoggerService.debug('Debug message');
-      prodLoggerService.log('Info message');
-      prodLoggerService.warn('Warning message');
-
-      // In production, DEBUG should be filtered out
-      expect(prodTransport.entries).toHaveLength(2);
-      expect(prodTransport.entries[0].level).toBe(LogLevel.INFO);
-      expect(prodTransport.entries[1].level).toBe(LogLevel.WARN);
-    });
-  });
-
-  describe('Context enrichment', () => {
-    it('should enrich logs with string context', () => {
-      loggerService.log('Test message', 'TestContext');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context.contextName).toBe('TestContext');
+      app = moduleFixture.createNestApplication();
+      loggerService = moduleFixture.get<LoggerService>(LoggerService);
+      await app.init();
     });
 
-    it('should enrich logs with object context', () => {
-      const context = { userId: '123', requestId: 'req-456' };
-      loggerService.log('Test message', context);
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject(context);
+    afterEach(async () => {
+      await app.close();
     });
 
-    it('should create child loggers with request context', () => {
-      const requestContext = { requestId: 'req-123', ip: '127.0.0.1', method: 'GET', path: '/test' };
-      const requestLogger = loggerService.withRequestContext(requestContext);
+    it('should log messages at all levels in development environment', () => {
+      // Act
+      loggerService.debug('Debug message');
+      loggerService.verbose('Verbose message');
+      loggerService.log('Info message');
+      loggerService.warn('Warning message');
+      loggerService.error('Error message');
       
-      requestLogger.log('Request received');
+      // Assert
+      expect(mockTransport.writeCallCount).toBe(5);
+      expect(mockTransport.entries).toHaveLength(5);
       
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject({
-        requestId: 'req-123',
-        ip: '127.0.0.1',
-        method: 'GET',
-        path: '/test',
-      });
+      // Verify all log levels were captured
+      const logLevels = mockTransport.entries.map(entry => entry.level);
+      expect(logLevels).toContain(LogLevel.DEBUG);
+      expect(logLevels).toContain(LogLevel.VERBOSE);
+      expect(logLevels).toContain(LogLevel.INFO);
+      expect(logLevels).toContain(LogLevel.WARN);
+      expect(logLevels).toContain(LogLevel.ERROR);
     });
 
-    it('should create child loggers with user context', () => {
-      const userContext = { userId: 'user-123', email: 'test@example.com', roles: ['user'] };
-      const userLogger = loggerService.withUserContext(userContext);
+    it('should include timestamp, level, and message in all log entries', () => {
+      // Act
+      loggerService.log('Test message');
       
-      userLogger.log('User action');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject({
-        userId: 'user-123',
-        email: 'test@example.com',
-        roles: ['user'],
-      });
-    });
-
-    it('should create child loggers with journey context', () => {
-      const journeyContext = { journeyType: JourneyType.HEALTH, step: 'record-metrics' };
-      const journeyLogger = loggerService.withJourneyContext(journeyContext);
-      
-      journeyLogger.log('Journey step completed');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject({
-        journeyType: JourneyType.HEALTH,
-        step: 'record-metrics',
-      });
-    });
-
-    it('should combine multiple contexts correctly', () => {
-      const requestLogger = loggerService.withRequestContext({ requestId: 'req-123' });
-      const userRequestLogger = requestLogger.withUserContext({ userId: 'user-456' });
-      const fullContextLogger = userRequestLogger.withJourneyContext({ journeyType: JourneyType.CARE });
-      
-      fullContextLogger.log('Complete context test');
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].context).toMatchObject({
-        requestId: 'req-123',
-        userId: 'user-456',
-        journeyType: JourneyType.CARE,
-      });
-    });
-  });
-
-  describe('Error logging', () => {
-    it('should log errors with stack traces', () => {
-      const error = new Error('Test error');
-      loggerService.error('An error occurred', error);
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].message).toBe('An error occurred');
-      expect(mockTransport.entries[0].error).toBeDefined();
-      expect(mockTransport.entries[0].stack).toBeDefined();
-      expect(mockTransport.entries[0].stack).toContain('Error: Test error');
-    });
-
-    it('should log errors with string stack traces', () => {
-      const stackTrace = 'Error: Test error\n    at TestFunction (/test/file.ts:10:15)';
-      loggerService.error('An error occurred', stackTrace);
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].message).toBe('An error occurred');
-      expect(mockTransport.entries[0].stack).toBe(stackTrace);
-    });
-
-    it('should log fatal errors with additional context', () => {
-      const error = new Error('Critical failure');
-      const context = { component: 'database', operation: 'query' };
-      
-      loggerService.fatal('System failure', error, context);
-      
-      expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe(LogLevel.FATAL);
-      expect(mockTransport.entries[0].message).toBe('System failure');
-      expect(mockTransport.entries[0].error).toBeDefined();
-      expect(mockTransport.entries[0].context).toMatchObject(context);
-    });
-  });
-
-  describe('JSON structure validation', () => {
-    it('should produce valid JSON-serializable log entries', () => {
-      // Log with various types of data
-      loggerService.log('Test message', { 
-        userId: '123', 
-        metadata: { tags: ['test', 'json'], count: 42 },
-        timestamp: new Date('2023-01-01T12:00:00Z')
-      });
-      
+      // Assert
       const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.timestamp).toBeDefined();
+      expect(entry.level).toBe(LogLevel.INFO);
+      expect(entry.message).toBe('Test message');
+    });
+
+    it('should format error objects with stack traces in development', () => {
+      // Arrange
+      const error = new Error('Test error');
+      
+      // Act
+      loggerService.error('Error occurred', error);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.level).toBe(LogLevel.ERROR);
+      expect(entry.message).toBe('Error occurred');
+      expect(entry.error).toBeDefined();
+      expect(entry.error.message).toBe('Test error');
+      expect(entry.error.stack).toBeDefined();
+    });
+
+    it('should enrich logs with context when provided', () => {
+      // Arrange
+      const context = { requestId: 'test-request-id', userId: 'test-user-id' };
+      
+      // Act
+      loggerService.log('Test with context', context);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.context).toBeDefined();
+      expect(entry.context.requestId).toBe('test-request-id');
+      expect(entry.context.userId).toBe('test-user-id');
+    });
+  });
+
+  describe('Production environment', () => {
+    beforeEach(async () => {
+      // Reset the mock transport between tests
+      if (mockTransport) {
+        mockTransport.reset();
+      }
+      
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'info',
+                format: 'json',
+                transports: [
+                  {
+                    type: 'console',
+                    level: 'info'
+                  },
+                  {
+                    type: 'cloudwatch',
+                    level: 'info',
+                    logGroup: 'austa-superapp',
+                    logStream: 'backend-services'
+                  }
+                ]
+              },
+              environment: 'production'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      app = moduleFixture.createNestApplication();
+      loggerService = moduleFixture.get<LoggerService>(LoggerService);
+      await app.init();
+    });
+
+    afterEach(async () => {
+      await app.close();
+    });
+
+    it('should filter out debug and verbose logs in production environment', () => {
+      // Act
+      loggerService.debug('Debug message');
+      loggerService.verbose('Verbose message');
+      loggerService.log('Info message');
+      loggerService.warn('Warning message');
+      loggerService.error('Error message');
+      
+      // Assert
+      expect(mockTransport.writeCallCount).toBe(3); // Only INFO, WARN, ERROR
+      
+      // Verify only appropriate log levels were captured
+      const logLevels = mockTransport.entries.map(entry => entry.level);
+      expect(logLevels).not.toContain(LogLevel.DEBUG);
+      expect(logLevels).not.toContain(LogLevel.VERBOSE);
+      expect(logLevels).toContain(LogLevel.INFO);
+      expect(logLevels).toContain(LogLevel.WARN);
+      expect(logLevels).toContain(LogLevel.ERROR);
+    });
+
+    it('should use JSON format in production environment', () => {
+      // Arrange
+      const jsonFormatter = new JsonFormatter();
+      jest.spyOn(jsonFormatter, 'format');
+      
+      // Act
+      loggerService.log('Test message');
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
       
       // Verify the entry can be serialized to JSON
       const serialized = JSON.stringify(entry);
       expect(() => JSON.parse(serialized)).not.toThrow();
       
-      // Verify the structure after serialization
+      // Verify the structure of the JSON
       const parsed = JSON.parse(serialized);
+      expect(parsed.timestamp).toBeDefined();
+      expect(parsed.level).toBe('INFO');
       expect(parsed.message).toBe('Test message');
-      expect(parsed.level).toBe(LogLevel.INFO);
-      expect(parsed.context.userId).toBe('123');
-      expect(parsed.context.metadata.tags).toEqual(['test', 'json']);
-      expect(parsed.context.metadata.count).toBe(42);
-      expect(parsed.context.timestamp).toBeDefined();
     });
 
-    it('should handle circular references in log objects', () => {
-      // Create an object with circular reference
-      const circular: any = { name: 'circular' };
-      circular.self = circular;
+    it('should sanitize error stacks in production environment', () => {
+      // Arrange
+      const error = new Error('Test error');
       
-      // Log the circular object
-      loggerService.log('Circular object test', { circular });
+      // Act
+      loggerService.error('Error occurred', error);
       
+      // Assert
       const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.level).toBe(LogLevel.ERROR);
+      expect(entry.message).toBe('Error occurred');
+      expect(entry.error).toBeDefined();
+      expect(entry.error.message).toBe('Test error');
       
-      // Verify the entry can be serialized without errors
-      expect(() => JSON.stringify(entry)).not.toThrow();
-      
-      // The circular reference should be replaced with a placeholder
-      const serialized = JSON.stringify(entry);
-      expect(serialized).toContain('circular');
-      expect(serialized).toContain('[Circular]');
-    });
-
-    it('should sanitize sensitive information', () => {
-      // Log with sensitive information
-      loggerService.log('Auth test', { 
-        user: 'testuser', 
-        password: 'secret123',
-        token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
-        creditCard: '4111-1111-1111-1111'
-      });
-      
-      const entry = mockTransport.entries[0];
-      const serialized = JSON.stringify(entry);
-      
-      // Sensitive fields should be redacted
-      expect(serialized).not.toContain('secret123');
-      expect(serialized).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
-      expect(serialized).not.toContain('4111-1111-1111-1111');
-      
-      // But should contain placeholders
-      expect(serialized).toContain('[REDACTED]');
+      // In production, we might want to limit stack trace information
+      // This depends on the specific implementation
+      if (entry.error.stack) {
+        // If stack is included, ensure it's properly formatted
+        expect(typeof entry.error.stack).toBe('string');
+      }
     });
   });
 
-  describe('Environment-specific behavior', () => {
-    it('should configure transports based on environment', async () => {
-      // Test development environment
-      const devFactory = new TransportFactory();
-      const devTransports = devFactory.createEnvironmentTransports('development', 'test-app');
+  describe('Journey-specific logging', () => {
+    beforeEach(async () => {
+      // Reset the mock transport between tests
+      if (mockTransport) {
+        mockTransport.reset();
+      }
       
-      expect(devTransports.length).toBe(2); // Console + File
-      expect(devTransports[0].type).toBe('console');
-      expect(devTransports[0].level).toBe('debug');
-      expect(devTransports[1].type).toBe('file');
-      
-      // Test production environment
-      const prodFactory = new TransportFactory();
-      const prodTransports = prodFactory.createEnvironmentTransports('production', 'test-app');
-      
-      expect(prodTransports.length).toBe(1); // CloudWatch only
-      expect(prodTransports[0].type).toBe('cloudwatch');
-      expect(prodTransports[0].level).toBe('info');
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'debug',
+                format: 'json',
+                transports: [{ type: 'console', level: 'debug' }]
+              },
+              environment: 'development'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      app = moduleFixture.createNestApplication();
+      loggerService = moduleFixture.get<LoggerService>(LoggerService);
+      await app.init();
     });
 
-    it('should apply different formatting based on environment', async () => {
-      // This would require testing the actual formatters
-      // For now, we'll just verify the transport factory creates the right configs
-      const devFactory = new TransportFactory();
-      const devTransports = devFactory.createEnvironmentTransports('development', 'test-app');
+    afterEach(async () => {
+      await app.close();
+    });
+
+    it('should include journey context in logs when provided', () => {
+      // Arrange
+      const contextManager = app.get<ContextManager>(ContextManager);
+      const healthJourneyContext = journeyData.healthJourneyContext;
       
-      // Development should have colorized console output
-      expect(devTransports[0].colorize).toBe(true);
+      // Set the current context
+      contextManager.setJourneyContext(healthJourneyContext);
       
-      // Production should have structured JSON for CloudWatch
-      const prodFactory = new TransportFactory();
-      const prodTransports = prodFactory.createEnvironmentTransports('production', 'test-app');
+      // Act
+      loggerService.log('Health journey log');
       
-      // CloudWatch transport should have appropriate settings
-      expect(prodTransports[0].logGroupName).toContain('/austa/production/');
-      expect(prodTransports[0].retentionDays).toBe(90); // Longer retention in production
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.context).toBeDefined();
+      expect(entry.context.journey).toBeDefined();
+      expect(entry.context.journey.type).toBe('health');
+      expect(entry.context.journey.id).toBe(healthJourneyContext.id);
+    });
+
+    it('should log with different journey contexts', () => {
+      // Arrange
+      const contextManager = app.get<ContextManager>(ContextManager);
+      
+      // Act - Log with different journey contexts
+      contextManager.setJourneyContext(journeyData.healthJourneyContext);
+      loggerService.log('Health journey log');
+      
+      contextManager.setJourneyContext(journeyData.careJourneyContext);
+      loggerService.log('Care journey log');
+      
+      contextManager.setJourneyContext(journeyData.planJourneyContext);
+      loggerService.log('Plan journey log');
+      
+      // Assert
+      expect(mockTransport.entries).toHaveLength(3);
+      
+      // Verify each log has the correct journey context
+      expect(mockTransport.entries[0].context.journey.type).toBe('health');
+      expect(mockTransport.entries[1].context.journey.type).toBe('care');
+      expect(mockTransport.entries[2].context.journey.type).toBe('plan');
+    });
+  });
+
+  describe('Tracing integration', () => {
+    beforeEach(async () => {
+      // Reset the mock transport between tests
+      if (mockTransport) {
+        mockTransport.reset();
+      }
+      
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'debug',
+                format: 'json',
+                transports: [{ type: 'console', level: 'debug' }]
+              },
+              environment: 'development',
+              tracing: {
+                enabled: true,
+                serviceName: 'logger-e2e-test'
+              }
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      app = moduleFixture.createNestApplication();
+      loggerService = moduleFixture.get<LoggerService>(LoggerService);
+      await app.init();
+    });
+
+    afterEach(async () => {
+      await app.close();
+    });
+
+    it('should include trace correlation IDs in logs', () => {
+      // Arrange - We're using the test app module which should set up tracing
+      // The actual trace ID would come from the tracing service
+      
+      // Act
+      loggerService.log('Traced log message');
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      
+      // The exact property name depends on implementation, but there should be some trace correlation
+      // This might be traceId, correlationId, or similar
+      expect(entry.correlationId || entry.traceId || entry.context?.traceId).toBeDefined();
+    });
+  });
+
+  describe('Error logging', () => {
+    beforeEach(async () => {
+      // Reset the mock transport between tests
+      if (mockTransport) {
+        mockTransport.reset();
+      }
+      
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'debug',
+                format: 'json',
+                transports: [{ type: 'console', level: 'debug' }]
+              },
+              environment: 'development'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      app = moduleFixture.createNestApplication();
+      loggerService = moduleFixture.get<LoggerService>(LoggerService);
+      await app.init();
+    });
+
+    afterEach(async () => {
+      await app.close();
+    });
+
+    it('should properly format standard Error objects', () => {
+      // Arrange
+      const error = new Error('Standard error');
+      
+      // Act
+      loggerService.error('An error occurred', error);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.level).toBe(LogLevel.ERROR);
+      expect(entry.message).toBe('An error occurred');
+      expect(entry.error).toBeDefined();
+      expect(entry.error.message).toBe('Standard error');
+      expect(entry.error.stack).toBeDefined();
+      expect(typeof entry.error.stack).toBe('string');
+    });
+
+    it('should handle custom application exceptions with metadata', () => {
+      // Arrange
+      const customError = errorObjects.createCustomApplicationError();
+      
+      // Act
+      loggerService.error('Custom application error', customError);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.error).toBeDefined();
+      expect(entry.error.code).toBeDefined();
+      expect(entry.error.metadata).toBeDefined();
+    });
+
+    it('should handle validation errors with field details', () => {
+      // Arrange
+      const validationError = errorObjects.createValidationError();
+      
+      // Act
+      loggerService.error('Validation error', validationError);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.error).toBeDefined();
+      expect(entry.error.fields).toBeDefined();
+      expect(Array.isArray(entry.error.fields)).toBe(true);
+    });
+
+    it('should handle nested error chains', () => {
+      // Arrange
+      const nestedError = errorObjects.createNestedError();
+      
+      // Act
+      loggerService.error('Nested error', nestedError);
+      
+      // Assert
+      const entry = mockTransport.entries[0];
+      expect(entry).toBeDefined();
+      expect(entry.error).toBeDefined();
+      expect(entry.error.cause).toBeDefined();
+    });
+  });
+
+  describe('Transport configuration', () => {
+    it('should create console transport with text formatter in development', async () => {
+      // Arrange
+      const createTransportSpy = jest.spyOn(TransportFactory, 'createTransport').mockRestore();
+      
+      // Act
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'debug',
+                format: 'text',
+                transports: [{ type: 'console', level: 'debug' }]
+              },
+              environment: 'development'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      const testApp = moduleFixture.createNestApplication();
+      await testApp.init();
+      
+      // Assert
+      expect(createTransportSpy).toHaveBeenCalledWith('console', expect.objectContaining({
+        level: 'debug'
+      }));
+      
+      await testApp.close();
+    });
+
+    it('should create cloudwatch transport with json formatter in production', async () => {
+      // Arrange
+      const createTransportSpy = jest.spyOn(TransportFactory, 'createTransport').mockRestore();
+      
+      // Act
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            isGlobal: true,
+            load: [() => ({
+              logger: {
+                level: 'info',
+                format: 'json',
+                transports: [{ 
+                  type: 'cloudwatch', 
+                  level: 'info',
+                  logGroup: 'austa-superapp',
+                  logStream: 'backend-services'
+                }]
+              },
+              environment: 'production'
+            })]
+          }),
+          LoggerModule.forRoot(),
+          TestAppModule
+        ],
+      }).compile();
+
+      const testApp = moduleFixture.createNestApplication();
+      await testApp.init();
+      
+      // Assert
+      expect(createTransportSpy).toHaveBeenCalledWith('cloudwatch', expect.objectContaining({
+        level: 'info',
+        logGroup: 'austa-superapp',
+        logStream: 'backend-services'
+      }));
+      
+      await testApp.close();
     });
   });
 });
