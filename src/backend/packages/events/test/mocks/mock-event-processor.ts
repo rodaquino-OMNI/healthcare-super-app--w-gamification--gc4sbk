@@ -1,757 +1,1307 @@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import { IBaseEvent } from '../../src/interfaces/base-event.interface';
-import { IEventHandler } from '../../src/interfaces/event-handler.interface';
-import { IEventResponse } from '../../src/interfaces/event-response.interface';
-import { IEventValidator } from '../../src/interfaces/event-validation.interface';
-import { IJourneyEvent } from '../../src/interfaces/journey-events.interface';
-import { IVersionedEvent } from '../../src/interfaces/event-versioning.interface';
+
+// Import types from the events package
+import { EventTypes } from '../../src/dto/event-types.enum';
+import { EventMetadata } from '../../src/dto/event-metadata.dto';
+import { VersionedEvent } from '../../src/dto/version.dto';
+import { ErrorCodes } from '../../src/constants/errors.constants';
 
 /**
- * Configuration options for the MockEventProcessor
+ * Configuration options for the mock event processor
  */
 export interface MockEventProcessorOptions {
   /** Whether to validate events before processing */
   validateEvents?: boolean;
-  /** Percentage of events that should fail validation (0-100) */
-  validationFailureRate?: number;
-  /** Percentage of events that should fail processing (0-100) */
-  processingFailureRate?: number;
-  /** Whether to simulate asynchronous processing */
-  asyncProcessing?: boolean;
-  /** Delay range for async processing in ms [min, max] */
-  processingDelayRange?: [number, number];
-  /** Maximum number of retry attempts for failed events */
-  maxRetryAttempts?: number;
+  /** Whether to simulate processing delays */
+  simulateProcessingDelay?: boolean;
+  /** Base processing delay in milliseconds */
+  processingDelayMs?: number;
   /** Whether to collect metrics during processing */
   collectMetrics?: boolean;
-  /** Whether to enable transaction support for batch processing */
-  enableTransactions?: boolean;
-  /** Custom validators to use for event validation */
-  validators?: IEventValidator[];
-  /** Custom handlers to use for event processing */
-  handlers?: IEventHandler<any>[];
+  /** Whether to simulate random failures */
+  simulateRandomFailures?: boolean;
+  /** Failure rate (0-1) when simulating random failures */
+  failureRate?: number;
+  /** Maximum number of retry attempts */
+  maxRetries?: number;
+  /** Base delay for retry backoff in milliseconds */
+  retryBaseDelayMs?: number;
+  /** Whether to use exponential backoff for retries */
+  useExponentialBackoff?: boolean;
+  /** Whether to track event processing history */
+  trackHistory?: boolean;
+  /** Whether to use transaction batching */
+  useTransactions?: boolean;
+  /** Maximum batch size for transactions */
+  maxBatchSize?: number;
+  /** Whether to simulate network issues */
+  simulateNetworkIssues?: boolean;
+  /** Network issue rate (0-1) when simulating network issues */
+  networkIssueRate?: number;
+  /** Whether to validate event schema versions */
+  validateSchemaVersions?: boolean;
+  /** Whether to simulate schema evolution */
+  simulateSchemaEvolution?: boolean;
 }
 
 /**
- * Metrics collected during event processing
+ * Event processing result status
+ */
+export enum EventProcessingStatus {
+  SUCCESS = 'success',
+  VALIDATION_ERROR = 'validation_error',
+  PROCESSING_ERROR = 'processing_error',
+  RETRY = 'retry',
+  DEAD_LETTER = 'dead_letter',
+  TIMEOUT = 'timeout',
+  NETWORK_ERROR = 'network_error',
+  SCHEMA_ERROR = 'schema_error',
+}
+
+/**
+ * Event processing result
+ */
+export interface EventProcessingResult<T = any> {
+  /** Unique ID for this processing attempt */
+  processingId: string;
+  /** Original event that was processed */
+  event: T;
+  /** Processing status */
+  status: EventProcessingStatus;
+  /** Error message if processing failed */
+  error?: string;
+  /** Error code if processing failed */
+  errorCode?: string;
+  /** Processing timestamp */
+  timestamp: Date;
+  /** Processing duration in milliseconds */
+  durationMs: number;
+  /** Number of retry attempts if applicable */
+  retryCount?: number;
+  /** Whether the event was processed in a transaction */
+  inTransaction?: boolean;
+  /** Transaction ID if processed in a transaction */
+  transactionId?: string;
+  /** Journey associated with the event */
+  journey?: string;
+  /** Event type */
+  eventType?: string;
+  /** User ID associated with the event */
+  userId?: string;
+  /** Metadata associated with the event */
+  metadata?: EventMetadata;
+}
+
+/**
+ * Event processing metrics
  */
 export interface EventProcessingMetrics {
-  /** Total number of events received */
-  totalEventsReceived: number;
-  /** Number of events that passed validation */
-  validEvents: number;
-  /** Number of events that failed validation */
-  invalidEvents: number;
-  /** Number of events successfully processed */
-  successfullyProcessed: number;
-  /** Number of events that failed processing */
-  failedProcessing: number;
-  /** Number of events that were retried */
-  retriedEvents: number;
-  /** Number of events that exceeded max retry attempts */
-  deadLetterEvents: number;
-  /** Average processing time in ms */
+  /** Total number of events processed */
+  totalProcessed: number;
+  /** Number of successfully processed events */
+  successful: number;
+  /** Number of failed events */
+  failed: number;
+  /** Number of events that required retries */
+  retried: number;
+  /** Number of events sent to dead letter queue */
+  deadLettered: number;
+  /** Number of events with validation errors */
+  validationErrors: number;
+  /** Number of events with schema errors */
+  schemaErrors: number;
+  /** Number of events with network errors */
+  networkErrors: number;
+  /** Number of events that timed out */
+  timeouts: number;
+  /** Average processing time in milliseconds */
   averageProcessingTimeMs: number;
-  /** Events processed per journey */
-  eventsByJourney: Record<string, number>;
-  /** Events processed by type */
-  eventsByType: Record<string, number>;
+  /** Processing times by journey */
+  processingTimeByJourney: Record<string, number>;
+  /** Processing times by event type */
+  processingTimeByEventType: Record<string, number>;
+  /** Error counts by error code */
+  errorsByCode: Record<string, number>;
+  /** Counts by journey */
+  countsByJourney: Record<string, number>;
+  /** Counts by event type */
+  countsByEventType: Record<string, number>;
 }
 
 /**
- * Status of an event in the processing pipeline
+ * Event processing history entry
  */
-enum EventStatus {
-  RECEIVED = 'received',
-  VALIDATING = 'validating',
-  VALIDATED = 'validated',
-  VALIDATION_FAILED = 'validation_failed',
-  PROCESSING = 'processing',
-  PROCESSED = 'processed',
-  PROCESSING_FAILED = 'processing_failed',
-  RETRYING = 'retrying',
-  DEAD_LETTER = 'dead_letter',
+export interface EventProcessingHistoryEntry<T = any> extends EventProcessingResult<T> {
+  /** Sequence number in the processing history */
+  sequence: number;
 }
 
 /**
- * Internal tracking of an event through the processing pipeline
+ * Transaction batch
  */
-interface EventTracking {
-  /** Unique tracking ID for this event instance */
-  trackingId: string;
-  /** The event being processed */
-  event: IBaseEvent;
-  /** Current status of the event */
-  status: EventStatus;
-  /** Number of retry attempts made */
-  retryCount: number;
-  /** Timestamp when the event was received */
-  receivedAt: Date;
-  /** Timestamp when processing started */
-  processingStartedAt?: Date;
-  /** Timestamp when processing completed */
-  processingCompletedAt?: Date;
-  /** Error information if processing failed */
-  error?: Error;
-  /** Transaction ID if part of a batch */
-  transactionId?: string;
-}
-
-/**
- * Transaction for batch processing of events
- */
-interface EventTransaction {
-  /** Unique ID for this transaction */
+export interface TransactionBatch<T = any> {
+  /** Transaction ID */
   id: string;
-  /** Events included in this transaction */
-  events: EventTracking[];
-  /** Whether the transaction is committed */
-  committed: boolean;
-  /** Whether the transaction is rolled back */
-  rolledBack: boolean;
-  /** Timestamp when the transaction started */
+  /** Events in the batch */
+  events: T[];
+  /** Transaction start timestamp */
   startedAt: Date;
-  /** Timestamp when the transaction was committed or rolled back */
+  /** Transaction completion timestamp */
   completedAt?: Date;
+  /** Transaction status */
+  status: 'pending' | 'committed' | 'rolled_back';
+  /** Error if transaction failed */
+  error?: string;
 }
 
 /**
- * Mock implementation of an event processor for testing purposes.
- * 
- * This class simulates the full event processing pipeline from reception to handling,
- * allowing tests to verify event transformations, validation, and routing without
- * connecting to actual Kafka topics or processing real events.
+ * Mock implementation of an event processor for testing
  */
-export class MockEventProcessor extends EventEmitter {
+export class MockEventProcessor<T = any> extends EventEmitter {
   private options: Required<MockEventProcessorOptions>;
-  private eventQueue: EventTracking[] = [];
-  private activeTransactions: Map<string, EventTransaction> = new Map();
-  private metrics: EventProcessingMetrics = {
-    totalEventsReceived: 0,
-    validEvents: 0,
-    invalidEvents: 0,
-    successfullyProcessed: 0,
-    failedProcessing: 0,
-    retriedEvents: 0,
-    deadLetterEvents: 0,
-    averageProcessingTimeMs: 0,
-    eventsByJourney: {},
-    eventsByType: {},
-  };
-  private processingTimes: number[] = [];
+  private metrics: EventProcessingMetrics;
+  private history: EventProcessingHistoryEntry<T>[] = [];
+  private pendingTransactions: Map<string, TransactionBatch<T>> = new Map();
+  private processingQueue: T[] = [];
   private isProcessing = false;
-  private validators: IEventValidator[] = [];
-  private handlers: Map<string, IEventHandler<any>> = new Map();
+  private historySequence = 0;
+  private schemaVersions: Map<string, number> = new Map();
 
   /**
-   * Creates a new MockEventProcessor with the specified options
+   * Creates a new MockEventProcessor instance
    * 
-   * @param options Configuration options for the processor
+   * @param options Configuration options
    */
-  constructor(options?: MockEventProcessorOptions) {
+  constructor(options: MockEventProcessorOptions = {}) {
     super();
+    
+    // Set default options
     this.options = {
-      validateEvents: options?.validateEvents ?? true,
-      validationFailureRate: options?.validationFailureRate ?? 0,
-      processingFailureRate: options?.processingFailureRate ?? 0,
-      asyncProcessing: options?.asyncProcessing ?? true,
-      processingDelayRange: options?.processingDelayRange ?? [10, 50],
-      maxRetryAttempts: options?.maxRetryAttempts ?? 3,
-      collectMetrics: options?.collectMetrics ?? true,
-      enableTransactions: options?.enableTransactions ?? false,
-      validators: options?.validators ?? [],
-      handlers: options?.handlers ?? [],
+      validateEvents: true,
+      simulateProcessingDelay: false,
+      processingDelayMs: 100,
+      collectMetrics: true,
+      simulateRandomFailures: false,
+      failureRate: 0.1,
+      maxRetries: 3,
+      retryBaseDelayMs: 200,
+      useExponentialBackoff: true,
+      trackHistory: true,
+      useTransactions: false,
+      maxBatchSize: 10,
+      simulateNetworkIssues: false,
+      networkIssueRate: 0.05,
+      validateSchemaVersions: true,
+      simulateSchemaEvolution: false,
+      ...options,
     };
 
-    // Initialize validators and handlers
-    this.validators = [...this.options.validators];
-    this.options.handlers.forEach(handler => {
-      this.registerHandler(handler);
+    // Initialize metrics
+    this.resetMetrics();
+
+    // Initialize schema versions
+    this.initializeSchemaVersions();
+  }
+
+  /**
+   * Initializes schema versions for different event types
+   */
+  private initializeSchemaVersions(): void {
+    // Set initial versions for all event types
+    Object.values(EventTypes).forEach(eventType => {
+      this.schemaVersions.set(eventType, 1);
     });
   }
 
   /**
-   * Registers a custom event validator
-   * 
-   * @param validator The validator to register
+   * Resets the metrics to initial values
    */
-  registerValidator(validator: IEventValidator): void {
-    this.validators.push(validator);
+  public resetMetrics(): void {
+    this.metrics = {
+      totalProcessed: 0,
+      successful: 0,
+      failed: 0,
+      retried: 0,
+      deadLettered: 0,
+      validationErrors: 0,
+      schemaErrors: 0,
+      networkErrors: 0,
+      timeouts: 0,
+      averageProcessingTimeMs: 0,
+      processingTimeByJourney: {},
+      processingTimeByEventType: {},
+      errorsByCode: {},
+      countsByJourney: {},
+      countsByEventType: {},
+    };
   }
 
   /**
-   * Registers a custom event handler
-   * 
-   * @param handler The handler to register
+   * Clears the processing history
    */
-  registerHandler(handler: IEventHandler<any>): void {
-    const eventType = handler.getEventType();
-    this.handlers.set(eventType, handler);
+  public clearHistory(): void {
+    this.history = [];
+    this.historySequence = 0;
   }
 
   /**
-   * Processes a single event through the pipeline
+   * Gets the current metrics
    * 
-   * @param event The event to process
-   * @returns A promise that resolves with the processing response
+   * @returns Current event processing metrics
    */
-  async processEvent(event: IBaseEvent): Promise<IEventResponse> {
-    const tracking = this.trackEvent(event);
-    
-    if (this.options.collectMetrics) {
-      this.metrics.totalEventsReceived++;
-      
-      // Track events by journey and type
-      const journeyEvent = event as IJourneyEvent;
-      if (journeyEvent.journey) {
-        this.metrics.eventsByJourney[journeyEvent.journey] = 
-          (this.metrics.eventsByJourney[journeyEvent.journey] || 0) + 1;
-      }
-      
-      this.metrics.eventsByType[event.type] = 
-        (this.metrics.eventsByType[event.type] || 0) + 1;
-    }
-
-    // If async processing is enabled, add to queue and process asynchronously
-    if (this.options.asyncProcessing) {
-      this.eventQueue.push(tracking);
-      this.startProcessing();
-      
-      return new Promise((resolve) => {
-        const listener = (processedTracking: EventTracking, response: IEventResponse) => {
-          if (processedTracking.trackingId === tracking.trackingId) {
-            this.removeListener('eventProcessed', listener);
-            resolve(response);
-          }
-        };
-        
-        this.on('eventProcessed', listener);
-      });
-    }
-    
-    // Otherwise, process synchronously
-    return this.processEventTracking(tracking);
-  }
-
-  /**
-   * Processes multiple events as a batch, optionally in a transaction
-   * 
-   * @param events The events to process
-   * @param useTransaction Whether to process the events in a transaction
-   * @returns A promise that resolves with the processing responses
-   */
-  async processBatch(events: IBaseEvent[], useTransaction = false): Promise<IEventResponse[]> {
-    const trackingItems: EventTracking[] = events.map(event => this.trackEvent(event));
-    
-    if (this.options.collectMetrics) {
-      this.metrics.totalEventsReceived += events.length;
-      
-      // Track events by journey and type
-      events.forEach(event => {
-        const journeyEvent = event as IJourneyEvent;
-        if (journeyEvent.journey) {
-          this.metrics.eventsByJourney[journeyEvent.journey] = 
-            (this.metrics.eventsByJourney[journeyEvent.journey] || 0) + 1;
-        }
-        
-        this.metrics.eventsByType[event.type] = 
-          (this.metrics.eventsByType[event.type] || 0) + 1;
-      });
-    }
-
-    // If transactions are enabled and requested, create a transaction
-    let transaction: EventTransaction | undefined;
-    if (this.options.enableTransactions && useTransaction) {
-      transaction = this.beginTransaction(trackingItems);
-    }
-
-    // If async processing is enabled, add to queue and process asynchronously
-    if (this.options.asyncProcessing) {
-      trackingItems.forEach(tracking => {
-        this.eventQueue.push(tracking);
-      });
-      
-      this.startProcessing();
-      
-      return new Promise((resolve) => {
-        const processedEvents = new Map<string, IEventResponse>();
-        const trackingIds = new Set(trackingItems.map(t => t.trackingId));
-        
-        const listener = (processedTracking: EventTracking, response: IEventResponse) => {
-          if (trackingIds.has(processedTracking.trackingId)) {
-            processedEvents.set(processedTracking.trackingId, response);
-            
-            // If all events are processed, resolve the promise
-            if (processedEvents.size === trackingItems.length) {
-              this.removeListener('eventProcessed', listener);
-              
-              // If using a transaction, commit or rollback based on success
-              if (transaction) {
-                const allSuccessful = Array.from(processedEvents.values())
-                  .every(response => response.success);
-                
-                if (allSuccessful) {
-                  this.commitTransaction(transaction.id);
-                } else {
-                  this.rollbackTransaction(transaction.id);
-                }
-              }
-              
-              resolve(trackingItems.map(t => processedEvents.get(t.trackingId)!));
-            }
-          }
-        };
-        
-        this.on('eventProcessed', listener);
-      });
-    }
-    
-    // Otherwise, process synchronously
-    const responses: IEventResponse[] = [];
-    
-    for (const tracking of trackingItems) {
-      const response = await this.processEventTracking(tracking);
-      responses.push(response);
-      
-      // If using a transaction and an event fails, rollback and stop processing
-      if (transaction && !response.success) {
-        this.rollbackTransaction(transaction.id);
-        break;
-      }
-    }
-    
-    // If using a transaction and all events succeeded, commit the transaction
-    if (transaction && responses.every(r => r.success)) {
-      this.commitTransaction(transaction.id);
-    }
-    
-    return responses;
-  }
-
-  /**
-   * Gets the current metrics for event processing
-   * 
-   * @returns The current metrics
-   */
-  getMetrics(): EventProcessingMetrics {
+  public getMetrics(): EventProcessingMetrics {
     return { ...this.metrics };
   }
 
   /**
-   * Resets all metrics to zero
-   */
-  resetMetrics(): void {
-    this.metrics = {
-      totalEventsReceived: 0,
-      validEvents: 0,
-      invalidEvents: 0,
-      successfullyProcessed: 0,
-      failedProcessing: 0,
-      retriedEvents: 0,
-      deadLetterEvents: 0,
-      averageProcessingTimeMs: 0,
-      eventsByJourney: {},
-      eventsByType: {},
-    };
-    this.processingTimes = [];
-  }
-
-  /**
-   * Gets all events in the dead letter queue (events that exceeded max retry attempts)
+   * Gets the processing history
    * 
-   * @returns Array of events in the dead letter queue
+   * @returns Array of processing history entries
    */
-  getDeadLetterEvents(): IBaseEvent[] {
-    return this.eventQueue
-      .filter(tracking => tracking.status === EventStatus.DEAD_LETTER)
-      .map(tracking => tracking.event);
+  public getHistory(): EventProcessingHistoryEntry<T>[] {
+    return [...this.history];
   }
 
   /**
-   * Clears all events from the processing queue
-   */
-  clearQueue(): void {
-    this.eventQueue = [];
-  }
-
-  /**
-   * Begins a new transaction for batch processing
+   * Gets the pending transactions
    * 
-   * @param events Events to include in the transaction
-   * @returns The created transaction
+   * @returns Map of transaction ID to transaction batch
    */
-  private beginTransaction(events: EventTracking[]): EventTransaction {
+  public getPendingTransactions(): Map<string, TransactionBatch<T>> {
+    return new Map(this.pendingTransactions);
+  }
+
+  /**
+   * Processes a single event
+   * 
+   * @param event Event to process
+   * @param retryCount Current retry count (default: 0)
+   * @returns Promise that resolves to the processing result
+   */
+  public async processEvent(event: T, retryCount = 0): Promise<EventProcessingResult<T>> {
+    const startTime = Date.now();
+    const processingId = uuidv4();
+    
+    try {
+      // Extract event information for metrics and logging
+      const eventInfo = this.extractEventInfo(event);
+      
+      // Validate the event if enabled
+      if (this.options.validateEvents) {
+        const validationResult = this.validateEvent(event);
+        if (!validationResult.valid) {
+          return this.handleValidationError(event, validationResult.error, processingId, startTime, eventInfo);
+        }
+      }
+      
+      // Validate schema version if enabled
+      if (this.options.validateSchemaVersions) {
+        const versionValidationResult = this.validateSchemaVersion(event);
+        if (!versionValidationResult.valid) {
+          return this.handleSchemaError(event, versionValidationResult.error, processingId, startTime, eventInfo);
+        }
+      }
+      
+      // Simulate network issues if enabled
+      if (this.options.simulateNetworkIssues && Math.random() < this.options.networkIssueRate) {
+        return this.handleNetworkError(event, processingId, startTime, retryCount, eventInfo);
+      }
+      
+      // Simulate random failures if enabled
+      if (this.options.simulateRandomFailures && Math.random() < this.options.failureRate) {
+        return this.handleRandomFailure(event, processingId, startTime, retryCount, eventInfo);
+      }
+      
+      // Simulate processing delay if enabled
+      if (this.options.simulateProcessingDelay) {
+        await this.delay(this.options.processingDelayMs);
+      }
+      
+      // Process the event successfully
+      const result: EventProcessingResult<T> = {
+        processingId,
+        event,
+        status: EventProcessingStatus.SUCCESS,
+        timestamp: new Date(),
+        durationMs: Date.now() - startTime,
+        retryCount,
+        journey: eventInfo.journey,
+        eventType: eventInfo.eventType,
+        userId: eventInfo.userId,
+        metadata: eventInfo.metadata,
+      };
+      
+      // Update metrics if enabled
+      if (this.options.collectMetrics) {
+        this.updateMetricsForSuccess(result);
+      }
+      
+      // Add to history if enabled
+      if (this.options.trackHistory) {
+        this.addToHistory(result);
+      }
+      
+      // Emit success event
+      this.emit('success', result);
+      
+      return result;
+    } catch (error) {
+      // Handle unexpected errors
+      return this.handleUnexpectedError(event, error, processingId, startTime, retryCount);
+    }
+  }
+
+  /**
+   * Processes multiple events
+   * 
+   * @param events Array of events to process
+   * @param useTransaction Whether to process events in a transaction
+   * @returns Promise that resolves to an array of processing results
+   */
+  public async processEvents(events: T[], useTransaction = false): Promise<EventProcessingResult<T>[]> {
+    if (useTransaction || this.options.useTransactions) {
+      return this.processEventsInTransaction(events);
+    } else {
+      const results: EventProcessingResult<T>[] = [];
+      
+      for (const event of events) {
+        const result = await this.processEvent(event);
+        results.push(result);
+      }
+      
+      return results;
+    }
+  }
+
+  /**
+   * Processes events in a transaction
+   * 
+   * @param events Array of events to process
+   * @returns Promise that resolves to an array of processing results
+   */
+  private async processEventsInTransaction(events: T[]): Promise<EventProcessingResult<T>[]> {
     const transactionId = uuidv4();
-    
-    // Mark all events as part of this transaction
-    events.forEach(event => {
-      event.transactionId = transactionId;
-    });
-    
-    const transaction: EventTransaction = {
+    const batch: TransactionBatch<T> = {
       id: transactionId,
-      events,
-      committed: false,
-      rolledBack: false,
+      events: [...events],
       startedAt: new Date(),
+      status: 'pending',
     };
     
-    this.activeTransactions.set(transactionId, transaction);
-    return transaction;
+    this.pendingTransactions.set(transactionId, batch);
+    this.emit('transaction:started', { transactionId, eventCount: events.length });
+    
+    try {
+      const results: EventProcessingResult<T>[] = [];
+      let hasErrors = false;
+      
+      // Process each event in the transaction
+      for (const event of events) {
+        const result = await this.processEvent(event);
+        result.inTransaction = true;
+        result.transactionId = transactionId;
+        
+        results.push(result);
+        
+        if (result.status !== EventProcessingStatus.SUCCESS) {
+          hasErrors = true;
+        }
+      }
+      
+      // Commit or rollback the transaction based on results
+      if (hasErrors) {
+        await this.rollbackTransaction(transactionId);
+        
+        // Mark all results as failed due to transaction rollback
+        for (const result of results) {
+          if (result.status === EventProcessingStatus.SUCCESS) {
+            result.status = EventProcessingStatus.PROCESSING_ERROR;
+            result.error = 'Transaction rolled back due to errors in batch';
+            result.errorCode = ErrorCodes.TRANSACTION_ROLLBACK;
+          }
+        }
+      } else {
+        await this.commitTransaction(transactionId);
+      }
+      
+      return results;
+    } catch (error) {
+      // Rollback the transaction on unexpected errors
+      await this.rollbackTransaction(transactionId, error.message);
+      
+      // Return error results for all events
+      return events.map(event => ({
+        processingId: uuidv4(),
+        event,
+        status: EventProcessingStatus.PROCESSING_ERROR,
+        error: `Transaction error: ${error.message}`,
+        errorCode: ErrorCodes.TRANSACTION_ERROR,
+        timestamp: new Date(),
+        durationMs: 0,
+        inTransaction: true,
+        transactionId,
+        ...this.extractEventInfo(event),
+      }));
+    }
   }
 
   /**
-   * Commits a transaction, finalizing all event processing
+   * Commits a transaction
    * 
    * @param transactionId ID of the transaction to commit
    */
-  private commitTransaction(transactionId: string): void {
-    const transaction = this.activeTransactions.get(transactionId);
-    if (!transaction) {
-      throw new Error(`Transaction ${transactionId} not found`);
+  private async commitTransaction(transactionId: string): Promise<void> {
+    const transaction = this.pendingTransactions.get(transactionId);
+    
+    if (transaction) {
+      transaction.status = 'committed';
+      transaction.completedAt = new Date();
+      
+      this.emit('transaction:committed', { 
+        transactionId, 
+        eventCount: transaction.events.length,
+        duration: transaction.completedAt.getTime() - transaction.startedAt.getTime(),
+      });
+      
+      // Remove from pending after a delay to allow inspection
+      setTimeout(() => {
+        this.pendingTransactions.delete(transactionId);
+      }, 1000);
     }
-    
-    transaction.committed = true;
-    transaction.completedAt = new Date();
-    this.activeTransactions.delete(transactionId);
-    
-    this.emit('transactionCommitted', transaction);
   }
 
   /**
-   * Rolls back a transaction, reverting all event processing
+   * Rolls back a transaction
    * 
    * @param transactionId ID of the transaction to roll back
+   * @param error Optional error message
    */
-  private rollbackTransaction(transactionId: string): void {
-    const transaction = this.activeTransactions.get(transactionId);
-    if (!transaction) {
-      throw new Error(`Transaction ${transactionId} not found`);
+  private async rollbackTransaction(transactionId: string, error?: string): Promise<void> {
+    const transaction = this.pendingTransactions.get(transactionId);
+    
+    if (transaction) {
+      transaction.status = 'rolled_back';
+      transaction.completedAt = new Date();
+      transaction.error = error;
+      
+      this.emit('transaction:rolled_back', { 
+        transactionId, 
+        eventCount: transaction.events.length,
+        error,
+        duration: transaction.completedAt.getTime() - transaction.startedAt.getTime(),
+      });
+      
+      // Remove from pending after a delay to allow inspection
+      setTimeout(() => {
+        this.pendingTransactions.delete(transactionId);
+      }, 1000);
     }
-    
-    transaction.rolledBack = true;
-    transaction.completedAt = new Date();
-    this.activeTransactions.delete(transactionId);
-    
-    this.emit('transactionRolledBack', transaction);
   }
 
   /**
-   * Creates tracking information for an event
+   * Adds events to the processing queue
    * 
-   * @param event The event to track
-   * @returns Tracking information for the event
+   * @param events Events to add to the queue
    */
-  private trackEvent(event: IBaseEvent): EventTracking {
-    return {
-      trackingId: uuidv4(),
-      event,
-      status: EventStatus.RECEIVED,
-      retryCount: 0,
-      receivedAt: new Date(),
-    };
+  public enqueueEvents(events: T[]): void {
+    this.processingQueue.push(...events);
+    this.emit('queue:updated', { queueSize: this.processingQueue.length });
+    
+    // Start processing if not already processing
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
   }
 
   /**
-   * Starts asynchronous processing of the event queue
+   * Processes events in the queue
    */
-  private startProcessing(): void {
-    if (this.isProcessing) {
+  private async processQueue(): Promise<void> {
+    if (this.processingQueue.length === 0) {
+      this.isProcessing = false;
+      this.emit('queue:empty');
       return;
     }
     
     this.isProcessing = true;
-    this.processNextEvent();
+    
+    // Process events in batches if transactions are enabled
+    if (this.options.useTransactions) {
+      while (this.processingQueue.length > 0) {
+        const batchSize = Math.min(this.options.maxBatchSize, this.processingQueue.length);
+        const batch = this.processingQueue.splice(0, batchSize);
+        
+        await this.processEventsInTransaction(batch);
+        this.emit('queue:updated', { queueSize: this.processingQueue.length });
+      }
+    } else {
+      // Process events one by one
+      while (this.processingQueue.length > 0) {
+        const event = this.processingQueue.shift();
+        await this.processEvent(event);
+        this.emit('queue:updated', { queueSize: this.processingQueue.length });
+      }
+    }
+    
+    this.isProcessing = false;
+    this.emit('queue:empty');
   }
 
   /**
-   * Processes the next event in the queue
-   */
-  private async processNextEvent(): Promise<void> {
-    if (this.eventQueue.length === 0) {
-      this.isProcessing = false;
-      return;
-    }
-    
-    const tracking = this.eventQueue.shift()!;
-    
-    // Simulate processing delay
-    if (this.options.asyncProcessing) {
-      const [min, max] = this.options.processingDelayRange;
-      const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    
-    const response = await this.processEventTracking(tracking);
-    this.emit('eventProcessed', tracking, response);
-    
-    // Continue processing the queue
-    this.processNextEvent();
-  }
-
-  /**
-   * Processes a tracked event through validation and handling
+   * Retries processing an event with exponential backoff
    * 
-   * @param tracking The event tracking information
-   * @returns The processing response
+   * @param event Event to retry
+   * @param retryCount Current retry count
+   * @param error Error that caused the retry
+   * @returns Promise that resolves to the processing result
    */
-  private async processEventTracking(tracking: EventTracking): Promise<IEventResponse> {
-    const startTime = Date.now();
-    tracking.processingStartedAt = new Date();
-    
-    // Validate the event if validation is enabled
-    if (this.options.validateEvents) {
-      tracking.status = EventStatus.VALIDATING;
-      
-      // Check if we should simulate a validation failure
-      const shouldFailValidation = Math.random() * 100 < this.options.validationFailureRate;
-      
-      if (shouldFailValidation) {
-        tracking.status = EventStatus.VALIDATION_FAILED;
-        tracking.error = new Error('Simulated validation failure');
-        
-        if (this.options.collectMetrics) {
-          this.metrics.invalidEvents++;
-        }
-        
-        tracking.processingCompletedAt = new Date();
-        return {
-          success: false,
-          error: {
-            message: 'Event validation failed',
-            code: 'VALIDATION_ERROR',
-            details: tracking.error.message,
-          },
-        };
-      }
-      
-      // Run through registered validators
-      for (const validator of this.validators) {
-        const validationResult = await validator.validate(tracking.event);
-        
-        if (!validationResult.valid) {
-          tracking.status = EventStatus.VALIDATION_FAILED;
-          tracking.error = new Error(validationResult.errors?.join(', ') || 'Validation failed');
-          
-          if (this.options.collectMetrics) {
-            this.metrics.invalidEvents++;
-          }
-          
-          tracking.processingCompletedAt = new Date();
-          return {
-            success: false,
-            error: {
-              message: 'Event validation failed',
-              code: 'VALIDATION_ERROR',
-              details: validationResult.errors,
-            },
-          };
-        }
-      }
-      
-      tracking.status = EventStatus.VALIDATED;
-      
-      if (this.options.collectMetrics) {
-        this.metrics.validEvents++;
-      }
+  public async retryWithBackoff(event: T, retryCount: number, error: string): Promise<EventProcessingResult<T>> {
+    if (retryCount >= this.options.maxRetries) {
+      // Max retries reached, send to dead letter queue
+      return this.sendToDeadLetterQueue(event, error, retryCount);
     }
     
-    // Process the event
-    tracking.status = EventStatus.PROCESSING;
+    // Calculate backoff delay
+    const backoffDelay = this.calculateBackoffDelay(retryCount);
     
-    // Check if we should simulate a processing failure
-    const shouldFailProcessing = Math.random() * 100 < this.options.processingFailureRate;
+    // Emit retry event
+    this.emit('retry', { 
+      event, 
+      retryCount, 
+      error, 
+      backoffDelay,
+      maxRetries: this.options.maxRetries,
+    });
     
-    if (shouldFailProcessing) {
-      tracking.status = EventStatus.PROCESSING_FAILED;
-      tracking.error = new Error('Simulated processing failure');
-      
-      // Check if we should retry
-      if (tracking.retryCount < this.options.maxRetryAttempts) {
-        tracking.status = EventStatus.RETRYING;
-        tracking.retryCount++;
-        
-        if (this.options.collectMetrics) {
-          this.metrics.retriedEvents++;
-        }
-        
-        // Add back to the queue with exponential backoff
-        const backoffDelay = Math.pow(2, tracking.retryCount) * 100;
-        setTimeout(() => {
-          this.eventQueue.push(tracking);
-          this.startProcessing();
-        }, backoffDelay);
-        
-        return {
-          success: false,
-          error: {
-            message: 'Event processing failed, retrying',
-            code: 'PROCESSING_RETRY',
-            details: tracking.error.message,
-          },
-          retryCount: tracking.retryCount,
-          retryAfter: backoffDelay,
-        };
-      }
-      
-      // Max retries exceeded, move to dead letter
-      tracking.status = EventStatus.DEAD_LETTER;
-      
-      if (this.options.collectMetrics) {
-        this.metrics.failedProcessing++;
-        this.metrics.deadLetterEvents++;
-      }
-      
-      tracking.processingCompletedAt = new Date();
-      return {
-        success: false,
-        error: {
-          message: 'Event processing failed after max retries',
-          code: 'MAX_RETRIES_EXCEEDED',
-          details: tracking.error.message,
-        },
-        retryCount: tracking.retryCount,
-        deadLetter: true,
-      };
-    }
+    // Wait for backoff delay
+    await this.delay(backoffDelay);
     
-    // Find a handler for this event type
-    const handler = this.handlers.get(tracking.event.type);
-    
-    if (!handler) {
-      tracking.status = EventStatus.PROCESSING_FAILED;
-      tracking.error = new Error(`No handler registered for event type: ${tracking.event.type}`);
-      
-      if (this.options.collectMetrics) {
-        this.metrics.failedProcessing++;
-      }
-      
-      tracking.processingCompletedAt = new Date();
-      return {
-        success: false,
-        error: {
-          message: 'No handler found for event type',
-          code: 'HANDLER_NOT_FOUND',
-          details: tracking.error.message,
-        },
-      };
-    }
-    
-    // Check if the handler can handle this specific event
-    if (!handler.canHandle(tracking.event)) {
-      tracking.status = EventStatus.PROCESSING_FAILED;
-      tracking.error = new Error(`Handler cannot process this event: ${tracking.event.type}`);
-      
-      if (this.options.collectMetrics) {
-        this.metrics.failedProcessing++;
-      }
-      
-      tracking.processingCompletedAt = new Date();
-      return {
-        success: false,
-        error: {
-          message: 'Handler cannot process this event',
-          code: 'HANDLER_INCOMPATIBLE',
-          details: tracking.error.message,
-        },
-      };
-    }
-    
-    try {
-      // Handle versioned events if applicable
-      let eventToProcess = tracking.event;
-      if ('version' in tracking.event) {
-        const versionedEvent = tracking.event as IVersionedEvent;
-        // Here we would normally handle version compatibility
-        // For the mock, we just pass it through
-        eventToProcess = versionedEvent;
-      }
-      
-      // Process the event with the handler
-      const result = await handler.handle(eventToProcess);
-      
-      tracking.status = EventStatus.PROCESSED;
-      
-      if (this.options.collectMetrics) {
-        this.metrics.successfullyProcessed++;
-      }
-      
-      tracking.processingCompletedAt = new Date();
-      
-      // Update processing time metrics
-      const processingTime = Date.now() - startTime;
-      this.processingTimes.push(processingTime);
-      this.updateAverageProcessingTime();
-      
-      return {
-        success: true,
-        result,
-      };
-    } catch (error) {
-      tracking.status = EventStatus.PROCESSING_FAILED;
-      tracking.error = error instanceof Error ? error : new Error(String(error));
-      
-      // Check if we should retry
-      if (tracking.retryCount < this.options.maxRetryAttempts) {
-        tracking.status = EventStatus.RETRYING;
-        tracking.retryCount++;
-        
-        if (this.options.collectMetrics) {
-          this.metrics.retriedEvents++;
-        }
-        
-        // Add back to the queue with exponential backoff
-        const backoffDelay = Math.pow(2, tracking.retryCount) * 100;
-        setTimeout(() => {
-          this.eventQueue.push(tracking);
-          this.startProcessing();
-        }, backoffDelay);
-        
-        return {
-          success: false,
-          error: {
-            message: 'Event processing failed, retrying',
-            code: 'PROCESSING_RETRY',
-            details: tracking.error.message,
-          },
-          retryCount: tracking.retryCount,
-          retryAfter: backoffDelay,
-        };
-      }
-      
-      // Max retries exceeded, move to dead letter
-      tracking.status = EventStatus.DEAD_LETTER;
-      
-      if (this.options.collectMetrics) {
-        this.metrics.failedProcessing++;
-        this.metrics.deadLetterEvents++;
-      }
-      
-      tracking.processingCompletedAt = new Date();
-      return {
-        success: false,
-        error: {
-          message: 'Event processing failed after max retries',
-          code: 'MAX_RETRIES_EXCEEDED',
-          details: tracking.error.message,
-        },
-        retryCount: tracking.retryCount,
-        deadLetter: true,
-      };
+    // Retry processing
+    return this.processEvent(event, retryCount + 1);
+  }
+
+  /**
+   * Calculates the backoff delay for a retry
+   * 
+   * @param retryCount Current retry count
+   * @returns Backoff delay in milliseconds
+   */
+  private calculateBackoffDelay(retryCount: number): number {
+    if (this.options.useExponentialBackoff) {
+      // Exponential backoff with jitter
+      const exponentialDelay = this.options.retryBaseDelayMs * Math.pow(2, retryCount);
+      const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
+      return exponentialDelay + jitter;
+    } else {
+      // Linear backoff
+      return this.options.retryBaseDelayMs * (retryCount + 1);
     }
   }
 
   /**
-   * Updates the average processing time metric
+   * Sends an event to the dead letter queue
+   * 
+   * @param event Event to send to the dead letter queue
+   * @param error Error message
+   * @param retryCount Number of retry attempts
+   * @returns Processing result with dead letter status
    */
-  private updateAverageProcessingTime(): void {
-    if (this.processingTimes.length === 0) {
-      this.metrics.averageProcessingTimeMs = 0;
-      return;
+  private sendToDeadLetterQueue(event: T, error: string, retryCount: number): EventProcessingResult<T> {
+    const eventInfo = this.extractEventInfo(event);
+    const result: EventProcessingResult<T> = {
+      processingId: uuidv4(),
+      event,
+      status: EventProcessingStatus.DEAD_LETTER,
+      error: `Max retries (${this.options.maxRetries}) exceeded: ${error}`,
+      errorCode: ErrorCodes.MAX_RETRIES_EXCEEDED,
+      timestamp: new Date(),
+      durationMs: 0,
+      retryCount,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.metrics.deadLettered++;
+      this.metrics.failed++;
+      this.metrics.totalProcessed++;
+      
+      // Update error counts
+      this.metrics.errorsByCode[ErrorCodes.MAX_RETRIES_EXCEEDED] = 
+        (this.metrics.errorsByCode[ErrorCodes.MAX_RETRIES_EXCEEDED] || 0) + 1;
+      
+      // Update journey and event type counts
+      if (eventInfo.journey) {
+        this.metrics.countsByJourney[eventInfo.journey] = 
+          (this.metrics.countsByJourney[eventInfo.journey] || 0) + 1;
+      }
+      
+      if (eventInfo.eventType) {
+        this.metrics.countsByEventType[eventInfo.eventType] = 
+          (this.metrics.countsByEventType[eventInfo.eventType] || 0) + 1;
+      }
     }
     
-    const sum = this.processingTimes.reduce((acc, time) => acc + time, 0);
-    this.metrics.averageProcessingTimeMs = Math.round(sum / this.processingTimes.length);
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit dead letter event
+    this.emit('dead_letter', result);
+    
+    return result;
+  }
+
+  /**
+   * Validates an event
+   * 
+   * @param event Event to validate
+   * @returns Validation result
+   */
+  private validateEvent(event: T): { valid: boolean; error?: string } {
+    try {
+      // Basic structure validation
+      if (!event) {
+        return { valid: false, error: 'Event is null or undefined' };
+      }
+      
+      if (typeof event !== 'object') {
+        return { valid: false, error: 'Event must be an object' };
+      }
+      
+      // Extract event info for validation
+      const eventInfo = this.extractEventInfo(event);
+      
+      // Validate required fields
+      if (!eventInfo.eventType) {
+        return { valid: false, error: 'Event type is required' };
+      }
+      
+      if (!eventInfo.userId) {
+        return { valid: false, error: 'User ID is required' };
+      }
+      
+      if (!eventInfo.journey) {
+        return { valid: false, error: 'Journey is required' };
+      }
+      
+      // Validate event type is known
+      const isKnownEventType = Object.values(EventTypes).includes(eventInfo.eventType as any);
+      if (!isKnownEventType) {
+        return { valid: false, error: `Unknown event type: ${eventInfo.eventType}` };
+      }
+      
+      // Validate journey is valid
+      const validJourneys = ['health', 'care', 'plan'];
+      if (!validJourneys.includes(eventInfo.journey)) {
+        return { valid: false, error: `Invalid journey: ${eventInfo.journey}` };
+      }
+      
+      // Validate event type matches journey
+      if (eventInfo.eventType.startsWith('HEALTH_') && eventInfo.journey !== 'health') {
+        return { valid: false, error: `Event type ${eventInfo.eventType} must be in health journey` };
+      }
+      
+      if (eventInfo.eventType.startsWith('CARE_') && eventInfo.journey !== 'care') {
+        return { valid: false, error: `Event type ${eventInfo.eventType} must be in care journey` };
+      }
+      
+      if (eventInfo.eventType.startsWith('PLAN_') && eventInfo.journey !== 'plan') {
+        return { valid: false, error: `Event type ${eventInfo.eventType} must be in plan journey` };
+      }
+      
+      // All validations passed
+      return { valid: true };
+    } catch (error) {
+      return { valid: false, error: `Validation error: ${error.message}` };
+    }
+  }
+
+  /**
+   * Validates the schema version of an event
+   * 
+   * @param event Event to validate
+   * @returns Validation result
+   */
+  private validateSchemaVersion(event: T): { valid: boolean; error?: string } {
+    try {
+      // Check if event has version information
+      const versionedEvent = event as unknown as VersionedEvent<any>;
+      if (!versionedEvent.version) {
+        return { valid: false, error: 'Event is missing version information' };
+      }
+      
+      // Extract event type
+      const eventInfo = this.extractEventInfo(event);
+      if (!eventInfo.eventType) {
+        return { valid: false, error: 'Cannot validate schema version: missing event type' };
+      }
+      
+      // Get current schema version for this event type
+      const currentVersion = this.schemaVersions.get(eventInfo.eventType) || 1;
+      
+      // Check if event version is compatible with current schema version
+      const eventVersion = versionedEvent.version;
+      
+      // Major version must match
+      const eventMajor = parseInt(eventVersion.split('.')[0]);
+      const currentMajor = parseInt(currentVersion.toString().split('.')[0]);
+      
+      if (eventMajor !== currentMajor) {
+        return { 
+          valid: false, 
+          error: `Incompatible major version: event has v${eventVersion}, current schema is v${currentVersion}` 
+        };
+      }
+      
+      // All validations passed
+      return { valid: true };
+    } catch (error) {
+      return { valid: false, error: `Schema version validation error: ${error.message}` };
+    }
+  }
+
+  /**
+   * Extracts event information for metrics and logging
+   * 
+   * @param event Event to extract information from
+   * @returns Extracted event information
+   */
+  private extractEventInfo(event: T): {
+    eventType?: string;
+    userId?: string;
+    journey?: string;
+    metadata?: EventMetadata;
+  } {
+    try {
+      const eventObj = event as any;
+      
+      return {
+        eventType: eventObj.type || eventObj.eventType,
+        userId: eventObj.userId || (eventObj.user && eventObj.user.id),
+        journey: eventObj.journey,
+        metadata: eventObj.metadata,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Handles a validation error
+   * 
+   * @param event Event that failed validation
+   * @param error Error message
+   * @param processingId Processing ID
+   * @param startTime Processing start time
+   * @param eventInfo Extracted event information
+   * @returns Processing result with validation error status
+   */
+  private handleValidationError(
+    event: T, 
+    error: string, 
+    processingId: string, 
+    startTime: number,
+    eventInfo: ReturnType<typeof this.extractEventInfo>
+  ): EventProcessingResult<T> {
+    const result: EventProcessingResult<T> = {
+      processingId,
+      event,
+      status: EventProcessingStatus.VALIDATION_ERROR,
+      error,
+      errorCode: ErrorCodes.VALIDATION_ERROR,
+      timestamp: new Date(),
+      durationMs: Date.now() - startTime,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.updateMetricsForError(result, true);
+    }
+    
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit validation error event
+    this.emit('validation_error', result);
+    
+    return result;
+  }
+
+  /**
+   * Handles a schema error
+   * 
+   * @param event Event that failed schema validation
+   * @param error Error message
+   * @param processingId Processing ID
+   * @param startTime Processing start time
+   * @param eventInfo Extracted event information
+   * @returns Processing result with schema error status
+   */
+  private handleSchemaError(
+    event: T, 
+    error: string, 
+    processingId: string, 
+    startTime: number,
+    eventInfo: ReturnType<typeof this.extractEventInfo>
+  ): EventProcessingResult<T> {
+    const result: EventProcessingResult<T> = {
+      processingId,
+      event,
+      status: EventProcessingStatus.SCHEMA_ERROR,
+      error,
+      errorCode: ErrorCodes.SCHEMA_VERSION_ERROR,
+      timestamp: new Date(),
+      durationMs: Date.now() - startTime,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.metrics.schemaErrors++;
+      this.metrics.failed++;
+      this.metrics.totalProcessed++;
+      
+      // Update error counts
+      this.metrics.errorsByCode[ErrorCodes.SCHEMA_VERSION_ERROR] = 
+        (this.metrics.errorsByCode[ErrorCodes.SCHEMA_VERSION_ERROR] || 0) + 1;
+      
+      // Update journey and event type counts
+      if (eventInfo.journey) {
+        this.metrics.countsByJourney[eventInfo.journey] = 
+          (this.metrics.countsByJourney[eventInfo.journey] || 0) + 1;
+      }
+      
+      if (eventInfo.eventType) {
+        this.metrics.countsByEventType[eventInfo.eventType] = 
+          (this.metrics.countsByEventType[eventInfo.eventType] || 0) + 1;
+      }
+    }
+    
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit schema error event
+    this.emit('schema_error', result);
+    
+    return result;
+  }
+
+  /**
+   * Handles a network error
+   * 
+   * @param event Event that encountered a network error
+   * @param processingId Processing ID
+   * @param startTime Processing start time
+   * @param retryCount Current retry count
+   * @param eventInfo Extracted event information
+   * @returns Processing result with network error status
+   */
+  private handleNetworkError(
+    event: T, 
+    processingId: string, 
+    startTime: number, 
+    retryCount: number,
+    eventInfo: ReturnType<typeof this.extractEventInfo>
+  ): EventProcessingResult<T> {
+    const error = 'Network error: connection failed';
+    
+    const result: EventProcessingResult<T> = {
+      processingId,
+      event,
+      status: EventProcessingStatus.NETWORK_ERROR,
+      error,
+      errorCode: ErrorCodes.NETWORK_ERROR,
+      timestamp: new Date(),
+      durationMs: Date.now() - startTime,
+      retryCount,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.metrics.networkErrors++;
+      this.metrics.failed++;
+      this.metrics.totalProcessed++;
+      
+      // Update error counts
+      this.metrics.errorsByCode[ErrorCodes.NETWORK_ERROR] = 
+        (this.metrics.errorsByCode[ErrorCodes.NETWORK_ERROR] || 0) + 1;
+      
+      // Update journey and event type counts
+      if (eventInfo.journey) {
+        this.metrics.countsByJourney[eventInfo.journey] = 
+          (this.metrics.countsByJourney[eventInfo.journey] || 0) + 1;
+      }
+      
+      if (eventInfo.eventType) {
+        this.metrics.countsByEventType[eventInfo.eventType] = 
+          (this.metrics.countsByEventType[eventInfo.eventType] || 0) + 1;
+      }
+    }
+    
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit network error event
+    this.emit('network_error', result);
+    
+    // Retry with backoff if not at max retries
+    if (retryCount < this.options.maxRetries) {
+      return {
+        ...result,
+        status: EventProcessingStatus.RETRY,
+      };
+    }
+    
+    return result;
+  }
+
+  /**
+   * Handles a random failure
+   * 
+   * @param event Event that encountered a random failure
+   * @param processingId Processing ID
+   * @param startTime Processing start time
+   * @param retryCount Current retry count
+   * @param eventInfo Extracted event information
+   * @returns Processing result with processing error status
+   */
+  private handleRandomFailure(
+    event: T, 
+    processingId: string, 
+    startTime: number, 
+    retryCount: number,
+    eventInfo: ReturnType<typeof this.extractEventInfo>
+  ): EventProcessingResult<T> {
+    const error = 'Processing error: random failure simulated';
+    
+    const result: EventProcessingResult<T> = {
+      processingId,
+      event,
+      status: EventProcessingStatus.PROCESSING_ERROR,
+      error,
+      errorCode: ErrorCodes.PROCESSING_ERROR,
+      timestamp: new Date(),
+      durationMs: Date.now() - startTime,
+      retryCount,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.updateMetricsForError(result);
+    }
+    
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit processing error event
+    this.emit('processing_error', result);
+    
+    // Retry with backoff if not at max retries
+    if (retryCount < this.options.maxRetries) {
+      return {
+        ...result,
+        status: EventProcessingStatus.RETRY,
+      };
+    }
+    
+    return result;
+  }
+
+  /**
+   * Handles an unexpected error
+   * 
+   * @param event Event that encountered an unexpected error
+   * @param error Error object
+   * @param processingId Processing ID
+   * @param startTime Processing start time
+   * @param retryCount Current retry count
+   * @returns Processing result with processing error status
+   */
+  private handleUnexpectedError(
+    event: T, 
+    error: Error, 
+    processingId: string, 
+    startTime: number, 
+    retryCount: number
+  ): EventProcessingResult<T> {
+    const eventInfo = this.extractEventInfo(event);
+    const errorMessage = `Unexpected error: ${error.message}`;
+    
+    const result: EventProcessingResult<T> = {
+      processingId,
+      event,
+      status: EventProcessingStatus.PROCESSING_ERROR,
+      error: errorMessage,
+      errorCode: ErrorCodes.UNEXPECTED_ERROR,
+      timestamp: new Date(),
+      durationMs: Date.now() - startTime,
+      retryCount,
+      journey: eventInfo.journey,
+      eventType: eventInfo.eventType,
+      userId: eventInfo.userId,
+      metadata: eventInfo.metadata,
+    };
+    
+    // Update metrics
+    if (this.options.collectMetrics) {
+      this.updateMetricsForError(result);
+    }
+    
+    // Add to history
+    if (this.options.trackHistory) {
+      this.addToHistory(result);
+    }
+    
+    // Emit processing error event
+    this.emit('processing_error', result);
+    
+    // Retry with backoff if not at max retries
+    if (retryCount < this.options.maxRetries) {
+      return {
+        ...result,
+        status: EventProcessingStatus.RETRY,
+      };
+    }
+    
+    return result;
+  }
+
+  /**
+   * Updates metrics for a successful event processing
+   * 
+   * @param result Processing result
+   */
+  private updateMetricsForSuccess(result: EventProcessingResult<T>): void {
+    this.metrics.successful++;
+    this.metrics.totalProcessed++;
+    
+    // Update average processing time
+    const totalTime = this.metrics.averageProcessingTimeMs * (this.metrics.totalProcessed - 1) + result.durationMs;
+    this.metrics.averageProcessingTimeMs = totalTime / this.metrics.totalProcessed;
+    
+    // Update journey-specific metrics
+    if (result.journey) {
+      this.metrics.countsByJourney[result.journey] = 
+        (this.metrics.countsByJourney[result.journey] || 0) + 1;
+      
+      // Update journey processing time
+      const journeyTime = this.metrics.processingTimeByJourney[result.journey] || 0;
+      const journeyCount = this.metrics.countsByJourney[result.journey] || 1;
+      this.metrics.processingTimeByJourney[result.journey] = 
+        (journeyTime * (journeyCount - 1) + result.durationMs) / journeyCount;
+    }
+    
+    // Update event type-specific metrics
+    if (result.eventType) {
+      this.metrics.countsByEventType[result.eventType] = 
+        (this.metrics.countsByEventType[result.eventType] || 0) + 1;
+      
+      // Update event type processing time
+      const eventTypeTime = this.metrics.processingTimeByEventType[result.eventType] || 0;
+      const eventTypeCount = this.metrics.countsByEventType[result.eventType] || 1;
+      this.metrics.processingTimeByEventType[result.eventType] = 
+        (eventTypeTime * (eventTypeCount - 1) + result.durationMs) / eventTypeCount;
+    }
+  }
+
+  /**
+   * Updates metrics for an error event processing
+   * 
+   * @param result Processing result
+   * @param isValidationError Whether the error is a validation error
+   */
+  private updateMetricsForError(result: EventProcessingResult<T>, isValidationError = false): void {
+    this.metrics.failed++;
+    this.metrics.totalProcessed++;
+    
+    // Update specific error metrics
+    if (isValidationError) {
+      this.metrics.validationErrors++;
+    }
+    
+    // Update error counts by code
+    if (result.errorCode) {
+      this.metrics.errorsByCode[result.errorCode] = 
+        (this.metrics.errorsByCode[result.errorCode] || 0) + 1;
+    }
+    
+    // Update journey-specific metrics
+    if (result.journey) {
+      this.metrics.countsByJourney[result.journey] = 
+        (this.metrics.countsByJourney[result.journey] || 0) + 1;
+    }
+    
+    // Update event type-specific metrics
+    if (result.eventType) {
+      this.metrics.countsByEventType[result.eventType] = 
+        (this.metrics.countsByEventType[result.eventType] || 0) + 1;
+    }
+    
+    // Update retry metrics if applicable
+    if (result.status === EventProcessingStatus.RETRY) {
+      this.metrics.retried++;
+    }
+  }
+
+  /**
+   * Adds a processing result to the history
+   * 
+   * @param result Processing result to add to history
+   */
+  private addToHistory(result: EventProcessingResult<T>): void {
+    const historyEntry: EventProcessingHistoryEntry<T> = {
+      ...result,
+      sequence: ++this.historySequence,
+    };
+    
+    this.history.push(historyEntry);
+    
+    // Limit history size to prevent memory issues
+    const maxHistorySize = 1000;
+    if (this.history.length > maxHistorySize) {
+      this.history = this.history.slice(-maxHistorySize);
+    }
+  }
+
+  /**
+   * Creates a delay promise
+   * 
+   * @param ms Delay in milliseconds
+   * @returns Promise that resolves after the delay
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Updates the schema version for an event type
+   * 
+   * @param eventType Event type to update
+   * @param version New schema version
+   */
+  public updateSchemaVersion(eventType: string, version: number): void {
+    this.schemaVersions.set(eventType, version);
+    this.emit('schema:updated', { eventType, version });
+  }
+
+  /**
+   * Gets the current schema version for an event type
+   * 
+   * @param eventType Event type to get version for
+   * @returns Current schema version
+   */
+  public getSchemaVersion(eventType: string): number {
+    return this.schemaVersions.get(eventType) || 1;
+  }
+
+  /**
+   * Simulates schema evolution for testing
+   * 
+   * @param eventTypes Event types to evolve (defaults to all)
+   * @param majorVersion Whether to increment major version (breaking change)
+   */
+  public simulateSchemaEvolution(eventTypes?: string[], majorVersion = false): void {
+    const typesToUpdate = eventTypes || Array.from(this.schemaVersions.keys());
+    
+    for (const eventType of typesToUpdate) {
+      const currentVersion = this.schemaVersions.get(eventType) || 1;
+      let newVersion: number;
+      
+      if (majorVersion) {
+        // Increment major version (breaking change)
+        const major = Math.floor(currentVersion);
+        newVersion = major + 1;
+      } else {
+        // Increment minor version (backward compatible)
+        newVersion = currentVersion + 0.1;
+      }
+      
+      this.updateSchemaVersion(eventType, newVersion);
+    }
+    
+    this.emit('schema:evolution', { 
+      eventTypes: typesToUpdate, 
+      majorVersion,
+      schemaVersions: Object.fromEntries(this.schemaVersions),
+    });
+  }
+
+  /**
+   * Gets the current queue size
+   * 
+   * @returns Current queue size
+   */
+  public getQueueSize(): number {
+    return this.processingQueue.length;
+  }
+
+  /**
+   * Clears the processing queue
+   */
+  public clearQueue(): void {
+    const previousSize = this.processingQueue.length;
+    this.processingQueue = [];
+    this.emit('queue:cleared', { previousSize });
+  }
+
+  /**
+   * Gets the processing status
+   * 
+   * @returns Whether the processor is currently processing events
+   */
+  public isCurrentlyProcessing(): boolean {
+    return this.isProcessing;
+  }
+
+  /**
+   * Gets the current configuration options
+   * 
+   * @returns Current configuration options
+   */
+  public getOptions(): Required<MockEventProcessorOptions> {
+    return { ...this.options };
+  }
+
+  /**
+   * Updates the configuration options
+   * 
+   * @param options New configuration options
+   */
+  public updateOptions(options: Partial<MockEventProcessorOptions>): void {
+    this.options = {
+      ...this.options,
+      ...options,
+    };
+    
+    this.emit('options:updated', { options: this.options });
   }
 }
