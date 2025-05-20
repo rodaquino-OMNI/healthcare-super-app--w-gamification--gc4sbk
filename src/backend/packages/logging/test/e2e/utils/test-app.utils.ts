@@ -1,292 +1,295 @@
-import { INestApplication, ModuleMetadata, Type } from '@nestjs/common';
+import { DynamicModule, INestApplication, ModuleMetadata, Type } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+// Import from the logging package
 import { LoggerModule } from '../../../src/logger.module';
 import { LoggerService } from '../../../src/logger.service';
-import { TracingModule } from '@austa/tracing';
 import { LogLevel } from '../../../src/interfaces/log-level.enum';
-import { Transport } from '../../../src/interfaces/transport.interface';
-import { ConsoleTransport } from '../../../src/transports/console.transport';
-import { FileTransport } from '../../../src/transports/file.transport';
-import { CloudWatchTransport } from '../../../src/transports/cloudwatch.transport';
-import { TextFormatter } from '../../../src/formatters/text.formatter';
-import { JsonFormatter } from '../../../src/formatters/json.formatter';
-import { CloudWatchFormatter } from '../../../src/formatters/cloudwatch.formatter';
+import { LoggerConfig } from '../../../src/interfaces/log-config.interface';
+
+// Import from the tracing package
+import { TracingModule } from '@austa/tracing';
+import { TracingService } from '@austa/tracing';
+
+// Import test fixtures
+import { configOptions } from '../../fixtures/config-options.fixture';
+import { journeyData } from '../../fixtures/journey-data.fixture';
 
 /**
- * Configuration options for the test application's logging setup
+ * Options for creating a test application with logging configured
  */
-export interface TestLoggerOptions {
+export interface TestAppOptions {
   /**
-   * Minimum log level to display (defaults to DEBUG in test environment)
+   * Additional modules to import in the test module
    */
-  logLevel?: LogLevel;
+  imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule>>;
   
   /**
-   * Whether to use JSON formatting for logs (defaults to false in test environment)
+   * Additional providers to include in the test module
    */
-  useJsonFormat?: boolean;
+  providers?: ModuleMetadata['providers'];
   
   /**
-   * Whether to enable CloudWatch formatting (defaults to false in test environment)
+   * Additional controllers to include in the test module
    */
-  useCloudWatchFormat?: boolean;
+  controllers?: ModuleMetadata['controllers'];
   
   /**
-   * Transport types to use for logging (defaults to console in test environment)
+   * Logger configuration options
    */
-  transports?: ('console' | 'file' | 'cloudwatch')[];
+  loggerConfig?: Partial<LoggerConfig>;
   
   /**
-   * Path for file transport if enabled (defaults to './logs/test.log')
+   * Whether to use the tracing module
+   * @default true
    */
-  filePath?: string;
+  useTracing?: boolean;
   
   /**
-   * Whether to enable tracing integration (defaults to true)
+   * Environment variables to set for the test
    */
-  enableTracing?: boolean;
+  env?: Record<string, string>;
   
   /**
-   * Service name for tracing (defaults to 'test-service')
+   * Journey type to use for the test
+   * @default undefined - no journey context
    */
-  serviceName?: string;
-  
-  /**
-   * Journey context to include in logs (optional)
-   */
-  journeyContext?: {
-    journeyType: 'health' | 'care' | 'plan';
-    journeyId: string;
-    userId?: string;
-  };
-  
-  /**
-   * Additional context to include in all logs
-   */
-  additionalContext?: Record<string, any>;
+  journeyType?: 'health' | 'care' | 'plan';
 }
 
 /**
- * Default test logger options
+ * Default test application options
  */
-const defaultTestLoggerOptions: TestLoggerOptions = {
-  logLevel: LogLevel.DEBUG,
-  useJsonFormat: false,
-  useCloudWatchFormat: false,
-  transports: ['console'],
-  filePath: './logs/test.log',
-  enableTracing: true,
-  serviceName: 'test-service',
-  additionalContext: {
-    environment: 'test',
-    testRun: `test-run-${Date.now()}`
-  }
+const defaultTestAppOptions: TestAppOptions = {
+  imports: [],
+  providers: [],
+  controllers: [],
+  loggerConfig: configOptions.testing,
+  useTracing: true,
+  env: {},
+  journeyType: undefined,
 };
 
 /**
- * Creates a test application with configured logging for e2e tests
- * 
- * @param options Configuration options for the test logger
- * @returns A promise that resolves to the configured NestJS application
+ * Sets environment variables for the test
+ * @param env Environment variables to set
+ * @returns A cleanup function to restore the original environment
  */
-export async function createTestApplication(
-  options: TestLoggerOptions = {}
-): Promise<INestApplication> {
-  const testOptions = { ...defaultTestLoggerOptions, ...options };
+export function setTestEnvironment(env: Record<string, string>): () => void {
+  const originalEnv: Record<string, string | undefined> = {};
   
-  const imports: any[] = [
-    configureLoggerModule(testOptions),
-  ];
+  // Save original values and set new ones
+  Object.keys(env).forEach(key => {
+    originalEnv[key] = process.env[key];
+    process.env[key] = env[key];
+  });
   
-  if (testOptions.enableTracing) {
-    imports.push(
-      TracingModule.forRoot({
-        serviceName: testOptions.serviceName,
-        enabled: true,
-        sampling: 1.0, // Sample all traces in test environment
-      })
-    );
-  }
-  
-  const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports,
-  }).compile();
-  
-  const app = moduleFixture.createNestApplication();
-  await app.init();
-  
-  return app;
+  // Return cleanup function
+  return () => {
+    Object.keys(originalEnv).forEach(key => {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalEnv[key];
+      }
+    });
+  };
 }
 
 /**
- * Creates a test module with configured logging for e2e tests
- * 
- * @param metadata Additional module metadata to include
- * @param options Configuration options for the test logger
- * @returns A promise that resolves to the configured TestingModule
+ * Creates a test module with LoggerModule and optional TracingModule
+ * @param options Test application options
+ * @returns A TestingModule instance
  */
-export async function createTestModule(
-  metadata: ModuleMetadata = {},
-  options: TestLoggerOptions = {}
-): Promise<TestingModule> {
-  const testOptions = { ...defaultTestLoggerOptions, ...options };
+export async function createTestModule(options: TestAppOptions = {}): Promise<TestingModule> {
+  const opts = { ...defaultTestAppOptions, ...options };
+  const cleanup = setTestEnvironment(opts.env || {});
   
-  const imports = [
-    ...(metadata.imports || []),
-    configureLoggerModule(testOptions),
-  ];
-  
-  if (testOptions.enableTracing) {
-    imports.push(
-      TracingModule.forRoot({
-        serviceName: testOptions.serviceName,
-        enabled: true,
-        sampling: 1.0, // Sample all traces in test environment
-      })
-    );
+  try {
+    // Create imports array with ConfigModule and LoggerModule
+    const imports = [
+      ConfigModule.forRoot({
+        isGlobal: true,
+        load: [() => ({ logger: opts.loggerConfig })],
+      }),
+      LoggerModule.forRoot(opts.loggerConfig),
+      ...opts.imports || [],
+    ];
+    
+    // Add TracingModule if enabled
+    if (opts.useTracing) {
+      imports.push(TracingModule.forRoot({
+        serviceName: 'test-service',
+        disabled: process.env.DISABLE_TRACING === 'true',
+      }));
+    }
+    
+    // Create the test module
+    return Test.createTestingModule({
+      imports,
+      providers: opts.providers || [],
+      controllers: opts.controllers || [],
+    }).compile();
+  } catch (error) {
+    // Clean up environment variables in case of error
+    cleanup();
+    throw error;
   }
-  
-  return Test.createTestingModule({
-    ...metadata,
-    imports,
-  }).compile();
 }
 
 /**
- * Configures the LoggerModule with the specified options
- * 
- * @param options Configuration options for the logger
- * @returns Configured LoggerModule
+ * Creates a test application with LoggerModule and optional TracingModule
+ * @param options Test application options
+ * @returns A NestJS application instance and a cleanup function
  */
-export function configureLoggerModule(options: TestLoggerOptions): Type<any> {
-  const transports: Transport[] = [];
+export async function createTestApp(options: TestAppOptions = {}): Promise<{ app: INestApplication; cleanup: () => void }> {
+  const opts = { ...defaultTestAppOptions, ...options };
+  const cleanup = setTestEnvironment(opts.env || {});
   
-  // Configure transports based on options
-  if (options.transports?.includes('console')) {
-    transports.push(
-      new ConsoleTransport({
-        formatter: options.useJsonFormat 
-          ? new JsonFormatter() 
-          : options.useCloudWatchFormat 
-            ? new CloudWatchFormatter() 
-            : new TextFormatter(),
-      })
-    );
+  try {
+    const moduleRef = await createTestModule(opts);
+    const app = moduleRef.createNestApplication();
+    
+    // Get the logger service
+    const logger = app.get(LoggerService);
+    
+    // Set up journey context if specified
+    if (opts.journeyType) {
+      const journeyContext = getJourneyContext(opts.journeyType);
+      logger.setContext(journeyContext);
+    }
+    
+    await app.init();
+    
+    return { 
+      app, 
+      cleanup: () => {
+        cleanup();
+        return app.close();
+      }
+    };
+  } catch (error) {
+    // Clean up environment variables in case of error
+    cleanup();
+    throw error;
+  }
+}
+
+/**
+ * Creates a controller class with methods that log at different levels
+ * @returns A controller class for testing logging
+ */
+export function createTestController() {
+  class TestController {
+    constructor(private readonly logger: LoggerService) {}
+    
+    logDebug(message: string, context?: Record<string, any>) {
+      this.logger.debug(message, context);
+      return { message, level: 'debug' };
+    }
+    
+    logInfo(message: string, context?: Record<string, any>) {
+      this.logger.log(message, context);
+      return { message, level: 'info' };
+    }
+    
+    logWarn(message: string, context?: Record<string, any>) {
+      this.logger.warn(message, context);
+      return { message, level: 'warn' };
+    }
+    
+    logError(message: string, error?: Error, context?: Record<string, any>) {
+      this.logger.error(message, error?.stack, context);
+      return { message, level: 'error' };
+    }
+    
+    throwError(message: string) {
+      throw new Error(message);
+    }
   }
   
-  if (options.transports?.includes('file')) {
-    transports.push(
-      new FileTransport({
-        formatter: options.useJsonFormat 
-          ? new JsonFormatter() 
-          : options.useCloudWatchFormat 
-            ? new CloudWatchFormatter() 
-            : new TextFormatter(),
-        filePath: options.filePath || './logs/test.log',
-        rotationSize: 10 * 1024 * 1024, // 10MB
-        maxFiles: 5,
-      })
-    );
+  return TestController;
+}
+
+/**
+ * Gets a journey context object for the specified journey type
+ * @param journeyType The type of journey (health, care, plan)
+ * @returns A journey context object
+ */
+export function getJourneyContext(journeyType: 'health' | 'care' | 'plan') {
+  switch (journeyType) {
+    case 'health':
+      return journeyData.healthJourney.context;
+    case 'care':
+      return journeyData.careJourney.context;
+    case 'plan':
+      return journeyData.planJourney.context;
+    default:
+      throw new Error(`Unknown journey type: ${journeyType}`);
   }
+}
+
+/**
+ * Creates a test module with a controller that logs at different levels
+ * @param options Test application options
+ * @returns A TestingModule instance with the test controller
+ */
+export async function createTestModuleWithController(options: TestAppOptions = {}): Promise<TestingModule> {
+  const TestController = createTestController();
   
-  if (options.transports?.includes('cloudwatch')) {
-    transports.push(
-      new CloudWatchTransport({
-        formatter: options.useCloudWatchFormat 
-          ? new CloudWatchFormatter() 
-          : new JsonFormatter(),
-        logGroupName: '/test/logs',
-        logStreamName: `test-stream-${Date.now()}`,
-        region: 'us-east-1',
-      })
-    );
-  }
-  
-  return LoggerModule.forRoot({
-    level: options.logLevel || LogLevel.DEBUG,
-    transports,
-    defaultContext: {
-      ...options.additionalContext,
-      ...(options.journeyContext ? {
-        journey: options.journeyContext.journeyType,
-        journeyId: options.journeyContext.journeyId,
-        userId: options.journeyContext.userId,
-      } : {}),
-    },
+  return createTestModule({
+    ...options,
+    controllers: [...(options.controllers || []), TestController],
   });
 }
 
 /**
- * Creates a test controller with logging capabilities for testing
- * 
- * @param loggerService The logger service instance to use
- * @returns A test controller with logging methods
+ * Creates a test application with a controller that logs at different levels
+ * @param options Test application options
+ * @returns A NestJS application instance with the test controller and a cleanup function
  */
-export function createTestController(loggerService: LoggerService) {
-  return {
-    logDebug(message: string, context?: Record<string, any>) {
-      loggerService.debug(message, { context: { method: 'logDebug', ...context } });
-      return { message, level: 'debug' };
-    },
-    
-    logInfo(message: string, context?: Record<string, any>) {
-      loggerService.log(message, { context: { method: 'logInfo', ...context } });
-      return { message, level: 'info' };
-    },
-    
-    logWarn(message: string, context?: Record<string, any>) {
-      loggerService.warn(message, { context: { method: 'logWarn', ...context } });
-      return { message, level: 'warn' };
-    },
-    
-    logError(message: string, error?: Error, context?: Record<string, any>) {
-      loggerService.error(message, error?.stack, { context: { method: 'logError', ...context } });
-      return { message, level: 'error' };
-    },
-    
-    logWithJourneyContext(message: string, journeyType: 'health' | 'care' | 'plan', context?: Record<string, any>) {
-      loggerService.log(message, { 
-        context: { 
-          method: 'logWithJourneyContext', 
-          journey: journeyType,
-          ...context 
-        } 
-      });
-      return { message, journey: journeyType };
-    },
-    
-    throwError(message: string) {
-      const error = new Error(message);
-      loggerService.error('Controller threw an error', error.stack, { context: { method: 'throwError' } });
-      throw error;
-    }
-  };
+export async function createTestAppWithController(options: TestAppOptions = {}): Promise<{ app: INestApplication; cleanup: () => void }> {
+  const TestController = createTestController();
+  
+  return createTestApp({
+    ...options,
+    controllers: [...(options.controllers || []), TestController],
+  });
 }
 
 /**
- * Creates a mock transport that captures logs for testing
- * 
- * @returns A transport that captures logs and provides methods to access them
+ * Sets the log level for a test
+ * @param level The log level to set
+ * @returns A cleanup function to restore the original log level
  */
-export function createCapturingTransport(): Transport & { getLogs: () => any[] } {
-  const logs: any[] = [];
+export function setTestLogLevel(level: LogLevel | string): () => void {
+  return setTestEnvironment({
+    LOG_LEVEL: level.toString(),
+  });
+}
+
+/**
+ * Configures the logger for a specific journey
+ * @param journeyType The type of journey (health, care, plan)
+ * @param loggerConfig Logger configuration options
+ * @returns Test application options with journey-specific configuration
+ */
+export function configureJourneyLogger(
+  journeyType: 'health' | 'care' | 'plan',
+  loggerConfig?: Partial<LoggerConfig>
+): TestAppOptions {
+  const journeyContext = getJourneyContext(journeyType);
   
   return {
-    write: (entry: any) => {
-      logs.push(entry);
-      return Promise.resolve();
+    journeyType,
+    loggerConfig: {
+      ...configOptions.testing,
+      ...loggerConfig,
+      defaultContext: {
+        ...configOptions.testing.defaultContext,
+        journey: journeyContext,
+      },
     },
-    getLogs: () => logs,
-  } as Transport & { getLogs: () => any[] };
-}
-
-/**
- * Utility to wait for async operations to complete
- * Useful when testing logging that might happen asynchronously
- * 
- * @param ms Milliseconds to wait
- * @returns Promise that resolves after the specified time
- */
-export function waitForLogging(ms = 100): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  };
 }
