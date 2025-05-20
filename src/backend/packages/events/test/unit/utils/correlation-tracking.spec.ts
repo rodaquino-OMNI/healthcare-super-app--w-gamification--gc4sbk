@@ -1,965 +1,487 @@
-import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { Test } from '@nestjs/testing';
+import { v4 as uuidv4 } from 'uuid';
 import {
   generateCorrelationId,
-  isValidCorrelationId,
-  getCurrentCorrelationId,
-  setCurrentCorrelationId,
-  extractCorrelationId,
-  addCorrelationId,
-  createCorrelationHeaders,
-  extractCorrelationIdFromHeaders,
-  createKafkaCorrelationHeaders,
-  linkEvents,
-  createCorrelationContext,
-  withCorrelation,
-  createCorrelationChain,
-  enrichErrorWithCorrelation,
-  extractJourneyFromCorrelationContext,
-  CORRELATION_ID_HEADER,
-  TRACE_ID_HEADER,
-  SPAN_ID_HEADER,
-  PARENT_ID_HEADER,
-  REQUEST_ID_HEADER,
-  EVENT_CORRELATION_ID_KEY
-} from '../../../src/utils/correlation-id';
-import { IBaseEvent } from '../../../src/interfaces/base-event.interface';
-import { IJourneyEvent, JourneyType } from '../../../src/interfaces/journey-events.interface';
-import { IKafkaEvent } from '../../../src/interfaces/kafka-event.interface';
+  propagateCorrelationId,
+  extractParentCorrelationId,
+  reconstructEventSequence,
+  preserveJourneyContext,
+  CorrelationMetadata,
+  EventCorrelationContext,
+  JourneyType
+} from '../../../src/utils/correlation-tracking';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { TracingService } from '@austa/tracing';
 
-// Mock OpenTelemetry APIs
-jest.mock('@opentelemetry/api', () => {
-  const mockSpanContext = {
-    traceId: 'mock-trace-id',
-    spanId: 'mock-span-id',
-    traceFlags: 1,
-    isRemote: false,
-  };
-
-  const mockSpan = {
-    setAttribute: jest.fn(),
-    attributes: {},
-    recordException: jest.fn(),
-    setStatus: jest.fn(),
-    spanContext: () => mockSpanContext,
-  };
-
-  return {
-    context: {
-      active: jest.fn(() => ({})),
-    },
-    trace: {
-      getSpan: jest.fn(() => mockSpan),
-    },
-    SpanStatusCode: {
-      ERROR: 'ERROR',
-    },
-    SemanticAttributes: {},
-  };
-});
+// Mock TracingService
+const mockTracingService = {
+  getCurrentTraceId: jest.fn(),
+  getCurrentSpanId: jest.fn(),
+  startSpan: jest.fn(),
+  endSpan: jest.fn()
+};
 
 describe('Correlation Tracking Utilities', () => {
-  // Reset mocks before each test
-  beforeEach(() => {
+  let tracingService: TracingService;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        {
+          provide: TracingService,
+          useValue: mockTracingService
+        }
+      ],
+    }).compile();
+
+    tracingService = moduleRef.get<TracingService>(TracingService);
     jest.clearAllMocks();
-    // Reset the mock span attributes
-    const mockSpan = trace.getSpan(context.active());
-    if (mockSpan) {
-      mockSpan.attributes = {};
-    }
   });
 
   describe('generateCorrelationId', () => {
-    it('should generate a valid UUID v4 correlation ID', () => {
-      const id = generateCorrelationId();
-      expect(isValidCorrelationId(id)).toBe(true);
-      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    it('should generate a unique correlation ID for new event chains', () => {
+      // Arrange
+      const mockTraceId = '1234567890abcdef';
+      mockTracingService.getCurrentTraceId.mockReturnValue(mockTraceId);
+
+      // Act
+      const correlationId = generateCorrelationId();
+
+      // Assert
+      expect(correlationId).toBeDefined();
+      expect(typeof correlationId).toBe('string');
+      expect(correlationId.length).toBeGreaterThan(0);
+      expect(mockTracingService.getCurrentTraceId).toHaveBeenCalledTimes(1);
     });
 
-    it('should generate unique IDs on each call', () => {
-      const id1 = generateCorrelationId();
-      const id2 = generateCorrelationId();
-      const id3 = generateCorrelationId();
+    it('should use trace ID from tracing service when available', () => {
+      // Arrange
+      const mockTraceId = '1234567890abcdef';
+      mockTracingService.getCurrentTraceId.mockReturnValue(mockTraceId);
 
-      expect(id1).not.toEqual(id2);
-      expect(id1).not.toEqual(id3);
-      expect(id2).not.toEqual(id3);
-    });
-  });
+      // Act
+      const correlationId = generateCorrelationId();
 
-  describe('isValidCorrelationId', () => {
-    it('should return true for valid UUID v4 strings', () => {
-      expect(isValidCorrelationId('123e4567-e89b-12d3-a456-426614174000')).toBe(false); // Not v4
-      expect(isValidCorrelationId('123e4567-e89b-42d3-a456-426614174000')).toBe(true); // v4
-      expect(isValidCorrelationId('f47ac10b-58cc-4372-a567-0e02b2c3d479')).toBe(true); // v4
+      // Assert
+      expect(correlationId).toContain(mockTraceId);
     });
 
-    it('should return false for invalid UUID strings', () => {
-      expect(isValidCorrelationId('')).toBe(false);
-      expect(isValidCorrelationId('not-a-uuid')).toBe(false);
-      expect(isValidCorrelationId('123e4567-e89b-12d3-a456')).toBe(false); // Incomplete
-      expect(isValidCorrelationId('123e4567-e89b-12d3-a456-4266141740001')).toBe(false); // Too long
+    it('should generate a UUID when trace ID is not available', () => {
+      // Arrange
+      mockTracingService.getCurrentTraceId.mockReturnValue(null);
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      // Act
+      const correlationId = generateCorrelationId();
+
+      // Assert
+      expect(correlationId).toMatch(uuidRegex);
     });
 
-    it('should return false for null or undefined', () => {
-      expect(isValidCorrelationId(null as any)).toBe(false);
-      expect(isValidCorrelationId(undefined as any)).toBe(false);
-    });
-  });
-
-  describe('getCurrentCorrelationId', () => {
-    it('should return correlation ID from active span', () => {
-      const mockSpan = trace.getSpan(context.active());
-      if (mockSpan) {
-        mockSpan.attributes[CORRELATION_ID_HEADER] = 'test-correlation-id';
-      }
-
-      const id = getCurrentCorrelationId();
-      expect(id).toBe('test-correlation-id');
-    });
-
-    it('should return trace ID as fallback when no correlation ID is set', () => {
-      const id = getCurrentCorrelationId();
-      expect(id).toBe('mock-trace-id');
-    });
-
-    it('should return undefined when no active span exists', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-      const id = getCurrentCorrelationId();
-      expect(id).toBeUndefined();
-    });
-
-    it('should handle errors gracefully', () => {
-      (trace.getSpan as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-      const id = getCurrentCorrelationId();
-      expect(id).toBeUndefined();
+    it('should include timestamp for temporal ordering', () => {
+      // Arrange
+      const before = Date.now();
+      
+      // Act
+      const correlationId = generateCorrelationId();
+      const after = Date.now();
+      
+      // Assert
+      const parts = correlationId.split('-');
+      const timestamp = parseInt(parts[0], 16);
+      expect(timestamp).toBeGreaterThanOrEqual(before);
+      expect(timestamp).toBeLessThanOrEqual(after);
     });
   });
 
-  describe('setCurrentCorrelationId', () => {
-    it('should set correlation ID on active span', () => {
-      const mockSpan = trace.getSpan(context.active());
-      const result = setCurrentCorrelationId('test-correlation-id');
-
-      expect(result).toBe(false); // Should return false because the ID is not a valid UUID v4
-      expect(mockSpan?.setAttribute).not.toHaveBeenCalled();
-    });
-
-    it('should set valid UUID v4 correlation ID on active span', () => {
-      const validId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const mockSpan = trace.getSpan(context.active());
-      const result = setCurrentCorrelationId(validId);
-
-      expect(result).toBe(true);
-      expect(mockSpan?.setAttribute).toHaveBeenCalledWith(CORRELATION_ID_HEADER, validId);
-    });
-
-    it('should return false when no active span exists', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-      const result = setCurrentCorrelationId('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for invalid correlation IDs', () => {
-      const result = setCurrentCorrelationId('not-a-valid-id');
-      expect(result).toBe(false);
-    });
-
-    it('should handle errors gracefully', () => {
-      const validId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      (trace.getSpan as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-      const result = setCurrentCorrelationId(validId);
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('extractCorrelationId', () => {
-    it('should extract correlation ID from event metadata', () => {
-      const event = {
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
+  describe('propagateCorrelationId', () => {
+    it('should propagate correlation ID from parent event to child event', () => {
+      // Arrange
+      const parentCorrelationId = 'parent-correlation-id';
+      const parentMetadata: EventMetadataDto = {
+        correlationId: parentCorrelationId,
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
       };
 
-      const id = extractCorrelationId(event);
-      expect(id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata);
+
+      // Assert
+      expect(childMetadata).toBeDefined();
+      expect(childMetadata.correlationId).toBeDefined();
+      expect(childMetadata.parentCorrelationId).toBe(parentCorrelationId);
     });
 
-    it('should extract correlation ID from Kafka event headers', () => {
-      const event = {
-        headers: {
-          [CORRELATION_ID_HEADER]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      } as unknown as IKafkaEvent;
-
-      const id = extractCorrelationId(event);
-      expect(id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-    });
-
-    it('should extract correlation ID from Kafka event headers with Buffer value', () => {
-      const event = {
-        headers: {
-          [CORRELATION_ID_HEADER]: Buffer.from('f47ac10b-58cc-4372-a567-0e02b2c3d479', 'utf8')
-        }
-      } as unknown as IKafkaEvent;
-
-      const id = extractCorrelationId(event);
-      expect(id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-    });
-
-    it('should use event ID as fallback', () => {
-      const event = {
-        eventId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-      } as unknown as IBaseEvent;
-
-      const id = extractCorrelationId(event);
-      expect(id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-    });
-
-    it('should return undefined when no correlation ID is found', () => {
-      const event = {
-        type: 'test-event'
+    it('should generate a new correlation ID for the child event', () => {
+      // Arrange
+      const parentCorrelationId = 'parent-correlation-id';
+      const parentMetadata: EventMetadataDto = {
+        correlationId: parentCorrelationId,
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
       };
 
-      const id = extractCorrelationId(event);
-      expect(id).toBeUndefined();
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata);
+
+      // Assert
+      expect(childMetadata.correlationId).not.toBe(parentCorrelationId);
     });
 
-    it('should return undefined for invalid correlation IDs', () => {
-      const event = {
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'not-a-valid-id'
-        }
+    it('should preserve source service information', () => {
+      // Arrange
+      const sourceService = 'health-service';
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: sourceService,
+        version: '1.0.0'
       };
 
-      const id = extractCorrelationId(event);
-      expect(id).toBeUndefined();
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata, 'gamification-engine');
+
+      // Assert
+      expect(childMetadata.source).toBe('gamification-engine');
+      expect(childMetadata.originalSource).toBe(sourceService);
     });
 
-    it('should handle errors gracefully', () => {
-      const event = {
-        metadata: {
-          get [EVENT_CORRELATION_ID_KEY]() {
-            throw new Error('Test error');
+    it('should maintain correlation chain depth', () => {
+      // Arrange
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0',
+        correlationDepth: 1
+      };
+
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata);
+
+      // Assert
+      expect(childMetadata.correlationDepth).toBe(2);
+    });
+
+    it('should initialize correlation depth to 1 if not present in parent', () => {
+      // Arrange
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
+        // No correlationDepth
+      };
+
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata);
+
+      // Assert
+      expect(childMetadata.correlationDepth).toBe(1);
+    });
+
+    it('should propagate correlation ID across service boundaries', () => {
+      // Arrange
+      const parentCorrelationId = 'parent-correlation-id';
+      const parentMetadata: EventMetadataDto = {
+        correlationId: parentCorrelationId,
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
+      };
+
+      // Act
+      const childMetadata = propagateCorrelationId(parentMetadata, 'care-service');
+
+      // Assert
+      expect(childMetadata.parentCorrelationId).toBe(parentCorrelationId);
+      expect(childMetadata.source).toBe('care-service');
+    });
+  });
+
+  describe('extractParentCorrelationId', () => {
+    it('should extract parent correlation ID from event metadata', () => {
+      // Arrange
+      const parentCorrelationId = 'parent-correlation-id';
+      const metadata: EventMetadataDto = {
+        correlationId: 'child-correlation-id',
+        parentCorrelationId,
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
+      };
+
+      // Act
+      const extractedParentId = extractParentCorrelationId(metadata);
+
+      // Assert
+      expect(extractedParentId).toBe(parentCorrelationId);
+    });
+
+    it('should return null if no parent correlation ID exists', () => {
+      // Arrange
+      const metadata: EventMetadataDto = {
+        correlationId: 'correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
+        // No parentCorrelationId
+      };
+
+      // Act
+      const extractedParentId = extractParentCorrelationId(metadata);
+
+      // Assert
+      expect(extractedParentId).toBeNull();
+    });
+
+    it('should handle undefined metadata gracefully', () => {
+      // Act & Assert
+      expect(() => extractParentCorrelationId(undefined)).not.toThrow();
+      expect(extractParentCorrelationId(undefined)).toBeNull();
+    });
+  });
+
+  describe('reconstructEventSequence', () => {
+    it('should reconstruct event sequence using correlation metadata', async () => {
+      // Arrange
+      const rootCorrelationId = 'root-correlation-id';
+      const childCorrelationId1 = 'child-correlation-id-1';
+      const childCorrelationId2 = 'child-correlation-id-2';
+      const grandchildCorrelationId = 'grandchild-correlation-id';
+
+      const mockEvents = [
+        {
+          id: 'event4',
+          metadata: {
+            correlationId: grandchildCorrelationId,
+            parentCorrelationId: childCorrelationId2,
+            timestamp: new Date(2023, 0, 1, 12, 3),
+            correlationDepth: 3
           }
-        }
-      };
-
-      const id = extractCorrelationId(event);
-      expect(id).toBeUndefined();
-    });
-  });
-
-  describe('addCorrelationId', () => {
-    it('should add correlation ID to event metadata', () => {
-      const event = {
-        type: 'test-event'
-      };
-
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const result = addCorrelationId(event, correlationId);
-
-      expect(result).toEqual({
-        type: 'test-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: correlationId
-        }
-      });
-    });
-
-    it('should add correlation ID to Kafka event headers', () => {
-      const event = {
-        type: 'test-event',
-        headers: {}
-      } as unknown as IKafkaEvent;
-
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const result = addCorrelationId(event, correlationId);
-
-      expect(result).toEqual({
-        type: 'test-event',
-        headers: {
-          [CORRELATION_ID_HEADER]: correlationId
-        },
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: correlationId
-        }
-      });
-    });
-
-    it('should use current context correlation ID if none provided', () => {
-      const mockSpan = trace.getSpan(context.active());
-      if (mockSpan) {
-        mockSpan.attributes[CORRELATION_ID_HEADER] = 'test-correlation-id';
-      }
-
-      const event = {
-        type: 'test-event'
-      };
-
-      const result = addCorrelationId(event);
-
-      expect(result).toEqual({
-        type: 'test-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'test-correlation-id'
-        }
-      });
-    });
-
-    it('should generate new correlation ID if none provided and none in context', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-
-      const event = {
-        type: 'test-event'
-      };
-
-      const result = addCorrelationId(event);
-
-      expect(result.type).toBe('test-event');
-      expect(result.metadata).toBeDefined();
-      expect(result.metadata[EVENT_CORRELATION_ID_KEY]).toBeDefined();
-      expect(isValidCorrelationId(result.metadata[EVENT_CORRELATION_ID_KEY])).toBe(true);
-    });
-
-    it('should preserve existing metadata', () => {
-      const event = {
-        type: 'test-event',
-        metadata: {
-          userId: 'user-123',
-          timestamp: '2023-01-01T12:00:00Z'
-        }
-      };
-
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const result = addCorrelationId(event, correlationId);
-
-      expect(result).toEqual({
-        type: 'test-event',
-        metadata: {
-          userId: 'user-123',
-          timestamp: '2023-01-01T12:00:00Z',
-          [EVENT_CORRELATION_ID_KEY]: correlationId
-        }
-      });
-    });
-
-    it('should handle errors gracefully', () => {
-      const event = {
-        type: 'test-event',
-        get metadata() {
-          throw new Error('Test error');
-        }
-      };
-
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const result = addCorrelationId(event, correlationId);
-
-      // Should return original event on error
-      expect(result).toBe(event);
-    });
-  });
-
-  describe('createCorrelationHeaders', () => {
-    it('should create HTTP headers with correlation ID', () => {
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = createCorrelationHeaders(correlationId);
-
-      expect(headers).toEqual({
-        [CORRELATION_ID_HEADER]: correlationId,
-        [TRACE_ID_HEADER]: 'mock-trace-id',
-        [SPAN_ID_HEADER]: 'mock-span-id'
-      });
-    });
-
-    it('should use current context correlation ID if none provided', () => {
-      const mockSpan = trace.getSpan(context.active());
-      if (mockSpan) {
-        mockSpan.attributes[CORRELATION_ID_HEADER] = 'test-correlation-id';
-      }
-
-      const headers = createCorrelationHeaders();
-
-      expect(headers).toEqual({
-        [CORRELATION_ID_HEADER]: 'test-correlation-id',
-        [TRACE_ID_HEADER]: 'mock-trace-id',
-        [SPAN_ID_HEADER]: 'mock-span-id'
-      });
-    });
-
-    it('should generate new correlation ID if none provided and none in context', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-
-      const headers = createCorrelationHeaders();
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeDefined();
-      expect(isValidCorrelationId(headers[CORRELATION_ID_HEADER])).toBe(true);
-    });
-
-    it('should handle errors gracefully', () => {
-      (trace.getSpan as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-
-      const headers = createCorrelationHeaders();
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeDefined();
-      expect(isValidCorrelationId(headers[CORRELATION_ID_HEADER])).toBe(true);
-    });
-  });
-
-  describe('extractCorrelationIdFromHeaders', () => {
-    it('should extract correlation ID from HTTP headers', () => {
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = {
-        [CORRELATION_ID_HEADER]: correlationId
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBe(correlationId);
-    });
-
-    it('should extract correlation ID from lowercase HTTP headers', () => {
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = {
-        [CORRELATION_ID_HEADER.toLowerCase()]: correlationId
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBe(correlationId);
-    });
-
-    it('should extract correlation ID from array headers', () => {
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = {
-        [CORRELATION_ID_HEADER]: [correlationId]
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBe(correlationId);
-    });
-
-    it('should use request ID as fallback', () => {
-      const requestId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = {
-        [REQUEST_ID_HEADER]: requestId
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBe(requestId);
-    });
-
-    it('should return undefined when no correlation ID is found', () => {
-      const headers = {
-        'content-type': 'application/json'
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBeUndefined();
-    });
-
-    it('should return undefined for invalid correlation IDs', () => {
-      const headers = {
-        [CORRELATION_ID_HEADER]: 'not-a-valid-id'
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBeUndefined();
-    });
-
-    it('should handle errors gracefully', () => {
-      const headers = {
-        get [CORRELATION_ID_HEADER]() {
-          throw new Error('Test error');
-        }
-      };
-
-      const id = extractCorrelationIdFromHeaders(headers);
-      expect(id).toBeUndefined();
-    });
-  });
-
-  describe('createKafkaCorrelationHeaders', () => {
-    it('should create Kafka headers with correlation ID as Buffer', () => {
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const headers = createKafkaCorrelationHeaders(correlationId);
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeInstanceOf(Buffer);
-      expect(headers[CORRELATION_ID_HEADER].toString('utf8')).toBe(correlationId);
-      expect(headers[TRACE_ID_HEADER]).toBeInstanceOf(Buffer);
-      expect(headers[TRACE_ID_HEADER].toString('utf8')).toBe('mock-trace-id');
-      expect(headers[SPAN_ID_HEADER]).toBeInstanceOf(Buffer);
-      expect(headers[SPAN_ID_HEADER].toString('utf8')).toBe('mock-span-id');
-    });
-
-    it('should use current context correlation ID if none provided', () => {
-      const mockSpan = trace.getSpan(context.active());
-      if (mockSpan) {
-        mockSpan.attributes[CORRELATION_ID_HEADER] = 'test-correlation-id';
-      }
-
-      const headers = createKafkaCorrelationHeaders();
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeInstanceOf(Buffer);
-      expect(headers[CORRELATION_ID_HEADER].toString('utf8')).toBe('test-correlation-id');
-    });
-
-    it('should generate new correlation ID if none provided and none in context', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-
-      const headers = createKafkaCorrelationHeaders();
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeInstanceOf(Buffer);
-      const id = headers[CORRELATION_ID_HEADER].toString('utf8');
-      expect(isValidCorrelationId(id)).toBe(true);
-    });
-
-    it('should handle errors gracefully', () => {
-      (trace.getSpan as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-
-      const headers = createKafkaCorrelationHeaders();
-
-      expect(headers[CORRELATION_ID_HEADER]).toBeInstanceOf(Buffer);
-      const id = headers[CORRELATION_ID_HEADER].toString('utf8');
-      expect(isValidCorrelationId(id)).toBe(true);
-    });
-  });
-
-  describe('linkEvents', () => {
-    it('should link events by copying correlation ID from source to target', () => {
-      const sourceEvent = {
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      };
-
-      const targetEvent = {
-        type: 'target-event'
-      };
-
-      const result = linkEvents(sourceEvent, targetEvent);
-
-      expect(result).toEqual({
-        type: 'target-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      });
-    });
-
-    it('should return original target event when source has no correlation ID', () => {
-      const sourceEvent = {
-        type: 'source-event'
-      };
-
-      const targetEvent = {
-        type: 'target-event'
-      };
-
-      const result = linkEvents(sourceEvent, targetEvent);
-
-      expect(result).toBe(targetEvent);
-    });
-
-    it('should handle errors gracefully', () => {
-      const sourceEvent = {
-        get metadata() {
-          throw new Error('Test error');
-        }
-      };
-
-      const targetEvent = {
-        type: 'target-event'
-      };
-
-      const result = linkEvents(sourceEvent, targetEvent);
-
-      expect(result).toBe(targetEvent);
-    });
-  });
-
-  describe('createCorrelationContext', () => {
-    it('should create correlation context with new correlation ID', () => {
-      const context = createCorrelationContext();
-
-      expect(context.correlationId).toBeDefined();
-      expect(isValidCorrelationId(context.correlationId)).toBe(true);
-      expect(context.metadata).toEqual({
-        [EVENT_CORRELATION_ID_KEY]: context.correlationId
-      });
-    });
-
-    it('should include journey information when provided', () => {
-      const journey = 'health';
-      const context = createCorrelationContext(journey);
-
-      expect(context.correlationId).toBeDefined();
-      expect(isValidCorrelationId(context.correlationId)).toBe(true);
-      expect(context.metadata).toEqual({
-        [EVENT_CORRELATION_ID_KEY]: context.correlationId,
-        journey
-      });
-    });
-  });
-
-  describe('withCorrelation', () => {
-    it('should execute function with correlation ID', async () => {
-      const fn = jest.fn().mockResolvedValue('result');
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      const result = await withCorrelation(fn, correlationId);
-
-      expect(result).toBe('result');
-      expect(fn).toHaveBeenCalledWith(correlationId);
-
-      const mockSpan = trace.getSpan(context.active());
-      expect(mockSpan?.setAttribute).toHaveBeenCalledWith(CORRELATION_ID_HEADER, correlationId);
-    });
-
-    it('should generate new correlation ID if none provided', async () => {
-      const fn = jest.fn().mockResolvedValue('result');
-
-      const result = await withCorrelation(fn);
-
-      expect(result).toBe('result');
-      expect(fn).toHaveBeenCalled();
-      const calledWithId = fn.mock.calls[0][0];
-      expect(isValidCorrelationId(calledWithId)).toBe(true);
-
-      const mockSpan = trace.getSpan(context.active());
-      expect(mockSpan?.setAttribute).toHaveBeenCalledWith(CORRELATION_ID_HEADER, calledWithId);
-    });
-
-    it('should record exception on span when function throws', async () => {
-      const error = new Error('Test error');
-      const fn = jest.fn().mockRejectedValue(error);
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      await expect(withCorrelation(fn, correlationId)).rejects.toThrow(error);
-
-      const mockSpan = trace.getSpan(context.active());
-      expect(mockSpan?.recordException).toHaveBeenCalledWith(error);
-      expect(mockSpan?.setStatus).toHaveBeenCalledWith({
-        code: SpanStatusCode.ERROR,
-        message: error.message
-      });
-    });
-
-    it('should execute function without span when no active span exists', async () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-
-      const fn = jest.fn().mockResolvedValue('result');
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      const result = await withCorrelation(fn, correlationId);
-
-      expect(result).toBe('result');
-      expect(fn).toHaveBeenCalledWith(correlationId);
-    });
-  });
-
-  describe('createCorrelationChain', () => {
-    it('should create correlation chain from root event', () => {
-      const rootEvent = {
-        type: 'root-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      };
-
-      const chain = createCorrelationChain(rootEvent);
-
-      expect(chain.correlationId).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-      expect(chain.getMetadata()).toEqual({
-        [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-      });
-    });
-
-    it('should generate new correlation ID if root event has none', () => {
-      const rootEvent = {
-        type: 'root-event'
-      };
-
-      const chain = createCorrelationChain(rootEvent);
-
-      expect(isValidCorrelationId(chain.correlationId)).toBe(true);
-      expect(chain.getMetadata()).toEqual({
-        [EVENT_CORRELATION_ID_KEY]: chain.correlationId
-      });
-    });
-
-    it('should include journey information when provided', () => {
-      const rootEvent = {
-        type: 'root-event'
-      };
-
-      const journey = 'health';
-      const chain = createCorrelationChain(rootEvent, journey);
-
-      expect(isValidCorrelationId(chain.correlationId)).toBe(true);
-      expect(chain.getMetadata()).toEqual({
-        [EVENT_CORRELATION_ID_KEY]: chain.correlationId,
-        journey
-      });
-    });
-
-    it('should add events to the correlation chain', () => {
-      const rootEvent = {
-        type: 'root-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      };
-
-      const chain = createCorrelationChain(rootEvent);
-
-      const childEvent = {
-        type: 'child-event'
-      };
-
-      const linkedEvent = chain.addEvent(childEvent);
-
-      expect(linkedEvent).toEqual({
-        type: 'child-event',
-        metadata: {
-          [EVENT_CORRELATION_ID_KEY]: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-        }
-      });
-    });
-  });
-
-  describe('enrichErrorWithCorrelation', () => {
-    it('should add correlation ID to error object', () => {
-      const error = new Error('Test error');
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      const enrichedError = enrichErrorWithCorrelation(error, correlationId);
-
-      expect(enrichedError).toBe(error); // Same object reference
-      expect(enrichedError.message).toBe('Test error [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]');
-      expect((enrichedError as any).correlationId).toBe(correlationId);
-    });
-
-    it('should use current context correlation ID if none provided', () => {
-      const mockSpan = trace.getSpan(context.active());
-      if (mockSpan) {
-        mockSpan.attributes[CORRELATION_ID_HEADER] = 'test-correlation-id';
-      }
-
-      const error = new Error('Test error');
-      const enrichedError = enrichErrorWithCorrelation(error);
-
-      expect(enrichedError).toBe(error); // Same object reference
-      expect(enrichedError.message).toBe('Test error [correlationId: test-correlation-id]');
-      expect((enrichedError as any).correlationId).toBe('test-correlation-id');
-    });
-
-    it('should not modify error message if it already contains correlationId', () => {
-      const error = new Error('Test error with correlationId: abc123');
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      const enrichedError = enrichErrorWithCorrelation(error, correlationId);
-
-      expect(enrichedError).toBe(error); // Same object reference
-      expect(enrichedError.message).toBe('Test error with correlationId: abc123');
-      expect((enrichedError as any).correlationId).toBe(correlationId);
-    });
-
-    it('should return original error when no correlation ID is available', () => {
-      (trace.getSpan as jest.Mock).mockReturnValueOnce(undefined);
-
-      const error = new Error('Test error');
-      const enrichedError = enrichErrorWithCorrelation(error);
-
-      expect(enrichedError).toBe(error); // Same object reference
-      expect(enrichedError.message).toBe('Test error');
-      expect((enrichedError as any).correlationId).toBeUndefined();
-    });
-
-    it('should handle errors gracefully', () => {
-      const error = new Error('Test error');
-      Object.defineProperty(error, 'message', {
-        get() {
-          throw new Error('Cannot access message');
-        }
-      });
-
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-      const result = enrichErrorWithCorrelation(error, correlationId);
-
-      expect(result).toBe(error); // Should return original error on failure
-    });
-  });
-
-  describe('extractJourneyFromCorrelationContext', () => {
-    it('should extract journey from event metadata', () => {
-      const event = {
-        metadata: {
-          journey: 'health'
-        }
-      };
-
-      const journey = extractJourneyFromCorrelationContext(event);
-      expect(journey).toBe('health');
-    });
-
-    it('should extract journey from journey event', () => {
-      const event = {
-        journey: 'care'
-      } as unknown as IJourneyEvent;
-
-      const journey = extractJourneyFromCorrelationContext(event);
-      expect(journey).toBe('care');
-    });
-
-    it('should return undefined when no journey information is found', () => {
-      const event = {
-        type: 'test-event'
-      };
-
-      const journey = extractJourneyFromCorrelationContext(event);
-      expect(journey).toBeUndefined();
-    });
-
-    it('should handle errors gracefully', () => {
-      const event = {
-        get metadata() {
-          throw new Error('Test error');
-        }
-      };
-
-      const journey = extractJourneyFromCorrelationContext(event);
-      expect(journey).toBeUndefined();
-    });
-  });
-
-  describe('Cross-journey correlation scenarios', () => {
-    it('should maintain correlation across health, care, and plan journeys', () => {
-      // Create a correlation chain starting with a health event
-      const healthEvent = {
-        type: 'health.metric.recorded',
-        journeyType: JourneyType.HEALTH,
-        userId: 'user-123',
-        payload: { metricType: 'HEART_RATE', value: 75 }
-      } as unknown as IJourneyEvent;
-
-      const chain = createCorrelationChain(healthEvent, 'health');
-      const correlationId = chain.correlationId;
-
-      // Add a care journey event to the chain
-      const careEvent = {
-        type: 'care.appointment.booked',
-        journeyType: JourneyType.CARE,
-        userId: 'user-123',
-        payload: { provider: 'Dr. Smith', appointmentDate: '2023-05-15T10:00:00Z' }
-      } as unknown as IJourneyEvent;
-
-      const linkedCareEvent = chain.addEvent(careEvent);
-      expect(extractCorrelationId(linkedCareEvent)).toBe(correlationId);
-
-      // Add a plan journey event to the chain
-      const planEvent = {
-        type: 'plan.claim.submitted',
-        journeyType: JourneyType.PLAN,
-        userId: 'user-123',
-        payload: { amount: 150, provider: 'Dr. Smith' }
-      } as unknown as IJourneyEvent;
-
-      const linkedPlanEvent = chain.addEvent(planEvent);
-      expect(extractCorrelationId(linkedPlanEvent)).toBe(correlationId);
-
-      // Verify journey information is preserved
-      expect(extractJourneyFromCorrelationContext(linkedCareEvent)).toBe('care');
-      expect(extractJourneyFromCorrelationContext(linkedPlanEvent)).toBe('plan');
-    });
-
-    it('should reconstruct event sequences using correlation metadata', () => {
-      // Create a sequence of events with the same correlation ID
-      const correlationId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-
-      const events = [
-        {
-          type: 'health.metric.recorded',
-          timestamp: '2023-01-01T10:00:00Z',
-          metadata: { [EVENT_CORRELATION_ID_KEY]: correlationId, journey: 'health' }
         },
         {
-          type: 'health.goal.achieved',
-          timestamp: '2023-01-01T10:05:00Z',
-          metadata: { [EVENT_CORRELATION_ID_KEY]: correlationId, journey: 'health' }
+          id: 'event1',
+          metadata: {
+            correlationId: rootCorrelationId,
+            timestamp: new Date(2023, 0, 1, 12, 0),
+            correlationDepth: 1
+          }
         },
         {
-          type: 'care.appointment.booked',
-          timestamp: '2023-01-01T10:10:00Z',
-          metadata: { [EVENT_CORRELATION_ID_KEY]: correlationId, journey: 'care' }
+          id: 'event3',
+          metadata: {
+            correlationId: childCorrelationId2,
+            parentCorrelationId: rootCorrelationId,
+            timestamp: new Date(2023, 0, 1, 12, 2),
+            correlationDepth: 2
+          }
         },
         {
-          type: 'plan.claim.submitted',
-          timestamp: '2023-01-01T10:15:00Z',
-          metadata: { [EVENT_CORRELATION_ID_KEY]: correlationId, journey: 'plan' }
+          id: 'event2',
+          metadata: {
+            correlationId: childCorrelationId1,
+            parentCorrelationId: rootCorrelationId,
+            timestamp: new Date(2023, 0, 1, 12, 1),
+            correlationDepth: 2
+          }
         }
       ];
 
-      // Shuffle the events to simulate out-of-order processing
-      const shuffledEvents = [...events].sort(() => Math.random() - 0.5);
-
-      // Reconstruct the sequence by correlation ID and timestamp
-      const reconstructed = shuffledEvents
-        .filter(event => extractCorrelationId(event) === correlationId)
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-      // Verify the reconstructed sequence matches the original
-      expect(reconstructed.map(e => e.type)).toEqual(events.map(e => e.type));
-      expect(reconstructed.map(e => e.timestamp)).toEqual(events.map(e => e.timestamp));
-    });
-
-    it('should track parent-child relationships between events', () => {
-      // Create a parent event
-      const parentEvent = {
-        type: 'parent-event',
-        eventId: 'parent-123',
-        metadata: {}
+      const mockEventRepository = {
+        findByCorrelationId: jest.fn().mockImplementation((correlationId) => {
+          return Promise.resolve(mockEvents.filter(e => 
+            e.metadata.correlationId === correlationId || 
+            e.metadata.parentCorrelationId === correlationId
+          ));
+        })
       };
 
-      // Add correlation ID to parent
-      const parentWithCorrelation = addCorrelationId(parentEvent);
-      const correlationId = extractCorrelationId(parentWithCorrelation);
-      expect(correlationId).toBeDefined();
+      // Act
+      const sequence = await reconstructEventSequence(rootCorrelationId, mockEventRepository);
 
-      // Create child events linked to parent
-      const childEvent1 = linkEvents(parentWithCorrelation, {
-        type: 'child-event-1',
-        eventId: 'child-1',
-        metadata: { parentId: 'parent-123' }
-      });
+      // Assert
+      expect(sequence).toBeDefined();
+      expect(sequence.length).toBe(4);
+      expect(sequence[0].id).toBe('event1'); // Root event
+      expect(sequence[1].id).toBe('event2'); // First child by timestamp
+      expect(sequence[2].id).toBe('event3'); // Second child by timestamp
+      expect(sequence[3].id).toBe('event4'); // Grandchild
+    });
 
-      const childEvent2 = linkEvents(parentWithCorrelation, {
-        type: 'child-event-2',
-        eventId: 'child-2',
-        metadata: { parentId: 'parent-123' }
-      });
+    it('should handle empty event sequences', async () => {
+      // Arrange
+      const mockEventRepository = {
+        findByCorrelationId: jest.fn().mockResolvedValue([])
+      };
 
-      // Create grandchild event linked to child1
-      const grandchildEvent = linkEvents(childEvent1, {
-        type: 'grandchild-event',
-        eventId: 'grandchild-1',
-        metadata: { parentId: 'child-1' }
-      });
+      // Act
+      const sequence = await reconstructEventSequence('non-existent-id', mockEventRepository);
 
-      // Verify correlation ID is propagated through the hierarchy
-      expect(extractCorrelationId(childEvent1)).toBe(correlationId);
-      expect(extractCorrelationId(childEvent2)).toBe(correlationId);
-      expect(extractCorrelationId(grandchildEvent)).toBe(correlationId);
+      // Assert
+      expect(sequence).toEqual([]);
+    });
 
-      // Verify parent-child relationships are maintained
-      expect(childEvent1.metadata.parentId).toBe('parent-123');
-      expect(childEvent2.metadata.parentId).toBe('parent-123');
-      expect(grandchildEvent.metadata.parentId).toBe('child-1');
+    it('should handle repository errors gracefully', async () => {
+      // Arrange
+      const mockEventRepository = {
+        findByCorrelationId: jest.fn().mockRejectedValue(new Error('Database error'))
+      };
+
+      // Act & Assert
+      await expect(reconstructEventSequence('correlation-id', mockEventRepository))
+        .rejects.toThrow('Failed to reconstruct event sequence');
+    });
+  });
+
+  describe('preserveJourneyContext', () => {
+    it('should preserve journey context in correlation data across services', () => {
+      // Arrange
+      const journeyContext: EventCorrelationContext = {
+        journeyType: JourneyType.HEALTH,
+        journeyId: 'health-journey-123',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0'
+      };
+
+      // Act
+      const enrichedMetadata = preserveJourneyContext(parentMetadata, journeyContext);
+
+      // Assert
+      expect(enrichedMetadata.context).toBeDefined();
+      expect(enrichedMetadata.context.journeyType).toBe(JourneyType.HEALTH);
+      expect(enrichedMetadata.context.journeyId).toBe('health-journey-123');
+      expect(enrichedMetadata.context.userId).toBe('user-123');
+      expect(enrichedMetadata.context.sessionId).toBe('session-456');
+    });
+
+    it('should merge journey context with existing context data', () => {
+      // Arrange
+      const existingContext = {
+        requestId: 'request-123',
+        deviceInfo: 'mobile-android'
+      };
+
+      const journeyContext: EventCorrelationContext = {
+        journeyType: JourneyType.CARE,
+        journeyId: 'care-journey-456',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: 'care-service',
+        version: '1.0.0',
+        context: existingContext
+      };
+
+      // Act
+      const enrichedMetadata = preserveJourneyContext(parentMetadata, journeyContext);
+
+      // Assert
+      expect(enrichedMetadata.context).toBeDefined();
+      expect(enrichedMetadata.context.journeyType).toBe(JourneyType.CARE);
+      expect(enrichedMetadata.context.journeyId).toBe('care-journey-456');
+      expect(enrichedMetadata.context.requestId).toBe('request-123');
+      expect(enrichedMetadata.context.deviceInfo).toBe('mobile-android');
+    });
+
+    it('should handle transition between different journey types', () => {
+      // Arrange
+      const originalContext: EventCorrelationContext = {
+        journeyType: JourneyType.HEALTH,
+        journeyId: 'health-journey-123',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      const newJourneyContext: EventCorrelationContext = {
+        journeyType: JourneyType.PLAN,
+        journeyId: 'plan-journey-789',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      const parentMetadata: EventMetadataDto = {
+        correlationId: 'parent-correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0',
+        context: originalContext
+      };
+
+      // Act
+      const enrichedMetadata = preserveJourneyContext(parentMetadata, newJourneyContext);
+
+      // Assert
+      expect(enrichedMetadata.context).toBeDefined();
+      expect(enrichedMetadata.context.journeyType).toBe(JourneyType.PLAN);
+      expect(enrichedMetadata.context.journeyId).toBe('plan-journey-789');
+      expect(enrichedMetadata.context.previousJourneyType).toBe(JourneyType.HEALTH);
+      expect(enrichedMetadata.context.previousJourneyId).toBe('health-journey-123');
+    });
+
+    it('should maintain journey transition history', () => {
+      // Arrange
+      // First transition: HEALTH -> CARE
+      const healthContext: EventCorrelationContext = {
+        journeyType: JourneyType.HEALTH,
+        journeyId: 'health-journey-123',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      const healthMetadata: EventMetadataDto = {
+        correlationId: 'health-correlation-id',
+        timestamp: new Date(),
+        source: 'health-service',
+        version: '1.0.0',
+        context: healthContext
+      };
+
+      const careContext: EventCorrelationContext = {
+        journeyType: JourneyType.CARE,
+        journeyId: 'care-journey-456',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      // First transition
+      const careMetadata = preserveJourneyContext(healthMetadata, careContext);
+
+      // Second transition: CARE -> PLAN
+      const planContext: EventCorrelationContext = {
+        journeyType: JourneyType.PLAN,
+        journeyId: 'plan-journey-789',
+        userId: 'user-123',
+        sessionId: 'session-456'
+      };
+
+      // Act - Second transition
+      const planMetadata = preserveJourneyContext(careMetadata, planContext);
+
+      // Assert
+      expect(planMetadata.context).toBeDefined();
+      expect(planMetadata.context.journeyType).toBe(JourneyType.PLAN);
+      expect(planMetadata.context.journeyId).toBe('plan-journey-789');
+      expect(planMetadata.context.previousJourneyType).toBe(JourneyType.CARE);
+      expect(planMetadata.context.previousJourneyId).toBe('care-journey-456');
+      expect(planMetadata.context.journeyPath).toBeDefined();
+      expect(planMetadata.context.journeyPath).toContain(JourneyType.HEALTH);
+      expect(planMetadata.context.journeyPath).toContain(JourneyType.CARE);
+      expect(planMetadata.context.journeyPath).toContain(JourneyType.PLAN);
     });
   });
 });
