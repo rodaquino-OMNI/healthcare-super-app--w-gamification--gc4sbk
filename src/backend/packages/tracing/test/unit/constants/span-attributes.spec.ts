@@ -1,556 +1,363 @@
 import {
-  COMMON_ATTRIBUTES,
+  AUSTA_ATTRIBUTE_NAMESPACE,
+  GENERAL_ATTRIBUTES,
+  JOURNEY_ATTRIBUTES,
   HEALTH_JOURNEY_ATTRIBUTES,
   CARE_JOURNEY_ATTRIBUTES,
   PLAN_JOURNEY_ATTRIBUTES,
-  GAMIFICATION_ATTRIBUTES
+  GAMIFICATION_ATTRIBUTES,
+  DATABASE_ATTRIBUTES,
+  EXTERNAL_API_ATTRIBUTES,
+  NOTIFICATION_ATTRIBUTES,
+  SPAN_ATTRIBUTES
 } from '../../../src/constants/span-attributes';
 
 describe('Span Attribute Constants', () => {
-  // Helper function to check if all values in an object follow the dot notation pattern
-  const allValuesFollowDotNotation = (obj: Record<string, string>): boolean => {
-    return Object.values(obj).every(value => {
-      const parts = value.split('.');
-      return parts.length >= 2 && parts.every(part => part.length > 0);
-    });
-  };
-
-  // Helper function to check if all values in an object are unique
-  const allValuesAreUnique = (obj: Record<string, string>): boolean => {
-    const values = Object.values(obj);
-    return values.length === new Set(values).size;
-  };
-
-  // Helper function to check if all values in an object are lowercase
-  const allValuesAreLowercase = (obj: Record<string, string>): boolean => {
-    return Object.values(obj).every(value => value === value.toLowerCase());
-  };
-
-  describe('COMMON_ATTRIBUTES', () => {
-    it('should be defined', () => {
-      expect(COMMON_ATTRIBUTES).toBeDefined();
-    });
-
-    it('should contain essential common attributes', () => {
-      // Check for essential user and request context attributes
-      expect(COMMON_ATTRIBUTES.USER_ID).toBeDefined();
-      expect(COMMON_ATTRIBUTES.REQUEST_ID).toBeDefined();
-      expect(COMMON_ATTRIBUTES.SESSION_ID).toBeDefined();
-      expect(COMMON_ATTRIBUTES.CORRELATION_ID).toBeDefined();
-
-      // Check for essential service information attributes
-      expect(COMMON_ATTRIBUTES.SERVICE_NAME).toBeDefined();
-      expect(COMMON_ATTRIBUTES.SERVICE_VERSION).toBeDefined();
-
-      // Check for essential operation details attributes
-      expect(COMMON_ATTRIBUTES.OPERATION_NAME).toBeDefined();
-      expect(COMMON_ATTRIBUTES.OPERATION_TYPE).toBeDefined();
-      expect(COMMON_ATTRIBUTES.OPERATION_RESULT).toBeDefined();
-      expect(COMMON_ATTRIBUTES.OPERATION_STATUS).toBeDefined();
-
-      // Check for essential HTTP attributes
-      expect(COMMON_ATTRIBUTES.HTTP_METHOD).toBeDefined();
-      expect(COMMON_ATTRIBUTES.HTTP_URL).toBeDefined();
-      expect(COMMON_ATTRIBUTES.HTTP_STATUS_CODE).toBeDefined();
-
-      // Check for essential database attributes
-      expect(COMMON_ATTRIBUTES.DB_SYSTEM).toBeDefined();
-      expect(COMMON_ATTRIBUTES.DB_NAME).toBeDefined();
-      expect(COMMON_ATTRIBUTES.DB_OPERATION).toBeDefined();
-
-      // Check for journey context attributes
-      expect(COMMON_ATTRIBUTES.JOURNEY_TYPE).toBeDefined();
-      expect(COMMON_ATTRIBUTES.JOURNEY_STEP).toBeDefined();
-    });
-
-    it('should follow dot notation naming convention', () => {
-      expect(allValuesFollowDotNotation(COMMON_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have all values in lowercase', () => {
-      expect(allValuesAreLowercase(COMMON_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have unique attribute values', () => {
-      expect(allValuesAreUnique(COMMON_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have user.id attribute with correct value', () => {
-      expect(COMMON_ATTRIBUTES.USER_ID).toBe('user.id');
-    });
-
-    it('should have request.id attribute with correct value', () => {
-      expect(COMMON_ATTRIBUTES.REQUEST_ID).toBe('request.id');
-    });
-
-    it('should have correlation.id attribute with correct value', () => {
-      expect(COMMON_ATTRIBUTES.CORRELATION_ID).toBe('correlation.id');
-    });
-
-    it('should have journey.type attribute with correct value', () => {
-      expect(COMMON_ATTRIBUTES.JOURNEY_TYPE).toBe('journey.type');
-    });
-
-    it('should have http attributes with correct http prefix', () => {
-      Object.entries(COMMON_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('HTTP_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('http.')).toBe(true);
-        });
-    });
-
-    it('should have db attributes with correct db prefix', () => {
-      Object.entries(COMMON_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('DB_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('db.')).toBe(true);
-        });
-    });
-
-    it('should have operation attributes with correct operation prefix', () => {
-      Object.entries(COMMON_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('OPERATION_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('operation.')).toBe(true);
-        });
+  describe('Namespace', () => {
+    it('should define the AUSTA attribute namespace', () => {
+      expect(AUSTA_ATTRIBUTE_NAMESPACE).toBeDefined();
+      expect(AUSTA_ATTRIBUTE_NAMESPACE).toBe('austa');
     });
   });
 
-  describe('HEALTH_JOURNEY_ATTRIBUTES', () => {
-    it('should be defined', () => {
-      expect(HEALTH_JOURNEY_ATTRIBUTES).toBeDefined();
+  describe('Naming Conventions', () => {
+    it('should follow consistent naming pattern for AUSTA-specific attributes', () => {
+      // Test a sample of attributes from each category to ensure they follow the pattern
+      const austaAttributes = [
+        GENERAL_ATTRIBUTES.REQUEST_ID,
+        JOURNEY_ATTRIBUTES.JOURNEY_TYPE,
+        HEALTH_JOURNEY_ATTRIBUTES.METRIC_TYPE,
+        CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_ID,
+        PLAN_JOURNEY_ATTRIBUTES.PLAN_ID,
+        GAMIFICATION_ATTRIBUTES.EVENT_ID,
+        DATABASE_ATTRIBUTES.DB_ENTITY,
+        EXTERNAL_API_ATTRIBUTES.API_NAME,
+        NOTIFICATION_ATTRIBUTES.NOTIFICATION_ID
+      ];
+
+      // All AUSTA-specific attributes should start with the namespace
+      austaAttributes.forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+      });
     });
 
-    it('should contain essential health journey attributes', () => {
-      // Check for health metrics attributes
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_METRIC_TYPE).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_METRIC_VALUE).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_METRIC_UNIT).toBeDefined();
+    it('should use standard OpenTelemetry attribute names where applicable', () => {
+      // Standard OpenTelemetry attributes should not have the AUSTA namespace
+      const standardAttributes = [
+        GENERAL_ATTRIBUTES.SERVICE_NAME,
+        GENERAL_ATTRIBUTES.SERVICE_VERSION,
+        DATABASE_ATTRIBUTES.DB_SYSTEM,
+        DATABASE_ATTRIBUTES.DB_NAME,
+        DATABASE_ATTRIBUTES.DB_OPERATION,
+        DATABASE_ATTRIBUTES.DB_STATEMENT
+      ];
 
-      // Check for health goals attributes
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_GOAL_ID).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_GOAL_TYPE).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_GOAL_TARGET).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.HEALTH_GOAL_PROGRESS).toBeDefined();
+      standardAttributes.forEach(attribute => {
+        expect(attribute).not.toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+      });
+    });
 
-      // Check for device attributes
+    it('should use dot notation for attribute hierarchy', () => {
+      // All attributes should use dot notation for hierarchy
+      Object.values(SPAN_ATTRIBUTES).forEach(category => {
+        Object.values(category).forEach(attribute => {
+          if (typeof attribute === 'string') {
+            expect(attribute).toMatch(/^[a-z]+\.[a-z]+/);
+            expect(attribute).not.toContain('-');
+            expect(attribute).not.toContain('_');
+          }
+        });
+      });
+    });
+  });
+
+  describe('General Attributes', () => {
+    it('should define service and component identification attributes', () => {
+      expect(GENERAL_ATTRIBUTES.SERVICE_NAME).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.SERVICE_VERSION).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.COMPONENT_NAME).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.COMPONENT_TYPE).toBeDefined();
+    });
+
+    it('should define request context attributes', () => {
+      expect(GENERAL_ATTRIBUTES.REQUEST_ID).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.SESSION_ID).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.USER_ID).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.TENANT_ID).toBeDefined();
+    });
+
+    it('should define operation metadata attributes', () => {
+      expect(GENERAL_ATTRIBUTES.OPERATION_NAME).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.OPERATION_TYPE).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.OPERATION_RESULT).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.OPERATION_STATUS).toBeDefined();
+    });
+
+    it('should define error information attributes', () => {
+      expect(GENERAL_ATTRIBUTES.ERROR_TYPE).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.ERROR_CODE).toBeDefined();
+      expect(GENERAL_ATTRIBUTES.ERROR_MESSAGE).toBeDefined();
+    });
+  });
+
+  describe('Journey Attributes', () => {
+    it('should define journey identification attributes', () => {
+      expect(JOURNEY_ATTRIBUTES.JOURNEY_TYPE).toBeDefined();
+      expect(JOURNEY_ATTRIBUTES.JOURNEY_ID).toBeDefined();
+      expect(JOURNEY_ATTRIBUTES.JOURNEY_STEP).toBeDefined();
+      expect(JOURNEY_ATTRIBUTES.JOURNEY_STEP_ID).toBeDefined();
+    });
+
+    it('should follow the journey namespace pattern', () => {
+      Object.values(JOURNEY_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.journey\.`));
+      });
+    });
+  });
+
+  describe('Health Journey Attributes', () => {
+    it('should define health metric attributes', () => {
+      expect(HEALTH_JOURNEY_ATTRIBUTES.METRIC_TYPE).toBeDefined();
+      expect(HEALTH_JOURNEY_ATTRIBUTES.METRIC_VALUE).toBeDefined();
+      expect(HEALTH_JOURNEY_ATTRIBUTES.METRIC_UNIT).toBeDefined();
+    });
+
+    it('should define health goal attributes', () => {
+      expect(HEALTH_JOURNEY_ATTRIBUTES.GOAL_ID).toBeDefined();
+      expect(HEALTH_JOURNEY_ATTRIBUTES.GOAL_TYPE).toBeDefined();
+      expect(HEALTH_JOURNEY_ATTRIBUTES.GOAL_PROGRESS).toBeDefined();
+    });
+
+    it('should define device integration attributes', () => {
       expect(HEALTH_JOURNEY_ATTRIBUTES.DEVICE_ID).toBeDefined();
       expect(HEALTH_JOURNEY_ATTRIBUTES.DEVICE_TYPE).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.DEVICE_CONNECTION_STATUS).toBeDefined();
-
-      // Check for medical event attributes
-      expect(HEALTH_JOURNEY_ATTRIBUTES.MEDICAL_EVENT_ID).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.MEDICAL_EVENT_TYPE).toBeDefined();
-
-      // Check for FHIR integration attributes
-      expect(HEALTH_JOURNEY_ATTRIBUTES.FHIR_RESOURCE_TYPE).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.FHIR_RESOURCE_ID).toBeDefined();
-      expect(HEALTH_JOURNEY_ATTRIBUTES.FHIR_OPERATION).toBeDefined();
+      expect(HEALTH_JOURNEY_ATTRIBUTES.SYNC_STATUS).toBeDefined();
     });
 
-    it('should follow dot notation naming convention', () => {
-      expect(allValuesFollowDotNotation(HEALTH_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have all values in lowercase', () => {
-      expect(allValuesAreLowercase(HEALTH_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have unique attribute values', () => {
-      expect(allValuesAreUnique(HEALTH_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have health metric attributes with correct health.metric prefix', () => {
-      Object.entries(HEALTH_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('HEALTH_METRIC_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('health.metric.')).toBe(true);
-        });
-    });
-
-    it('should have health goal attributes with correct health.goal prefix', () => {
-      Object.entries(HEALTH_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('HEALTH_GOAL_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('health.goal.')).toBe(true);
-        });
-    });
-
-    it('should have device attributes with correct device prefix', () => {
-      Object.entries(HEALTH_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('DEVICE_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('device.')).toBe(true);
-        });
-    });
-
-    it('should have FHIR attributes with correct fhir prefix', () => {
-      Object.entries(HEALTH_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('FHIR_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('fhir.')).toBe(true);
-        });
+    it('should follow the health namespace pattern', () => {
+      Object.values(HEALTH_JOURNEY_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.health\.`));
+      });
     });
   });
 
-  describe('CARE_JOURNEY_ATTRIBUTES', () => {
-    it('should be defined', () => {
-      expect(CARE_JOURNEY_ATTRIBUTES).toBeDefined();
-    });
-
-    it('should contain essential care journey attributes', () => {
-      // Check for appointment attributes
+  describe('Care Journey Attributes', () => {
+    it('should define appointment attributes', () => {
       expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_ID).toBeDefined();
       expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_TYPE).toBeDefined();
       expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_STATUS).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_PROVIDER_ID).toBeDefined();
+    });
 
-      // Check for provider attributes
-      expect(CARE_JOURNEY_ATTRIBUTES.PROVIDER_ID).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.PROVIDER_TYPE).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.PROVIDER_SPECIALTY).toBeDefined();
+    it('should define telemedicine attributes', () => {
+      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_SESSION_ID).toBeDefined();
+      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_PROVIDER_ID).toBeDefined();
+      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_STATUS).toBeDefined();
+    });
 
-      // Check for medication attributes
+    it('should define medication attributes', () => {
       expect(CARE_JOURNEY_ATTRIBUTES.MEDICATION_ID).toBeDefined();
       expect(CARE_JOURNEY_ATTRIBUTES.MEDICATION_NAME).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.MEDICATION_DOSAGE).toBeDefined();
-
-      // Check for telemedicine attributes
-      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_SESSION_ID).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_SESSION_STATUS).toBeDefined();
-
-      // Check for symptom checker attributes
-      expect(CARE_JOURNEY_ATTRIBUTES.SYMPTOM_CHECKER_SESSION_ID).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.SYMPTOM_CHECKER_RESULT).toBeDefined();
-
-      // Check for treatment attributes
-      expect(CARE_JOURNEY_ATTRIBUTES.TREATMENT_ID).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.TREATMENT_TYPE).toBeDefined();
-      expect(CARE_JOURNEY_ATTRIBUTES.TREATMENT_STATUS).toBeDefined();
+      expect(CARE_JOURNEY_ATTRIBUTES.MEDICATION_ADHERENCE).toBeDefined();
     });
 
-    it('should follow dot notation naming convention', () => {
-      expect(allValuesFollowDotNotation(CARE_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have all values in lowercase', () => {
-      expect(allValuesAreLowercase(CARE_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have unique attribute values', () => {
-      expect(allValuesAreUnique(CARE_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have appointment attributes with correct appointment prefix', () => {
-      Object.entries(CARE_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('APPOINTMENT_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('appointment.')).toBe(true);
-        });
-    });
-
-    it('should have provider attributes with correct provider prefix', () => {
-      Object.entries(CARE_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('PROVIDER_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('provider.')).toBe(true);
-        });
-    });
-
-    it('should have medication attributes with correct medication prefix', () => {
-      Object.entries(CARE_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('MEDICATION_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('medication.')).toBe(true);
-        });
-    });
-
-    it('should have telemedicine attributes with correct telemedicine prefix', () => {
-      Object.entries(CARE_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('TELEMEDICINE_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('telemedicine.')).toBe(true);
-        });
+    it('should follow the care namespace pattern', () => {
+      Object.values(CARE_JOURNEY_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.care\.`));
+      });
     });
   });
 
-  describe('PLAN_JOURNEY_ATTRIBUTES', () => {
-    it('should be defined', () => {
-      expect(PLAN_JOURNEY_ATTRIBUTES).toBeDefined();
-    });
-
-    it('should contain essential plan journey attributes', () => {
-      // Check for plan attributes
+  describe('Plan Journey Attributes', () => {
+    it('should define insurance plan attributes', () => {
       expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_ID).toBeDefined();
       expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_TYPE).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_STATUS).toBeDefined();
+      expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_TIER).toBeDefined();
+    });
 
-      // Check for benefit attributes
-      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_ID).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_TYPE).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_CATEGORY).toBeDefined();
-
-      // Check for coverage attributes
-      expect(PLAN_JOURNEY_ATTRIBUTES.COVERAGE_ID).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.COVERAGE_TYPE).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.COVERAGE_STATUS).toBeDefined();
-
-      // Check for claim attributes
+    it('should define claim attributes', () => {
       expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_ID).toBeDefined();
       expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_TYPE).toBeDefined();
       expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_STATUS).toBeDefined();
-
-      // Check for document attributes
-      expect(PLAN_JOURNEY_ATTRIBUTES.DOCUMENT_ID).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.DOCUMENT_TYPE).toBeDefined();
-      expect(PLAN_JOURNEY_ATTRIBUTES.DOCUMENT_STATUS).toBeDefined();
+      expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_AMOUNT).toBeDefined();
     });
 
-    it('should follow dot notation naming convention', () => {
-      expect(allValuesFollowDotNotation(PLAN_JOURNEY_ATTRIBUTES)).toBe(true);
+    it('should define benefit attributes', () => {
+      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_ID).toBeDefined();
+      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_TYPE).toBeDefined();
+      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_USAGE).toBeDefined();
     });
 
-    it('should have all values in lowercase', () => {
-      expect(allValuesAreLowercase(PLAN_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have unique attribute values', () => {
-      expect(allValuesAreUnique(PLAN_JOURNEY_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have plan attributes with correct plan prefix', () => {
-      Object.entries(PLAN_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('PLAN_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('plan.')).toBe(true);
-        });
-    });
-
-    it('should have benefit attributes with correct benefit prefix', () => {
-      Object.entries(PLAN_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('BENEFIT_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('benefit.')).toBe(true);
-        });
-    });
-
-    it('should have coverage attributes with correct coverage prefix', () => {
-      Object.entries(PLAN_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('COVERAGE_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('coverage.')).toBe(true);
-        });
-    });
-
-    it('should have claim attributes with correct claim prefix', () => {
-      Object.entries(PLAN_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('CLAIM_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('claim.')).toBe(true);
-        });
-    });
-
-    it('should have document attributes with correct document prefix', () => {
-      Object.entries(PLAN_JOURNEY_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('DOCUMENT_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('document.')).toBe(true);
-        });
+    it('should follow the plan namespace pattern', () => {
+      Object.values(PLAN_JOURNEY_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.plan\.`));
+      });
     });
   });
 
-  describe('GAMIFICATION_ATTRIBUTES', () => {
-    it('should be defined', () => {
-      expect(GAMIFICATION_ATTRIBUTES).toBeDefined();
-    });
-
-    it('should contain essential gamification attributes', () => {
-      // Check for profile attributes
-      expect(GAMIFICATION_ATTRIBUTES.PROFILE_ID).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.PROFILE_LEVEL).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.PROFILE_XP).toBeDefined();
-
-      // Check for achievement attributes
-      expect(GAMIFICATION_ATTRIBUTES.ACHIEVEMENT_ID).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.ACHIEVEMENT_TYPE).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.ACHIEVEMENT_PROGRESS).toBeDefined();
-
-      // Check for quest attributes
-      expect(GAMIFICATION_ATTRIBUTES.QUEST_ID).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.QUEST_TYPE).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.QUEST_PROGRESS).toBeDefined();
-
-      // Check for reward attributes
-      expect(GAMIFICATION_ATTRIBUTES.REWARD_ID).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.REWARD_TYPE).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.REWARD_VALUE).toBeDefined();
-
-      // Check for event attributes
+  describe('Gamification Attributes', () => {
+    it('should define event attributes', () => {
       expect(GAMIFICATION_ATTRIBUTES.EVENT_ID).toBeDefined();
       expect(GAMIFICATION_ATTRIBUTES.EVENT_TYPE).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.EVENT_SOURCE).toBeDefined();
-
-      // Check for leaderboard attributes
-      expect(GAMIFICATION_ATTRIBUTES.LEADERBOARD_ID).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.LEADERBOARD_TYPE).toBeDefined();
-      expect(GAMIFICATION_ATTRIBUTES.LEADERBOARD_POSITION).toBeDefined();
     });
 
-    it('should follow dot notation naming convention', () => {
-      expect(allValuesFollowDotNotation(GAMIFICATION_ATTRIBUTES)).toBe(true);
+    it('should define achievement attributes', () => {
+      expect(GAMIFICATION_ATTRIBUTES.ACHIEVEMENT_ID).toBeDefined();
+      expect(GAMIFICATION_ATTRIBUTES.ACHIEVEMENT_TYPE).toBeDefined();
     });
 
-    it('should have all values in lowercase', () => {
-      expect(allValuesAreLowercase(GAMIFICATION_ATTRIBUTES)).toBe(true);
+    it('should define reward attributes', () => {
+      expect(GAMIFICATION_ATTRIBUTES.REWARD_ID).toBeDefined();
+      expect(GAMIFICATION_ATTRIBUTES.REWARD_TYPE).toBeDefined();
+      expect(GAMIFICATION_ATTRIBUTES.REWARD_AMOUNT).toBeDefined();
     });
 
-    it('should have unique attribute values', () => {
-      expect(allValuesAreUnique(GAMIFICATION_ATTRIBUTES)).toBe(true);
+    it('should define user progress attributes', () => {
+      expect(GAMIFICATION_ATTRIBUTES.USER_LEVEL).toBeDefined();
+      expect(GAMIFICATION_ATTRIBUTES.USER_XP).toBeDefined();
+      expect(GAMIFICATION_ATTRIBUTES.USER_RANK).toBeDefined();
     });
 
-    it('should have profile attributes with correct profile prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('PROFILE_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('profile.')).toBe(true);
-        });
-    });
-
-    it('should have achievement attributes with correct achievement prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('ACHIEVEMENT_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('achievement.')).toBe(true);
-        });
-    });
-
-    it('should have quest attributes with correct quest prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('QUEST_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('quest.')).toBe(true);
-        });
-    });
-
-    it('should have reward attributes with correct reward prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('REWARD_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('reward.')).toBe(true);
-        });
-    });
-
-    it('should have event attributes with correct event prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('EVENT_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('event.')).toBe(true);
-        });
-    });
-
-    it('should have leaderboard attributes with correct leaderboard prefix', () => {
-      Object.entries(GAMIFICATION_ATTRIBUTES)
-        .filter(([key]) => key.startsWith('LEADERBOARD_'))
-        .forEach(([_, value]) => {
-          expect(value.startsWith('leaderboard.')).toBe(true);
-        });
+    it('should follow the gamification namespace pattern', () => {
+      Object.values(GAMIFICATION_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.gamification\.`));
+      });
     });
   });
 
-  describe('Cross-attribute relationships', () => {
-    it('should have no duplicate attribute values across different attribute groups', () => {
-      const allValues = [
-        ...Object.values(COMMON_ATTRIBUTES),
-        ...Object.values(HEALTH_JOURNEY_ATTRIBUTES),
-        ...Object.values(CARE_JOURNEY_ATTRIBUTES),
-        ...Object.values(PLAN_JOURNEY_ATTRIBUTES),
-        ...Object.values(GAMIFICATION_ATTRIBUTES)
+  describe('Database Attributes', () => {
+    it('should define general database information attributes', () => {
+      expect(DATABASE_ATTRIBUTES.DB_SYSTEM).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_NAME).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_OPERATION).toBeDefined();
+    });
+
+    it('should define query information attributes', () => {
+      expect(DATABASE_ATTRIBUTES.DB_STATEMENT).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_OPERATION_ID).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_TABLE).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_ENTITY).toBeDefined();
+    });
+
+    it('should define performance metrics attributes', () => {
+      expect(DATABASE_ATTRIBUTES.DB_ROWS_AFFECTED).toBeDefined();
+      expect(DATABASE_ATTRIBUTES.DB_ROWS_RETURNED).toBeDefined();
+    });
+
+    it('should use standard OpenTelemetry DB attributes where applicable', () => {
+      expect(DATABASE_ATTRIBUTES.DB_SYSTEM).not.toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+      expect(DATABASE_ATTRIBUTES.DB_NAME).not.toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+      expect(DATABASE_ATTRIBUTES.DB_OPERATION).not.toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+      expect(DATABASE_ATTRIBUTES.DB_STATEMENT).not.toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.`));
+    });
+
+    it('should use AUSTA namespace for custom DB attributes', () => {
+      expect(DATABASE_ATTRIBUTES.DB_OPERATION_ID).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.db\.`));
+      expect(DATABASE_ATTRIBUTES.DB_TABLE).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.db\.`));
+      expect(DATABASE_ATTRIBUTES.DB_ENTITY).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.db\.`));
+      expect(DATABASE_ATTRIBUTES.DB_ROWS_AFFECTED).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.db\.`));
+      expect(DATABASE_ATTRIBUTES.DB_ROWS_RETURNED).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.db\.`));
+    });
+  });
+
+  describe('External API Attributes', () => {
+    it('should define general API information attributes', () => {
+      expect(EXTERNAL_API_ATTRIBUTES.API_NAME).toBeDefined();
+      expect(EXTERNAL_API_ATTRIBUTES.API_VERSION).toBeDefined();
+      expect(EXTERNAL_API_ATTRIBUTES.API_ENDPOINT).toBeDefined();
+    });
+
+    it('should define request information attributes', () => {
+      expect(EXTERNAL_API_ATTRIBUTES.REQUEST_METHOD).toBeDefined();
+      expect(EXTERNAL_API_ATTRIBUTES.REQUEST_SIZE).toBeDefined();
+    });
+
+    it('should define response information attributes', () => {
+      expect(EXTERNAL_API_ATTRIBUTES.RESPONSE_STATUS).toBeDefined();
+      expect(EXTERNAL_API_ATTRIBUTES.RESPONSE_SIZE).toBeDefined();
+    });
+
+    it('should define integration specific attributes', () => {
+      expect(EXTERNAL_API_ATTRIBUTES.INTEGRATION_TYPE).toBeDefined();
+      expect(EXTERNAL_API_ATTRIBUTES.INTEGRATION_PARTNER).toBeDefined();
+    });
+
+    it('should follow the API namespace pattern', () => {
+      const apiAttributes = [
+        EXTERNAL_API_ATTRIBUTES.API_NAME,
+        EXTERNAL_API_ATTRIBUTES.API_VERSION,
+        EXTERNAL_API_ATTRIBUTES.API_ENDPOINT,
+        EXTERNAL_API_ATTRIBUTES.REQUEST_METHOD,
+        EXTERNAL_API_ATTRIBUTES.REQUEST_SIZE,
+        EXTERNAL_API_ATTRIBUTES.RESPONSE_STATUS,
+        EXTERNAL_API_ATTRIBUTES.RESPONSE_SIZE
       ];
-      
-      expect(allValues.length).toBe(new Set(allValues).size);
-    });
 
-    it('should have consistent naming patterns across all attribute groups', () => {
-      // All attribute groups should follow dot notation
-      expect(allValuesFollowDotNotation(COMMON_ATTRIBUTES)).toBe(true);
-      expect(allValuesFollowDotNotation(HEALTH_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesFollowDotNotation(CARE_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesFollowDotNotation(PLAN_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesFollowDotNotation(GAMIFICATION_ATTRIBUTES)).toBe(true);
-
-      // All attribute groups should be lowercase
-      expect(allValuesAreLowercase(COMMON_ATTRIBUTES)).toBe(true);
-      expect(allValuesAreLowercase(HEALTH_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesAreLowercase(CARE_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesAreLowercase(PLAN_JOURNEY_ATTRIBUTES)).toBe(true);
-      expect(allValuesAreLowercase(GAMIFICATION_ATTRIBUTES)).toBe(true);
-    });
-
-    it('should have ID attributes consistently named across all attribute groups', () => {
-      // Check that all ID attributes end with '.id'
-      const idAttributes = [
-        ...Object.entries(COMMON_ATTRIBUTES),
-        ...Object.entries(HEALTH_JOURNEY_ATTRIBUTES),
-        ...Object.entries(CARE_JOURNEY_ATTRIBUTES),
-        ...Object.entries(PLAN_JOURNEY_ATTRIBUTES),
-        ...Object.entries(GAMIFICATION_ATTRIBUTES)
-      ].filter(([key]) => key.endsWith('_ID'));
-
-      idAttributes.forEach(([_, value]) => {
-        expect(value.endsWith('.id')).toBe(true);
+      apiAttributes.forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.api\.`));
       });
     });
 
-    it('should have TYPE attributes consistently named across all attribute groups', () => {
-      // Check that all TYPE attributes end with '.type'
-      const typeAttributes = [
-        ...Object.entries(COMMON_ATTRIBUTES),
-        ...Object.entries(HEALTH_JOURNEY_ATTRIBUTES),
-        ...Object.entries(CARE_JOURNEY_ATTRIBUTES),
-        ...Object.entries(PLAN_JOURNEY_ATTRIBUTES),
-        ...Object.entries(GAMIFICATION_ATTRIBUTES)
-      ].filter(([key]) => key.endsWith('_TYPE'));
+    it('should follow the integration namespace pattern for integration attributes', () => {
+      expect(EXTERNAL_API_ATTRIBUTES.INTEGRATION_TYPE).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.integration\.`));
+      expect(EXTERNAL_API_ATTRIBUTES.INTEGRATION_PARTNER).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.integration\.`));
+    });
+  });
 
-      typeAttributes.forEach(([_, value]) => {
-        expect(value.endsWith('.type')).toBe(true);
-      });
+  describe('Notification Attributes', () => {
+    it('should define notification metadata attributes', () => {
+      expect(NOTIFICATION_ATTRIBUTES.NOTIFICATION_ID).toBeDefined();
+      expect(NOTIFICATION_ATTRIBUTES.NOTIFICATION_TYPE).toBeDefined();
+      expect(NOTIFICATION_ATTRIBUTES.NOTIFICATION_CHANNEL).toBeDefined();
     });
 
-    it('should have STATUS attributes consistently named across all attribute groups', () => {
-      // Check that all STATUS attributes end with '.status'
-      const statusAttributes = [
-        ...Object.entries(COMMON_ATTRIBUTES),
-        ...Object.entries(HEALTH_JOURNEY_ATTRIBUTES),
-        ...Object.entries(CARE_JOURNEY_ATTRIBUTES),
-        ...Object.entries(PLAN_JOURNEY_ATTRIBUTES),
-        ...Object.entries(GAMIFICATION_ATTRIBUTES)
-      ].filter(([key]) => key.endsWith('_STATUS'));
+    it('should define delivery information attributes', () => {
+      expect(NOTIFICATION_ATTRIBUTES.DELIVERY_STATUS).toBeDefined();
+      expect(NOTIFICATION_ATTRIBUTES.DELIVERY_ATTEMPT).toBeDefined();
+      expect(NOTIFICATION_ATTRIBUTES.DELIVERY_TIMESTAMP).toBeDefined();
+    });
 
-      statusAttributes.forEach(([_, value]) => {
-        expect(value.endsWith('.status')).toBe(true);
+    it('should follow the notification namespace pattern', () => {
+      Object.values(NOTIFICATION_ATTRIBUTES).forEach(attribute => {
+        expect(attribute).toMatch(new RegExp(`^${AUSTA_ATTRIBUTE_NAMESPACE}\.notification\.`));
       });
     });
   });
 
-  describe('OpenTelemetry semantic conventions', () => {
-    it('should follow OpenTelemetry semantic conventions for HTTP attributes', () => {
-      expect(COMMON_ATTRIBUTES.HTTP_METHOD).toBe('http.method');
-      expect(COMMON_ATTRIBUTES.HTTP_URL).toBe('http.url');
-      expect(COMMON_ATTRIBUTES.HTTP_STATUS_CODE).toBe('http.status_code');
+  describe('SPAN_ATTRIBUTES Export', () => {
+    it('should export all attribute categories in SPAN_ATTRIBUTES object', () => {
+      expect(SPAN_ATTRIBUTES.GENERAL).toBe(GENERAL_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.JOURNEY).toBe(JOURNEY_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.HEALTH).toBe(HEALTH_JOURNEY_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.CARE).toBe(CARE_JOURNEY_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.PLAN).toBe(PLAN_JOURNEY_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.GAMIFICATION).toBe(GAMIFICATION_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.DATABASE).toBe(DATABASE_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.EXTERNAL_API).toBe(EXTERNAL_API_ATTRIBUTES);
+      expect(SPAN_ATTRIBUTES.NOTIFICATION).toBe(NOTIFICATION_ATTRIBUTES);
     });
+  });
 
-    it('should follow OpenTelemetry semantic conventions for database attributes', () => {
-      expect(COMMON_ATTRIBUTES.DB_SYSTEM).toBe('db.system');
-      expect(COMMON_ATTRIBUTES.DB_NAME).toBe('db.name');
-      expect(COMMON_ATTRIBUTES.DB_OPERATION).toBe('db.operation');
-      expect(COMMON_ATTRIBUTES.DB_STATEMENT).toBe('db.statement');
-    });
-
-    it('should follow OpenTelemetry semantic conventions for messaging attributes', () => {
-      expect(COMMON_ATTRIBUTES.MESSAGING_SYSTEM).toBe('messaging.system');
-      expect(COMMON_ATTRIBUTES.MESSAGING_DESTINATION).toBe('messaging.destination');
-      expect(COMMON_ATTRIBUTES.MESSAGING_DESTINATION_KIND).toBe('messaging.destination.kind');
-      expect(COMMON_ATTRIBUTES.MESSAGING_MESSAGE_ID).toBe('messaging.message.id');
+  describe('Cross-Journey Consistency', () => {
+    it('should use consistent attribute naming across journeys for similar concepts', () => {
+      // ID attributes should follow the same pattern across journeys
+      expect(HEALTH_JOURNEY_ATTRIBUTES.GOAL_ID).toMatch(/\.goal\.id$/);
+      expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_ID).toMatch(/\.appointment\.id$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_ID).toMatch(/\.id$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_ID).toMatch(/\.claim\.id$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_ID).toMatch(/\.benefit\.id$/);
+      
+      // Type attributes should follow the same pattern across journeys
+      expect(HEALTH_JOURNEY_ATTRIBUTES.METRIC_TYPE).toMatch(/\.metric\.type$/);
+      expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_TYPE).toMatch(/\.appointment\.type$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.PLAN_TYPE).toMatch(/\.type$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_TYPE).toMatch(/\.claim\.type$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.BENEFIT_TYPE).toMatch(/\.benefit\.type$/);
+      
+      // Status attributes should follow the same pattern across journeys
+      expect(HEALTH_JOURNEY_ATTRIBUTES.SYNC_STATUS).toMatch(/\.sync\.status$/);
+      expect(CARE_JOURNEY_ATTRIBUTES.APPOINTMENT_STATUS).toMatch(/\.appointment\.status$/);
+      expect(CARE_JOURNEY_ATTRIBUTES.TELEMEDICINE_STATUS).toMatch(/\.telemedicine\.status$/);
+      expect(PLAN_JOURNEY_ATTRIBUTES.CLAIM_STATUS).toMatch(/\.claim\.status$/);
     });
   });
 });
