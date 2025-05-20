@@ -1,257 +1,289 @@
-import { Context, TextMapGetter, TextMapPropagator, TextMapSetter, context, propagation, trace } from '@opentelemetry/api';
-import { JourneyType } from '../../interfaces/journey-context.interface';
+import { Context, SpanContext, trace, context, propagation } from '@opentelemetry/api';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { KafkaMessage } from 'kafkajs';
+import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
 
 /**
- * Custom TextMapSetter for HTTP headers
- * Implements the TextMapSetter interface to set key-value pairs in HTTP headers
+ * Utility functions for propagating trace context across service boundaries.
+ * This enables end-to-end tracing by providing methods to extract and inject
+ * trace context into various transport mechanisms including HTTP headers and Kafka messages.
  */
-class HttpHeaderSetter implements TextMapSetter {
-  constructor(private readonly headers: Record<string, string>) {}
 
-  set(key: string, value: string): void {
-    this.headers[key] = value;
-  }
+/**
+ * HTTP header carrier for OpenTelemetry context propagation
+ */
+export interface HttpHeadersCarrier {
+  get(key: string): string | string[] | undefined;
+  set(key: string, value: string): void;
 }
 
 /**
- * Custom TextMapGetter for HTTP headers
- * Implements the TextMapGetter interface to get values from HTTP headers
+ * Kafka message carrier for OpenTelemetry context propagation
  */
-class HttpHeaderGetter implements TextMapGetter {
-  constructor(private readonly headers: Record<string, string>) {}
-
-  get(key: string): string | undefined {
-    return this.headers[key];
-  }
-
-  keys(): string[] {
-    return Object.keys(this.headers);
-  }
+export interface KafkaMessageCarrier {
+  headers: Record<string, string | Buffer | null>;
 }
 
 /**
- * Custom TextMapSetter for Kafka message headers
- * Implements the TextMapSetter interface to set key-value pairs in Kafka message headers
+ * Journey-specific context information
  */
-class KafkaHeaderSetter implements TextMapSetter {
-  constructor(private readonly headers: Record<string, Buffer>) {}
+export interface JourneyContext {
+  journeyType: 'health' | 'care' | 'plan';
+  journeyId: string;
+  userId?: string;
+  sessionId?: string;
+}
 
-  set(key: string, value: string): void {
-    this.headers[key] = Buffer.from(value);
-  }
+// Default propagator using W3C Trace Context
+const defaultPropagator = new W3CTraceContextPropagator();
+
+/**
+ * Adapter for HTTP headers to work with OpenTelemetry context propagation
+ * @param headers HTTP headers object
+ * @returns HttpHeadersCarrier compatible with OpenTelemetry
+ */
+export function createHttpHeadersCarrier(headers: IncomingHttpHeaders | OutgoingHttpHeaders): HttpHeadersCarrier {
+  return {
+    get(key: string): string | string[] | undefined {
+      const value = headers[key.toLowerCase()];
+      if (value === undefined) return undefined;
+      return value;
+    },
+    set(key: string, value: string): void {
+      headers[key.toLowerCase()] = value;
+    },
+  };
 }
 
 /**
- * Custom TextMapGetter for Kafka message headers
- * Implements the TextMapGetter interface to get values from Kafka message headers
+ * Adapter for Kafka message headers to work with OpenTelemetry context propagation
+ * @param message Kafka message object
+ * @returns KafkaMessageCarrier compatible with OpenTelemetry
  */
-class KafkaHeaderGetter implements TextMapGetter {
-  constructor(private readonly headers: Record<string, Buffer>) {}
-
-  get(key: string): string | undefined {
-    const value = this.headers[key];
-    return value ? value.toString() : undefined;
-  }
-
-  keys(): string[] {
-    return Object.keys(this.headers);
-  }
-}
-
-/**
- * Injects the current trace context into HTTP headers
- * @param headers The HTTP headers object to inject the trace context into
- * @param journeyType Optional journey type to include in the context
- * @returns The headers object with injected trace context
- */
-export function injectTraceContextIntoHttpHeaders(
-  headers: Record<string, string>,
-  journeyType?: JourneyType
-): Record<string, string> {
-  const currentContext = context.active();
-  const setter = new HttpHeaderSetter(headers);
-  
-  // Get the global propagator
-  const propagator = propagation.getTextMapPropagator();
-  
-  // Add journey-specific context if provided
-  let contextToInject = currentContext;
-  if (journeyType) {
-    contextToInject = addJourneyContext(currentContext, journeyType);
-  }
-  
-  // Inject the context into the headers
-  propagator.inject(contextToInject, headers, setter);
-  
-  return headers;
+export function createKafkaMessageCarrier(message: KafkaMessage): KafkaMessageCarrier {
+  const headers = message.headers || {};
+  return {
+    headers: Object.entries(headers).reduce((acc, [key, value]) => {
+      if (value !== null) {
+        acc[key] = value instanceof Buffer ? value : Buffer.from(String(value));
+      } else {
+        acc[key] = null;
+      }
+      return acc;
+    }, {} as Record<string, string | Buffer | null>),
+  };
 }
 
 /**
  * Extracts trace context from HTTP headers
- * @param headers The HTTP headers object to extract the trace context from
- * @returns The extracted context
+ * @param headers HTTP headers containing trace context
+ * @returns Context object with extracted trace information
  */
-export function extractTraceContextFromHttpHeaders(
-  headers: Record<string, string>
-): Context {
-  const getter = new HttpHeaderGetter(headers);
-  
-  // Get the global propagator
-  const propagator = propagation.getTextMapPropagator();
-  
-  // Extract the context from the headers
-  return propagator.extract(context.active(), headers, getter);
+export function extractContextFromHttpHeaders(headers: IncomingHttpHeaders): Context {
+  const carrier = createHttpHeadersCarrier(headers);
+  return defaultPropagator.extract(context.active(), carrier);
 }
 
 /**
- * Injects the current trace context into Kafka message headers
- * @param headers The Kafka message headers to inject the trace context into
- * @param journeyType Optional journey type to include in the context
- * @returns The headers object with injected trace context
+ * Injects the current trace context into HTTP headers
+ * @param headers HTTP headers object to inject trace context into
+ * @param ctx Optional context to use instead of the active context
  */
-export function injectTraceContextIntoKafkaHeaders(
-  headers: Record<string, Buffer>,
-  journeyType?: JourneyType
-): Record<string, Buffer> {
-  const currentContext = context.active();
-  const setter = new KafkaHeaderSetter(headers);
-  
-  // Get the global propagator
-  const propagator = propagation.getTextMapPropagator();
-  
-  // Add journey-specific context if provided
-  let contextToInject = currentContext;
-  if (journeyType) {
-    contextToInject = addJourneyContext(currentContext, journeyType);
-  }
-  
-  // Inject the context into the headers
-  propagator.inject(contextToInject, headers, setter);
-  
-  return headers;
+export function injectContextIntoHttpHeaders(headers: OutgoingHttpHeaders, ctx?: Context): void {
+  const carrier = createHttpHeadersCarrier(headers);
+  defaultPropagator.inject(ctx || context.active(), carrier);
 }
 
 /**
  * Extracts trace context from Kafka message headers
- * @param headers The Kafka message headers to extract the trace context from
- * @returns The extracted context
+ * @param message Kafka message containing trace context in headers
+ * @returns Context object with extracted trace information
  */
-export function extractTraceContextFromKafkaHeaders(
-  headers: Record<string, Buffer>
-): Context {
-  const getter = new KafkaHeaderGetter(headers);
+export function extractContextFromKafkaMessage(message: KafkaMessage): Context {
+  const carrier = createKafkaMessageCarrier(message);
   
-  // Get the global propagator
-  const propagator = propagation.getTextMapPropagator();
+  // Custom getter for Kafka message headers
+  const getter = {
+    get(carrier: KafkaMessageCarrier, key: string) {
+      const value = carrier.headers[key];
+      if (value === undefined || value === null) return undefined;
+      return value instanceof Buffer ? value.toString() : String(value);
+    },
+    keys(carrier: KafkaMessageCarrier) {
+      return Object.keys(carrier.headers);
+    },
+  };
   
-  // Extract the context from the headers
-  return propagator.extract(context.active(), headers, getter);
+  return propagation.extract(context.active(), carrier, getter);
 }
 
 /**
- * Serializes the current trace context to a string
- * @param journeyType Optional journey type to include in the context
- * @returns Serialized trace context as a string
+ * Injects the current trace context into Kafka message headers
+ * @param message Kafka message to inject trace context into
+ * @param ctx Optional context to use instead of the active context
  */
-export function serializeTraceContext(journeyType?: JourneyType): string {
-  const currentContext = context.active();
-  const headers: Record<string, string> = {};
+export function injectContextIntoKafkaMessage(message: KafkaMessage, ctx?: Context): void {
+  const carrier = createKafkaMessageCarrier(message);
   
-  // Add journey-specific context if provided
-  let contextToSerialize = currentContext;
-  if (journeyType) {
-    contextToSerialize = addJourneyContext(currentContext, journeyType);
-  }
+  // Custom setter for Kafka message headers
+  const setter = {
+    set(carrier: KafkaMessageCarrier, key: string, value: string) {
+      carrier.headers[key] = value;
+    },
+  };
   
-  // Inject the context into a temporary headers object
-  injectTraceContextIntoHttpHeaders(headers, journeyType);
-  
-  // Serialize the headers object to a JSON string
-  return JSON.stringify(headers);
+  propagation.inject(ctx || context.active(), carrier, setter);
 }
 
 /**
- * Deserializes a trace context string and returns a Context object
- * @param serializedContext The serialized trace context string
- * @returns The deserialized Context object
+ * Serializes trace context to a string for storage or transmission
+ * @param ctx Context to serialize
+ * @returns Serialized context as a string
  */
-export function deserializeTraceContext(serializedContext: string): Context {
+export function serializeContext(ctx: Context): string {
+  const spanContext = trace.getSpan(ctx)?.spanContext();
+  if (!spanContext) return '';
+  
+  return JSON.stringify({
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags,
+    traceState: spanContext.traceState?.serialize() || '',
+    isRemote: spanContext.isRemote,
+  });
+}
+
+/**
+ * Deserializes a string back into a trace context
+ * @param serialized Serialized context string
+ * @returns Deserialized Context object
+ */
+export function deserializeContext(serialized: string): Context {
+  if (!serialized) return context.active();
+  
   try {
-    // Parse the serialized context string back to a headers object
-    const headers = JSON.parse(serializedContext) as Record<string, string>;
+    const parsed = JSON.parse(serialized) as SpanContext;
+    const spanContext: SpanContext = {
+      traceId: parsed.traceId,
+      spanId: parsed.spanId,
+      traceFlags: parsed.traceFlags,
+      isRemote: true,
+    };
     
-    // Extract the context from the headers
-    return extractTraceContextFromHttpHeaders(headers);
+    return trace.setSpanContext(context.active(), spanContext);
   } catch (error) {
-    // If parsing fails, return the current active context
-    console.error('Failed to deserialize trace context:', error);
+    console.error('Failed to deserialize context:', error);
     return context.active();
   }
 }
 
 /**
- * Creates a new context with the current span and adds journey-specific attributes
- * @param ctx The current context
- * @param journeyType The journey type to add to the context
- * @returns A new context with journey-specific attributes
+ * Adds journey-specific context to the current trace context
+ * @param journeyContext Journey context information
+ * @param ctx Optional context to use instead of the active context
+ * @returns Context with journey information
  */
-export function addJourneyContext(ctx: Context, journeyType: JourneyType): Context {
-  const currentSpan = trace.getSpan(ctx);
+export function addJourneyContext(journeyContext: JourneyContext, ctx?: Context): Context {
+  const currentCtx = ctx || context.active();
+  const span = trace.getSpan(currentCtx);
   
-  if (currentSpan) {
-    // Add journey-specific attributes to the span
-    currentSpan.setAttribute('journey.type', journeyType);
+  if (span) {
+    // Add journey-specific attributes to the current span
+    span.setAttribute('journey.type', journeyContext.journeyType);
+    span.setAttribute('journey.id', journeyContext.journeyId);
     
-    // Add additional attributes based on journey type
-    switch (journeyType) {
-      case JourneyType.HEALTH:
-        currentSpan.setAttribute('journey.domain', 'health');
-        break;
-      case JourneyType.CARE:
-        currentSpan.setAttribute('journey.domain', 'care');
-        break;
-      case JourneyType.PLAN:
-        currentSpan.setAttribute('journey.domain', 'plan');
-        break;
-      default:
-        break;
+    if (journeyContext.userId) {
+      span.setAttribute('user.id', journeyContext.userId);
     }
     
-    // Return a new context with the updated span
-    return trace.setSpan(ctx, currentSpan);
+    if (journeyContext.sessionId) {
+      span.setAttribute('session.id', journeyContext.sessionId);
+    }
   }
   
-  return ctx;
+  return currentCtx;
 }
 
 /**
- * Gets the current trace ID from the active context
- * @returns The current trace ID or undefined if not available
+ * Extracts journey context from the current trace context
+ * @param ctx Optional context to use instead of the active context
+ * @returns Journey context information if available
  */
-export function getCurrentTraceId(): string | undefined {
-  const currentSpan = trace.getSpan(context.active());
-  return currentSpan?.spanContext().traceId;
-}
-
-/**
- * Gets the current span ID from the active context
- * @returns The current span ID or undefined if not available
- */
-export function getCurrentSpanId(): string | undefined {
-  const currentSpan = trace.getSpan(context.active());
-  return currentSpan?.spanContext().spanId;
-}
-
-/**
- * Creates a correlation object containing trace and span IDs for use in logs and metrics
- * @returns An object with trace_id and span_id properties
- */
-export function getTraceCorrelationInfo(): { trace_id?: string; span_id?: string } {
-  const traceId = getCurrentTraceId();
-  const spanId = getCurrentSpanId();
+export function extractJourneyContext(ctx?: Context): JourneyContext | undefined {
+  const currentCtx = ctx || context.active();
+  const span = trace.getSpan(currentCtx);
+  
+  if (!span) return undefined;
+  
+  const journeyType = span.attributes['journey.type'] as 'health' | 'care' | 'plan';
+  const journeyId = span.attributes['journey.id'] as string;
+  
+  if (!journeyType || !journeyId) return undefined;
   
   return {
-    trace_id: traceId,
-    span_id: spanId,
+    journeyType,
+    journeyId,
+    userId: span.attributes['user.id'] as string | undefined,
+    sessionId: span.attributes['session.id'] as string | undefined,
   };
+}
+
+/**
+ * Creates a new context with health journey information
+ * @param journeyId Unique identifier for the health journey
+ * @param userId Optional user identifier
+ * @param sessionId Optional session identifier
+ * @param ctx Optional context to use instead of the active context
+ * @returns Context with health journey information
+ */
+export function createHealthJourneyContext(journeyId: string, userId?: string, sessionId?: string, ctx?: Context): Context {
+  return addJourneyContext(
+    {
+      journeyType: 'health',
+      journeyId,
+      userId,
+      sessionId,
+    },
+    ctx
+  );
+}
+
+/**
+ * Creates a new context with care journey information
+ * @param journeyId Unique identifier for the care journey
+ * @param userId Optional user identifier
+ * @param sessionId Optional session identifier
+ * @param ctx Optional context to use instead of the active context
+ * @returns Context with care journey information
+ */
+export function createCareJourneyContext(journeyId: string, userId?: string, sessionId?: string, ctx?: Context): Context {
+  return addJourneyContext(
+    {
+      journeyType: 'care',
+      journeyId,
+      userId,
+      sessionId,
+    },
+    ctx
+  );
+}
+
+/**
+ * Creates a new context with plan journey information
+ * @param journeyId Unique identifier for the plan journey
+ * @param userId Optional user identifier
+ * @param sessionId Optional session identifier
+ * @param ctx Optional context to use instead of the active context
+ * @returns Context with plan journey information
+ */
+export function createPlanJourneyContext(journeyId: string, userId?: string, sessionId?: string, ctx?: Context): Context {
+  return addJourneyContext(
+    {
+      journeyType: 'plan',
+      journeyId,
+      userId,
+      sessionId,
+    },
+    ctx
+  );
 }
