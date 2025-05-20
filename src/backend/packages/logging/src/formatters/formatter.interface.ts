@@ -1,201 +1,116 @@
-/**
- * Interface defining the contract for log formatters in the AUSTA SuperApp.
- * All log formatters must implement this interface to ensure consistent
- * formatting across different output targets (JSON, text, CloudWatch, etc.).
- */
-export interface Formatter {
-  /**
-   * Transforms a log entry into a formatted output string.
-   * @param entry The log entry to format
-   * @returns The formatted log entry as a string
-   */
-  format(entry: LogEntry): string;
-}
+import { LogLevel } from '../interfaces/log-level.enum';
 
 /**
- * Enum defining the standard log levels used throughout the application.
- */
-export enum LogLevel {
-  DEBUG = 'DEBUG',
-  INFO = 'INFO',
-  WARN = 'WARN',
-  ERROR = 'ERROR',
-  FATAL = 'FATAL',
-}
-
-/**
- * Interface defining the journey types in the AUSTA SuperApp.
- * Used for journey-specific context in logs.
- */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-}
-
-/**
- * Interface defining the structure of error information in log entries.
- */
-export interface LogErrorInfo {
-  /**
-   * The error message
-   */
-  message: string;
-  
-  /**
-   * The error name or type
-   */
-  name?: string;
-  
-  /**
-   * The error stack trace
-   */
-  stack?: string;
-  
-  /**
-   * The error code, if available
-   */
-  code?: string | number;
-  
-  /**
-   * Additional error details
-   */
-  details?: Record<string, any>;
-}
-
-/**
- * Interface defining the trace context for distributed tracing integration.
- */
-export interface TraceContext {
-  /**
-   * The trace ID that connects logs across service boundaries
-   */
-  traceId: string;
-  
-  /**
-   * The span ID for the current operation
-   */
-  spanId?: string;
-  
-  /**
-   * The parent span ID, if applicable
-   */
-  parentSpanId?: string;
-  
-  /**
-   * Whether this trace is sampled for detailed analysis
-   */
-  sampled?: boolean;
-  
-  /**
-   * Additional trace attributes
-   */
-  attributes?: Record<string, any>;
-}
-
-/**
- * Interface defining the journey context for journey-specific logging.
- */
-export interface JourneyContext {
-  /**
-   * The type of journey (health, care, plan)
-   */
-  journeyType?: JourneyType;
-  
-  /**
-   * The journey-specific context ID
-   */
-  journeyId?: string;
-  
-  /**
-   * Additional journey-specific metadata
-   */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Interface defining the standard structure of log entries before formatting.
- * This is the core data structure that all formatters transform into their
- * specific output format.
+ * Represents a structured log entry before formatting.
+ * This interface defines the standard structure of log entries that will be passed to formatters.
  */
 export interface LogEntry {
-  /**
-   * The timestamp when the log entry was created
-   */
-  timestamp: Date;
-  
-  /**
-   * The log level indicating severity
-   */
-  level: LogLevel;
-  
   /**
    * The log message
    */
   message: string;
   
   /**
-   * The service or component that generated the log
+   * The log level
    */
-  service: string;
+  level: LogLevel;
+  
+  /**
+   * Timestamp of the log entry
+   */
+  timestamp: string | number | Date;
+  
+  /**
+   * Optional error object or message
+   */
+  error?: any;
   
   /**
    * Optional context information for the log entry
    */
   context?: {
     /**
-     * The request ID for HTTP/API requests
+     * Service name or identifier
      */
-    requestId?: string;
+    service?: string;
     
     /**
-     * The user ID for authenticated users
+     * Journey identifier (health, care, plan)
      */
-    userId?: string;
+    journey?: string;
     
     /**
-     * The session ID for user sessions
+     * Request-specific context
      */
-    sessionId?: string;
+    request?: {
+      /**
+       * Request ID for correlation
+       */
+      id?: string;
+      
+      /**
+       * HTTP method
+       */
+      method?: string;
+      
+      /**
+       * Request path
+       */
+      path?: string;
+      
+      /**
+       * User ID associated with the request
+       */
+      userId?: string;
+      
+      /**
+       * Request duration in milliseconds
+       */
+      duration?: number;
+    };
     
     /**
-     * The journey context for journey-specific logs
+     * Trace context for distributed tracing
      */
-    journey?: JourneyContext;
+    trace?: {
+      /**
+       * Trace ID for correlation across services
+       */
+      id?: string;
+      
+      /**
+       * Current span ID
+       */
+      spanId?: string;
+      
+      /**
+       * Parent span ID for nested spans
+       */
+      parentSpanId?: string;
+    };
     
     /**
-     * Additional context metadata
+     * Additional metadata for the log entry
      */
     [key: string]: any;
   };
   
   /**
-   * Optional error information for error logs
+   * Additional properties for the log entry
    */
-  error?: LogErrorInfo;
-  
+  [key: string]: any;
+}
+
+/**
+ * Formatter interface that all log formatters must implement.
+ * This interface establishes a contract for transforming log entries into formatted output.
+ */
+export interface Formatter {
   /**
-   * Optional trace context for distributed tracing integration
+   * Formats a log entry into a string representation.
+   * 
+   * @param entry The log entry to format
+   * @returns A formatted string representation of the log entry
    */
-  trace?: TraceContext;
-  
-  /**
-   * Optional metadata for additional structured information
-   */
-  metadata?: Record<string, any>;
-  
-  /**
-   * Optional hostname of the server generating the log
-   */
-  hostname?: string;
-  
-  /**
-   * Optional environment information (development, staging, production)
-   */
-  environment?: string;
-  
-  /**
-   * Optional version information for the service
-   */
-  version?: string;
+  format(entry: LogEntry): string;
 }
