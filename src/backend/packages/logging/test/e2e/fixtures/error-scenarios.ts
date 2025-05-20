@@ -1,678 +1,900 @@
+import { ErrorType, AppException } from '@austa/shared/exceptions';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
+
 /**
- * Error scenarios for testing error logging in e2e tests.
- * 
- * This file provides a comprehensive set of mock error scenarios for testing
- * how different error conditions are logged, formatted, and categorized by the
- * logging system across all journeys.
+ * Comprehensive set of mock error scenarios for testing error logging.
+ * Provides different error types (client errors, system errors, transient errors, external dependency errors)
+ * with various contextual information for testing how different error conditions are logged, formatted,
+ * and categorized by the logging system across all journeys.
  */
 
-import { 
-  ValidationError, 
-  BusinessError, 
-  TechnicalError, 
-  ExternalError,
-  ResourceNotFoundError,
-  InvalidParameterError,
-  DatabaseError,
-  ExternalApiError,
-  TimeoutError,
-  ConflictError,
-  SchemaValidationError,
-  ExternalDependencyUnavailableError
-} from '@austa/errors/categories';
-
-import { Health } from '@austa/errors/journey';
-import { Care } from '@austa/errors/journey';
-import { Plan } from '@austa/errors/journey';
-
-// Mock stack trace for testing error logging
-const createMockStackTrace = (errorName: string): string => {
-  return `Error: ${errorName}\n` +
-    '    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n' +
-    '    at async ExceptionsService.handleError (/src/backend/packages/errors/src/exceptions.service.ts:42:3)\n' +
-    '    at async errorHandler (/src/backend/packages/errors/src/middleware/error-handler.middleware.ts:28:5)\n' +
-    '    at async /src/backend/api-gateway/src/middleware/error.middleware.ts:24:7';
-};
-
 /**
- * Client Error Scenarios (4xx)
- * 
- * These errors represent client-side issues such as validation failures,
- * business rule violations, and resource not found conditions.
+ * Client error scenarios (4xx status codes)
+ * These represent errors caused by invalid client requests or input.
+ * Typically logged at DEBUG or INFO level as they are expected errors.
  */
 export const clientErrorScenarios = {
-  // Basic validation errors
-  validation: {
-    missingParameter: new ValidationError('Required parameter "userId" is missing', {
-      code: 'VALIDATION_ERROR',
-      status: 400,
-      context: {
-        parameter: 'userId',
-        location: 'query'
-      },
-      stack: createMockStackTrace('ValidationError')
-    }),
-    
-    invalidParameter: new InvalidParameterError('Parameter "email" must be a valid email address', {
-      code: 'INVALID_PARAMETER',
-      status: 400,
-      context: {
-        parameter: 'email',
-        providedValue: 'not-an-email',
-        expectedFormat: 'valid email address'
-      },
-      stack: createMockStackTrace('InvalidParameterError')
-    }),
-    
-    schemaValidation: new SchemaValidationError('Request body failed validation', {
-      code: 'SCHEMA_VALIDATION_ERROR',
-      status: 400,
-      context: {
-        fields: [
-          { field: 'name', message: 'Name is required' },
-          { field: 'age', message: 'Age must be a positive number' },
-          { field: 'email', message: 'Email must be a valid email address' }
-        ]
-      },
-      stack: createMockStackTrace('SchemaValidationError')
-    })
+  // Basic validation error (400 Bad Request)
+  basicValidationError: {
+    error: new AppException(
+      'Invalid input data',
+      ErrorType.VALIDATION,
+      'VAL_400_001',
+      { fields: ['username', 'email'] }
+    ),
+    expectedStatusCode: 400,
+    expectedLogLevel: LogLevel.DEBUG,
+    expectedLogMessage: 'Validation error: Invalid input data',
+    userFriendlyMessage: 'Please check your input and try again.',
+    journeyContext: null // Generic error not specific to any journey
   },
-  
-  // Business logic errors
-  business: {
-    resourceNotFound: new ResourceNotFoundError('User with ID "123456" not found', {
-      code: 'RESOURCE_NOT_FOUND',
-      status: 404,
-      context: {
-        resourceType: 'User',
-        resourceId: '123456'
-      },
-      stack: createMockStackTrace('ResourceNotFoundError')
-    }),
-    
-    conflict: new ConflictError('User with email "user@example.com" already exists', {
-      code: 'RESOURCE_CONFLICT',
-      status: 409,
-      context: {
-        resourceType: 'User',
-        conflictField: 'email',
-        conflictValue: 'user@example.com'
-      },
-      stack: createMockStackTrace('ConflictError')
-    }),
-    
-    insufficientPermissions: new BusinessError('User does not have permission to access this resource', {
-      code: 'INSUFFICIENT_PERMISSIONS',
-      status: 403,
-      context: {
-        requiredPermission: 'ADMIN',
-        userPermissions: ['USER', 'VIEWER']
-      },
-      stack: createMockStackTrace('BusinessError')
-    })
+
+  // Authentication error (401 Unauthorized)
+  authenticationError: {
+    error: new AppException(
+      'Invalid credentials',
+      ErrorType.AUTHENTICATION,
+      'AUTH_401_001',
+      { attemptCount: 3 }
+    ),
+    expectedStatusCode: 401,
+    expectedLogLevel: LogLevel.INFO,
+    expectedLogMessage: 'Authentication error: Invalid credentials',
+    userFriendlyMessage: 'Your login information is incorrect. Please try again.',
+    journeyContext: null // Generic error not specific to any journey
+  },
+
+  // Authorization error (403 Forbidden)
+  authorizationError: {
+    error: new AppException(
+      'Insufficient permissions',
+      ErrorType.AUTHORIZATION,
+      'AUTH_403_001',
+      { 
+        requiredPermissions: ['health:read', 'health:write'],
+        userPermissions: ['health:read']
+      }
+    ),
+    expectedStatusCode: 403,
+    expectedLogLevel: LogLevel.INFO,
+    expectedLogMessage: 'Authorization error: Insufficient permissions',
+    userFriendlyMessage: 'You do not have permission to perform this action.',
+    journeyContext: {
+      journeyId: 'health',
+      journeyName: 'Minha Saúde',
+      section: 'medical-records'
+    }
+  },
+
+  // Resource not found error (404 Not Found)
+  notFoundError: {
+    error: new AppException(
+      'Resource not found',
+      ErrorType.NOT_FOUND,
+      'NF_404_001',
+      { resourceType: 'Appointment', resourceId: 'appt-12345' }
+    ),
+    expectedStatusCode: 404,
+    expectedLogLevel: LogLevel.DEBUG,
+    expectedLogMessage: 'Resource not found: Appointment with ID appt-12345',
+    userFriendlyMessage: 'The requested appointment could not be found.',
+    journeyContext: {
+      journeyId: 'care',
+      journeyName: 'Cuidar-me Agora',
+      section: 'appointments'
+    }
+  },
+
+  // Conflict error (409 Conflict)
+  conflictError: {
+    error: new AppException(
+      'Resource already exists',
+      ErrorType.CONFLICT,
+      'CONF_409_001',
+      { resourceType: 'User', identifier: 'user@example.com' }
+    ),
+    expectedStatusCode: 409,
+    expectedLogLevel: LogLevel.INFO,
+    expectedLogMessage: 'Conflict error: Resource already exists',
+    userFriendlyMessage: 'An account with this email already exists.',
+    journeyContext: null // Generic error not specific to any journey
+  },
+
+  // Complex validation error with field details (400 Bad Request)
+  complexValidationError: {
+    error: new AppException(
+      'Form validation failed',
+      ErrorType.VALIDATION,
+      'VAL_400_002',
+      {
+        fields: {
+          'personalInfo.firstName': 'First name is required',
+          'personalInfo.lastName': 'Last name is required',
+          'contact.email': 'Invalid email format',
+          'contact.phone': 'Phone number must be 10 digits',
+          'address.zipCode': 'Invalid zip code format'
+        },
+        formId: 'user-registration'
+      }
+    ),
+    expectedStatusCode: 400,
+    expectedLogLevel: LogLevel.DEBUG,
+    expectedLogMessage: 'Validation error: Form validation failed',
+    userFriendlyMessage: 'Please correct the highlighted fields and try again.',
+    journeyContext: {
+      journeyId: 'plan',
+      journeyName: 'Meu Plano & Benefícios',
+      section: 'registration'
+    }
+  },
+
+  // Rate limit exceeded error (429 Too Many Requests)
+  rateLimitError: {
+    error: new AppException(
+      'Rate limit exceeded',
+      ErrorType.RATE_LIMIT,
+      'RL_429_001',
+      { 
+        limit: 100,
+        period: '1 hour',
+        retryAfter: 300 // seconds
+      }
+    ),
+    expectedStatusCode: 429,
+    expectedLogLevel: LogLevel.WARN,
+    expectedLogMessage: 'Rate limit exceeded: 100 requests per 1 hour',
+    userFriendlyMessage: 'You have made too many requests. Please try again in 5 minutes.',
+    journeyContext: null // Generic error not specific to any journey
   }
 };
 
 /**
- * System Error Scenarios (5xx)
- * 
- * These errors represent server-side issues such as database failures,
- * unhandled exceptions, and internal service errors.
+ * System error scenarios (5xx status codes)
+ * These represent unexpected errors in the server's internal logic or infrastructure.
+ * Typically logged at ERROR or FATAL level as they require investigation.
  */
 export const systemErrorScenarios = {
-  database: {
-    connectionFailed: new DatabaseError('Failed to connect to database', {
-      code: 'DATABASE_CONNECTION_ERROR',
-      status: 500,
-      context: {
-        database: 'postgres',
-        host: 'db.example.com',
-        port: 5432,
-        retryCount: 3
-      },
-      stack: createMockStackTrace('DatabaseError')
-    }),
-    
-    queryFailed: new DatabaseError('Database query failed', {
-      code: 'DATABASE_QUERY_ERROR',
-      status: 500,
-      context: {
-        operation: 'SELECT',
+  // Basic internal server error (500 Internal Server Error)
+  basicInternalError: {
+    error: new AppException(
+      'Unexpected error occurred',
+      ErrorType.TECHNICAL,
+      'SYS_500_001',
+      { component: 'UserService', method: 'createUser' }
+    ),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Technical error: Unexpected error occurred in UserService.createUser',
+    userFriendlyMessage: 'An unexpected error occurred. Please try again later.',
+    journeyContext: null, // Generic error not specific to any journey
+    stackTrace: new Error('Unexpected error in user creation').stack
+  },
+
+  // Database error (500 Internal Server Error)
+  databaseError: {
+    error: new AppException(
+      'Database operation failed',
+      ErrorType.TECHNICAL,
+      'DB_500_001',
+      { 
+        operation: 'INSERT',
         table: 'users',
-        errorCode: 'SQLITE_CONSTRAINT'
-      },
-      stack: createMockStackTrace('DatabaseError')
-    }),
-    
-    transactionFailed: new DatabaseError('Database transaction failed', {
-      code: 'DATABASE_TRANSACTION_ERROR',
-      status: 500,
-      context: {
-        transactionId: 'tx_12345',
-        operation: 'COMMIT',
-        tables: ['users', 'profiles']
-      },
-      stack: createMockStackTrace('DatabaseError')
-    })
+        errorCode: 'ER_DUP_ENTRY'
+      }
+    ),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Database error: Database operation failed - ER_DUP_ENTRY',
+    userFriendlyMessage: 'We encountered a problem saving your information. Please try again later.',
+    journeyContext: null, // Generic error not specific to any journey
+    stackTrace: new Error('ER_DUP_ENTRY: Duplicate entry for key PRIMARY').stack
   },
-  
-  unhandled: {
-    nullPointer: new TechnicalError('Cannot read property "id" of undefined', {
-      code: 'UNHANDLED_ERROR',
-      status: 500,
-      context: {
-        source: 'UserService.getUserById',
-        path: '/api/users/123'
-      },
-      stack: createMockStackTrace('TypeError')
-    }),
-    
-    memoryLimit: new TechnicalError('JavaScript heap out of memory', {
-      code: 'MEMORY_LIMIT_EXCEEDED',
-      status: 500,
-      context: {
-        memoryUsage: {
-          rss: '1.2GB',
-          heapTotal: '800MB',
-          heapUsed: '750MB'
-        }
-      },
-      stack: createMockStackTrace('Error')
-    })
+
+  // Memory limit exceeded (500 Internal Server Error)
+  memoryLimitError: {
+    error: new AppException(
+      'Memory limit exceeded',
+      ErrorType.TECHNICAL,
+      'SYS_500_002',
+      { 
+        allocatedMemory: '512MB',
+        usedMemory: '510MB',
+        operation: 'image-processing'
+      }
+    ),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.FATAL,
+    expectedLogMessage: 'System resource error: Memory limit exceeded during image-processing',
+    userFriendlyMessage: 'The system is currently experiencing high load. Please try again later.',
+    journeyContext: {
+      journeyId: 'health',
+      journeyName: 'Minha Saúde',
+      section: 'medical-images'
+    },
+    stackTrace: new Error('JavaScript heap out of memory').stack
   },
-  
-  timeout: {
-    requestTimeout: new TimeoutError('Request processing timed out', {
-      code: 'REQUEST_TIMEOUT',
-      status: 504,
-      context: {
-        timeoutMs: 30000,
-        operation: 'ProcessLargeDataset',
-        requestId: 'req_abcdef123456'
-      },
-      stack: createMockStackTrace('TimeoutError')
-    }),
-    
-    databaseTimeout: new TimeoutError('Database query timed out', {
-      code: 'DATABASE_TIMEOUT',
-      status: 504,
-      context: {
-        timeoutMs: 5000,
-        query: 'SELECT * FROM large_table WHERE complex_condition = true',
-        database: 'postgres'
-      },
-      stack: createMockStackTrace('TimeoutError')
-    })
+
+  // Unhandled exception (500 Internal Server Error)
+  unhandledExceptionError: {
+    error: new Error('Uncaught TypeError: Cannot read property \'id\' of undefined'),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Unhandled exception: TypeError: Cannot read property \'id\' of undefined',
+    userFriendlyMessage: 'An unexpected error occurred. Our team has been notified.',
+    journeyContext: {
+      journeyId: 'care',
+      journeyName: 'Cuidar-me Agora',
+      section: 'doctor-profile'
+    },
+    stackTrace: new TypeError('Cannot read property \'id\' of undefined').stack
+  },
+
+  // Service unavailable error (503 Service Unavailable)
+  serviceUnavailableError: {
+    error: new AppException(
+      'Service temporarily unavailable',
+      ErrorType.TECHNICAL,
+      'SYS_503_001',
+      { 
+        service: 'NotificationService',
+        reason: 'scheduled-maintenance',
+        estimatedResolution: '2023-04-15T15:00:00Z'
+      }
+    ),
+    expectedStatusCode: 503,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Service unavailable: NotificationService - scheduled-maintenance',
+    userFriendlyMessage: 'This service is temporarily unavailable due to scheduled maintenance. Please try again after 3:00 PM.',
+    journeyContext: null, // Generic error not specific to any journey
+    stackTrace: new Error('Service connection refused').stack
+  },
+
+  // Timeout error (504 Gateway Timeout)
+  timeoutError: {
+    error: new AppException(
+      'Request processing timed out',
+      ErrorType.TECHNICAL,
+      'SYS_504_001',
+      { 
+        timeout: '30s',
+        operation: 'generate-report',
+        resourceType: 'HealthSummary'
+      }
+    ),
+    expectedStatusCode: 504,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Timeout error: Request processing timed out after 30s',
+    userFriendlyMessage: 'Your request is taking longer than expected. Please try again or request a smaller report.',
+    journeyContext: {
+      journeyId: 'health',
+      journeyName: 'Minha Saúde',
+      section: 'reports'
+    },
+    stackTrace: new Error('Request timed out after 30000ms').stack
   }
 };
 
 /**
- * Transient Error Scenarios
- * 
- * These errors represent temporary issues that may resolve on retry,
- * such as network connectivity problems or resource contention.
+ * Transient error scenarios
+ * These represent temporary failures that might resolve on retry.
+ * Typically logged at WARN level and often include retry information.
  */
 export const transientErrorScenarios = {
-  network: {
-    connectionReset: new TechnicalError('Connection reset by peer', {
-      code: 'NETWORK_ERROR',
-      status: 500,
-      context: {
-        host: 'api.example.com',
-        port: 443,
-        protocol: 'https',
-        retryable: true
-      },
-      stack: createMockStackTrace('Error')
-    }),
-    
-    dnsResolutionFailed: new TechnicalError('DNS resolution failed', {
-      code: 'DNS_RESOLUTION_ERROR',
-      status: 500,
-      context: {
-        hostname: 'api.example.com',
-        retryable: true,
-        lastResolved: '2023-05-15T10:30:00Z'
-      },
-      stack: createMockStackTrace('Error')
-    })
+  // Network connectivity error
+  networkConnectivityError: {
+    error: new AppException(
+      'Network connectivity issue',
+      ErrorType.TRANSIENT,
+      'TRANS_001',
+      { 
+        host: 'api.payment-gateway.com',
+        errorCode: 'ECONNRESET',
+        retryCount: 1,
+        maxRetries: 3
+      }
+    ),
+    expectedStatusCode: 503,
+    expectedLogLevel: LogLevel.WARN,
+    expectedLogMessage: 'Transient error: Network connectivity issue - ECONNRESET',
+    userFriendlyMessage: 'We\'re having trouble connecting to our payment service. Your request will be retried automatically.',
+    journeyContext: {
+      journeyId: 'plan',
+      journeyName: 'Meu Plano & Benefícios',
+      section: 'payment'
+    },
+    retryable: true,
+    retryDelay: 2000, // ms
+    stackTrace: new Error('ECONNRESET: Connection reset by peer').stack
   },
-  
-  resourceContention: {
-    databaseLockTimeout: new DatabaseError('Failed to acquire database lock', {
-      code: 'DATABASE_LOCK_TIMEOUT',
-      status: 500,
-      context: {
-        table: 'users',
-        lockType: 'EXCLUSIVE',
-        timeoutMs: 5000,
-        retryable: true
-      },
-      stack: createMockStackTrace('DatabaseError')
-    }),
-    
-    rateLimit: new TechnicalError('Rate limit exceeded', {
-      code: 'RATE_LIMIT_EXCEEDED',
-      status: 429,
-      context: {
-        limit: 100,
-        period: '1 minute',
-        retryAfter: 30,
-        retryable: true
-      },
-      stack: createMockStackTrace('Error')
-    })
+
+  // Database connection pool exhausted
+  connectionPoolError: {
+    error: new AppException(
+      'Database connection pool exhausted',
+      ErrorType.TRANSIENT,
+      'TRANS_002',
+      { 
+        poolSize: 20,
+        waitingConnections: 15,
+        timeout: 5000 // ms
+      }
+    ),
+    expectedStatusCode: 503,
+    expectedLogLevel: LogLevel.WARN,
+    expectedLogMessage: 'Transient error: Database connection pool exhausted',
+    userFriendlyMessage: 'Our system is experiencing high demand. Please try again in a moment.',
+    journeyContext: null, // Generic error not specific to any journey
+    retryable: true,
+    retryDelay: 5000, // ms
+    stackTrace: new Error('TimeoutError: Connection acquisition timeout').stack
+  },
+
+  // Rate limiting with retry-after
+  rateLimitWithRetryError: {
+    error: new AppException(
+      'External API rate limit reached',
+      ErrorType.TRANSIENT,
+      'TRANS_003',
+      { 
+        api: 'FitbitAPI',
+        limit: '150 requests per hour',
+        retryAfter: 120 // seconds
+      }
+    ),
+    expectedStatusCode: 429,
+    expectedLogLevel: LogLevel.WARN,
+    expectedLogMessage: 'Transient error: External API rate limit reached - FitbitAPI',
+    userFriendlyMessage: 'We\'ve reached our limit for fitness data updates. Your data will be updated automatically in a few minutes.',
+    journeyContext: {
+      journeyId: 'health',
+      journeyName: 'Minha Saúde',
+      section: 'fitness-tracking'
+    },
+    retryable: true,
+    retryDelay: 120000, // ms
+    stackTrace: new Error('Rate limit exceeded').stack
+  },
+
+  // Temporary service degradation
+  serviceDegradationError: {
+    error: new AppException(
+      'Service experiencing degraded performance',
+      ErrorType.TRANSIENT,
+      'TRANS_004',
+      { 
+        service: 'AppointmentBooking',
+        currentLatency: '5000ms',
+        normalLatency: '200ms',
+        estimatedResolution: '15 minutes'
+      }
+    ),
+    expectedStatusCode: 503,
+    expectedLogLevel: LogLevel.WARN,
+    expectedLogMessage: 'Transient error: Service experiencing degraded performance - AppointmentBooking',
+    userFriendlyMessage: 'Our appointment booking system is running slower than usual. Please try again in 15 minutes.',
+    journeyContext: {
+      journeyId: 'care',
+      journeyName: 'Cuidar-me Agora',
+      section: 'appointment-booking'
+    },
+    retryable: true,
+    retryDelay: 900000, // 15 minutes in ms
+    stackTrace: new Error('Request timed out due to service degradation').stack
+  },
+
+  // Temporary authentication token expiration
+  tokenExpirationError: {
+    error: new AppException(
+      'Authentication token expired',
+      ErrorType.TRANSIENT,
+      'TRANS_005',
+      { 
+        tokenType: 'access',
+        expiredAt: new Date(Date.now() - 60000).toISOString(), // 1 minute ago
+        canRefresh: true
+      }
+    ),
+    expectedStatusCode: 401,
+    expectedLogLevel: LogLevel.DEBUG, // Common and expected
+    expectedLogMessage: 'Transient error: Authentication token expired',
+    userFriendlyMessage: 'Your session has expired. We\'re reconnecting you automatically.',
+    journeyContext: null, // Generic error not specific to any journey
+    retryable: true,
+    retryDelay: 0, // Immediate retry after token refresh
+    stackTrace: new Error('JWT expired at 2023-04-15T10:30:00Z').stack
   }
 };
 
 /**
- * External Dependency Error Scenarios
- * 
- * These errors represent failures in external systems and third-party services
- * that the application depends on.
+ * External dependency error scenarios
+ * These represent failures in external systems or third-party services.
+ * Typically logged at ERROR level with detailed context about the external system.
  */
 export const externalDependencyErrorScenarios = {
-  api: {
-    externalApiUnavailable: new ExternalDependencyUnavailableError('External payment API is unavailable', {
-      code: 'EXTERNAL_API_UNAVAILABLE',
-      status: 503,
-      context: {
-        service: 'PaymentGateway',
-        endpoint: 'https://api.payment.example.com/v1/transactions',
-        statusCode: 503,
-        retryable: true
-      },
-      stack: createMockStackTrace('ExternalDependencyUnavailableError')
-    }),
-    
-    externalApiError: new ExternalApiError('External API returned an error', {
-      code: 'EXTERNAL_API_ERROR',
-      status: 502,
-      context: {
-        service: 'UserProfileService',
-        endpoint: 'https://api.profiles.example.com/v1/users/123',
-        statusCode: 400,
-        responseBody: '{"error":"Invalid user ID format"}'
-      },
-      stack: createMockStackTrace('ExternalApiError')
-    }),
-    
-    externalApiTimeout: new TimeoutError('External API request timed out', {
-      code: 'EXTERNAL_API_TIMEOUT',
-      status: 504,
-      context: {
-        service: 'NotificationService',
-        endpoint: 'https://api.notifications.example.com/v1/send',
-        timeoutMs: 10000,
-        retryable: true
-      },
-      stack: createMockStackTrace('TimeoutError')
-    })
+  // Payment gateway error
+  paymentGatewayError: {
+    error: new AppException(
+      'Payment processing failed',
+      ErrorType.EXTERNAL,
+      'EXT_001',
+      { 
+        gateway: 'Stripe',
+        errorCode: 'card_declined',
+        errorMessage: 'Your card was declined',
+        transactionId: 'tx_12345'
+      }
+    ),
+    expectedStatusCode: 502,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'External dependency error: Payment processing failed - Stripe (card_declined)',
+    userFriendlyMessage: 'Your payment could not be processed. Please check your payment details and try again.',
+    journeyContext: {
+      journeyId: 'plan',
+      journeyName: 'Meu Plano & Benefícios',
+      section: 'payment'
+    },
+    externalSystem: {
+      name: 'Stripe',
+      endpoint: 'https://api.stripe.com/v1/charges',
+      responseTime: 1250, // ms
+      statusCode: 402
+    },
+    stackTrace: new Error('Stripe API Error: card_declined').stack
   },
-  
-  authentication: {
-    externalAuthFailure: new ExternalError('Failed to authenticate with external service', {
-      code: 'EXTERNAL_AUTH_FAILURE',
-      status: 401,
-      context: {
-        service: 'IdentityProvider',
-        endpoint: 'https://auth.example.com/oauth/token',
-        errorCode: 'invalid_client'
-      },
-      stack: createMockStackTrace('ExternalError')
-    })
+
+  // Health data provider error
+  healthDataProviderError: {
+    error: new AppException(
+      'Health data synchronization failed',
+      ErrorType.EXTERNAL,
+      'EXT_002',
+      { 
+        provider: 'Fitbit',
+        errorCode: 'invalid_grant',
+        scope: ['activity', 'heartrate', 'sleep'],
+        userId: 'user-12345'
+      }
+    ),
+    expectedStatusCode: 502,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'External dependency error: Health data synchronization failed - Fitbit (invalid_grant)',
+    userFriendlyMessage: 'We couldn\'t connect to your Fitbit account. Please reconnect your account in settings.',
+    journeyContext: {
+      journeyId: 'health',
+      journeyName: 'Minha Saúde',
+      section: 'connected-devices'
+    },
+    externalSystem: {
+      name: 'Fitbit API',
+      endpoint: 'https://api.fitbit.com/1/user/-/activities/heart/date/today/1d.json',
+      responseTime: 850, // ms
+      statusCode: 401
+    },
+    stackTrace: new Error('Fitbit API Error: invalid_grant').stack
+  },
+
+  // Telemedicine provider error
+  telemedicineProviderError: {
+    error: new AppException(
+      'Telemedicine session initialization failed',
+      ErrorType.EXTERNAL,
+      'EXT_003',
+      { 
+        provider: 'Zoom',
+        errorCode: 'meeting_creation_failed',
+        appointmentId: 'appt-6789',
+        doctorId: 'dr-smith'
+      }
+    ),
+    expectedStatusCode: 502,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'External dependency error: Telemedicine session initialization failed - Zoom (meeting_creation_failed)',
+    userFriendlyMessage: 'We couldn\'t set up your virtual appointment. Please try again or contact support.',
+    journeyContext: {
+      journeyId: 'care',
+      journeyName: 'Cuidar-me Agora',
+      section: 'telemedicine'
+    },
+    externalSystem: {
+      name: 'Zoom API',
+      endpoint: 'https://api.zoom.us/v2/users/me/meetings',
+      responseTime: 1500, // ms
+      statusCode: 400
+    },
+    stackTrace: new Error('Zoom API Error: meeting_creation_failed').stack
+  },
+
+  // Insurance provider error
+  insuranceProviderError: {
+    error: new AppException(
+      'Insurance eligibility check failed',
+      ErrorType.EXTERNAL,
+      'EXT_004',
+      { 
+        provider: 'BlueCross',
+        errorCode: 'member_not_found',
+        memberId: 'BC123456789',
+        service: 'eligibility'
+      }
+    ),
+    expectedStatusCode: 502,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'External dependency error: Insurance eligibility check failed - BlueCross (member_not_found)',
+    userFriendlyMessage: 'We couldn\'t verify your insurance information. Please check your member ID and try again.',
+    journeyContext: {
+      journeyId: 'plan',
+      journeyName: 'Meu Plano & Benefícios',
+      section: 'coverage-verification'
+    },
+    externalSystem: {
+      name: 'BlueCross API',
+      endpoint: 'https://api.bluecross.com/v2/eligibility',
+      responseTime: 2200, // ms
+      statusCode: 404
+    },
+    stackTrace: new Error('BlueCross API Error: member_not_found').stack
+  },
+
+  // Notification service error
+  notificationServiceError: {
+    error: new AppException(
+      'Push notification delivery failed',
+      ErrorType.EXTERNAL,
+      'EXT_005',
+      { 
+        service: 'Firebase Cloud Messaging',
+        errorCode: 'invalid_token',
+        deviceToken: 'fcm-token-12345',
+        notificationType: 'appointment-reminder'
+      }
+    ),
+    expectedStatusCode: 502,
+    expectedLogLevel: LogLevel.WARN, // Less critical than other external errors
+    expectedLogMessage: 'External dependency error: Push notification delivery failed - Firebase Cloud Messaging (invalid_token)',
+    userFriendlyMessage: 'We couldn\'t send a notification to your device. Please check your notification settings.',
+    journeyContext: null, // Cross-journey functionality
+    externalSystem: {
+      name: 'Firebase Cloud Messaging',
+      endpoint: 'https://fcm.googleapis.com/fcm/send',
+      responseTime: 450, // ms
+      statusCode: 400
+    },
+    stackTrace: new Error('FCM Error: invalid_token').stack
   }
 };
 
 /**
- * Health Journey Error Scenarios
- * 
- * These errors are specific to the Health journey and include errors related to
- * health metrics, goals, insights, devices, and FHIR integration.
+ * Journey-specific error scenarios
+ * These represent errors that are specific to each journey in the AUSTA SuperApp.
+ * They combine various error types but are organized by the journey they affect.
  */
-export const healthJourneyErrorScenarios = {
-  metrics: {
-    invalidMetricValue: new Health.Metrics.InvalidMetricValueError('Blood pressure reading is outside valid range', {
-      code: 'HEALTH_METRICS_INVALID_VALUE',
-      status: 400,
-      context: {
-        metricType: 'BLOOD_PRESSURE',
-        providedValue: { systolic: 300, diastolic: 200 },
-        validRange: { systolic: [90, 180], diastolic: [60, 120] }
+export const journeySpecificErrorScenarios = {
+  // Health Journey Errors
+  health: {
+    // Device connection error
+    deviceConnectionError: {
+      error: new AppException(
+        'Health device connection failed',
+        ErrorType.EXTERNAL,
+        'HEALTH_001',
+        { 
+          deviceType: 'Glucose Monitor',
+          deviceId: 'GC-12345',
+          connectionMethod: 'Bluetooth',
+          lastSyncTime: new Date(Date.now() - 86400000).toISOString() // 1 day ago
+        }
+      ),
+      expectedStatusCode: 502,
+      expectedLogLevel: LogLevel.ERROR,
+      expectedLogMessage: 'Health journey error: Health device connection failed - Glucose Monitor',
+      userFriendlyMessage: 'We couldn\'t connect to your glucose monitor. Please ensure it\'s turned on and within range.',
+      journeyContext: {
+        journeyId: 'health',
+        journeyName: 'Minha Saúde',
+        section: 'devices'
       },
-      stack: createMockStackTrace('InvalidMetricValueError')
-    }),
-    
-    metricStorageFailed: new Health.Metrics.MetricPersistenceError('Failed to store health metric', {
-      code: 'HEALTH_METRICS_STORAGE_FAILED',
-      status: 500,
-      context: {
-        metricType: 'HEART_RATE',
-        userId: 'user_12345',
-        operation: 'INSERT'
+      stackTrace: new Error('Bluetooth connection timeout').stack
+    },
+
+    // Health data validation error
+    healthDataValidationError: {
+      error: new AppException(
+        'Invalid health metric data',
+        ErrorType.VALIDATION,
+        'HEALTH_002',
+        { 
+          metric: 'blood-glucose',
+          value: '-10',
+          validRange: '0-500',
+          unit: 'mg/dL'
+        }
+      ),
+      expectedStatusCode: 400,
+      expectedLogLevel: LogLevel.DEBUG,
+      expectedLogMessage: 'Health journey error: Invalid health metric data - blood-glucose',
+      userFriendlyMessage: 'The blood glucose value you entered is outside the valid range (0-500 mg/dL).',
+      journeyContext: {
+        journeyId: 'health',
+        journeyName: 'Minha Saúde',
+        section: 'metrics'
+      }
+    },
+
+    // Health goal processing error
+    healthGoalProcessingError: {
+      error: new AppException(
+        'Failed to process health goal achievement',
+        ErrorType.TECHNICAL,
+        'HEALTH_003',
+        { 
+          goalId: 'goal-12345',
+          goalType: 'steps',
+          targetValue: 10000,
+          actualValue: 10500,
+          userId: 'user-12345'
+        }
+      ),
+      expectedStatusCode: 500,
+      expectedLogLevel: LogLevel.ERROR,
+      expectedLogMessage: 'Health journey error: Failed to process health goal achievement',
+      userFriendlyMessage: 'We couldn\'t update your goal progress. Your achievement will be processed later.',
+      journeyContext: {
+        journeyId: 'health',
+        journeyName: 'Minha Saúde',
+        section: 'goals'
       },
-      stack: createMockStackTrace('MetricPersistenceError')
-    })
+      stackTrace: new Error('Failed to emit goal achievement event').stack
+    }
   },
-  
-  goals: {
-    goalNotFound: new Health.Goals.GoalNotFoundError('Health goal not found', {
-      code: 'HEALTH_GOALS_NOT_FOUND',
-      status: 404,
-      context: {
-        goalId: 'goal_12345',
-        userId: 'user_12345',
-        goalType: 'STEPS'
+
+  // Care Journey Errors
+  care: {
+    // Appointment booking error
+    appointmentBookingError: {
+      error: new AppException(
+        'Failed to book appointment',
+        ErrorType.BUSINESS,
+        'CARE_001',
+        { 
+          doctorId: 'dr-smith',
+          specialtyId: 'cardiology',
+          requestedDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+          reason: 'no-availability'
+        }
+      ),
+      expectedStatusCode: 422,
+      expectedLogLevel: LogLevel.INFO,
+      expectedLogMessage: 'Care journey error: Failed to book appointment - no-availability',
+      userFriendlyMessage: 'This doctor doesn\'t have any available appointments for the selected date. Please try another date or doctor.',
+      journeyContext: {
+        journeyId: 'care',
+        journeyName: 'Cuidar-me Agora',
+        section: 'appointment-booking'
+      }
+    },
+
+    // Prescription renewal error
+    prescriptionRenewalError: {
+      error: new AppException(
+        'Prescription renewal request failed',
+        ErrorType.BUSINESS,
+        'CARE_002',
+        { 
+          prescriptionId: 'rx-12345',
+          medication: 'Lisinopril 10mg',
+          reason: 'requires-visit',
+          lastVisitDate: new Date(Date.now() - 7776000000).toISOString() // 90 days ago
+        }
+      ),
+      expectedStatusCode: 422,
+      expectedLogLevel: LogLevel.INFO,
+      expectedLogMessage: 'Care journey error: Prescription renewal request failed - requires-visit',
+      userFriendlyMessage: 'This medication requires a doctor visit before renewal. Please schedule an appointment.',
+      journeyContext: {
+        journeyId: 'care',
+        journeyName: 'Cuidar-me Agora',
+        section: 'prescriptions'
+      }
+    },
+
+    // Doctor search error
+    doctorSearchError: {
+      error: new AppException(
+        'Doctor search failed',
+        ErrorType.TECHNICAL,
+        'CARE_003',
+        { 
+          searchParams: {
+            specialty: 'neurology',
+            location: 'São Paulo',
+            insurance: 'HealthPlus'
+          },
+          errorDetail: 'search-index-unavailable'
+        }
+      ),
+      expectedStatusCode: 500,
+      expectedLogLevel: LogLevel.ERROR,
+      expectedLogMessage: 'Care journey error: Doctor search failed - search-index-unavailable',
+      userFriendlyMessage: 'We\'re having trouble with our doctor search. Please try again in a few minutes.',
+      journeyContext: {
+        journeyId: 'care',
+        journeyName: 'Cuidar-me Agora',
+        section: 'find-doctor'
       },
-      stack: createMockStackTrace('GoalNotFoundError')
-    }),
-    
-    invalidGoalParameters: new Health.Goals.InvalidGoalParametersError('Invalid goal parameters', {
-      code: 'HEALTH_GOALS_INVALID_PARAMETERS',
-      status: 400,
-      context: {
-        goalType: 'WEIGHT_LOSS',
-        targetValue: -10,
-        timeframe: '1 week',
-        reason: 'Target weight loss exceeds safe weekly limit'
-      },
-      stack: createMockStackTrace('InvalidGoalParametersError')
-    })
+      stackTrace: new Error('Elasticsearch cluster unavailable').stack
+    }
   },
-  
-  devices: {
-    deviceConnectionFailed: new Health.Devices.DeviceConnectionFailureError('Failed to connect to fitness tracker', {
-      code: 'HEALTH_DEVICES_CONNECTION_FAILED',
-      status: 500,
-      context: {
-        deviceType: 'FITBIT',
-        deviceId: 'fb_12345',
-        userId: 'user_12345',
-        errorCode: 'AUTH_EXPIRED'
+
+  // Plan Journey Errors
+  plan: {
+    // Claim submission error
+    claimSubmissionError: {
+      error: new AppException(
+        'Claim submission failed',
+        ErrorType.VALIDATION,
+        'PLAN_001',
+        { 
+          claimType: 'medical',
+          missingDocuments: ['receipt', 'medical-report'],
+          providerId: 'provider-12345',
+          serviceDate: new Date(Date.now() - 604800000).toISOString() // 7 days ago
+        }
+      ),
+      expectedStatusCode: 400,
+      expectedLogLevel: LogLevel.DEBUG,
+      expectedLogMessage: 'Plan journey error: Claim submission failed - missing documents',
+      userFriendlyMessage: 'Your claim is missing required documents. Please upload a receipt and medical report.',
+      journeyContext: {
+        journeyId: 'plan',
+        journeyName: 'Meu Plano & Benefícios',
+        section: 'claims'
+      }
+    },
+
+    // Coverage verification error
+    coverageVerificationError: {
+      error: new AppException(
+        'Service not covered by plan',
+        ErrorType.BUSINESS,
+        'PLAN_002',
+        { 
+          serviceCode: 'PT-12345',
+          serviceName: 'Physical Therapy - Specialized',
+          planId: 'premium-health-2023',
+          coverageDetail: 'excluded-service'
+        }
+      ),
+      expectedStatusCode: 422,
+      expectedLogLevel: LogLevel.INFO,
+      expectedLogMessage: 'Plan journey error: Service not covered by plan - excluded-service',
+      userFriendlyMessage: 'This service is not covered by your current health plan. Please contact customer service for options.',
+      journeyContext: {
+        journeyId: 'plan',
+        journeyName: 'Meu Plano & Benefícios',
+        section: 'coverage'
+      }
+    },
+
+    // Plan upgrade error
+    planUpgradeError: {
+      error: new AppException(
+        'Plan upgrade failed',
+        ErrorType.EXTERNAL,
+        'PLAN_003',
+        { 
+          currentPlan: 'basic-health-2023',
+          targetPlan: 'premium-health-2023',
+          reason: 'payment-processing-failed',
+          paymentMethod: 'credit-card-ending-1234'
+        }
+      ),
+      expectedStatusCode: 502,
+      expectedLogLevel: LogLevel.ERROR,
+      expectedLogMessage: 'Plan journey error: Plan upgrade failed - payment-processing-failed',
+      userFriendlyMessage: 'We couldn\'t process your payment for the plan upgrade. Please check your payment method and try again.',
+      journeyContext: {
+        journeyId: 'plan',
+        journeyName: 'Meu Plano & Benefícios',
+        section: 'plan-management'
       },
-      stack: createMockStackTrace('DeviceConnectionFailureError')
-    }),
-    
-    synchronizationFailed: new Health.Devices.SynchronizationFailedError('Failed to synchronize data from device', {
-      code: 'HEALTH_DEVICES_SYNC_FAILED',
-      status: 500,
-      context: {
-        deviceType: 'APPLE_WATCH',
-        deviceId: 'aw_12345',
-        userId: 'user_12345',
-        lastSyncTime: '2023-05-15T10:30:00Z',
-        dataTypes: ['STEPS', 'HEART_RATE', 'SLEEP']
-      },
-      stack: createMockStackTrace('SynchronizationFailedError')
-    })
-  },
-  
-  fhir: {
-    fhirConnectionFailure: new Health.Fhir.FhirConnectionFailureError('Failed to connect to FHIR server', {
-      code: 'HEALTH_FHIR_CONNECTION_FAILED',
-      status: 503,
-      context: {
-        endpoint: 'https://fhir.hospital.example.com/api/fhir/r4',
-        operation: 'GET',
-        resourceType: 'Patient',
-        statusCode: 503
-      },
-      stack: createMockStackTrace('FhirConnectionFailureError')
-    }),
-    
-    invalidResource: new Health.Fhir.InvalidResourceError('Invalid FHIR resource', {
-      code: 'HEALTH_FHIR_INVALID_RESOURCE',
-      status: 400,
-      context: {
-        resourceType: 'Observation',
-        validationErrors: [
-          'Missing required field: status',
-          'Invalid code system: http://invalid-system.org'
-        ]
-      },
-      stack: createMockStackTrace('InvalidResourceError')
-    })
+      stackTrace: new Error('Payment gateway timeout').stack
+    }
   }
 };
 
 /**
- * Care Journey Error Scenarios
- * 
- * These errors are specific to the Care journey and include errors related to
- * appointments, providers, telemedicine, medications, symptoms, and treatments.
+ * Gamification-related error scenarios
+ * These represent errors that occur in the gamification engine or during gamification events.
+ * They are cross-journey in nature as the gamification system spans all journeys.
  */
-export const careJourneyErrorScenarios = {
-  appointments: {
-    appointmentNotFound: new Care.AppointmentNotFoundError('Appointment not found', {
-      code: 'CARE_APPOINTMENT_NOT_FOUND',
-      status: 404,
-      context: {
-        appointmentId: 'appt_12345',
-        userId: 'user_12345'
-      },
-      stack: createMockStackTrace('AppointmentNotFoundError')
-    }),
-    
-    appointmentOverlap: new Care.AppointmentOverlapError('Appointment overlaps with existing appointment', {
-      code: 'CARE_APPOINTMENT_OVERLAP',
-      status: 409,
-      context: {
-        requestedTime: '2023-06-15T14:00:00Z',
-        existingAppointmentId: 'appt_67890',
-        existingAppointmentTime: '2023-06-15T13:30:00Z',
-        duration: 60
-      },
-      stack: createMockStackTrace('AppointmentOverlapError')
-    }),
-    
-    appointmentPersistenceError: new Care.AppointmentPersistenceError('Failed to save appointment', {
-      code: 'CARE_APPOINTMENT_PERSISTENCE_ERROR',
-      status: 500,
-      context: {
-        appointmentId: 'appt_12345',
-        operation: 'INSERT',
-        databaseError: 'Unique constraint violation'
-      },
-      stack: createMockStackTrace('AppointmentPersistenceError')
-    })
+export const gamificationErrorScenarios = {
+  // Achievement processing error
+  achievementProcessingError: {
+    error: new AppException(
+      'Failed to process achievement',
+      ErrorType.TECHNICAL,
+      'GAMIF_001',
+      { 
+        achievementId: 'achievement-12345',
+        achievementType: 'streak',
+        userId: 'user-12345',
+        journeyId: 'health',
+        points: 100
+      }
+    ),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Gamification error: Failed to process achievement',
+    userFriendlyMessage: 'We couldn\'t update your achievements. Your progress has been saved and will be updated soon.',
+    journeyContext: {
+      journeyId: 'health', // The journey where the achievement was triggered
+      journeyName: 'Minha Saúde',
+      section: 'achievements'
+    },
+    stackTrace: new Error('Failed to emit achievement event').stack
   },
-  
-  providers: {
-    providerNotFound: new Care.ProviderNotFoundError('Provider not found', {
-      code: 'CARE_PROVIDER_NOT_FOUND',
-      status: 404,
-      context: {
-        providerId: 'provider_12345',
-        specialtyRequested: 'CARDIOLOGY'
-      },
-      stack: createMockStackTrace('ProviderNotFoundError')
-    }),
-    
-    providerUnavailable: new Care.ProviderUnavailableError('Provider is not available at requested time', {
-      code: 'CARE_PROVIDER_UNAVAILABLE',
-      status: 409,
-      context: {
-        providerId: 'provider_12345',
-        requestedTime: '2023-06-15T14:00:00Z',
-        nextAvailableTime: '2023-06-16T10:00:00Z'
-      },
-      stack: createMockStackTrace('ProviderUnavailableError')
-    })
+
+  // Reward redemption error
+  rewardRedemptionError: {
+    error: new AppException(
+      'Reward redemption failed',
+      ErrorType.BUSINESS,
+      'GAMIF_002',
+      { 
+        rewardId: 'reward-12345',
+        rewardType: 'discount',
+        rewardValue: '10%',
+        requiredPoints: 500,
+        userPoints: 450,
+        reason: 'insufficient-points'
+      }
+    ),
+    expectedStatusCode: 422,
+    expectedLogLevel: LogLevel.INFO,
+    expectedLogMessage: 'Gamification error: Reward redemption failed - insufficient-points',
+    userFriendlyMessage: 'You don\'t have enough points to redeem this reward. You need 50 more points.',
+    journeyContext: {
+      journeyId: 'plan', // The journey where the reward was being redeemed
+      journeyName: 'Meu Plano & Benefícios',
+      section: 'rewards'
+    }
   },
-  
-  telemedicine: {
-    connectionError: new Care.TelemedicineConnectionError('Failed to establish telemedicine connection', {
-      code: 'CARE_TELEMEDICINE_CONNECTION_ERROR',
-      status: 500,
-      context: {
-        sessionId: 'session_12345',
-        errorCode: 'ICE_NEGOTIATION_FAILED',
-        browser: 'Chrome 90.0.4430.212',
-        networkType: 'wifi'
-      },
-      stack: createMockStackTrace('TelemedicineConnectionError')
-    }),
-    
-    deviceError: new Care.TelemedicineDeviceError('Failed to access media devices', {
-      code: 'CARE_TELEMEDICINE_DEVICE_ERROR',
-      status: 400,
-      context: {
-        deviceType: 'CAMERA',
-        errorName: 'NotAllowedError',
-        errorMessage: 'Permission denied'
-      },
-      stack: createMockStackTrace('TelemedicineDeviceError')
-    })
-  },
-  
-  medications: {
-    medicationNotFound: new Care.MedicationNotFoundError('Medication not found', {
-      code: 'CARE_MEDICATION_NOT_FOUND',
-      status: 404,
-      context: {
-        medicationId: 'med_12345',
-        userId: 'user_12345'
-      },
-      stack: createMockStackTrace('MedicationNotFoundError')
-    }),
-    
-    medicationInteractionError: new Care.MedicationInteractionError('Potential medication interaction detected', {
-      code: 'CARE_MEDICATION_INTERACTION',
-      status: 409,
-      context: {
-        medications: ['Warfarin', 'Aspirin'],
-        interactionSeverity: 'HIGH',
-        interactionDescription: 'Increased risk of bleeding'
-      },
-      stack: createMockStackTrace('MedicationInteractionError')
-    })
+
+  // Leaderboard update error
+  leaderboardUpdateError: {
+    error: new AppException(
+      'Failed to update leaderboard',
+      ErrorType.TECHNICAL,
+      'GAMIF_003',
+      { 
+        leaderboardId: 'weekly-steps',
+        userId: 'user-12345',
+        score: 12500,
+        previousRank: 10,
+        errorDetail: 'database-timeout'
+      }
+    ),
+    expectedStatusCode: 500,
+    expectedLogLevel: LogLevel.ERROR,
+    expectedLogMessage: 'Gamification error: Failed to update leaderboard - database-timeout',
+    userFriendlyMessage: 'We couldn\'t update the leaderboard. Your score has been recorded and will be updated soon.',
+    journeyContext: {
+      journeyId: 'health', // The journey where the leaderboard was being updated
+      journeyName: 'Minha Saúde',
+      section: 'leaderboards'
+    },
+    stackTrace: new Error('Database operation timed out').stack
   }
 };
 
 /**
- * Plan Journey Error Scenarios
- * 
- * These errors are specific to the Plan journey and include errors related to
- * plans, benefits, coverage, claims, and documents.
- */
-export const planJourneyErrorScenarios = {
-  plans: {
-    planNotFound: new Plan.Plans.PlanNotFoundError('Insurance plan not found', {
-      code: 'PLAN_NOT_FOUND',
-      status: 404,
-      context: {
-        planId: 'plan_12345',
-        userId: 'user_12345'
-      },
-      stack: createMockStackTrace('PlanNotFoundError')
-    }),
-    
-    planNotAvailableInRegion: new Plan.Plans.PlanNotAvailableInRegionError('Plan not available in user\'s region', {
-      code: 'PLAN_NOT_AVAILABLE_IN_REGION',
-      status: 400,
-      context: {
-        planId: 'plan_12345',
-        userRegion: 'CA',
-        availableRegions: ['NY', 'TX', 'FL']
-      },
-      stack: createMockStackTrace('PlanNotAvailableInRegionError')
-    })
-  },
-  
-  benefits: {
-    benefitNotFound: new Plan.Benefits.BenefitNotFoundError('Benefit not found', {
-      code: 'BENEFIT_NOT_FOUND',
-      status: 404,
-      context: {
-        benefitId: 'benefit_12345',
-        planId: 'plan_12345'
-      },
-      stack: createMockStackTrace('BenefitNotFoundError')
-    }),
-    
-    benefitLimitExceeded: new Plan.Benefits.BenefitLimitExceededError('Benefit limit exceeded', {
-      code: 'BENEFIT_LIMIT_EXCEEDED',
-      status: 400,
-      context: {
-        benefitId: 'benefit_12345',
-        benefitType: 'PHYSICAL_THERAPY',
-        limit: 20,
-        used: 20,
-        remaining: 0
-      },
-      stack: createMockStackTrace('BenefitLimitExceededError')
-    })
-  },
-  
-  claims: {
-    claimNotFound: new Plan.Claims.ClaimNotFoundError('Claim not found', {
-      code: 'CLAIM_NOT_FOUND',
-      status: 404,
-      context: {
-        claimId: 'claim_12345',
-        userId: 'user_12345'
-      },
-      stack: createMockStackTrace('ClaimNotFoundError')
-    }),
-    
-    claimDenied: new Plan.Claims.ClaimDeniedError('Claim was denied', {
-      code: 'CLAIM_DENIED',
-      status: 400,
-      context: {
-        claimId: 'claim_12345',
-        denialReason: 'SERVICE_NOT_COVERED',
-        denialCode: 'NC001',
-        appealDeadline: '2023-07-15T00:00:00Z'
-      },
-      stack: createMockStackTrace('ClaimDeniedError')
-    }),
-    
-    duplicateClaim: new Plan.Claims.DuplicateClaimError('Duplicate claim submission detected', {
-      code: 'DUPLICATE_CLAIM',
-      status: 409,
-      context: {
-        claimId: 'claim_12345',
-        existingClaimId: 'claim_67890',
-        serviceDate: '2023-05-10T00:00:00Z',
-        providerId: 'provider_12345'
-      },
-      stack: createMockStackTrace('DuplicateClaimError')
-    })
-  },
-  
-  documents: {
-    documentNotFound: new Plan.Documents.DocumentNotFoundError('Document not found', {
-      code: 'DOCUMENT_NOT_FOUND',
-      status: 404,
-      context: {
-        documentId: 'doc_12345',
-        userId: 'user_12345'
-      },
-      stack: createMockStackTrace('DocumentNotFoundError')
-    }),
-    
-    documentFormatError: new Plan.Documents.DocumentFormatError('Invalid document format', {
-      code: 'DOCUMENT_FORMAT_ERROR',
-      status: 400,
-      context: {
-        documentId: 'doc_12345',
-        providedFormat: 'bmp',
-        supportedFormats: ['pdf', 'jpg', 'png']
-      },
-      stack: createMockStackTrace('DocumentFormatError')
-    })
-  }
-};
-
-/**
- * Combined error scenarios for easy access in tests
+ * Export all error scenarios as a single collection
  */
 export const allErrorScenarios = {
   client: clientErrorScenarios,
   system: systemErrorScenarios,
   transient: transientErrorScenarios,
   external: externalDependencyErrorScenarios,
-  health: healthJourneyErrorScenarios,
-  care: careJourneyErrorScenarios,
-  plan: planJourneyErrorScenarios
+  journey: journeySpecificErrorScenarios,
+  gamification: gamificationErrorScenarios
 };
