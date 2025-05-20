@@ -1,588 +1,397 @@
-# @austa/validation
+# @austa/utils/validation
 
-A comprehensive validation library for the AUSTA SuperApp ecosystem that provides standardized, type-safe validation utilities for use across all services and journeys.
+A comprehensive validation library for the AUSTA SuperApp ecosystem that provides standardized, type-safe validation utilities for ensuring data integrity across all microservices and frontend applications.
 
 ## Overview
 
-The `@austa/validation` package serves as the foundation for consistent data validation throughout the AUSTA SuperApp. It provides a unified approach to validation that ensures data integrity, improves error handling, and enhances the developer experience across all journeys. This package implements healthcare-specific validation patterns while supporting the unique requirements of each journey.
+The `@austa/utils/validation` module serves as the foundation for consistent data validation throughout the AUSTA SuperApp. It provides a unified approach to validating user inputs, API payloads, configuration values, and database records. By centralizing validation logic, it ensures consistency, reduces code duplication, and simplifies maintenance across all services while supporting the unique requirements of each journey.
 
 ## Key Features
 
-- **Type-safe validators** with TypeScript integration
-- **Journey-specific validation rules** for health, care, and plan data
-- **Composable validation functions** for complex validation scenarios
-- **Integration with form libraries** (React Hook Form, Formik)
-- **Schema-based validation** using Zod, Joi, and class-validator
-- **Consistent error messages** across all validation types
-- **Cross-journey validation** for shared data models
-- **Performance-optimized validators** for client and server use
+### String Validation (`@austa/utils/validation/string`)
+
+Provides utilities for validating string values with support for:
+
+- Length constraints (min, max, exact)
+- Pattern matching (regex, predefined patterns)
+- Format validation (email, URL, phone number)
+- Content restrictions (alphanumeric, numeric only)
+- Sanitization functions (trim, normalize)
+
+### Number Validation (`@austa/utils/validation/number`)
+
+Utilities for validating numeric values:
+
+- Range validation (min, max, between)
+- Type checking (integer, float, positive, negative)
+- Precision validation (decimal places)
+- Special value handling (NaN, Infinity)
+- Unit-specific validation (percentage, currency)
+
+### Date Validation (`@austa/utils/validation/date`)
+
+Functions for validating date and time values:
+
+- Range validation (before, after, between)
+- Format validation (ISO, custom formats)
+- Relative date validation (past, future, today)
+- Duration and interval validation
+- Timezone-aware validation
+
+### Object Validation (`@austa/utils/validation/object`)
+
+Utilities for validating complex object structures:
+
+- Property existence validation
+- Nested property validation
+- Type checking for properties
+- Structure validation
+- Deep equality checking
+
+### Schema Validation (`@austa/utils/validation/schema`)
+
+Integration with schema validation libraries:
+
+- Zod schema validation
+- Yup schema validation
+- Joi schema validation
+- Class-validator integration
+- Custom schema definition
 
 ## Installation
 
 ```bash
 # npm
-npm install @austa/validation
+npm install @austa/utils
 
 # yarn
-yarn add @austa/validation
+yarn add @austa/utils
 
 # pnpm
-pnpm add @austa/validation
+pnpm add @austa/utils
 ```
 
 ## Usage
 
-### Basic Import Patterns
+### Basic Validation
 
 ```typescript
-// Import specific validators
-import { isValidEmail, isValidCPF, isValidPhone } from '@austa/validation';
+import { string, number, date, object } from '@austa/utils/validation';
 
-// Import namespaced validators
-import { StringValidators, DateValidators, NumberValidators } from '@austa/validation';
+// String validation
+const isValidEmail = string.isEmail('user@example.com'); // true
+const isValidPhone = string.isPhoneNumber('+5511987654321', 'BR'); // true
 
-// Import schema validation utilities
-import { createZodSchema, validateWithJoi, validateWithClassValidator } from '@austa/validation';
+// Number validation
+const isInRange = number.isBetween(25, 18, 65); // true
+const isValidPercentage = number.isPercentage(85.5); // true
 
-// Import journey-specific validators
-import { HealthValidators, CareValidators, PlanValidators } from '@austa/validation';
+// Date validation
+const isValidDate = date.isISODate('2023-05-15'); // true
+const isFutureDate = date.isFuture('2025-12-31'); // true
+
+// Object validation
+const user = { id: 123, name: 'John', email: 'john@example.com' };
+const hasRequiredProps = object.hasProperties(user, ['id', 'name', 'email']); // true
 ```
 
-### String Validation
+### Schema Validation with Zod
 
 ```typescript
-import { StringValidators, isValidEmail, isValidCPF } from '@austa/validation';
-
-// Individual validators
-const isValid = isValidEmail('user@example.com'); // true
-const isValidBrazilianID = isValidCPF('123.456.789-09'); // validates CPF format and check digit
-
-// Namespaced validators
-const isValidPostalCode = StringValidators.isValidCEP('01310-200'); // true
-const isValidName = StringValidators.isValidPersonName('João Silva', { allowAccents: true }); // true
-
-// With custom options
-const isValidPassword = StringValidators.isValidPassword('Abc123!@#', {
-  minLength: 8,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumbers: true,
-  requireSpecialChars: true
-}); // true
-
-// Validation with error messages
-const { isValid, errors } = StringValidators.validateWithErrors('user@example', {
-  validators: ['email'],
-  errorMessages: {
-    email: 'Please enter a valid email address'
-  }
-});
-
-// Output: { isValid: false, errors: ['Please enter a valid email address'] }
-```
-
-### Date Validation
-
-```typescript
-import { DateValidators } from '@austa/validation';
-
-// Basic date validation
-const isValid = DateValidators.isValidDate('2023-04-15'); // true
-
-// Date range validation
-const isInRange = DateValidators.isDateInRange('2023-04-15', {
-  minDate: '2023-01-01',
-  maxDate: '2023-12-31'
-}); // true
-
-// Age validation (for health journey)
-const isAdult = DateValidators.isAdultAge('2000-01-01'); // true for someone born in 2000
-
-// Business day validation (for appointment scheduling)
-const isBusinessDay = DateValidators.isBusinessDay('2023-04-17', {
-  holidays: ['2023-04-21'], // Good Friday
-  excludeWeekends: true
-}); // true if April 17, 2023 is a business day
-
-// Date format validation
-const isValidFormat = DateValidators.isValidDateFormat('15/04/2023', 'DD/MM/YYYY'); // true
-```
-
-### Number Validation
-
-```typescript
-import { NumberValidators } from '@austa/validation';
-
-// Range validation
-const isInRange = NumberValidators.isInRange(75, { min: 0, max: 100 }); // true
-
-// Integer validation
-const isInteger = NumberValidators.isInteger(42); // true
-
-// Decimal precision validation
-const hasValidPrecision = NumberValidators.hasValidPrecision(42.25, { maxDecimals: 2 }); // true
-
-// Health-specific validation (e.g., blood pressure)
-const isValidSystolic = NumberValidators.isValidSystolicPressure(120); // true
-const isValidDiastolic = NumberValidators.isValidDiastolicPressure(80); // true
-
-// Currency validation (for plan journey)
-const isValidCurrency = NumberValidators.isValidCurrencyValue(1250.75, {
-  currency: 'BRL',
-  maxDecimals: 2
-}); // true
-```
-
-### Object Validation
-
-```typescript
-import { ObjectValidators } from '@austa/validation';
-
-const user = {
-  name: 'João Silva',
-  email: 'joao@example.com',
-  age: 35,
-  address: {
-    street: 'Av. Paulista',
-    city: 'São Paulo',
-    postalCode: '01310-200'
-  }
-};
-
-// Validate required fields
-const hasRequiredFields = ObjectValidators.hasRequiredFields(user, ['name', 'email', 'age']); // true
-
-// Validate nested object
-const hasValidAddress = ObjectValidators.validateNested(user, 'address', (address) => {
-  return ObjectValidators.hasRequiredFields(address, ['street', 'city', 'postalCode']);
-}); // true
-
-// Validate object against a shape
-const isValidShape = ObjectValidators.matchesShape(user, {
-  name: { type: 'string', required: true },
-  email: { type: 'string', required: true, validator: 'email' },
-  age: { type: 'number', required: true, min: 0, max: 120 },
-  address: { type: 'object', required: true }
-}); // true
-```
-
-### Schema Validation
-
-```typescript
-import { SchemaValidators, createZodSchema } from '@austa/validation';
+import { schema } from '@austa/utils/validation';
 import { z } from 'zod';
 
-// Using Zod for schema validation
-const UserSchema = createZodSchema({
+// Define a schema
+const userSchema = z.object({
+  id: z.number().positive(),
   name: z.string().min(2).max(100),
   email: z.string().email(),
-  age: z.number().min(0).max(120).optional(),
-  roles: z.array(z.string()).default(['user'])
+  age: z.number().min(18).optional(),
 });
 
-type User = z.infer<typeof UserSchema>;
+// Validate data against schema
+const userData = { id: 123, name: 'John', email: 'john@example.com' };
+const result = schema.validateWithZod(userData, userSchema);
 
-const validationResult = SchemaValidators.validateWithZod(
-  { name: 'João Silva', email: 'joao@example.com', age: 35 },
-  UserSchema
-);
-
-// Output: { success: true, data: { name: 'João Silva', email: 'joao@example.com', age: 35, roles: ['user'] } }
-
-// Using Joi for schema validation
-import Joi from 'joi';
-
-const addressSchema = Joi.object({
-  street: Joi.string().required(),
-  city: Joi.string().required(),
-  postalCode: Joi.string().pattern(/^\d{5}-\d{3}$/).required()
-});
-
-const joiValidationResult = SchemaValidators.validateWithJoi(
-  { street: 'Av. Paulista', city: 'São Paulo', postalCode: '01310-200' },
-  addressSchema
-);
-
-// Output: { success: true, data: { street: 'Av. Paulista', city: 'São Paulo', postalCode: '01310-200' } }
-
-// Using class-validator for schema validation
-import { IsEmail, MinLength, MaxLength, IsOptional, IsInt, Min, Max } from 'class-validator';
-
-class UserDTO {
-  @MinLength(2)
-  @MaxLength(100)
-  name: string;
-
-  @IsEmail()
-  email: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(120)
-  age?: number;
+if (result.success) {
+  // Data is valid, use result.data
+  console.log('Valid user:', result.data);
+} else {
+  // Data is invalid, handle errors
+  console.error('Validation errors:', result.errors);
 }
-
-const classValidatorResult = SchemaValidators.validateWithClassValidator(
-  { name: 'João Silva', email: 'joao@example.com', age: 35 },
-  UserDTO
-);
-
-// Output: { success: true, data: { name: 'João Silva', email: 'joao@example.com', age: 35 } }
 ```
 
-## Journey-Specific Validation
-
-### Health Journey Validation
+### Integration with NestJS
 
 ```typescript
-import { HealthValidators } from '@austa/validation';
+import { Injectable } from '@nestjs/common';
+import { string, object } from '@austa/utils/validation';
+import { ValidationError } from '@austa/errors';
 
-// Validate health metrics
-const isValidBloodGlucose = HealthValidators.isValidBloodGlucose(95, { unit: 'mg/dL' }); // true
-const isValidHeartRate = HealthValidators.isValidHeartRate(72); // true
-const isValidBodyTemperature = HealthValidators.isValidBodyTemperature(36.8, { unit: 'celsius' }); // true
-
-// Validate health goals
-const isValidStepGoal = HealthValidators.isValidStepGoal(10000); // true
-const isValidWeightGoal = HealthValidators.isValidWeightGoal(75, {
-  currentWeight: 80,
-  height: 175,
-  timeframe: 90 // days
-}); // validates if weight goal is healthy
-
-// Validate device data
-const isValidOxygenSaturation = HealthValidators.isValidOxygenSaturation(98); // true
-const isValidRespiratoryRate = HealthValidators.isValidRespiratoryRate(16); // true
+@Injectable()
+export class UserService {
+  async createUser(userData: any): Promise<User> {
+    // Validate required fields
+    if (!object.hasProperties(userData, ['name', 'email'])) {
+      throw new ValidationError('Missing required fields', 'USER_001');
+    }
+    
+    // Validate email format
+    if (!string.isEmail(userData.email)) {
+      throw new ValidationError('Invalid email format', 'USER_002', {
+        field: 'email'
+      });
+    }
+    
+    // Continue with user creation
+    // ...
+  }
+}
 ```
 
-### Care Journey Validation
-
-```typescript
-import { CareValidators } from '@austa/validation';
-
-// Validate appointment data
-const isValidAppointmentTime = CareValidators.isValidAppointmentTime('2023-04-17T14:30:00', {
-  businessHours: { start: '08:00', end: '18:00' },
-  duration: 30 // minutes
-}); // true
-
-// Validate provider data
-const isValidSpecialty = CareValidators.isValidMedicalSpecialty('Cardiologia'); // true
-const isValidLicense = CareValidators.isValidCRM('12345/SP'); // validates Brazilian medical license
-
-// Validate medication data
-const isValidDosage = CareValidators.isValidMedicationDosage('10mg', {
-  medication: 'Aspirin',
-  patientWeight: 70
-}); // validates if dosage is within safe range
-
-// Validate symptom data
-const isValidSymptomSeverity = CareValidators.isValidSymptomSeverity(3, { scale: 1, max: 5 }); // true
-```
-
-### Plan Journey Validation
-
-```typescript
-import { PlanValidators } from '@austa/validation';
-
-// Validate insurance plan data
-const isValidPlanCode = PlanValidators.isValidPlanCode('PREMIUM-2023-01'); // true
-const isValidCoverageLevel = PlanValidators.isValidCoverageLevel('COMPREHENSIVE'); // true
-
-// Validate claim data
-const isValidClaimAmount = PlanValidators.isValidClaimAmount(1500.75, {
-  service: 'CONSULTATION',
-  coverageLimit: 2000
-}); // true
-
-const isValidClaimCode = PlanValidators.isValidClaimCode('CLM-2023-04-15-001'); // true
-
-// Validate benefit data
-const isValidBenefitUsage = PlanValidators.isValidBenefitUsage(3, {
-  benefitType: 'THERAPY_SESSION',
-  maxUsage: 10,
-  period: 'MONTHLY'
-}); // true
-```
-
-## Integration with Form Libraries
-
-### React Hook Form Integration
+### Integration with React Hook Form
 
 ```typescript
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createZodSchema, StringValidators } from '@austa/validation';
+import { schema } from '@austa/utils/validation';
 import { z } from 'zod';
 
-// Create a schema using the validation utilities
-const ContactFormSchema = createZodSchema({
-  name: z.string().min(2).max(100),
-  email: z.string().email(),
-  phone: z.string().refine(StringValidators.isValidPhone, {
-    message: 'Please enter a valid phone number'
-  }),
-  message: z.string().min(10).max(500)
+// Define a schema for the form
+const appointmentSchema = z.object({
+  patientName: z.string().min(2, 'Name must have at least 2 characters'),
+  appointmentDate: z.string().refine(
+    (date) => schema.date.isFuture(date),
+    { message: 'Appointment date must be in the future' }
+  ),
+  providerId: z.string().uuid('Invalid provider ID'),
+  notes: z.string().optional(),
 });
 
-type ContactFormData = z.infer<typeof ContactFormSchema>;
-
-function ContactForm() {
-  const {
-    register,
-    handleSubmit,
-    formState: { errors }
-  } = useForm<ContactFormData>({
-    resolver: zodResolver(ContactFormSchema)
+// Use the schema with React Hook Form
+function AppointmentForm() {
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(appointmentSchema)
   });
-
-  const onSubmit = (data: ContactFormData) => {
-    // Submit form data
-    console.log(data);
+  
+  const onSubmit = (data) => {
+    // Form data is already validated
+    console.log('Valid appointment data:', data);
   };
-
+  
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
-      <div>
-        <label htmlFor="name">Name</label>
-        <input id="name" {...register('name')} />
-        {errors.name && <span>{errors.name.message}</span>}
-      </div>
-      
-      <div>
-        <label htmlFor="email">Email</label>
-        <input id="email" {...register('email')} />
-        {errors.email && <span>{errors.email.message}</span>}
-      </div>
-      
-      <div>
-        <label htmlFor="phone">Phone</label>
-        <input id="phone" {...register('phone')} />
-        {errors.phone && <span>{errors.phone.message}</span>}
-      </div>
-      
-      <div>
-        <label htmlFor="message">Message</label>
-        <textarea id="message" {...register('message')} />
-        {errors.message && <span>{errors.message.message}</span>}
-      </div>
-      
-      <button type="submit">Submit</button>
+      {/* Form fields */}
     </form>
   );
 }
 ```
 
-### API Validation Integration
+## Journey-Specific Validation
+
+The validation library supports journey-specific validation rules while maintaining a consistent API:
+
+### Health Journey Validation
 
 ```typescript
-import { IsValidCPF, IsValidEmail } from '@austa/validation/decorators';
-import { Body, Controller, Post } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import { health } from '@austa/utils/validation/journey';
 
-// Using class-validator decorators from @austa/validation
-class CreateUserDto {
-  @IsValidCPF({
-    message: 'CPF inválido. Por favor, forneça um CPF válido.'
-  })
-  cpf: string;
+// Validate health metrics
+const isValidBloodPressure = health.isValidBloodPressure('120/80'); // true
+const isValidGlucoseLevel = health.isValidGlucoseLevel(95, 'mg/dL'); // true
 
-  @IsValidEmail({
-    message: 'Email inválido. Por favor, forneça um email válido.'
-  })
-  email: string;
-}
+// Validate health goals
+const isValidStepGoal = health.isValidStepGoal(10000); // true
+```
 
-@Controller('users')
-export class UsersController {
-  @Post()
-  createUser(@Body(new ValidationPipe()) createUserDto: CreateUserDto) {
-    // Process validated user data
-    return { success: true, message: 'User created successfully' };
-  }
-}
+### Care Journey Validation
+
+```typescript
+import { care } from '@austa/utils/validation/journey';
+
+// Validate appointment data
+const isValidAppointmentTime = care.isValidAppointmentTime('2023-06-15T14:30:00', 'telemedicine'); // true
+
+// Validate provider information
+const isValidSpecialty = care.isValidSpecialty('cardiology'); // true
+```
+
+### Plan Journey Validation
+
+```typescript
+import { plan } from '@austa/utils/validation/journey';
+
+// Validate insurance information
+const isValidPolicyNumber = plan.isValidPolicyNumber('POL-123456789'); // true
+
+// Validate claim data
+const isValidClaimAmount = plan.isValidClaimAmount(1250.75, 'BRL'); // true
 ```
 
 ## Cross-Journey Validation
 
-The validation package provides utilities for validating data that spans multiple journeys:
+For validation that spans multiple journeys, use the cross-journey validators:
 
 ```typescript
-import { CrossJourneyValidators } from '@austa/validation';
+import { crossJourney } from '@austa/utils/validation/journey';
 
-// Validate user data across journeys
-const isValidUserProfile = CrossJourneyValidators.validateUserProfile({
-  name: 'João Silva',
-  email: 'joao@example.com',
-  cpf: '123.456.789-09',
-  healthMetrics: {
-    weight: 75,
-    height: 175
-  },
-  carePreferences: {
-    preferredSpecialties: ['Cardiologia', 'Clínica Geral']
-  },
-  planDetails: {
-    planCode: 'PREMIUM-2023-01',
-    dependents: 2
+// Validate user profile data used across journeys
+const isValidUserProfile = crossJourney.isValidUserProfile({
+  name: 'Maria Silva',
+  birthDate: '1985-03-22',
+  gender: 'female',
+  contactInfo: {
+    email: 'maria@example.com',
+    phone: '+5511987654321'
   }
-});
+}); // true
 
-// Validate cross-journey events
-const isValidEvent = CrossJourneyValidators.validateJourneyEvent({
-  userId: '12345',
-  eventType: 'APPOINTMENT_COMPLETED',
-  journeySource: 'CARE',
-  timestamp: '2023-04-15T15:30:00',
-  data: {
-    appointmentId: 'APT-2023-04-15-001',
-    providerId: 'PROV-12345',
-    specialty: 'Cardiologia'
-  },
-  targetJourneys: ['HEALTH', 'GAMIFICATION']
-});
+// Validate notification preferences across journeys
+const isValidNotificationPrefs = crossJourney.isValidNotificationPreferences({
+  email: true,
+  push: true,
+  sms: false,
+  journeyPreferences: {
+    health: ['achievements', 'reminders'],
+    care: ['appointments', 'prescriptions'],
+    plan: ['claims', 'coverage']
+  }
+}); // true
 ```
 
 ## Best Practices
 
-### Validation Strategy
+### Consistent Error Handling
 
-1. **Layer-Appropriate Validation**:
-   - Validate at the UI layer for immediate user feedback
-   - Validate at the API layer for security and data integrity
-   - Validate at the service layer for business rules
-   - Validate at the database layer for data consistency
-
-2. **Consistent Error Messages**:
-   - Use clear, user-friendly error messages
-   - Maintain consistent error message format across all validators
-   - Provide localized error messages when possible
-
-3. **Performance Considerations**:
-   - Use lightweight validators for client-side validation
-   - Implement more comprehensive validation on the server
-   - Cache validation results when appropriate
-
-4. **Security Best Practices**:
-   - Never trust client-side validation alone
-   - Always validate sensitive data on the server
-   - Implement rate limiting for validation-heavy endpoints
-
-### Code Examples
-
-#### Combining Validators
+Use the `@austa/errors` package with validation functions for consistent error handling:
 
 ```typescript
-import { combineValidators, StringValidators, DateValidators } from '@austa/validation';
+import { string } from '@austa/utils/validation';
+import { ValidationError } from '@austa/errors';
 
-// Create a composite validator
-const isValidAppointmentRequest = combineValidators([
-  { validator: (data) => StringValidators.isValidEmail(data.email), errorMessage: 'Invalid email' },
-  { validator: (data) => DateValidators.isBusinessDay(data.date), errorMessage: 'Selected date is not a business day' },
-  { validator: (data) => data.duration >= 15 && data.duration <= 60, errorMessage: 'Duration must be between 15 and 60 minutes' }
-]);
-
-// Use the composite validator
-const result = isValidAppointmentRequest({
-  email: 'patient@example.com',
-  date: '2023-04-17',
-  duration: 30
-});
-
-// Output: { isValid: true, errors: [] }
+function validateUsername(username: string): void {
+  if (!string.isAlphanumeric(username)) {
+    throw new ValidationError(
+      'Username must contain only letters and numbers',
+      'AUTH_001',
+      { field: 'username' }
+    );
+  }
+  
+  if (!string.isLengthBetween(username, 3, 20)) {
+    throw new ValidationError(
+      'Username must be between 3 and 20 characters',
+      'AUTH_002',
+      { field: 'username', min: 3, max: 20 }
+    );
+  }
+}
 ```
 
-#### Creating Custom Validators
+### Composing Validators
+
+Combine multiple validators for complex validation rules:
 
 ```typescript
-import { createValidator } from '@austa/validation';
+import { string, date } from '@austa/utils/validation';
 
-// Create a custom validator for Brazilian healthcare card numbers (CNS)
-const isValidCNS = createValidator({
-  name: 'isValidCNS',
-  validator: (value: string) => {
-    // CNS validation logic
-    const cns = value.replace(/[^0-9]/g, '');
-    if (cns.length !== 15) return false;
-    
-    // Implement the CNS validation algorithm
-    // ...
-    
-    return true; // Return validation result
-  },
-  defaultErrorMessage: 'O número do Cartão Nacional de Saúde (CNS) é inválido'
+function isValidPasswordResetToken(token: string): boolean {
+  return (
+    string.isUUID(token) && // Must be a valid UUID
+    string.isLengthEqual(token, 36) && // Must be exactly 36 characters
+    date.isWithinPast(token.split('-')[0], { hours: 24 }) // First segment contains timestamp, must be within 24 hours
+  );
+}
+```
+
+### Performance Optimization
+
+For performance-critical code paths, use the optimized validators:
+
+```typescript
+import { optimized } from '@austa/utils/validation';
+
+// Process large batches of data with optimized validators
+const results = largeDataset.filter(item => {
+  return optimized.string.isEmail(item.email);
 });
-
-// Use the custom validator
-const result = isValidCNS('123456789012345');
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### Validation Not Working as Expected
+1. **Incorrect Import Paths**
 
-**Problem**: Validators are not catching invalid data or are rejecting valid data.
+   Ensure you're using the correct import paths for validators:
 
-**Solution**:
-- Check if you're using the correct validator for your data type
-- Verify that any options or parameters are correctly configured
-- Use the debug mode to see detailed validation steps
+   ```typescript
+   // Correct imports
+   import { string } from '@austa/utils/validation';
+   import { isEmail } from '@austa/utils/validation/string';
+   
+   // Incorrect imports
+   import { string } from '@austa/utils'; // Too general
+   import { isEmail } from '@austa/validation'; // Wrong package
+   ```
 
-```typescript
-import { enableDebug, StringValidators } from '@austa/validation';
+2. **Type Compatibility Issues**
 
-// Enable debug mode
-enableDebug();
+   Make sure you're passing the correct types to validation functions:
 
-// Now validation will log detailed steps
-const result = StringValidators.isValidCPF('123.456.789-09');
-```
+   ```typescript
+   import { number } from '@austa/utils/validation';
+   
+   // Correct usage
+   const isValid = number.isPositive(42); // true
+   
+   // Incorrect usage - string passed to number validator
+   const isInvalid = number.isPositive('42'); // Type error
+   ```
 
-#### Integration Issues with Form Libraries
+3. **Custom Validation Logic**
 
-**Problem**: Validation errors are not properly displayed in form libraries.
+   For complex validation requirements, create custom validators using the base utilities:
 
-**Solution**:
-- Ensure you're using the correct resolver for your form library
-- Check that schema types match your form data structure
-- Verify error message formatting is compatible with your UI components
-
-#### Performance Issues
-
-**Problem**: Validation is causing performance bottlenecks.
-
-**Solution**:
-- Use the lightweight validators when possible
-- Implement validation caching for expensive validators
-- Consider deferring validation for non-critical fields
-
-```typescript
-import { createCachedValidator, StringValidators } from '@austa/validation';
-
-// Create a cached version of an expensive validator
-const cachedAddressValidator = createCachedValidator(StringValidators.isValidAddress, {
-  maxCacheSize: 100, // Cache up to 100 results
-  ttl: 3600000 // Cache results for 1 hour (in milliseconds)
-});
-
-// Use the cached validator
-const result = cachedAddressValidator('Av. Paulista, 1000, São Paulo - SP');
-```
+   ```typescript
+   import { string, date } from '@austa/utils/validation';
+   
+   function isValidBrazilianID(id: string): boolean {
+     // Custom validation logic for Brazilian IDs (CPF/CNPJ)
+     return string.isNumeric(id) && 
+            (id.length === 11 || id.length === 14) &&
+            // Additional CPF/CNPJ validation algorithm
+            validateBrazilianIDChecksum(id);
+   }
+   ```
 
 ## Contributing
 
-When extending the validation package:
+When extending the validation module:
 
-1. Follow the established patterns for validator creation
-2. Include comprehensive tests for all validators
-3. Document all validators with JSDoc comments
+1. Follow the established patterns for validator implementation
+2. Include comprehensive unit tests for all validators
+3. Document all public APIs with JSDoc comments
 4. Maintain backward compatibility
-5. Consider performance implications
-6. Add examples to the README for new validators
+5. Consider performance implications for frequently used validators
+
+### Adding New Validators
+
+1. Create or update the appropriate validator file (e.g., `string.validator.ts`)
+2. Implement the validator function with proper typing
+3. Add unit tests in the corresponding test file
+4. Update the barrel exports in `index.ts`
+5. Document the new validator in this README
+
+## Technologies
+
+- TypeScript 5.3.3+
+- Zod 3.22.4+
+- Yup 1.3.3+
+- Joi 17.12.2+
+- class-validator 0.14.1+
 
 ## License
 
-This package is part of the AUSTA SuperApp and is subject to the same license terms as the main project.
+Internal use only - AUSTA SuperApp
