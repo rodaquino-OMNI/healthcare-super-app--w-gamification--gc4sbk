@@ -8,21 +8,9 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "@austa/utils/*": ["packages/utils/src/*"],
-      "@austa/validation/*": ["packages/utils/validation/src/*"],
-      "@app/shared/*": ["shared/src/*"],
-      "@app/auth/*": ["auth-service/src/*"]
-    },
-    "moduleResolution": "node",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "strictNullChecks": true,
-    "noImplicitAny": true,
-    "strictBindCallApply": true,
-    "noFallthroughCasesInSwitch": true,
-    "resolveJsonModule": true
+      "@austa/validation": ["./src"],
+      "@austa/validation/*": ["./src/*"]
+    }
   },
   "include": [
     "src/**/*"
@@ -32,8 +20,5 @@
     "dist",
     "**/*.spec.ts",
     "**/*.test.ts"
-  ],
-  "references": [
-    { "path": "../tsconfig.json" }
   ]
 }
