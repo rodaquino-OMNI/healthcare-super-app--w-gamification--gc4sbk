@@ -1,465 +1,424 @@
 import {
   formatError,
-  formatObject,
-  formatArray,
-  formatValue,
   formatTimestamp,
-  truncateLogEntry,
-  MAX_LOG_SIZE
+  detectCircular,
+  safeStringify,
+  formatObject,
+  formatValue,
+  formatJourneyContext,
+  formatLogLevel,
+  redactSensitiveInfo,
 } from '../../../src/utils/format.utils';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
 
-describe('Format Utils', () => {
+describe('Formatting Utilities', () => {
   describe('formatError', () => {
-    it('formats Error objects with stack trace', () => {
-      // Arrange
-      const testError = new Error('Test error message');
-      
-      // Act
-      const result = formatError(testError);
-      
-      // Assert
-      expect(result).toHaveProperty('message', 'Test error message');
-      expect(result).toHaveProperty('stack');
-      expect(result).toHaveProperty('name', 'Error');
+    it('should format a basic error with message and name', () => {
+      const error = new Error('Test error');
+      const formatted = formatError(error);
+
+      expect(formatted.message).toBe('Test error');
+      expect(formatted.name).toBe('Error');
+      expect(Array.isArray(formatted.stack)).toBe(true);
     });
 
-    it('handles errors with additional properties', () => {
-      // Arrange
-      const testError = new Error('Test error message');
-      (testError as any).code = 'ERR_TEST';
-      (testError as any).statusCode = 400;
-      
-      // Act
-      const result = formatError(testError);
-      
-      // Assert
-      expect(result).toHaveProperty('message', 'Test error message');
-      expect(result).toHaveProperty('code', 'ERR_TEST');
-      expect(result).toHaveProperty('statusCode', 400);
+    it('should handle errors with additional properties', () => {
+      const error = new Error('Test error') as any;
+      error.code = 'ERR_TEST';
+      error.statusCode = 400;
+      error.customProp = 'custom value';
+
+      const formatted = formatError(error);
+
+      expect(formatted.message).toBe('Test error');
+      expect(formatted.code).toBe('ERR_TEST');
+      expect(formatted.statusCode).toBe(400);
+      expect(formatted.customProp).toBe('custom value');
     });
 
-    it('handles non-Error objects gracefully', () => {
-      // Arrange
-      const nonError = { message: 'Not a real error' };
-      
-      // Act
-      const result = formatError(nonError);
-      
-      // Assert
-      expect(result).toHaveProperty('message', 'Not a real error');
-      expect(result).not.toHaveProperty('stack');
-    });
-
-    it('preserves error cause if available', () => {
-      // Arrange
-      const causeError = new Error('Cause error');
-      const testError = new Error('Test error message', { cause: causeError });
-      
-      // Act
-      const result = formatError(testError);
-      
-      // Assert
-      expect(result).toHaveProperty('cause');
-      expect(result.cause).toHaveProperty('message', 'Cause error');
-    });
-  });
-
-  describe('formatObject', () => {
-    it('formats simple objects correctly', () => {
-      // Arrange
-      const testObj = { name: 'Test', value: 123 };
-      
-      // Act
-      const result = formatObject(testObj);
-      
-      // Assert
-      expect(result).toEqual(testObj);
-    });
-
-    it('handles nested objects', () => {
-      // Arrange
-      const testObj = { 
-        name: 'Test', 
-        nested: { 
-          value: 123,
-          deep: {
-            array: [1, 2, 3]
-          }
-        } 
+    it('should handle errors with request and response properties', () => {
+      const error = new Error('API error') as any;
+      error.request = {
+        method: 'GET',
+        url: 'https://api.example.com/test',
+        headers: { 'Content-Type': 'application/json' },
       };
-      
-      // Act
-      const result = formatObject(testObj);
-      
-      // Assert
-      expect(result).toEqual(testObj);
-    });
-
-    it('detects and handles circular references', () => {
-      // Arrange
-      const circular: any = { name: 'Circular' };
-      circular.self = circular;
-      
-      // Act
-      const result = formatObject(circular);
-      
-      // Assert
-      expect(result).toHaveProperty('name', 'Circular');
-      expect(result.self).toEqual('[Circular Reference]');
-    });
-
-    it('handles objects with functions by removing them', () => {
-      // Arrange
-      const objWithFunction = {
-        name: 'Test',
-        method: function() { return 'test'; }
+      error.response = {
+        status: 500,
+        data: { message: 'Internal server error' },
       };
-      
-      // Act
-      const result = formatObject(objWithFunction);
-      
-      // Assert
-      expect(result).toHaveProperty('name', 'Test');
-      expect(result).not.toHaveProperty('method');
+
+      const formatted = formatError(error);
+
+      expect(formatted.message).toBe('API error');
+      expect(formatted.request.method).toBe('GET');
+      expect(formatted.request.url).toBe('https://api.example.com/test');
+      expect(formatted.response.status).toBe(500);
+      expect(formatted.response.data.message).toBe('Internal server error');
     });
 
-    it('handles objects with undefined or null values', () => {
-      // Arrange
-      const objWithNulls = {
-        name: 'Test',
-        nullValue: null,
-        undefinedValue: undefined
-      };
-      
-      // Act
-      const result = formatObject(objWithNulls);
-      
-      // Assert
-      expect(result).toHaveProperty('name', 'Test');
-      expect(result).toHaveProperty('nullValue', null);
-      expect(result).not.toHaveProperty('undefinedValue');
-    });
-  });
-
-  describe('formatArray', () => {
-    it('formats simple arrays correctly', () => {
-      // Arrange
-      const testArray = [1, 2, 3, 4, 5];
-      
-      // Act
-      const result = formatArray(testArray);
-      
-      // Assert
-      expect(result).toEqual(testArray);
-    });
-
-    it('handles arrays with objects', () => {
-      // Arrange
-      const testArray = [
-        { id: 1, name: 'Item 1' },
-        { id: 2, name: 'Item 2' }
-      ];
-      
-      // Act
-      const result = formatArray(testArray);
-      
-      // Assert
-      expect(result).toEqual(testArray);
-    });
-
-    it('handles arrays with circular references', () => {
-      // Arrange
-      const circular: any = { name: 'Circular' };
-      circular.self = circular;
-      const testArray = [1, circular, 3];
-      
-      // Act
-      const result = formatArray(testArray);
-      
-      // Assert
-      expect(result[0]).toBe(1);
-      expect(result[1]).toHaveProperty('name', 'Circular');
-      expect(result[1].self).toEqual('[Circular Reference]');
-      expect(result[2]).toBe(3);
-    });
-
-    it('handles empty arrays', () => {
-      // Arrange
-      const emptyArray: any[] = [];
-      
-      // Act
-      const result = formatArray(emptyArray);
-      
-      // Assert
-      expect(result).toEqual([]);
-      expect(result.length).toBe(0);
-    });
-  });
-
-  describe('formatValue', () => {
-    it('returns strings unchanged', () => {
-      // Arrange
-      const testString = 'test string';
-      
-      // Act
-      const result = formatValue(testString);
-      
-      // Assert
-      expect(result).toBe(testString);
-    });
-
-    it('returns numbers unchanged', () => {
-      // Arrange
-      const testNumber = 123.456;
-      
-      // Act
-      const result = formatValue(testNumber);
-      
-      // Assert
-      expect(result).toBe(testNumber);
-    });
-
-    it('returns booleans unchanged', () => {
-      // Arrange
-      const testBoolean = true;
-      
-      // Act
-      const result = formatValue(testBoolean);
-      
-      // Assert
-      expect(result).toBe(testBoolean);
-    });
-
-    it('returns null unchanged', () => {
-      // Arrange
-      const testNull = null;
-      
-      // Act
-      const result = formatValue(testNull);
-      
-      // Assert
-      expect(result).toBe(testNull);
-    });
-
-    it('converts undefined to null', () => {
-      // Arrange
-      const testUndefined = undefined;
-      
-      // Act
-      const result = formatValue(testUndefined);
-      
-      // Assert
-      expect(result).toBe(null);
-    });
-
-    it('formats Error objects using formatError', () => {
-      // Arrange
-      const testError = new Error('Test error');
-      
-      // Act
-      const result = formatValue(testError);
-      
-      // Assert
-      expect(result).toHaveProperty('message', 'Test error');
-      expect(result).toHaveProperty('stack');
-    });
-
-    it('formats objects using formatObject', () => {
-      // Arrange
-      const testObj = { name: 'Test', value: 123 };
-      
-      // Act
-      const result = formatValue(testObj);
-      
-      // Assert
-      expect(result).toEqual(testObj);
-    });
-
-    it('formats arrays using formatArray', () => {
-      // Arrange
-      const testArray = [1, 2, 3];
-      
-      // Act
-      const result = formatValue(testArray);
-      
-      // Assert
-      expect(result).toEqual(testArray);
-    });
-
-    it('converts functions to string representation', () => {
-      // Arrange
-      const testFunction = function() { return 'test'; };
-      
-      // Act
-      const result = formatValue(testFunction);
-      
-      // Assert
-      expect(result).toBe('[Function]');
-    });
-
-    it('converts symbols to string representation', () => {
-      // Arrange
-      const testSymbol = Symbol('test');
-      
-      // Act
-      const result = formatValue(testSymbol);
-      
-      // Assert
-      expect(result).toBe('Symbol(test)');
-    });
-
-    it('converts BigInt to string representation', () => {
-      // Arrange
-      const testBigInt = BigInt(9007199254740991);
-      
-      // Act
-      const result = formatValue(testBigInt);
-      
-      // Assert
-      expect(result).toBe('9007199254740991');
+    it('should handle null or undefined errors', () => {
+      const formatted = formatError(null as unknown as Error);
+      expect(formatted.message).toBe('Unknown error');
     });
   });
 
   describe('formatTimestamp', () => {
-    it('formats Date objects to ISO string', () => {
-      // Arrange
-      const testDate = new Date('2023-01-01T12:00:00Z');
-      
-      // Act
-      const result = formatTimestamp(testDate);
-      
-      // Assert
-      expect(result).toBe('2023-01-01T12:00:00.000Z');
+    it('should format a Date object to ISO string', () => {
+      const date = new Date('2023-01-01T12:00:00Z');
+      const formatted = formatTimestamp(date);
+      expect(formatted).toBe('2023-01-01T12:00:00.000Z');
     });
 
-    it('converts numeric timestamps to ISO string', () => {
-      // Arrange
-      const timestamp = 1672574400000; // 2023-01-01T12:00:00Z
-      
-      // Act
-      const result = formatTimestamp(timestamp);
-      
-      // Assert
-      expect(result).toBe('2023-01-01T12:00:00.000Z');
+    it('should format a timestamp number to ISO string', () => {
+      const timestamp = new Date('2023-01-01T12:00:00Z').getTime();
+      const formatted = formatTimestamp(timestamp);
+      expect(formatted).toBe('2023-01-01T12:00:00.000Z');
     });
 
-    it('returns valid ISO strings unchanged', () => {
-      // Arrange
-      const isoString = '2023-01-01T12:00:00.000Z';
-      
-      // Act
-      const result = formatTimestamp(isoString);
-      
-      // Assert
-      expect(result).toBe(isoString);
-    });
+    it('should use current time when no timestamp is provided', () => {
+      const before = new Date();
+      const formatted = formatTimestamp();
+      const after = new Date();
 
-    it('handles invalid date strings by returning them unchanged', () => {
-      // Arrange
-      const invalidDate = 'not a date';
-      
-      // Act
-      const result = formatTimestamp(invalidDate);
-      
-      // Assert
-      expect(result).toBe(invalidDate);
-    });
-
-    it('handles duration values in milliseconds', () => {
-      // Arrange
-      const duration = { value: 1500, unit: 'ms' };
-      
-      // Act
-      const result = formatTimestamp(duration);
-      
-      // Assert
-      expect(result).toBe('1.5s');
-    });
-
-    it('handles duration values in seconds', () => {
-      // Arrange
-      const duration = { value: 90, unit: 's' };
-      
-      // Act
-      const result = formatTimestamp(duration);
-      
-      // Assert
-      expect(result).toBe('1m 30s');
+      const formattedDate = new Date(formatted);
+      expect(formattedDate.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(formattedDate.getTime()).toBeLessThanOrEqual(after.getTime());
     });
   });
 
-  describe('truncateLogEntry', () => {
-    it('does not modify entries smaller than the maximum size', () => {
-      // Arrange
-      const smallEntry = { message: 'Small log entry' };
-      
-      // Act
-      const result = truncateLogEntry(smallEntry);
-      
-      // Assert
-      expect(result).toEqual(smallEntry);
+  describe('detectCircular', () => {
+    it('should return false for primitive values', () => {
+      expect(detectCircular(null)).toBe(false);
+      expect(detectCircular(undefined)).toBe(false);
+      expect(detectCircular(123)).toBe(false);
+      expect(detectCircular('test')).toBe(false);
+      expect(detectCircular(true)).toBe(false);
     });
 
-    it('truncates large string values', () => {
-      // Arrange
-      const largeString = 'a'.repeat(MAX_LOG_SIZE + 1000);
-      const largeEntry = { message: largeString };
-      
-      // Act
-      const result = truncateLogEntry(largeEntry);
-      
-      // Assert
-      expect(result.message.length).toBeLessThan(largeString.length);
-      expect(result.message).toContain('[Truncated]');
+    it('should return false for objects without circular references', () => {
+      const obj = { a: 1, b: { c: 2 } };
+      expect(detectCircular(obj)).toBe(false);
     });
 
-    it('truncates large nested objects', () => {
-      // Arrange
-      const largeNestedObject = {
-        level1: {
-          level2: {
-            level3: {
-              level4: {
-                level5: 'a'.repeat(MAX_LOG_SIZE)
-              }
-            }
-          }
-        }
-      };
-      
-      // Act
-      const result = truncateLogEntry(largeNestedObject);
-      
-      // Assert
-      expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_LOG_SIZE);
+    it('should return true for objects with direct circular references', () => {
+      const obj: any = { a: 1 };
+      obj.self = obj;
+      expect(detectCircular(obj)).toBe(true);
     });
 
-    it('truncates large arrays', () => {
-      // Arrange
-      const largeArray = Array(10000).fill('test item');
-      const largeEntry = { items: largeArray };
-      
-      // Act
-      const result = truncateLogEntry(largeEntry);
-      
-      // Assert
-      expect(result.items.length).toBeLessThan(largeArray.length);
-      expect(result.items[result.items.length - 1]).toContain('[Truncated]');
+    it('should return true for objects with nested circular references', () => {
+      const obj: any = { a: 1, b: { c: 2 } };
+      obj.b.parent = obj;
+      expect(detectCircular(obj)).toBe(true);
     });
 
-    it('preserves error information when truncating', () => {
-      // Arrange
+    it('should return true for arrays with circular references', () => {
+      const arr: any[] = [1, 2, 3];
+      arr.push(arr);
+      expect(detectCircular(arr)).toBe(true);
+    });
+  });
+
+  describe('safeStringify', () => {
+    it('should stringify simple objects normally', () => {
+      const obj = { a: 1, b: 'test', c: true };
+      const result = safeStringify(obj);
+      expect(result).toBe(JSON.stringify(obj));
+    });
+
+    it('should handle objects with circular references', () => {
+      const obj: any = { a: 1, b: { c: 2 } };
+      obj.self = obj;
+
+      const result = safeStringify(obj);
+      expect(result).toContain('"a":1');
+      expect(result).toContain('"c":2');
+      expect(result).toContain('"self":"[Circular Reference]"');
+    });
+
+    it('should handle nested circular references', () => {
+      const obj: any = { a: 1, b: { c: 2 } };
+      obj.b.parent = obj;
+
+      const result = safeStringify(obj);
+      expect(result).toContain('"a":1');
+      expect(result).toContain('"c":2');
+      expect(result).toContain('"parent":"[Circular Reference]"');
+    });
+  });
+
+  describe('formatObject', () => {
+    it('should format a simple object', () => {
+      const obj = { a: 1, b: 'test', c: true };
+      const formatted = formatObject(obj);
+      expect(formatted).toEqual(obj);
+    });
+
+    it('should handle null values', () => {
+      const formatted = formatObject(null as any);
+      expect(formatted).toBeNull();
+    });
+
+    it('should handle circular references', () => {
+      const obj: any = { a: 1 };
+      obj.self = obj;
+
+      const formatted = formatObject(obj);
+      expect(formatted.a).toBe(1);
+      expect(formatted.self.value).toBe('[Circular Reference]');
+    });
+
+    it('should limit object depth', () => {
+      // Create a deeply nested object
+      let nested: any = { value: 'deepest' };
+      for (let i = 0; i < 15; i++) {
+        nested = { nested };
+      }
+
+      const formatted = formatObject(nested);
+      
+      // Navigate down to find the max depth cutoff
+      let current = formatted;
+      let depth = 0;
+      while (current.nested && typeof current.nested === 'object' && !current.nested.value) {
+        current = current.nested;
+        depth++;
+      }
+
+      // At some point we should hit the max depth
+      expect(current.nested.value).toBe('[Max Depth Exceeded]');
+    });
+  });
+
+  describe('formatValue', () => {
+    it('should handle null and undefined', () => {
+      expect(formatValue(null)).toBeNull();
+      expect(formatValue(undefined)).toBeUndefined();
+    });
+
+    it('should handle primitive types', () => {
+      expect(formatValue(123)).toBe(123);
+      expect(formatValue('test')).toBe('test');
+      expect(formatValue(true)).toBe(true);
+    });
+
+    it('should format Date objects as ISO strings', () => {
+      const date = new Date('2023-01-01T12:00:00Z');
+      expect(formatValue(date)).toBe('2023-01-01T12:00:00.000Z');
+    });
+
+    it('should format Error objects', () => {
       const error = new Error('Test error');
-      error.stack = 'a'.repeat(MAX_LOG_SIZE); // Very large stack trace
-      const entry = { error: formatError(error) };
+      const formatted = formatValue(error);
+      expect(formatted.message).toBe('Test error');
+      expect(formatted.name).toBe('Error');
+    });
+
+    it('should format arrays', () => {
+      const arr = [1, 'test', { a: 1 }];
+      const formatted = formatValue(arr);
+      expect(formatted).toEqual([1, 'test', { a: 1 }]);
+    });
+
+    it('should format functions', () => {
+      function testFn() {}
+      const formatted = formatValue(testFn);
+      expect(formatted).toBe('[Function: testFn]');
+    });
+
+    it('should format symbols', () => {
+      const sym = Symbol('test');
+      const formatted = formatValue(sym);
+      expect(formatted).toBe('Symbol(test)');
+    });
+
+    it('should format bigints', () => {
+      const big = BigInt(123);
+      const formatted = formatValue(big);
+      expect(formatted).toBe('123');
+    });
+
+    it('should truncate long strings', () => {
+      // Create a string longer than MAX_STRING_LENGTH (10000)
+      const longString = 'a'.repeat(15000);
+      const formatted = formatValue(longString);
       
-      // Act
-      const result = truncateLogEntry(entry);
-      
-      // Assert
-      expect(result.error).toHaveProperty('message', 'Test error');
-      expect(result.error).toHaveProperty('stack');
-      expect(result.error.stack.length).toBeLessThan(error.stack!.length);
+      expect(formatted.length).toBeLessThan(longString.length);
+      expect(formatted).toContain('... [truncated, 15000 chars total]');
+      expect(formatted.startsWith('a'.repeat(10000))).toBe(true);
+    });
+  });
+
+  describe('formatJourneyContext', () => {
+    it('should format health journey context', () => {
+      const context = {
+        journeyId: 'health-123',
+        step: 'metrics-input',
+        metricType: 'blood-pressure',
+        deviceId: 'device-456',
+      };
+
+      const formatted = formatJourneyContext(context, 'health');
+
+      expect(formatted.journeyType).toBe('health');
+      expect(formatted.journeyId).toBe('health-123');
+      expect(formatted.journeyStep).toBe('metrics-input');
+      expect(formatted.healthMetricType).toBe('blood-pressure');
+      expect(formatted.healthDeviceId).toBe('device-456');
+    });
+
+    it('should format care journey context', () => {
+      const context = {
+        journeyId: 'care-123',
+        step: 'appointment-booking',
+        appointmentId: 'appt-456',
+        providerId: 'provider-789',
+      };
+
+      const formatted = formatJourneyContext(context, 'care');
+
+      expect(formatted.journeyType).toBe('care');
+      expect(formatted.journeyId).toBe('care-123');
+      expect(formatted.journeyStep).toBe('appointment-booking');
+      expect(formatted.careAppointmentId).toBe('appt-456');
+      expect(formatted.careProviderId).toBe('provider-789');
+    });
+
+    it('should format plan journey context', () => {
+      const context = {
+        journeyId: 'plan-123',
+        step: 'claim-submission',
+        planId: 'plan-456',
+        claimId: 'claim-789',
+      };
+
+      const formatted = formatJourneyContext(context, 'plan');
+
+      expect(formatted.journeyType).toBe('plan');
+      expect(formatted.journeyId).toBe('plan-123');
+      expect(formatted.journeyStep).toBe('claim-submission');
+      expect(formatted.planId).toBe('plan-456');
+      expect(formatted.planClaimId).toBe('claim-789');
+    });
+
+    it('should use journey type from context if not explicitly provided', () => {
+      const context = {
+        journeyType: 'health',
+        journeyId: 'health-123',
+      };
+
+      const formatted = formatJourneyContext(context);
+
+      expect(formatted.journeyType).toBe('health');
+      expect(formatted.journeyId).toBe('health-123');
+    });
+
+    it('should handle empty or null context', () => {
+      expect(formatJourneyContext(null as any)).toEqual({});
+      expect(formatJourneyContext({})).toEqual({ journeyType: 'unknown' });
+    });
+  });
+
+  describe('formatLogLevel', () => {
+    it('should format string log levels', () => {
+      expect(formatLogLevel('debug')).toBe('DEBUG');
+      expect(formatLogLevel('INFO')).toBe('INFO');
+      expect(formatLogLevel('warn')).toBe('WARN');
+      expect(formatLogLevel('error')).toBe('ERROR');
+      expect(formatLogLevel('fatal')).toBe('FATAL');
+    });
+
+    it('should format enum log levels', () => {
+      expect(formatLogLevel(LogLevel.DEBUG)).toBe('DEBUG');
+      expect(formatLogLevel(LogLevel.INFO)).toBe('INFO');
+      expect(formatLogLevel(LogLevel.WARN)).toBe('WARN');
+      expect(formatLogLevel(LogLevel.ERROR)).toBe('ERROR');
+      expect(formatLogLevel(LogLevel.FATAL)).toBe('FATAL');
+    });
+
+    it('should handle unknown log levels', () => {
+      expect(formatLogLevel(99 as LogLevel)).toBe('UNKNOWN');
+    });
+  });
+
+  describe('redactSensitiveInfo', () => {
+    it('should redact sensitive fields in objects', () => {
+      const obj = {
+        username: 'testuser',
+        password: 'secret123',
+        apiKey: 'abc123xyz',
+        token: 'jwt-token-here',
+        data: {
+          userSecret: 'sensitive-data',
+          publicInfo: 'public-data',
+        },
+      };
+
+      const redacted = redactSensitiveInfo(obj);
+
+      expect(redacted.username).toBe('testuser');
+      expect(redacted.password).toBe('[REDACTED]');
+      expect(redacted.apiKey).toBe('[REDACTED]');
+      expect(redacted.token).toBe('[REDACTED]');
+      expect(redacted.data.userSecret).toBe('[REDACTED]');
+      expect(redacted.data.publicInfo).toBe('public-data');
+    });
+
+    it('should handle different types of sensitive data', () => {
+      const obj = {
+        passwordNumber: 12345,
+        secretArray: [1, 2, 3],
+        tokenObject: { id: 123 },
+        nullSecret: null,
+      };
+
+      const redacted = redactSensitiveInfo(obj);
+
+      expect(redacted.passwordNumber).toBe(0);
+      expect(redacted.secretArray).toEqual(['[REDACTED]']);
+      expect(redacted.tokenObject).toEqual({ redacted: true });
+      expect(redacted.nullSecret).toBeNull();
+    });
+
+    it('should handle arrays of objects with sensitive data', () => {
+      const obj = {
+        users: [
+          { id: 1, username: 'user1', password: 'pass1' },
+          { id: 2, username: 'user2', password: 'pass2' },
+        ],
+      };
+
+      const redacted = redactSensitiveInfo(obj);
+
+      expect(redacted.users[0].id).toBe(1);
+      expect(redacted.users[0].username).toBe('user1');
+      expect(redacted.users[0].password).toBe('[REDACTED]');
+      expect(redacted.users[1].id).toBe(2);
+      expect(redacted.users[1].username).toBe('user2');
+      expect(redacted.users[1].password).toBe('[REDACTED]');
+    });
+
+    it('should use custom sensitive keys if provided', () => {
+      const obj = {
+        username: 'testuser',
+        password: 'secret123', // standard sensitive key
+        customSensitive: 'hidden-data',
+        normalField: 'normal-data',
+      };
+
+      const redacted = redactSensitiveInfo(obj, ['password', 'customSensitive']);
+
+      expect(redacted.username).toBe('testuser');
+      expect(redacted.password).toBe('[REDACTED]');
+      expect(redacted.customSensitive).toBe('[REDACTED]');
+      expect(redacted.normalField).toBe('normal-data');
+    });
+
+    it('should handle non-object inputs', () => {
+      expect(redactSensitiveInfo(null as any)).toBeNull();
+      expect(redactSensitiveInfo('string' as any)).toBe('string');
+      expect(redactSensitiveInfo(123 as any)).toBe(123);
     });
   });
 });
