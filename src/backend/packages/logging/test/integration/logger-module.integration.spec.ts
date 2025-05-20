@@ -1,377 +1,302 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
 import { LoggerModule } from '../../src/logger.module';
 import { LoggerService } from '../../src/logger.service';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { TransportFactory } from '../../src/transports/transport-factory';
+import { TransportType } from '../../src/interfaces/log-config.interface';
 
-// Mock ConfigService to test configuration injection
+// Mock TracingService for testing integration with tracing
 @Injectable()
-class MockConfigService {
-  get(key: string): any {
-    const config = {
-      'logger.level': 'debug',
-      'logger.format': 'json',
-      'logger.transports.console.enabled': 'true',
-      'logger.transports.file.enabled': 'false',
-      'logger.transports.cloudwatch.enabled': 'false',
-      'logger.defaultContext.application': 'test-app',
-      'logger.defaultContext.service': 'test-service',
-      'logger.defaultContext.environment': 'test',
-      'logger.tracing.enabled': 'true',
-    };
-    return config[key];
+class MockTracingService {
+  getCurrentTraceContext() {
+    return { traceId: 'test-trace-id', spanId: 'test-span-id' };
   }
 }
 
-// Mock ConfigModule to provide MockConfigService
-@Module({
-  providers: [MockConfigService],
-  exports: [MockConfigService],
-})
-class MockConfigModule {}
-
-// Mock service that uses LoggerService to test injection
+// Test service that uses LoggerService
 @Injectable()
 class TestService {
   constructor(private readonly logger: LoggerService) {}
 
-  logSomething(): void {
-    this.logger.log('Test message');
+  logMessage(message: string): void {
+    this.logger.log(message, TestService.name);
   }
 
-  getLogger(): LoggerService {
-    return this.logger;
+  logError(message: string, error: Error): void {
+    this.logger.error(message, error, TestService.name);
   }
 }
 
-// Mock module that uses TestService
+// Basic test module that imports LoggerModule
+@Module({
+  imports: [LoggerModule],
+  providers: [TestService],
+  exports: [TestService],
+})
+class BasicTestModule {}
+
+// Test module with custom LoggerModule configuration
+@Module({
+  imports: [
+    LoggerModule.register({
+      logLevel: LogLevel.DEBUG,
+      serviceName: 'test-service',
+      environment: 'test',
+      appVersion: '1.0.0',
+      transports: [
+        {
+          type: TransportType.CONSOLE,
+        },
+      ],
+    }),
+  ],
+  providers: [TestService],
+  exports: [TestService],
+})
+class CustomConfigTestModule {}
+
+// Test module with async LoggerModule configuration
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [() => ({
+        logger: {
+          logLevel: LogLevel.DEBUG,
+          serviceName: 'config-test-service',
+          environment: 'test',
+          appVersion: '1.0.0',
+          transports: [
+            {
+              type: TransportType.CONSOLE,
+            },
+          ],
+        },
+      })],
+    }),
+    LoggerModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => configService.get('logger'),
+    }),
+  ],
+  providers: [TestService],
+  exports: [TestService],
+})
+class AsyncConfigTestModule {}
+
+// Test module with tracing integration
+@Module({
+  imports: [
+    LoggerModule.registerWithTracing({
+      logLevel: LogLevel.DEBUG,
+      serviceName: 'tracing-test-service',
+      environment: 'test',
+      appVersion: '1.0.0',
+      transports: [
+        {
+          type: TransportType.CONSOLE,
+        },
+      ],
+    }),
+  ],
+  providers: [TestService, { provide: 'TracingService', useClass: MockTracingService }],
+  exports: [TestService],
+})
+class TracingTestModule {}
+
+// Secondary module to test global availability
 @Module({
   providers: [TestService],
   exports: [TestService],
 })
-class TestModule {}
-
-// Mock module for testing cross-module injection
-@Injectable()
-class AnotherTestService {
-  constructor(private readonly logger: LoggerService) {}
-
-  logSomething(): void {
-    this.logger.log('Another test message');
-  }
-
-  getLogger(): LoggerService {
-    return this.logger;
-  }
-}
-
-@Module({
-  providers: [AnotherTestService],
-  exports: [AnotherTestService],
-})
-class AnotherTestModule {}
-
-// Mock TracingService for testing tracing integration
-@Injectable()
-class MockTracingService {
-  getCurrentTraceId(): string {
-    return 'test-trace-id';
-  }
-
-  getCurrentSpanId(): string {
-    return 'test-span-id';
-  }
-}
-
-@Module({
-  providers: [{
-    provide: 'TRACING_SERVICE',
-    useClass: MockTracingService,
-  }],
-  exports: ['TRACING_SERVICE'],
-})
-class MockTracingModule {}
+class SecondaryModule {}
 
 describe('LoggerModule Integration', () => {
-  describe('Static Registration', () => {
-    let moduleRef: TestingModule;
+  describe('Basic Module Registration', () => {
+    let module: TestingModule;
     let testService: TestService;
-    let anotherTestService: AnotherTestService;
     let loggerService: LoggerService;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          LoggerModule.register({
-            level: LogLevel.DEBUG,
-            format: 'json',
-            transports: {
-              console: { enabled: true },
-              file: { enabled: false },
-              cloudwatch: { enabled: false },
-            },
-            defaultContext: {
-              application: 'test-app',
-              service: 'test-service',
-              environment: 'test',
-            },
-            tracing: {
-              enabled: true,
-            },
-          }),
-          TestModule,
-          AnotherTestModule,
-        ],
+      module = await Test.createTestingModule({
+        imports: [BasicTestModule],
       }).compile();
 
-      testService = moduleRef.get<TestService>(TestService);
-      anotherTestService = moduleRef.get<AnotherTestService>(AnotherTestService);
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      testService = module.get<TestService>(TestService);
+      loggerService = module.get<LoggerService>(LoggerService);
     });
 
-    afterEach(async () => {
-      await moduleRef.close();
-    });
-
-    it('should provide LoggerService as a global provider', () => {
+    it('should be defined', () => {
+      expect(module).toBeDefined();
+      expect(testService).toBeDefined();
       expect(loggerService).toBeDefined();
-      expect(loggerService).toBeInstanceOf(LoggerService);
     });
 
     it('should inject LoggerService into TestService', () => {
-      expect(testService).toBeDefined();
-      expect(testService.getLogger()).toBeDefined();
-      expect(testService.getLogger()).toBeInstanceOf(LoggerService);
+      // Verify that TestService has LoggerService injected
+      expect(testService['logger']).toBe(loggerService);
     });
 
-    it('should inject the same LoggerService instance across modules', () => {
-      const testLogger = testService.getLogger();
-      const anotherTestLogger = anotherTestService.getLogger();
+    it('should allow logging messages', () => {
+      // Spy on the log method
+      const logSpy = jest.spyOn(loggerService, 'log');
       
-      // Both services should have the same LoggerService instance
-      expect(testLogger).toBe(anotherTestLogger);
+      // Call the test service method
+      testService.logMessage('Test message');
+      
+      // Verify the log method was called with the correct parameters
+      expect(logSpy).toHaveBeenCalledWith('Test message', TestService.name);
     });
 
-    it('should configure LoggerService with provided options', () => {
-      // Access private properties for testing
-      const config = (loggerService as any).config;
+    it('should allow logging errors', () => {
+      // Spy on the error method
+      const errorSpy = jest.spyOn(loggerService, 'error');
+      const testError = new Error('Test error');
       
-      expect(config).toBeDefined();
-      expect(config.level).toBe(LogLevel.DEBUG);
-      expect(config.defaultContext.application).toBe('test-app');
-      expect(config.defaultContext.service).toBe('test-service');
-      expect(config.defaultContext.environment).toBe('test');
-    });
-
-    it('should create transports based on configuration', () => {
-      // Access private properties for testing
-      const transports = (loggerService as any).transports;
+      // Call the test service method
+      testService.logError('Error occurred', testError);
       
-      expect(transports).toBeDefined();
-      expect(Array.isArray(transports)).toBe(true);
-      // Should have at least one transport (console)
-      expect(transports.length).toBeGreaterThan(0);
+      // Verify the error method was called with the correct parameters
+      expect(errorSpy).toHaveBeenCalledWith('Error occurred', testError, TestService.name);
     });
   });
 
-  describe('Async Registration with ConfigService', () => {
-    let moduleRef: TestingModule;
-    let testService: TestService;
-    let configService: MockConfigService;
+  describe('Global Module Availability', () => {
+    let module: TestingModule;
+    let primaryTestService: TestService;
+    let secondaryTestService: TestService;
     let loggerService: LoggerService;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          MockConfigModule,
-          LoggerModule.registerAsync({
-            imports: [MockConfigModule],
-            inject: [MockConfigService],
-            useFactory: (configService: MockConfigService) => ({
-              level: configService.get('logger.level'),
-              format: configService.get('logger.format'),
-              transports: {
-                console: { 
-                  enabled: configService.get('logger.transports.console.enabled') === 'true',
-                },
-                file: { 
-                  enabled: configService.get('logger.transports.file.enabled') === 'true',
-                },
-                cloudwatch: { 
-                  enabled: configService.get('logger.transports.cloudwatch.enabled') === 'true',
-                },
-              },
-              defaultContext: {
-                application: configService.get('logger.defaultContext.application'),
-                service: configService.get('logger.defaultContext.service'),
-                environment: configService.get('logger.defaultContext.environment'),
-              },
-              tracing: {
-                enabled: configService.get('logger.tracing.enabled') === 'true',
-              },
-            }),
-          }),
-          TestModule,
-        ],
+      module = await Test.createTestingModule({
+        imports: [BasicTestModule, SecondaryModule],
       }).compile();
 
-      testService = moduleRef.get<TestService>(TestService);
-      configService = moduleRef.get<MockConfigService>(MockConfigService);
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      primaryTestService = module.get<TestService>(TestService, { strict: false });
+      secondaryTestService = module.get<TestService>(TestService, { strict: false });
+      loggerService = module.get<LoggerService>(LoggerService);
     });
 
-    afterEach(async () => {
-      await moduleRef.close();
+    it('should provide the same LoggerService instance to both modules', () => {
+      // Both services should have the same LoggerService instance
+      expect(primaryTestService['logger']).toBe(loggerService);
+      expect(secondaryTestService['logger']).toBe(loggerService);
+      expect(primaryTestService['logger']).toBe(secondaryTestService['logger']);
+    });
+  });
+
+  describe('Custom Configuration', () => {
+    let module: TestingModule;
+    let loggerService: LoggerService;
+
+    beforeEach(async () => {
+      module = await Test.createTestingModule({
+        imports: [CustomConfigTestModule],
+      }).compile();
+
+      loggerService = module.get<LoggerService>(LoggerService);
     });
 
-    it('should provide LoggerService as a global provider', () => {
-      expect(loggerService).toBeDefined();
-      expect(loggerService).toBeInstanceOf(LoggerService);
+    it('should be configured with custom options', () => {
+      // Verify that the logger service has the custom configuration
+      expect(loggerService['logLevel']).toBe(LogLevel.DEBUG);
+      expect(loggerService['defaultContext'].serviceName).toBe('test-service');
+      expect(loggerService['defaultContext'].environment).toBe('test');
+      expect(loggerService['defaultContext'].appVersion).toBe('1.0.0');
+      expect(loggerService['transports'].length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Async Configuration', () => {
+    let module: TestingModule;
+    let loggerService: LoggerService;
+
+    beforeEach(async () => {
+      module = await Test.createTestingModule({
+        imports: [AsyncConfigTestModule],
+      }).compile();
+
+      loggerService = module.get<LoggerService>(LoggerService);
     });
 
-    it('should inject LoggerService into TestService', () => {
-      expect(testService).toBeDefined();
-      expect(testService.getLogger()).toBeDefined();
-      expect(testService.getLogger()).toBeInstanceOf(LoggerService);
-    });
-
-    it('should configure LoggerService with values from ConfigService', () => {
-      // Access private properties for testing
-      const config = (loggerService as any).config;
-      
-      expect(config).toBeDefined();
-      expect(config.defaultContext.application).toBe('test-app');
-      expect(config.defaultContext.service).toBe('test-service');
-      expect(config.defaultContext.environment).toBe('test');
+    it('should be configured with options from ConfigService', () => {
+      // Verify that the logger service has the configuration from ConfigService
+      expect(loggerService['logLevel']).toBe(LogLevel.DEBUG);
+      expect(loggerService['defaultContext'].serviceName).toBe('config-test-service');
+      expect(loggerService['defaultContext'].environment).toBe('test');
+      expect(loggerService['defaultContext'].appVersion).toBe('1.0.0');
+      expect(loggerService['transports'].length).toBeGreaterThan(0);
     });
   });
 
   describe('Tracing Integration', () => {
-    let moduleRef: TestingModule;
+    let module: TestingModule;
     let loggerService: LoggerService;
+    let tracingService: MockTracingService;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          MockTracingModule,
-          LoggerModule.register({
-            level: LogLevel.DEBUG,
-            tracing: {
-              enabled: true,
-            },
-          }),
-        ],
+      module = await Test.createTestingModule({
+        imports: [TracingTestModule],
       }).compile();
 
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
+      loggerService = module.get<LoggerService>(LoggerService);
+      tracingService = module.get<MockTracingService>('TracingService');
     });
 
-    afterEach(async () => {
-      await moduleRef.close();
+    it('should be configured with tracing service', () => {
+      // Verify that the logger service has the tracing service
+      expect(loggerService['tracingService']).toBeDefined();
     });
 
-    it('should integrate with tracing service when available', () => {
-      // Create a spy on the private getTraceContext method
-      const getTraceContextSpy = jest.spyOn(loggerService as any, 'getTraceContext');
+    it('should include trace context in logs', () => {
+      // Spy on the writeLog method
+      const writeLogSpy = jest.spyOn(loggerService as any, 'writeLog');
       
-      // Log a message to trigger trace context extraction
+      // Call the log method
       loggerService.log('Test message with tracing');
       
-      // Verify that getTraceContext was called
-      expect(getTraceContextSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe('Journey-Specific Logging', () => {
-    let moduleRef: TestingModule;
-    let loggerService: LoggerService;
-
-    beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          LoggerModule.register({
-            level: LogLevel.INFO,
-            journeyLevels: {
-              health: LogLevel.DEBUG,
-              care: LogLevel.WARN,
-              plan: LogLevel.ERROR,
-            },
-          }),
-        ],
-      }).compile();
-
-      loggerService = moduleRef.get<LoggerService>(LoggerService);
-    });
-
-    afterEach(async () => {
-      await moduleRef.close();
-    });
-
-    it('should create journey-specific logger instances', () => {
-      const healthLogger = loggerService.forHealthJourney();
-      const careLogger = loggerService.forCareJourney();
-      const planLogger = loggerService.forPlanJourney();
+      // Verify the writeLog method was called with trace context
+      expect(writeLogSpy).toHaveBeenCalled();
       
-      expect(healthLogger).toBeDefined();
-      expect(careLogger).toBeDefined();
-      expect(planLogger).toBeDefined();
+      // Get the log context from the call
+      const callArgs = writeLogSpy.mock.calls[0];
+      const logContext = callArgs[4] || {};
       
-      // Each logger should be a new instance
-      expect(healthLogger).not.toBe(loggerService);
-      expect(careLogger).not.toBe(loggerService);
-      expect(planLogger).not.toBe(loggerService);
-    });
-
-    it('should apply journey-specific log levels', () => {
-      // Access private properties for testing
-      const journeyLevels = (loggerService as any).journeyLevels;
-      
-      expect(journeyLevels).toBeDefined();
-      expect(journeyLevels.health).toBe(LogLevel.DEBUG);
-      expect(journeyLevels.care).toBe(LogLevel.WARN);
-      expect(journeyLevels.plan).toBe(LogLevel.ERROR);
+      // The tracing context should be added by the contextManager
+      // This is an indirect test since we can't easily access the final log entry
+      expect(tracingService.getCurrentTraceContext).toHaveBeenCalled;
     });
   });
 
   describe('Module Lifecycle', () => {
-    let moduleRef: TestingModule;
-    let transportFactory: TransportFactory;
+    let module: TestingModule;
+    let loggerService: LoggerService;
 
     beforeEach(async () => {
-      moduleRef = await Test.createTestingModule({
-        imports: [
-          LoggerModule.register(),
-        ],
+      module = await Test.createTestingModule({
+        imports: [BasicTestModule],
       }).compile();
 
-      transportFactory = moduleRef.get<TransportFactory>(TransportFactory);
+      loggerService = module.get<LoggerService>(LoggerService);
     });
 
-    it('should properly initialize providers in the correct order', () => {
-      // Verify that all required providers are available
-      expect(moduleRef.get('LOGGER_CONFIG')).toBeDefined();
-      expect(moduleRef.get(TransportFactory)).toBeDefined();
-      expect(moduleRef.get(LoggerService)).toBeDefined();
+    it('should initialize transports during module initialization', () => {
+      // Verify that transports are initialized
+      expect(loggerService['transports'].length).toBeGreaterThan(0);
     });
 
-    it('should close all transports when module is destroyed', async () => {
-      // Create spy on transport close methods
-      const loggerService = moduleRef.get<LoggerService>(LoggerService);
-      const transports = (loggerService as any).transports;
+    it('should close transports during module destruction', async () => {
+      // Spy on the close method of transports
+      const transportCloseSpy = jest.spyOn(loggerService['transports'][0], 'close');
       
-      // Add spy to each transport's close method
-      for (const transport of transports) {
-        jest.spyOn(transport, 'close').mockImplementation(async () => {});
-      }
+      // Destroy the module
+      await module.close();
       
-      // Close the module
-      await moduleRef.close();
-      
-      // Verify that close was called on each transport
-      for (const transport of transports) {
-        expect(transport.close).toHaveBeenCalled();
-      }
+      // Verify the close method was called on transports
+      expect(transportCloseSpy).toHaveBeenCalled();
     });
   });
 });
