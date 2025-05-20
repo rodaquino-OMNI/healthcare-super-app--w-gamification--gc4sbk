@@ -1,552 +1,461 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '@nestjs/common';
-import { Context, Span, SpanStatusCode, Tracer, trace } from '@opentelemetry/api';
-import { TracingModule } from '../../src';
-import { TracingService } from '../../src';
+import { TracingModule } from '../../src/tracing.module';
+import { TracingService } from '../../src/tracing.service';
+import {
+  Tracer,
+  SpanStatusCode,
+  Span,
+  SpanKind,
+  Context,
+  trace,
+  context,
+  SpanContext,
+  SpanStatus,
+  ROOT_CONTEXT,
+  createNoopMeter,
+  propagation,
+  TraceFlags,
+} from '@opentelemetry/api';
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+  ReadableSpan,
+  BatchSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 
 /**
- * Mock implementation of the OpenTelemetry Span interface for testing.
+ * Mock implementation of NestJS ConfigService for testing.
+ * Provides default configuration values for tracing tests.
  */
-export class MockSpan implements Span {
-  private _attributes: Record<string, unknown> = {};
-  private _events: Array<{ name: string; attributes?: Record<string, unknown> }> = [];
-  private _status: { code: SpanStatusCode; message?: string } = { code: SpanStatusCode.UNSET };
-  private _isRecording = true;
-  private _name: string;
-  private _endCalled = false;
-  private _exceptions: Error[] = [];
+export class MockConfigService implements Partial<ConfigService> {
+  private readonly configValues: Record<string, any>;
 
-  constructor(name: string) {
-    this._name = name;
-  }
-
-  spanContext() {
-    return {
-      traceId: 'mock-trace-id',
-      spanId: 'mock-span-id',
-      traceFlags: 1,
-      isRemote: false,
+  constructor(configOverrides: Record<string, any> = {}) {
+    this.configValues = {
+      'service.name': 'test-service',
+      ...configOverrides,
     };
   }
 
-  setAttribute(key: string, value: unknown): this {
-    this._attributes[key] = value;
-    return this;
-  }
-
-  setAttributes(attributes: Record<string, unknown>): this {
-    Object.entries(attributes).forEach(([key, value]) => {
-      this._attributes[key] = value;
-    });
-    return this;
-  }
-
-  addEvent(name: string, attributes?: Record<string, unknown>): this {
-    this._events.push({ name, attributes });
-    return this;
-  }
-
-  setStatus(status: { code: SpanStatusCode; message?: string }): this {
-    this._status = status;
-    return this;
-  }
-
-  updateName(name: string): this {
-    this._name = name;
-    return this;
-  }
-
-  end(): void {
-    this._endCalled = true;
-    this._isRecording = false;
-  }
-
-  isRecording(): boolean {
-    return this._isRecording;
-  }
-
-  recordException(exception: Error, time?: number): void {
-    this._exceptions.push(exception);
-    this.addEvent('exception', {
-      'exception.type': exception.name,
-      'exception.message': exception.message,
-      'exception.stacktrace': exception.stack,
-    });
-  }
-
-  // Test helper methods
-  get attributes(): Record<string, unknown> {
-    return { ...this._attributes };
-  }
-
-  get events(): Array<{ name: string; attributes?: Record<string, unknown> }> {
-    return [...this._events];
-  }
-
-  get status(): { code: SpanStatusCode; message?: string } {
-    return { ...this._status };
-  }
-
-  get name(): string {
-    return this._name;
-  }
-
-  get endCalled(): boolean {
-    return this._endCalled;
-  }
-
-  get exceptions(): Error[] {
-    return [...this._exceptions];
-  }
-}
-
-/**
- * Mock implementation of the OpenTelemetry Tracer interface for testing.
- */
-export class MockTracer implements Tracer {
-  private _spans: MockSpan[] = [];
-  private _activeSpans: Map<Context, MockSpan> = new Map();
-
-  startSpan(name: string, options?: any): MockSpan {
-    const span = new MockSpan(name);
-    this._spans.push(span);
-    
-    if (options?.root) {
-      // Create a new root span
-    } else if (options?.context) {
-      // Use the provided context
-      this._activeSpans.set(options.context, span);
-    } else {
-      // Use the current context
-      const currentSpan = trace.getSpan(trace.context());
-      if (currentSpan) {
-        // This would be a child span in a real implementation
-      }
-    }
-    
-    return span;
-  }
-
-  startActiveSpan<T>(name: string, fn: (span: MockSpan) => T): T;
-  startActiveSpan<T>(name: string, options: any, fn: (span: MockSpan) => T): T;
-  startActiveSpan<T>(
-    name: string,
-    optionsOrFn: any | ((span: MockSpan) => T),
-    maybeFn?: (span: MockSpan) => T
-  ): T {
-    const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
-    const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
-    
-    const span = this.startSpan(name, options);
-    try {
-      return fn!(span);
-    } finally {
-      span.end();
-    }
-  }
-
-  // Test helper methods
-  get spans(): MockSpan[] {
-    return [...this._spans];
-  }
-
-  reset(): void {
-    this._spans = [];
-    this._activeSpans.clear();
-  }
-
-  findSpanByName(name: string): MockSpan | undefined {
-    return this._spans.find(span => span.name === name);
-  }
-
-  findSpansByAttribute(key: string, value: unknown): MockSpan[] {
-    return this._spans.filter(span => span.attributes[key] === value);
-  }
-}
-
-/**
- * Mock implementation of the NestJS ConfigService for testing.
- */
-export class MockConfigService implements Partial<ConfigService> {
-  private _config: Record<string, any> = {
-    'service.name': 'test-service',
-    'tracing.enabled': true,
-    'tracing.exporter': 'console',
-  };
-
-  constructor(config?: Record<string, any>) {
-    if (config) {
-      this._config = { ...this._config, ...config };
-    }
-  }
-
   get<T>(propertyPath: string, defaultValue?: T): T {
-    return propertyPath in this._config
-      ? this._config[propertyPath]
-      : defaultValue as T;
-  }
-
-  // Test helper methods
-  set(propertyPath: string, value: any): void {
-    this._config[propertyPath] = value;
+    return (this.configValues[propertyPath] as T) ?? defaultValue;
   }
 }
 
 /**
- * Mock implementation of the NestJS LoggerService for testing.
+ * Mock implementation of NestJS LoggerService for testing.
+ * Captures log messages for verification in tests.
  */
 export class MockLoggerService implements LoggerService {
-  private _logs: Array<{ level: string; message: string; context?: string; trace?: string }> = [];
+  logs: { level: string; message: string; context?: string; meta?: any }[] = [];
 
-  log(message: string, context?: string): void {
-    this._logs.push({ level: 'log', message, context });
+  log(message: any, context?: string, meta?: any): void {
+    this.logs.push({ level: 'log', message, context, meta });
   }
 
-  error(message: string, trace?: string, context?: string): void {
-    this._logs.push({ level: 'error', message, trace, context });
+  error(message: any, trace?: string, context?: string, meta?: any): void {
+    this.logs.push({ level: 'error', message, context, meta });
   }
 
-  warn(message: string, context?: string): void {
-    this._logs.push({ level: 'warn', message, context });
+  warn(message: any, context?: string, meta?: any): void {
+    this.logs.push({ level: 'warn', message, context, meta });
   }
 
-  debug(message: string, context?: string): void {
-    this._logs.push({ level: 'debug', message, context });
+  debug(message: any, context?: string, meta?: any): void {
+    this.logs.push({ level: 'debug', message, context, meta });
   }
 
-  verbose(message: string, context?: string): void {
-    this._logs.push({ level: 'verbose', message, context });
+  verbose(message: any, context?: string, meta?: any): void {
+    this.logs.push({ level: 'verbose', message, context, meta });
   }
 
-  // Test helper methods
-  get logs(): Array<{ level: string; message: string; context?: string; trace?: string }> {
-    return [...this._logs];
+  /**
+   * Clears all captured logs.
+   */
+  clear(): void {
+    this.logs = [];
   }
 
-  reset(): void {
-    this._logs = [];
-  }
-
-  findLogsByLevel(level: string): Array<{ level: string; message: string; context?: string; trace?: string }> {
-    return this._logs.filter(log => log.level === level);
-  }
-
-  findLogsByMessage(substring: string): Array<{ level: string; message: string; context?: string; trace?: string }> {
-    return this._logs.filter(log => log.message.includes(substring));
-  }
-
-  findLogsByContext(context: string): Array<{ level: string; message: string; context?: string; trace?: string }> {
-    return this._logs.filter(log => log.context === context);
+  /**
+   * Finds logs matching the given criteria.
+   * @param level Log level to match
+   * @param messagePattern String or RegExp to match against log messages
+   * @param context Optional context to match
+   */
+  findLogs(level: string, messagePattern: string | RegExp, context?: string): any[] {
+    return this.logs.filter(log => {
+      const messageMatches = typeof messagePattern === 'string'
+        ? log.message.includes(messagePattern)
+        : messagePattern.test(log.message);
+      
+      return log.level === level && 
+             messageMatches && 
+             (context === undefined || log.context === context);
+    });
   }
 }
 
 /**
- * Options for creating a test module with tracing capabilities.
+ * Test utility for capturing OpenTelemetry spans during tests.
  */
-export interface CreateTestingModuleOptions {
-  /** Custom configuration for the ConfigService */
-  config?: Record<string, any>;
-  /** Custom tracer implementation */
-  tracer?: MockTracer;
-  /** Additional providers to include in the test module */
-  providers?: any[];
-  /** Additional imports to include in the test module */
-  imports?: any[];
+export class TestTraceExporter {
+  private readonly memoryExporter: InMemorySpanExporter;
+  private readonly provider: NodeTracerProvider;
+  private readonly tracer: Tracer;
+
+  constructor(serviceName: string = 'test-service') {
+    // Create an in-memory exporter for capturing spans
+    this.memoryExporter = new InMemorySpanExporter();
+    
+    // Create a tracer provider with the in-memory exporter
+    this.provider = new NodeTracerProvider({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
+      }),
+    });
+    
+    // Use SimpleSpanProcessor for immediate processing in tests
+    this.provider.addSpanProcessor(new SimpleSpanProcessor(this.memoryExporter));
+    
+    // Register the provider
+    this.provider.register();
+    
+    // Get a tracer instance
+    this.tracer = trace.getTracer(serviceName);
+  }
+
+  /**
+   * Gets the tracer instance.
+   */
+  getTracer(): Tracer {
+    return this.tracer;
+  }
+
+  /**
+   * Gets all captured spans.
+   */
+  getSpans(): ReadableSpan[] {
+    return this.memoryExporter.getFinishedSpans();
+  }
+
+  /**
+   * Finds spans matching the given name.
+   * @param name Span name to match
+   */
+  findSpans(name: string): ReadableSpan[] {
+    return this.memoryExporter.getFinishedSpans().filter(span => span.name === name);
+  }
+
+  /**
+   * Clears all captured spans.
+   */
+  clearSpans(): void {
+    this.memoryExporter.reset();
+  }
+
+  /**
+   * Shuts down the tracer provider.
+   */
+  async shutdown(): Promise<void> {
+    await this.provider.shutdown();
+  }
 }
 
 /**
- * Creates a NestJS testing module with TracingModule and mocked dependencies.
- * @param options Configuration options for the test module
- * @returns A promise that resolves to the compiled test module
+ * Creates a test NestJS module with TracingModule and mocked dependencies.
+ * @param configOverrides Optional configuration overrides for the mock ConfigService
+ * @returns A testing module factory with TracingModule and mocked dependencies
  */
-export async function createTestingModule(options: CreateTestingModuleOptions = {}): Promise<TestingModule> {
-  const mockConfigService = new MockConfigService(options.config);
+export async function createTestingTracingModule(
+  configOverrides: Record<string, any> = {}
+): Promise<TestingModule> {
+  const mockConfigService = new MockConfigService(configOverrides);
   const mockLoggerService = new MockLoggerService();
-  const mockTracer = options.tracer || new MockTracer();
 
-  // Create a spy on the trace.getTracer method to return our mock tracer
-  const getTracerSpy = jest.spyOn(trace, 'getTracer').mockReturnValue(mockTracer);
+  return Test.createTestingModule({
+    imports: [TracingModule],
+  })
+    .overrideProvider(ConfigService)
+    .useValue(mockConfigService)
+    .overrideProvider(LoggerService)
+    .useValue(mockLoggerService)
+    .compile();
+}
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [TracingModule, ...(options.imports || [])],
-    providers: [
-      {
-        provide: ConfigService,
-        useValue: mockConfigService,
-      },
-      {
-        provide: LoggerService,
-        useValue: mockLoggerService,
-      },
-      ...(options.providers || []),
-    ],
-  }).compile();
+/**
+ * Creates a test NestJS module with TracingService and mocked dependencies.
+ * @param configOverrides Optional configuration overrides for the mock ConfigService
+ * @returns A testing module factory with TracingService and mocked dependencies
+ */
+export async function createTestingTracingServiceModule(
+  configOverrides: Record<string, any> = {}
+): Promise<TestingModule> {
+  const mockConfigService = new MockConfigService(configOverrides);
+  const mockLoggerService = new MockLoggerService();
 
-  // Store the mocks on the module for easy access in tests
-  const testModule = moduleRef as TestingModule & {
-    mockConfigService: MockConfigService;
-    mockLoggerService: MockLoggerService;
-    mockTracer: MockTracer;
-    cleanupMocks: () => void;
+  return Test.createTestingModule({
+    providers: [TracingService],
+  })
+    .overrideProvider(ConfigService)
+    .useValue(mockConfigService)
+    .overrideProvider(LoggerService)
+    .useValue(mockLoggerService)
+    .compile();
+}
+
+/**
+ * Creates a mock span context for testing trace context propagation.
+ * @param traceId Optional trace ID (generated if not provided)
+ * @param spanId Optional span ID (generated if not provided)
+ * @param traceFlags Optional trace flags
+ * @param isRemote Whether the context is remote
+ * @returns A SpanContext object
+ */
+export function createMockSpanContext(
+  traceId?: string,
+  spanId?: string,
+  traceFlags: TraceFlags = TraceFlags.SAMPLED,
+  isRemote: boolean = false
+): SpanContext {
+  // Generate random trace and span IDs if not provided
+  const generatedTraceId = traceId || '0af7651916cd43dd8448eb211c80319c';
+  const generatedSpanId = spanId || 'b7ad6b7169203331';
+
+  return {
+    traceId: generatedTraceId,
+    spanId: generatedSpanId,
+    traceFlags,
+    isRemote,
+    traceState: undefined,
   };
+}
+
+/**
+ * Creates a mock active span context for testing.
+ * @param spanContext Optional span context (generated if not provided)
+ * @returns A Context object with the active span
+ */
+export function createMockActiveSpanContext(spanContext?: SpanContext): Context {
+  const mockContext = spanContext || createMockSpanContext();
+  return trace.setSpanContext(ROOT_CONTEXT, mockContext);
+}
+
+/**
+ * Simulates HTTP headers with trace context for testing context propagation.
+ * @param spanContext Optional span context to inject (generated if not provided)
+ * @returns HTTP headers with trace context
+ */
+export function createMockHttpHeadersWithTraceContext(spanContext?: SpanContext): Record<string, string> {
+  const mockContext = spanContext || createMockSpanContext();
+  const carrier: Record<string, string> = {};
   
-  testModule.mockConfigService = mockConfigService;
-  testModule.mockLoggerService = mockLoggerService;
-  testModule.mockTracer = mockTracer;
-  testModule.cleanupMocks = () => {
-    getTracerSpy.mockRestore();
-  };
-
-  return testModule;
+  propagation.inject(trace.setSpanContext(ROOT_CONTEXT, mockContext), carrier);
+  return carrier;
 }
 
 /**
- * Creates a mock HTTP request with trace context headers.
- * @param traceId Optional trace ID to include in the headers
- * @param spanId Optional span ID to include in the headers
- * @returns A mock HTTP request object with trace context headers
+ * Simulates Kafka message headers with trace context for testing context propagation.
+ * @param spanContext Optional span context to inject (generated if not provided)
+ * @returns Kafka message headers with trace context
  */
-export function createMockRequestWithTraceContext(traceId = 'test-trace-id', spanId = 'test-span-id'): any {
-  return {
-    headers: {
-      'traceparent': `00-${traceId}-${spanId}-01`,
-      'tracestate': 'austa=journey-health',
-    },
-  };
+export function createMockKafkaHeadersWithTraceContext(spanContext?: SpanContext): Record<string, Buffer> {
+  const mockContext = spanContext || createMockSpanContext();
+  const httpHeaders: Record<string, string> = {};
+  
+  propagation.inject(trace.setSpanContext(ROOT_CONTEXT, mockContext), httpHeaders);
+  
+  // Convert string headers to Buffer for Kafka
+  const kafkaHeaders: Record<string, Buffer> = {};
+  for (const [key, value] of Object.entries(httpHeaders)) {
+    kafkaHeaders[key] = Buffer.from(value);
+  }
+  
+  return kafkaHeaders;
 }
 
 /**
- * Creates a mock Kafka message with trace context.
- * @param traceId Optional trace ID to include in the headers
- * @param spanId Optional span ID to include in the headers
- * @returns A mock Kafka message object with trace context in headers
- */
-export function createMockKafkaMessageWithTraceContext(traceId = 'test-trace-id', spanId = 'test-span-id'): any {
-  return {
-    headers: {
-      'traceparent': Buffer.from(`00-${traceId}-${spanId}-01`),
-      'tracestate': Buffer.from('austa=journey-health'),
-    },
-    value: Buffer.from(JSON.stringify({ eventType: 'test-event' })),
-  };
-}
-
-/**
- * Assertion helpers for verifying span attributes and properties.
+ * Assertion helpers for verifying span properties.
  */
 export const SpanAssertions = {
   /**
-   * Verifies that a span has the expected attributes.
+   * Asserts that a span has the expected name.
    * @param span The span to check
-   * @param expectedAttributes The expected attributes as key-value pairs
-   * @throws Error if any expected attribute is missing or has an incorrect value
+   * @param expectedName The expected span name
    */
-  hasAttributes(span: MockSpan, expectedAttributes: Record<string, unknown>): void {
-    Object.entries(expectedAttributes).forEach(([key, value]) => {
-      expect(span.attributes).toHaveProperty(key);
-      expect(span.attributes[key]).toEqual(value);
-    });
-  },
-
-  /**
-   * Verifies that a span has an event with the expected name and attributes.
-   * @param span The span to check
-   * @param eventName The expected event name
-   * @param expectedAttributes Optional expected attributes for the event
-   * @throws Error if the event is not found or has incorrect attributes
-   */
-  hasEvent(span: MockSpan, eventName: string, expectedAttributes?: Record<string, unknown>): void {
-    const event = span.events.find(e => e.name === eventName);
-    expect(event).toBeDefined();
-    
-    if (expectedAttributes && event) {
-      Object.entries(expectedAttributes).forEach(([key, value]) => {
-        expect(event.attributes).toBeDefined();
-        expect(event.attributes).toHaveProperty(key);
-        expect(event.attributes![key]).toEqual(value);
-      });
+  hasName(span: ReadableSpan, expectedName: string): void {
+    if (span.name !== expectedName) {
+      throw new Error(`Expected span name to be "${expectedName}", but got "${span.name}"`);
     }
   },
 
   /**
-   * Verifies that a span has recorded an exception.
+   * Asserts that a span has the expected kind.
    * @param span The span to check
-   * @param errorType Optional expected error type (class name)
-   * @param errorMessageSubstring Optional substring that should be present in the error message
-   * @throws Error if no exception is recorded or it doesn't match the expected type/message
+   * @param expectedKind The expected span kind
    */
-  hasRecordedException(span: MockSpan, errorType?: string, errorMessageSubstring?: string): void {
-    expect(span.exceptions.length).toBeGreaterThan(0);
-    
-    if (errorType) {
-      expect(span.exceptions[0].name).toEqual(errorType);
+  hasKind(span: ReadableSpan, expectedKind: SpanKind): void {
+    if (span.kind !== expectedKind) {
+      throw new Error(`Expected span kind to be ${SpanKind[expectedKind]}, but got ${SpanKind[span.kind]}`);
     }
-    
-    if (errorMessageSubstring) {
-      expect(span.exceptions[0].message).toContain(errorMessageSubstring);
-    }
-    
-    // Also check for the exception event
-    const exceptionEvent = span.events.find(e => e.name === 'exception');
-    expect(exceptionEvent).toBeDefined();
   },
 
   /**
-   * Verifies that a span has the expected status.
+   * Asserts that a span has the expected status.
    * @param span The span to check
-   * @param expectedCode The expected status code
-   * @param expectedMessage Optional expected status message
-   * @throws Error if the status doesn't match the expected values
+   * @param expectedStatus The expected span status
    */
-  hasStatus(span: MockSpan, expectedCode: SpanStatusCode, expectedMessage?: string): void {
-    expect(span.status.code).toEqual(expectedCode);
-    
-    if (expectedMessage) {
-      expect(span.status.message).toEqual(expectedMessage);
+  hasStatus(span: ReadableSpan, expectedStatus: SpanStatusCode): void {
+    if (span.status.code !== expectedStatus) {
+      throw new Error(`Expected span status to be ${SpanStatusCode[expectedStatus]}, but got ${SpanStatusCode[span.status.code]}`);
     }
   },
 
   /**
-   * Verifies that a span has been ended.
+   * Asserts that a span has an attribute with the expected value.
    * @param span The span to check
-   * @throws Error if the span has not been ended
+   * @param key The attribute key
+   * @param expectedValue The expected attribute value
    */
-  hasBeenEnded(span: MockSpan): void {
-    expect(span.endCalled).toBe(true);
-    expect(span.isRecording()).toBe(false);
-  },
-};
-
-/**
- * Assertion helpers for verifying trace context propagation.
- */
-export const ContextPropagationAssertions = {
-  /**
-   * Verifies that HTTP headers contain valid trace context.
-   * @param headers The HTTP headers to check
-   * @throws Error if the headers don't contain valid trace context
-   */
-  httpHeadersHaveTraceContext(headers: Record<string, string>): void {
-    expect(headers).toHaveProperty('traceparent');
-    const traceparent = headers['traceparent'];
-    expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
-  },
-
-  /**
-   * Verifies that Kafka message headers contain valid trace context.
-   * @param headers The Kafka message headers to check
-   * @throws Error if the headers don't contain valid trace context
-   */
-  kafkaHeadersHaveTraceContext(headers: Record<string, Buffer>): void {
-    expect(headers).toHaveProperty('traceparent');
-    const traceparent = headers['traceparent'].toString();
-    expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
-  },
-
-  /**
-   * Verifies that a trace context contains journey-specific information.
-   * @param headers The headers containing trace context
-   * @param journeyType The expected journey type (health, care, plan)
-   * @throws Error if the headers don't contain the expected journey information
-   */
-  traceContextHasJourneyInfo(headers: Record<string, string | Buffer>, journeyType: 'health' | 'care' | 'plan'): void {
-    expect(headers).toHaveProperty('tracestate');
-    const tracestate = headers['tracestate'] instanceof Buffer 
-      ? headers['tracestate'].toString() 
-      : headers['tracestate'];
-    
-    expect(tracestate).toContain(`journey-${journeyType}`);
-  },
-};
-
-/**
- * Utility for testing the TracingService in isolation.
- */
-export class TracingServiceTestUtil {
-  private tracingService: TracingService;
-  private mockTracer: MockTracer;
-
-  /**
-   * Creates a new TracingServiceTestUtil instance.
-   * @param moduleRef The test module containing the TracingService
-   */
-  constructor(moduleRef: TestingModule & { mockTracer: MockTracer }) {
-    this.tracingService = moduleRef.get<TracingService>(TracingService);
-    this.mockTracer = moduleRef.mockTracer;
-  }
-
-  /**
-   * Executes a function within a traced span and returns the created span for assertions.
-   * @param spanName The name of the span to create
-   * @param fn The function to execute within the span
-   * @returns A promise that resolves to the created span
-   */
-  async executeInSpan<T>(spanName: string, fn: () => Promise<T>): Promise<{ result: T; span: MockSpan }> {
-    const result = await this.tracingService.createSpan(spanName, fn);
-    const span = this.mockTracer.findSpanByName(spanName);
-    
-    if (!span) {
-      throw new Error(`No span found with name: ${spanName}`);
+  hasAttribute(span: ReadableSpan, key: string, expectedValue: any): void {
+    const value = span.attributes[key];
+    if (value === undefined) {
+      throw new Error(`Expected span to have attribute "${key}", but it was not found`);
     }
     
-    return { result, span };
-  }
+    if (value !== expectedValue) {
+      throw new Error(`Expected span attribute "${key}" to be ${expectedValue}, but got ${value}`);
+    }
+  },
 
   /**
-   * Executes a function that throws an error within a traced span and returns the created span for assertions.
-   * @param spanName The name of the span to create
-   * @param error The error to throw
-   * @returns A promise that resolves to the created span
+   * Asserts that a span has recorded an exception.
+   * @param span The span to check
+   * @param errorNameOrMessage Optional error name or message to match
    */
-  async executeErrorInSpan(spanName: string, error: Error): Promise<MockSpan> {
-    try {
-      await this.tracingService.createSpan(spanName, async () => {
-        throw error;
-      });
-      throw new Error('Expected function to throw an error');
-    } catch (e) {
-      const span = this.mockTracer.findSpanByName(spanName);
+  hasRecordedException(span: ReadableSpan, errorNameOrMessage?: string): void {
+    const events = span.events;
+    const exceptionEvent = events.find(event => event.name === 'exception');
+    
+    if (!exceptionEvent) {
+      throw new Error('Expected span to have recorded an exception, but none was found');
+    }
+    
+    if (errorNameOrMessage) {
+      const errorType = exceptionEvent.attributes?.['exception.type'];
+      const errorMessage = exceptionEvent.attributes?.['exception.message'];
       
-      if (!span) {
-        throw new Error(`No span found with name: ${spanName}`);
+      if (errorType !== errorNameOrMessage && errorMessage !== errorNameOrMessage) {
+        throw new Error(`Expected exception to have name or message "${errorNameOrMessage}", but got type "${errorType}" and message "${errorMessage}"`);
       }
-      
-      return span;
     }
-  }
+  },
 
   /**
-   * Resets the mock tracer, clearing all recorded spans.
+   * Asserts that a span has a parent with the expected span ID.
+   * @param span The span to check
+   * @param expectedParentSpanId The expected parent span ID
    */
-  resetTracer(): void {
-    this.mockTracer.reset();
-  }
+  hasParent(span: ReadableSpan, expectedParentSpanId: string): void {
+    const parentSpanId = span.parentSpanId;
+    if (!parentSpanId) {
+      throw new Error('Expected span to have a parent, but it does not');
+    }
+    
+    if (parentSpanId !== expectedParentSpanId) {
+      throw new Error(`Expected parent span ID to be "${expectedParentSpanId}", but got "${parentSpanId}"`);
+    }
+  },
+};
 
-  /**
-   * Gets all spans recorded by the mock tracer.
-   * @returns An array of all recorded spans
-   */
-  getAllSpans(): MockSpan[] {
-    return this.mockTracer.spans;
-  }
+/**
+ * Runs a function within a traced context for testing.
+ * @param name The name of the span to create
+ * @param fn The function to execute within the span context
+ * @param tracer The tracer to use (creates a new one if not provided)
+ * @returns The result of the function execution
+ */
+export async function runWithTestSpan<T>(
+  name: string,
+  fn: (span: Span) => Promise<T>,
+  tracer?: Tracer
+): Promise<T> {
+  const testTracer = tracer || new TestTraceExporter().getTracer();
+  let result: T;
+  
+  await testTracer.startActiveSpan(name, async (span) => {
+    try {
+      result = await fn(span);
+      span.setStatus({ code: SpanStatusCode.OK });
+    } catch (error) {
+      span.recordException(error as Error);
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
+  
+  return result!;
+}
 
-  /**
-   * Finds a span by name.
-   * @param name The name of the span to find
-   * @returns The found span or undefined if not found
-   */
-  findSpanByName(name: string): MockSpan | undefined {
-    return this.mockTracer.findSpanByName(name);
-  }
+/**
+ * Creates a test service that uses TracingService for integration testing.
+ * @param tracingService The TracingService instance to use
+ * @returns A test service with traced methods
+ */
+export function createTestTracedService(tracingService: TracingService) {
+  return {
+    /**
+     * A test method that uses TracingService to create a span.
+     * @param input The input to process
+     * @returns The processed input
+     */
+    async processWithTracing(input: string): Promise<string> {
+      return tracingService.createSpan('process-operation', async () => {
+        // Simulate some processing
+        await new Promise(resolve => setTimeout(resolve, 10));
+        return `Processed: ${input}`;
+      });
+    },
 
-  /**
-   * Finds spans by attribute.
-   * @param key The attribute key to search for
-   * @param value The attribute value to match
-   * @returns An array of spans with matching attributes
-   */
-  findSpansByAttribute(key: string, value: unknown): MockSpan[] {
-    return this.mockTracer.findSpansByAttribute(key, value);
-  }
+    /**
+     * A test method that uses TracingService and throws an error.
+     * @param input The input to process
+     */
+    async processWithError(input: string): Promise<string> {
+      return tracingService.createSpan('error-operation', async () => {
+        // Simulate some processing that fails
+        await new Promise(resolve => setTimeout(resolve, 10));
+        throw new Error(`Failed to process: ${input}`);
+      });
+    },
+
+    /**
+     * A test method that creates nested spans using TracingService.
+     * @param input The input to process
+     * @returns The processed input
+     */
+    async processWithNestedSpans(input: string): Promise<string> {
+      return tracingService.createSpan('parent-operation', async () => {
+        // First nested operation
+        const result1 = await tracingService.createSpan('child-operation-1', async () => {
+          await new Promise(resolve => setTimeout(resolve, 10));
+          return `First: ${input}`;
+        });
+        
+        // Second nested operation
+        const result2 = await tracingService.createSpan('child-operation-2', async () => {
+          await new Promise(resolve => setTimeout(resolve, 10));
+          return `Second: ${result1}`;
+        });
+        
+        return result2;
+      });
+    },
+  };
 }
