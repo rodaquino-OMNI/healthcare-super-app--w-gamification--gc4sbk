@@ -1,29 +1,36 @@
 /**
- * @file Transport barrel file that exports all transport implementations and the transport factory.
- * This file provides a clean way to import logging transports throughout the application.
+ * @file Barrel file that exports all transport implementations and the transport factory.
  * @module @austa/logging/transports
  */
 
-// Export the Transport interface for consumers to implement custom transports
-export { Transport } from '../interfaces/transport.interface';
+// Re-export the Transport interface for convenience
+import { Transport } from '../interfaces/transport.interface';
 
 // Export all transport implementations
 export { ConsoleTransport } from './console.transport';
 export { FileTransport } from './file.transport';
 export { CloudWatchTransport } from './cloudwatch.transport';
 
-// Export the transport factory for simplified transport creation
+// Export the transport factory
 export { TransportFactory } from './transport-factory';
 
+// Re-export the Transport interface
+export { Transport };
+
 /**
- * Available transport types in the logging package.
- * Used for configuration and transport selection.
+ * @description This barrel file provides a clean way to import all logging transports
+ * throughout the application. It exports all transport implementations, the transport
+ * factory, and re-exports the Transport interface for convenience.
+ * 
+ * Example usage:
+ * ```typescript
+ * // Import specific transports
+ * import { ConsoleTransport, FileTransport } from '@austa/logging/transports';
+ * 
+ * // Import the transport factory
+ * import { TransportFactory } from '@austa/logging/transports';
+ * 
+ * // Import the Transport interface
+ * import { Transport } from '@austa/logging/transports';
+ * ```
  */
-export enum TransportType {
-  /** Writes logs to the console with optional colorization */
-  CONSOLE = 'console',
-  /** Writes logs to local files with rotation support */
-  FILE = 'file',
-  /** Sends logs to AWS CloudWatch Logs */
-  CLOUDWATCH = 'cloudwatch'
-}
