@@ -1,836 +1,986 @@
-import { IEventValidator, ValidationResult, ValidationError } from '../../../src/interfaces/event-validation.interface';
+import { jest } from '@jest/globals';
+import { v4 as uuidv4 } from 'uuid';
+import { validate } from 'class-validator';
 
-/**
- * Mock implementation of the IEventValidator interface for testing
- */
-class MockEventValidator implements IEventValidator {
+// Import validation utilities
+import {
+  ValidationError,
+  formatValidationErrors,
+  validateObject,
+  isUUID,
+  isISODate,
+  isValidJourney,
+  isValidEventType
+} from '../../../src/dto/validation';
+
+import { ERROR_CODES, ERROR_MESSAGES } from '../../../src/constants/errors.constants';
+
+// Define the IEventValidator interface for testing
+interface IEventValidator<T extends BaseEvent = BaseEvent> {
+  /**
+   * Validates an event asynchronously
+   * 
+   * @param event The event to validate
+   * @returns A promise resolving to the validation result
+   */
+  validate(event: T): Promise<ValidationResult>;
+  
   /**
    * Validates an event synchronously
+   * 
    * @param event The event to validate
-   * @returns A validation result
+   * @returns The validation result
    */
-  validate(event: any): ValidationResult {
-    if (!event) {
-      return {
-        isValid: false,
-        errors: [
-          {
-            code: 'EVENT_REQUIRED',
-            message: 'Event is required',
-            path: '',
-          },
-        ],
-      };
-    }
-
-    if (!event.type) {
-      return {
-        isValid: false,
-        errors: [
-          {
-            code: 'TYPE_REQUIRED',
-            message: 'Event type is required',
-            path: 'type',
-          },
-        ],
-      };
-    }
-
-    if (!event.userId) {
-      return {
-        isValid: false,
-        errors: [
-          {
-            code: 'USER_ID_REQUIRED',
-            message: 'User ID is required',
-            path: 'userId',
-          },
-        ],
-      };
-    }
-
-    return { isValid: true, errors: [] };
-  }
-
+  validateSync(event: T): ValidationResult;
+  
   /**
-   * Validates an event asynchronously
-   * @param event The event to validate
-   * @returns A promise that resolves to a validation result
+   * Gets the event type this validator can validate
+   * 
+   * @returns The event type string
    */
-  async validateAsync(event: any): Promise<ValidationResult> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(this.validate(event));
-      }, 10);
-    });
-  }
+  getEventType(): string;
+  
+  /**
+   * Checks if this validator can validate the given event
+   * 
+   * @param event The event to check
+   * @returns True if this validator can validate the event, false otherwise
+   */
+  canValidate(event: BaseEvent): boolean;
 }
 
-/**
- * Mock implementation of the IEventValidator interface that uses Zod for validation
- */
-class MockZodEventValidator implements IEventValidator {
+// Define the ValidationResult interface
+interface ValidationResult {
   /**
-   * Validates an event synchronously using Zod-like validation
-   * @param event The event to validate
-   * @returns A validation result
+   * Whether the validation passed
    */
-  validate(event: any): ValidationResult {
-    const errors: ValidationError[] = [];
-    
-    try {
-      // Simulate Zod validation
-      if (!event) {
-        throw new Error('Event is required');
-      }
-      
-      // Check required fields
-      if (!event.type) {
-        errors.push({
-          code: 'INVALID_TYPE',
-          message: 'Required',
-          path: 'type',
-        });
-      } else if (typeof event.type !== 'string') {
-        errors.push({
-          code: 'INVALID_TYPE',
-          message: 'Expected string, received ' + typeof event.type,
-          path: 'type',
-        });
-      }
-      
-      if (!event.timestamp) {
-        errors.push({
-          code: 'INVALID_TYPE',
-          message: 'Required',
-          path: 'timestamp',
-        });
-      } else if (isNaN(Date.parse(event.timestamp))) {
-        errors.push({
-          code: 'INVALID_STRING',
-          message: 'Invalid date string',
-          path: 'timestamp',
-        });
-      }
-      
-      if (!event.data) {
-        errors.push({
-          code: 'INVALID_TYPE',
-          message: 'Required',
-          path: 'data',
-        });
-      } else if (typeof event.data !== 'object') {
-        errors.push({
-          code: 'INVALID_TYPE',
-          message: 'Expected object, received ' + typeof event.data,
-          path: 'data',
-        });
-      }
-      
-      return {
-        isValid: errors.length === 0,
-        errors,
-      };
-    } catch (error) {
-      return {
-        isValid: false,
-        errors: [{
-          code: 'VALIDATION_ERROR',
-          message: error.message,
-          path: '',
-        }],
-      };
-    }
-  }
-
+  valid: boolean;
+  
   /**
-   * Validates an event asynchronously
-   * @param event The event to validate
-   * @returns A promise that resolves to a validation result
+   * The event ID that was validated
    */
-  async validateAsync(event: any): Promise<ValidationResult> {
-    return this.validate(event);
-  }
+  eventId: string;
+  
+  /**
+   * Validation errors, if any
+   */
+  errors?: ValidationError[];
+  
+  /**
+   * Additional metadata about the validation
+   */
+  metadata?: Record<string, any>;
 }
 
-/**
- * Mock implementation of the IEventValidator interface that performs business rule validation
- */
-class MockBusinessRuleValidator implements IEventValidator {
-  /**
-   * Validates an event against business rules
-   * @param event The event to validate
-   * @returns A validation result
-   */
-  validate(event: any): ValidationResult {
-    if (!event || !event.type) {
-      return {
-        isValid: false,
-        errors: [{
-          code: 'INVALID_EVENT',
-          message: 'Event or event type is missing',
-          path: event ? 'type' : '',
-        }],
-      };
-    }
-    
+// Define a basic event interface for testing
+interface BaseEvent {
+  eventId: string;
+  type: string;
+  journey: string;
+  timestamp: string;
+  userId: string;
+  payload: Record<string, any>;
+  metadata?: Record<string, any>;
+}
+
+// Define journey-specific event interfaces for testing
+interface HealthEvent extends BaseEvent {
+  journey: 'health';
+  type: 'HEALTH_METRIC_RECORDED' | 'HEALTH_GOAL_ACHIEVED' | 'DEVICE_SYNCHRONIZED';
+  payload: {
+    metricType?: string;
+    metricValue?: number;
+    metricUnit?: string;
+    goalId?: string;
+    deviceId?: string;
+    [key: string]: any;
+  };
+}
+
+interface CareEvent extends BaseEvent {
+  journey: 'care';
+  type: 'APPOINTMENT_BOOKED' | 'APPOINTMENT_COMPLETED' | 'MEDICATION_ADHERENCE';
+  payload: {
+    appointmentId?: string;
+    providerId?: string;
+    medicationId?: string;
+    [key: string]: any;
+  };
+}
+
+interface PlanEvent extends BaseEvent {
+  journey: 'plan';
+  type: 'CLAIM_SUBMITTED' | 'BENEFIT_UTILIZED' | 'PLAN_SELECTED';
+  payload: {
+    claimId?: string;
+    benefitId?: string;
+    planId?: string;
+    [key: string]: any;
+  };
+}
+
+// Mock implementations
+class MockSchemaValidator implements IEventValidator<BaseEvent> {
+  public validate = jest.fn().mockImplementation(async (event: BaseEvent) => {
+    return this.validateSync(event);
+  });
+
+  public validateSync = jest.fn().mockImplementation((event: BaseEvent) => {
+    // Basic schema validation
     const errors: ValidationError[] = [];
     
-    // Business rule: health metric events must have a valid value
-    if (event.type === 'HEALTH_METRIC_RECORDED' && event.data) {
-      if (!event.data.value) {
+    if (!event.eventId || !isUUID(event.eventId)) {
+      errors.push({
+        property: 'eventId',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'Event ID must be a valid UUID'
+      });
+    }
+    
+    if (!event.type || typeof event.type !== 'string' || event.type.trim() === '') {
+      errors.push({
+        property: 'type',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'Event type is required'
+      });
+    }
+    
+    if (!event.journey || !isValidJourney(event.journey)) {
+      errors.push({
+        property: 'journey',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'Journey must be a valid journey name'
+      });
+    }
+    
+    if (!event.timestamp || !isISODate(event.timestamp)) {
+      errors.push({
+        property: 'timestamp',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'Timestamp must be a valid ISO date string'
+      });
+    }
+    
+    if (!event.userId || !isUUID(event.userId)) {
+      errors.push({
+        property: 'userId',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'User ID must be a valid UUID'
+      });
+    }
+    
+    if (!event.payload || typeof event.payload !== 'object') {
+      errors.push({
+        property: 'payload',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'Payload must be an object'
+      });
+    }
+    
+    return {
+      valid: errors.length === 0,
+      eventId: event.eventId || 'unknown',
+      errors: errors.length > 0 ? errors : undefined,
+      metadata: {
+        validatorName: this.constructor.name,
+        validationType: 'schema'
+      }
+    };
+  });
+
+  public getEventType = jest.fn().mockReturnValue('ANY');
+
+  public canValidate = jest.fn().mockReturnValue(true);
+}
+
+class MockBusinessRuleValidator implements IEventValidator<HealthEvent> {
+  public validate = jest.fn().mockImplementation(async (event: HealthEvent) => {
+    return this.validateSync(event);
+  });
+
+  public validateSync = jest.fn().mockImplementation((event: HealthEvent) => {
+    // Business rule validation for health metrics
+    const errors: ValidationError[] = [];
+    
+    if (event.type === 'HEALTH_METRIC_RECORDED') {
+      const { metricType, metricValue, metricUnit } = event.payload;
+      
+      if (!metricType) {
         errors.push({
-          code: 'BUSINESS_RULE_VIOLATION',
-          message: 'Health metric must have a value',
-          path: 'data.value',
-        });
-      } else if (typeof event.data.value === 'number' && event.data.value <= 0) {
-        errors.push({
-          code: 'BUSINESS_RULE_VIOLATION',
-          message: 'Health metric value must be positive',
-          path: 'data.value',
+          property: 'payload.metricType',
+          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: 'Metric type is required for HEALTH_METRIC_RECORDED events'
         });
       }
       
-      if (!event.data.metricType) {
+      if (metricValue === undefined) {
         errors.push({
-          code: 'BUSINESS_RULE_VIOLATION',
-          message: 'Health metric must have a metric type',
-          path: 'data.metricType',
+          property: 'payload.metricValue',
+          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: 'Metric value is required for HEALTH_METRIC_RECORDED events'
         });
-      }
-    }
-    
-    // Business rule: appointment events must have a future date
-    if (event.type === 'APPOINTMENT_BOOKED' && event.data) {
-      if (!event.data.appointmentDate) {
+      } else if (typeof metricValue !== 'number') {
         errors.push({
-          code: 'BUSINESS_RULE_VIOLATION',
-          message: 'Appointment must have a date',
-          path: 'data.appointmentDate',
+          property: 'payload.metricValue',
+          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: 'Metric value must be a number'
         });
       } else {
-        const appointmentDate = new Date(event.data.appointmentDate);
-        const now = new Date();
-        
-        if (appointmentDate <= now) {
-          errors.push({
-            code: 'BUSINESS_RULE_VIOLATION',
-            message: 'Appointment date must be in the future',
-            path: 'data.appointmentDate',
-          });
+        // Validate metric value based on metric type
+        switch (metricType) {
+          case 'HEART_RATE':
+            if (metricValue < 30 || metricValue > 220) {
+              errors.push({
+                property: 'payload.metricValue',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: 'Heart rate must be between 30 and 220 bpm'
+              });
+            }
+            break;
+          case 'BLOOD_GLUCOSE':
+            if (metricValue < 20 || metricValue > 600) {
+              errors.push({
+                property: 'payload.metricValue',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: 'Blood glucose must be between 20 and 600 mg/dL'
+              });
+            }
+            break;
+          case 'STEPS':
+            if (metricValue < 0 || metricValue > 100000) {
+              errors.push({
+                property: 'payload.metricValue',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: 'Steps must be between 0 and 100,000'
+              });
+            }
+            break;
+          // Add more metric type validations as needed
+        }
+      }
+      
+      if (!metricUnit) {
+        errors.push({
+          property: 'payload.metricUnit',
+          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: 'Metric unit is required for HEALTH_METRIC_RECORDED events'
+        });
+      } else if (typeof metricUnit !== 'string') {
+        errors.push({
+          property: 'payload.metricUnit',
+          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+          message: 'Metric unit must be a string'
+        });
+      } else {
+        // Validate metric unit based on metric type
+        switch (metricType) {
+          case 'HEART_RATE':
+            if (metricUnit !== 'bpm') {
+              errors.push({
+                property: 'payload.metricUnit',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: "Heart rate unit must be 'bpm'"
+              });
+            }
+            break;
+          case 'BLOOD_GLUCOSE':
+            if (metricUnit !== 'mg/dL' && metricUnit !== 'mmol/L') {
+              errors.push({
+                property: 'payload.metricUnit',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: "Blood glucose unit must be 'mg/dL' or 'mmol/L'"
+              });
+            }
+            break;
+          case 'STEPS':
+            if (metricUnit !== 'steps') {
+              errors.push({
+                property: 'payload.metricUnit',
+                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                message: "Steps unit must be 'steps'"
+              });
+            }
+            break;
+          // Add more metric type validations as needed
         }
       }
     }
     
     return {
-      isValid: errors.length === 0,
-      errors,
+      valid: errors.length === 0,
+      eventId: event.eventId || 'unknown',
+      errors: errors.length > 0 ? errors : undefined,
+      metadata: {
+        validatorName: this.constructor.name,
+        validationType: 'business-rule',
+        journey: 'health'
+      }
     };
-  }
+  });
 
-  /**
-   * Validates an event asynchronously
-   * @param event The event to validate
-   * @returns A promise that resolves to a validation result
-   */
-  async validateAsync(event: any): Promise<ValidationResult> {
-    // Simulate async business rule validation that might involve database lookups
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(this.validate(event));
-      }, 10);
-    });
-  }
+  public getEventType = jest.fn().mockReturnValue('HEALTH_METRIC_RECORDED');
+
+  public canValidate = jest.fn().mockImplementation((event: BaseEvent) => {
+    return event.journey === 'health' && event.type === 'HEALTH_METRIC_RECORDED';
+  });
 }
 
-/**
- * Mock composite validator that combines multiple validators
- */
-class CompositeValidator implements IEventValidator {
+class MockAsyncValidator implements IEventValidator<BaseEvent> {
+  public validate = jest.fn().mockImplementation(async (event: BaseEvent) => {
+    // Simulate async validation (e.g., database lookup)
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    const errors: ValidationError[] = [];
+    
+    // Simulate validation that requires async operations
+    if (event.userId === '00000000-0000-0000-0000-000000000000') {
+      errors.push({
+        property: 'userId',
+        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+        message: 'User does not exist'
+      });
+    }
+    
+    return {
+      valid: errors.length === 0,
+      eventId: event.eventId,
+      errors: errors.length > 0 ? errors : undefined,
+      metadata: {
+        validatorName: this.constructor.name,
+        validationType: 'async',
+        validationTimeMs: 50
+      }
+    };
+  });
+
+  public validateSync = jest.fn().mockImplementation(() => {
+    throw new Error('This validator only supports async validation');
+  });
+
+  public getEventType = jest.fn().mockReturnValue('ANY');
+
+  public canValidate = jest.fn().mockReturnValue(true);
+}
+
+class MockCompositeValidator implements IEventValidator<BaseEvent> {
   private validators: IEventValidator[];
   
   constructor(validators: IEventValidator[]) {
     this.validators = validators;
   }
   
-  /**
-   * Validates an event using all registered validators
-   * @param event The event to validate
-   * @returns A validation result combining all validator results
-   */
-  validate(event: any): ValidationResult {
-    const allErrors: ValidationError[] = [];
+  public validate = jest.fn().mockImplementation(async (event: BaseEvent) => {
+    const results: ValidationResult[] = [];
     
+    // Run all validators
     for (const validator of this.validators) {
-      const result = validator.validate(event);
-      
-      if (!result.isValid) {
-        allErrors.push(...result.errors);
+      if (validator.canValidate(event)) {
+        results.push(await validator.validate(event));
       }
     }
     
-    return {
-      isValid: allErrors.length === 0,
-      errors: allErrors,
-    };
-  }
-  
-  /**
-   * Validates an event asynchronously using all registered validators
-   * @param event The event to validate
-   * @returns A promise that resolves to a validation result combining all validator results
-   */
-  async validateAsync(event: any): Promise<ValidationResult> {
-    const results = await Promise.all(
-      this.validators.map(validator => validator.validateAsync(event))
-    );
-    
+    // Combine results
     const allErrors: ValidationError[] = [];
-    
-    for (const result of results) {
-      if (!result.isValid) {
+    results.forEach(result => {
+      if (result.errors) {
         allErrors.push(...result.errors);
+      }
+    });
+    
+    return {
+      valid: allErrors.length === 0,
+      eventId: event.eventId,
+      errors: allErrors.length > 0 ? allErrors : undefined,
+      metadata: {
+        validatorName: this.constructor.name,
+        validationType: 'composite',
+        validatorCount: this.validators.length,
+        validatorsRun: results.length
+      }
+    };
+  });
+
+  public validateSync = jest.fn().mockImplementation((event: BaseEvent) => {
+    const results: ValidationResult[] = [];
+    
+    // Run all validators that support sync validation
+    for (const validator of this.validators) {
+      if (validator.canValidate(event)) {
+        try {
+          results.push(validator.validateSync(event));
+        } catch (error) {
+          // Skip validators that don't support sync validation
+        }
       }
     }
     
+    // Combine results
+    const allErrors: ValidationError[] = [];
+    results.forEach(result => {
+      if (result.errors) {
+        allErrors.push(...result.errors);
+      }
+    });
+    
     return {
-      isValid: allErrors.length === 0,
-      errors: allErrors,
+      valid: allErrors.length === 0,
+      eventId: event.eventId,
+      errors: allErrors.length > 0 ? allErrors : undefined,
+      metadata: {
+        validatorName: this.constructor.name,
+        validationType: 'composite',
+        validatorCount: this.validators.length,
+        validatorsRun: results.length
+      }
     };
-  }
+  });
+
+  public getEventType = jest.fn().mockReturnValue('ANY');
+
+  public canValidate = jest.fn().mockReturnValue(true);
 }
 
+// Test data
+const validBaseEvent: BaseEvent = {
+  eventId: uuidv4(),
+  type: 'TEST_EVENT',
+  journey: 'health',
+  timestamp: new Date().toISOString(),
+  userId: uuidv4(),
+  payload: {}
+};
+
+const validHealthEvent: HealthEvent = {
+  eventId: uuidv4(),
+  type: 'HEALTH_METRIC_RECORDED',
+  journey: 'health',
+  timestamp: new Date().toISOString(),
+  userId: uuidv4(),
+  payload: {
+    metricType: 'HEART_RATE',
+    metricValue: 75,
+    metricUnit: 'bpm'
+  }
+};
+
+const invalidHealthEvent: HealthEvent = {
+  eventId: uuidv4(),
+  type: 'HEALTH_METRIC_RECORDED',
+  journey: 'health',
+  timestamp: new Date().toISOString(),
+  userId: uuidv4(),
+  payload: {
+    metricType: 'HEART_RATE',
+    metricValue: 300, // Invalid value (too high)
+    metricUnit: 'bpm'
+  }
+};
+
+const invalidBaseEvent: Partial<BaseEvent> = {
+  eventId: 'not-a-uuid',
+  type: '',
+  journey: 'invalid-journey',
+  timestamp: 'not-a-date',
+  userId: 'not-a-uuid',
+  payload: null as any
+};
+
 describe('IEventValidator Interface', () => {
-  describe('Basic Validator Implementation', () => {
-    let validator: IEventValidator;
+  let schemaValidator: MockSchemaValidator;
+  let businessRuleValidator: MockBusinessRuleValidator;
+  let asyncValidator: MockAsyncValidator;
+  let compositeValidator: MockCompositeValidator;
+
+  beforeEach(() => {
+    schemaValidator = new MockSchemaValidator();
+    businessRuleValidator = new MockBusinessRuleValidator();
+    asyncValidator = new MockAsyncValidator();
+    compositeValidator = new MockCompositeValidator([
+      schemaValidator,
+      businessRuleValidator,
+      asyncValidator
+    ]);
     
-    beforeEach(() => {
-      validator = new MockEventValidator();
+    // Reset mocks before each test
+    jest.clearAllMocks();
+  });
+
+  describe('Interface Contract', () => {
+    it('should require validate, validateSync, getEventType, and canValidate methods', () => {
+      // Verify that the validator implements all required methods
+      expect(schemaValidator.validate).toBeDefined();
+      expect(schemaValidator.validateSync).toBeDefined();
+      expect(schemaValidator.getEventType).toBeDefined();
+      expect(schemaValidator.canValidate).toBeDefined();
+      
+      // Verify method types
+      expect(typeof schemaValidator.validate).toBe('function');
+      expect(typeof schemaValidator.validateSync).toBe('function');
+      expect(typeof schemaValidator.getEventType).toBe('function');
+      expect(typeof schemaValidator.canValidate).toBe('function');
     });
-    
-    it('should validate a valid event', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
+
+    it('should return a Promise<ValidationResult> from validate method', async () => {
+      const result = await schemaValidator.validate(validBaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+      // Verify result structure
+      expect(result).toHaveProperty('valid');
+      expect(result).toHaveProperty('eventId');
+      expect(typeof result.valid).toBe('boolean');
+      expect(result.eventId).toBe(validBaseEvent.eventId);
     });
-    
-    it('should reject an event without a type', () => {
-      const event = {
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
+
+    it('should return a ValidationResult from validateSync method', () => {
+      const result = schemaValidator.validateSync(validBaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('TYPE_REQUIRED');
-      expect(result.errors[0].path).toBe('type');
+      // Verify result structure
+      expect(result).toHaveProperty('valid');
+      expect(result).toHaveProperty('eventId');
+      expect(typeof result.valid).toBe('boolean');
+      expect(result.eventId).toBe(validBaseEvent.eventId);
     });
-    
-    it('should reject an event without a userId', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
+
+    it('should return a boolean from canValidate method', () => {
+      const result = schemaValidator.canValidate(validBaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('USER_ID_REQUIRED');
-      expect(result.errors[0].path).toBe('userId');
+      expect(typeof result).toBe('boolean');
     });
-    
-    it('should reject a null event', () => {
-      const result = validator.validate(null);
+
+    it('should return a string from getEventType method', () => {
+      const eventType = schemaValidator.getEventType();
       
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('EVENT_REQUIRED');
-    });
-    
-    it('should validate asynchronously', async () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
-      
-      const result = await validator.validateAsync(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-    
-    it('should reject an invalid event asynchronously', async () => {
-      const event = {
-        userId: '123', // Missing type
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
-      
-      const result = await validator.validateAsync(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('TYPE_REQUIRED');
+      expect(typeof eventType).toBe('string');
     });
   });
-  
-  describe('Zod-like Validator Implementation', () => {
-    let validator: IEventValidator;
-    
-    beforeEach(() => {
-      validator = new MockZodEventValidator();
+
+  describe('Validation Result Structure', () => {
+    it('should include valid flag in the result', async () => {
+      const validResult = await schemaValidator.validate(validBaseEvent);
+      const invalidResult = await schemaValidator.validate(invalidBaseEvent as BaseEvent);
+      
+      expect(validResult.valid).toBe(true);
+      expect(invalidResult.valid).toBe(false);
     });
-    
-    it('should validate a valid event', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
+
+    it('should include eventId in the result', async () => {
+      const result = await schemaValidator.validate(validBaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+      expect(result.eventId).toBe(validBaseEvent.eventId);
     });
-    
-    it('should reject an event with invalid type format', () => {
-      const event = {
-        type: 123, // Should be a string
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
+
+    it('should include errors array only when validation fails', async () => {
+      const validResult = await schemaValidator.validate(validBaseEvent);
+      const invalidResult = await schemaValidator.validate(invalidBaseEvent as BaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(e => e.path === 'type')).toBe(true);
-      expect(result.errors.find(e => e.path === 'type')?.message).toContain('Expected string');
+      expect(validResult.errors).toBeUndefined();
+      expect(invalidResult.errors).toBeDefined();
+      expect(Array.isArray(invalidResult.errors)).toBe(true);
+      expect(invalidResult.errors!.length).toBeGreaterThan(0);
     });
-    
-    it('should reject an event with invalid timestamp', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: 'not-a-date',
-        data: { test: 'data' },
-      };
+
+    it('should include metadata in the result', async () => {
+      const result = await schemaValidator.validate(validBaseEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(e => e.path === 'timestamp')).toBe(true);
-      expect(result.errors.find(e => e.path === 'timestamp')?.message).toBe('Invalid date string');
-    });
-    
-    it('should reject an event with invalid data type', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: 'not-an-object',
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(e => e.path === 'data')).toBe(true);
-      expect(result.errors.find(e => e.path === 'data')?.message).toContain('Expected object');
+      expect(result.metadata).toBeDefined();
+      expect(result.metadata!.validatorName).toBe('MockSchemaValidator');
+      expect(result.metadata!.validationType).toBe('schema');
     });
   });
-  
-  describe('Business Rule Validator Implementation', () => {
-    let validator: IEventValidator;
-    
-    beforeEach(() => {
-      validator = new MockBusinessRuleValidator();
+
+  describe('Error Structure', () => {
+    it('should include property name in each error', async () => {
+      const result = await schemaValidator.validate(invalidBaseEvent as BaseEvent);
+      
+      expect(result.errors).toBeDefined();
+      result.errors!.forEach(error => {
+        expect(error.property).toBeDefined();
+        expect(typeof error.property).toBe('string');
+      });
     });
-    
-    it('should validate a valid health metric event', () => {
-      const event = {
-        type: 'HEALTH_METRIC_RECORDED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
+
+    it('should include error code in each error', async () => {
+      const result = await schemaValidator.validate(invalidBaseEvent as BaseEvent);
+      
+      expect(result.errors).toBeDefined();
+      result.errors!.forEach(error => {
+        expect(error.errorCode).toBeDefined();
+        expect(typeof error.errorCode).toBe('string');
+        expect(error.errorCode).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      });
+    });
+
+    it('should include error message in each error', async () => {
+      const result = await schemaValidator.validate(invalidBaseEvent as BaseEvent);
+      
+      expect(result.errors).toBeDefined();
+      result.errors!.forEach(error => {
+        expect(error.message).toBeDefined();
+        expect(typeof error.message).toBe('string');
+        expect(error.message.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should optionally include constraints in errors', async () => {
+      // Create a validator that includes constraints
+      const validatorWithConstraints = {
+        validate: async () => ({
+          valid: false,
+          eventId: 'test',
+          errors: [{
+            property: 'test',
+            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+            message: 'Test error',
+            constraints: {
+              isString: 'must be a string',
+              isNotEmpty: 'should not be empty'
+            }
+          }],
+          metadata: {}
+        }),
+        validateSync: () => ({
+          valid: false,
+          eventId: 'test',
+          errors: [{
+            property: 'test',
+            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+            message: 'Test error',
+            constraints: {
+              isString: 'must be a string',
+              isNotEmpty: 'should not be empty'
+            }
+          }],
+          metadata: {}
+        }),
+        getEventType: () => 'TEST',
+        canValidate: () => true
+      };
+      
+      const result = await validatorWithConstraints.validate();
+      
+      expect(result.errors![0].constraints).toBeDefined();
+      expect(result.errors![0].constraints!.isString).toBe('must be a string');
+      expect(result.errors![0].constraints!.isNotEmpty).toBe('should not be empty');
+    });
+
+    it('should optionally include nested children errors', async () => {
+      // Create a validator that includes nested errors
+      const validatorWithNestedErrors = {
+        validate: async () => ({
+          valid: false,
+          eventId: 'test',
+          errors: [{
+            property: 'payload',
+            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+            message: 'Invalid payload',
+            children: [{
+              property: 'metricValue',
+              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+              message: 'Invalid metric value'
+            }]
+          }],
+          metadata: {}
+        }),
+        validateSync: () => ({
+          valid: false,
+          eventId: 'test',
+          errors: [{
+            property: 'payload',
+            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+            message: 'Invalid payload',
+            children: [{
+              property: 'metricValue',
+              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+              message: 'Invalid metric value'
+            }]
+          }],
+          metadata: {}
+        }),
+        getEventType: () => 'TEST',
+        canValidate: () => true
+      };
+      
+      const result = await validatorWithNestedErrors.validate();
+      
+      expect(result.errors![0].children).toBeDefined();
+      expect(result.errors![0].children!.length).toBe(1);
+      expect(result.errors![0].children![0].property).toBe('metricValue');
+      expect(result.errors![0].children![0].message).toBe('Invalid metric value');
+    });
+  });
+
+  describe('Schema Validation', () => {
+    it('should validate basic event schema', async () => {
+      const result = await schemaValidator.validate(validBaseEvent);
+      
+      expect(result.valid).toBe(true);
+      expect(result.errors).toBeUndefined();
+    });
+
+    it('should detect invalid event ID', async () => {
+      const event = { ...validBaseEvent, eventId: 'not-a-uuid' };
+      const result = await schemaValidator.validate(event);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'eventId')).toBe(true);
+    });
+
+    it('should detect invalid journey', async () => {
+      const event = { ...validBaseEvent, journey: 'invalid-journey' };
+      const result = await schemaValidator.validate(event);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'journey')).toBe(true);
+    });
+
+    it('should detect invalid timestamp', async () => {
+      const event = { ...validBaseEvent, timestamp: 'not-a-date' };
+      const result = await schemaValidator.validate(event);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'timestamp')).toBe(true);
+    });
+
+    it('should detect invalid user ID', async () => {
+      const event = { ...validBaseEvent, userId: 'not-a-uuid' };
+      const result = await schemaValidator.validate(event);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'userId')).toBe(true);
+    });
+
+    it('should detect missing or invalid payload', async () => {
+      const event = { ...validBaseEvent, payload: null as any };
+      const result = await schemaValidator.validate(event);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'payload')).toBe(true);
+    });
+  });
+
+  describe('Business Rule Validation', () => {
+    it('should validate business rules for valid events', async () => {
+      const result = await businessRuleValidator.validate(validHealthEvent);
+      
+      expect(result.valid).toBe(true);
+      expect(result.errors).toBeUndefined();
+    });
+
+    it('should detect business rule violations', async () => {
+      const result = await businessRuleValidator.validate(invalidHealthEvent);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'payload.metricValue')).toBe(true);
+    });
+
+    it('should validate metric type-specific rules', async () => {
+      // Test different metric types
+      const glucoseEvent: HealthEvent = {
+        ...validHealthEvent,
+        payload: {
+          metricType: 'BLOOD_GLUCOSE',
+          metricValue: 700, // Invalid (too high)
+          metricUnit: 'mg/dL'
+        }
+      };
+      
+      const result = await businessRuleValidator.validate(glucoseEvent);
+      
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'payload.metricValue')).toBe(true);
+    });
+
+    it('should validate metric unit based on metric type', async () => {
+      // Test invalid unit for metric type
+      const invalidUnitEvent: HealthEvent = {
+        ...validHealthEvent,
+        payload: {
           metricType: 'HEART_RATE',
-          value: 75,
-          unit: 'bpm',
-        },
+          metricValue: 75,
+          metricUnit: 'kg' // Invalid unit for heart rate
+        }
       };
       
-      const result = validator.validate(event);
+      const result = await businessRuleValidator.validate(invalidUnitEvent);
       
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-    
-    it('should reject a health metric event with missing value', () => {
-      const event = {
-        type: 'HEALTH_METRIC_RECORDED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          metricType: 'HEART_RATE',
-          unit: 'bpm',
-          // Missing value
-        },
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('BUSINESS_RULE_VIOLATION');
-      expect(result.errors[0].path).toBe('data.value');
-    });
-    
-    it('should reject a health metric event with non-positive value', () => {
-      const event = {
-        type: 'HEALTH_METRIC_RECORDED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          metricType: 'HEART_RATE',
-          value: 0, // Should be positive
-          unit: 'bpm',
-        },
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('BUSINESS_RULE_VIOLATION');
-      expect(result.errors[0].path).toBe('data.value');
-      expect(result.errors[0].message).toContain('positive');
-    });
-    
-    it('should validate a valid appointment event with future date', () => {
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 1); // Tomorrow
-      
-      const event = {
-        type: 'APPOINTMENT_BOOKED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: futureDate.toISOString(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-    
-    it('should reject an appointment event with past date', () => {
-      const pastDate = new Date();
-      pastDate.setDate(pastDate.getDate() - 1); // Yesterday
-      
-      const event = {
-        type: 'APPOINTMENT_BOOKED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: pastDate.toISOString(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].code).toBe('BUSINESS_RULE_VIOLATION');
-      expect(result.errors[0].path).toBe('data.appointmentDate');
-      expect(result.errors[0].message).toContain('future');
-    });
-    
-    it('should validate asynchronously', async () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: { test: 'data' },
-      };
-      
-      const result = await validator.validateAsync(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'payload.metricUnit')).toBe(true);
     });
   });
-  
-  describe('Composite Validator Implementation', () => {
-    let schemaValidator: IEventValidator;
-    let businessRuleValidator: IEventValidator;
-    let compositeValidator: IEventValidator;
-    
-    beforeEach(() => {
-      schemaValidator = new MockZodEventValidator();
-      businessRuleValidator = new MockBusinessRuleValidator();
-      compositeValidator = new CompositeValidator([
-        schemaValidator,
-        businessRuleValidator,
-      ]);
+
+  describe('Async Validation', () => {
+    it('should support asynchronous validation', async () => {
+      const result = await asyncValidator.validate(validBaseEvent);
+      
+      expect(result.valid).toBe(true);
+      expect(result.metadata!.validationType).toBe('async');
+      expect(result.metadata!.validationTimeMs).toBe(50);
     });
-    
-    it('should validate an event that passes all validators', () => {
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 1); // Tomorrow
+
+    it('should handle async validation failures', async () => {
+      const event = { ...validBaseEvent, userId: '00000000-0000-0000-0000-000000000000' };
+      const result = await asyncValidator.validate(event);
       
-      const event = {
-        type: 'APPOINTMENT_BOOKED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: futureDate.toISOString(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = compositeValidator.validate(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.some(e => e.property === 'userId')).toBe(true);
     });
-    
-    it('should reject an event that fails schema validation', () => {
-      const event = {
-        type: 123, // Should be a string
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          test: 'data',
-        },
-      };
-      
-      const result = compositeValidator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.errors.some(e => e.path === 'type')).toBe(true);
-    });
-    
-    it('should reject an event that fails business rule validation', () => {
-      const pastDate = new Date();
-      pastDate.setDate(pastDate.getDate() - 1); // Yesterday
-      
-      const event = {
-        type: 'APPOINTMENT_BOOKED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: pastDate.toISOString(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = compositeValidator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(e => e.path === 'data.appointmentDate')).toBe(true);
-    });
-    
-    it('should collect errors from all validators', () => {
-      const pastDate = new Date();
-      pastDate.setDate(pastDate.getDate() - 1); // Yesterday
-      
-      const event = {
-        type: 123, // Schema error: should be a string
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: pastDate.toISOString(), // Business rule error: should be in the future
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = compositeValidator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(1);
-      expect(result.errors.some(e => e.path === 'type')).toBe(true);
-      expect(result.errors.some(e => e.path === 'data.appointmentDate')).toBe(true);
-    });
-    
-    it('should validate asynchronously', async () => {
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 1); // Tomorrow
-      
-      const event = {
-        type: 'APPOINTMENT_BOOKED',
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: futureDate.toISOString(),
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = await compositeValidator.validateAsync(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-    
-    it('should collect errors from all validators asynchronously', async () => {
-      const pastDate = new Date();
-      pastDate.setDate(pastDate.getDate() - 1); // Yesterday
-      
-      const event = {
-        type: 123, // Schema error: should be a string
-        userId: '123',
-        timestamp: new Date().toISOString(),
-        data: {
-          appointmentDate: pastDate.toISOString(), // Business rule error: should be in the future
-          providerId: 'provider-123',
-          specialtyId: 'specialty-456',
-        },
-      };
-      
-      const result = await compositeValidator.validateAsync(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(1);
-      expect(result.errors.some(e => e.path === 'type')).toBe(true);
-      expect(result.errors.some(e => e.path === 'data.appointmentDate')).toBe(true);
+
+    it('should throw error when calling validateSync on async-only validator', () => {
+      expect(() => {
+        asyncValidator.validateSync(validBaseEvent);
+      }).toThrow('This validator only supports async validation');
     });
   });
-  
-  describe('ValidationResult Structure', () => {
-    let validator: IEventValidator;
-    
-    beforeEach(() => {
-      validator = new MockEventValidator();
+
+  describe('Validator Capability Detection', () => {
+    it('should correctly identify events it can validate', () => {
+      // Business rule validator should validate health metric events
+      expect(businessRuleValidator.canValidate(validHealthEvent)).toBe(true);
+      
+      // Business rule validator should not validate other event types
+      const otherEvent: BaseEvent = {
+        ...validBaseEvent,
+        type: 'OTHER_EVENT'
+      };
+      expect(businessRuleValidator.canValidate(otherEvent)).toBe(false);
     });
-    
-    it('should have isValid property', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
+
+    it('should check both event type and journey for capability detection', () => {
+      // Create a modified event with correct type but wrong journey
+      const wrongJourneyEvent = {
+        ...validHealthEvent,
+        journey: 'care' // Changed from 'health'
       };
       
-      const result = validator.validate(event);
-      
-      expect(result).toHaveProperty('isValid');
-      expect(typeof result.isValid).toBe('boolean');
-    });
-    
-    it('should have errors array property', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result).toHaveProperty('errors');
-      expect(Array.isArray(result.errors)).toBe(true);
-    });
-    
-    it('should have empty errors array when valid', () => {
-      const event = {
-        type: 'TEST_EVENT',
-        userId: '123',
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-    
-    it('should have populated errors array when invalid', () => {
-      const event = {
-        // Missing required fields
-      };
-      
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
+      // Validator should reject event with wrong journey
+      expect(businessRuleValidator.canValidate(wrongJourneyEvent as BaseEvent)).toBe(false);
     });
   });
-  
-  describe('ValidationError Structure', () => {
-    let validator: IEventValidator;
-    
-    beforeEach(() => {
-      validator = new MockZodEventValidator();
+
+  describe('Composite Validation', () => {
+    it('should run multiple validators', async () => {
+      const result = await compositeValidator.validate(validHealthEvent);
+      
+      expect(result.metadata!.validatorCount).toBe(3);
+      expect(result.metadata!.validatorsRun).toBe(3);
     });
-    
-    it('should have code property', () => {
-      const event = {
-        // Missing required fields
+
+    it('should combine errors from multiple validators', async () => {
+      // Create an event that will fail both schema and business rule validation
+      const multiErrorEvent = {
+        ...invalidHealthEvent,
+        userId: 'not-a-uuid' // Schema error
+        // Already has business rule error (metric value too high)
       };
       
-      const result = validator.validate(event);
+      const result = await compositeValidator.validate(multiErrorEvent as HealthEvent);
       
-      expect(result.isValid).toBe(false);
-      expect(result.errors[0]).toHaveProperty('code');
-      expect(typeof result.errors[0].code).toBe('string');
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      
+      // Should have both schema and business rule errors
+      const hasSchemaError = result.errors!.some(e => e.property === 'userId');
+      const hasBusinessRuleError = result.errors!.some(e => e.property === 'payload.metricValue');
+      
+      expect(hasSchemaError).toBe(true);
+      expect(hasBusinessRuleError).toBe(true);
     });
-    
-    it('should have message property', () => {
-      const event = {
-        // Missing required fields
+
+    it('should skip validators that cannot validate the event', async () => {
+      // Create an event that business rule validator cannot validate
+      const otherEvent: BaseEvent = {
+        ...validBaseEvent,
+        type: 'OTHER_EVENT'
       };
       
-      const result = validator.validate(event);
+      const result = await compositeValidator.validate(otherEvent);
       
-      expect(result.isValid).toBe(false);
-      expect(result.errors[0]).toHaveProperty('message');
-      expect(typeof result.errors[0].message).toBe('string');
+      // Only 2 validators should run (schema and async, not business rule)
+      expect(result.metadata!.validatorCount).toBe(3);
+      expect(result.metadata!.validatorsRun).toBe(2);
     });
-    
-    it('should have path property', () => {
-      const event = {
-        // Missing required fields
-      };
+
+    it('should handle sync validation with mixed validator types', () => {
+      // Sync validation should skip async-only validators
+      const result = compositeValidator.validateSync(validHealthEvent);
       
-      const result = validator.validate(event);
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors[0]).toHaveProperty('path');
-      expect(typeof result.errors[0].path).toBe('string');
+      // Only 2 validators should run (schema and business rule, not async)
+      expect(result.metadata!.validatorCount).toBe(3);
+      expect(result.metadata!.validatorsRun).toBe(2);
     });
-    
-    it('should format error messages properly', () => {
-      const event = {
-        type: 123, // Should be a string
-      };
+  });
+
+  describe('Validation Utility Functions', () => {
+    it('should format validation errors correctly', () => {
+      // Create raw class-validator errors
+      const rawErrors = [
+        {
+          property: 'eventId',
+          constraints: {
+            isUuid: 'eventId must be a UUID'
+          }
+        },
+        {
+          property: 'payload',
+          children: [
+            {
+              property: 'metricValue',
+              constraints: {
+                isNumber: 'metricValue must be a number'
+              }
+            }
+          ]
+        }
+      ];
       
-      const result = validator.validate(event);
+      // Format the errors
+      const formattedErrors = formatValidationErrors(rawErrors as any);
       
-      expect(result.isValid).toBe(false);
-      expect(result.errors.find(e => e.path === 'type')?.message).toContain('Expected string');
+      // Check structure
+      expect(formattedErrors.length).toBe(2);
+      expect(formattedErrors[0].property).toBe('eventId');
+      expect(formattedErrors[0].errorCode).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
+      expect(formattedErrors[0].message).toBe(ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]);
+      expect(formattedErrors[0].constraints!.isUuid).toBe('eventId must be a UUID');
+      
+      // Check nested errors
+      expect(formattedErrors[1].property).toBe('payload');
+      expect(formattedErrors[1].children!.length).toBe(1);
+      expect(formattedErrors[1].children![0].property).toBe('metricValue');
+      expect(formattedErrors[1].children![0].constraints!.isNumber).toBe('metricValue must be a number');
+    });
+
+    it('should validate objects using class-validator', async () => {
+      // Create a simple class with validation decorators
+      class TestEvent {
+        @IsUUID(4)
+        eventId!: string;
+      }
+      
+      // Test valid object
+      const validObject = new TestEvent();
+      validObject.eventId = uuidv4();
+      
+      const validResult = await validateObject(validObject);
+      expect(validResult).toBeNull();
+      
+      // Test invalid object
+      const invalidObject = new TestEvent();
+      invalidObject.eventId = 'not-a-uuid';
+      
+      const invalidResult = await validateObject(invalidObject);
+      expect(invalidResult).not.toBeNull();
+      expect(Array.isArray(invalidResult)).toBe(true);
+      expect(invalidResult!.length).toBe(1);
+      expect(invalidResult![0].property).toBe('eventId');
     });
   });
 });
