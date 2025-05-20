@@ -1,650 +1,469 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { LoggerModule } from '../../src/logger.module';
-import { LoggerService } from '../../src/logger.service';
+import { ModuleMetadata } from '@nestjs/common';
+import { LoggerModule } from '../../src';
+import { LoggerService } from '../../src';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
 import { Transport } from '../../src/interfaces/transport.interface';
-import { Formatter } from '../../src/formatters/formatter.interface';
-import { LogEntry } from '../../src/interfaces/log-entry.interface';
 import { LoggerConfig } from '../../src/interfaces/log-config.interface';
-import { JourneyType } from '../../src/context/context.constants';
-import { LoggingContext } from '../../src/context/context.interface';
+import { Formatter } from '../../src/formatters/formatter.interface';
+import { LogEntry } from '../../src/formatters/formatter.interface';
 import { JourneyContext } from '../../src/context/journey-context.interface';
-import { RequestContext } from '../../src/context/request-context.interface';
 import { UserContext } from '../../src/context/user-context.interface';
-import { ContextManager } from '../../src/context/context-manager';
-
-import {
-  MockTransport,
-  MockFormatter,
-  MockConfigService,
-  MockTracingService,
-} from '../mocks';
-
-import {
-  journeyData,
-  logContexts,
-  logEntries,
-  errorObjects,
-  configOptions,
-} from '../fixtures';
+import { RequestContext } from '../../src/context/request-context.interface';
+import { LoggingContext } from '../../src/context/context.interface';
 
 /**
- * A memory transport that captures logs for testing.
- * This transport stores all log entries in memory for later inspection.
+ * Mock implementation of the TracingService for testing purposes.
+ * This mock provides controlled trace context for integration tests.
  */
-export class MemoryTransport implements Transport {
-  public logs: LogEntry[] = [];
-  private formatter: Formatter;
-  private initialized = false;
+export class MockTracingService {
+  private traceId: string = 'test-trace-id';
+  private spanId: string = 'test-span-id';
 
-  constructor(formatter?: Formatter) {
-    this.formatter = formatter || new MockFormatter();
+  /**
+   * Gets the current trace ID
+   */
+  getCurrentTraceId(): string {
+    return this.traceId;
   }
 
+  /**
+   * Gets the current span ID
+   */
+  getCurrentSpanId(): string {
+    return this.spanId;
+  }
+
+  /**
+   * Sets a custom trace ID for testing
+   */
+  setTraceId(traceId: string): void {
+    this.traceId = traceId;
+  }
+
+  /**
+   * Sets a custom span ID for testing
+   */
+  setSpanId(spanId: string): void {
+    this.spanId = spanId;
+  }
+
+  /**
+   * Creates a new span for the given operation
+   * @param name Operation name
+   * @param options Span options
+   */
+  createSpan(name: string, options?: any): any {
+    return {
+      name,
+      traceId: this.traceId,
+      spanId: this.spanId,
+      end: jest.fn(),
+      setAttributes: jest.fn(),
+      recordException: jest.fn(),
+      setStatus: jest.fn(),
+    };
+  }
+
+  /**
+   * Injects trace context into carrier object
+   */
+  inject(carrier: any): void {
+    carrier['traceparent'] = `00-${this.traceId}-${this.spanId}-01`;
+  }
+
+  /**
+   * Extracts trace context from carrier object
+   */
+  extract(carrier: any): any {
+    return {
+      traceId: this.traceId,
+      spanId: this.spanId,
+    };
+  }
+}
+
+/**
+ * Mock transport implementation that captures logs for testing
+ */
+export class CapturingTransport implements Transport {
+  public logs: LogEntry[] = [];
+  public name = 'capturing-transport';
+  public initialized = false;
+  public closed = false;
+  public formatter: Formatter;
+
+  constructor(formatter: Formatter) {
+    this.formatter = formatter;
+  }
+
+  /**
+   * Initializes the transport
+   */
   async initialize(): Promise<void> {
     this.initialized = true;
-    return Promise.resolve();
-  }
-
-  async write(entry: LogEntry): Promise<void> {
-    if (!this.initialized) {
-      throw new Error('Transport not initialized');
-    }
-    this.logs.push({ ...entry });
-    return Promise.resolve();
-  }
-
-  async close(): Promise<void> {
-    this.initialized = false;
-    return Promise.resolve();
-  }
-
-  reset(): void {
     this.logs = [];
   }
 
+  /**
+   * Writes a log entry to the internal logs array
+   */
+  async write(entry: LogEntry): Promise<void> {
+    this.logs.push({ ...entry });
+  }
+
+  /**
+   * Closes the transport
+   */
+  async close(): Promise<void> {
+    this.closed = true;
+  }
+
+  /**
+   * Gets all captured logs
+   */
+  getCapturedLogs(): LogEntry[] {
+    return this.logs;
+  }
+
+  /**
+   * Clears all captured logs
+   */
+  clearLogs(): void {
+    this.logs = [];
+  }
+
+  /**
+   * Gets logs filtered by level
+   */
   getLogsByLevel(level: LogLevel): LogEntry[] {
     return this.logs.filter(log => log.level === level);
   }
 
+  /**
+   * Gets logs containing a specific message substring
+   */
   getLogsByMessage(messageSubstring: string): LogEntry[] {
     return this.logs.filter(log => 
-      log.message && log.message.includes(messageSubstring)
+      typeof log.message === 'string' && log.message.includes(messageSubstring)
     );
   }
 
-  getLogsByContext(contextMatcher: Partial<LoggingContext>): LogEntry[] {
-    return this.logs.filter(log => {
-      if (!log.context) return false;
-      
-      return Object.entries(contextMatcher).every(([key, value]) => {
-        return log.context && log.context[key] === value;
-      });
-    });
-  }
-
-  getLastLog(): LogEntry | undefined {
-    return this.logs.length > 0 ? this.logs[this.logs.length - 1] : undefined;
+  /**
+   * Gets logs with a specific context property value
+   */
+  getLogsByContextProperty(property: string, value: any): LogEntry[] {
+    return this.logs.filter(log => 
+      log.context && log.context[property] === value
+    );
   }
 }
 
 /**
- * Creates a test module with LoggerModule configured for testing.
- * @param config Optional logger configuration
- * @returns A promise that resolves to the test module
+ * Mock formatter that returns the log entry as-is for testing
  */
-export async function createTestingModule(
-  config?: Partial<LoggerConfig>
+export class PassthroughFormatter implements Formatter {
+  format(entry: LogEntry): string {
+    return JSON.stringify(entry);
+  }
+}
+
+/**
+ * Creates test fixtures for different context types
+ */
+export class ContextFixtures {
+  /**
+   * Creates a basic logging context
+   */
+  static createBaseContext(): LoggingContext {
+    return {
+      correlationId: 'test-correlation-id',
+      timestamp: new Date().toISOString(),
+      service: 'test-service',
+      environment: 'test',
+    };
+  }
+
+  /**
+   * Creates a request context for testing
+   */
+  static createRequestContext(): RequestContext {
+    return {
+      ...this.createBaseContext(),
+      requestId: 'test-request-id',
+      method: 'GET',
+      url: '/test/path',
+      userAgent: 'Test User Agent',
+      ip: '127.0.0.1',
+      path: '/test/path',
+      params: { id: '123' },
+      headers: { 'content-type': 'application/json' },
+    };
+  }
+
+  /**
+   * Creates a user context for testing
+   */
+  static createUserContext(): UserContext {
+    return {
+      ...this.createBaseContext(),
+      userId: 'test-user-id',
+      isAuthenticated: true,
+      roles: ['user'],
+      permissions: ['read:profile'],
+    };
+  }
+
+  /**
+   * Creates a journey context for testing
+   */
+  static createJourneyContext(journeyType: 'health' | 'care' | 'plan' = 'health'): JourneyContext {
+    return {
+      ...this.createBaseContext(),
+      journeyType,
+      journeyState: { currentStep: 'test-step' },
+      journeyId: 'test-journey-id',
+    };
+  }
+
+  /**
+   * Creates a combined context with request, user, and journey information
+   */
+  static createCombinedContext(): LoggingContext {
+    return {
+      ...this.createRequestContext(),
+      ...this.createUserContext(),
+      ...this.createJourneyContext(),
+    };
+  }
+}
+
+/**
+ * Configuration for test logger module
+ */
+export interface TestLoggerModuleConfig {
+  /**
+   * Custom logger configuration
+   */
+  loggerConfig?: Partial<LoggerConfig>;
+  
+  /**
+   * Additional providers to include in the test module
+   */
+  providers?: any[];
+  
+  /**
+   * Additional imports to include in the test module
+   */
+  imports?: any[];
+}
+
+/**
+ * Creates a test module with the LoggerModule and optional additional configuration
+ */
+export async function createTestLoggerModule(
+  config: TestLoggerModuleConfig = {}
 ): Promise<TestingModule> {
-  const memoryTransport = new MemoryTransport();
+  const { loggerConfig = {}, providers = [], imports = [] } = config;
   
-  const mockConfigService = new MockConfigService({
-    logger: {
-      level: LogLevel.DEBUG,
-      ...config,
-    },
-  });
-
-  const mockTracingService = new MockTracingService();
-
-  return Test.createTestingModule({
+  // Create a capturing transport for testing
+  const formatter = new PassthroughFormatter();
+  const transport = new CapturingTransport(formatter);
+  
+  // Default test configuration
+  const defaultConfig: LoggerConfig = {
+    level: LogLevel.DEBUG,
+    service: 'test-service',
+    transports: [transport],
+    defaultContext: ContextFixtures.createBaseContext(),
+  };
+  
+  const moduleMetadata: ModuleMetadata = {
     imports: [
       LoggerModule.forRoot({
-        level: LogLevel.DEBUG,
-        transports: [memoryTransport],
-        ...config,
+        ...defaultConfig,
+        ...loggerConfig,
       }),
+      ...imports,
     ],
     providers: [
       {
-        provide: 'CONFIG_SERVICE',
-        useValue: mockConfigService,
+        provide: 'TracingService',
+        useClass: MockTracingService,
       },
-      {
-        provide: 'TRACING_SERVICE',
-        useValue: mockTracingService,
-      },
+      ...providers,
     ],
-  }).compile();
-}
-
-/**
- * Creates a test module with LoggerModule and returns the LoggerService and MemoryTransport.
- * @param config Optional logger configuration
- * @returns A promise that resolves to an object containing the LoggerService and MemoryTransport
- */
-export async function createTestLogger(
-  config?: Partial<LoggerConfig>
-): Promise<{ logger: LoggerService; transport: MemoryTransport }> {
-  const memoryTransport = new MemoryTransport();
+  };
   
-  const module = await Test.createTestingModule({
-    imports: [
-      LoggerModule.forRoot({
-        level: LogLevel.DEBUG,
-        transports: [memoryTransport],
-        ...config,
-      }),
-    ],
-    providers: [
-      {
-        provide: 'CONFIG_SERVICE',
-        useValue: new MockConfigService({
-          logger: {
-            level: LogLevel.DEBUG,
-            ...config,
-          },
-        }),
-      },
-      {
-        provide: 'TRACING_SERVICE',
-        useValue: new MockTracingService(),
-      },
-    ],
-  }).compile();
-
-  const logger = module.get<LoggerService>(LoggerService);
-
-  return { logger, transport: memoryTransport };
+  return Test.createTestingModule(moduleMetadata).compile();
 }
 
 /**
- * Creates a journey context for testing.
- * @param journeyType The type of journey
- * @param additionalContext Additional context properties
- * @returns A journey context object
+ * Helper class for testing log assertions
  */
-export function createJourneyContext(
-  journeyType: JourneyType,
-  additionalContext: Partial<JourneyContext> = {}
-): JourneyContext {
-  return {
-    journeyId: `test-journey-${Date.now()}`,
-    journeyType,
-    correlationId: `test-correlation-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    ...additionalContext,
-  };
-}
-
-/**
- * Creates a request context for testing.
- * @param additionalContext Additional context properties
- * @returns A request context object
- */
-export function createRequestContext(
-  additionalContext: Partial<RequestContext> = {}
-): RequestContext {
-  return {
-    requestId: `test-request-${Date.now()}`,
-    method: 'GET',
-    url: '/test',
-    ip: '127.0.0.1',
-    userAgent: 'Test Agent',
-    correlationId: `test-correlation-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    ...additionalContext,
-  };
-}
-
-/**
- * Creates a user context for testing.
- * @param additionalContext Additional context properties
- * @returns A user context object
- */
-export function createUserContext(
-  additionalContext: Partial<UserContext> = {}
-): UserContext {
-  return {
-    userId: `test-user-${Date.now()}`,
-    isAuthenticated: true,
-    roles: ['user'],
-    correlationId: `test-correlation-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    ...additionalContext,
-  };
-}
-
-/**
- * Creates a combined context with journey, request, and user information.
- * @param journeyType The type of journey
- * @returns A combined context object
- */
-export function createCombinedContext(journeyType: JourneyType): LoggingContext {
-  const correlationId = `test-correlation-${Date.now()}`;
-  const timestamp = new Date().toISOString();
+export class LogAssertions {
+  private transport: CapturingTransport;
   
-  return {
-    journeyId: `test-journey-${Date.now()}`,
-    journeyType,
-    requestId: `test-request-${Date.now()}`,
-    method: 'GET',
-    url: '/test',
-    ip: '127.0.0.1',
-    userAgent: 'Test Agent',
-    userId: `test-user-${Date.now()}`,
-    isAuthenticated: true,
-    roles: ['user'],
-    correlationId,
-    timestamp,
-  };
-}
-
-/**
- * Assertion helper for verifying log entries.
- * @param log The log entry to verify
- * @param expected Expected properties of the log entry
- */
-export function assertLogEntry(
-  log: LogEntry,
-  expected: Partial<LogEntry>
-): void {
-  if (expected.level !== undefined) {
-    expect(log.level).toBe(expected.level);
+  constructor(transport: CapturingTransport) {
+    this.transport = transport;
   }
   
-  if (expected.message !== undefined) {
-    expect(log.message).toBe(expected.message);
+  /**
+   * Asserts that a log with the given level and message exists
+   */
+  assertLogExists(level: LogLevel, messageSubstring: string): void {
+    const logs = this.transport.getLogsByMessage(messageSubstring)
+      .filter(log => log.level === level);
+    
+    expect(logs.length).toBeGreaterThan(0);
   }
   
-  if (expected.context !== undefined) {
-    Object.entries(expected.context).forEach(([key, value]) => {
-      expect(log.context?.[key]).toBe(value);
-    });
+  /**
+   * Asserts that a log with the given context property exists
+   */
+  assertLogWithContextExists(property: string, value: any): void {
+    const logs = this.transport.getLogsByContextProperty(property, value);
+    
+    expect(logs.length).toBeGreaterThan(0);
   }
   
-  if (expected.error !== undefined) {
-    expect(log.error).toBeDefined();
-    if (typeof expected.error === 'string') {
-      expect(log.error.message).toBe(expected.error);
-    } else {
-      expect(log.error.message).toBe(expected.error.message);
+  /**
+   * Asserts that a log contains the expected trace correlation IDs
+   */
+  assertLogHasTraceIds(messageSubstring: string, traceId: string, spanId?: string): void {
+    const logs = this.transport.getLogsByMessage(messageSubstring);
+    
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0].context).toBeDefined();
+    expect(logs[0].context.correlationId).toBeDefined();
+    expect(logs[0].context.traceId).toEqual(traceId);
+    
+    if (spanId) {
+      expect(logs[0].context.spanId).toEqual(spanId);
     }
   }
-}
-
-/**
- * Waits for a specific log to appear in the transport.
- * @param transport The memory transport to check
- * @param predicate A function that returns true when the desired log is found
- * @param timeout Maximum time to wait in milliseconds
- * @returns A promise that resolves to the matching log entry or rejects if timeout is reached
- */
-export async function waitForLog(
-  transport: MemoryTransport,
-  predicate: (log: LogEntry) => boolean,
-  timeout = 1000
-): Promise<LogEntry> {
-  const startTime = Date.now();
   
-  return new Promise<LogEntry>((resolve, reject) => {
-    const checkLogs = () => {
-      const log = transport.logs.find(predicate);
-      
-      if (log) {
-        resolve(log);
-        return;
-      }
-      
-      if (Date.now() - startTime > timeout) {
-        reject(new Error(`Timeout waiting for log: ${timeout}ms`));
-        return;
-      }
-      
-      setTimeout(checkLogs, 10);
-    };
+  /**
+   * Asserts that a log contains journey-specific context
+   */
+  assertLogHasJourneyContext(messageSubstring: string, journeyType: string): void {
+    const logs = this.transport.getLogsByMessage(messageSubstring);
     
-    checkLogs();
-  });
-}
-
-/**
- * Creates a context manager with preset contexts for testing.
- * @param contexts Contexts to preset in the manager
- * @returns A context manager instance
- */
-export function createContextManager(
-  contexts: Partial<{
-    journey: JourneyContext;
-    request: RequestContext;
-    user: UserContext;
-  }> = {}
-): ContextManager {
-  const contextManager = new ContextManager();
-  
-  if (contexts.journey) {
-    contextManager.setJourneyContext(contexts.journey);
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0].context).toBeDefined();
+    expect(logs[0].context.journeyType).toEqual(journeyType);
+    expect(logs[0].context.journeyId).toBeDefined();
   }
   
-  if (contexts.request) {
-    contextManager.setRequestContext(contexts.request);
+  /**
+   * Asserts that a log contains user-specific context
+   */
+  assertLogHasUserContext(messageSubstring: string, userId: string): void {
+    const logs = this.transport.getLogsByMessage(messageSubstring);
+    
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0].context).toBeDefined();
+    expect(logs[0].context.userId).toEqual(userId);
+    expect(logs[0].context.isAuthenticated).toBeDefined();
   }
   
-  if (contexts.user) {
-    contextManager.setUserContext(contexts.user);
+  /**
+   * Asserts that a log contains request-specific context
+   */
+  assertLogHasRequestContext(messageSubstring: string, requestId: string): void {
+    const logs = this.transport.getLogsByMessage(messageSubstring);
+    
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0].context).toBeDefined();
+    expect(logs[0].context.requestId).toEqual(requestId);
+    expect(logs[0].context.method).toBeDefined();
+    expect(logs[0].context.url).toBeDefined();
   }
   
-  return contextManager;
+  /**
+   * Gets the transport for direct access to logs
+   */
+  getTransport(): CapturingTransport {
+    return this.transport;
+  }
 }
 
 /**
- * Utility to capture console output during tests.
- * @returns An object with methods to start and stop capturing, and get the captured output
+ * Creates a logger service and assertions helper for testing
  */
-export function createConsoleCapturer() {
-  const originalConsole = {
-    log: console.log,
-    error: console.error,
-    warn: console.warn,
-    debug: console.debug,
-    info: console.info,
-  };
+export async function createTestLogger(): Promise<{
+  module: TestingModule;
+  logger: LoggerService;
+  assertions: LogAssertions;
+  transport: CapturingTransport;
+  tracingService: MockTracingService;
+}> {
+  const formatter = new PassthroughFormatter();
+  const transport = new CapturingTransport(formatter);
   
-  let captured = {
-    log: [] as string[],
-    error: [] as string[],
-    warn: [] as string[],
-    debug: [] as string[],
-    info: [] as string[],
-  };
-  
-  return {
-    start() {
-      console.log = (...args: any[]) => {
-        captured.log.push(args.map(arg => String(arg)).join(' '));
-      };
-      
-      console.error = (...args: any[]) => {
-        captured.error.push(args.map(arg => String(arg)).join(' '));
-      };
-      
-      console.warn = (...args: any[]) => {
-        captured.warn.push(args.map(arg => String(arg)).join(' '));
-      };
-      
-      console.debug = (...args: any[]) => {
-        captured.debug.push(args.map(arg => String(arg)).join(' '));
-      };
-      
-      console.info = (...args: any[]) => {
-        captured.info.push(args.map(arg => String(arg)).join(' '));
-      };
+  const module = await createTestLoggerModule({
+    loggerConfig: {
+      transports: [transport],
     },
-    
-    stop() {
-      console.log = originalConsole.log;
-      console.error = originalConsole.error;
-      console.warn = originalConsole.warn;
-      console.debug = originalConsole.debug;
-      console.info = originalConsole.info;
-    },
-    
-    getOutput() {
-      return captured;
-    },
-    
-    reset() {
-      captured = {
-        log: [],
-        error: [],
-        warn: [],
-        debug: [],
-        info: [],
-      };
-    },
-  };
-}
-
-/**
- * Creates a file system mock for testing file transports.
- * @returns A mock file system object
- */
-export function createFilesystemMock() {
-  const files: Record<string, string> = {};
-  
-  return {
-    writeFile(path: string, data: string): Promise<void> {
-      files[path] = data;
-      return Promise.resolve();
-    },
-    
-    readFile(path: string): Promise<string> {
-      if (!files[path]) {
-        return Promise.reject(new Error(`File not found: ${path}`));
-      }
-      return Promise.resolve(files[path]);
-    },
-    
-    exists(path: string): Promise<boolean> {
-      return Promise.resolve(path in files);
-    },
-    
-    getFiles(): Record<string, string> {
-      return { ...files };
-    },
-    
-    reset(): void {
-      Object.keys(files).forEach(key => {
-        delete files[key];
-      });
-    },
-  };
-}
-
-/**
- * Creates a mock AWS CloudWatch client for testing CloudWatch transport.
- * @returns A mock CloudWatch client
- */
-export function createCloudWatchMock() {
-  const logGroups: Record<string, any> = {};
-  const logStreams: Record<string, any> = {};
-  const logEvents: Record<string, any[]> = {};
-  
-  return {
-    createLogGroup(params: { logGroupName: string }): Promise<void> {
-      logGroups[params.logGroupName] = { created: new Date() };
-      return Promise.resolve();
-    },
-    
-    createLogStream(params: { logGroupName: string; logStreamName: string }): Promise<void> {
-      const key = `${params.logGroupName}:${params.logStreamName}`;
-      logStreams[key] = { created: new Date() };
-      logEvents[key] = [];
-      return Promise.resolve();
-    },
-    
-    putLogEvents(params: { 
-      logGroupName: string; 
-      logStreamName: string; 
-      logEvents: Array<{ message: string; timestamp: number }> 
-    }): Promise<{ nextSequenceToken: string }> {
-      const key = `${params.logGroupName}:${params.logStreamName}`;
-      
-      if (!logStreams[key]) {
-        return Promise.reject(new Error(`Log stream not found: ${key}`));
-      }
-      
-      logEvents[key] = [...logEvents[key], ...params.logEvents];
-      
-      return Promise.resolve({
-        nextSequenceToken: `token-${Date.now()}`,
-      });
-    },
-    
-    getLogEvents(params: { logGroupName: string; logStreamName: string }): Promise<{ events: any[] }> {
-      const key = `${params.logGroupName}:${params.logStreamName}`;
-      
-      if (!logStreams[key]) {
-        return Promise.reject(new Error(`Log stream not found: ${key}`));
-      }
-      
-      return Promise.resolve({
-        events: logEvents[key] || [],
-      });
-    },
-    
-    reset(): void {
-      Object.keys(logGroups).forEach(key => {
-        delete logGroups[key];
-      });
-      
-      Object.keys(logStreams).forEach(key => {
-        delete logStreams[key];
-      });
-      
-      Object.keys(logEvents).forEach(key => {
-        delete logEvents[key];
-      });
-    },
-  };
-}
-
-/**
- * Utility to create a test error with a predictable stack trace.
- * @param message Error message
- * @param additionalProperties Additional properties to add to the error
- * @returns An Error object with the specified properties
- */
-export function createTestError(
-  message: string,
-  additionalProperties: Record<string, any> = {}
-): Error {
-  const error = new Error(message);
-  
-  Object.entries(additionalProperties).forEach(([key, value]) => {
-    (error as any)[key] = value;
   });
   
-  return error;
+  const logger = module.get<LoggerService>(LoggerService);
+  const tracingService = module.get<MockTracingService>('TracingService');
+  const assertions = new LogAssertions(transport);
+  
+  return {
+    module,
+    logger,
+    assertions,
+    transport,
+    tracingService,
+  };
 }
 
 /**
- * Utility to create a test validation error with field-specific details.
- * @param message Overall error message
- * @param fieldErrors Map of field names to error messages
- * @returns A validation error object
+ * Helper to create a test error with stack trace for testing error logging
  */
-export function createValidationError(
-  message: string,
-  fieldErrors: Record<string, string[]>
-): Error {
-  const error = new Error(message);
-  (error as any).name = 'ValidationError';
-  (error as any).fieldErrors = fieldErrors;
-  
-  return error;
+export function createTestError(message: string = 'Test error'): Error {
+  return new Error(message);
 }
 
 /**
- * Utility to create a test business error with a specific error code.
- * @param message Error message
- * @param code Error code
- * @param additionalProperties Additional properties to add to the error
- * @returns A business error object
+ * Helper to create a test HTTP request object for testing request context
  */
-export function createBusinessError(
-  message: string,
-  code: string,
-  additionalProperties: Record<string, any> = {}
-): Error {
-  const error = new Error(message);
-  (error as any).name = 'BusinessError';
-  (error as any).code = code;
-  
-  Object.entries(additionalProperties).forEach(([key, value]) => {
-    (error as any)[key] = value;
-  });
-  
-  return error;
+export function createTestRequest(overrides: Partial<any> = {}): any {
+  return {
+    id: 'test-request-id',
+    method: 'GET',
+    url: '/test/path',
+    headers: {
+      'user-agent': 'Test User Agent',
+      'content-type': 'application/json',
+    },
+    ip: '127.0.0.1',
+    params: {},
+    query: {},
+    body: {},
+    ...overrides,
+  };
 }
 
 /**
- * Utility to create a test external dependency error.
- * @param message Error message
- * @param service Name of the external service
- * @param originalError Original error from the external service
- * @returns An external dependency error object
+ * Helper to create a test HTTP response object for testing
  */
-export function createExternalError(
-  message: string,
-  service: string,
-  originalError?: Error
-): Error {
-  const error = new Error(message);
-  (error as any).name = 'ExternalDependencyError';
-  (error as any).service = service;
-  
-  if (originalError) {
-    (error as any).cause = originalError;
-  }
-  
-  return error;
+export function createTestResponse(overrides: Partial<any> = {}): any {
+  return {
+    statusCode: 200,
+    getHeaders: () => ({
+      'content-type': 'application/json',
+    }),
+    ...overrides,
+  };
 }
 
 /**
- * Utility to create a test database error.
- * @param message Error message
- * @param code Database error code
- * @param query The query that caused the error
- * @returns A database error object
+ * Helper to wait for all async operations to complete
+ * Useful for testing async logging operations
  */
-export function createDatabaseError(
-  message: string,
-  code: string,
-  query?: string
-): Error {
-  const error = new Error(message);
-  (error as any).name = 'DatabaseError';
-  (error as any).code = code;
-  
-  if (query) {
-    (error as any).query = query;
-  }
-  
-  return error;
+export async function flushPromises(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
 }
-
-/**
- * Utility to create a test timeout error.
- * @param message Error message
- * @param timeoutMs Timeout in milliseconds
- * @param operation The operation that timed out
- * @returns A timeout error object
- */
-export function createTimeoutError(
-  message: string,
-  timeoutMs: number,
-  operation: string
-): Error {
-  const error = new Error(message);
-  (error as any).name = 'TimeoutError';
-  (error as any).timeoutMs = timeoutMs;
-  (error as any).operation = operation;
-  
-  return error;
-}
-
-/**
- * Exports all fixtures for convenience in tests.
- */
-export { journeyData, logContexts, logEntries, errorObjects, configOptions };
