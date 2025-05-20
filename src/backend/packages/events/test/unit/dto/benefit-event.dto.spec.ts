@@ -1,528 +1,647 @@
-import { plainToInstance } from 'class-transformer';
+/**
+ * @file benefit-event.dto.spec.ts
+ * @description Unit tests for the BenefitEventDto class that validate benefit utilization,
+ * redemption, and status change events. Tests verify benefit type validation, utilization tracking,
+ * redemption validation, and benefit value calculation.
+ *
+ * @module events/test/unit/dto
+ */
+
 import { validate } from 'class-validator';
-import { v4 as uuidv4 } from 'uuid';
+import { plainToClass } from 'class-transformer';
 import {
   BenefitEventDto,
-  BenefitEventType,
   BenefitUtilizedEventDto,
-  BenefitRedeemedEventDto,
-  BenefitStatusChangedEventDto,
+  BenefitRedemptionEventDto,
+  BenefitStatusChangeEventDto,
+  BenefitData,
+  BenefitType,
   BenefitCategory,
-  BenefitStatus,
+  BenefitStatus
 } from '../../../src/dto/benefit-event.dto';
-import {
-  hasValidationErrors,
-  hasPropertyValidationError,
-  hasConstraintValidationError,
-} from './test-utils';
+import { EventType } from '../../../src/dto/event-types.enum';
 
 describe('BenefitEventDto', () => {
-  describe('Type Discrimination', () => {
-    it('should correctly transform to BenefitUtilizedEventDto when eventType is BENEFIT_UTILIZED', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(errors.length).toBe(0);
-      expect(dto.eventType).toBe(BenefitEventType.BENEFIT_UTILIZED);
-      expect(dto.data).toBeInstanceOf(BenefitUtilizedEventDto);
-    });
-
-    it('should correctly transform to BenefitRedeemedEventDto when eventType is BENEFIT_REDEEMED', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(errors.length).toBe(0);
-      expect(dto.eventType).toBe(BenefitEventType.BENEFIT_REDEEMED);
-      expect(dto.data).toBeInstanceOf(BenefitRedeemedEventDto);
-    });
-
-    it('should correctly transform to BenefitStatusChangedEventDto when eventType is BENEFIT_STATUS_CHANGED', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(errors.length).toBe(0);
-      expect(dto.eventType).toBe(BenefitEventType.BENEFIT_STATUS_CHANGED);
-      expect(dto.data).toBeInstanceOf(BenefitStatusChangedEventDto);
-    });
-
-    it('should fail validation when eventType is invalid', async () => {
-      // Arrange
-      const eventData = {
-        eventType: 'INVALID_EVENT_TYPE',
-        data: createValidBenefitUtilizedEvent().data,
+  describe('BenefitData', () => {
+    it('should validate a valid benefit data object', async () => {
+      const benefitData: BenefitData = {
+        benefitId: '123e4567-e89b-12d3-a456-426614174000',
+        benefitType: BenefitType.WELLNESS,
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: 500,
+        utilizationDate: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        status: BenefitStatus.ACTIVE
       };
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'eventType')).toBe(true);
-      expect(hasConstraintValidationError(errors, 'eventType', 'isEnum')).toBe(true);
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when benefitId is not a valid UUID', async () => {
+      const benefitData: BenefitData = {
+        benefitId: 'invalid-uuid',
+        benefitType: BenefitType.WELLNESS,
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: 500,
+        utilizationDate: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        status: BenefitStatus.ACTIVE
+      };
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('benefitId');
+    });
+
+    it('should fail validation when benefitType is invalid', async () => {
+      const benefitData: any = {
+        benefitId: '123e4567-e89b-12d3-a456-426614174000',
+        benefitType: 'INVALID_TYPE',
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: 500,
+        utilizationDate: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        status: BenefitStatus.ACTIVE
+      };
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('benefitType');
+    });
+
+    it('should fail validation when value is negative', async () => {
+      const benefitData: BenefitData = {
+        benefitId: '123e4567-e89b-12d3-a456-426614174000',
+        benefitType: BenefitType.WELLNESS,
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: -100, // Negative value
+        utilizationDate: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        status: BenefitStatus.ACTIVE
+      };
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('value');
+    });
+
+    it('should fail validation when utilizationDate is not a valid ISO date', async () => {
+      const benefitData: BenefitData = {
+        benefitId: '123e4567-e89b-12d3-a456-426614174000',
+        benefitType: BenefitType.WELLNESS,
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: 500,
+        utilizationDate: 'invalid-date', // Invalid date format
+        providerId: '123e4567-e89b-12d3-a456-426614174001',
+        status: BenefitStatus.ACTIVE
+      };
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('utilizationDate');
+    });
+
+    it('should validate benefit data with optional fields omitted', async () => {
+      const benefitData: BenefitData = {
+        benefitId: '123e4567-e89b-12d3-a456-426614174000',
+        benefitType: BenefitType.WELLNESS,
+        benefitCategory: BenefitCategory.PREVENTIVE,
+        name: 'Annual Health Checkup',
+        description: 'Comprehensive annual health examination',
+        value: 500,
+        status: BenefitStatus.ACTIVE
+        // Omitting utilizationDate and providerId which are optional
+      };
+
+      const benefitDataObj = plainToClass(BenefitData, benefitData);
+      const errors = await validate(benefitDataObj);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should calculate remaining value correctly', () => {
+      const benefitData = new BenefitData();
+      benefitData.value = 1000;
+      benefitData.usedValue = 250;
+
+      expect(benefitData.getRemainingValue()).toBe(750);
+    });
+
+    it('should determine if benefit is fully utilized', () => {
+      const benefitData = new BenefitData();
+      benefitData.value = 1000;
+      benefitData.usedValue = 1000;
+
+      expect(benefitData.isFullyUtilized()).toBe(true);
+
+      benefitData.usedValue = 999;
+      expect(benefitData.isFullyUtilized()).toBe(false);
+    });
+
+    it('should validate benefit utilization within limits', () => {
+      const benefitData = new BenefitData();
+      benefitData.value = 1000;
+      benefitData.usedValue = 500;
+
+      expect(benefitData.canUtilize(300)).toBe(true);
+      expect(benefitData.canUtilize(501)).toBe(false);
+    });
+
+    it('should track utilization history correctly', () => {
+      const benefitData = new BenefitData();
+      benefitData.value = 1000;
+      benefitData.utilizationHistory = [];
+
+      const utilization1 = {
+        amount: 200,
+        date: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174001'
+      };
+
+      const utilization2 = {
+        amount: 300,
+        date: new Date().toISOString(),
+        providerId: '123e4567-e89b-12d3-a456-426614174002'
+      };
+
+      benefitData.addUtilization(utilization1);
+      expect(benefitData.utilizationHistory.length).toBe(1);
+      expect(benefitData.usedValue).toBe(200);
+
+      benefitData.addUtilization(utilization2);
+      expect(benefitData.utilizationHistory.length).toBe(2);
+      expect(benefitData.usedValue).toBe(500);
     });
   });
 
   describe('BenefitUtilizedEventDto', () => {
     it('should validate a valid benefit utilization event', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          utilizationAmount: 500,
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.ACTIVE
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when planId is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      delete eventData.data.planId;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when utilizationAmount exceeds benefit value', async () => {
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 500,
+          utilizationAmount: 1000, // Exceeds benefit value
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.ACTIVE
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].property).toBe('data');
     });
 
-    it('should fail validation when utilization is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      delete eventData.data.utilization;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when benefit status is not active', async () => {
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          utilizationAmount: 500,
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.EXPIRED // Not active
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('should fail validation when benefitId is not a valid UUID', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.benefitId = 'not-a-uuid';
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
+    it('should validate utilization with previous usage history', async () => {
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          usedValue: 300, // Previous usage
+          utilizationAmount: 500, // Current usage
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.ACTIVE,
+          utilizationHistory: [
+            {
+              amount: 300,
+              date: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+              providerId: '123e4567-e89b-12d3-a456-426614174003'
+            }
+          ]
+        }
+      };
 
-    it('should fail validation when utilizationAmount is negative', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.utilizationAmount = -100;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should fail validation when category is invalid', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.category = 'INVALID_CATEGORY' as BenefitCategory;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should validate when optional fields are provided with valid values', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.coveragePercentage = 80;
-      eventData.data.utilization.outOfPocketAmount = 50;
-      eventData.data.utilization.remainingUtilizations = 5;
-      eventData.data.utilization.remainingCoverage = 1000;
-      eventData.data.utilization.isPreventive = true;
-      eventData.data.utilization.providerName = 'Test Provider';
-      eventData.data.utilization.providerId = uuidv4();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when coveragePercentage is greater than 100', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.coveragePercentage = 120;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
+    it('should fail validation when combined utilization exceeds benefit value', async () => {
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          usedValue: 700, // Previous usage
+          utilizationAmount: 500, // Current usage (total would be 1200, exceeding 1000)
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.ACTIVE
+        }
+      };
 
-    it('should fail validation when remainingUtilizations is negative', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.utilization.remainingUtilizations = -1;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
   });
 
-  describe('BenefitRedeemedEventDto', () => {
+  describe('BenefitRedemptionEventDto', () => {
     it('should validate a valid benefit redemption event', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDto: BenefitRedemptionEventDto = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.REWARD,
+          benefitCategory: BenefitCategory.DISCOUNT,
+          name: 'Premium Discount',
+          description: 'Discount on insurance premium',
+          value: 500,
+          pointsRequired: 5000,
+          pointsRedeemed: 5000,
+          redemptionDate: new Date().toISOString(),
+          status: BenefitStatus.ACTIVE
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitRedemptionEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when planId is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      delete eventData.data.planId;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when pointsRedeemed is less than pointsRequired', async () => {
+      const eventDto: BenefitRedemptionEventDto = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.REWARD,
+          benefitCategory: BenefitCategory.DISCOUNT,
+          name: 'Premium Discount',
+          description: 'Discount on insurance premium',
+          value: 500,
+          pointsRequired: 5000,
+          pointsRedeemed: 4000, // Less than required
+          redemptionDate: new Date().toISOString(),
+          status: BenefitStatus.ACTIVE
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitRedemptionEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('should fail validation when redemption is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      delete eventData.data.redemption;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when benefit type is not REWARD', async () => {
+      const eventDto: BenefitRedemptionEventDto = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS, // Not a reward type
+          benefitCategory: BenefitCategory.DISCOUNT,
+          name: 'Premium Discount',
+          description: 'Discount on insurance premium',
+          value: 500,
+          pointsRequired: 5000,
+          pointsRedeemed: 5000,
+          redemptionDate: new Date().toISOString(),
+          status: BenefitStatus.ACTIVE
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitRedemptionEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('should fail validation when benefitId is not a valid UUID', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      eventData.data.redemption.benefitId = 'not-a-uuid';
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
+    it('should validate redemption with valid conversion rate', async () => {
+      const eventDto: BenefitRedemptionEventDto = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.REWARD,
+          benefitCategory: BenefitCategory.DISCOUNT,
+          name: 'Premium Discount',
+          description: 'Discount on insurance premium',
+          value: 500,
+          pointsRequired: 5000,
+          pointsRedeemed: 5000,
+          pointConversionRate: 0.1, // 1 point = 0.1 currency units
+          redemptionDate: new Date().toISOString(),
+          status: BenefitStatus.ACTIVE
+        }
+      };
 
-    it('should fail validation when redemptionValue is negative', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      eventData.data.redemption.redemptionValue = -100;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should fail validation when category is invalid', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      eventData.data.redemption.category = 'INVALID_CATEGORY' as BenefitCategory;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should validate when optional fields are provided with valid values', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      eventData.data.redemption.isOneTime = true;
-      eventData.data.redemption.expirationDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      eventData.data.redemption.redemptionDetails = { location: 'Online', method: 'App' };
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDtoObj = plainToClass(BenefitRedemptionEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
-    });
-
-    it('should fail validation when expirationDate is not a valid ISO date', async () => {
-      // Arrange
-      const eventData = createValidBenefitRedeemedEvent();
-      eventData.data.redemption.expirationDate = 'not-a-date';
       
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+      // Value should match points * conversion rate
+      expect(eventDtoObj.data.value).toBe(5000 * 0.1);
     });
   });
 
-  describe('BenefitStatusChangedEventDto', () => {
+  describe('BenefitStatusChangeEventDto', () => {
     it('should validate a valid benefit status change event', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED', // Custom event type not in enum
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.ACTIVE,
+          newStatus: BenefitStatus.EXPIRED,
+          statusChangeDate: new Date().toISOString(),
+          statusChangeReason: 'Benefit period ended'
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when planId is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      delete eventData.data.planId;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when previous and new status are the same', async () => {
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED',
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.ACTIVE,
+          newStatus: BenefitStatus.ACTIVE, // Same as previous
+          statusChangeDate: new Date().toISOString(),
+          statusChangeReason: 'No change'
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('should fail validation when statusChange is missing', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      delete eventData.data.statusChange;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto, { whitelist: true });
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when status change reason is missing', async () => {
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED',
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.ACTIVE,
+          newStatus: BenefitStatus.EXPIRED,
+          statusChangeDate: new Date().toISOString()
+          // Missing statusChangeReason
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('should fail validation when benefitId is not a valid UUID', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      eventData.data.statusChange.benefitId = 'not-a-uuid';
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
+    it('should validate transition from PENDING to ACTIVE status', async () => {
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED',
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.PENDING,
+          newStatus: BenefitStatus.ACTIVE,
+          statusChangeDate: new Date().toISOString(),
+          statusChangeReason: 'Benefit approved and activated',
+          activationDate: new Date().toISOString() // Required for ACTIVE status
+        }
+      };
 
-    it('should fail validation when previousStatus is invalid', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      eventData.data.statusChange.previousStatus = 'INVALID_STATUS' as BenefitStatus;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should fail validation when newStatus is invalid', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      eventData.data.statusChange.newStatus = 'INVALID_STATUS' as BenefitStatus;
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
-    });
-
-    it('should validate when optional fields are provided with valid values', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      eventData.data.statusChange.statusChangeReason = 'Plan upgrade';
-      eventData.data.statusChange.effectiveDate = new Date().toISOString();
-      eventData.data.statusChange.expirationDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when effectiveDate is not a valid ISO date', async () => {
-      // Arrange
-      const eventData = createValidBenefitStatusChangedEvent();
-      eventData.data.statusChange.effectiveDate = 'not-a-date';
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should fail validation when activationDate is missing for ACTIVE status', async () => {
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED',
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.PENDING,
+          newStatus: BenefitStatus.ACTIVE,
+          statusChangeDate: new Date().toISOString(),
+          statusChangeReason: 'Benefit approved and activated'
+          // Missing activationDate
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBeGreaterThan(0);
     });
   });
 
-  describe('BaseBenefitEventDto', () => {
-    it('should validate when optional fields are provided with valid values', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.memberName = 'John Doe';
-      eventData.data.memberNumber = 'MEM12345';
-      eventData.data.tags = ['premium', 'preventive', 'annual'];
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
+  describe('Integration with Plan Journey', () => {
+    it('should validate benefit utilization in the context of plan journey', async () => {
+      const eventDto: BenefitUtilizedEventDto = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          utilizationAmount: 500,
+          utilizationDate: new Date().toISOString(),
+          providerId: '123e4567-e89b-12d3-a456-426614174002',
+          status: BenefitStatus.ACTIVE,
+          planId: '123e4567-e89b-12d3-a456-426614174003', // Plan reference
+          membershipId: '123e4567-e89b-12d3-a456-426614174004' // Membership reference
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitUtilizedEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail validation when tags array exceeds maximum size', async () => {
-      // Arrange
-      const eventData = createValidBenefitUtilizedEvent();
-      eventData.data.tags = Array(11).fill('tag').map((tag, i) => `${tag}${i}`);
-      
-      // Act
-      const dto = plainToInstance(BenefitEventDto, eventData);
-      const errors = await validate(dto);
-      
-      // Assert
-      expect(hasValidationErrors(errors)).toBe(true);
-      expect(hasPropertyValidationError(errors, 'data')).toBe(true);
+    it('should validate benefit redemption in the context of gamification', async () => {
+      const eventDto: BenefitRedemptionEventDto = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.REWARD,
+          benefitCategory: BenefitCategory.DISCOUNT,
+          name: 'Premium Discount',
+          description: 'Discount on insurance premium',
+          value: 500,
+          pointsRequired: 5000,
+          pointsRedeemed: 5000,
+          redemptionDate: new Date().toISOString(),
+          status: BenefitStatus.ACTIVE,
+          achievementId: '123e4567-e89b-12d3-a456-426614174005', // Achievement reference
+          gamificationLevel: 3 // User's gamification level
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitRedemptionEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate benefit status change with plan-specific fields', async () => {
+      const eventDto: BenefitStatusChangeEventDto = {
+        type: 'PLAN_BENEFIT_STATUS_CHANGED',
+        journey: 'plan',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: '123e4567-e89b-12d3-a456-426614174001',
+          benefitType: BenefitType.WELLNESS,
+          benefitCategory: BenefitCategory.PREVENTIVE,
+          name: 'Annual Health Checkup',
+          description: 'Comprehensive annual health examination',
+          value: 1000,
+          previousStatus: BenefitStatus.ACTIVE,
+          newStatus: BenefitStatus.EXPIRED,
+          statusChangeDate: new Date().toISOString(),
+          statusChangeReason: 'Plan year ended',
+          planId: '123e4567-e89b-12d3-a456-426614174003',
+          planYear: 2023,
+          renewalEligible: true // Indicates if benefit can be renewed
+        }
+      };
+
+      const eventDtoObj = plainToClass(BenefitStatusChangeEventDto, eventDto);
+      const errors = await validate(eventDtoObj);
+      expect(errors.length).toBe(0);
     });
   });
 });
-
-// Helper functions to create valid test events
-
-function createValidBenefitUtilizedEvent(): any {
-  return {
-    eventType: BenefitEventType.BENEFIT_UTILIZED,
-    data: {
-      planId: uuidv4(),
-      planName: 'Premium Health Plan',
-      memberId: uuidv4(),
-      utilization: {
-        benefitId: uuidv4(),
-        benefitName: 'Annual Health Check',
-        category: BenefitCategory.PREVENTIVE,
-        utilizationAmount: 250,
-        currency: 'BRL',
-        utilizationDate: new Date().toISOString(),
-      },
-    },
-  };
-}
-
-function createValidBenefitRedeemedEvent(): any {
-  return {
-    eventType: BenefitEventType.BENEFIT_REDEEMED,
-    data: {
-      planId: uuidv4(),
-      planName: 'Premium Health Plan',
-      memberId: uuidv4(),
-      redemption: {
-        benefitId: uuidv4(),
-        benefitName: 'Pharmacy Discount',
-        category: BenefitCategory.PHARMACY,
-        redemptionCode: 'PHARM-DISC-2023',
-        redemptionDate: new Date().toISOString(),
-        redemptionValue: 50,
-        currency: 'BRL',
-      },
-    },
-  };
-}
-
-function createValidBenefitStatusChangedEvent(): any {
-  return {
-    eventType: BenefitEventType.BENEFIT_STATUS_CHANGED,
-    data: {
-      planId: uuidv4(),
-      planName: 'Premium Health Plan',
-      memberId: uuidv4(),
-      statusChange: {
-        benefitId: uuidv4(),
-        benefitName: 'Dental Coverage',
-        category: BenefitCategory.DENTAL,
-        previousStatus: BenefitStatus.PENDING,
-        newStatus: BenefitStatus.ACTIVE,
-        statusChangeDate: new Date().toISOString(),
-      },
-    },
-  };
-}
