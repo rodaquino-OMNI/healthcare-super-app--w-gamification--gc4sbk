@@ -1,20 +1,16 @@
 /**
- * @file Main entry point for string utilities package
- * @module @austa/utils/string
+ * String utilities package entry point.
  * 
- * This module re-exports all string manipulation and validation functions
- * to provide a unified API for consuming modules. It centralizes all exports
- * from format.ts and validation.ts, ensuring backward compatibility with
- * existing imports while organizing the code into more specific modules.
+ * This file re-exports all string manipulation and validation functions from the package,
+ * providing a unified API for consuming modules. It centralizes exports from format.ts
+ * and validation.ts, ensuring backward compatibility with existing imports while
+ * organizing the code into more specific modules.
+ * 
+ * @module @austa/utils/string
  */
 
-// Re-export all string formatting utilities
+// Re-export all functions from format module
 export { capitalizeFirstLetter, truncate } from './format';
 
-// Re-export all string validation utilities
-export {
-  isValidCPF,
-  isValidCPFBoolean,
-  CPFValidationError,
-  CPFValidationResult
-} from './validation';
+// Re-export all functions from validation module
+export { isValidCPF } from './validation';
