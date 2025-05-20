@@ -1,422 +1,1028 @@
-import { LoggerService } from '@nestjs/common';
-import { SpanStatusCode } from '@opentelemetry/api';
-import { JourneyContext } from '../../src/interfaces/journey-context.interface';
-import { SpanAttributes } from '../../src/interfaces/span-attributes.interface';
-import { SpanOptions } from '../../src/interfaces/span-options.interface';
+import { Context, Span, SpanContext, SpanKind, SpanOptions, SpanStatus, SpanStatusCode, Tracer, TracerOptions } from '@opentelemetry/api';
+import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
+import { KafkaMessage } from 'kafkajs';
+import { v4 as uuidv4 } from 'uuid';
+import { JourneyContextInfo, TraceContext } from '../../src/interfaces/trace-context.interface';
+import { TracerProvider } from '../../src/interfaces/tracer-provider.interface';
 
 /**
- * Represents a mock span for testing purposes.
- * Simulates the behavior of an OpenTelemetry span without requiring actual OpenTelemetry infrastructure.
+ * Interface for a mock span that extends the OpenTelemetry Span interface
+ * with additional methods for testing and verification.
  */
-export interface MockSpan {
-  /** Unique identifier for the span */
-  id: string;
-  /** Name of the span */
-  name: string;
-  /** Timestamp when the span was started */
-  startTime: number;
-  /** Timestamp when the span was ended, or undefined if still active */
-  endTime?: number;
-  /** Status of the span (OK, ERROR) */
-  status: {
-    code: SpanStatusCode;
-    message?: string;
-  };
-  /** Custom attributes attached to the span */
-  attributes: Record<string, any>;
-  /** Parent span ID if this span has a parent */
-  parentId?: string;
-  /** Any errors recorded on this span */
-  errors: Error[];
-  /** Whether the span is still recording */
-  isRecording: boolean;
-  /** Journey context associated with this span, if any */
-  journeyContext?: JourneyContext;
-}
-
-/**
- * Configuration options for the MockTracingService
- */
-export interface MockTracingServiceOptions {
-  /** Service name to use for the tracer */
-  serviceName?: string;
-  /** Logger service for logging messages */
-  logger?: LoggerService;
-  /** Whether to automatically generate trace and span IDs */
-  autoGenerateIds?: boolean;
-  /** Whether to simulate random errors in tracing operations */
-  simulateErrors?: boolean;
-  /** Error rate (0-1) when simulateErrors is true */
-  errorRate?: number;
-}
-
-/**
- * A mock implementation of the TracingService for testing purposes.
- * Simulates the behavior of the real TracingService without requiring actual OpenTelemetry infrastructure.
- */
-export class MockTracingService {
-  private readonly serviceName: string;
-  private readonly logger?: LoggerService;
-  private readonly autoGenerateIds: boolean;
-  private readonly simulateErrors: boolean;
-  private readonly errorRate: number;
-  
-  /** All spans created by this tracer, indexed by span ID */
-  public readonly spans: Map<string, MockSpan> = new Map();
-  /** Currently active spans, indexed by span ID */
-  public readonly activeSpans: Map<string, MockSpan> = new Map();
-  /** The current active span ID in this context */
-  public currentSpanId?: string;
-  /** The current trace ID in this context */
-  public currentTraceId: string;
+export interface MockSpan extends Span {
+  /**
+   * Gets all attributes set on the span
+   */
+  getAttributes(): Record<string, any>;
 
   /**
-   * Creates a new instance of the MockTracingService.
-   * @param options Configuration options for the mock tracer
+   * Gets all events recorded on the span
    */
-  constructor(options: MockTracingServiceOptions = {}) {
-    this.serviceName = options.serviceName || 'mock-service';
-    this.logger = options.logger;
-    this.autoGenerateIds = options.autoGenerateIds !== false;
-    this.simulateErrors = options.simulateErrors || false;
-    this.errorRate = options.errorRate || 0.1; // 10% error rate by default
-    this.currentTraceId = this.generateId('trace');
+  getEvents(): Array<{ name: string; attributes?: Record<string, any>; timestamp?: number }>;
+
+  /**
+   * Gets the status set on the span
+   */
+  getStatus(): SpanStatus | undefined;
+
+  /**
+   * Gets the parent span ID if available
+   */
+  getParentSpanId(): string | undefined;
+
+  /**
+   * Checks if the span has ended
+   */
+  hasEnded(): boolean;
+
+  /**
+   * Gets the duration of the span in milliseconds (if ended)
+   */
+  getDurationMs(): number | undefined;
+}
+
+/**
+ * Creates a mock span context with optional trace ID and span ID
+ * 
+ * @param traceId Optional trace ID (generated if not provided)
+ * @param spanId Optional span ID (generated if not provided)
+ * @param traceFlags Optional trace flags (defaults to 1 - sampled)
+ * @returns A mock span context
+ */
+export function createMockSpanContext(
+  traceId?: string,
+  spanId?: string,
+  traceFlags: number = 1
+): SpanContext {
+  return {
+    traceId: traceId || generateTraceId(),
+    spanId: spanId || generateSpanId(),
+    traceFlags,
+    isRemote: false,
+  };
+}
+
+/**
+ * Generates a random 32-character hex trace ID
+ */
+export function generateTraceId(): string {
+  return uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '').substring(0, 16);
+}
+
+/**
+ * Generates a random 16-character hex span ID
+ */
+export function generateSpanId(): string {
+  return uuidv4().replace(/-/g, '').substring(0, 16);
+}
+
+/**
+ * Creates a mock span for testing
+ * 
+ * @param name Span name
+ * @param context Optional span context
+ * @param kind Optional span kind
+ * @param parentSpanId Optional parent span ID
+ * @returns A mock span implementation
+ */
+export function createMockSpan(
+  name: string,
+  context?: SpanContext,
+  kind: SpanKind = SpanKind.INTERNAL,
+  parentSpanId?: string
+): MockSpan {
+  const spanContext = context || createMockSpanContext();
+  const attributes: Record<string, any> = {};
+  const events: Array<{ name: string; attributes?: Record<string, any>; timestamp?: number }> = [];
+  let status: SpanStatus | undefined;
+  let endTime: number | undefined;
+  const startTime = Date.now();
+  let isRecording = true;
+
+  return {
+    // Standard Span interface implementation
+    setAttribute(key: string, value: any): MockSpan {
+      if (isRecording) {
+        attributes[key] = value;
+      }
+      return this;
+    },
+
+    setAttributes(attrs: Record<string, any>): MockSpan {
+      if (isRecording) {
+        Object.entries(attrs).forEach(([key, value]) => {
+          attributes[key] = value;
+        });
+      }
+      return this;
+    },
+
+    addEvent(name: string, attributesOrStartTime?: Record<string, any> | number, startTime?: number): MockSpan {
+      if (isRecording) {
+        if (typeof attributesOrStartTime === 'number') {
+          events.push({ name, timestamp: attributesOrStartTime });
+        } else {
+          events.push({
+            name,
+            attributes: attributesOrStartTime,
+            timestamp: startTime || Date.now(),
+          });
+        }
+      }
+      return this;
+    },
+
+    setStatus(status: SpanStatus): MockSpan {
+      if (isRecording) {
+        this.status = status;
+      }
+      return this;
+    },
+
+    updateName(name: string): MockSpan {
+      // In a mock, we don't need to actually update the name
+      return this;
+    },
+
+    end(endTime?: number): void {
+      if (isRecording) {
+        this.endTime = endTime || Date.now();
+        isRecording = false;
+      }
+    },
+
+    isRecording(): boolean {
+      return isRecording;
+    },
+
+    recordException(exception: Error, time?: number): void {
+      if (isRecording) {
+        this.addEvent('exception', {
+          'exception.type': exception.name,
+          'exception.message': exception.message,
+          'exception.stacktrace': exception.stack,
+        }, time);
+      }
+    },
+
+    spanContext(): SpanContext {
+      return spanContext;
+    },
+
+    // Additional methods for testing
+    getAttributes(): Record<string, any> {
+      return { ...attributes };
+    },
+
+    getEvents(): Array<{ name: string; attributes?: Record<string, any>; timestamp?: number }> {
+      return [...events];
+    },
+
+    getStatus(): SpanStatus | undefined {
+      return status;
+    },
+
+    getParentSpanId(): string | undefined {
+      return parentSpanId;
+    },
+
+    hasEnded(): boolean {
+      return !isRecording;
+    },
+
+    getDurationMs(): number | undefined {
+      if (endTime && startTime) {
+        return endTime - startTime;
+      }
+      return undefined;
+    },
+
+    // Private properties for the mock implementation
+    status,
+    endTime,
+  };
+}
+
+/**
+ * Mock implementation of the TraceContext interface for testing
+ */
+export class MockTraceContext implements TraceContext {
+  private context: Context;
+  private spanContext?: SpanContext;
+  private journeyContext?: JourneyContextInfo;
+  private attributes: Record<string, any> = {};
+
+  /**
+   * Creates a new MockTraceContext instance
+   * 
+   * @param context Optional OpenTelemetry context
+   * @param spanContext Optional span context
+   * @param journeyContext Optional journey context information
+   * @param attributes Optional attributes to add to the context
+   */
+  constructor(
+    context?: Context,
+    spanContext?: SpanContext,
+    journeyContext?: JourneyContextInfo,
+    attributes: Record<string, any> = {}
+  ) {
+    this.context = context || {} as Context;
+    this.spanContext = spanContext;
+    this.journeyContext = journeyContext;
+    this.attributes = attributes;
+  }
+
+  getContext(): Context {
+    return this.context;
+  }
+
+  getSpanContext(): SpanContext | undefined {
+    return this.spanContext;
+  }
+
+  getTraceId(): string | undefined {
+    return this.spanContext?.traceId;
+  }
+
+  getSpanId(): string | undefined {
+    return this.spanContext?.spanId;
+  }
+
+  getTraceFlags(): number | undefined {
+    return this.spanContext?.traceFlags;
+  }
+
+  isSampled(): boolean {
+    return this.spanContext?.traceFlags ? (this.spanContext.traceFlags & 1) === 1 : false;
+  }
+
+  extractFromHttpHeaders(headers: IncomingHttpHeaders): TraceContext {
+    // In a real implementation, this would extract trace context from headers
+    // For the mock, we'll create a new context with a generated span context
+    const traceId = headers['x-trace-id'] as string || generateTraceId();
+    const spanId = headers['x-span-id'] as string || generateSpanId();
+    const traceFlags = headers['x-trace-flags'] ? parseInt(headers['x-trace-flags'] as string, 10) : 1;
     
-    this.log(`Initialized mock tracer for ${this.serviceName}`);
+    const spanContext = createMockSpanContext(traceId, spanId, traceFlags);
+    
+    // Extract journey context if present
+    let journeyContext: JourneyContextInfo | undefined;
+    if (headers['x-journey-type'] && headers['x-journey-id']) {
+      journeyContext = {
+        journeyType: headers['x-journey-type'] as 'health' | 'care' | 'plan',
+        journeyId: headers['x-journey-id'] as string,
+        userId: headers['x-user-id'] as string,
+        sessionId: headers['x-session-id'] as string,
+        requestId: headers['x-request-id'] as string,
+      };
+    }
+    
+    return new MockTraceContext(this.context, spanContext, journeyContext);
+  }
+
+  injectIntoHttpHeaders(headers: OutgoingHttpHeaders): OutgoingHttpHeaders {
+    if (!this.spanContext) {
+      return headers;
+    }
+    
+    const result = { ...headers };
+    result['x-trace-id'] = this.spanContext.traceId;
+    result['x-span-id'] = this.spanContext.spanId;
+    result['x-trace-flags'] = this.spanContext.traceFlags.toString();
+    
+    // Add journey context if present
+    if (this.journeyContext) {
+      result['x-journey-type'] = this.journeyContext.journeyType;
+      result['x-journey-id'] = this.journeyContext.journeyId;
+      if (this.journeyContext.userId) {
+        result['x-user-id'] = this.journeyContext.userId;
+      }
+      if (this.journeyContext.sessionId) {
+        result['x-session-id'] = this.journeyContext.sessionId;
+      }
+      if (this.journeyContext.requestId) {
+        result['x-request-id'] = this.journeyContext.requestId;
+      }
+    }
+    
+    return result;
+  }
+
+  extractFromKafkaMessage(message: KafkaMessage): TraceContext {
+    // In a real implementation, this would extract trace context from Kafka headers
+    // For the mock, we'll create a new context with a generated span context
+    const headers = message.headers || {};
+    
+    const traceId = headers['x-trace-id']?.toString() || generateTraceId();
+    const spanId = headers['x-span-id']?.toString() || generateSpanId();
+    const traceFlags = headers['x-trace-flags'] ? parseInt(headers['x-trace-flags'].toString(), 10) : 1;
+    
+    const spanContext = createMockSpanContext(traceId, spanId, traceFlags);
+    
+    // Extract journey context if present
+    let journeyContext: JourneyContextInfo | undefined;
+    if (headers['x-journey-type'] && headers['x-journey-id']) {
+      journeyContext = {
+        journeyType: headers['x-journey-type'].toString() as 'health' | 'care' | 'plan',
+        journeyId: headers['x-journey-id'].toString(),
+        userId: headers['x-user-id']?.toString(),
+        sessionId: headers['x-session-id']?.toString(),
+        requestId: headers['x-request-id']?.toString(),
+      };
+    }
+    
+    return new MockTraceContext(this.context, spanContext, journeyContext);
+  }
+
+  injectIntoKafkaMessage(message: KafkaMessage): KafkaMessage {
+    if (!this.spanContext) {
+      return message;
+    }
+    
+    const result = { ...message };
+    const headers = result.headers || {};
+    
+    headers['x-trace-id'] = Buffer.from(this.spanContext.traceId);
+    headers['x-span-id'] = Buffer.from(this.spanContext.spanId);
+    headers['x-trace-flags'] = Buffer.from(this.spanContext.traceFlags.toString());
+    
+    // Add journey context if present
+    if (this.journeyContext) {
+      headers['x-journey-type'] = Buffer.from(this.journeyContext.journeyType);
+      headers['x-journey-id'] = Buffer.from(this.journeyContext.journeyId);
+      if (this.journeyContext.userId) {
+        headers['x-user-id'] = Buffer.from(this.journeyContext.userId);
+      }
+      if (this.journeyContext.sessionId) {
+        headers['x-session-id'] = Buffer.from(this.journeyContext.sessionId);
+      }
+      if (this.journeyContext.requestId) {
+        headers['x-request-id'] = Buffer.from(this.journeyContext.requestId);
+      }
+    }
+    
+    result.headers = headers;
+    return result;
+  }
+
+  serialize(): string {
+    const data = {
+      spanContext: this.spanContext,
+      journeyContext: this.journeyContext,
+      attributes: this.attributes,
+    };
+    return JSON.stringify(data);
+  }
+
+  deserialize(serialized: string): TraceContext {
+    try {
+      const data = JSON.parse(serialized);
+      return new MockTraceContext(
+        this.context,
+        data.spanContext,
+        data.journeyContext,
+        data.attributes
+      );
+    } catch (error) {
+      // Return a new context with generated values on error
+      return new MockTraceContext(
+        this.context,
+        createMockSpanContext(),
+        undefined,
+        {}
+      );
+    }
+  }
+
+  withJourneyContext(journeyContext: JourneyContextInfo): TraceContext {
+    return new MockTraceContext(
+      this.context,
+      this.spanContext,
+      journeyContext,
+      this.attributes
+    );
+  }
+
+  getJourneyContext(): JourneyContextInfo | undefined {
+    return this.journeyContext;
+  }
+
+  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'health',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'care',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
+    return this.withJourneyContext({
+      journeyType: 'plan',
+      journeyId,
+      userId,
+      sessionId,
+      requestId,
+    });
+  }
+
+  getCorrelationInfo() {
+    return {
+      traceId: this.getTraceId(),
+      spanId: this.getSpanId(),
+      traceFlags: this.getTraceFlags(),
+      isSampled: this.isSampled(),
+      journeyType: this.journeyContext?.journeyType,
+      journeyId: this.journeyContext?.journeyId,
+      userId: this.journeyContext?.userId,
+      sessionId: this.journeyContext?.sessionId,
+      requestId: this.journeyContext?.requestId,
+    };
+  }
+
+  createLogContext(additionalContext?: Record<string, any>): Record<string, any> {
+    const logContext: Record<string, any> = {
+      trace_id: this.getTraceId(),
+      span_id: this.getSpanId(),
+      trace_flags: this.getTraceFlags(),
+      sampled: this.isSampled(),
+    };
+    
+    if (this.journeyContext) {
+      logContext.journey_type = this.journeyContext.journeyType;
+      logContext.journey_id = this.journeyContext.journeyId;
+      if (this.journeyContext.userId) {
+        logContext.user_id = this.journeyContext.userId;
+      }
+      if (this.journeyContext.sessionId) {
+        logContext.session_id = this.journeyContext.sessionId;
+      }
+      if (this.journeyContext.requestId) {
+        logContext.request_id = this.journeyContext.requestId;
+      }
+    }
+    
+    if (additionalContext) {
+      Object.entries(additionalContext).forEach(([key, value]) => {
+        logContext[key] = value;
+      });
+    }
+    
+    return logContext;
+  }
+
+  withAttributes(attributes: Record<string, any>): TraceContext {
+    const mergedAttributes = { ...this.attributes, ...attributes };
+    return new MockTraceContext(
+      this.context,
+      this.spanContext,
+      this.journeyContext,
+      mergedAttributes
+    );
+  }
+
+  hasAttribute(key: string): boolean {
+    return key in this.attributes;
+  }
+
+  getAttribute(key: string): any {
+    return this.attributes[key];
+  }
+}
+
+/**
+ * Mock implementation of the Tracer interface for testing
+ */
+export class MockTracer implements Tracer {
+  private spans: MockSpan[] = [];
+  private name: string;
+  private activeSpans: Map<string, MockSpan> = new Map();
+
+  /**
+   * Creates a new MockTracer instance
+   * 
+   * @param name The name of the tracer (typically service name)
+   */
+  constructor(name: string) {
+    this.name = name;
   }
 
   /**
-   * Creates and starts a new span for tracing a specific operation.
-   * @param name The name of the span to create
-   * @param fn The function to execute within the span context
-   * @param options Additional options for span creation
-   * @returns The result of the function execution
+   * Starts a new span with the given name and options
    */
-  async createSpan<T>(
-    name: string,
-    fn: () => Promise<T>,
-    options?: SpanOptions
-  ): Promise<T> {
-    // Create a new span
-    const spanId = this.generateId('span');
-    const parentId = this.currentSpanId;
+  startSpan(name: string, options?: SpanOptions): MockSpan {
+    const parentSpanId = options?.parent ? 
+      (typeof options.parent === 'object' && 'spanId' in options.parent ? 
+        options.parent.spanId : undefined) : 
+      undefined;
     
-    const span: MockSpan = {
-      id: spanId,
+    const span = createMockSpan(
       name,
-      startTime: Date.now(),
-      status: { code: SpanStatusCode.UNSET },
-      attributes: { ...options?.attributes },
-      errors: [],
-      isRecording: true,
-      parentId,
-      journeyContext: options?.journeyContext,
-    };
+      options?.parent ? 
+        (typeof options.parent === 'object' && 'traceId' in options.parent ? 
+          options.parent : undefined) : 
+        undefined,
+      options?.kind || SpanKind.INTERNAL,
+      parentSpanId
+    );
     
-    // Store the span and set it as the current span
-    this.spans.set(spanId, span);
-    this.activeSpans.set(spanId, span);
-    const previousSpanId = this.currentSpanId;
-    this.currentSpanId = spanId;
+    // Add attributes from options if provided
+    if (options?.attributes) {
+      span.setAttributes(options.attributes);
+    }
     
-    this.log(`Started span: ${name} (${spanId})`);
+    // Add default attributes
+    span.setAttribute('service.name', this.name);
+    span.setAttribute('span.name', name);
+    
+    // Store the span for later retrieval
+    this.spans.push(span);
+    this.activeSpans.set(span.spanContext().spanId, span);
+    
+    return span;
+  }
+
+  /**
+   * Gets all spans created by this tracer
+   */
+  getSpans(): MockSpan[] {
+    return [...this.spans];
+  }
+
+  /**
+   * Gets all active (not ended) spans
+   */
+  getActiveSpans(): MockSpan[] {
+    return Array.from(this.activeSpans.values());
+  }
+
+  /**
+   * Gets a span by its ID
+   */
+  getSpanById(spanId: string): MockSpan | undefined {
+    return this.spans.find(span => span.spanContext().spanId === spanId);
+  }
+
+  /**
+   * Clears all spans from this tracer
+   */
+  clearSpans(): void {
+    this.spans = [];
+    this.activeSpans.clear();
+  }
+
+  /**
+   * Gets the name of this tracer
+   */
+  getName(): string {
+    return this.name;
+  }
+}
+
+/**
+ * Mock implementation of the TracerProvider interface for testing
+ */
+export class MockTracerProvider implements TracerProvider {
+  private tracers: Map<string, MockTracer> = new Map();
+  private currentContext: Context = {} as Context;
+  private currentSpan?: MockSpan;
+
+  /**
+   * Gets a tracer with the specified name
+   */
+  getTracer(name: string, _options?: TracerOptions): Tracer {
+    if (!this.tracers.has(name)) {
+      this.tracers.set(name, new MockTracer(name));
+    }
+    return this.tracers.get(name)!;
+  }
+
+  /**
+   * Starts a span with the given tracer, name, and options
+   */
+  startSpan(tracer: Tracer, name: string, options?: SpanOptions): Span {
+    if (!(tracer instanceof MockTracer)) {
+      throw new Error('Tracer must be a MockTracer instance');
+    }
+    return tracer.startSpan(name, options);
+  }
+
+  /**
+   * Executes a function within the context of a span
+   */
+  async withSpan<T>(span: Span, fn: () => Promise<T>): Promise<T> {
+    const previousSpan = this.currentSpan;
+    this.currentSpan = span as MockSpan;
     
     try {
-      // Simulate random errors if configured
-      if (this.simulateErrors && Math.random() < this.errorRate) {
-        throw new Error(`Simulated error in span: ${name}`);
-      }
-      
-      // Execute the provided function
       const result = await fn();
-      
-      // Set the span status to OK if successful
-      if (span.isRecording) {
-        span.status = { code: SpanStatusCode.OK };
+      if (span.isRecording()) {
+        span.setStatus({ code: SpanStatusCode.OK });
       }
-      
       return result;
     } catch (error) {
-      // Record the error and set the span status to ERROR
-      if (span.isRecording) {
-        span.errors.push(error);
-        span.status = { 
-          code: SpanStatusCode.ERROR,
-          message: error.message 
-        };
+      if (span.isRecording()) {
+        span.recordException(error as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
       }
-      
-      this.log(`Error in span ${name}: ${error.message}`, 'error');
       throw error;
     } finally {
-      // End the span and restore the previous span as current
-      if (span.isRecording) {
-        span.endTime = Date.now();
-        span.isRecording = false;
-        this.activeSpans.delete(spanId);
-      }
-      
-      this.currentSpanId = previousSpanId;
-      this.log(`Ended span: ${name} (${spanId})`);
+      this.currentSpan = previousSpan;
     }
   }
 
   /**
-   * Adds an attribute to the current span.
-   * @param key The attribute key
-   * @param value The attribute value
+   * Gets the current active span
    */
-  addAttribute(key: string, value: any): void {
-    if (!this.currentSpanId) {
-      this.log('Cannot add attribute: No active span', 'warn');
-      return;
-    }
+  getCurrentSpan(): Span | undefined {
+    return this.currentSpan;
+  }
+
+  /**
+   * Sets the current span in the context
+   */
+  setSpan(span: Span): Context {
+    this.currentSpan = span as MockSpan;
+    return this.currentContext;
+  }
+
+  /**
+   * Gets the current context
+   */
+  getContext(): Context {
+    return this.currentContext;
+  }
+
+  /**
+   * Executes a function within the given context
+   */
+  async withContext<T>(context: Context, fn: () => Promise<T>): Promise<T> {
+    const previousContext = this.currentContext;
+    this.currentContext = context;
     
-    const span = this.activeSpans.get(this.currentSpanId);
-    if (span && span.isRecording) {
-      span.attributes[key] = value;
-      this.log(`Added attribute to span ${span.name}: ${key}=${value}`);
+    try {
+      return await fn();
+    } finally {
+      this.currentContext = previousContext;
     }
   }
 
   /**
-   * Adds multiple attributes to the current span.
-   * @param attributes The attributes to add
+   * Gets all tracers created by this provider
    */
-  addAttributes(attributes: SpanAttributes): void {
-    if (!this.currentSpanId) {
-      this.log('Cannot add attributes: No active span', 'warn');
-      return;
-    }
-    
-    const span = this.activeSpans.get(this.currentSpanId);
-    if (span && span.isRecording) {
-      Object.entries(attributes).forEach(([key, value]) => {
-        span.attributes[key] = value;
-      });
-      this.log(`Added ${Object.keys(attributes).length} attributes to span ${span.name}`);
-    }
+  getTracers(): Map<string, MockTracer> {
+    return new Map(this.tracers);
   }
 
   /**
-   * Sets journey context on the current span.
-   * @param journeyContext The journey context to set
+   * Gets a tracer by name
    */
-  setJourneyContext(journeyContext: JourneyContext): void {
-    if (!this.currentSpanId) {
-      this.log('Cannot set journey context: No active span', 'warn');
-      return;
-    }
-    
-    const span = this.activeSpans.get(this.currentSpanId);
-    if (span && span.isRecording) {
-      span.journeyContext = journeyContext;
-      this.log(`Set journey context on span ${span.name}: ${journeyContext.journeyType}`);
-    }
+  getTracerByName(name: string): MockTracer | undefined {
+    return this.tracers.get(name);
   }
 
   /**
-   * Records an error on the current span.
-   * @param error The error to record
+   * Gets all spans across all tracers
    */
-  recordError(error: Error): void {
-    if (!this.currentSpanId) {
-      this.log('Cannot record error: No active span', 'warn');
-      return;
-    }
-    
-    const span = this.activeSpans.get(this.currentSpanId);
-    if (span && span.isRecording) {
-      span.errors.push(error);
-      span.status = { 
-        code: SpanStatusCode.ERROR,
-        message: error.message 
-      };
-      this.log(`Recorded error on span ${span.name}: ${error.message}`, 'error');
-    }
+  getAllSpans(): MockSpan[] {
+    const spans: MockSpan[] = [];
+    this.tracers.forEach(tracer => {
+      spans.push(...tracer.getSpans());
+    });
+    return spans;
   }
 
   /**
-   * Gets the current correlation ID for logs and metrics.
-   * @returns An object containing trace and span IDs for correlation
+   * Gets all active spans across all tracers
    */
-  getCorrelationIds(): { traceId: string; spanId: string } {
-    return {
-      traceId: this.currentTraceId,
-      spanId: this.currentSpanId || this.generateId('span')
-    };
+  getAllActiveSpans(): MockSpan[] {
+    const spans: MockSpan[] = [];
+    this.tracers.forEach(tracer => {
+      spans.push(...tracer.getActiveSpans());
+    });
+    return spans;
   }
 
   /**
-   * Resets the mock tracer state, clearing all spans and resetting IDs.
+   * Clears all spans from all tracers
    */
-  reset(): void {
-    this.spans.clear();
-    this.activeSpans.clear();
-    this.currentSpanId = undefined;
-    this.currentTraceId = this.generateId('trace');
-    this.log('Reset mock tracer state');
-  }
-
-  /**
-   * Gets all spans that match the given filter criteria.
-   * @param filter Filter criteria for spans
-   * @returns Array of matching spans
-   */
-  getSpans(filter?: {
-    name?: string;
-    status?: SpanStatusCode;
-    hasError?: boolean;
-    journeyType?: string;
-    attributeKey?: string;
-    attributeValue?: any;
-  }): MockSpan[] {
-    if (!filter) {
-      return Array.from(this.spans.values());
-    }
-    
-    return Array.from(this.spans.values()).filter(span => {
-      if (filter.name && span.name !== filter.name) return false;
-      if (filter.status && span.status.code !== filter.status) return false;
-      if (filter.hasError === true && span.errors.length === 0) return false;
-      if (filter.hasError === false && span.errors.length > 0) return false;
-      if (filter.journeyType && span.journeyContext?.journeyType !== filter.journeyType) return false;
-      if (filter.attributeKey && !(filter.attributeKey in span.attributes)) return false;
-      if (filter.attributeValue !== undefined && span.attributes[filter.attributeKey] !== filter.attributeValue) return false;
-      
-      return true;
+  clearAllSpans(): void {
+    this.tracers.forEach(tracer => {
+      tracer.clearSpans();
     });
   }
 
   /**
-   * Gets the duration of a span in milliseconds.
-   * @param spanId The ID of the span
-   * @returns The duration in milliseconds, or undefined if the span is still active
+   * Creates a new trace context with the given span context
    */
-  getSpanDuration(spanId: string): number | undefined {
-    const span = this.spans.get(spanId);
-    if (!span || !span.endTime) return undefined;
-    return span.endTime - span.startTime;
+  createTraceContext(spanContext?: SpanContext, journeyContext?: JourneyContextInfo): MockTraceContext {
+    return new MockTraceContext(
+      this.currentContext,
+      spanContext || (this.currentSpan ? this.currentSpan.spanContext() : undefined),
+      journeyContext
+    );
   }
+}
 
-  /**
-   * Generates a unique ID for traces or spans.
-   * @param type The type of ID to generate ('trace' or 'span')
-   * @returns A unique ID string
-   */
-  private generateId(type: 'trace' | 'span'): string {
-    if (!this.autoGenerateIds) {
-      return `mock-${type}-${Date.now()}`;
+/**
+ * Creates a mock tracing service for testing
+ * 
+ * @param serviceName Optional service name (defaults to 'test-service')
+ * @returns A mock tracing service and provider for testing
+ */
+export function createMockTracingService(serviceName: string = 'test-service') {
+  const provider = new MockTracerProvider();
+  const tracer = provider.getTracer(serviceName) as MockTracer;
+  
+  return {
+    /**
+     * Creates and starts a new span for tracing a specific operation
+     * 
+     * @param name The name of the span to create
+     * @param fn The function to execute within the span context
+     * @returns The result of the function execution
+     */
+    async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
+      const span = tracer.startSpan(name);
+      return provider.withSpan(span, fn);
+    },
+    
+    /**
+     * Gets the mock tracer provider for testing and verification
+     */
+    getMockProvider(): MockTracerProvider {
+      return provider;
+    },
+    
+    /**
+     * Gets the mock tracer for testing and verification
+     */
+    getMockTracer(): MockTracer {
+      return tracer;
+    },
+    
+    /**
+     * Creates a trace context for the current span
+     */
+    createTraceContext(journeyContext?: JourneyContextInfo): MockTraceContext {
+      const currentSpan = provider.getCurrentSpan() as MockSpan;
+      return provider.createTraceContext(
+        currentSpan ? currentSpan.spanContext() : undefined,
+        journeyContext
+      );
+    },
+    
+    /**
+     * Creates a trace context for a health journey
+     */
+    createHealthJourneyContext(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+      const context = this.createTraceContext();
+      return context.withHealthJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
+    },
+    
+    /**
+     * Creates a trace context for a care journey
+     */
+    createCareJourneyContext(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+      const context = this.createTraceContext();
+      return context.withCareJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
+    },
+    
+    /**
+     * Creates a trace context for a plan journey
+     */
+    createPlanJourneyContext(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
+      const context = this.createTraceContext();
+      return context.withPlanJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
+    },
+    
+    /**
+     * Gets all spans created during testing
+     */
+    getAllSpans(): MockSpan[] {
+      return provider.getAllSpans();
+    },
+    
+    /**
+     * Gets all active spans
+     */
+    getActiveSpans(): MockSpan[] {
+      return provider.getAllActiveSpans();
+    },
+    
+    /**
+     * Clears all spans (useful between tests)
+     */
+    clearSpans(): void {
+      provider.clearAllSpans();
+    },
+    
+    /**
+     * Finds spans by name
+     */
+    findSpansByName(name: string): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getAttributes()['span.name'] === name
+      );
+    },
+    
+    /**
+     * Finds spans by attribute
+     */
+    findSpansByAttribute(key: string, value: any): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getAttributes()[key] === value
+      );
+    },
+    
+    /**
+     * Finds spans by journey type
+     */
+    findSpansByJourneyType(journeyType: 'health' | 'care' | 'plan'): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getAttributes()['journey.type'] === journeyType
+      );
+    },
+    
+    /**
+     * Finds spans by journey ID
+     */
+    findSpansByJourneyId(journeyId: string): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getAttributes()['journey.id'] === journeyId
+      );
+    },
+    
+    /**
+     * Finds spans by user ID
+     */
+    findSpansByUserId(userId: string): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getAttributes()['user.id'] === userId
+      );
+    },
+    
+    /**
+     * Finds spans with errors
+     */
+    findErrorSpans(): MockSpan[] {
+      return provider.getAllSpans().filter(span => 
+        span.getStatus()?.code === SpanStatusCode.ERROR
+      );
+    },
+    
+    /**
+     * Gets the correlation info for the current span
+     */
+    getCorrelationInfo() {
+      const context = this.createTraceContext();
+      return context.getCorrelationInfo();
+    },
+  };
+}
+
+/**
+ * Helper function to create a mock trace context for testing
+ * 
+ * @param options Configuration options for the mock trace context
+ * @returns A mock trace context
+ */
+export function createMockTraceContext(options?: {
+  traceId?: string;
+  spanId?: string;
+  traceFlags?: number;
+  journeyType?: 'health' | 'care' | 'plan';
+  journeyId?: string;
+  userId?: string;
+  sessionId?: string;
+  requestId?: string;
+  attributes?: Record<string, any>;
+}): MockTraceContext {
+  const spanContext = createMockSpanContext(
+    options?.traceId,
+    options?.spanId,
+    options?.traceFlags
+  );
+  
+  let journeyContext: JourneyContextInfo | undefined;
+  if (options?.journeyType && options?.journeyId) {
+    journeyContext = {
+      journeyType: options.journeyType,
+      journeyId: options.journeyId,
+      userId: options.userId,
+      sessionId: options.sessionId,
+      requestId: options.requestId,
+    };
+  }
+  
+  return new MockTraceContext(
+    {} as Context,
+    spanContext,
+    journeyContext,
+    options?.attributes || {}
+  );
+}
+
+/**
+ * Creates HTTP headers with trace context for testing
+ * 
+ * @param options Configuration options for the trace context in headers
+ * @returns HTTP headers with trace context
+ */
+export function createMockTraceHeaders(options?: {
+  traceId?: string;
+  spanId?: string;
+  traceFlags?: number;
+  journeyType?: 'health' | 'care' | 'plan';
+  journeyId?: string;
+  userId?: string;
+  sessionId?: string;
+  requestId?: string;
+}): IncomingHttpHeaders {
+  const headers: IncomingHttpHeaders = {};
+  
+  headers['x-trace-id'] = options?.traceId || generateTraceId();
+  headers['x-span-id'] = options?.spanId || generateSpanId();
+  headers['x-trace-flags'] = options?.traceFlags?.toString() || '1';
+  
+  if (options?.journeyType && options?.journeyId) {
+    headers['x-journey-type'] = options.journeyType;
+    headers['x-journey-id'] = options.journeyId;
+    
+    if (options.userId) {
+      headers['x-user-id'] = options.userId;
     }
     
-    // Generate a random hex string similar to real trace/span IDs
-    const bytes = new Uint8Array(8);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  /**
-   * Logs a message using the provided logger or console.
-   * @param message The message to log
-   * @param level The log level
-   */
-  private log(message: string, level: 'log' | 'error' | 'warn' = 'log'): void {
-    const correlationInfo = this.currentSpanId 
-      ? `[trace=${this.currentTraceId.substring(0, 8)}...][span=${this.currentSpanId.substring(0, 8)}...]` 
-      : `[trace=${this.currentTraceId.substring(0, 8)}...]`;
+    if (options.sessionId) {
+      headers['x-session-id'] = options.sessionId;
+    }
     
-    const formattedMessage = `${correlationInfo} ${message}`;
-    
-    if (this.logger) {
-      switch (level) {
-        case 'error':
-          this.logger.error(formattedMessage);
-          break;
-        case 'warn':
-          this.logger.warn(formattedMessage);
-          break;
-        default:
-          this.logger.log(formattedMessage);
-      }
-    } else {
-      console[level](formattedMessage);
+    if (options.requestId) {
+      headers['x-request-id'] = options.requestId;
     }
   }
-}
-
-/**
- * Creates a configured instance of MockTracingService for testing.
- * @param options Configuration options for the mock tracer
- * @returns A configured MockTracingService instance
- */
-export function createMockTracer(options: MockTracingServiceOptions = {}): MockTracingService {
-  return new MockTracingService(options);
-}
-
-/**
- * Creates a mock span for testing with predefined values.
- * @param overrides Properties to override in the default mock span
- * @returns A mock span object
- */
-export function createMockSpan(overrides: Partial<MockSpan> = {}): MockSpan {
-  const defaultSpan: MockSpan = {
-    id: `mock-span-${Date.now()}`,
-    name: 'mock-operation',
-    startTime: Date.now() - 100, // Started 100ms ago
-    endTime: Date.now(),
-    status: { code: SpanStatusCode.OK },
-    attributes: {},
-    errors: [],
-    isRecording: false,
-  };
   
-  return { ...defaultSpan, ...overrides };
+  return headers;
 }
 
 /**
- * Creates a mock journey context for testing.
- * @param journeyType The type of journey ('health', 'care', or 'plan')
- * @param userId The user ID associated with the journey
- * @param additionalContext Additional context properties
- * @returns A journey context object
+ * Creates a Kafka message with trace context for testing
+ * 
+ * @param options Configuration options for the trace context in the message
+ * @param value Optional message value
+ * @returns Kafka message with trace context
  */
-export function createMockJourneyContext(
-  journeyType: 'health' | 'care' | 'plan',
-  userId: string,
-  additionalContext: Record<string, any> = {}
-): JourneyContext {
-  const baseContext: JourneyContext = {
-    journeyType,
-    userId,
-    timestamp: Date.now(),
-  };
+export function createMockKafkaMessage(options?: {
+  traceId?: string;
+  spanId?: string;
+  traceFlags?: number;
+  journeyType?: 'health' | 'care' | 'plan';
+  journeyId?: string;
+  userId?: string;
+  sessionId?: string;
+  requestId?: string;
+}, value?: Buffer | string | null): KafkaMessage {
+  const headers: Record<string, Buffer> = {};
   
-  // Add journey-specific properties based on journey type
-  switch (journeyType) {
-    case 'health':
-      return {
-        ...baseContext,
-        metricType: 'steps',
-        deviceId: 'mock-device-123',
-        ...additionalContext,
-      };
-    case 'care':
-      return {
-        ...baseContext,
-        appointmentId: 'mock-appointment-123',
-        providerId: 'mock-provider-123',
-        ...additionalContext,
-      };
-    case 'plan':
-      return {
-        ...baseContext,
-        planId: 'mock-plan-123',
-        benefitId: 'mock-benefit-123',
-        ...additionalContext,
-      };
-    default:
-      return { ...baseContext, ...additionalContext };
+  headers['x-trace-id'] = Buffer.from(options?.traceId || generateTraceId());
+  headers['x-span-id'] = Buffer.from(options?.spanId || generateSpanId());
+  headers['x-trace-flags'] = Buffer.from(options?.traceFlags?.toString() || '1');
+  
+  if (options?.journeyType && options?.journeyId) {
+    headers['x-journey-type'] = Buffer.from(options.journeyType);
+    headers['x-journey-id'] = Buffer.from(options.journeyId);
+    
+    if (options.userId) {
+      headers['x-user-id'] = Buffer.from(options.userId);
+    }
+    
+    if (options.sessionId) {
+      headers['x-session-id'] = Buffer.from(options.sessionId);
+    }
+    
+    if (options.requestId) {
+      headers['x-request-id'] = Buffer.from(options.requestId);
+    }
   }
+  
+  return {
+    key: null,
+    value: typeof value === 'string' ? Buffer.from(value) : value,
+    timestamp: new Date().getTime().toString(),
+    size: 0,
+    attributes: 0,
+    offset: '0',
+    headers,
+  };
 }
