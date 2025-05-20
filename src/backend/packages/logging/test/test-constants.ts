@@ -1,331 +1,403 @@
 /**
  * Test constants and fixtures for the logging package tests.
  * 
- * This file provides standardized test data that can be reused across all test files
- * in the logging package, ensuring consistency and reducing duplication.
+ * This file provides reusable test data for all logging package tests, including
+ * sample log entries, context objects, error instances, and configuration settings.
+ * Using these shared constants ensures consistency across tests and simplifies
+ * test maintenance.
  */
 
 import { LogLevel } from '../src/interfaces/log-level.enum';
-import { LogEntry } from '../src/interfaces/log-entry.interface';
+import { LoggingContext } from '../src/context/context.interface';
+import { JourneyContext } from '../src/context/journey-context.interface';
+import { UserContext } from '../src/context/user-context.interface';
+import { RequestContext } from '../src/context/request-context.interface';
 import { LoggerConfig } from '../src/interfaces/log-config.interface';
-import { JourneyType } from '../src/context/context.constants';
 
-// ===== Sample Log Entries =====
+// ===== LOG LEVELS =====
+
+/**
+ * Sample log level values for testing different logging scenarios
+ */
+export const TEST_LOG_LEVELS = {
+  DEBUG: LogLevel.DEBUG,
+  INFO: LogLevel.INFO,
+  WARN: LogLevel.WARN,
+  ERROR: LogLevel.ERROR,
+  FATAL: LogLevel.FATAL,
+};
+
+// ===== LOG ENTRIES =====
+
+/**
+ * Sample log messages for different log levels
+ */
+export const TEST_LOG_MESSAGES = {
+  DEBUG: 'This is a debug message for testing',
+  INFO: 'This is an info message for testing',
+  WARN: 'This is a warning message for testing',
+  ERROR: 'This is an error message for testing',
+  FATAL: 'This is a fatal error message for testing',
+};
+
+/**
+ * Sample log entry for testing formatters and transports
+ */
+export const TEST_LOG_ENTRY = {
+  level: LogLevel.INFO,
+  message: 'Test log entry for formatter testing',
+  timestamp: new Date('2025-05-20T10:30:00Z'),
+  context: {
+    correlationId: 'test-correlation-id-123',
+    requestId: 'test-request-id-456',
+    service: 'test-service',
+    userId: 'test-user-id-789',
+  },
+  metadata: {
+    duration: 123,
+    path: '/api/test',
+    method: 'GET',
+  },
+};
 
 /**
  * Sample log entries for different log levels
  */
-export const TEST_LOG_ENTRIES: Record<LogLevel, LogEntry> = {
-  [LogLevel.DEBUG]: {
-    message: 'Debug message for testing',
+export const TEST_LOG_ENTRIES = {
+  DEBUG: {
+    ...TEST_LOG_ENTRY,
     level: LogLevel.DEBUG,
-    timestamp: new Date('2023-05-15T10:30:00Z'),
-    context: { service: 'test-service' },
+    message: TEST_LOG_MESSAGES.DEBUG,
   },
-  [LogLevel.INFO]: {
-    message: 'Info message for testing',
+  INFO: {
+    ...TEST_LOG_ENTRY,
     level: LogLevel.INFO,
-    timestamp: new Date('2023-05-15T10:31:00Z'),
-    context: { service: 'test-service' },
+    message: TEST_LOG_MESSAGES.INFO,
   },
-  [LogLevel.WARN]: {
-    message: 'Warning message for testing',
+  WARN: {
+    ...TEST_LOG_ENTRY,
     level: LogLevel.WARN,
-    timestamp: new Date('2023-05-15T10:32:00Z'),
-    context: { service: 'test-service' },
+    message: TEST_LOG_MESSAGES.WARN,
   },
-  [LogLevel.ERROR]: {
-    message: 'Error message for testing',
+  ERROR: {
+    ...TEST_LOG_ENTRY,
     level: LogLevel.ERROR,
-    timestamp: new Date('2023-05-15T10:33:00Z'),
-    context: { service: 'test-service' },
-    error: new Error('Test error'),
+    message: TEST_LOG_MESSAGES.ERROR,
+    error: new Error('Test error for ERROR level'),
   },
-  [LogLevel.FATAL]: {
-    message: 'Fatal message for testing',
+  FATAL: {
+    ...TEST_LOG_ENTRY,
     level: LogLevel.FATAL,
-    timestamp: new Date('2023-05-15T10:34:00Z'),
-    context: { service: 'test-service' },
-    error: new Error('Test fatal error'),
+    message: TEST_LOG_MESSAGES.FATAL,
+    error: new Error('Test error for FATAL level'),
   },
 };
 
+// ===== CONTEXT OBJECTS =====
+
 /**
- * Sample log entry with all possible fields populated
+ * Base logging context for testing
  */
-export const COMPLETE_LOG_ENTRY: LogEntry = {
-  message: 'Complete log entry for testing',
-  level: LogLevel.INFO,
-  timestamp: new Date('2023-05-15T10:35:00Z'),
-  context: {
-    service: 'test-service',
-    requestId: '12345-abcde-67890',
-    userId: 'user-123',
-    journeyType: JourneyType.HEALTH,
-    journeyContext: { action: 'view-metrics' },
-    traceId: 'trace-123',
-    spanId: 'span-456',
-    environment: 'test',
-    version: '1.0.0',
-    correlationId: 'corr-789',
-  },
-  error: new Error('Test error with complete context'),
-  metadata: {
-    duration: 123,
-    resourceId: 'resource-456',
-    tags: ['test', 'complete', 'entry'],
-  },
+export const TEST_BASE_CONTEXT: LoggingContext = {
+  correlationId: 'test-correlation-id-123',
+  requestId: 'test-request-id-456',
+  timestamp: new Date('2025-05-20T10:30:00Z'),
+  service: 'test-service',
+  environment: 'test',
+  version: '1.0.0',
 };
 
-// ===== Context Objects =====
+/**
+ * Journey types for the AUSTA SuperApp
+ */
+export enum TEST_JOURNEY_TYPE {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan',
+}
 
 /**
- * Sample journey context objects for different journey types
+ * Sample journey contexts for different journey types
  */
-export const TEST_JOURNEY_CONTEXTS = {
-  [JourneyType.HEALTH]: {
-    journeyType: JourneyType.HEALTH,
-    journeyContext: {
-      action: 'view-health-metrics',
-      metricType: 'heart-rate',
-      deviceId: 'device-123',
+export const TEST_JOURNEY_CONTEXTS: Record<TEST_JOURNEY_TYPE, JourneyContext> = {
+  [TEST_JOURNEY_TYPE.HEALTH]: {
+    ...TEST_BASE_CONTEXT,
+    journeyType: TEST_JOURNEY_TYPE.HEALTH,
+    journeyState: {
+      currentMetric: 'blood_pressure',
+      goalId: 'goal-123',
+      deviceId: 'device-456',
     },
   },
-  [JourneyType.CARE]: {
-    journeyType: JourneyType.CARE,
-    journeyContext: {
-      action: 'schedule-appointment',
+  [TEST_JOURNEY_TYPE.CARE]: {
+    ...TEST_BASE_CONTEXT,
+    journeyType: TEST_JOURNEY_TYPE.CARE,
+    journeyState: {
+      appointmentId: 'appointment-123',
       providerId: 'provider-456',
-      specialtyId: 'cardiology',
+      careType: 'telemedicine',
     },
   },
-  [JourneyType.PLAN]: {
-    journeyType: JourneyType.PLAN,
-    journeyContext: {
-      action: 'view-benefits',
-      planId: 'plan-789',
-      benefitType: 'medical',
+  [TEST_JOURNEY_TYPE.PLAN]: {
+    ...TEST_BASE_CONTEXT,
+    journeyType: TEST_JOURNEY_TYPE.PLAN,
+    journeyState: {
+      planId: 'plan-123',
+      claimId: 'claim-456',
+      benefitType: 'dental',
     },
   },
 };
 
 /**
- * Sample user context object
+ * Sample user contexts with different user types
  */
-export const TEST_USER_CONTEXT = {
-  userId: 'user-123',
-  username: 'testuser',
-  email: 'test@example.com',
-  roles: ['user', 'premium'],
-  isAuthenticated: true,
-  preferences: {
-    language: 'pt-BR',
-    notifications: true,
+export const TEST_USER_CONTEXTS: Record<string, UserContext> = {
+  STANDARD: {
+    ...TEST_BASE_CONTEXT,
+    userId: 'user-123',
+    isAuthenticated: true,
+    roles: ['user'],
+    preferences: {
+      language: 'pt-BR',
+      theme: 'light',
+    },
+  },
+  ADMIN: {
+    ...TEST_BASE_CONTEXT,
+    userId: 'admin-123',
+    isAuthenticated: true,
+    roles: ['user', 'admin'],
+    preferences: {
+      language: 'en-US',
+      theme: 'dark',
+    },
+  },
+  UNAUTHENTICATED: {
+    ...TEST_BASE_CONTEXT,
+    userId: undefined,
+    isAuthenticated: false,
+    roles: [],
+    preferences: {
+      language: 'pt-BR',
+      theme: 'light',
+    },
   },
 };
 
 /**
- * Sample request context object
+ * Sample HTTP request contexts for testing
  */
-export const TEST_REQUEST_CONTEXT = {
-  requestId: 'req-123-456-789',
-  method: 'GET',
-  url: '/api/health/metrics',
-  ip: '192.168.1.1',
-  userAgent: 'Mozilla/5.0 (Test User Agent)',
-  params: { metricId: '123' },
-  headers: {
-    'content-type': 'application/json',
-    'accept-language': 'pt-BR',
+export const TEST_REQUEST_CONTEXTS: Record<string, RequestContext> = {
+  GET: {
+    ...TEST_BASE_CONTEXT,
+    method: 'GET',
+    url: 'https://api.austa.health/health/metrics',
+    path: '/health/metrics',
+    ip: '192.168.1.1',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    headers: {
+      'accept-language': 'pt-BR',
+      'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+      'x-request-id': 'test-request-id-456',
+    },
+    params: {
+      metricType: 'blood_pressure',
+      period: '7d',
+    },
+  },
+  POST: {
+    ...TEST_BASE_CONTEXT,
+    method: 'POST',
+    url: 'https://api.austa.health/care/appointments',
+    path: '/care/appointments',
+    ip: '192.168.1.2',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    headers: {
+      'accept-language': 'en-US',
+      'content-type': 'application/json',
+      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'x-request-id': 'test-request-id-789',
+    },
+    body: {
+      providerId: 'provider-123',
+      date: '2025-06-01',
+      time: '14:30',
+      type: 'telemedicine',
+    },
   },
 };
 
-/**
- * Sample trace context object for distributed tracing
- */
-export const TEST_TRACE_CONTEXT = {
-  traceId: 'trace-abc-123',
-  spanId: 'span-def-456',
-  parentSpanId: 'span-parent-789',
-  sampled: true,
-  flags: 1,
-};
-
-// ===== Error Objects =====
+// ===== ERROR OBJECTS =====
 
 /**
- * Creates a sample error with a predictable stack trace for testing
+ * Creates an error with a predictable stack trace for testing
+ * @param message Error message
+ * @param name Error name
+ * @returns Error object with stack trace
  */
 export function createTestError(message: string, name = 'Error'): Error {
   const error = new Error(message);
   error.name = name;
+  
+  // Set a predictable stack trace for testing
   error.stack = `${name}: ${message}
-    at TestFunction (/test/file.ts:123:45)
-    at Context.<anonymous> (/test/test-file.spec.ts:67:89)
-    at processTicksAndRejections (node:internal/process/task_queues:95:5)`;
+    at TestFunction (/src/test/function.ts:123:45)
+    at Context.<anonymous> (/src/test/test-file.spec.ts:67:89)
+    at processTicksAndRejections (internal/process/task_queues.js:95:5)`;
+  
   return error;
-};
+}
 
 /**
- * Sample error objects for different error types
+ * Sample error objects for testing error logging
  */
 export const TEST_ERRORS = {
-  basic: createTestError('Basic test error'),
-  validation: createTestError('Validation failed: Field is required', 'ValidationError'),
-  database: createTestError('Database connection failed', 'DatabaseError'),
-  network: createTestError('Network request timeout', 'NetworkError'),
-  auth: createTestError('Authentication failed: Invalid credentials', 'AuthError'),
-  notFound: createTestError('Resource not found', 'NotFoundError'),
+  STANDARD: createTestError('Standard test error'),
+  VALIDATION: createTestError('Validation failed: Field is required', 'ValidationError'),
+  DATABASE: createTestError('Database connection failed', 'DatabaseError'),
+  NETWORK: createTestError('Network request timeout', 'NetworkError'),
+  AUTHENTICATION: createTestError('Invalid credentials', 'AuthenticationError'),
+  AUTHORIZATION: createTestError('Insufficient permissions', 'AuthorizationError'),
 };
 
 /**
- * Sample error with nested cause for testing error chaining
+ * Sample error with cause for testing nested error logging
  */
-export const NESTED_ERROR = (() => {
-  const rootCause = createTestError('Root cause error', 'RootError');
-  const midLevel = createTestError('Mid-level error', 'MidError');
-  const topLevel = createTestError('Top-level error', 'TopError');
-  
-  // @ts-ignore - TypeScript doesn't recognize cause property but it's standard in Node.js
-  midLevel.cause = rootCause;
-  // @ts-ignore
-  topLevel.cause = midLevel;
-  
-  return topLevel;
+export const TEST_ERROR_WITH_CAUSE = (() => {
+  const cause = createTestError('Original database connection error', 'ConnectionError');
+  const error = createTestError('Failed to fetch user data', 'DatabaseError');
+  (error as any).cause = cause; // TypeScript 4.5+ supports Error.cause natively
+  return error;
 })();
 
-// ===== Configuration Objects =====
+// ===== TRACE CONTEXT =====
+
+/**
+ * Sample trace context for testing distributed tracing integration
+ */
+export const TEST_TRACE_CONTEXT = {
+  traceId: '1234567890abcdef1234567890abcdef',
+  spanId: 'abcdef1234567890',
+  traceFlags: 1, // Sampled
+  traceState: 'vendor=value',
+};
+
+/**
+ * Sample AWS X-Ray trace context for testing AWS integration
+ */
+export const TEST_XRAY_TRACE_CONTEXT = {
+  traceId: '1-5f85e699-684a7e5520b33d5eb1957a33',
+  segmentId: '5b9e4ff66a3e815c',
+  sampled: true,
+};
+
+// ===== CONFIGURATION =====
 
 /**
  * Sample logger configurations for different environments
  */
 export const TEST_LOGGER_CONFIGS: Record<string, LoggerConfig> = {
-  development: {
+  DEVELOPMENT: {
     level: LogLevel.DEBUG,
+    service: 'test-service',
+    environment: 'development',
     formatter: 'text',
-    transports: [{ type: 'console' }],
-    context: {
-      service: 'test-service',
-      environment: 'development',
-      version: '1.0.0',
-    },
-  },
-  test: {
-    level: LogLevel.DEBUG,
-    formatter: 'json',
-    transports: [{ type: 'console' }],
-    context: {
-      service: 'test-service',
-      environment: 'test',
-      version: '1.0.0',
-    },
-  },
-  production: {
-    level: LogLevel.INFO,
-    formatter: 'json',
     transports: [
-      { type: 'console' },
       {
-        type: 'cloudwatch',
-        options: {
-          logGroupName: '/austa/test-service',
-          logStreamName: 'application-logs',
-          region: 'us-east-1',
-        },
+        type: 'console',
+        level: LogLevel.DEBUG,
+        colorize: true,
       },
     ],
     context: {
-      service: 'test-service',
-      environment: 'production',
+      version: '1.0.0',
+    },
+  },
+  PRODUCTION: {
+    level: LogLevel.INFO,
+    service: 'test-service',
+    environment: 'production',
+    formatter: 'json',
+    transports: [
+      {
+        type: 'console',
+        level: LogLevel.INFO,
+        colorize: false,
+      },
+      {
+        type: 'cloudwatch',
+        level: LogLevel.INFO,
+        logGroup: '/austa/test-service',
+        logStream: 'application-logs',
+        region: 'us-east-1',
+      },
+    ],
+    context: {
+      version: '1.0.0',
+    },
+  },
+  TESTING: {
+    level: LogLevel.DEBUG,
+    service: 'test-service',
+    environment: 'test',
+    formatter: 'json',
+    transports: [
+      {
+        type: 'console',
+        level: LogLevel.DEBUG,
+        colorize: false,
+      },
+    ],
+    context: {
       version: '1.0.0',
     },
   },
 };
 
-/**
- * Sample transport configurations for different transport types
- */
-export const TEST_TRANSPORT_CONFIGS = {
-  console: {
-    type: 'console',
-    options: {
-      colorize: true,
-    },
-  },
-  file: {
-    type: 'file',
-    options: {
-      filename: 'test-logs.log',
-      directory: '/tmp/logs',
-      maxSize: '10m',
-      maxFiles: 5,
-      compress: true,
-    },
-  },
-  cloudwatch: {
-    type: 'cloudwatch',
-    options: {
-      logGroupName: '/austa/test-service',
-      logStreamName: 'application-logs',
-      region: 'us-east-1',
-      batchSize: 20,
-      retryCount: 3,
-      retryDelay: 100,
-    },
-  },
-};
-
-// ===== Mock Functions and Classes =====
+// ===== MOCK OBJECTS =====
 
 /**
- * Mock console methods for testing console transport
+ * Mock transport for testing that captures logs instead of writing them
  */
-export const mockConsole = {
-  log: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
-};
-
-/**
- * Mock file system methods for testing file transport
- */
-export const mockFs = {
-  writeFile: jest.fn(),
-  appendFile: jest.fn(),
-  mkdir: jest.fn(),
-  stat: jest.fn(),
-  readdir: jest.fn(),
-  unlink: jest.fn(),
-};
-
-/**
- * Mock AWS SDK methods for testing CloudWatch transport
- */
-export const mockCloudWatchLogs = {
-  putLogEvents: jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({
-      nextSequenceToken: 'next-token-123',
+export const createMockTransport = () => {
+  const logs: any[] = [];
+  
+  return {
+    logs,
+    write: jest.fn((entry) => {
+      logs.push(entry);
+      return Promise.resolve();
     }),
-  }),
-  createLogGroup: jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({}),
-  }),
-  createLogStream: jest.fn().mockReturnValue({
-    promise: jest.fn().mockResolvedValue({}),
-  }),
+    initialize: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
 };
 
 /**
- * Mock tracing service for testing trace context integration
+ * Mock formatter for testing that returns a predictable string
  */
-export const mockTracingService = {
-  getCurrentTraceContext: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT),
-  startSpan: jest.fn().mockReturnValue({
-    end: jest.fn(),
-    context: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT),
-  }),
-  getTraceId: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT.traceId),
-  getSpanId: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT.spanId),
+export const createMockFormatter = () => {
+  return {
+    format: jest.fn((entry) => {
+      return JSON.stringify(entry);
+    }),
+  };
+};
+
+/**
+ * Mock trace service for testing distributed tracing integration
+ */
+export const createMockTraceService = () => {
+  return {
+    getCurrentTraceContext: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT),
+    startSpan: jest.fn().mockImplementation((name, options) => ({
+      name,
+      end: jest.fn(),
+      setAttributes: jest.fn(),
+      recordException: jest.fn(),
+    })),
+    getTraceContextFromRequest: jest.fn().mockReturnValue(TEST_TRACE_CONTEXT),
+    injectTraceContext: jest.fn(),
+  };
 };
