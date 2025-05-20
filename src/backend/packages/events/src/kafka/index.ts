@@ -1,56 +1,30 @@
 /**
- * @file Kafka Module Barrel Export
- * @description Centralized export point for all Kafka-related components in the events package.
- * This file enables simplified imports via @austa/events/kafka and provides a clean,
- * consistent API for consumers across the application.
+ * Kafka module for the AUSTA SuperApp.
+ * 
+ * This module provides services and utilities for event-driven communication
+ * between microservices using Apache Kafka.
+ * 
+ * @module kafka
  */
 
-/**
- * Module exports
- * @module Kafka/Module
- */
-export { KafkaModule } from './kafka.module';
+// Export the main module and service
+export * from './kafka.module';
+export * from './kafka.service';
 
-/**
- * Service exports
- * @module Kafka/Services
- */
-export { KafkaService } from './kafka.service';
-export { KafkaConsumer } from './kafka.consumer';
-export { KafkaProducer } from './kafka.producer';
+// Re-export interfaces and types
+export * from '../interfaces/kafka-message.interface';
+export * from '../interfaces/kafka-options.interface';
 
-/**
- * Interface exports
- * @module Kafka/Interfaces
- */
-export * from './kafka.interfaces';
+// Re-export errors
+export * from '../errors/kafka.errors';
 
-/**
- * Type exports
- * @module Kafka/Types
- */
-export * from './kafka.types';
+// Re-export constants
+export * from '../constants/topics.constants';
+export * from '../constants/errors.constants';
+export * from '../constants/tokens.constants';
 
-/**
- * Constant exports
- * @module Kafka/Constants
- */
-export * from './kafka.constants';
+// Re-export schema registry
+export * from '../schema/schema-registry.service';
 
-/**
- * Configuration exports
- * @module Kafka/Config
- */
-export * from './kafka.config';
-
-/**
- * Error exports
- * @module Kafka/Errors
- */
-export * from './kafka.errors';
-
-/**
- * Retry Strategy exports
- * @module Kafka/RetryStrategies
- */
-export * from './retry-strategies';
+// Re-export DTOs
+export * from '../dto/event-metadata.dto';
