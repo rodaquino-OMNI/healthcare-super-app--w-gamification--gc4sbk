@@ -1,892 +1,973 @@
 /**
  * @file kafka-test-client.ts
  * @description Provides a mock Kafka client implementation for testing event publishing and consuming
- * without requiring a real Kafka connection. It allows simulation of Kafka behavior, testing of
- * produce/consume patterns, and verification of event handling logic in isolated test environments.
+ * without requiring a real Kafka connection. This utility enables comprehensive testing of
+ * Kafka-based event processing in isolated test environments.
+ *
+ * Features:
+ * - Mock Kafka producer for testing event publishing
+ * - Mock Kafka consumer for testing event subscription
+ * - Event delivery simulation with controllable timing
+ * - Error injection capabilities for testing error handling
+ * - Test utilities for verifying topic partitioning and message ordering
+ * - Support for dead letter queues and retry mechanisms
+ * - Audit logging of all events for verification
+ *
+ * Example usage:
+ * ```typescript
+ * // Create a test client
+ * const testClient = new KafkaTestClient();
+ * 
+ * // Register a consumer
+ * testClient.registerConsumer('test-topic', async (message) => {
+ *   // Process message
+ *   console.log(message);
+ * });
+ * 
+ * // Produce a message
+ * await testClient.produce('test-topic', { value: 'test-message' });
+ * 
+ * // Verify message was processed
+ * expect(testClient.getProcessedMessages('test-topic')).toHaveLength(1);
+ * ```
  */
 
-import { EventEmitter } from 'events';
-import { v4 as uuidv4 } from 'uuid';
-import {
-  IKafkaService,
-  IKafkaProducerOptions,
-  IKafkaConsumerOptions,
-  IKafkaDeadLetterQueueConfig,
-  IValidationResult,
-} from '../../src/kafka/kafka.interfaces';
-import {
-  EventJourney,
-  EventProcessingStatus,
-  KafkaErrorType,
-  RetryPolicy,
-  KafkaHeaders,
-  TypedKafkaMessage,
-} from '../../src/kafka/kafka.types';
-
-/**
- * Interface for a message stored in the mock Kafka system
- */
-interface MockKafkaMessage<T = any> {
-  topic: string;
-  partition: number;
-  offset: number;
-  key?: string;
-  value: T;
-  headers?: KafkaHeaders;
-  timestamp: string;
-}
-
-/**
- * Interface for a consumer subscription in the mock Kafka system
- */
-interface MockConsumerSubscription {
-  topic: string;
-  groupId: string;
-  callback: (message: any, key?: string, headers?: Record<string, string>) => Promise<void>;
-  options?: IKafkaConsumerOptions;
-  isActive: boolean;
-  lastProcessedOffset?: number;
-}
+import { EventMetadataDto } from '../../src/dto/event-metadata.dto';
+import { KafkaMessage } from '../../src/interfaces/kafka-message.interface';
+import { TOPICS } from '../../src/constants/topics.constants';
+import { ERROR_CODES } from '../../src/constants/errors.constants';
 
 /**
- * Interface for retry configuration in the mock Kafka system
+ * Configuration options for the KafkaTestClient.
  */
-interface MockRetryConfig {
-  maxRetries: number;
-  initialDelayMs: number;
-  maxDelayMs: number;
-  backoffFactor: number;
-  policy: RetryPolicy;
-}
-
-/**
- * Interface for a message in the dead letter queue
- */
-interface DeadLetterQueueMessage {
-  originalTopic: string;
-  message: any;
-  error: Error;
-  metadata: Record<string, any>;
-  timestamp: string;
-  retryCount: number;
-}
-
-/**
- * Interface for an event in the audit log
- */
-interface AuditLogEvent {
-  eventType: 'PRODUCE' | 'CONSUME' | 'ERROR' | 'RETRY' | 'DEAD_LETTER';
-  topic: string;
-  messageId?: string;
-  timestamp: string;
-  details: Record<string, any>;
-}
-
-/**
- * Mock implementation of Kafka client for testing purposes.
- * Simulates Kafka behavior without requiring a real Kafka connection.
- */
-export class KafkaTestClient implements IKafkaService {
-  private topics: Map<string, Map<number, MockKafkaMessage[]>> = new Map();
-  private consumers: Map<string, MockConsumerSubscription[]> = new Map();
-  private deadLetterQueue: Map<string, DeadLetterQueueMessage[]> = new Map();
-  private auditLog: AuditLogEvent[] = [];
-  private eventEmitter = new EventEmitter();
-  private autoIncrementOffset: Map<string, Map<number, number>> = new Map();
-  private processingDelayMs: number = 0;
-  private errorProbability: number = 0;
-  private partitionsPerTopic: number = 3; // Default number of partitions
-  private defaultRetryConfig: MockRetryConfig = {
-    maxRetries: 3,
-    initialDelayMs: 100,
-    maxDelayMs: 5000,
-    backoffFactor: 2,
-    policy: RetryPolicy.EXPONENTIAL,
-  };
+export interface KafkaTestClientOptions {
+  /**
+   * Whether to deliver messages immediately or require manual delivery.
+   * @default true
+   */
+  autoDeliverMessages?: boolean;
 
   /**
-   * Creates a new instance of KafkaTestClient
+   * Default delay in milliseconds before delivering messages when auto-delivery is enabled.
+   * @default 0
+   */
+  defaultDeliveryDelay?: number;
+
+  /**
+   * Whether to enable the dead letter queue for failed messages.
+   * @default true
+   */
+  enableDeadLetterQueue?: boolean;
+
+  /**
+   * Maximum number of retry attempts for failed messages.
+   * @default 3
+   */
+  maxRetries?: number;
+
+  /**
+   * Base delay in milliseconds for retry attempts (will be multiplied by backoff factor).
+   * @default 100
+   */
+  retryBaseDelay?: number;
+
+  /**
+   * Backoff factor for retry delay calculation.
+   * @default 2
+   */
+  retryBackoffFactor?: number;
+
+  /**
+   * Whether to log events to the console.
+   * @default false
+   */
+  enableConsoleLogging?: boolean;
+}
+
+/**
+ * Options for producing a message.
+ */
+export interface ProduceOptions {
+  /**
+   * Message key for partitioning.
+   */
+  key?: string;
+
+  /**
+   * Message headers.
+   */
+  headers?: Record<string, string>;
+
+  /**
+   * Whether to simulate a producer error.
+   */
+  simulateError?: boolean;
+
+  /**
+   * Custom error message when simulating an error.
+   */
+  errorMessage?: string;
+
+  /**
+   * Delay in milliseconds before delivering the message (overrides default).
+   */
+  deliveryDelay?: number;
+}
+
+/**
+ * Options for consuming messages.
+ */
+export interface ConsumeOptions {
+  /**
+   * Consumer group ID.
+   */
+  groupId?: string;
+
+  /**
+   * Whether to consume from the beginning of the topic.
+   */
+  fromBeginning?: boolean;
+
+  /**
+   * Maximum number of retry attempts for failed messages.
+   */
+  maxRetries?: number;
+
+  /**
+   * Whether to use the dead letter queue for failed messages.
+   */
+  useDLQ?: boolean;
+}
+
+/**
+ * Represents a message in the test client's internal storage.
+ */
+export interface StoredMessage<T = any> {
+  /**
+   * The topic the message was sent to.
+   */
+  topic: string;
+
+  /**
+   * The partition the message was assigned to.
+   */
+  partition: number;
+
+  /**
+   * The message value.
+   */
+  value: T;
+
+  /**
+   * The message key, if provided.
+   */
+  key?: string;
+
+  /**
+   * The message headers.
+   */
+  headers: Record<string, string>;
+
+  /**
+   * The message offset in the partition.
+   */
+  offset: string;
+
+  /**
+   * The timestamp when the message was produced.
+   */
+  timestamp: string;
+
+  /**
+   * The number of times this message has been retried.
+   */
+  retryCount: number;
+
+  /**
+   * Whether the message has been processed.
+   */
+  processed: boolean;
+
+  /**
+   * Whether the message processing failed.
+   */
+  failed: boolean;
+
+  /**
+   * Error message if processing failed.
+   */
+  error?: string;
+
+  /**
+   * Whether the message was sent to the dead letter queue.
+   */
+  sentToDLQ: boolean;
+}
+
+/**
+ * Type for message handler functions.
+ */
+export type MessageHandler<T = any> = (value: T, metadata: KafkaMessage) => Promise<void>;
+
+/**
+ * Mock Kafka client for testing event publishing and consuming.
+ */
+export class KafkaTestClient {
+  private options: Required<KafkaTestClientOptions>;
+  private messages: Map<string, StoredMessage[]> = new Map();
+  private consumers: Map<string, Map<string, MessageHandler>> = new Map();
+  private consumerGroups: Map<string, Set<string>> = new Map();
+  private partitionCounters: Map<string, number> = new Map();
+  private offsetCounters: Map<string, Map<number, number>> = new Map();
+  private processingPromises: Promise<void>[] = [];
+  private eventLog: Array<{
+    type: 'PRODUCE' | 'CONSUME' | 'RETRY' | 'DLQ' | 'ERROR';
+    topic: string;
+    timestamp: Date;
+    messageId?: string;
+    details?: any;
+  }> = [];
+
+  /**
+   * Creates a new KafkaTestClient with the specified options.
+   * 
    * @param options Configuration options for the test client
    */
-  constructor(options?: {
-    processingDelayMs?: number;
-    errorProbability?: number;
-    partitionsPerTopic?: number;
-    retryConfig?: Partial<MockRetryConfig>;
-  }) {
-    if (options) {
-      this.processingDelayMs = options.processingDelayMs ?? this.processingDelayMs;
-      this.errorProbability = options.errorProbability ?? this.errorProbability;
-      this.partitionsPerTopic = options.partitionsPerTopic ?? this.partitionsPerTopic;
-      
-      if (options.retryConfig) {
-        this.defaultRetryConfig = {
-          ...this.defaultRetryConfig,
-          ...options.retryConfig,
-        };
-      }
-    }
+  constructor(options: KafkaTestClientOptions = {}) {
+    this.options = {
+      autoDeliverMessages: options.autoDeliverMessages ?? true,
+      defaultDeliveryDelay: options.defaultDeliveryDelay ?? 0,
+      enableDeadLetterQueue: options.enableDeadLetterQueue ?? true,
+      maxRetries: options.maxRetries ?? 3,
+      retryBaseDelay: options.retryBaseDelay ?? 100,
+      retryBackoffFactor: options.retryBackoffFactor ?? 2,
+      enableConsoleLogging: options.enableConsoleLogging ?? false,
+    };
 
-    // Set up max listeners to avoid memory leak warnings in tests
-    this.eventEmitter.setMaxListeners(100);
+    // Initialize the dead letter queue topic
+    this.messages.set(TOPICS.DEAD_LETTER, []);
+    this.log('PRODUCE', TOPICS.DEAD_LETTER, { action: 'INITIALIZE_TOPIC' });
   }
 
   /**
-   * Produces a message to a Kafka topic
+   * Produces a message to the specified topic.
+   * 
    * @param topic The topic to produce to
-   * @param message The message to produce
-   * @param key Optional message key for partitioning
-   * @param headers Optional message headers
-   * @param options Optional producer options
+   * @param value The message value
+   * @param options Additional options for producing the message
+   * @returns A promise that resolves when the message is produced
+   * @throws If simulating an error or if the topic is invalid
    */
-  async produce(
+  async produce<T = any>(
     topic: string,
-    message: any,
-    key?: string,
-    headers?: Record<string, string>,
-    options?: IKafkaProducerOptions
+    value: T,
+    options: ProduceOptions = {}
   ): Promise<void> {
-    // Create topic and partitions if they don't exist
-    this.ensureTopicExists(topic);
-
-    // Validate message if validator is provided
-    if (options?.validator) {
-      const validationResult = await options.validator(message);
-      if (!validationResult.isValid) {
-        const error = new Error(`Message validation failed: ${validationResult.error}`);
-        this.logEvent('ERROR', topic, undefined, { error: error.message, message });
-        throw error;
-      }
+    // Simulate producer error if requested
+    if (options.simulateError) {
+      const error = new Error(options.errorMessage || `Simulated producer error for topic ${topic}`);
+      this.log('ERROR', topic, { error: error.message, value });
+      throw error;
     }
 
-    // Determine partition based on key or round-robin
-    const partition = key 
-      ? this.getPartitionForKey(key, topic) 
-      : this.getNextPartition(topic);
+    // Ensure the topic exists in our storage
+    if (!this.messages.has(topic)) {
+      this.messages.set(topic, []);
+      this.partitionCounters.set(topic, 0);
+      this.offsetCounters.set(topic, new Map());
+    }
 
-    // Get next offset for this topic-partition
-    const offset = this.getNextOffset(topic, partition);
+    // Determine partition (simple round-robin for testing)
+    const partition = this.getNextPartition(topic);
+    
+    // Get the next offset for this partition
+    const offset = this.getNextOffset(topic, partition).toString();
+    
+    // Add metadata if not present
+    let enrichedValue = value;
+    if (this.isObject(value) && !this.hasMetadata(value)) {
+      enrichedValue = this.addMetadata(value as any);
+    }
 
-    // Create the message
-    const kafkaMessage: MockKafkaMessage = {
+    // Create the stored message
+    const message: StoredMessage<T> = {
       topic,
       partition,
+      value: enrichedValue,
+      key: options.key,
+      headers: options.headers || {},
       offset,
-      key,
-      value: message,
-      headers: headers as KafkaHeaders,
       timestamp: new Date().toISOString(),
+      retryCount: 0,
+      processed: false,
+      failed: false,
+      sentToDLQ: false,
     };
 
     // Store the message
-    const partitions = this.topics.get(topic)!;
-    const messages = partitions.get(partition)!;
-    messages.push(kafkaMessage);
+    this.messages.get(topic)!.push(message);
+    
+    // Log the production
+    this.log('PRODUCE', topic, { 
+      partition, 
+      offset, 
+      key: options.key,
+      headers: options.headers,
+      hasMetadata: this.hasMetadata(enrichedValue)
+    });
 
-    // Log the produce event
-    const messageId = headers?.['event-id'] || uuidv4();
-    this.logEvent('PRODUCE', topic, messageId, { partition, offset, message });
-
-    // Emit event for any active consumers
-    setTimeout(() => {
-      this.eventEmitter.emit(`${topic}-${partition}`, kafkaMessage);
-    }, this.processingDelayMs);
-  }
-
-  /**
-   * Produces a batch of messages to a Kafka topic
-   * @param topic The topic to produce to
-   * @param messages The messages to produce
-   * @param options Optional producer options
-   */
-  async produceBatch(
-    topic: string,
-    messages: Array<{ value: any; key?: string; headers?: Record<string, string> }>,
-    options?: IKafkaProducerOptions
-  ): Promise<void> {
-    for (const message of messages) {
-      await this.produce(topic, message.value, message.key, message.headers, options);
+    // Auto-deliver the message if enabled
+    if (this.options.autoDeliverMessages) {
+      const delay = options.deliveryDelay ?? this.options.defaultDeliveryDelay;
+      if (delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      await this.deliverMessages(topic);
     }
   }
 
   /**
-   * Consumes messages from a Kafka topic
+   * Produces multiple messages to the specified topic in a batch.
+   * 
+   * @param topic The topic to produce to
+   * @param messages Array of messages with optional keys and headers
+   * @param simulateError Whether to simulate a producer error
+   * @returns A promise that resolves when all messages are produced
+   * @throws If simulating an error or if the topic is invalid
+   */
+  async produceBatch<T = any>(
+    topic: string,
+    messages: Array<{
+      value: T;
+      key?: string;
+      headers?: Record<string, string>;
+    }>,
+    simulateError = false
+  ): Promise<void> {
+    // Simulate producer error if requested
+    if (simulateError) {
+      const error = new Error(`Simulated batch producer error for topic ${topic}`);
+      this.log('ERROR', topic, { error: error.message, batchSize: messages.length });
+      throw error;
+    }
+
+    // Produce each message individually but don't auto-deliver yet
+    const autoDeliverSetting = this.options.autoDeliverMessages;
+    this.options.autoDeliverMessages = false;
+    
+    try {
+      for (const message of messages) {
+        await this.produce(topic, message.value, {
+          key: message.key,
+          headers: message.headers,
+        });
+      }
+    } finally {
+      // Restore auto-deliver setting
+      this.options.autoDeliverMessages = autoDeliverSetting;
+    }
+
+    // Deliver all messages at once if auto-deliver is enabled
+    if (autoDeliverSetting) {
+      await this.deliverMessages(topic);
+    }
+  }
+
+  /**
+   * Registers a consumer for the specified topic.
+   * 
    * @param topic The topic to consume from
-   * @param groupId The consumer group ID
-   * @param callback The callback to invoke for each message
-   * @param options Optional consumer options
+   * @param handler The function to process each message
+   * @param options Additional options for consuming
+   * @returns A promise that resolves when the consumer is registered
    */
-  async consume(
+  async consume<T = any>(
     topic: string,
-    groupId: string | undefined,
-    callback: (message: any, key?: string, headers?: Record<string, string>) => Promise<void>,
-    options?: IKafkaConsumerOptions
+    handler: MessageHandler<T>,
+    options: ConsumeOptions = {}
   ): Promise<void> {
-    // Create topic if it doesn't exist
-    this.ensureTopicExists(topic);
-
+    const groupId = options.groupId || 'default-group';
+    
     // Create consumer group if it doesn't exist
+    if (!this.consumerGroups.has(groupId)) {
+      this.consumerGroups.set(groupId, new Set());
+    }
+    
+    // Add topic to consumer group
+    this.consumerGroups.get(groupId)!.add(topic);
+    
+    // Create topic in consumers map if it doesn't exist
     if (!this.consumers.has(topic)) {
-      this.consumers.set(topic, []);
+      this.consumers.set(topic, new Map());
     }
-
-    // Create consumer subscription
-    const subscription: MockConsumerSubscription = {
-      topic,
-      groupId: groupId || 'default-group',
-      callback,
-      options,
-      isActive: true,
-    };
-
-    // Add subscription to consumer group
-    this.consumers.get(topic)!.push(subscription);
-
-    // Set up listener for new messages
-    for (let partition = 0; partition < this.partitionsPerTopic; partition++) {
-      this.setupConsumerListener(subscription, partition);
+    
+    // Register the handler for this consumer group
+    this.consumers.get(topic)!.set(groupId, handler);
+    
+    // Ensure the topic exists in our storage
+    if (!this.messages.has(topic)) {
+      this.messages.set(topic, []);
+      this.partitionCounters.set(topic, 0);
+      this.offsetCounters.set(topic, new Map());
     }
-
+    
+    this.log('CONSUME', topic, { 
+      action: 'REGISTER_CONSUMER', 
+      groupId, 
+      fromBeginning: options.fromBeginning,
+      maxRetries: options.maxRetries,
+      useDLQ: options.useDLQ
+    });
+    
     // Process existing messages if fromBeginning is true
-    if (options?.fromBeginning) {
-      const partitions = this.topics.get(topic);
-      if (partitions) {
-        for (let partition = 0; partition < this.partitionsPerTopic; partition++) {
-          const messages = partitions.get(partition) || [];
-          for (const message of messages) {
-            await this.processMessage(message, subscription);
-          }
+    if (options.fromBeginning) {
+      await this.deliverMessages(topic);
+    }
+  }
+
+  /**
+   * Delivers all unprocessed messages for the specified topic to registered consumers.
+   * 
+   * @param topic The topic to deliver messages for, or undefined for all topics
+   * @returns A promise that resolves when all messages are delivered
+   */
+  async deliverMessages(topic?: string): Promise<void> {
+    const topicsToProcess = topic ? [topic] : Array.from(this.messages.keys());
+    
+    for (const currentTopic of topicsToProcess) {
+      // Skip if no consumers for this topic
+      if (!this.consumers.has(currentTopic)) {
+        continue;
+      }
+      
+      const messages = this.messages.get(currentTopic) || [];
+      const unprocessedMessages = messages.filter(msg => !msg.processed && !msg.sentToDLQ);
+      
+      if (unprocessedMessages.length === 0) {
+        continue;
+      }
+      
+      // Process each message with each consumer group
+      for (const message of unprocessedMessages) {
+        for (const [groupId, handler] of this.consumers.get(currentTopic)!.entries()) {
+          // Create a processing promise for this message and consumer
+          const processingPromise = this.processMessage(currentTopic, message, handler, groupId);
+          this.processingPromises.push(processingPromise);
         }
       }
     }
+    
+    // Wait for all processing to complete
+    if (this.processingPromises.length > 0) {
+      await Promise.all(this.processingPromises);
+      this.processingPromises = [];
+    }
   }
 
   /**
-   * Consumes messages from a retry topic
-   * @param originalTopic The original topic
+   * Processes a single message with the specified handler.
+   * 
+   * @param topic The topic the message belongs to
+   * @param message The message to process
+   * @param handler The handler function to process the message
    * @param groupId The consumer group ID
-   * @param callback The callback to invoke for each message
-   * @param options Optional consumer options
+   * @returns A promise that resolves when the message is processed
+   * @private
    */
-  async consumeRetry(
-    originalTopic: string,
-    groupId: string | undefined,
-    callback: (message: any, key?: string, headers?: Record<string, string>) => Promise<void>,
-    options?: IKafkaConsumerOptions
+  private async processMessage<T = any>(
+    topic: string,
+    message: StoredMessage<T>,
+    handler: MessageHandler<T>,
+    groupId: string
   ): Promise<void> {
-    const retryTopic = `${originalTopic}.retry`;
-    await this.consume(retryTopic, groupId, callback, options);
+    try {
+      // Create metadata object for the handler
+      const metadata: KafkaMessage = {
+        key: message.key,
+        headers: { ...message.headers },
+        topic: message.topic,
+        partition: message.partition,
+        offset: message.offset,
+        timestamp: message.timestamp,
+      };
+      
+      // Process the message with the handler
+      await handler(message.value, metadata);
+      
+      // Mark as processed
+      message.processed = true;
+      
+      this.log('CONSUME', topic, { 
+        action: 'PROCESS_SUCCESS', 
+        groupId, 
+        partition: message.partition, 
+        offset: message.offset,
+        key: message.key
+      });
+    } catch (error) {
+      // Mark as failed
+      message.failed = true;
+      message.error = error instanceof Error ? error.message : String(error);
+      
+      this.log('ERROR', topic, { 
+        action: 'PROCESS_FAILURE', 
+        groupId, 
+        partition: message.partition, 
+        offset: message.offset,
+        error: message.error,
+        retryCount: message.retryCount,
+        key: message.key
+      });
+      
+      // Handle retry logic
+      const maxRetries = this.options.maxRetries;
+      
+      if (message.retryCount < maxRetries) {
+        // Increment retry count
+        message.retryCount++;
+        
+        // Calculate retry delay with exponential backoff
+        const retryDelay = this.calculateRetryDelay(message.retryCount);
+        
+        this.log('RETRY', topic, { 
+          action: 'SCHEDULE_RETRY', 
+          groupId, 
+          partition: message.partition, 
+          offset: message.offset,
+          retryCount: message.retryCount,
+          maxRetries,
+          retryDelay,
+          key: message.key
+        });
+        
+        // Reset processed and failed flags for retry
+        message.processed = false;
+        message.failed = false;
+        
+        // Schedule retry after delay
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        await this.processMessage(topic, message, handler, groupId);
+      } else if (this.options.enableDeadLetterQueue) {
+        // Send to dead letter queue
+        await this.sendToDLQ(topic, message, groupId);
+      }
+    }
   }
 
   /**
-   * Consumes messages from a dead letter queue
-   * @param originalTopic The original topic
-   * @param groupId The consumer group ID
-   * @param callback The callback to invoke for each message
-   * @param options Optional consumer options
+   * Sends a failed message to the dead letter queue.
+   * 
+   * @param sourceTopic The original topic the message was sent to
+   * @param message The failed message
+   * @param groupId The consumer group ID that failed to process the message
+   * @returns A promise that resolves when the message is sent to the DLQ
+   * @private
    */
-  async consumeDeadLetterQueue(
-    originalTopic: string,
-    groupId: string | undefined,
-    callback: (message: any, error: any, metadata: any) => Promise<void>,
-    options?: IKafkaConsumerOptions
+  private async sendToDLQ<T = any>(
+    sourceTopic: string,
+    message: StoredMessage<T>,
+    groupId: string
   ): Promise<void> {
-    const dlqTopic = `${originalTopic}.dlq`;
+    try {
+      // Mark as sent to DLQ
+      message.sentToDLQ = true;
+      
+      // Create DLQ headers
+      const dlqHeaders = {
+        ...message.headers,
+        'dlq-timestamp': new Date().toISOString(),
+        'source-topic': sourceTopic,
+        'source-partition': message.partition.toString(),
+        'source-offset': message.offset,
+        'error-message': message.error || 'Unknown error',
+        'retry-count': message.retryCount.toString(),
+        'consumer-group': groupId,
+      };
+      
+      // Get the next partition for the DLQ
+      const partition = this.getNextPartition(TOPICS.DEAD_LETTER);
+      
+      // Get the next offset for this partition
+      const offset = this.getNextOffset(TOPICS.DEAD_LETTER, partition).toString();
+      
+      // Create the DLQ message
+      const dlqMessage: StoredMessage<T> = {
+        topic: TOPICS.DEAD_LETTER,
+        partition,
+        value: message.value,
+        key: message.key,
+        headers: dlqHeaders,
+        offset,
+        timestamp: new Date().toISOString(),
+        retryCount: 0, // Reset for DLQ
+        processed: false,
+        failed: false,
+        sentToDLQ: false, // Reset for DLQ
+      };
+      
+      // Store the message in the DLQ
+      this.messages.get(TOPICS.DEAD_LETTER)!.push(dlqMessage);
+      
+      this.log('DLQ', TOPICS.DEAD_LETTER, { 
+        action: 'SEND_TO_DLQ', 
+        sourceTopic, 
+        sourcePartition: message.partition, 
+        sourceOffset: message.offset,
+        dlqPartition: partition,
+        dlqOffset: offset,
+        error: message.error,
+        retryCount: message.retryCount,
+        key: message.key
+      });
+    } catch (error) {
+      this.log('ERROR', TOPICS.DEAD_LETTER, { 
+        action: 'DLQ_FAILURE', 
+        error: error instanceof Error ? error.message : String(error),
+        sourceTopic,
+        sourcePartition: message.partition,
+        sourceOffset: message.offset,
+        key: message.key
+      });
+      
+      // Don't throw to prevent cascading failures
+    }
+  }
+
+  /**
+   * Calculates the retry delay using exponential backoff.
+   * 
+   * @param attempt The retry attempt number (1-based)
+   * @returns The delay in milliseconds
+   * @private
+   */
+  private calculateRetryDelay(attempt: number): number {
+    const { retryBaseDelay, retryBackoffFactor } = this.options;
+    const delay = retryBaseDelay * Math.pow(retryBackoffFactor, attempt - 1);
     
-    // Create DLQ topic if it doesn't exist
-    this.ensureTopicExists(dlqTopic);
-
-    // Create consumer group if it doesn't exist
-    if (!this.consumers.has(dlqTopic)) {
-      this.consumers.set(dlqTopic, []);
-    }
-
-    // Create consumer subscription with special DLQ handling
-    const subscription: MockConsumerSubscription = {
-      topic: dlqTopic,
-      groupId: groupId || 'dlq-group',
-      callback: async (message: any, key?: string, headers?: Record<string, string>) => {
-        // Extract error and metadata from DLQ message
-        const dlqMessage = message as DeadLetterQueueMessage;
-        await callback(dlqMessage.message, dlqMessage.error, dlqMessage.metadata);
-      },
-      options,
-      isActive: true,
-    };
-
-    // Add subscription to consumer group
-    this.consumers.get(dlqTopic)!.push(subscription);
-
-    // Set up listener for new messages
-    for (let partition = 0; partition < this.partitionsPerTopic; partition++) {
-      this.setupConsumerListener(subscription, partition);
-    }
-
-    // Process existing DLQ messages if fromBeginning is true
-    if (options?.fromBeginning && this.deadLetterQueue.has(originalTopic)) {
-      const dlqMessages = this.deadLetterQueue.get(originalTopic) || [];
-      for (const dlqMessage of dlqMessages) {
-        await subscription.callback(dlqMessage, undefined, undefined);
-      }
-    }
+    // Add jitter to prevent thundering herd problem
+    return Math.floor(delay * (0.8 + Math.random() * 0.4));
   }
 
   /**
-   * Sends a message to the dead letter queue
-   * @param originalTopic The original topic
-   * @param message The message
-   * @param error The error that occurred
-   * @param metadata Additional metadata
-   * @param config Optional DLQ configuration
-   */
-  async sendToDeadLetterQueue(
-    originalTopic: string,
-    message: any,
-    error: Error,
-    metadata?: Record<string, any>,
-    config?: IKafkaDeadLetterQueueConfig
-  ): Promise<void> {
-    // Create DLQ for topic if it doesn't exist
-    if (!this.deadLetterQueue.has(originalTopic)) {
-      this.deadLetterQueue.set(originalTopic, []);
-    }
-
-    // Create DLQ message
-    const dlqMessage: DeadLetterQueueMessage = {
-      originalTopic,
-      message,
-      error,
-      metadata: metadata || {},
-      timestamp: new Date().toISOString(),
-      retryCount: metadata?.retryCount || 0,
-    };
-
-    // Add to DLQ
-    this.deadLetterQueue.get(originalTopic)!.push(dlqMessage);
-
-    // Log the DLQ event
-    this.logEvent('DEAD_LETTER', originalTopic, metadata?.messageId, {
-      error: error.message,
-      retryCount: dlqMessage.retryCount,
-    });
-
-    // If retry is enabled, schedule retry after backoff
-    if (config?.retryEnabled && dlqMessage.retryCount < (config?.maxRetries || this.defaultRetryConfig.maxRetries)) {
-      const retryTopic = config?.retryTopic || `${originalTopic}.retry`;
-      const retryCount = dlqMessage.retryCount + 1;
-      const retryDelay = this.calculateBackoff(retryCount, config);
-
-      // Schedule retry
-      setTimeout(async () => {
-        try {
-          // Update retry count in metadata
-          const retryMetadata = {
-            ...metadata,
-            retryCount,
-            originalTopic,
-          };
-
-          // Add retry headers
-          const headers = {
-            ...(message.headers || {}),
-            'retry-count': retryCount.toString(),
-            'original-topic': originalTopic,
-          };
-
-          // Produce to retry topic
-          await this.produce(retryTopic, message, message.key, headers);
-
-          // Log retry event
-          this.logEvent('RETRY', retryTopic, metadata?.messageId, {
-            retryCount,
-            originalTopic,
-            delay: retryDelay,
-          });
-        } catch (retryError) {
-          console.error('Error during retry:', retryError);
-        }
-      }, retryDelay);
-    }
-
-    // Also produce to DLQ topic for consumers
-    const dlqTopic = `${originalTopic}.dlq`;
-    this.ensureTopicExists(dlqTopic);
-    
-    // Determine partition (use 0 for simplicity in DLQ)
-    const partition = 0;
-    
-    // Get next offset
-    const offset = this.getNextOffset(dlqTopic, partition);
-    
-    // Create Kafka message
-    const kafkaMessage: MockKafkaMessage = {
-      topic: dlqTopic,
-      partition,
-      offset,
-      value: dlqMessage,
-      timestamp: dlqMessage.timestamp,
-    };
-    
-    // Store the message
-    const partitions = this.topics.get(dlqTopic)!;
-    const messages = partitions.get(partition)!;
-    messages.push(kafkaMessage);
-    
-    // Emit event for any active consumers
-    setTimeout(() => {
-      this.eventEmitter.emit(`${dlqTopic}-${partition}`, kafkaMessage);
-    }, this.processingDelayMs);
-  }
-
-  /**
-   * Pauses consumption for a specific topic and group
-   * @param topic The topic
-   * @param groupId The consumer group ID
-   */
-  pauseConsumption(topic: string, groupId?: string): void {
-    const subscriptions = this.consumers.get(topic) || [];
-    for (const subscription of subscriptions) {
-      if (!groupId || subscription.groupId === groupId) {
-        subscription.isActive = false;
-      }
-    }
-  }
-
-  /**
-   * Resumes consumption for a specific topic and group
-   * @param topic The topic
-   * @param groupId The consumer group ID
-   */
-  resumeConsumption(topic: string, groupId?: string): void {
-    const subscriptions = this.consumers.get(topic) || [];
-    for (const subscription of subscriptions) {
-      if (!groupId || subscription.groupId === groupId) {
-        subscription.isActive = true;
-      }
-    }
-  }
-
-  /**
-   * Sets the probability of errors during message processing
-   * @param probability Value between 0 and 1
-   */
-  setErrorProbability(probability: number): void {
-    this.errorProbability = Math.max(0, Math.min(1, probability));
-  }
-
-  /**
-   * Sets the processing delay for message delivery
-   * @param delayMs Delay in milliseconds
-   */
-  setProcessingDelay(delayMs: number): void {
-    this.processingDelayMs = delayMs;
-  }
-
-  /**
-   * Gets all messages for a specific topic
-   * @param topic The topic
-   * @returns Array of messages
-   */
-  getMessages(topic: string): MockKafkaMessage[] {
-    const partitions = this.topics.get(topic);
-    if (!partitions) return [];
-
-    const messages: MockKafkaMessage[] = [];
-    for (const partition of partitions.values()) {
-      messages.push(...partition);
-    }
-
-    // Sort by offset for consistent ordering
-    return messages.sort((a, b) => a.offset - b.offset);
-  }
-
-  /**
-   * Gets all messages in the dead letter queue for a topic
-   * @param topic The topic
-   * @returns Array of DLQ messages
-   */
-  getDeadLetterQueueMessages(topic: string): DeadLetterQueueMessage[] {
-    return this.deadLetterQueue.get(topic) || [];
-  }
-
-  /**
-   * Gets the audit log for all operations
-   * @returns Array of audit log events
-   */
-  getAuditLog(): AuditLogEvent[] {
-    return [...this.auditLog];
-  }
-
-  /**
-   * Clears all topics, consumers, and logs
-   */
-  reset(): void {
-    this.topics.clear();
-    this.consumers.clear();
-    this.deadLetterQueue.clear();
-    this.auditLog = [];
-    this.autoIncrementOffset.clear();
-    this.eventEmitter.removeAllListeners();
-  }
-
-  /**
-   * Verifies that messages were produced to a topic in the expected order
-   * @param topic The topic
-   * @param expectedMessages The expected messages
-   * @returns True if the messages match
-   */
-  verifyMessages(topic: string, expectedMessages: any[]): boolean {
-    const messages = this.getMessages(topic);
-    if (messages.length !== expectedMessages.length) return false;
-
-    return expectedMessages.every((expected, index) => {
-      const actual = messages[index].value;
-      return JSON.stringify(actual) === JSON.stringify(expected);
-    });
-  }
-
-  /**
-   * Verifies that a specific number of messages were produced to a topic
-   * @param topic The topic
-   * @param count The expected count
-   * @returns True if the count matches
-   */
-  verifyMessageCount(topic: string, count: number): boolean {
-    const messages = this.getMessages(topic);
-    return messages.length === count;
-  }
-
-  /**
-   * Verifies that a specific number of messages were sent to the dead letter queue
-   * @param topic The topic
-   * @param count The expected count
-   * @returns True if the count matches
-   */
-  verifyDeadLetterCount(topic: string, count: number): boolean {
-    const dlqMessages = this.getDeadLetterQueueMessages(topic);
-    return dlqMessages.length === count;
-  }
-
-  /**
-   * Verifies that a specific error was recorded in the audit log
-   * @param topic The topic
-   * @param errorMessage The expected error message (partial match)
-   * @returns True if the error was found
-   */
-  verifyErrorLogged(topic: string, errorMessage: string): boolean {
-    return this.auditLog.some(
-      (event) =>
-        event.eventType === 'ERROR' &&
-        event.topic === topic &&
-        event.details.error?.includes(errorMessage)
-    );
-  }
-
-  /**
-   * Verifies that retries were attempted for a message
-   * @param topic The topic
-   * @param messageId The message ID
-   * @param minRetries The minimum number of retries expected
-   * @returns True if the retry count meets or exceeds the minimum
-   */
-  verifyRetryAttempts(topic: string, messageId: string, minRetries: number): boolean {
-    const retryEvents = this.auditLog.filter(
-      (event) =>
-        event.eventType === 'RETRY' &&
-        event.messageId === messageId
-    );
-    return retryEvents.length >= minRetries;
-  }
-
-  /**
-   * Ensures a topic exists with the specified number of partitions
-   * @param topic The topic name
-   */
-  private ensureTopicExists(topic: string): void {
-    if (!this.topics.has(topic)) {
-      const partitions = new Map<number, MockKafkaMessage[]>();
-      for (let i = 0; i < this.partitionsPerTopic; i++) {
-        partitions.set(i, []);
-      }
-      this.topics.set(topic, partitions);
-    }
-
-    if (!this.autoIncrementOffset.has(topic)) {
-      const offsets = new Map<number, number>();
-      for (let i = 0; i < this.partitionsPerTopic; i++) {
-        offsets.set(i, 0);
-      }
-      this.autoIncrementOffset.set(topic, offsets);
-    }
-  }
-
-  /**
-   * Gets the next offset for a topic-partition
-   * @param topic The topic
-   * @param partition The partition
-   * @returns The next offset
-   */
-  private getNextOffset(topic: string, partition: number): number {
-    const topicOffsets = this.autoIncrementOffset.get(topic)!;
-    const currentOffset = topicOffsets.get(partition) || 0;
-    const nextOffset = currentOffset + 1;
-    topicOffsets.set(partition, nextOffset);
-    return currentOffset;
-  }
-
-  /**
-   * Gets the partition for a key using consistent hashing
-   * @param key The message key
-   * @param topic The topic
+   * Gets the next partition number for a topic using round-robin assignment.
+   * 
+   * @param topic The topic to get the next partition for
    * @returns The partition number
-   */
-  private getPartitionForKey(key: string, topic: string): number {
-    // Simple hash function for consistent partitioning
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = ((hash << 5) - hash) + key.charCodeAt(i);
-      hash |= 0; // Convert to 32bit integer
-    }
-    const partitionCount = this.topics.get(topic)!.size;
-    return Math.abs(hash) % partitionCount;
-  }
-
-  /**
-   * Gets the next partition in round-robin fashion
-   * @param topic The topic
-   * @returns The partition number
+   * @private
    */
   private getNextPartition(topic: string): number {
-    const partitionCount = this.topics.get(topic)!.size;
-    const offsets = this.autoIncrementOffset.get(topic)!;
-    let maxOffset = -1;
-    let selectedPartition = 0;
-
-    // Find partition with lowest offset (round-robin)
-    for (let i = 0; i < partitionCount; i++) {
-      const offset = offsets.get(i) || 0;
-      if (maxOffset === -1 || offset < maxOffset) {
-        maxOffset = offset;
-        selectedPartition = i;
-      }
-    }
-
-    return selectedPartition;
+    // For testing, we'll use a simple round-robin with 3 partitions
+    const currentPartition = this.partitionCounters.get(topic) || 0;
+    const nextPartition = (currentPartition + 1) % 3; // 3 partitions for testing
+    this.partitionCounters.set(topic, nextPartition);
+    return nextPartition;
   }
 
   /**
-   * Sets up a listener for a consumer subscription on a specific partition
-   * @param subscription The consumer subscription
-   * @param partition The partition number
+   * Gets the next offset for a partition.
+   * 
+   * @param topic The topic to get the next offset for
+   * @param partition The partition to get the next offset for
+   * @returns The offset number
+   * @private
    */
-  private setupConsumerListener(
-    subscription: MockConsumerSubscription,
-    partition: number
-  ): void {
-    const { topic } = subscription;
-    const eventName = `${topic}-${partition}`;
+  private getNextOffset(topic: string, partition: number): number {
+    if (!this.offsetCounters.has(topic)) {
+      this.offsetCounters.set(topic, new Map());
+    }
+    
+    const partitionOffsets = this.offsetCounters.get(topic)!;
+    const currentOffset = partitionOffsets.get(partition) || 0;
+    const nextOffset = currentOffset + 1;
+    partitionOffsets.set(partition, nextOffset);
+    return nextOffset;
+  }
 
-    this.eventEmitter.on(eventName, async (message: MockKafkaMessage) => {
-      if (subscription.isActive) {
-        await this.processMessage(message, subscription);
-      }
+  /**
+   * Checks if a value is an object.
+   * 
+   * @param value The value to check
+   * @returns True if the value is an object, false otherwise
+   * @private
+   */
+  private isObject(value: any): boolean {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  /**
+   * Checks if a message already has metadata attached.
+   * 
+   * @param message The message to check
+   * @returns True if the message has metadata, false otherwise
+   * @private
+   */
+  private hasMetadata(message: any): boolean {
+    return this.isObject(message) && 
+           this.isObject(message.metadata) && 
+           typeof message.metadata.timestamp === 'string';
+  }
+
+  /**
+   * Adds standard metadata to a message.
+   * 
+   * @param message The message to add metadata to
+   * @returns The message with metadata added
+   * @private
+   */
+  private addMetadata<T = any>(message: T): T & { metadata: EventMetadataDto } {
+    const metadata = new EventMetadataDto();
+    metadata.timestamp = new Date();
+    metadata.correlationId = this.generateUUID();
+    
+    return {
+      ...message as any,
+      metadata
+    };
+  }
+
+  /**
+   * Generates a UUID v4 for correlation IDs.
+   * 
+   * @returns A UUID string
+   * @private
+   */
+  private generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
     });
   }
 
   /**
-   * Processes a message for a consumer subscription
-   * @param message The Kafka message
-   * @param subscription The consumer subscription
+   * Logs an event to the event log and optionally to the console.
+   * 
+   * @param type The type of event
+   * @param topic The topic the event is related to
+   * @param details Additional details about the event
+   * @private
    */
-  private async processMessage(
-    message: MockKafkaMessage,
-    subscription: MockConsumerSubscription
-  ): Promise<void> {
-    const { topic, callback, options } = subscription;
-
-    try {
-      // Validate message if validator is provided
-      if (options?.validator) {
-        const validationResult = await options.validator(message.value);
-        if (!validationResult.isValid) {
-          throw new Error(`Message validation failed: ${validationResult.error}`);
-        }
-      }
-
-      // Simulate random errors based on probability
-      if (this.errorProbability > 0 && Math.random() < this.errorProbability) {
-        throw new Error('Simulated random error during message processing');
-      }
-
-      // Process message
-      const messageId = message.headers?.['event-id'] || uuidv4();
-      this.logEvent('CONSUME', topic, messageId, {
-        partition: message.partition,
-        offset: message.offset,
-        groupId: subscription.groupId,
-      });
-
-      // Call the consumer callback
-      await callback(message.value, message.key, message.headers as Record<string, string>);
-
-      // Update last processed offset
-      subscription.lastProcessedOffset = message.offset;
-    } catch (error) {
-      // Log error
-      const messageId = message.headers?.['event-id'] || uuidv4();
-      this.logEvent('ERROR', topic, messageId, {
-        error: error.message,
-        partition: message.partition,
-        offset: message.offset,
-        groupId: subscription.groupId,
-      });
-
-      // Handle error based on DLQ configuration
-      if (options?.deadLetterQueue?.enabled) {
-        await this.sendToDeadLetterQueue(
-          topic,
-          message.value,
-          error as Error,
-          {
-            messageId,
-            partition: message.partition,
-            offset: message.offset,
-            groupId: subscription.groupId,
-          },
-          options.deadLetterQueue
-        );
-      } else {
-        // Re-throw if DLQ is not enabled
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * Calculates the backoff delay for retries using exponential backoff
-   * @param retryCount The current retry count
-   * @param config Optional DLQ configuration
-   * @returns The delay in milliseconds
-   */
-  private calculateBackoff(
-    retryCount: number,
-    config?: IKafkaDeadLetterQueueConfig
-  ): number {
-    const baseDelay = config?.baseBackoffMs || this.defaultRetryConfig.initialDelayMs;
-    const maxDelay = config?.maxBackoffMs || this.defaultRetryConfig.maxDelayMs;
-    const factor = this.defaultRetryConfig.backoffFactor;
-
-    // Calculate exponential backoff with jitter
-    const exponentialDelay = baseDelay * Math.pow(factor, retryCount - 1);
-    const jitter = Math.random() * 0.3 + 0.85; // Random value between 0.85 and 1.15
-    const delay = Math.min(exponentialDelay * jitter, maxDelay);
-
-    return Math.floor(delay);
-  }
-
-  /**
-   * Logs an event to the audit log
-   * @param eventType The event type
-   * @param topic The topic
-   * @param messageId Optional message ID
-   * @param details Additional details
-   */
-  private logEvent(
-    eventType: AuditLogEvent['eventType'],
-    topic: string,
-    messageId?: string,
-    details: Record<string, any> = {}
-  ): void {
-    this.auditLog.push({
-      eventType,
+  private log(type: 'PRODUCE' | 'CONSUME' | 'RETRY' | 'DLQ' | 'ERROR', topic: string, details?: any): void {
+    const event = {
+      type,
       topic,
-      messageId,
-      timestamp: new Date().toISOString(),
-      details,
-    });
+      timestamp: new Date(),
+      messageId: details?.key || this.generateUUID(),
+      details
+    };
+    
+    this.eventLog.push(event);
+    
+    if (this.options.enableConsoleLogging) {
+      console.log(`[KafkaTestClient] ${type} - ${topic}:`, details);
+    }
+  }
+
+  /**
+   * Gets all messages for a topic.
+   * 
+   * @param topic The topic to get messages for
+   * @returns Array of stored messages
+   */
+  getMessages<T = any>(topic: string): StoredMessage<T>[] {
+    return (this.messages.get(topic) || []) as StoredMessage<T>[];
+  }
+
+  /**
+   * Gets all processed messages for a topic.
+   * 
+   * @param topic The topic to get processed messages for
+   * @returns Array of processed stored messages
+   */
+  getProcessedMessages<T = any>(topic: string): StoredMessage<T>[] {
+    return this.getMessages<T>(topic).filter(msg => msg.processed);
+  }
+
+  /**
+   * Gets all failed messages for a topic.
+   * 
+   * @param topic The topic to get failed messages for
+   * @returns Array of failed stored messages
+   */
+  getFailedMessages<T = any>(topic: string): StoredMessage<T>[] {
+    return this.getMessages<T>(topic).filter(msg => msg.failed);
+  }
+
+  /**
+   * Gets all messages in the dead letter queue.
+   * 
+   * @returns Array of messages in the DLQ
+   */
+  getDLQMessages<T = any>(): StoredMessage<T>[] {
+    return this.getMessages<T>(TOPICS.DEAD_LETTER);
+  }
+
+  /**
+   * Gets the event log for auditing and verification.
+   * 
+   * @returns Array of logged events
+   */
+  getEventLog(): Array<{
+    type: 'PRODUCE' | 'CONSUME' | 'RETRY' | 'DLQ' | 'ERROR';
+    topic: string;
+    timestamp: Date;
+    messageId?: string;
+    details?: any;
+  }> {
+    return [...this.eventLog];
+  }
+
+  /**
+   * Clears all messages and resets the client state.
+   * 
+   * @param topic Optional topic to clear, or all topics if not specified
+   */
+  clear(topic?: string): void {
+    if (topic) {
+      this.messages.set(topic, []);
+      this.partitionCounters.set(topic, 0);
+      this.offsetCounters.set(topic, new Map());
+    } else {
+      this.messages.clear();
+      this.partitionCounters.clear();
+      this.offsetCounters.clear();
+      this.messages.set(TOPICS.DEAD_LETTER, []);
+    }
+  }
+
+  /**
+   * Clears the event log.
+   */
+  clearEventLog(): void {
+    this.eventLog = [];
+  }
+
+  /**
+   * Simulates a consumer error for testing error handling.
+   * 
+   * @param topic The topic to simulate an error for
+   * @param messageIndex The index of the message to fail, or random if not specified
+   * @param errorMessage The error message to use
+   */
+  simulateConsumerError(topic: string, messageIndex?: number, errorMessage?: string): void {
+    const messages = this.getMessages(topic);
+    
+    if (messages.length === 0) {
+      return;
+    }
+    
+    const index = messageIndex !== undefined ? messageIndex : Math.floor(Math.random() * messages.length);
+    
+    if (index >= 0 && index < messages.length) {
+      const message = messages[index];
+      message.failed = true;
+      message.error = errorMessage || `Simulated consumer error for topic ${topic}`;
+      message.processed = false;
+      
+      this.log('ERROR', topic, { 
+        action: 'SIMULATE_ERROR', 
+        partition: message.partition, 
+        offset: message.offset,
+        error: message.error,
+        key: message.key
+      });
+    }
+  }
+
+  /**
+   * Waits for a specific number of messages to be processed for a topic.
+   * 
+   * @param topic The topic to wait for
+   * @param count The number of processed messages to wait for
+   * @param timeout Optional timeout in milliseconds
+   * @returns A promise that resolves when the condition is met or rejects on timeout
+   */
+  async waitForProcessedMessages(topic: string, count: number, timeout?: number): Promise<void> {
+    return this.waitForCondition(
+      () => this.getProcessedMessages(topic).length >= count,
+      `Timed out waiting for ${count} processed messages on topic ${topic}`,
+      timeout
+    );
+  }
+
+  /**
+   * Waits for a specific number of messages to be in the dead letter queue.
+   * 
+   * @param count The number of DLQ messages to wait for
+   * @param timeout Optional timeout in milliseconds
+   * @returns A promise that resolves when the condition is met or rejects on timeout
+   */
+  async waitForDLQMessages(count: number, timeout?: number): Promise<void> {
+    return this.waitForCondition(
+      () => this.getDLQMessages().length >= count,
+      `Timed out waiting for ${count} messages in the dead letter queue`,
+      timeout
+    );
+  }
+
+  /**
+   * Waits for a condition to be met with an optional timeout.
+   * 
+   * @param condition The condition function to check
+   * @param timeoutMessage The message to use when timing out
+   * @param timeout Optional timeout in milliseconds (default: 5000)
+   * @returns A promise that resolves when the condition is met or rejects on timeout
+   * @private
+   */
+  private async waitForCondition(
+    condition: () => boolean,
+    timeoutMessage: string,
+    timeout = 5000
+  ): Promise<void> {
+    const startTime = Date.now();
+    
+    while (!condition()) {
+      if (Date.now() - startTime > timeout) {
+        throw new Error(timeoutMessage);
+      }
+      
+      // Wait a short time before checking again
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
   }
 }
 
 /**
- * Factory function to create a KafkaTestClient with default configuration
- * @returns A configured KafkaTestClient instance
+ * Creates a KafkaTestClient with default options.
+ * 
+ * @returns A new KafkaTestClient instance
  */
-export function createKafkaTestClient(options?: {
-  processingDelayMs?: number;
-  errorProbability?: number;
-  partitionsPerTopic?: number;
-  retryConfig?: Partial<MockRetryConfig>;
-}): KafkaTestClient {
+export function createKafkaTestClient(options?: KafkaTestClientOptions): KafkaTestClient {
   return new KafkaTestClient(options);
 }
 
 /**
- * Creates a mock validation result
- * @param isValid Whether the validation passed
- * @param error Optional error message
- * @returns A validation result object
- */
-export function createMockValidationResult(isValid: boolean, error?: string): IValidationResult {
-  return { isValid, error };
-}
-
-/**
- * Creates mock Kafka headers
- * @param options Header options
- * @returns Kafka headers object
- */
-export function createMockKafkaHeaders(options?: {
-  eventId?: string;
-  correlationId?: string;
-  traceId?: string;
-  userId?: string;
-  eventType?: string;
-  eventVersion?: string;
-  journey?: EventJourney;
-  source?: string;
-  timestamp?: string;
-  retryCount?: number;
-}): KafkaHeaders {
-  const headers: KafkaHeaders = {};
-  
-  if (options) {
-    if (options.eventId) headers['event-id'] = options.eventId;
-    if (options.correlationId) headers['correlation-id'] = options.correlationId;
-    if (options.traceId) headers['trace-id'] = options.traceId;
-    if (options.userId) headers['user-id'] = options.userId;
-    if (options.eventType) headers['event-type'] = options.eventType;
-    if (options.eventVersion) headers['event-version'] = options.eventVersion;
-    if (options.journey) headers['event-journey'] = options.journey;
-    if (options.source) headers['event-source'] = options.source;
-    if (options.timestamp) headers['event-timestamp'] = options.timestamp;
-    if (options.retryCount !== undefined) headers['retry-count'] = options.retryCount.toString();
-  }
-  
-  return headers;
-}
-
-/**
- * Creates a mock Kafka message
+ * Creates a mock Kafka message for testing.
+ * 
+ * @param topic The topic for the message
  * @param value The message value
- * @param options Additional message options
- * @returns A typed Kafka message
+ * @param options Additional options for the message
+ * @returns A KafkaMessage object
  */
-export function createMockKafkaMessage<T>(
+export function createMockKafkaMessage<T = any>(
+  topic: string,
   value: T,
-  options?: {
+  options: {
     key?: string;
-    headers?: KafkaHeaders;
+    headers?: Record<string, string>;
     partition?: number;
-    offset?: number;
+    offset?: string;
     timestamp?: string;
-  }
-): TypedKafkaMessage<T> {
-  return {
-    key: options?.key ? Buffer.from(options.key) : null,
-    value,
-    headers: options?.headers,
-    partition: options?.partition || 0,
-    offset: options?.offset ? BigInt(options.offset) : BigInt(0),
-    timestamp: options?.timestamp || new Date().toISOString(),
+  } = {}
+): { value: T; metadata: KafkaMessage } {
+  const metadata: KafkaMessage = {
+    key: options.key,
+    headers: options.headers || {},
+    topic,
+    partition: options.partition || 0,
+    offset: options.offset || '1',
+    timestamp: options.timestamp || new Date().toISOString(),
   };
+  
+  return { value, metadata };
 }
