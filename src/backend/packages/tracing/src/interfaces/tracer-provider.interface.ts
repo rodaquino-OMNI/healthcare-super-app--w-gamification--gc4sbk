@@ -1,85 +1,66 @@
-import { Context, Tracer } from '@opentelemetry/api';
+import { Context, Span, SpanOptions, Tracer, TracerOptions } from '@opentelemetry/api';
 
 /**
- * Options for creating a tracer
- */
-export interface TracerOptions {
-  /**
-   * Additional options for the tracer
-   */
-  [key: string]: unknown;
-}
-
-/**
- * TracerProvider interface which abstracts the underlying OpenTelemetry tracer implementation.
- * This interface allows for easier testing and potential future changes to the tracing backend.
+ * Interface for a TracerProvider that abstracts the underlying OpenTelemetry tracer implementation.
+ * This abstraction allows for easier testing and potential future changes to the tracing backend.
  */
 export interface TracerProvider {
   /**
-   * Returns a Tracer, creating one if one with the given name and version is not already created.
-   *
-   * @param name The name of the tracer or instrumentation library
-   * @param version The version of the tracer or instrumentation library (optional)
-   * @param options Additional options for the tracer (optional)
-   * @returns A Tracer with the given name and version
-   */
-  getTracer(name: string, version?: string, options?: TracerOptions): Tracer;
-
-  /**
-   * Checks if the tracer provider is enabled for the given parameters.
-   *
-   * @param name The name of the tracer or instrumentation library (optional)
-   * @param version The version of the tracer or instrumentation library (optional)
-   * @param options Additional options for the tracer (optional)
-   * @returns A boolean indicating whether the tracer provider is enabled
-   */
-  isEnabled(name?: string, version?: string, options?: TracerOptions): boolean;
-
-  /**
-   * Forcefully flushes all spans that have not yet been exported.
+   * Gets a tracer instance with the specified name and options.
    * 
-   * @param timeoutMillis The maximum time to wait for the flush to complete in milliseconds
-   * @returns A promise that resolves when the flush is complete or rejects if the timeout is reached
+   * @param name The name of the tracer, typically the service name
+   * @param options Optional configuration for the tracer
+   * @returns A Tracer instance that can be used to create spans
    */
-  forceFlush(timeoutMillis?: number): Promise<void>;
+  getTracer(name: string, options?: TracerOptions): Tracer;
 
   /**
-   * Shuts down the tracer provider, ending all active spans and flushing any remaining spans.
-   * After shutdown, the tracer provider should not be used.
+   * Creates and starts a new span with the given name and options.
    * 
-   * @param timeoutMillis The maximum time to wait for the shutdown to complete in milliseconds
-   * @returns A promise that resolves when the shutdown is complete or rejects if the timeout is reached
+   * @param tracer The tracer to use for creating the span
+   * @param name The name of the span
+   * @param options Optional configuration for the span
+   * @returns The created and started span
    */
-  shutdown(timeoutMillis?: number): Promise<void>;
+  startSpan(tracer: Tracer, name: string, options?: SpanOptions): Span;
 
   /**
-   * Gets the active context for the current execution.
+   * Executes a function within the context of a span.
    * 
-   * @returns The current active context
+   * @param span The span to use as the current context
+   * @param fn The function to execute within the span's context
+   * @returns The result of the function execution
    */
-  getActiveContext(): Context;
+  withSpan<T>(span: Span, fn: () => Promise<T>): Promise<T>;
 
   /**
-   * Sets the active context for the current execution.
+   * Gets the current active span from the context.
    * 
-   * @param context The context to set as active
-   * @returns A function that restores the previous context when called
+   * @returns The current active span or undefined if no span is active
    */
-  setActiveContext(context: Context): () => void;
+  getCurrentSpan(): Span | undefined;
 
   /**
-   * Extracts context from carrier using the configured propagator.
+   * Sets the current span in the context.
    * 
-   * @param carrier The carrier object containing the propagation context
-   * @returns The extracted context
+   * @param span The span to set as the current span
+   * @returns The updated context
    */
-  extractContext(carrier: Record<string, unknown>): Context;
+  setSpan(span: Span): Context;
 
   /**
-   * Injects the current context into the carrier using the configured propagator.
+   * Gets the current context.
    * 
-   * @param carrier The carrier object to inject the context into
-   * @param context The context to inject (defaults to the current active context)
+   * @returns The current context
    */
-  injectContext(carrier: Record<string, unknown>, context?: Context): void;
+  getContext(): Context;
+
+  /**
+   * Executes a function within the given context.
+   * 
+   * @param context The context to use
+   * @param fn The function to execute within the context
+   * @returns The result of the function execution
+   */
+  withContext<T>(context: Context, fn: () => Promise<T>): Promise<T>;
 }
