@@ -1,541 +1,308 @@
-import { v4 as uuidv4 } from 'uuid';
-import { BaseEventDto } from '../../../../src/dto/base-event.dto';
+/**
+ * @file care-events.mock.ts
+ * @description Provides mock data for Care journey events (APPOINTMENT_BOOKED, MEDICATION_TAKEN, 
+ * TELEMEDICINE_SESSION_COMPLETED, etc.) with properly structured data payloads matching the expected DTO schema.
+ * These mocks are used for testing the validation, processing, and handling of care-related events 
+ * by the gamification engine.
+ *
+ * @module events/test/unit/dto/mocks
+ */
+
+import { EventType, JourneyEvents } from '../../../../src/dto/event-types.enum';
+import { createEventMetadata } from '../../../../src/dto/event-metadata.dto';
 
 /**
- * Mock data for Care journey events
+ * Mock data for a CARE_APPOINTMENT_BOOKED event.
+ * Represents a user booking a medical appointment.
+ */
+export const appointmentBookedEvent = {
+  type: EventType.CARE_APPOINTMENT_BOOKED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    appointmentId: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
+    providerId: 'f9e8d7c6-b5a4-3210-9876-f5e4d3c2b1a0',
+    providerName: 'Dr. Maria Silva',
+    specialtyType: 'Cardiologia',
+    appointmentType: 'in_person',
+    scheduledAt: '2025-06-15T14:30:00Z',
+    bookedAt: '2025-06-01T10:15:22Z',
+    locationName: 'Clínica AUSTA - Unidade Central',
+    notes: 'Consulta de rotina para acompanhamento cardíaco'
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440001',
+    timestamp: new Date('2025-06-01T10:15:22Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_APPOINTMENT_COMPLETED event.
+ * Represents a user completing a medical appointment.
+ */
+export const appointmentCompletedEvent = {
+  type: EventType.CARE_APPOINTMENT_COMPLETED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    appointmentId: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
+    providerId: 'f9e8d7c6-b5a4-3210-9876-f5e4d3c2b1a0',
+    providerName: 'Dr. Maria Silva',
+    appointmentType: 'in_person',
+    scheduledAt: '2025-06-15T14:30:00Z',
+    completedAt: '2025-06-15T15:15:00Z',
+    duration: 45, // in minutes
+    followUpRequired: true,
+    followUpTimeframe: '3 months'
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440002',
+    timestamp: new Date('2025-06-15T15:15:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_MEDICATION_TAKEN event.
+ * Represents a user logging that they've taken their medication.
+ */
+export const medicationTakenEvent = {
+  type: EventType.CARE_MEDICATION_TAKEN,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    medicationId: 'b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e',
+    medicationName: 'Losartana Potássica',
+    dosage: '50mg',
+    takenAt: '2025-06-10T08:00:00Z',
+    adherence: 'on_time',
+    scheduledTime: '2025-06-10T08:00:00Z',
+    frequency: 'daily',
+    remainingDoses: 25
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440003',
+    timestamp: new Date('2025-06-10T08:00:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_MEDICATION_TAKEN event with late adherence.
+ * Represents a user logging that they've taken their medication late.
+ */
+export const medicationTakenLateEvent = {
+  type: EventType.CARE_MEDICATION_TAKEN,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    medicationId: 'b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e',
+    medicationName: 'Losartana Potássica',
+    dosage: '50mg',
+    takenAt: '2025-06-10T10:30:00Z',
+    adherence: 'late',
+    scheduledTime: '2025-06-10T08:00:00Z',
+    frequency: 'daily',
+    remainingDoses: 25,
+    delayMinutes: 150 // 2.5 hours late
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440004',
+    timestamp: new Date('2025-06-10T10:30:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_TELEMEDICINE_STARTED event.
+ * Represents a user starting a telemedicine session.
+ */
+export const telemedicineStartedEvent = {
+  type: EventType.CARE_TELEMEDICINE_STARTED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    sessionId: 'c3d4e5f6-a7b8-6c7d-0e1f-2a3b4c5d6e7f',
+    appointmentId: 'd4e5f6a7-b8c9-7d0e-1f2a-3b4c5d6e7f8a',
+    providerId: 'e5f6a7b8-c9d0-8e1f-2a3b-4c5d6e7f8a9b',
+    providerName: 'Dr. Carlos Mendes',
+    specialtyType: 'Dermatologia',
+    startedAt: '2025-06-20T09:00:00Z',
+    deviceType: 'mobile',
+    connectionType: '4G',
+    deviceModel: 'iPhone 15 Pro'
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440005',
+    timestamp: new Date('2025-06-20T09:00:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_TELEMEDICINE_COMPLETED event.
+ * Represents a user completing a telemedicine session.
+ */
+export const telemedicineCompletedEvent = {
+  type: EventType.CARE_TELEMEDICINE_COMPLETED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    sessionId: 'c3d4e5f6-a7b8-6c7d-0e1f-2a3b4c5d6e7f',
+    appointmentId: 'd4e5f6a7-b8c9-7d0e-1f2a-3b4c5d6e7f8a',
+    providerId: 'e5f6a7b8-c9d0-8e1f-2a3b-4c5d6e7f8a9b',
+    providerName: 'Dr. Carlos Mendes',
+    startedAt: '2025-06-20T09:00:00Z',
+    endedAt: '2025-06-20T09:25:00Z',
+    duration: 25, // in minutes
+    quality: 'good',
+    connectionIssues: false,
+    followUpRequired: false
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440006',
+    timestamp: new Date('2025-06-20T09:25:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_PLAN_CREATED event.
+ * Represents a care plan being created for a user.
+ */
+export const carePlanCreatedEvent = {
+  type: EventType.CARE_PLAN_CREATED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    planId: 'f6a7b8c9-d0e1-8f2a-3b4c-5d6e7f8a9b0c',
+    providerId: 'a7b8c9d0-e1f2-9a3b-4c5d-6e7f8a9b0c1d',
+    providerName: 'Dra. Ana Beatriz Costa',
+    planType: 'chronic_condition',
+    condition: 'Hipertensão',
+    startDate: '2025-06-01T00:00:00Z',
+    endDate: '2025-12-01T00:00:00Z', // 6-month plan
+    createdAt: '2025-06-01T11:30:00Z',
+    taskCount: 5,
+    description: 'Plano de controle de hipertensão com monitoramento regular e ajustes de medicação'
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440007',
+    timestamp: new Date('2025-06-01T11:30:00Z')
+  })
+};
+
+/**
+ * Mock data for a CARE_PLAN_TASK_COMPLETED event.
+ * Represents a user completing a task in their care plan.
+ */
+export const carePlanTaskCompletedEvent = {
+  type: EventType.CARE_PLAN_TASK_COMPLETED,
+  userId: '550e8400-e29b-41d4-a716-446655440000',
+  journey: 'care',
+  data: {
+    taskId: 'a7b8c9d0-e1f2-9a3b-4c5d-6e7f8a9b0c1d',
+    planId: 'f6a7b8c9-d0e1-8f2a-3b4c-5d6e7f8a9b0c',
+    taskType: 'medication',
+    taskName: 'Tomar Losartana diariamente',
+    completedAt: '2025-06-10T08:00:00Z',
+    status: 'completed',
+    streak: 10, // Completed this task 10 days in a row
+    progress: 100, // Percentage of completion
+    notes: 'Medicação tomada conforme prescrito'
+  },
+  metadata: createEventMetadata('care-service', {
+    correlationId: '550e8400-e29b-41d4-a716-446655440008',
+    timestamp: new Date('2025-06-10T08:00:00Z')
+  })
+};
+
+/**
+ * Collection of all care journey event mocks.
+ */
+export const careEvents = {
+  appointmentBooked: appointmentBookedEvent,
+  appointmentCompleted: appointmentCompletedEvent,
+  medicationTaken: medicationTakenEvent,
+  medicationTakenLate: medicationTakenLateEvent,
+  telemedicineStarted: telemedicineStartedEvent,
+  telemedicineCompleted: telemedicineCompletedEvent,
+  carePlanCreated: carePlanCreatedEvent,
+  carePlanTaskCompleted: carePlanTaskCompletedEvent
+};
+
+/**
+ * Collection of care journey events grouped by event type.
+ */
+export const careEventsByType = {
+  [EventType.CARE_APPOINTMENT_BOOKED]: [appointmentBookedEvent],
+  [EventType.CARE_APPOINTMENT_COMPLETED]: [appointmentCompletedEvent],
+  [EventType.CARE_MEDICATION_TAKEN]: [medicationTakenEvent, medicationTakenLateEvent],
+  [EventType.CARE_TELEMEDICINE_STARTED]: [telemedicineStartedEvent],
+  [EventType.CARE_TELEMEDICINE_COMPLETED]: [telemedicineCompletedEvent],
+  [EventType.CARE_PLAN_CREATED]: [carePlanCreatedEvent],
+  [EventType.CARE_PLAN_TASK_COMPLETED]: [carePlanTaskCompletedEvent]
+};
+
+/**
+ * Factory function to create a custom CARE_APPOINTMENT_BOOKED event.
  * 
- * These mocks are used for testing the validation, processing, and handling
- * of care-related events by the gamification engine.
+ * @param overrides Properties to override in the default event
+ * @returns A customized appointment booked event
  */
-
-// Common user IDs for consistent testing
-const TEST_USER_ID = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
-const TEST_PROVIDER_ID = '7ea85f64-5717-4562-b3fc-2c963f66afa7';
-
-// Appointment Events
-
-/**
- * Mock for an appointment booking event
- */
-export const APPOINTMENT_BOOKED_EVENT: BaseEventDto = {
-  eventId: 'e1a85f64-5717-4562-b3fc-2c963f66afa1',
-  type: 'APPOINTMENT_BOOKED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-15T10:30:00.000Z',
-  data: {
-    appointmentId: 'a1a85f64-5717-4562-b3fc-2c963f66afa1',
-    status: 'booked',
-    provider: {
-      id: TEST_PROVIDER_ID,
-      name: 'Dr. Carlos Silva',
-      specialty: 'Cardiologia',
-      crm: '123456'
+export function createAppointmentBookedEvent(overrides: Partial<typeof appointmentBookedEvent> = {}) {
+  return {
+    ...appointmentBookedEvent,
+    ...overrides,
+    data: {
+      ...appointmentBookedEvent.data,
+      ...(overrides.data || {})
     },
-    scheduledAt: '2023-05-20T14:30:00.000Z',
-    location: {
-      name: 'Centro Médico AUSTA',
-      address: 'Av. Paulista, 1000',
-      city: 'São Paulo',
-      state: 'SP',
-      postalCode: '01310-100'
-    },
-    notes: 'Consulta de rotina para avaliação cardíaca'
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c1a85f64-5717-4562-b3fc-2c963f66afa1',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for an appointment check-in event
- */
-export const APPOINTMENT_CHECKED_IN_EVENT: BaseEventDto = {
-  eventId: 'e2a85f64-5717-4562-b3fc-2c963f66afa2',
-  type: 'APPOINTMENT_CHECKED_IN',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-20T14:25:00.000Z',
-  data: {
-    appointmentId: 'a1a85f64-5717-4562-b3fc-2c963f66afa1',
-    status: 'checked_in',
-    provider: {
-      id: TEST_PROVIDER_ID,
-      name: 'Dr. Carlos Silva',
-      specialty: 'Cardiologia',
-      crm: '123456'
-    },
-    scheduledAt: '2023-05-20T14:30:00.000Z',
-    checkedInAt: '2023-05-20T14:25:00.000Z',
-    location: {
-      name: 'Centro Médico AUSTA',
-      address: 'Av. Paulista, 1000',
-      city: 'São Paulo',
-      state: 'SP',
-      postalCode: '01310-100'
+    metadata: {
+      ...appointmentBookedEvent.metadata,
+      ...(overrides.metadata || {})
     }
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c1a85f64-5717-4562-b3fc-2c963f66afa1',
-    source: 'care-service'
-  }
-};
+  };
+}
 
 /**
- * Mock for an appointment completion event
+ * Factory function to create a custom CARE_MEDICATION_TAKEN event.
+ * 
+ * @param overrides Properties to override in the default event
+ * @returns A customized medication taken event
  */
-export const APPOINTMENT_COMPLETED_EVENT: BaseEventDto = {
-  eventId: 'e3a85f64-5717-4562-b3fc-2c963f66afa3',
-  type: 'APPOINTMENT_COMPLETED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-20T15:15:00.000Z',
-  data: {
-    appointmentId: 'a1a85f64-5717-4562-b3fc-2c963f66afa1',
-    status: 'completed',
-    provider: {
-      id: TEST_PROVIDER_ID,
-      name: 'Dr. Carlos Silva',
-      specialty: 'Cardiologia',
-      crm: '123456'
+export function createMedicationTakenEvent(overrides: Partial<typeof medicationTakenEvent> = {}) {
+  return {
+    ...medicationTakenEvent,
+    ...overrides,
+    data: {
+      ...medicationTakenEvent.data,
+      ...(overrides.data || {})
     },
-    scheduledAt: '2023-05-20T14:30:00.000Z',
-    checkedInAt: '2023-05-20T14:25:00.000Z',
-    completedAt: '2023-05-20T15:15:00.000Z',
-    durationMinutes: 45,
-    location: {
-      name: 'Centro Médico AUSTA',
-      address: 'Av. Paulista, 1000',
-      city: 'São Paulo',
-      state: 'SP',
-      postalCode: '01310-100'
-    },
-    followUp: {
-      recommended: true,
-      timeframe: '3 months'
+    metadata: {
+      ...medicationTakenEvent.metadata,
+      ...(overrides.metadata || {})
     }
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c1a85f64-5717-4562-b3fc-2c963f66afa1',
-    source: 'care-service'
-  }
-};
+  };
+}
 
 /**
- * Mock for an appointment cancellation event
+ * Factory function to create a custom CARE_TELEMEDICINE_COMPLETED event.
+ * 
+ * @param overrides Properties to override in the default event
+ * @returns A customized telemedicine completed event
  */
-export const APPOINTMENT_CANCELLED_EVENT: BaseEventDto = {
-  eventId: 'e4a85f64-5717-4562-b3fc-2c963f66afa4',
-  type: 'APPOINTMENT_CANCELLED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-18T09:45:00.000Z',
-  data: {
-    appointmentId: 'a2a85f64-5717-4562-b3fc-2c963f66afa2',
-    status: 'cancelled',
-    provider: {
-      id: '8ea85f64-5717-4562-b3fc-2c963f66afa8',
-      name: 'Dra. Ana Oliveira',
-      specialty: 'Dermatologia',
-      crm: '654321'
+export function createTelemedicineCompletedEvent(overrides: Partial<typeof telemedicineCompletedEvent> = {}) {
+  return {
+    ...telemedicineCompletedEvent,
+    ...overrides,
+    data: {
+      ...telemedicineCompletedEvent.data,
+      ...(overrides.data || {})
     },
-    scheduledAt: '2023-05-22T10:00:00.000Z',
-    cancelledAt: '2023-05-18T09:45:00.000Z',
-    cancellationReason: 'Conflito de agenda',
-    rescheduled: true,
-    location: {
-      name: 'Centro Médico AUSTA',
-      address: 'Av. Paulista, 1000',
-      city: 'São Paulo',
-      state: 'SP',
-      postalCode: '01310-100'
+    metadata: {
+      ...telemedicineCompletedEvent.metadata,
+      ...(overrides.metadata || {})
     }
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c2a85f64-5717-4562-b3fc-2c963f66afa2',
-    source: 'care-service'
-  }
-};
-
-// Medication Events
+  };
+}
 
 /**
- * Mock for a medication taken event
+ * Default export of all care journey events.
  */
-export const MEDICATION_TAKEN_EVENT: BaseEventDto = {
-  eventId: 'e5a85f64-5717-4562-b3fc-2c963f66afa5',
-  type: 'MEDICATION_TAKEN',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-15T08:00:00.000Z',
-  data: {
-    medicationId: 'm1a85f64-5717-4562-b3fc-2c963f66afa1',
-    name: 'Atorvastatina',
-    status: 'taken',
-    dosage: {
-      value: 20,
-      unit: 'mg'
-    },
-    scheduledTime: '2023-05-15T08:00:00.000Z',
-    actualTime: '2023-05-15T08:05:00.000Z',
-    prescription: {
-      id: 'p1a85f64-5717-4562-b3fc-2c963f66afa1',
-      providerId: TEST_PROVIDER_ID,
-      providerName: 'Dr. Carlos Silva',
-      issuedAt: '2023-04-20T15:30:00.000Z',
-      instructions: 'Tomar 1 comprimido por dia, pela manhã'
-    },
-    adherenceStreak: 7 // Number of consecutive days medication was taken
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c3a85f64-5717-4562-b3fc-2c963f66afa3',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for a medication skipped event
- */
-export const MEDICATION_SKIPPED_EVENT: BaseEventDto = {
-  eventId: 'e6a85f64-5717-4562-b3fc-2c963f66afa6',
-  type: 'MEDICATION_SKIPPED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-16T08:30:00.000Z',
-  data: {
-    medicationId: 'm1a85f64-5717-4562-b3fc-2c963f66afa1',
-    name: 'Atorvastatina',
-    status: 'skipped',
-    dosage: {
-      value: 20,
-      unit: 'mg'
-    },
-    scheduledTime: '2023-05-16T08:00:00.000Z',
-    skipReason: 'Esquecimento',
-    prescription: {
-      id: 'p1a85f64-5717-4562-b3fc-2c963f66afa1',
-      providerId: TEST_PROVIDER_ID,
-      providerName: 'Dr. Carlos Silva',
-      issuedAt: '2023-04-20T15:30:00.000Z',
-      instructions: 'Tomar 1 comprimido por dia, pela manhã'
-    },
-    adherenceStreak: 0 // Reset streak when medication is skipped
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c4a85f64-5717-4562-b3fc-2c963f66afa4',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for a medication missed event
- */
-export const MEDICATION_MISSED_EVENT: BaseEventDto = {
-  eventId: 'e7a85f64-5717-4562-b3fc-2c963f66afa7',
-  type: 'MEDICATION_MISSED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-17T12:00:00.000Z', // System detected missed medication
-  data: {
-    medicationId: 'm1a85f64-5717-4562-b3fc-2c963f66afa1',
-    name: 'Atorvastatina',
-    status: 'missed',
-    dosage: {
-      value: 20,
-      unit: 'mg'
-    },
-    scheduledTime: '2023-05-17T08:00:00.000Z',
-    detectedAt: '2023-05-17T12:00:00.000Z',
-    prescription: {
-      id: 'p1a85f64-5717-4562-b3fc-2c963f66afa1',
-      providerId: TEST_PROVIDER_ID,
-      providerName: 'Dr. Carlos Silva',
-      issuedAt: '2023-04-20T15:30:00.000Z',
-      instructions: 'Tomar 1 comprimido por dia, pela manhã'
-    },
-    adherenceStreak: 0, // Reset streak when medication is missed
-    missedCount: 1 // Increment missed count
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c5a85f64-5717-4562-b3fc-2c963f66afa5',
-    source: 'care-service'
-  }
-};
-
-// Telemedicine Events
-
-/**
- * Mock for a telemedicine session started event
- */
-export const TELEMEDICINE_SESSION_STARTED_EVENT: BaseEventDto = {
-  eventId: 'e8a85f64-5717-4562-b3fc-2c963f66afa8',
-  type: 'TELEMEDICINE_SESSION_STARTED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-18T14:00:00.000Z',
-  data: {
-    sessionId: 's1a85f64-5717-4562-b3fc-2c963f66afa1',
-    status: 'started',
-    provider: {
-      id: '9ea85f64-5717-4562-b3fc-2c963f66afa9',
-      name: 'Dr. Roberto Mendes',
-      specialty: 'Psiquiatria',
-      crm: '789012'
-    },
-    startedAt: '2023-05-18T14:00:00.000Z',
-    appointmentId: 'a3a85f64-5717-4562-b3fc-2c963f66afa3',
-    technicalDetails: {
-      connectionQuality: 'excellent',
-      deviceType: 'mobile',
-      browserOrApp: 'AUSTA App',
-      networkType: 'wifi'
-    }
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c6a85f64-5717-4562-b3fc-2c963f66afa6',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for a telemedicine session completed event
- */
-export const TELEMEDICINE_SESSION_COMPLETED_EVENT: BaseEventDto = {
-  eventId: 'e9a85f64-5717-4562-b3fc-2c963f66afa9',
-  type: 'TELEMEDICINE_SESSION_COMPLETED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-18T14:45:00.000Z',
-  data: {
-    sessionId: 's1a85f64-5717-4562-b3fc-2c963f66afa1',
-    status: 'completed',
-    provider: {
-      id: '9ea85f64-5717-4562-b3fc-2c963f66afa9',
-      name: 'Dr. Roberto Mendes',
-      specialty: 'Psiquiatria',
-      crm: '789012'
-    },
-    startedAt: '2023-05-18T14:00:00.000Z',
-    endedAt: '2023-05-18T14:45:00.000Z',
-    durationMinutes: 45,
-    appointmentId: 'a3a85f64-5717-4562-b3fc-2c963f66afa3',
-    notes: 'Consulta realizada com sucesso. Paciente relatou melhora dos sintomas.',
-    prescriptionGenerated: true,
-    followUpRecommended: true,
-    technicalDetails: {
-      connectionQuality: 'good',
-      deviceType: 'mobile',
-      browserOrApp: 'AUSTA App',
-      networkType: 'wifi',
-      disconnectionCount: 0
-    },
-    patientFeedback: {
-      rating: 5,
-      comments: 'Ótimo atendimento, muito prático.'
-    }
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c6a85f64-5717-4562-b3fc-2c963f66afa6',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for a telemedicine session cancelled event
- */
-export const TELEMEDICINE_SESSION_CANCELLED_EVENT: BaseEventDto = {
-  eventId: 'e0b85f64-5717-4562-b3fc-2c963f66afb0',
-  type: 'TELEMEDICINE_SESSION_CANCELLED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-19T09:50:00.000Z',
-  data: {
-    sessionId: 's2a85f64-5717-4562-b3fc-2c963f66afa2',
-    status: 'cancelled',
-    provider: {
-      id: '0fa85f64-5717-4562-b3fc-2c963f66afb0',
-      name: 'Dra. Mariana Costa',
-      specialty: 'Nutrição',
-      crm: '345678'
-    },
-    scheduledAt: '2023-05-19T10:00:00.000Z',
-    cancelledAt: '2023-05-19T09:50:00.000Z',
-    appointmentId: 'a4a85f64-5717-4562-b3fc-2c963f66afa4',
-    cancellationReason: 'Problemas técnicos',
-    cancelledBy: 'patient',
-    rescheduled: true
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c7a85f64-5717-4562-b3fc-2c963f66afa7',
-    source: 'care-service'
-  }
-};
-
-// Care Plan Events
-
-/**
- * Mock for a care plan progress event
- */
-export const CARE_PLAN_PROGRESS_EVENT: BaseEventDto = {
-  eventId: 'e1b85f64-5717-4562-b3fc-2c963f66afb1',
-  type: 'CARE_PLAN_PROGRESS_UPDATED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-05-20T18:30:00.000Z',
-  data: {
-    carePlanId: 'cp1a85f64-5717-4562-b3fc-2c963f66afa1',
-    title: 'Plano de Tratamento Cardíaco',
-    provider: {
-      id: TEST_PROVIDER_ID,
-      name: 'Dr. Carlos Silva',
-      specialty: 'Cardiologia',
-      crm: '123456'
-    },
-    startDate: '2023-04-20T00:00:00.000Z',
-    endDate: '2023-07-20T00:00:00.000Z',
-    progress: {
-      previousPercentage: 35,
-      currentPercentage: 40,
-      lastUpdated: '2023-05-20T18:30:00.000Z'
-    },
-    activities: [
-      {
-        id: 'ca1a85f64-5717-4562-b3fc-2c963f66afa1',
-        type: 'medication',
-        title: 'Tomar Atorvastatina',
-        status: 'in_progress',
-        adherencePercentage: 85
-      },
-      {
-        id: 'ca2a85f64-5717-4562-b3fc-2c963f66afa2',
-        type: 'exercise',
-        title: 'Caminhada diária',
-        status: 'in_progress',
-        adherencePercentage: 60
-      },
-      {
-        id: 'ca3a85f64-5717-4562-b3fc-2c963f66afa3',
-        type: 'diet',
-        title: 'Dieta com baixo teor de sódio',
-        status: 'in_progress',
-        adherencePercentage: 75
-      },
-      {
-        id: 'ca4a85f64-5717-4562-b3fc-2c963f66afa4',
-        type: 'appointment',
-        title: 'Consulta de acompanhamento',
-        status: 'completed',
-        adherencePercentage: 100
-      }
-    ],
-    notes: 'Progresso satisfatório no plano de tratamento. Continuar monitoramento.'
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c8a85f64-5717-4562-b3fc-2c963f66afa8',
-    source: 'care-service'
-  }
-};
-
-/**
- * Mock for a care plan completed event
- */
-export const CARE_PLAN_COMPLETED_EVENT: BaseEventDto = {
-  eventId: 'e2b85f64-5717-4562-b3fc-2c963f66afb2',
-  type: 'CARE_PLAN_COMPLETED',
-  userId: TEST_USER_ID,
-  journey: 'care',
-  timestamp: '2023-07-20T16:45:00.000Z',
-  data: {
-    carePlanId: 'cp1a85f64-5717-4562-b3fc-2c963f66afa1',
-    title: 'Plano de Tratamento Cardíaco',
-    provider: {
-      id: TEST_PROVIDER_ID,
-      name: 'Dr. Carlos Silva',
-      specialty: 'Cardiologia',
-      crm: '123456'
-    },
-    startDate: '2023-04-20T00:00:00.000Z',
-    endDate: '2023-07-20T00:00:00.000Z',
-    completedAt: '2023-07-20T16:45:00.000Z',
-    overallAdherencePercentage: 85,
-    outcomes: {
-      successful: true,
-      healthImprovements: [
-        'Redução dos níveis de colesterol',
-        'Melhora da capacidade cardiovascular',
-        'Redução da pressão arterial'
-      ]
-    },
-    followUpPlan: {
-      recommended: true,
-      type: 'maintenance',
-      nextAppointment: '2023-08-20T14:30:00.000Z'
-    },
-    notes: 'Plano de tratamento concluído com sucesso. Paciente apresentou melhora significativa.'
-  },
-  metadata: {
-    version: '1.0.0',
-    correlationId: 'c9a85f64-5717-4562-b3fc-2c963f66afa9',
-    source: 'care-service'
-  }
-};
-
-// Export collections for easier access in tests
-
-/**
- * Collection of appointment-related events
- */
-export const APPOINTMENT_EVENTS = {
-  BOOKED: APPOINTMENT_BOOKED_EVENT,
-  CHECKED_IN: APPOINTMENT_CHECKED_IN_EVENT,
-  COMPLETED: APPOINTMENT_COMPLETED_EVENT,
-  CANCELLED: APPOINTMENT_CANCELLED_EVENT
-};
-
-/**
- * Collection of medication-related events
- */
-export const MEDICATION_EVENTS = {
-  TAKEN: MEDICATION_TAKEN_EVENT,
-  SKIPPED: MEDICATION_SKIPPED_EVENT,
-  MISSED: MEDICATION_MISSED_EVENT
-};
-
-/**
- * Collection of telemedicine-related events
- */
-export const TELEMEDICINE_EVENTS = {
-  STARTED: TELEMEDICINE_SESSION_STARTED_EVENT,
-  COMPLETED: TELEMEDICINE_SESSION_COMPLETED_EVENT,
-  CANCELLED: TELEMEDICINE_SESSION_CANCELLED_EVENT
-};
-
-/**
- * Collection of care plan-related events
- */
-export const CARE_PLAN_EVENTS = {
-  PROGRESS_UPDATED: CARE_PLAN_PROGRESS_EVENT,
-  COMPLETED: CARE_PLAN_COMPLETED_EVENT
-};
-
-/**
- * All care journey events grouped by category
- */
-export const ALL_CARE_EVENTS = {
-  APPOINTMENT: APPOINTMENT_EVENTS,
-  MEDICATION: MEDICATION_EVENTS,
-  TELEMEDICINE: TELEMEDICINE_EVENTS,
-  CARE_PLAN: CARE_PLAN_EVENTS
-};
+export default careEvents;
