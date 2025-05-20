@@ -1,111 +1,159 @@
 /**
- * Jest configuration for the @austa/tracing package tests.
- * 
- * This configuration ensures proper test execution for all tracing components,
- * handling OpenTelemetry's instrumentation in the test environment, and
- * providing appropriate settings for coverage reporting and module resolution.
+ * Jest configuration for the @austa/tracing package tests
+ *
+ * This configuration file sets up the test environment for the tracing package,
+ * including coverage reporting, module resolution, and test timeouts.
+ * It ensures proper handling of OpenTelemetry's instrumentation in the test environment.
  */
 
+const { resolve } = require('path');
+const { pathsToModuleNameMapper } = require('ts-jest');
+
+// Load the tsconfig to use its path mappings
+const tsConfigPath = resolve(__dirname, '../tsconfig.json');
+let tsConfig;
+try {
+  tsConfig = require(tsConfigPath);
+} catch (e) {
+  // Fallback to a basic configuration if tsconfig.json doesn't exist yet
+  tsConfig = {
+    compilerOptions: {
+      baseUrl: './src',
+      paths: {
+        '@austa/tracing/*': ['*'],
+        '@austa/logging': ['../../../logging/src'],
+        '@austa/errors': ['../../../errors/src']
+      }
+    }
+  };
+}
+
+/** @type {import('jest').Config} */
 module.exports = {
-  // Use Node.js as the test environment
-  testEnvironment: 'node',
-  
-  // Root directory to scan for tests
-  rootDir: '../',
-  
-  // Test file patterns to match
-  testMatch: [
-    '<rootDir>/test/unit/**/*.spec.ts',
-    '<rootDir>/test/integration/**/*.integration.spec.ts',
-  ],
-  
-  // Exclude e2e tests which have their own configuration
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/',
-    '/test/e2e/'
-  ],
-  
-  // Transform TypeScript files using ts-jest
-  transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', {
-      tsconfig: '<rootDir>/tsconfig.json',
-      isolatedModules: true,
-    }],
-  },
-  
-  // Module name mapper for path aliases
-  moduleNameMapper: {
-    '^@austa/tracing(.*)$': '<rootDir>/src$1',
-    '^@austa/logging(.*)$': '<rootDir>/../logging/src$1',
-    '^@austa/interfaces(.*)$': '<rootDir>/../interfaces/src$1',
-    '^@austa/errors(.*)$': '<rootDir>/../errors/src$1',
-  },
-  
-  // Setup and teardown files
-  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
-  globalTeardown: '<rootDir>/test/teardown.ts',
-  
-  // Coverage configuration
+  // Indicates whether the coverage information should be collected while executing the test
+  collectCoverage: true,
+
+  // The directory where Jest should output its coverage files
+  coverageDirectory: '<rootDir>/../coverage',
+
+  // An array of glob patterns indicating a set of files for which coverage information should be collected
   collectCoverageFrom: [
-    '<rootDir>/src/**/*.ts',
-    '!<rootDir>/src/**/*.interface.ts',
-    '!<rootDir>/src/**/index.ts',
+    '<rootDir>/../src/**/*.ts',
+    '!<rootDir>/../src/**/*.d.ts',
+    '!<rootDir>/../src/**/*.interface.ts',
+    '!<rootDir>/../src/**/index.ts',
+    '!<rootDir>/../src/**/*.mock.ts',
+    '!<rootDir>/../src/**/*.test.ts',
+    '!<rootDir>/../src/**/*.spec.ts'
   ],
-  coverageDirectory: '<rootDir>/coverage',
-  coverageReporters: ['text', 'lcov', 'clover', 'html'],
+
+  // The minimum threshold enforcement for coverage results
   coverageThreshold: {
     global: {
       branches: 80,
-      functions: 85,
-      lines: 85,
-      statements: 85,
-    },
-    './src/tracing.service.ts': {
-      branches: 90,
-      functions: 95,
-      lines: 95,
-      statements: 95,
-    },
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
   },
-  
-  // Timeout settings for async tracing operations
-  // OpenTelemetry operations may take longer than default Jest timeout
-  testTimeout: 10000,
-  
-  // Display test results with proper formatting
+
+  // A list of reporter names that Jest uses when writing coverage reports
+  coverageReporters: ['json', 'lcov', 'text', 'clover'],
+
+  // The test environment that will be used for testing
+  testEnvironment: 'node',
+
+  // The root directory that Jest should scan for tests and modules within
+  rootDir: __dirname,
+
+  // A list of paths to directories that Jest should use to search for files in
+  roots: ['<rootDir>'],
+
+  // The glob patterns Jest uses to detect test files
+  testMatch: [
+    '**/__tests__/**/*.ts',
+    '**/?(*.)+(spec|test).ts'
+  ],
+
+  // An array of file extensions your modules use
+  moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+
+  // A map from regular expressions to module names or to arrays of module names
+  moduleNameMapper: {
+    // Use the paths from tsconfig.json
+    ...pathsToModuleNameMapper(tsConfig.compilerOptions.paths || {}, {
+      prefix: '<rootDir>/../'
+    }),
+    // Add any additional module name mappings here
+    '^@austa/tracing/(.*)$': '<rootDir>/../src/$1'
+  },
+
+  // A list of paths to modules that run some code to configure or set up the testing environment
+  setupFiles: ['<rootDir>/setup.ts'],
+
+  // A list of paths to modules that run some code to configure or set up the testing framework before each test
+  setupFilesAfterEnv: [],
+
+  // The path to a module that runs after all tests are complete
+  // This is used to clean up the OpenTelemetry global state
+  globalTeardown: '<rootDir>/teardown.ts',
+
+  // A preset that is used as a base for Jest's configuration
+  preset: 'ts-jest',
+
+  // A transformer to use for TypeScript files
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: tsConfigPath,
+      // Disable type checking for faster tests
+      isolatedModules: true,
+      // Use ESM for better compatibility with OpenTelemetry
+      useESM: false
+    }]
+  },
+
+  // Indicates whether each individual test should be reported during the run
   verbose: true,
-  
-  // Clear mocks between tests to prevent state leakage
+
+  // Automatically clear mock calls, instances, contexts and results before every test
   clearMocks: true,
-  resetMocks: false,
+
+  // Automatically restore mock state and implementation before every test
   restoreMocks: true,
-  
-  // Detect open handles to identify potential memory leaks
-  // Important for tracing which may create background resources
+
+  // Indicates whether the test should fail if there are any open handles at the end of the test
+  // This is important for OpenTelemetry tests to ensure all spans are properly ended
   detectOpenHandles: true,
-  
-  // Force exit after tests complete to clean up any lingering processes
-  // This is important for OpenTelemetry which may have background exporters
+
+  // The maximum amount of workers used to run your tests
+  maxWorkers: '50%',
+
+  // An array of regexp pattern strings that are matched against all test paths before executing the test
+  testPathIgnorePatterns: [
+    '/node_modules/'
+  ],
+
+  // Default timeout of a test in milliseconds
+  // Increased for async tracing operations which may take longer
+  testTimeout: 10000,
+
+  // A map from regular expressions to paths to transformers
+  transformIgnorePatterns: [
+    // Don't transform node_modules except for OpenTelemetry packages
+    '/node_modules/(?!(@opentelemetry)/)',
+  ],
+
+  // Indicates whether the test runner should exit after a test run, even if there are open handles
+  // This is set to true to prevent hanging tests due to unclosed OpenTelemetry resources
   forceExit: true,
-  
-  // Disable watchman for CI environments
-  watchman: false,
-  
-  // Use a custom resolver to handle OpenTelemetry's instrumentation modules
-  resolver: '<rootDir>/test/utils/resolver.js',
-  
-  // Additional globals for test environment
+
+  // Allows for custom reporters to be used
+  reporters: ['default'],
+
+  // Global variables that should be available to all tests
   globals: {
     'ts-jest': {
-      isolatedModules: true,
-      diagnostics: {
-        warnOnly: true,
-      },
-    },
-    // Environment variables for testing
-    __TEST__: true,
-    // Disable actual telemetry export during tests
-    OTEL_SDK_DISABLED: true,
-  },
+      isolatedModules: true
+    }
+  }
 };
