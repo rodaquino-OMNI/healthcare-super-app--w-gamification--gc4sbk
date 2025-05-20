@@ -1,300 +1,339 @@
-import { describe, it, expect, jest } from '@jest/globals';
-import { IEventHandler } from '../../../src/interfaces/event-handler.interface';
-import { IEvent } from '../../../src/interfaces/base-event.interface';
-import { IEventResponse } from '../../../src/interfaces/event-response.interface';
+import { jest } from '@jest/globals';
+import { v4 as uuidv4 } from 'uuid';
 
-// Define mock event types for testing
-type HealthMetricEvent = IEvent<'HEALTH_METRIC_RECORDED', { metricType: string; value: number; userId: string }>;
-type AppointmentEvent = IEvent<'APPOINTMENT_BOOKED', { appointmentId: string; userId: string; providerId: string }>;
-type ClaimEvent = IEvent<'CLAIM_SUBMITTED', { claimId: string; userId: string; amount: number }>;
+// Import test fixtures
+import { 
+  validHealthEvent,
+  validCareEvent,
+  validPlanEvent,
+  invalidEvent
+} from '../dto/mocks';
 
-// Mock implementation of the event handler interface for testing
-class MockHealthMetricEventHandler implements IEventHandler<HealthMetricEvent> {
-  public handle(event: HealthMetricEvent): Promise<IEventResponse> {
-    // Simulate successful processing
-    return Promise.resolve({
+// Mock implementations
+class MockSuccessHandler implements IEventHandler<HealthEvent> {
+  public handle = jest.fn().mockImplementation(async (event: HealthEvent) => {
+    return {
       success: true,
       eventId: event.eventId,
+      message: 'Event processed successfully',
       metadata: {
-        processingTimeMs: 42,
-        handlerName: 'MockHealthMetricEventHandler',
-      },
-    });
-  }
+        processingTimeMs: 100,
+        handlerName: this.constructor.name
+      }
+    };
+  });
 
-  public canHandle(event: IEvent<string, unknown>): boolean {
+  public canHandle = jest.fn().mockImplementation((event: BaseEvent) => {
     return event.type === 'HEALTH_METRIC_RECORDED';
-  }
+  });
 
-  public getEventType(): string {
-    return 'HEALTH_METRIC_RECORDED';
-  }
+  public getEventType = jest.fn().mockReturnValue('HEALTH_METRIC_RECORDED');
 }
 
-// Mock implementation that throws an error
-class ErrorThrowingEventHandler implements IEventHandler<HealthMetricEvent> {
-  public handle(event: HealthMetricEvent): Promise<IEventResponse> {
-    throw new Error('Simulated processing error');
-  }
+class MockFailureHandler implements IEventHandler<BaseEvent> {
+  public handle = jest.fn().mockImplementation(async () => {
+    throw new Error('Processing failed');
+  });
 
-  public canHandle(event: IEvent<string, unknown>): boolean {
-    return event.type === 'HEALTH_METRIC_RECORDED';
-  }
+  public canHandle = jest.fn().mockReturnValue(true);
 
-  public getEventType(): string {
-    return 'HEALTH_METRIC_RECORDED';
-  }
+  public getEventType = jest.fn().mockReturnValue('ANY');
 }
 
-// Mock implementation that returns a failed response
-class FailingEventHandler implements IEventHandler<HealthMetricEvent> {
-  public handle(event: HealthMetricEvent): Promise<IEventResponse> {
-    return Promise.resolve({
-      success: false,
-      eventId: event.eventId,
-      error: {
-        code: 'PROCESSING_FAILED',
-        message: 'Failed to process health metric event',
-      },
-      metadata: {
-        processingTimeMs: 10,
-        handlerName: 'FailingEventHandler',
-      },
-    });
-  }
+class MockRetryableHandler implements IEventHandler<BaseEvent> {
+  private retryCount = 0;
+  private maxRetries = 3;
 
-  public canHandle(event: IEvent<string, unknown>): boolean {
-    return event.type === 'HEALTH_METRIC_RECORDED';
-  }
-
-  public getEventType(): string {
-    return 'HEALTH_METRIC_RECORDED';
-  }
-}
-
-// Mock implementation for a different event type
-class AppointmentEventHandler implements IEventHandler<AppointmentEvent> {
-  public handle(event: AppointmentEvent): Promise<IEventResponse> {
-    return Promise.resolve({
+  public handle = jest.fn().mockImplementation(async (event: BaseEvent) => {
+    if (this.retryCount < this.maxRetries) {
+      this.retryCount++;
+      return {
+        success: false,
+        eventId: event.eventId,
+        error: {
+          code: 'TEMPORARY_FAILURE',
+          message: 'Temporary failure, can retry',
+          retryable: true
+        },
+        metadata: {
+          retryCount: this.retryCount,
+          maxRetries: this.maxRetries
+        }
+      };
+    }
+    
+    return {
       success: true,
       eventId: event.eventId,
+      message: 'Event processed successfully after retries',
       metadata: {
-        processingTimeMs: 35,
-        handlerName: 'AppointmentEventHandler',
-      },
-    });
-  }
+        retryCount: this.retryCount,
+        maxRetries: this.maxRetries
+      }
+    };
+  });
 
-  public canHandle(event: IEvent<string, unknown>): boolean {
-    return event.type === 'APPOINTMENT_BOOKED';
-  }
+  public canHandle = jest.fn().mockReturnValue(true);
 
-  public getEventType(): string {
-    return 'APPOINTMENT_BOOKED';
+  public getEventType = jest.fn().mockReturnValue('RETRYABLE');
+
+  public reset(): void {
+    this.retryCount = 0;
   }
+}
+
+class MockJourneySpecificHandler implements IEventHandler<CareEvent> {
+  public handle = jest.fn().mockImplementation(async (event: CareEvent) => {
+    // Type-safe access to care-specific properties
+    const appointmentId = event.payload.appointmentId;
+    
+    return {
+      success: true,
+      eventId: event.eventId,
+      message: `Processed appointment ${appointmentId}`,
+      metadata: {
+        journey: 'care',
+        appointmentId
+      }
+    };
+  });
+
+  public canHandle = jest.fn().mockImplementation((event: BaseEvent) => {
+    return event.type === 'APPOINTMENT_BOOKED' && event.journey === 'care';
+  });
+
+  public getEventType = jest.fn().mockReturnValue('APPOINTMENT_BOOKED');
 }
 
 describe('IEventHandler Interface', () => {
-  // Sample events for testing
-  const healthMetricEvent: HealthMetricEvent = {
-    eventId: '123e4567-e89b-12d3-a456-426614174000',
-    timestamp: new Date().toISOString(),
-    version: '1.0',
-    source: 'health-service',
-    type: 'HEALTH_METRIC_RECORDED',
-    payload: {
-      metricType: 'HEART_RATE',
-      value: 75,
-      userId: 'user-123',
-    },
-  };
+  let successHandler: MockSuccessHandler;
+  let failureHandler: MockFailureHandler;
+  let retryableHandler: MockRetryableHandler;
+  let journeyHandler: MockJourneySpecificHandler;
 
-  const appointmentEvent: AppointmentEvent = {
-    eventId: '123e4567-e89b-12d3-a456-426614174001',
-    timestamp: new Date().toISOString(),
-    version: '1.0',
-    source: 'care-service',
-    type: 'APPOINTMENT_BOOKED',
-    payload: {
-      appointmentId: 'appt-456',
-      userId: 'user-123',
-      providerId: 'provider-789',
-    },
-  };
+  beforeEach(() => {
+    successHandler = new MockSuccessHandler();
+    failureHandler = new MockFailureHandler();
+    retryableHandler = new MockRetryableHandler();
+    journeyHandler = new MockJourneySpecificHandler();
+    
+    // Reset mocks before each test
+    jest.clearAllMocks();
+    retryableHandler.reset();
+  });
 
-  const claimEvent: ClaimEvent = {
-    eventId: '123e4567-e89b-12d3-a456-426614174002',
-    timestamp: new Date().toISOString(),
-    version: '1.0',
-    source: 'plan-service',
-    type: 'CLAIM_SUBMITTED',
-    payload: {
-      claimId: 'claim-789',
-      userId: 'user-123',
-      amount: 150.75,
-    },
-  };
-
-  describe('Handler Contract Implementation', () => {
-    it('should implement all required methods of the IEventHandler interface', () => {
-      const handler = new MockHealthMetricEventHandler();
+  describe('Interface Contract', () => {
+    it('should require handle, canHandle, and getEventType methods', () => {
+      // Verify that the handler implements all required methods
+      expect(successHandler.handle).toBeDefined();
+      expect(successHandler.canHandle).toBeDefined();
+      expect(successHandler.getEventType).toBeDefined();
       
-      // Verify all required methods exist
-      expect(typeof handler.handle).toBe('function');
-      expect(typeof handler.canHandle).toBe('function');
-      expect(typeof handler.getEventType).toBe('function');
+      // Verify method types
+      expect(typeof successHandler.handle).toBe('function');
+      expect(typeof successHandler.canHandle).toBe('function');
+      expect(typeof successHandler.getEventType).toBe('function');
     });
 
-    it('should return the correct event type from getEventType()', () => {
-      const healthHandler = new MockHealthMetricEventHandler();
-      const appointmentHandler = new AppointmentEventHandler();
+    it('should return a Promise<EventResponse> from handle method', async () => {
+      const response = await successHandler.handle(validHealthEvent);
       
-      expect(healthHandler.getEventType()).toBe('HEALTH_METRIC_RECORDED');
-      expect(appointmentHandler.getEventType()).toBe('APPOINTMENT_BOOKED');
+      // Verify response structure
+      expect(response).toHaveProperty('success');
+      expect(response).toHaveProperty('eventId');
+      expect(response.success).toBe(true);
+      expect(response.eventId).toBe(validHealthEvent.eventId);
+    });
+
+    it('should return a boolean from canHandle method', () => {
+      const result = successHandler.canHandle(validHealthEvent);
+      
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should return a string from getEventType method', () => {
+      const eventType = successHandler.getEventType();
+      
+      expect(typeof eventType).toBe('string');
+      expect(eventType).toBe('HEALTH_METRIC_RECORDED');
     });
   });
 
-  describe('Event Type Handling', () => {
+  describe('Type Safety', () => {
+    it('should handle events with correct type parameters', async () => {
+      // Health event handler should process health events
+      const healthResponse = await successHandler.handle(validHealthEvent);
+      expect(healthResponse.success).toBe(true);
+      
+      // Care event handler should process care events
+      const careResponse = await journeyHandler.handle(validCareEvent);
+      expect(careResponse.success).toBe(true);
+      expect(careResponse.metadata).toHaveProperty('appointmentId');
+    });
+
+    it('should enforce type safety for journey-specific event properties', async () => {
+      // This test verifies that TypeScript correctly enforces type safety
+      // The test itself will compile only if the types are correct
+      const response = await journeyHandler.handle(validCareEvent);
+      
+      // Care-specific properties should be accessible in a type-safe way
+      expect(response.metadata.appointmentId).toBeDefined();
+      expect(response.message).toContain('Processed appointment');
+    });
+  });
+
+  describe('Handler Capability Detection', () => {
     it('should correctly identify events it can handle', () => {
-      const healthHandler = new MockHealthMetricEventHandler();
-      const appointmentHandler = new AppointmentEventHandler();
+      // Health handler should handle health events
+      expect(successHandler.canHandle(validHealthEvent)).toBe(true);
       
-      // Each handler should identify its own event type
-      expect(healthHandler.canHandle(healthMetricEvent)).toBe(true);
-      expect(appointmentHandler.canHandle(appointmentEvent)).toBe(true);
+      // Health handler should not handle care events
+      expect(successHandler.canHandle(validCareEvent)).toBe(false);
       
-      // Handlers should reject event types they don't support
-      expect(healthHandler.canHandle(appointmentEvent)).toBe(false);
-      expect(appointmentHandler.canHandle(healthMetricEvent)).toBe(false);
-      expect(healthHandler.canHandle(claimEvent)).toBe(false);
-      expect(appointmentHandler.canHandle(claimEvent)).toBe(false);
+      // Care handler should handle care events
+      expect(journeyHandler.canHandle(validCareEvent)).toBe(true);
+      
+      // Care handler should not handle plan events
+      expect(journeyHandler.canHandle(validPlanEvent)).toBe(false);
     });
 
-    it('should handle type-safe event processing', async () => {
-      const healthHandler = new MockHealthMetricEventHandler();
-      const appointmentHandler = new AppointmentEventHandler();
+    it('should check both event type and journey for capability detection', () => {
+      // Create a modified event with correct type but wrong journey
+      const wrongJourneyEvent = {
+        ...validCareEvent,
+        journey: 'health' // Changed from 'care'
+      };
       
-      // Spy on the handle methods
-      const healthHandleSpy = jest.spyOn(healthHandler, 'handle');
-      const appointmentHandleSpy = jest.spyOn(appointmentHandler, 'handle');
-      
-      // Process events with the appropriate handlers
-      await healthHandler.handle(healthMetricEvent);
-      await appointmentHandler.handle(appointmentEvent);
-      
-      // Verify the handlers were called with the correct event types
-      expect(healthHandleSpy).toHaveBeenCalledWith(healthMetricEvent);
-      expect(appointmentHandleSpy).toHaveBeenCalledWith(appointmentEvent);
-      
-      // Verify type safety by checking the payload access
-      expect(() => {
-        // @ts-expect-error - This should cause a TypeScript error
-        const value = healthMetricEvent.payload.appointmentId;
-        return value;
-      }).toThrow();
-      
-      expect(() => {
-        // @ts-expect-error - This should cause a TypeScript error
-        const value = appointmentEvent.payload.metricType;
-        return value;
-      }).toThrow();
-    });
-  });
-
-  describe('Response Handling', () => {
-    it('should return a successful response with the correct structure', async () => {
-      const handler = new MockHealthMetricEventHandler();
-      const response = await handler.handle(healthMetricEvent);
-      
-      expect(response).toEqual({
-        success: true,
-        eventId: healthMetricEvent.eventId,
-        metadata: {
-          processingTimeMs: 42,
-          handlerName: 'MockHealthMetricEventHandler',
-        },
-      });
-    });
-
-    it('should return a failed response with error details', async () => {
-      const handler = new FailingEventHandler();
-      const response = await handler.handle(healthMetricEvent);
-      
-      expect(response).toEqual({
-        success: false,
-        eventId: healthMetricEvent.eventId,
-        error: {
-          code: 'PROCESSING_FAILED',
-          message: 'Failed to process health metric event',
-        },
-        metadata: {
-          processingTimeMs: 10,
-          handlerName: 'FailingEventHandler',
-        },
-      });
+      // Handler should reject event with wrong journey
+      expect(journeyHandler.canHandle(wrongJourneyEvent)).toBe(false);
     });
   });
 
   describe('Error Handling', () => {
-    it('should handle exceptions thrown during event processing', async () => {
-      const handler = new ErrorThrowingEventHandler();
-      
-      // The handler throws an error, but we expect the test framework to catch it
-      await expect(handler.handle(healthMetricEvent)).rejects.toThrow('Simulated processing error');
-    });
-
-    it('should support async error handling with try/catch', async () => {
-      const handler = new ErrorThrowingEventHandler();
-      
+    it('should handle errors gracefully', async () => {
+      // Using try/catch to handle the thrown error
       try {
-        await handler.handle(healthMetricEvent);
-        // If we reach here, the test should fail
-        expect(true).toBe(false); // This should never execute
+        await failureHandler.handle(validHealthEvent);
+        fail('Should have thrown an error');
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('Simulated processing error');
+        expect(error.message).toBe('Processing failed');
       }
+    });
+
+    it('should support retryable errors', async () => {
+      // First attempt - should fail but be retryable
+      let response = await retryableHandler.handle(validHealthEvent);
+      expect(response.success).toBe(false);
+      expect(response.error.retryable).toBe(true);
+      expect(response.metadata.retryCount).toBe(1);
+      
+      // Second attempt - should fail but be retryable
+      response = await retryableHandler.handle(validHealthEvent);
+      expect(response.success).toBe(false);
+      expect(response.error.retryable).toBe(true);
+      expect(response.metadata.retryCount).toBe(2);
+      
+      // Third attempt - should fail but be retryable
+      response = await retryableHandler.handle(validHealthEvent);
+      expect(response.success).toBe(false);
+      expect(response.error.retryable).toBe(true);
+      expect(response.metadata.retryCount).toBe(3);
+      
+      // Fourth attempt - should succeed after max retries
+      response = await retryableHandler.handle(validHealthEvent);
+      expect(response.success).toBe(true);
+      expect(response.message).toContain('after retries');
+      expect(response.metadata.retryCount).toBe(3);
+    });
+
+    it('should provide detailed error information in the response', async () => {
+      // First attempt with retryable handler
+      const response = await retryableHandler.handle(validHealthEvent);
+      
+      // Verify error structure
+      expect(response.error).toBeDefined();
+      expect(response.error).toHaveProperty('code');
+      expect(response.error).toHaveProperty('message');
+      expect(response.error).toHaveProperty('retryable');
+      
+      // Verify error details
+      expect(response.error.code).toBe('TEMPORARY_FAILURE');
+      expect(typeof response.error.message).toBe('string');
+      expect(response.error.retryable).toBe(true);
     });
   });
 
-  describe('Handler Selection', () => {
-    it('should allow routing events to the correct handler', () => {
-      const handlers = [
-        new MockHealthMetricEventHandler(),
-        new AppointmentEventHandler(),
-      ];
+  describe('Response Generation', () => {
+    it('should generate consistent response structure', async () => {
+      const response = await successHandler.handle(validHealthEvent);
       
-      // Find the appropriate handler for each event type
-      const healthHandler = handlers.find(h => h.canHandle(healthMetricEvent));
-      const appointmentHandler = handlers.find(h => h.canHandle(appointmentEvent));
-      const claimHandler = handlers.find(h => h.canHandle(claimEvent));
-      
-      // Verify correct handlers were selected
-      expect(healthHandler).toBeInstanceOf(MockHealthMetricEventHandler);
-      expect(appointmentHandler).toBeInstanceOf(AppointmentEventHandler);
-      expect(claimHandler).toBeUndefined(); // No handler for claim events
+      // Verify response has all required properties
+      expect(response).toHaveProperty('success');
+      expect(response).toHaveProperty('eventId');
+      expect(response).toHaveProperty('message');
+      expect(response).toHaveProperty('metadata');
     });
 
-    it('should support handler registration and discovery', () => {
-      // Simulate a handler registry
-      const handlerRegistry = new Map<string, IEventHandler<IEvent<string, unknown>>>();
+    it('should include handler-specific metadata in response', async () => {
+      const response = await successHandler.handle(validHealthEvent);
       
-      // Register handlers by event type
-      const healthHandler = new MockHealthMetricEventHandler();
-      const appointmentHandler = new AppointmentEventHandler();
+      // Verify metadata contains handler-specific information
+      expect(response.metadata).toHaveProperty('processingTimeMs');
+      expect(response.metadata).toHaveProperty('handlerName');
+      expect(response.metadata.handlerName).toBe('MockSuccessHandler');
+    });
+
+    it('should include original eventId in response', async () => {
+      const customEvent = {
+        ...validHealthEvent,
+        eventId: uuidv4() // Generate a unique ID
+      };
       
-      handlerRegistry.set(healthHandler.getEventType(), healthHandler);
-      handlerRegistry.set(appointmentHandler.getEventType(), appointmentHandler);
+      const response = await successHandler.handle(customEvent);
       
-      // Look up handlers by event type
-      const foundHealthHandler = handlerRegistry.get('HEALTH_METRIC_RECORDED');
-      const foundAppointmentHandler = handlerRegistry.get('APPOINTMENT_BOOKED');
-      const foundClaimHandler = handlerRegistry.get('CLAIM_SUBMITTED');
+      // Verify eventId is preserved
+      expect(response.eventId).toBe(customEvent.eventId);
+    });
+  });
+
+  describe('Invalid Event Handling', () => {
+    it('should reject invalid events through canHandle', () => {
+      // Health handler should reject invalid events
+      expect(successHandler.canHandle(invalidEvent)).toBe(false);
+    });
+
+    it('should provide appropriate error response for invalid events', async () => {
+      // Create a handler that accepts invalid events but returns error
+      const invalidEventHandler = {
+        handle: async (event: BaseEvent) => {
+          if (!event.type || !event.eventId) {
+            return {
+              success: false,
+              eventId: event.eventId || 'unknown',
+              error: {
+                code: 'VALIDATION_ERROR',
+                message: 'Invalid event structure',
+                retryable: false
+              },
+              metadata: {
+                validationErrors: ['Missing required fields']
+              }
+            };
+          }
+          return { success: true, eventId: event.eventId, message: 'OK', metadata: {} };
+        },
+        canHandle: () => true,
+        getEventType: () => 'ANY'
+      };
       
-      // Verify correct handlers were found
-      expect(foundHealthHandler).toBe(healthHandler);
-      expect(foundAppointmentHandler).toBe(appointmentHandler);
-      expect(foundClaimHandler).toBeUndefined(); // No handler registered
+      const response = await invalidEventHandler.handle(invalidEvent);
+      
+      // Verify error response for invalid event
+      expect(response.success).toBe(false);
+      expect(response.error.code).toBe('VALIDATION_ERROR');
+      expect(response.error.retryable).toBe(false);
+      expect(response.metadata.validationErrors).toContain('Missing required fields');
     });
   });
 });
