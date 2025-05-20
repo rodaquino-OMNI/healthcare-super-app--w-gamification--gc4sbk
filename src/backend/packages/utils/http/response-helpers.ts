@@ -1,405 +1,748 @@
-/**
- * @file response-helpers.ts
- * @description Utility functions for standardized HTTP response processing across the AUSTA SuperApp backend services.
- * Provides error parsing, pagination handling, schema validation, data sanitization, and response logging.
- */
-
-import { Logger } from '@austa/logging';
-import { BaseError, ErrorType } from '@austa/errors';
-import { z } from 'zod';
-import DOMPurify from 'dompurify';
-import { JSDOM } from 'jsdom';
-
-// Create a DOM environment for DOMPurify when running in Node.js
-const window = new JSDOM('').window;
-const purify = DOMPurify(window);
+import { LoggerService } from '@nestjs/common';
+import { TracingService } from '@austa/tracing';
 
 /**
- * Standard error response structure that can be used across all services
+ * Standard error response structure for consistent error handling
  */
 export interface ErrorResponse {
-  code: string;
   message: string;
+  code?: string;
   details?: Record<string, any>;
-  type?: ErrorType;
   path?: string;
   timestamp?: string;
+  journeyContext?: {
+    journeyType?: 'health' | 'care' | 'plan';
+    journeyId?: string;
+  };
 }
 
 /**
  * Standard pagination metadata structure
  */
-export interface PaginationData {
-  page: number;
-  pageSize: number;
+export interface PaginationMetadata {
   totalItems: number;
+  itemsPerPage: number;
+  currentPage: number;
   totalPages: number;
   hasNextPage: boolean;
   hasPreviousPage: boolean;
 }
 
 /**
- * Options for error response parsing
+ * Standard paginated response structure
+ */
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: PaginationMetadata;
+}
+
+/**
+ * Options for parsing error responses
  */
 export interface ParseErrorOptions {
-  /** Include stack trace in development environments */
-  includeStack?: boolean;
-  /** Default error code if none is found */
-  defaultCode?: string;
-  /** Default error message if none is found */
   defaultMessage?: string;
-  /** Journey context for error categorization */
-  journeyContext?: 'health' | 'care' | 'plan';
+  defaultCode?: string;
+  includeStack?: boolean;
+  journeyType?: 'health' | 'care' | 'plan';
+  journeyId?: string;
 }
 
 /**
- * Options for response data sanitization
+ * Options for logging responses
  */
-export interface SanitizeOptions {
-  /** Allow specific HTML tags (default: false) */
-  allowHtml?: boolean;
-  /** Specific HTML tags to allow when allowHtml is true */
-  allowedTags?: string[];
-  /** Specific HTML attributes to allow when allowHtml is true */
-  allowedAttributes?: Record<string, string[]>;
-  /** Remove all HTML (more aggressive than default sanitization) */
-  stripAllHtml?: boolean;
-  /** Preserve line breaks as <br> tags */
-  preserveLineBreaks?: boolean;
+export interface LogResponseOptions {
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  includeHeaders?: boolean;
+  includeBody?: boolean;
+  maskSensitiveData?: boolean;
+  sensitiveFields?: string[];
+  journeyType?: 'health' | 'care' | 'plan';
+  journeyId?: string;
+  userId?: string;
+  requestId?: string;
 }
 
 /**
- * Default sanitization options
+ * Default sensitive fields that should be masked in logs
  */
-const defaultSanitizeOptions: SanitizeOptions = {
-  allowHtml: false,
-  stripAllHtml: false,
-  preserveLineBreaks: true,
-};
+const DEFAULT_SENSITIVE_FIELDS = [
+  'password',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'authorization',
+  'cpf',
+  'rg',
+  'creditCard',
+  'cardNumber',
+  'cvv',
+  'secret'
+];
 
 /**
- * Extracts error details from various API response formats
- * 
+ * Parses error responses from various API formats into a standardized structure.
+ * Handles different error formats from REST APIs, GraphQL, and internal services.
+ *
  * @param error - The error object to parse
- * @param options - Options for error parsing
- * @returns Standardized error response object
+ * @param options - Options for customizing the error parsing
+ * @returns A standardized error response object
  */
 export function parseErrorResponse(error: any, options: ParseErrorOptions = {}): ErrorResponse {
   const {
-    includeStack = process.env.NODE_ENV === 'development',
-    defaultCode = 'UNKNOWN_ERROR',
     defaultMessage = 'An unexpected error occurred',
-    journeyContext,
+    defaultCode = 'UNKNOWN_ERROR',
+    includeStack = false,
+    journeyType,
+    journeyId
   } = options;
 
-  // Handle BaseError from @austa/errors package
-  if (error instanceof BaseError) {
-    return {
-      code: error.code,
-      message: error.message,
-      details: {
-        ...error.context,
-        ...(includeStack && error.stack ? { stack: error.stack } : {}),
-      },
-      type: error.type,
-      path: error.path,
-      timestamp: new Date().toISOString(),
-    };
+  // Initialize the standardized error response
+  const errorResponse: ErrorResponse = {
+    message: defaultMessage,
+    code: defaultCode,
+    timestamp: new Date().toISOString(),
+    journeyContext: journeyType ? { journeyType, journeyId } : undefined
+  };
+
+  // If the error is null or undefined, return the default error
+  if (!error) {
+    return errorResponse;
   }
 
-  // Handle standard Error objects
-  if (error instanceof Error) {
-    return {
-      code: defaultCode,
-      message: error.message || defaultMessage,
-      details: includeStack && error.stack ? { stack: error.stack } : undefined,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  // Handle Axios error responses
-  if (error?.response?.data) {
-    const { data } = error.response;
+  try {
+    // Handle Error instances
+    if (error instanceof Error) {
+      errorResponse.message = error.message || defaultMessage;
+      errorResponse.details = includeStack ? { stack: error.stack } : undefined;
+      
+      // Extract additional properties that might be present on custom error types
+      if ('code' in error) {
+        errorResponse.code = (error as any).code || defaultCode;
+      }
+      
+      if ('details' in error) {
+        errorResponse.details = {
+          ...errorResponse.details,
+          ...(error as any).details
+        };
+      }
+      
+      if ('path' in error) {
+        errorResponse.path = (error as any).path;
+      }
+      
+      return errorResponse;
+    }
     
-    // Handle various API error formats
-    if (data.error || data.message || data.code) {
+    // Handle Axios error responses
+    if (error.isAxiosError && error.response) {
+      const { data, status, statusText, config } = error.response;
+      
+      errorResponse.message = data?.message || statusText || defaultMessage;
+      errorResponse.code = data?.code || `HTTP_${status}` || defaultCode;
+      errorResponse.path = config?.url;
+      errorResponse.details = {
+        status,
+        ...(data?.details || {})
+      };
+      
+      return errorResponse;
+    }
+    
+    // Handle GraphQL errors
+    if (Array.isArray(error.errors) && error.errors.length > 0) {
+      const graphqlError = error.errors[0];
+      
+      errorResponse.message = graphqlError.message || defaultMessage;
+      errorResponse.code = graphqlError.extensions?.code || defaultCode;
+      errorResponse.path = graphqlError.path?.join('.') || undefined;
+      errorResponse.details = graphqlError.extensions?.exception || {};
+      
+      if (error.errors.length > 1) {
+        errorResponse.details = {
+          ...errorResponse.details,
+          additionalErrors: error.errors.slice(1).map((e: any) => ({
+            message: e.message,
+            code: e.extensions?.code,
+            path: e.path?.join('.')
+          }))
+        };
+      }
+      
+      return errorResponse;
+    }
+    
+    // Handle plain objects with error-like properties
+    if (typeof error === 'object') {
+      errorResponse.message = error.message || error.error || error.errorMessage || defaultMessage;
+      errorResponse.code = error.code || error.errorCode || error.statusCode || defaultCode;
+      errorResponse.path = error.path || error.url || undefined;
+      errorResponse.details = error.details || error.data || undefined;
+      
+      return errorResponse;
+    }
+    
+    // Handle string errors
+    if (typeof error === 'string') {
+      errorResponse.message = error;
+      return errorResponse;
+    }
+    
+    // Default case: return the error as a string in the message
+    errorResponse.message = String(error) || defaultMessage;
+    return errorResponse;
+  } catch (parsingError) {
+    // If error parsing fails, return a safe default with information about the parsing error
+    return {
+      message: defaultMessage,
+      code: 'ERROR_PARSING_FAILED',
+      details: {
+        parsingError: parsingError instanceof Error ? parsingError.message : 'Unknown parsing error'
+      },
+      timestamp: new Date().toISOString(),
+      journeyContext: journeyType ? { journeyType, journeyId } : undefined
+    };
+  }
+}
+
+/**
+ * Extracts standardized pagination data from various API response formats.
+ * Supports different pagination schemes including offset/limit, page/size, and cursor-based pagination.
+ *
+ * @param response - The API response containing pagination information
+ * @param defaultItemsPerPage - Default number of items per page if not specified in the response
+ * @returns Standardized pagination metadata
+ */
+export function extractPaginationData(response: any, defaultItemsPerPage = 10): PaginationMetadata {
+  if (!response) {
+    return createDefaultPaginationMetadata(defaultItemsPerPage);
+  }
+  
+  try {
+    // Handle responses with explicit pagination object
+    if (response.pagination) {
+      const { pagination } = response;
+      
+      // If the pagination object already matches our structure, return it directly
+      if (
+        'totalItems' in pagination &&
+        'itemsPerPage' in pagination &&
+        'currentPage' in pagination &&
+        'totalPages' in pagination
+      ) {
+        return {
+          totalItems: Number(pagination.totalItems),
+          itemsPerPage: Number(pagination.itemsPerPage),
+          currentPage: Number(pagination.currentPage),
+          totalPages: Number(pagination.totalPages),
+          hasNextPage: pagination.currentPage < pagination.totalPages,
+          hasPreviousPage: pagination.currentPage > 1
+        };
+      }
+      
+      // Handle other pagination formats
+      const totalItems = pagination.total || pagination.totalCount || pagination.count || 0;
+      const itemsPerPage = pagination.limit || pagination.size || pagination.perPage || defaultItemsPerPage;
+      const currentPage = pagination.page || pagination.pageNumber || pagination.current || 1;
+      const totalPages = pagination.pages || pagination.totalPages || Math.ceil(totalItems / itemsPerPage) || 1;
+      
       return {
-        code: data.code || data.error?.code || defaultCode,
-        message: data.message || data.error?.message || defaultMessage,
-        details: data.details || data.error?.details,
-        path: error.response.config?.url,
-        timestamp: new Date().toISOString(),
+        totalItems: Number(totalItems),
+        itemsPerPage: Number(itemsPerPage),
+        currentPage: Number(currentPage),
+        totalPages: Number(totalPages),
+        hasNextPage: currentPage < totalPages,
+        hasPreviousPage: currentPage > 1
       };
     }
-  }
-
-  // Handle plain objects that might be errors
-  if (typeof error === 'object' && error !== null) {
-    return {
-      code: error.code || error.errorCode || defaultCode,
-      message: error.message || error.errorMessage || defaultMessage,
-      details: error.details || error.data,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  // Handle string errors
-  if (typeof error === 'string') {
-    return {
-      code: defaultCode,
-      message: error || defaultMessage,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  // Default fallback
-  return {
-    code: defaultCode,
-    message: defaultMessage,
-    timestamp: new Date().toISOString(),
-  };
-}
-
-/**
- * Extracts and normalizes pagination data from various API response formats
- * 
- * @param response - The API response containing pagination information
- * @param defaultPageSize - Default page size if not specified in response
- * @returns Standardized pagination data
- */
-export function extractPaginationData(response: any, defaultPageSize = 10): PaginationData | null {
-  if (!response) {
-    return null;
-  }
-
-  // Handle common pagination formats
-  const pagination = response.pagination || response.meta?.pagination || response.page || response;
-
-  // Extract pagination values with fallbacks
-  const page = Number(pagination.page || pagination.currentPage || pagination.pageNumber || 1);
-  const pageSize = Number(pagination.pageSize || pagination.perPage || pagination.limit || defaultPageSize);
-  const totalItems = Number(pagination.totalItems || pagination.total || pagination.count || 0);
-  
-  // Calculate total pages
-  const totalPages = pageSize > 0 ? Math.ceil(totalItems / pageSize) : 0;
-  
-  return {
-    page,
-    pageSize,
-    totalItems,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPreviousPage: page > 1,
-  };
-}
-
-/**
- * Validates response data against a Zod schema
- * 
- * @param data - The data to validate
- * @param schema - Zod schema to validate against
- * @param options - Options for validation
- * @returns Validated and typed data or null if validation fails
- */
-export function validateResponseSchema<T>(data: any, schema: z.ZodType<T>, options: { throwOnError?: boolean } = {}): T | null {
-  try {
-    const result = schema.parse(data);
-    return result;
-  } catch (error) {
-    if (options.throwOnError) {
-      throw new BaseError({
-        message: 'Response schema validation failed',
-        code: 'INVALID_RESPONSE_SCHEMA',
-        context: {
-          zodErrors: (error as z.ZodError).errors,
-          receivedData: data,
-        },
-      });
+    
+    // Handle responses with pagination fields at the root level
+    if (
+      ('total' in response || 'totalCount' in response || 'count' in response) &&
+      ('limit' in response || 'size' in response || 'perPage' in response || 'itemsPerPage' in response) &&
+      ('page' in response || 'pageNumber' in response || 'current' in response || 'currentPage' in response)
+    ) {
+      const totalItems = response.total || response.totalCount || response.count || 0;
+      const itemsPerPage = response.limit || response.size || response.perPage || response.itemsPerPage || defaultItemsPerPage;
+      const currentPage = response.page || response.pageNumber || response.current || response.currentPage || 1;
+      const totalPages = response.pages || response.totalPages || Math.ceil(totalItems / itemsPerPage) || 1;
+      
+      return {
+        totalItems: Number(totalItems),
+        itemsPerPage: Number(itemsPerPage),
+        currentPage: Number(currentPage),
+        totalPages: Number(totalPages),
+        hasNextPage: currentPage < totalPages,
+        hasPreviousPage: currentPage > 1
+      };
     }
-    return null;
+    
+    // Handle responses with meta object containing pagination info
+    if (response.meta && (
+      'total' in response.meta ||
+      'totalCount' in response.meta ||
+      'count' in response.meta ||
+      'pagination' in response.meta
+    )) {
+      const meta = response.meta.pagination || response.meta;
+      
+      const totalItems = meta.total || meta.totalCount || meta.count || 0;
+      const itemsPerPage = meta.limit || meta.size || meta.perPage || meta.itemsPerPage || defaultItemsPerPage;
+      const currentPage = meta.page || meta.pageNumber || meta.current || meta.currentPage || 1;
+      const totalPages = meta.pages || meta.totalPages || Math.ceil(totalItems / itemsPerPage) || 1;
+      
+      return {
+        totalItems: Number(totalItems),
+        itemsPerPage: Number(itemsPerPage),
+        currentPage: Number(currentPage),
+        totalPages: Number(totalPages),
+        hasNextPage: currentPage < totalPages,
+        hasPreviousPage: currentPage > 1
+      };
+    }
+    
+    // Handle cursor-based pagination (hasNextPage, hasPreviousPage, etc.)
+    if (
+      ('hasNextPage' in response || 'hasNext' in response) ||
+      ('hasPreviousPage' in response || 'hasPrevious' in response) ||
+      ('startCursor' in response && 'endCursor' in response)
+    ) {
+      // For cursor-based pagination, we might not have exact page numbers
+      // but we can still provide useful pagination metadata
+      const hasNextPage = response.hasNextPage || response.hasNext || false;
+      const hasPreviousPage = response.hasPreviousPage || response.hasPrevious || false;
+      
+      // If we have data array, use its length as itemsPerPage
+      const itemsPerPage = Array.isArray(response.data) ? response.data.length : defaultItemsPerPage;
+      
+      return {
+        totalItems: response.totalCount || -1, // -1 indicates unknown total
+        itemsPerPage,
+        currentPage: hasPreviousPage ? 2 : 1, // Approximate
+        totalPages: hasNextPage ? 2 : 1, // Approximate
+        hasNextPage,
+        hasPreviousPage
+      };
+    }
+    
+    // If we have a data array but no pagination info, create default pagination
+    if (Array.isArray(response.data)) {
+      return createDefaultPaginationMetadata(defaultItemsPerPage, response.data.length);
+    }
+    
+    // If the response itself is an array, create default pagination based on array length
+    if (Array.isArray(response)) {
+      return createDefaultPaginationMetadata(defaultItemsPerPage, response.length);
+    }
+    
+    // Default case: return default pagination metadata
+    return createDefaultPaginationMetadata(defaultItemsPerPage);
+  } catch (error) {
+    // If pagination extraction fails, return default pagination metadata
+    return createDefaultPaginationMetadata(defaultItemsPerPage);
   }
 }
 
 /**
- * Sanitizes response data to prevent XSS and injection vulnerabilities
- * 
+ * Creates default pagination metadata when extraction fails or is not possible
+ *
+ * @param itemsPerPage - Number of items per page
+ * @param totalItems - Total number of items (optional)
+ * @returns Default pagination metadata
+ */
+function createDefaultPaginationMetadata(itemsPerPage: number, totalItems = 0): PaginationMetadata {
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  
+  return {
+    totalItems,
+    itemsPerPage,
+    currentPage: 1,
+    totalPages,
+    hasNextPage: totalItems > itemsPerPage,
+    hasPreviousPage: false
+  };
+}
+
+/**
+ * Validates that a response matches an expected schema.
+ * Uses structural validation to ensure the response has the required properties and types.
+ *
+ * @param response - The response object to validate
+ * @param schema - The schema to validate against (object with property paths and optional type checks)
+ * @param options - Validation options
+ * @returns An object with validation result and any validation errors
+ */
+export function validateResponseSchema(
+  response: any,
+  schema: Record<string, { required?: boolean; type?: string }>,
+  options: { throwOnError?: boolean; strictTypes?: boolean } = {}
+): { valid: boolean; errors?: string[] } {
+  const { throwOnError = false, strictTypes = false } = options;
+  const errors: string[] = [];
+  
+  if (!response) {
+    const error = 'Response is null or undefined';
+    errors.push(error);
+    
+    if (throwOnError) {
+      throw new Error(error);
+    }
+    
+    return { valid: false, errors };
+  }
+  
+  try {
+    // Check each property in the schema
+    for (const [path, validation] of Object.entries(schema)) {
+      const { required = true, type } = validation;
+      const pathParts = path.split('.');
+      
+      // Navigate to the property using the path
+      let value = response;
+      let currentPath = '';
+      
+      for (const part of pathParts) {
+        currentPath = currentPath ? `${currentPath}.${part}` : part;
+        
+        if (value === undefined || value === null) {
+          if (required) {
+            errors.push(`Required property '${currentPath}' is missing`);
+          }
+          value = undefined;
+          break;
+        }
+        
+        value = value[part];
+      }
+      
+      // Skip type checking if the property is not required and is undefined
+      if (!required && value === undefined) {
+        continue;
+      }
+      
+      // Check the type if specified
+      if (type && value !== undefined) {
+        const actualType = Array.isArray(value) ? 'array' : typeof value;
+        
+        // Handle special case for arrays with specific item types
+        if (type.startsWith('array<') && type.endsWith('>')) {
+          if (actualType !== 'array') {
+            errors.push(`Property '${path}' should be an array but got ${actualType}`);
+          } else {
+            const itemType = type.substring(6, type.length - 1);
+            
+            // Check each item in the array
+            for (let i = 0; i < value.length; i++) {
+              const item = value[i];
+              const itemActualType = Array.isArray(item) ? 'array' : typeof item;
+              
+              if (itemType === 'object' && itemActualType !== 'object') {
+                errors.push(`Item at index ${i} in '${path}' should be an object but got ${itemActualType}`);
+              } else if (itemType !== 'any' && itemType !== itemActualType) {
+                errors.push(`Item at index ${i} in '${path}' should be of type ${itemType} but got ${itemActualType}`);
+              }
+            }
+          }
+        }
+        // Handle regular type checking
+        else if (strictTypes && type !== 'any' && type !== actualType) {
+          errors.push(`Property '${path}' should be of type ${type} but got ${actualType}`);
+        }
+      }
+    }
+    
+    const valid = errors.length === 0;
+    
+    if (!valid && throwOnError) {
+      throw new Error(`Schema validation failed: ${errors.join(', ')}`);
+    }
+    
+    return { valid, errors: errors.length > 0 ? errors : undefined };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
+    
+    if (throwOnError) {
+      throw error;
+    }
+    
+    return { valid: false, errors: [errorMessage] };
+  }
+}
+
+/**
+ * Sanitizes response data to prevent XSS and injection vulnerabilities.
+ * Recursively processes objects and arrays to sanitize string values.
+ *
  * @param data - The data to sanitize
  * @param options - Sanitization options
- * @returns Sanitized data safe for rendering
+ * @returns Sanitized data
  */
-export function sanitizeResponseData(data: any, options: SanitizeOptions = defaultSanitizeOptions): any {
+export function sanitizeResponseData<T>(
+  data: T,
+  options: {
+    sanitizeHtml?: boolean;
+    sanitizeScripts?: boolean;
+    sanitizeAttributes?: boolean;
+    allowedTags?: string[];
+    allowedAttributes?: Record<string, string[]>;
+  } = {}
+): T {
+  const {
+    sanitizeHtml = true,
+    sanitizeScripts = true,
+    sanitizeAttributes = true,
+    allowedTags = ['b', 'i', 'em', 'strong', 'a', 'p', 'br'],
+    allowedAttributes = { a: ['href', 'target'] }
+  } = options;
+  
+  // If data is null or undefined, return it as is
   if (data === null || data === undefined) {
     return data;
   }
-
-  const sanitizeOptions = { ...defaultSanitizeOptions, ...options };
-
-  // Handle string data
+  
+  // Handle different data types
   if (typeof data === 'string') {
-    if (sanitizeOptions.stripAllHtml) {
-      // Strip all HTML tags
-      let sanitized = data.replace(/<[^>]*>/g, '');
+    let sanitized = data;
+    
+    // Sanitize HTML content
+    if (sanitizeHtml) {
+      // Remove all HTML tags except allowed ones
+      const allowedTagsPattern = allowedTags.length > 0
+        ? `<(?!\/?(${allowedTags.join('|')})\\b)[^>]+>`
+        : '<[^>]+>';
       
-      // Optionally preserve line breaks
-      if (sanitizeOptions.preserveLineBreaks) {
-        sanitized = sanitized.replace(/\n/g, '<br>');
-      }
-      
-      return sanitized;
-    } else if (sanitizeOptions.allowHtml) {
-      // Use DOMPurify with custom configuration
-      const purifyConfig: DOMPurify.Config = {};
-      
-      if (sanitizeOptions.allowedTags) {
-        purifyConfig.ALLOWED_TAGS = sanitizeOptions.allowedTags;
-      }
-      
-      if (sanitizeOptions.allowedAttributes) {
-        purifyConfig.ALLOWED_ATTR = [];
-        Object.values(sanitizeOptions.allowedAttributes).forEach(attrs => {
-          purifyConfig.ALLOWED_ATTR = [
-            ...(purifyConfig.ALLOWED_ATTR || []),
-            ...attrs,
-          ];
-        });
-      }
-      
-      return purify.sanitize(data, purifyConfig);
-    } else {
-      // Default: encode all HTML
-      return purify.sanitize(data, { ALLOWED_TAGS: [] });
+      sanitized = sanitized.replace(new RegExp(allowedTagsPattern, 'gi'), '');
     }
+    
+    // Sanitize script tags and event handlers
+    if (sanitizeScripts) {
+      // Remove script tags
+      sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      
+      // Remove javascript: URLs
+      sanitized = sanitized.replace(/javascript\s*:/gi, 'removed:');
+      
+      // Remove event handlers (on* attributes)
+      sanitized = sanitized.replace(/\s+on\w+\s*=\s*(["']).*?\1/gi, '');
+    }
+    
+    // Sanitize attributes
+    if (sanitizeAttributes) {
+      // Process each allowed tag
+      for (const tag of allowedTags) {
+        const tagAllowedAttrs = allowedAttributes[tag] || [];
+        
+        // If no attributes are allowed for this tag, remove all attributes
+        if (tagAllowedAttrs.length === 0) {
+          sanitized = sanitized.replace(
+            new RegExp(`<${tag}\\s+[^>]*>`, 'gi'),
+            `<${tag}>`
+          );
+          continue;
+        }
+        
+        // Replace tags with only allowed attributes
+        sanitized = sanitized.replace(
+          new RegExp(`<${tag}\\s+[^>]*>`, 'gi'),
+          (match) => {
+            // Extract all attributes
+            const attrMatches = match.matchAll(/\s+(\w+)\s*=\s*(["'])(.*?)\2/gi);
+            const attrs: string[] = [];
+            
+            for (const attrMatch of Array.from(attrMatches)) {
+              const [, name, , value] = attrMatch;
+              
+              // Only keep allowed attributes
+              if (tagAllowedAttrs.includes(name)) {
+                attrs.push(`${name}="${value}"`);
+              }
+            }
+            
+            return `<${tag}${attrs.length > 0 ? ' ' + attrs.join(' ') : ''}>`;
+          }
+        );
+      }
+    }
+    
+    return sanitized as unknown as T;
   }
-
-  // Handle arrays
+  
+  // Handle arrays recursively
   if (Array.isArray(data)) {
-    return data.map(item => sanitizeResponseData(item, sanitizeOptions));
+    return data.map(item => sanitizeResponseData(item, options)) as unknown as T;
   }
-
-  // Handle objects
-  if (typeof data === 'object' && data !== null) {
-    const sanitized: Record<string, any> = {};
+  
+  // Handle objects recursively
+  if (typeof data === 'object') {
+    const result: Record<string, any> = {};
     
-    for (const [key, value] of Object.entries(data)) {
-      sanitized[key] = sanitizeResponseData(value, sanitizeOptions);
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      result[key] = sanitizeResponseData(value, options);
     }
     
-    return sanitized;
+    return result as T;
   }
-
-  // Return primitive values as is
+  
+  // For other types (number, boolean, etc.), return as is
   return data;
 }
 
 /**
- * Options for response logging
+ * Masks sensitive data in an object by replacing values with asterisks.
+ *
+ * @param data - The data to mask
+ * @param sensitiveFields - Array of field names to mask
+ * @returns Data with sensitive fields masked
  */
-export interface LogResponseOptions {
-  /** Include response body in logs (default: false for large responses) */
-  includeBody?: boolean;
-  /** Maximum response body size to log in bytes */
-  maxBodySize?: number;
-  /** Include request details in log */
-  includeRequest?: boolean;
-  /** Journey context for log categorization */
-  journeyContext?: 'health' | 'care' | 'plan';
-  /** Custom logger instance */
-  logger?: Logger;
-  /** Additional metadata to include in log */
-  metadata?: Record<string, any>;
+export function maskSensitiveData<T>(data: T, sensitiveFields: string[] = DEFAULT_SENSITIVE_FIELDS): T {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+  
+  const result = Array.isArray(data) ? [...data] : { ...data };
+  
+  // Process each key in the object
+  for (const key in result) {
+    if (Object.prototype.hasOwnProperty.call(result, key)) {
+      const value = result[key];
+      
+      // Check if this is a sensitive field that should be masked
+      const isSensitive = sensitiveFields.some(field => {
+        // Check for exact match or nested path match
+        return key === field || key.toLowerCase() === field.toLowerCase() || 
+               key.includes(field) || field.includes(key);
+      });
+      
+      if (isSensitive && value !== null && value !== undefined) {
+        // Mask the sensitive value
+        if (typeof value === 'string') {
+          // For strings, show first and last character with asterisks in between
+          const length = value.length;
+          if (length <= 2) {
+            result[key] = '***' as any;
+          } else {
+            result[key] = `${value[0]}${'*'.repeat(length - 2)}${value[length - 1]}` as any;
+          }
+        } else if (typeof value === 'number') {
+          // For numbers, replace with asterisks
+          result[key] = '*****' as any;
+        } else {
+          // For other types, replace with a generic masked value
+          result[key] = '[MASKED]' as any;
+        }
+      } else if (value !== null && typeof value === 'object') {
+        // Recursively process nested objects and arrays
+        result[key] = maskSensitiveData(value, sensitiveFields) as any;
+      }
+    }
+  }
+  
+  return result as T;
 }
 
 /**
- * Logs HTTP response details in a standardized format
- * 
+ * Logs HTTP response data with consistent formatting and optional masking of sensitive information.
+ * Integrates with the LoggerService and TracingService for comprehensive observability.
+ *
  * @param response - The HTTP response to log
+ * @param logger - The logger service instance
  * @param options - Logging options
+ * @param tracingService - Optional tracing service for distributed tracing integration
  */
-export function logResponse(response: any, options: LogResponseOptions = {}): void {
+export function logResponse(
+  response: any,
+  logger: LoggerService,
+  options: LogResponseOptions = {},
+  tracingService?: TracingService
+): void {
   const {
-    includeBody = false,
-    maxBodySize = 1024, // Default to 1KB max
-    includeRequest = true,
-    journeyContext,
-    logger,
-    metadata = {},
+    level = 'debug',
+    includeHeaders = true,
+    includeBody = true,
+    maskSensitiveData: shouldMaskData = true,
+    sensitiveFields = DEFAULT_SENSITIVE_FIELDS,
+    journeyType,
+    journeyId,
+    userId,
+    requestId
   } = options;
-
-  // Use provided logger or console as fallback
-  const log = logger || console;
-
-  // Extract response details
-  const status = response?.status || response?.statusCode;
-  const url = response?.config?.url || response?.request?.url;
-  const method = response?.config?.method || response?.request?.method;
-  const responseTime = response?.config?.metadata?.responseTime;
-
-  // Prepare log data
-  const logData: Record<string, any> = {
-    status,
-    url,
-    method,
-    responseTime,
-    ...metadata,
-  };
-
-  // Add journey context if provided
-  if (journeyContext) {
-    logData.journey = journeyContext;
-  }
-
-  // Add request details if enabled
-  if (includeRequest && response?.config) {
-    logData.request = {
-      headers: sanitizeHeaders(response.config.headers),
-      params: response.config.params,
-      // Don't include request body by default for security
-    };
-  }
-
-  // Add response body if enabled and not too large
-  if (includeBody && response?.data) {
-    const responseBody = typeof response.data === 'string'
-      ? response.data
-      : JSON.stringify(response.data);
-
-    if (responseBody.length <= maxBodySize) {
-      logData.responseBody = response.data;
-    } else {
-      logData.responseBody = '[Response body too large to log]';
-      logData.responseBodySize = responseBody.length;
-    }
-  }
-
-  // Log at appropriate level based on status code
-  if (status >= 500) {
-    log.error('HTTP Response Error', logData);
-  } else if (status >= 400) {
-    log.warn('HTTP Response Warning', logData);
-  } else {
-    log.info('HTTP Response Success', logData);
-  }
-}
-
-/**
- * Sanitizes headers to remove sensitive information
- * 
- * @param headers - The headers object to sanitize
- * @returns Sanitized headers safe for logging
- */
-function sanitizeHeaders(headers: Record<string, any> = {}): Record<string, any> {
-  const sanitized: Record<string, any> = {};
-  const sensitiveHeaders = ['authorization', 'cookie', 'set-cookie', 'x-api-key'];
-
-  for (const [key, value] of Object.entries(headers)) {
-    const lowerKey = key.toLowerCase();
+  
+  try {
+    // Extract relevant information from the response
+    const status = response?.status || response?.statusCode;
+    const statusText = response?.statusText;
+    const headers = response?.headers;
+    const data = response?.data;
+    const config = response?.config;
     
-    if (sensitiveHeaders.includes(lowerKey)) {
-      sanitized[key] = '[REDACTED]';
-    } else {
-      sanitized[key] = value;
+    // Create the log context
+    const logContext: Record<string, any> = {
+      responseStatus: status,
+      responseStatusText: statusText,
+      requestMethod: config?.method?.toUpperCase(),
+      requestUrl: config?.url,
+      requestId,
+      userId
+    };
+    
+    // Add journey context if available
+    if (journeyType) {
+      logContext.journeyContext = { journeyType, journeyId };
     }
+    
+    // Add headers if requested
+    if (includeHeaders && headers) {
+      logContext.responseHeaders = shouldMaskData
+        ? maskSensitiveData(headers, sensitiveFields)
+        : headers;
+    }
+    
+    // Add body if requested
+    if (includeBody && data) {
+      logContext.responseBody = shouldMaskData
+        ? maskSensitiveData(data, sensitiveFields)
+        : data;
+    }
+    
+    // Create the log message
+    const message = `HTTP Response: ${status} ${statusText || ''} - ${config?.method?.toUpperCase() || 'UNKNOWN'} ${config?.url || 'unknown-url'}`;
+    
+    // Add trace information if tracing service is available
+    if (tracingService) {
+      const currentSpan = tracingService.getCurrentSpan();
+      if (currentSpan) {
+        // Add response information to the current span
+        tracingService.addAttributesToCurrentSpan({
+          'http.response.status_code': status,
+          'http.response.status_text': statusText,
+          'http.response.headers.count': headers ? Object.keys(headers).length : 0,
+          'http.response.body.size': data ? JSON.stringify(data).length : 0
+        });
+      }
+    }
+    
+    // Log the response with the appropriate log level
+    switch (level) {
+      case 'info':
+        logger.log(message, logContext);
+        break;
+      case 'warn':
+        logger.warn(message, logContext);
+        break;
+      case 'error':
+        logger.error(message, undefined, logContext);
+        break;
+      case 'debug':
+      default:
+        logger.debug(message, logContext);
+        break;
+    }
+  } catch (error) {
+    // If logging fails, log a simplified error message
+    logger.error(
+      `Failed to log HTTP response: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      error instanceof Error ? error.stack : undefined,
+      { requestId, userId }
+    );
   }
-
-  return sanitized;
 }
