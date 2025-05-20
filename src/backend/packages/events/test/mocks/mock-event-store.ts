@@ -1,908 +1,780 @@
-/**
- * @file mock-event-store.ts
- * @description Provides an in-memory event storage mechanism for testing event persistence and retrieval.
- * This mock simulates database operations for storing, querying, and retrieving events without requiring
- * an actual database connection. It supports filtering, sorting, and aggregation operations on stored events,
- * making it ideal for testing event logging and history tracking features.
- */
-
 import { v4 as uuidv4 } from 'uuid';
-import { IBaseEvent, EventMetadata } from '../../src/interfaces/base-event.interface';
-import { IVersionedEvent } from '../../src/interfaces/event-versioning.interface';
-import { JourneyType } from '../../src/interfaces/journey-events.interface';
 
 /**
- * Filter options for querying events
+ * Interface representing a stored event with additional metadata
  */
-export interface EventFilterOptions {
-  eventId?: string;
-  type?: string | string[];
-  source?: string | string[];
-  journeyType?: JourneyType;
-  userId?: string;
-  fromDate?: string;
-  toDate?: string;
-  version?: string;
+export interface StoredEvent<T = any> {
+  /** Unique identifier for the stored event */
+  id: string;
+  /** Original event data */
+  event: T;
+  /** Timestamp when the event was stored */
+  storedAt: Date;
+  /** Version of the event schema */
+  version: string;
+  /** Journey this event belongs to (health, care, plan) */
+  journey: string;
+  /** User ID associated with this event */
+  userId: string;
+  /** Event type identifier */
+  type: string;
+  /** Optional correlation ID for distributed tracing */
   correlationId?: string;
-  metadata?: Partial<EventMetadata>;
-  [key: string]: any; // Allow additional custom filters
+  /** Optional transaction ID for grouped operations */
+  transactionId?: string;
+  /** Optional metadata for additional context */
+  metadata?: Record<string, any>;
 }
 
 /**
- * Sort options for ordering events
+ * Interface for event query filters
  */
-export interface EventSortOptions {
-  field: string;
-  direction: 'asc' | 'desc';
+export interface EventFilter {
+  /** Filter by journey name */
+  journey?: string;
+  /** Filter by user ID */
+  userId?: string;
+  /** Filter by event type */
+  type?: string | string[];
+  /** Filter by time range start */
+  fromDate?: Date;
+  /** Filter by time range end */
+  toDate?: Date;
+  /** Filter by correlation ID */
+  correlationId?: string;
+  /** Filter by transaction ID */
+  transactionId?: string;
+  /** Filter by version */
+  version?: string;
+  /** Custom filter function */
+  custom?: (event: StoredEvent) => boolean;
 }
 
 /**
- * Pagination options for limiting result sets
+ * Interface for event query options
  */
-export interface EventPaginationOptions {
-  skip?: number;
+export interface EventQueryOptions {
+  /** Maximum number of events to return */
   limit?: number;
+  /** Number of events to skip */
+  offset?: number;
+  /** Sort field */
+  sortBy?: keyof StoredEvent | string;
+  /** Sort direction */
+  sortDirection?: 'asc' | 'desc';
+  /** Include event history */
+  includeHistory?: boolean;
 }
 
 /**
- * Result of a paginated query
- */
-export interface PaginatedEventResult<T extends IBaseEvent = IBaseEvent> {
-  events: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-/**
- * Options for event aggregation
+ * Interface for event aggregation options
  */
 export interface EventAggregationOptions {
-  groupBy: string | string[];
-  metrics: {
-    field: string;
-    operation: 'count' | 'sum' | 'avg' | 'min' | 'max';
-    as: string;
-  }[];
-  filter?: EventFilterOptions;
+  /** Field to group by */
+  groupBy: keyof StoredEvent | string;
+  /** Aggregation function */
+  aggregation: 'count' | 'sum' | 'avg' | 'min' | 'max';
+  /** Field to aggregate (for sum, avg, min, max) */
+  field?: string;
+  /** Additional filters */
+  filter?: EventFilter;
 }
 
 /**
- * Result of an aggregation operation
+ * Interface for transaction options
  */
-export interface EventAggregationResult {
-  [groupKey: string]: {
-    [metricName: string]: number;
-  };
+export interface TransactionOptions {
+  /** Transaction ID */
+  id?: string;
+  /** Transaction timeout in milliseconds */
+  timeout?: number;
 }
 
 /**
- * Transaction interface for atomic operations
+ * Result of an event store transaction
  */
-export interface EventTransaction {
-  /**
-   * Commit the transaction, applying all changes
-   */
-  commit(): void;
-  
-  /**
-   * Rollback the transaction, discarding all changes
-   */
-  rollback(): void;
-  
-  /**
-   * Store an event in the transaction
-   * @param event The event to store
-   * @returns The stored event with generated ID if not provided
-   */
-  storeEvent<T extends IBaseEvent>(event: T): T;
-  
-  /**
-   * Update an event in the transaction
-   * @param eventId The ID of the event to update
-   * @param event The updated event data
-   * @returns The updated event
-   */
-  updateEvent<T extends IBaseEvent>(eventId: string, event: Partial<T>): T;
-  
-  /**
-   * Delete an event in the transaction
-   * @param eventId The ID of the event to delete
-   * @returns True if the event was deleted, false otherwise
-   */
-  deleteEvent(eventId: string): boolean;
+export interface TransactionResult {
+  /** Transaction ID */
+  id: string;
+  /** Whether the transaction was successful */
+  success: boolean;
+  /** Number of events affected */
+  affectedEvents: number;
+  /** Error message if transaction failed */
+  error?: string;
+  /** Timestamp when transaction was completed */
+  completedAt: Date;
 }
 
 /**
- * In-memory event store for testing event persistence and retrieval
+ * Event history entry
+ */
+export interface EventHistoryEntry<T = any> {
+  /** Timestamp of the history entry */
+  timestamp: Date;
+  /** Type of operation */
+  operation: 'create' | 'update' | 'delete';
+  /** Event data at this point in time */
+  data: T;
+  /** User who performed the operation */
+  performedBy?: string;
+  /** Additional context */
+  context?: Record<string, any>;
+}
+
+/**
+ * Mock implementation of an event store for testing purposes.
+ * Provides an in-memory storage mechanism for events with query, filtering,
+ * and aggregation capabilities similar to a database.
  */
 export class MockEventStore {
-  private events: Map<string, IBaseEvent> = new Map();
-  private eventHistory: Map<string, IBaseEvent[]> = new Map();
-  private activeTransactions: Set<EventTransaction> = new Set();
+  /** In-memory storage for events */
+  private events: Map<string, StoredEvent> = new Map();
   
+  /** Event history tracking */
+  private eventHistory: Map<string, EventHistoryEntry[]> = new Map();
+  
+  /** Active transactions */
+  private transactions: Map<string, Set<string>> = new Map();
+  
+  /** Transaction timeouts */
+  private transactionTimeouts: Map<string, NodeJS.Timeout> = new Map();
+
   /**
-   * Store an event in the mock store
-   * @param event The event to store
-   * @returns The stored event with generated ID if not provided
+   * Creates a new instance of MockEventStore
    */
-  public storeEvent<T extends IBaseEvent>(event: T): T {
-    const eventToStore = { ...event };
-    
-    // Generate an event ID if not provided
-    if (!eventToStore.eventId) {
-      eventToStore.eventId = uuidv4();
+  constructor() {}
+
+  /**
+   * Stores an event in the mock store
+   * 
+   * @param event - The event to store
+   * @param options - Additional options for storing the event
+   * @returns The stored event with generated ID and metadata
+   */
+  async storeEvent<T>(event: T, options?: {
+    userId?: string;
+    journey?: string;
+    type?: string;
+    version?: string;
+    correlationId?: string;
+    transactionId?: string;
+    metadata?: Record<string, any>;
+  }): Promise<StoredEvent<T>> {
+    // Extract event properties or use defaults
+    const eventData = event as any;
+    const id = uuidv4();
+    const storedAt = new Date();
+    const userId = options?.userId || eventData.userId || 'unknown';
+    const journey = options?.journey || eventData.journey || 'unknown';
+    const type = options?.type || eventData.type || 'unknown';
+    const version = options?.version || eventData.version || '1.0.0';
+    const correlationId = options?.correlationId || eventData.correlationId;
+    const transactionId = options?.transactionId || eventData.transactionId;
+    const metadata = options?.metadata || eventData.metadata || {};
+
+    // Create the stored event
+    const storedEvent: StoredEvent<T> = {
+      id,
+      event,
+      storedAt,
+      version,
+      journey,
+      userId,
+      type,
+      correlationId,
+      transactionId,
+      metadata
+    };
+
+    // If part of a transaction, verify transaction exists
+    if (transactionId && !this.transactions.has(transactionId)) {
+      throw new Error(`Transaction ${transactionId} does not exist or has expired`);
     }
-    
-    // Set timestamp if not provided
-    if (!eventToStore.timestamp) {
-      eventToStore.timestamp = new Date().toISOString();
-    }
-    
+
     // Store the event
-    this.events.set(eventToStore.eventId, eventToStore);
-    
-    // Add to event history
-    this.addToEventHistory(eventToStore);
-    
-    return eventToStore as T;
-  }
-  
-  /**
-   * Retrieve an event by ID
-   * @param eventId The ID of the event to retrieve
-   * @returns The event if found, undefined otherwise
-   */
-  public getEvent<T extends IBaseEvent>(eventId: string): T | undefined {
-    const event = this.events.get(eventId);
-    return event as T | undefined;
-  }
-  
-  /**
-   * Update an existing event
-   * @param eventId The ID of the event to update
-   * @param event The updated event data
-   * @returns The updated event
-   * @throws Error if the event does not exist
-   */
-  public updateEvent<T extends IBaseEvent>(eventId: string, event: Partial<T>): T {
-    const existingEvent = this.events.get(eventId);
-    
-    if (!existingEvent) {
-      throw new Error(`Event with ID ${eventId} not found`);
-    }
-    
-    // Create updated event
-    const updatedEvent = {
-      ...existingEvent,
-      ...event,
-      eventId, // Ensure ID doesn't change
-    };
-    
-    // Store updated event
-    this.events.set(eventId, updatedEvent);
-    
-    // Add to event history
-    this.addToEventHistory(updatedEvent);
-    
-    return updatedEvent as T;
-  }
-  
-  /**
-   * Delete an event by ID
-   * @param eventId The ID of the event to delete
-   * @returns True if the event was deleted, false if it didn't exist
-   */
-  public deleteEvent(eventId: string): boolean {
-    // Add to event history before deleting
-    const event = this.events.get(eventId);
-    if (event) {
-      this.addToEventHistory({
-        ...event,
-        metadata: {
-          ...event.metadata,
-          deleted: true,
-          deletedAt: new Date().toISOString(),
-        },
-      });
-    }
-    
-    return this.events.delete(eventId);
-  }
-  
-  /**
-   * Find events matching the provided filter criteria
-   * @param filter Filter criteria for events
-   * @param sort Optional sorting of results
-   * @param pagination Optional pagination of results
-   * @returns Matching events, optionally sorted and paginated
-   */
-  public findEvents<T extends IBaseEvent>(
-    filter: EventFilterOptions = {},
-    sort?: EventSortOptions,
-    pagination?: EventPaginationOptions
-  ): T[] {
-    // Convert Map to Array for filtering
-    let events = Array.from(this.events.values()) as T[];
-    
-    // Apply filters
-    events = this.applyFilters(events, filter);
-    
-    // Apply sorting if specified
-    if (sort) {
-      events = this.applySorting(events, sort);
-    } else {
-      // Default sort by timestamp descending
-      events = this.applySorting(events, { field: 'timestamp', direction: 'desc' });
-    }
-    
-    // Apply pagination if specified
-    if (pagination) {
-      const { skip = 0, limit } = pagination;
-      events = events.slice(skip, limit ? skip + limit : undefined);
-    }
-    
-    return events;
-  }
-  
-  /**
-   * Find events with pagination
-   * @param filter Filter criteria for events
-   * @param sort Optional sorting of results
-   * @param page Page number (1-based)
-   * @param pageSize Number of items per page
-   * @returns Paginated result with events and pagination metadata
-   */
-  public findEventsPaginated<T extends IBaseEvent>(
-    filter: EventFilterOptions = {},
-    sort?: EventSortOptions,
-    page: number = 1,
-    pageSize: number = 10
-  ): PaginatedEventResult<T> {
-    // Convert Map to Array for filtering
-    let events = Array.from(this.events.values()) as T[];
-    
-    // Apply filters
-    events = this.applyFilters(events, filter);
-    
-    // Get total before pagination
-    const total = events.length;
-    
-    // Apply sorting if specified
-    if (sort) {
-      events = this.applySorting(events, sort);
-    } else {
-      // Default sort by timestamp descending
-      events = this.applySorting(events, { field: 'timestamp', direction: 'desc' });
-    }
-    
-    // Calculate pagination values
-    const skip = (page - 1) * pageSize;
-    const totalPages = Math.ceil(total / pageSize);
-    
-    // Apply pagination
-    events = events.slice(skip, skip + pageSize);
-    
-    return {
-      events,
-      total,
-      page,
-      pageSize,
-      totalPages,
-    };
-  }
-  
-  /**
-   * Get event history for a specific event ID
-   * @param eventId The ID of the event to get history for
-   * @returns Array of event versions in chronological order
-   */
-  public getEventHistory<T extends IBaseEvent>(eventId: string): T[] {
-    return (this.eventHistory.get(eventId) || []) as T[];
-  }
-  
-  /**
-   * Count events matching the provided filter criteria
-   * @param filter Filter criteria for events
-   * @returns Number of matching events
-   */
-  public countEvents(filter: EventFilterOptions = {}): number {
-    const events = Array.from(this.events.values());
-    return this.applyFilters(events, filter).length;
-  }
-  
-  /**
-   * Aggregate events based on specified grouping and metrics
-   * @param options Aggregation options
-   * @returns Aggregation results
-   */
-  public aggregateEvents(options: EventAggregationOptions): EventAggregationResult {
-    const { groupBy, metrics, filter = {} } = options;
-    
-    // Get filtered events
-    const events = this.applyFilters(Array.from(this.events.values()), filter);
-    
-    // Group events
-    const groups = this.groupEvents(events, groupBy);
-    
-    // Calculate metrics for each group
-    const result: EventAggregationResult = {};
-    
-    for (const [groupKey, groupEvents] of Object.entries(groups)) {
-      result[groupKey] = {};
-      
-      for (const metric of metrics) {
-        const { field, operation, as } = metric;
-        result[groupKey][as] = this.calculateMetric(groupEvents, field, operation);
+    this.events.set(id, storedEvent);
+
+    // Add to transaction if applicable
+    if (transactionId) {
+      const transactionEvents = this.transactions.get(transactionId);
+      if (transactionEvents) {
+        transactionEvents.add(id);
       }
     }
+
+    // Record in history
+    this.recordHistory(id, {
+      timestamp: storedAt,
+      operation: 'create',
+      data: { ...storedEvent },
+      context: { source: 'storeEvent' }
+    });
+
+    return storedEvent;
+  }
+
+  /**
+   * Retrieves an event by its ID
+   * 
+   * @param id - The ID of the event to retrieve
+   * @param options - Additional options for retrieval
+   * @returns The stored event or null if not found
+   */
+  async getEventById<T>(id: string, options?: {
+    includeHistory?: boolean;
+  }): Promise<StoredEvent<T> | null> {
+    const event = this.events.get(id) as StoredEvent<T> | undefined;
     
+    if (!event) {
+      return null;
+    }
+
+    // Clone to prevent modification of stored event
+    const result = { ...event };
+
+    // Include history if requested
+    if (options?.includeHistory) {
+      (result as any).history = this.eventHistory.get(id) || [];
+    }
+
     return result;
   }
-  
+
   /**
-   * Start a new transaction for atomic operations
-   * @returns A new transaction object
+   * Updates an existing event
+   * 
+   * @param id - The ID of the event to update
+   * @param updates - Partial updates to apply to the event
+   * @param options - Additional options for the update
+   * @returns The updated event or null if not found
    */
-  public startTransaction(): EventTransaction {
-    // Create a snapshot of current events for potential rollback
-    const snapshot = new Map(this.events);
+  async updateEvent<T>(id: string, updates: Partial<T>, options?: {
+    transactionId?: string;
+    performedBy?: string;
+  }): Promise<StoredEvent<T> | null> {
+    const existingEvent = this.events.get(id) as StoredEvent<T> | undefined;
     
-    // Create transaction object
-    const transaction: EventTransaction = {
-      commit: () => {
-        this.activeTransactions.delete(transaction);
-      },
-      
-      rollback: () => {
-        // Restore events from snapshot
-        this.events = snapshot;
-        this.activeTransactions.delete(transaction);
-      },
-      
-      storeEvent: <T extends IBaseEvent>(event: T): T => {
-        return this.storeEvent(event);
-      },
-      
-      updateEvent: <T extends IBaseEvent>(eventId: string, event: Partial<T>): T => {
-        return this.updateEvent(eventId, event);
-      },
-      
-      deleteEvent: (eventId: string): boolean => {
-        return this.deleteEvent(eventId);
-      },
+    if (!existingEvent) {
+      return null;
+    }
+
+    // If part of a transaction, verify transaction exists
+    if (options?.transactionId && !this.transactions.has(options.transactionId)) {
+      throw new Error(`Transaction ${options.transactionId} does not exist or has expired`);
+    }
+
+    // Create updated event by merging with existing
+    const updatedEvent: StoredEvent<T> = {
+      ...existingEvent,
+      event: { ...existingEvent.event as any, ...updates as any },
+      transactionId: options?.transactionId || existingEvent.transactionId
     };
-    
-    // Track active transaction
-    this.activeTransactions.add(transaction);
-    
-    return transaction;
-  }
-  
-  /**
-   * Clear all events from the store
-   */
-  public clear(): void {
-    this.events.clear();
-    this.eventHistory.clear();
-  }
-  
-  /**
-   * Get the total number of events in the store
-   * @returns Total event count
-   */
-  public size(): number {
-    return this.events.size;
-  }
-  
-  /**
-   * Check if the store contains an event with the specified ID
-   * @param eventId The event ID to check
-   * @returns True if the event exists, false otherwise
-   */
-  public hasEvent(eventId: string): boolean {
-    return this.events.has(eventId);
-  }
-  
-  /**
-   * Get all events in the store
-   * @returns Array of all events
-   */
-  public getAllEvents<T extends IBaseEvent>(): T[] {
-    return Array.from(this.events.values()) as T[];
-  }
-  
-  /**
-   * Find events by type
-   * @param type Event type to search for
-   * @returns Array of matching events
-   */
-  public findEventsByType<T extends IBaseEvent>(type: string): T[] {
-    return this.findEvents<T>({ type });
-  }
-  
-  /**
-   * Find events by source
-   * @param source Event source to search for
-   * @returns Array of matching events
-   */
-  public findEventsBySource<T extends IBaseEvent>(source: string): T[] {
-    return this.findEvents<T>({ source });
-  }
-  
-  /**
-   * Find events by journey type
-   * @param journeyType Journey type to search for
-   * @returns Array of matching events
-   */
-  public findEventsByJourney<T extends IBaseEvent>(journeyType: JourneyType): T[] {
-    return this.findEvents<T>({ journeyType });
-  }
-  
-  /**
-   * Find events by user ID
-   * @param userId User ID to search for
-   * @returns Array of matching events
-   */
-  public findEventsByUser<T extends IBaseEvent>(userId: string): T[] {
-    return this.findEvents<T>({ userId });
-  }
-  
-  /**
-   * Find events by correlation ID
-   * @param correlationId Correlation ID to search for
-   * @returns Array of matching events
-   */
-  public findEventsByCorrelation<T extends IBaseEvent>(correlationId: string): T[] {
-    return this.findEvents<T>({ correlationId });
-  }
-  
-  /**
-   * Find events within a date range
-   * @param fromDate Start date (inclusive)
-   * @param toDate End date (inclusive)
-   * @returns Array of matching events
-   */
-  public findEventsByDateRange<T extends IBaseEvent>(fromDate: string, toDate: string): T[] {
-    return this.findEvents<T>({ fromDate, toDate });
-  }
-  
-  /**
-   * Find events by version
-   * @param version Version to search for
-   * @returns Array of matching events
-   */
-  public findEventsByVersion<T extends IBaseEvent & IVersionedEvent>(version: string): T[] {
-    return this.findEvents<T>({ version });
-  }
-  
-  /**
-   * Get a timeline of events for a specific user
-   * @param userId User ID to get timeline for
-   * @param limit Optional limit on number of events
-   * @returns Array of events in chronological order
-   */
-  public getUserTimeline<T extends IBaseEvent>(userId: string, limit?: number): T[] {
-    const events = this.findEvents<T>(
-      { userId },
-      { field: 'timestamp', direction: 'desc' },
-      { limit }
-    );
-    return events;
-  }
-  
-  /**
-   * Get a timeline of events for a specific journey
-   * @param journeyType Journey type to get timeline for
-   * @param userId Optional user ID to filter by
-   * @param limit Optional limit on number of events
-   * @returns Array of events in chronological order
-   */
-  public getJourneyTimeline<T extends IBaseEvent>(
-    journeyType: JourneyType,
-    userId?: string,
-    limit?: number
-  ): T[] {
-    const filter: EventFilterOptions = { journeyType };
-    if (userId) {
-      filter.userId = userId;
+
+    // Store the updated event
+    this.events.set(id, updatedEvent);
+
+    // Add to transaction if applicable
+    if (options?.transactionId) {
+      const transactionEvents = this.transactions.get(options.transactionId);
+      if (transactionEvents) {
+        transactionEvents.add(id);
+      }
     }
+
+    // Record in history
+    this.recordHistory(id, {
+      timestamp: new Date(),
+      operation: 'update',
+      data: { ...updatedEvent },
+      performedBy: options?.performedBy,
+      context: { source: 'updateEvent' }
+    });
+
+    return updatedEvent;
+  }
+
+  /**
+   * Deletes an event by its ID
+   * 
+   * @param id - The ID of the event to delete
+   * @param options - Additional options for deletion
+   * @returns True if the event was deleted, false if not found
+   */
+  async deleteEvent(id: string, options?: {
+    transactionId?: string;
+    performedBy?: string;
+    permanent?: boolean;
+  }): Promise<boolean> {
+    const existingEvent = this.events.get(id);
     
-    const events = this.findEvents<T>(
-      filter,
-      { field: 'timestamp', direction: 'desc' },
-      { limit }
-    );
-    return events;
-  }
-  
-  /**
-   * Get events grouped by day
-   * @param filter Optional filter criteria
-   * @returns Events grouped by day with count
-   */
-  public getEventsByDay(filter: EventFilterOptions = {}): EventAggregationResult {
-    return this.aggregateEvents({
-      groupBy: 'day',
-      metrics: [{ field: 'eventId', operation: 'count', as: 'count' }],
-      filter,
-    });
-  }
-  
-  /**
-   * Get events grouped by type with count
-   * @param filter Optional filter criteria
-   * @returns Events grouped by type with count
-   */
-  public getEventCountByType(filter: EventFilterOptions = {}): EventAggregationResult {
-    return this.aggregateEvents({
-      groupBy: 'type',
-      metrics: [{ field: 'eventId', operation: 'count', as: 'count' }],
-      filter,
-    });
-  }
-  
-  /**
-   * Get events grouped by source with count
-   * @param filter Optional filter criteria
-   * @returns Events grouped by source with count
-   */
-  public getEventCountBySource(filter: EventFilterOptions = {}): EventAggregationResult {
-    return this.aggregateEvents({
-      groupBy: 'source',
-      metrics: [{ field: 'eventId', operation: 'count', as: 'count' }],
-      filter,
-    });
-  }
-  
-  /**
-   * Get events grouped by journey with count
-   * @param filter Optional filter criteria
-   * @returns Events grouped by journey with count
-   */
-  public getEventCountByJourney(filter: EventFilterOptions = {}): EventAggregationResult {
-    return this.aggregateEvents({
-      groupBy: 'journeyType',
-      metrics: [{ field: 'eventId', operation: 'count', as: 'count' }],
-      filter,
-    });
-  }
-  
-  /**
-   * Get the distribution of event versions
-   * @returns Events grouped by version with count
-   */
-  public getEventVersionDistribution(): EventAggregationResult {
-    return this.aggregateEvents({
-      groupBy: 'version',
-      metrics: [{ field: 'eventId', operation: 'count', as: 'count' }],
-    });
-  }
-  
-  // Private helper methods
-  
-  /**
-   * Add an event to the event history
-   * @param event The event to add to history
-   */
-  private addToEventHistory(event: IBaseEvent): void {
-    const { eventId } = event;
-    const history = this.eventHistory.get(eventId) || [];
-    
-    // Create a deep copy of the event for history
-    const historicalEvent = JSON.parse(JSON.stringify(event));
-    
-    // Add timestamp for this version if not present
-    if (!historicalEvent.metadata) {
-      historicalEvent.metadata = {};
+    if (!existingEvent) {
+      return false;
     }
-    
-    historicalEvent.metadata.historyTimestamp = new Date().toISOString();
-    
-    // Add to history
-    history.push(historicalEvent);
-    this.eventHistory.set(eventId, history);
+
+    // If part of a transaction, verify transaction exists
+    if (options?.transactionId && !this.transactions.has(options.transactionId)) {
+      throw new Error(`Transaction ${options.transactionId} does not exist or has expired`);
+    }
+
+    // Record in history before deleting
+    this.recordHistory(id, {
+      timestamp: new Date(),
+      operation: 'delete',
+      data: { ...existingEvent },
+      performedBy: options?.performedBy,
+      context: { source: 'deleteEvent', permanent: options?.permanent }
+    });
+
+    // Delete the event
+    this.events.delete(id);
+
+    // Add to transaction if applicable
+    if (options?.transactionId) {
+      const transactionEvents = this.transactions.get(options.transactionId);
+      if (transactionEvents) {
+        transactionEvents.add(id);
+      }
+    }
+
+    // If permanent deletion is requested, remove history too
+    if (options?.permanent) {
+      this.eventHistory.delete(id);
+    }
+
+    return true;
   }
-  
+
   /**
-   * Apply filters to an array of events
-   * @param events Array of events to filter
-   * @param filter Filter criteria
-   * @returns Filtered array of events
+   * Queries events based on filters and options
+   * 
+   * @param filter - Filters to apply to the query
+   * @param options - Query options for sorting, pagination, etc.
+   * @returns Array of events matching the query
    */
-  private applyFilters<T extends IBaseEvent>(events: T[], filter: EventFilterOptions): T[] {
-    return events.filter(event => {
-      // Check each filter criterion
-      for (const [key, value] of Object.entries(filter)) {
-        if (value === undefined) continue;
-        
-        switch (key) {
-          case 'eventId':
-            if (event.eventId !== value) return false;
-            break;
-            
-          case 'type':
-            if (Array.isArray(value)) {
-              if (!value.includes(event.type)) return false;
-            } else if (event.type !== value) {
-              return false;
-            }
-            break;
-            
-          case 'source':
-            if (Array.isArray(value)) {
-              if (!value.includes(event.source)) return false;
-            } else if (event.source !== value) {
-              return false;
-            }
-            break;
-            
-          case 'journeyType':
-            // Check in metadata or payload
-            const journeyType = 
-              (event.metadata?.journey as JourneyType) || 
-              (event.payload as any)?.journeyType;
-            if (journeyType !== value) return false;
-            break;
-            
-          case 'userId':
-            // Check in metadata or payload
-            const userId = 
-              event.metadata?.userId || 
-              (event.payload as any)?.userId;
-            if (userId !== value) return false;
-            break;
-            
-          case 'fromDate':
-            if (new Date(event.timestamp) < new Date(value as string)) return false;
-            break;
-            
-          case 'toDate':
-            if (new Date(event.timestamp) > new Date(value as string)) return false;
-            break;
-            
-          case 'version':
-            if (event.version !== value) return false;
-            break;
-            
-          case 'correlationId':
-            // Check in metadata or payload
-            const correlationId = 
-              event.metadata?.correlationId || 
-              (event.payload as any)?.correlationId;
-            if (correlationId !== value) return false;
-            break;
-            
-          case 'metadata':
-            // Check each metadata field
-            for (const [metaKey, metaValue] of Object.entries(value as Record<string, any>)) {
-              if (event.metadata?.[metaKey] !== metaValue) return false;
-            }
-            break;
-            
-          default:
-            // Check in payload for custom filters
-            if (key.startsWith('payload.')) {
-              const payloadKey = key.substring(8);
-              if ((event.payload as any)?.[payloadKey] !== value) return false;
-            }
-            break;
+  async queryEvents<T>(filter?: EventFilter, options?: EventQueryOptions): Promise<StoredEvent<T>[]> {
+    // Convert Map to Array for filtering
+    let results = Array.from(this.events.values()) as StoredEvent<T>[];
+
+    // Apply filters if provided
+    if (filter) {
+      results = results.filter(event => {
+        // Journey filter
+        if (filter.journey && event.journey !== filter.journey) {
+          return false;
         }
-      }
+
+        // User ID filter
+        if (filter.userId && event.userId !== filter.userId) {
+          return false;
+        }
+
+        // Event type filter
+        if (filter.type) {
+          if (Array.isArray(filter.type)) {
+            if (!filter.type.includes(event.type)) {
+              return false;
+            }
+          } else if (event.type !== filter.type) {
+            return false;
+          }
+        }
+
+        // Date range filter
+        if (filter.fromDate && event.storedAt < filter.fromDate) {
+          return false;
+        }
+        if (filter.toDate && event.storedAt > filter.toDate) {
+          return false;
+        }
+
+        // Correlation ID filter
+        if (filter.correlationId && event.correlationId !== filter.correlationId) {
+          return false;
+        }
+
+        // Transaction ID filter
+        if (filter.transactionId && event.transactionId !== filter.transactionId) {
+          return false;
+        }
+
+        // Version filter
+        if (filter.version && event.version !== filter.version) {
+          return false;
+        }
+
+        // Custom filter function
+        if (filter.custom && !filter.custom(event)) {
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    // Apply sorting if provided
+    if (options?.sortBy) {
+      const sortField = options.sortBy as keyof StoredEvent;
+      const sortDirection = options.sortDirection || 'asc';
       
-      // All filters passed
-      return true;
-    });
-  }
-  
-  /**
-   * Apply sorting to an array of events
-   * @param events Array of events to sort
-   * @param sort Sort options
-   * @returns Sorted array of events
-   */
-  private applySorting<T extends IBaseEvent>(events: T[], sort: EventSortOptions): T[] {
-    const { field, direction } = sort;
-    
-    return [...events].sort((a, b) => {
-      let valueA: any;
-      let valueB: any;
-      
-      // Get values based on field path
-      if (field.includes('.')) {
-        const parts = field.split('.');
-        valueA = parts.reduce((obj, key) => obj?.[key], a as any);
-        valueB = parts.reduce((obj, key) => obj?.[key], b as any);
-      } else {
-        valueA = (a as any)[field];
-        valueB = (b as any)[field];
-      }
-      
-      // Handle undefined values
-      if (valueA === undefined && valueB === undefined) return 0;
-      if (valueA === undefined) return direction === 'asc' ? -1 : 1;
-      if (valueB === undefined) return direction === 'asc' ? 1 : -1;
-      
-      // Compare based on value type
-      if (typeof valueA === 'string' && typeof valueB === 'string') {
-        // Handle date strings
-        if (field === 'timestamp' || valueA.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
-          valueA = new Date(valueA).getTime();
-          valueB = new Date(valueB).getTime();
+      results.sort((a, b) => {
+        // Handle nested properties with dot notation
+        const getNestedValue = (obj: any, path: string) => {
+          return path.split('.').reduce((o, key) => (o && o[key] !== undefined) ? o[key] : null, obj);
+        };
+
+        const aValue = getNestedValue(a, sortField as string);
+        const bValue = getNestedValue(b, sortField as string);
+
+        if (aValue === bValue) return 0;
+        if (aValue === null) return 1;
+        if (bValue === null) return -1;
+
+        // Sort based on direction
+        if (sortDirection === 'asc') {
+          return aValue < bValue ? -1 : 1;
         } else {
-          return direction === 'asc' 
-            ? valueA.localeCompare(valueB)
-            : valueB.localeCompare(valueA);
+          return aValue > bValue ? -1 : 1;
         }
-      }
-      
-      // Numeric comparison
-      return direction === 'asc' ? valueA - valueB : valueB - valueA;
-    });
+      });
+    }
+
+    // Apply pagination if provided
+    if (options?.offset !== undefined || options?.limit !== undefined) {
+      const offset = options.offset || 0;
+      const limit = options.limit || results.length;
+      results = results.slice(offset, offset + limit);
+    }
+
+    // Include history if requested
+    if (options?.includeHistory) {
+      results = results.map(event => {
+        const result = { ...event };
+        (result as any).history = this.eventHistory.get(event.id) || [];
+        return result;
+      });
+    }
+
+    return results;
   }
-  
+
   /**
-   * Group events by specified field(s)
-   * @param events Array of events to group
-   * @param groupBy Field or fields to group by
-   * @returns Object with groups of events
+   * Aggregates events based on specified options
+   * 
+   * @param options - Aggregation options
+   * @returns Aggregation results
    */
-  private groupEvents<T extends IBaseEvent>(events: T[], groupBy: string | string[]): Record<string, T[]> {
-    const groups: Record<string, T[]> = {};
-    const groupFields = Array.isArray(groupBy) ? groupBy : [groupBy];
+  async aggregateEvents(options: EventAggregationOptions): Promise<Record<string, any>> {
+    // First query events based on filter
+    const events = await this.queryEvents(options.filter);
+
+    // Group events by the specified field
+    const groups = new Map<string, StoredEvent[]>();
     
     for (const event of events) {
-      // Generate group key based on groupBy fields
-      const groupValues = groupFields.map(field => {
-        if (field === 'day') {
-          // Special case for grouping by day
-          return event.timestamp.substring(0, 10); // YYYY-MM-DD
-        }
-        
-        if (field.includes('.')) {
-          // Handle nested fields
-          const parts = field.split('.');
-          return parts.reduce((obj, key) => obj?.[key], event as any) || 'undefined';
-        }
-        
-        return (event as any)[field] || 'undefined';
-      });
+      // Handle nested properties with dot notation
+      const getNestedValue = (obj: any, path: string) => {
+        return path.split('.').reduce((o, key) => (o && o[key] !== undefined) ? o[key] : null, obj);
+      };
+
+      const groupValue = String(getNestedValue(event, options.groupBy as string) || 'null');
       
-      const groupKey = groupValues.join('|');
-      
-      // Initialize group if it doesn't exist
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
+      if (!groups.has(groupValue)) {
+        groups.set(groupValue, []);
       }
-      
-      // Add event to group
-      groups[groupKey].push(event);
+      groups.get(groupValue)!.push(event);
     }
+
+    // Apply aggregation function to each group
+    const result: Record<string, any> = {};
     
-    return groups;
+    for (const [groupValue, groupEvents] of groups.entries()) {
+      switch (options.aggregation) {
+        case 'count':
+          result[groupValue] = groupEvents.length;
+          break;
+          
+        case 'sum':
+          if (!options.field) {
+            throw new Error('Field must be specified for sum aggregation');
+          }
+          result[groupValue] = groupEvents.reduce((sum, event) => {
+            const value = options.field!.split('.').reduce(
+              (o, key) => (o && o[key] !== undefined) ? o[key] : 0, 
+              event as any
+            );
+            return sum + (typeof value === 'number' ? value : 0);
+          }, 0);
+          break;
+          
+        case 'avg':
+          if (!options.field) {
+            throw new Error('Field must be specified for avg aggregation');
+          }
+          if (groupEvents.length === 0) {
+            result[groupValue] = 0;
+          } else {
+            const sum = groupEvents.reduce((sum, event) => {
+              const value = options.field!.split('.').reduce(
+                (o, key) => (o && o[key] !== undefined) ? o[key] : 0, 
+                event as any
+              );
+              return sum + (typeof value === 'number' ? value : 0);
+            }, 0);
+            result[groupValue] = sum / groupEvents.length;
+          }
+          break;
+          
+        case 'min':
+          if (!options.field) {
+            throw new Error('Field must be specified for min aggregation');
+          }
+          if (groupEvents.length === 0) {
+            result[groupValue] = null;
+          } else {
+            result[groupValue] = groupEvents.reduce((min, event) => {
+              const value = options.field!.split('.').reduce(
+                (o, key) => (o && o[key] !== undefined) ? o[key] : null, 
+                event as any
+              );
+              if (value === null) return min;
+              if (min === null) return value;
+              return value < min ? value : min;
+            }, null as any);
+          }
+          break;
+          
+        case 'max':
+          if (!options.field) {
+            throw new Error('Field must be specified for max aggregation');
+          }
+          if (groupEvents.length === 0) {
+            result[groupValue] = null;
+          } else {
+            result[groupValue] = groupEvents.reduce((max, event) => {
+              const value = options.field!.split('.').reduce(
+                (o, key) => (o && o[key] !== undefined) ? o[key] : null, 
+                event as any
+              );
+              if (value === null) return max;
+              if (max === null) return value;
+              return value > max ? value : max;
+            }, null as any);
+          }
+          break;
+      }
+    }
+
+    return result;
   }
-  
+
   /**
-   * Calculate a metric for a group of events
-   * @param events Array of events to calculate metric for
-   * @param field Field to calculate metric on
-   * @param operation Metric operation to perform
-   * @returns Calculated metric value
+   * Begins a new transaction
+   * 
+   * @param options - Transaction options
+   * @returns Transaction ID
    */
-  private calculateMetric<T extends IBaseEvent>(events: T[], field: string, operation: string): number {
-    // Handle count operation separately
-    if (operation === 'count') {
-      return events.length;
+  async beginTransaction(options?: TransactionOptions): Promise<string> {
+    const transactionId = options?.id || uuidv4();
+    
+    // Check if transaction already exists
+    if (this.transactions.has(transactionId)) {
+      throw new Error(`Transaction ${transactionId} already exists`);
     }
     
-    // Extract values for the specified field
-    const values = events.map(event => {
-      if (field.includes('.')) {
-        // Handle nested fields
-        const parts = field.split('.');
-        return parts.reduce((obj, key) => obj?.[key], event as any);
+    // Create new transaction
+    this.transactions.set(transactionId, new Set());
+    
+    // Set up transaction timeout if specified
+    if (options?.timeout) {
+      const timeout = setTimeout(() => {
+        this.rollbackTransaction(transactionId)
+          .catch(err => console.error(`Error rolling back transaction ${transactionId}:`, err));
+      }, options.timeout);
+      
+      this.transactionTimeouts.set(transactionId, timeout);
+    }
+    
+    return transactionId;
+  }
+
+  /**
+   * Commits a transaction
+   * 
+   * @param transactionId - ID of the transaction to commit
+   * @returns Result of the transaction
+   */
+  async commitTransaction(transactionId: string): Promise<TransactionResult> {
+    // Check if transaction exists
+    if (!this.transactions.has(transactionId)) {
+      throw new Error(`Transaction ${transactionId} does not exist or has expired`);
+    }
+    
+    // Get events in this transaction
+    const transactionEvents = this.transactions.get(transactionId)!;
+    const affectedEvents = transactionEvents.size;
+    
+    // Clear transaction timeout if exists
+    if (this.transactionTimeouts.has(transactionId)) {
+      clearTimeout(this.transactionTimeouts.get(transactionId)!);
+      this.transactionTimeouts.delete(transactionId);
+    }
+    
+    // Remove transaction
+    this.transactions.delete(transactionId);
+    
+    return {
+      id: transactionId,
+      success: true,
+      affectedEvents,
+      completedAt: new Date()
+    };
+  }
+
+  /**
+   * Rolls back a transaction
+   * 
+   * @param transactionId - ID of the transaction to roll back
+   * @returns Result of the transaction
+   */
+  async rollbackTransaction(transactionId: string): Promise<TransactionResult> {
+    // Check if transaction exists
+    if (!this.transactions.has(transactionId)) {
+      throw new Error(`Transaction ${transactionId} does not exist or has expired`);
+    }
+    
+    // Get events in this transaction
+    const transactionEvents = this.transactions.get(transactionId)!;
+    const affectedEvents = transactionEvents.size;
+    
+    // For each event in the transaction, restore from history or delete
+    for (const eventId of transactionEvents) {
+      const history = this.eventHistory.get(eventId) || [];
+      
+      // Find the last state before this transaction
+      const previousState = [...history]
+        .reverse()
+        .find(entry => entry.context?.source !== 'rollbackTransaction' && 
+                      (!entry.data.transactionId || entry.data.transactionId !== transactionId));
+      
+      if (previousState && previousState.operation !== 'delete') {
+        // Restore previous state
+        this.events.set(eventId, previousState.data);
+        
+        // Record rollback in history
+        this.recordHistory(eventId, {
+          timestamp: new Date(),
+          operation: 'update',
+          data: previousState.data,
+          context: { source: 'rollbackTransaction', transactionId }
+        });
+      } else {
+        // If no previous state or was deleted, delete the event
+        this.events.delete(eventId);
+        
+        // Record rollback deletion in history
+        if (history.length > 0) {
+          this.recordHistory(eventId, {
+            timestamp: new Date(),
+            operation: 'delete',
+            data: history[0].data,
+            context: { source: 'rollbackTransaction', transactionId }
+          });
+        }
       }
-      return (event as any)[field];
-    }).filter(value => typeof value === 'number');
+    }
     
-    // Calculate metric based on operation
-    switch (operation) {
-      case 'sum':
-        return values.reduce((sum, value) => sum + value, 0);
-        
-      case 'avg':
-        return values.length > 0 
-          ? values.reduce((sum, value) => sum + value, 0) / values.length 
-          : 0;
-        
-      case 'min':
-        return values.length > 0 
-          ? Math.min(...values) 
-          : 0;
-        
-      case 'max':
-        return values.length > 0 
-          ? Math.max(...values) 
-          : 0;
-        
-      default:
-        return 0;
+    // Clear transaction timeout if exists
+    if (this.transactionTimeouts.has(transactionId)) {
+      clearTimeout(this.transactionTimeouts.get(transactionId)!);
+      this.transactionTimeouts.delete(transactionId);
     }
+    
+    // Remove transaction
+    this.transactions.delete(transactionId);
+    
+    return {
+      id: transactionId,
+      success: true,
+      affectedEvents,
+      completedAt: new Date()
+    };
   }
-}
 
-/**
- * Factory function to create a pre-populated mock event store for testing
- * @param events Initial events to populate the store with
- * @returns A new MockEventStore instance with the provided events
- */
-export function createMockEventStore(events: IBaseEvent[] = []): MockEventStore {
-  const store = new MockEventStore();
-  
-  // Add each event to the store
-  for (const event of events) {
-    store.storeEvent(event);
+  /**
+   * Gets the event history for a specific event
+   * 
+   * @param eventId - ID of the event
+   * @returns Array of history entries
+   */
+  async getEventHistory<T>(eventId: string): Promise<EventHistoryEntry<T>[]> {
+    return (this.eventHistory.get(eventId) || []) as EventHistoryEntry<T>[];
   }
-  
-  return store;
-}
 
-/**
- * Create a mock event with required fields
- * @param type Event type
- * @param source Event source
- * @param payload Event payload
- * @param overrides Optional overrides for other fields
- * @returns A mock event object
- */
-export function createMockEvent<T = any>(
-  type: string,
-  source: string,
-  payload: T,
-  overrides: Partial<IBaseEvent<T>> = {}
-): IBaseEvent<T> {
-  return {
-    eventId: uuidv4(),
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    type,
-    source,
-    payload,
-    ...overrides,
-  };
-}
-
-/**
- * Create a mock journey event with required fields
- * @param type Event type
- * @param source Event source
- * @param journeyType Journey type
- * @param userId User ID
- * @param payload Event payload
- * @param overrides Optional overrides for other fields
- * @returns A mock journey event object
- */
-export function createMockJourneyEvent<T = any>(
-  type: string,
-  source: string,
-  journeyType: JourneyType,
-  userId: string,
-  payload: T,
-  overrides: Partial<IBaseEvent<T>> = {}
-): IBaseEvent<T> {
-  return createMockEvent(
-    type,
-    source,
-    payload,
-    {
-      metadata: {
-        journey: journeyType,
-        userId,
-        correlationId: uuidv4(),
-        ...(overrides.metadata || {}),
-      },
-      ...overrides,
+  /**
+   * Clears all events from the store
+   * 
+   * @param options - Options for clearing events
+   * @returns Number of events cleared
+   */
+  async clearEvents(options?: {
+    journey?: string;
+    preserveHistory?: boolean;
+  }): Promise<number> {
+    let count = 0;
+    
+    // If journey is specified, only clear events for that journey
+    if (options?.journey) {
+      for (const [id, event] of this.events.entries()) {
+        if (event.journey === options.journey) {
+          this.events.delete(id);
+          count++;
+          
+          if (!options.preserveHistory) {
+            this.eventHistory.delete(id);
+          }
+        }
+      }
+    } else {
+      // Clear all events
+      count = this.events.size;
+      this.events.clear();
+      
+      if (!options?.preserveHistory) {
+        this.eventHistory.clear();
+      }
     }
-  );
+    
+    return count;
+  }
+
+  /**
+   * Gets the total count of events in the store
+   * 
+   * @param filter - Optional filter to count specific events
+   * @returns Number of events
+   */
+  async getEventCount(filter?: EventFilter): Promise<number> {
+    if (!filter) {
+      return this.events.size;
+    }
+    
+    // Use queryEvents with the filter and return the length
+    const events = await this.queryEvents(filter);
+    return events.length;
+  }
+
+  /**
+   * Records an entry in the event history
+   * 
+   * @param eventId - ID of the event
+   * @param entry - History entry to record
+   */
+  private recordHistory(eventId: string, entry: EventHistoryEntry): void {
+    if (!this.eventHistory.has(eventId)) {
+      this.eventHistory.set(eventId, []);
+    }
+    
+    this.eventHistory.get(eventId)!.push(entry);
+  }
 }
