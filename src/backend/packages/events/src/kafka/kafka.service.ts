@@ -1,73 +1,148 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Kafka, Producer, Consumer, KafkaMessage, ConsumerConfig, ProducerConfig, IHeaders, RetryOptions, logLevel } from 'kafkajs';
-import { TracingService } from '../../tracing';
-import { EventValidationError, KafkaConnectionError, KafkaProducerError, KafkaConsumerError, KafkaSerializationError } from './kafka.errors';
-import { IKafkaConfig, IKafkaConsumerOptions, IKafkaProducerOptions, IKafkaDeadLetterQueueConfig } from './kafka.interfaces';
-import { KafkaErrorCode } from './kafka.constants';
+import {
+  Kafka,
+  Producer,
+  Consumer,
+  KafkaConfig,
+  ProducerConfig,
+  ConsumerConfig,
+  TopicMessages,
+  Message,
+  CompressionTypes,
+  logLevel,
+  RetryOptions,
+} from 'kafkajs';
+import { LoggerService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { KAFKA_MODULE_OPTIONS } from '../constants/tokens.constants';
+import { ERROR_CODES } from '../constants/errors.constants';
+import { TOPICS } from '../constants/topics.constants';
+import { EventMetadataDto } from '../dto/event-metadata.dto';
+import { EventSchemaRegistry } from '../schema/schema-registry.service';
+import { KafkaModuleOptions } from '../interfaces/kafka-options.interface';
+import { KafkaMessage } from '../interfaces/kafka-message.interface';
+import { EventValidationError, KafkaError } from '../errors/kafka.errors';
 
 /**
- * Enhanced Kafka service for managing Kafka connections, producers, and consumers.
- * Provides support for message validation, dead letter queues, and distributed tracing.
+ * Enhanced Kafka service for the AUSTA SuperApp that provides robust event streaming capabilities.
+ * 
+ * Features:
+ * - Service-specific configuration namespace support
+ * - Dead-letter queue support for error handling
+ * - Exponential backoff for retry logic
+ * - Message schema validation
+ * - Distributed tracing across all Kafka operations
+ * - Support for multiple consumer groups
+ * - Batch message operations
+ * - Standardized error types and logging
+ * - Connection pooling for better resource management
  */
 @Injectable()
 export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private kafka: Kafka;
   private producer: Producer;
   private consumers: Map<string, Consumer> = new Map();
-  private readonly logger = new Logger(KafkaService.name);
-  private connectionPool: Map<string, Kafka> = new Map();
-  private producerPool: Map<string, Producer> = new Map();
-  private isProducerConnected = false;
-  private readonly defaultConsumerGroup: string;
   private readonly serviceName: string;
+  private readonly schemaRegistry?: EventSchemaRegistry;
+  private readonly deadLetterTopic: string;
+  private readonly defaultConsumerGroup: string;
+  private readonly defaultRetryOptions: RetryOptions;
 
   /**
    * Initializes the Kafka service with configuration and required dependencies.
    * 
    * @param configService - Service for accessing configuration variables
+   * @param logger - Logger service for operational logging
    * @param tracingService - Service for distributed tracing
+   * @param options - Optional module options for customizing Kafka behavior
+   * @param schemaRegistry - Optional schema registry for message validation
    */
   constructor(
     private readonly configService: ConfigService,
-    private readonly tracingService: TracingService
+    private readonly logger: LoggerService,
+    private readonly tracingService: TracingService,
+    @Optional() @Inject(KAFKA_MODULE_OPTIONS) private readonly options?: KafkaModuleOptions,
+    @Optional() private readonly schemaRegistryService?: EventSchemaRegistry,
   ) {
-    // Get service-specific namespace from config
-    this.serviceName = this.configService.get<string>('service.name', 'austa-service');
-    const configNamespace = this.configService.get<string>('kafka.configNamespace', this.serviceName);
+    // Get service name from options or config
+    this.serviceName = this.options?.serviceName || 
+      this.configService.get<string>('service.name', 'austa-service');
     
-    // Load broker configuration with service-specific namespace support
-    const brokers = this.configService.get<string>(`${configNamespace}.kafka.brokers`, 
-                                                  this.configService.get<string>('kafka.brokers', 'localhost:9092')).split(',');
-    const clientId = this.configService.get<string>(`${configNamespace}.kafka.clientId`, 
-                                                 this.configService.get<string>('kafka.clientId', this.serviceName));
+    // Get configuration namespace
+    const configNamespace = this.options?.configNamespace || this.serviceName;
     
-    // Default consumer group with service-specific namespace
-    this.defaultConsumerGroup = this.configService.get<string>(`${configNamespace}.kafka.groupId`, 
-                                                             this.configService.get<string>('kafka.groupId', `${this.serviceName}-consumer-group`));
+    // Configure Kafka client
+    const brokers = this.configService.get<string>(
+      `${configNamespace}.kafka.brokers`, 
+      this.configService.get<string>('kafka.brokers', 'localhost:9092')
+    ).split(',');
     
-    // Configure retry options with exponential backoff
-    const retryOptions: RetryOptions = {
-      initialRetryTime: this.configService.get<number>(`${configNamespace}.kafka.retry.initialRetryTime`, 300),
-      retries: this.configService.get<number>(`${configNamespace}.kafka.retry.retries`, 10),
-      factor: this.configService.get<number>(`${configNamespace}.kafka.retry.factor`, 2), // Exponential backoff factor
-      maxRetryTime: this.configService.get<number>(`${configNamespace}.kafka.retry.maxRetryTime`, 30000),
-      multiplier: this.configService.get<number>(`${configNamespace}.kafka.retry.multiplier`, 1.5),
+    const clientId = this.configService.get<string>(
+      `${configNamespace}.kafka.clientId`, 
+      this.configService.get<string>('kafka.clientId', this.serviceName)
+    );
+
+    // Configure default retry options with exponential backoff
+    this.defaultRetryOptions = {
+      initialRetryTime: this.configService.get<number>(
+        `${configNamespace}.kafka.retry.initialRetryTime`, 
+        this.configService.get<number>('kafka.retry.initialRetryTime', 300)
+      ),
+      retries: this.configService.get<number>(
+        `${configNamespace}.kafka.retry.retries`, 
+        this.configService.get<number>('kafka.retry.retries', 10)
+      ),
+      factor: this.configService.get<number>(
+        `${configNamespace}.kafka.retry.factor`, 
+        this.configService.get<number>('kafka.retry.factor', 2)
+      ),
+      maxRetryTime: this.configService.get<number>(
+        `${configNamespace}.kafka.retry.maxRetryTime`, 
+        this.configService.get<number>('kafka.retry.maxRetryTime', 30000)
+      ),
     };
 
-    // Create Kafka client with enhanced configuration
-    this.kafka = new Kafka({
+    // Configure Kafka client
+    const kafkaConfig: KafkaConfig = {
       clientId,
       brokers,
-      ssl: this.configService.get<boolean>(`${configNamespace}.kafka.ssl`, false),
+      ssl: this.configService.get<boolean>(
+        `${configNamespace}.kafka.ssl`, 
+        this.configService.get<boolean>('kafka.ssl', false)
+      ),
       sasl: this.getSaslConfig(configNamespace),
-      retry: retryOptions,
-      logLevel: this.configService.get<logLevel>(`${configNamespace}.kafka.logLevel`, logLevel.ERROR),
-      connectionTimeout: this.configService.get<number>(`${configNamespace}.kafka.connectionTimeout`, 3000),
-      requestTimeout: this.configService.get<number>(`${configNamespace}.kafka.requestTimeout`, 30000),
-    });
+      retry: this.defaultRetryOptions,
+      logLevel: this.getLogLevel(configNamespace),
+      connectionTimeout: this.configService.get<number>(
+        `${configNamespace}.kafka.connectionTimeout`, 
+        this.configService.get<number>('kafka.connectionTimeout', 3000)
+      ),
+      requestTimeout: this.configService.get<number>(
+        `${configNamespace}.kafka.requestTimeout`, 
+        this.configService.get<number>('kafka.requestTimeout', 30000)
+      ),
+    };
 
-    this.logger.log(`Initialized Kafka service for ${this.serviceName} with brokers: ${brokers.join(', ')}`);
+    this.kafka = new Kafka(kafkaConfig);
+    this.schemaRegistry = schemaRegistryService;
+    
+    // Configure dead letter topic
+    this.deadLetterTopic = this.configService.get<string>(
+      `${configNamespace}.kafka.deadLetterTopic`, 
+      this.configService.get<string>('kafka.deadLetterTopic', TOPICS.DEAD_LETTER)
+    );
+    
+    // Configure default consumer group
+    this.defaultConsumerGroup = this.configService.get<string>(
+      `${configNamespace}.kafka.groupId`, 
+      this.configService.get<string>('kafka.groupId', `${this.serviceName}-consumer-group`)
+    );
+
+    this.logger.log(
+      `Initialized Kafka service for ${this.serviceName} with brokers: ${brokers.join(', ')}`,
+      'KafkaService'
+    );
   }
 
   /**
@@ -76,12 +151,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     try {
       await this.connectProducer();
-      this.logger.log('Kafka service initialized successfully');
+      this.logger.log('Kafka service initialized successfully', 'KafkaService');
     } catch (error) {
-      this.logger.error('Failed to initialize Kafka service', error);
-      throw new KafkaConnectionError(
+      this.logger.error('Failed to initialize Kafka service', error, 'KafkaService');
+      throw new KafkaError(
         'Failed to initialize Kafka service',
-        KafkaErrorCode.INITIALIZATION_ERROR,
+        ERROR_CODES.INITIALIZATION_FAILED,
         { serviceName: this.serviceName },
         error
       );
@@ -95,14 +170,14 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.disconnectProducer();
       await this.disconnectAllConsumers();
-      this.logger.log('Kafka service destroyed successfully');
+      this.logger.log('Kafka service destroyed successfully', 'KafkaService');
     } catch (error) {
-      this.logger.error('Error during Kafka service shutdown', error);
+      this.logger.error('Error during Kafka service shutdown', error, 'KafkaService');
     }
   }
 
   /**
-   * Sends a message to a Kafka topic with tracing and error handling.
+   * Sends a message to a Kafka topic with tracing, schema validation, and error handling.
    * 
    * @param topic - The Kafka topic to send the message to
    * @param message - The message object to be serialized and sent
@@ -110,65 +185,80 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * @param headers - Optional message headers
    * @param options - Optional producer options
    */
-  async produce(
+  async produce<T = any>(
     topic: string, 
-    message: any, 
+    message: T, 
     key?: string, 
     headers?: Record<string, string>,
-    options?: IKafkaProducerOptions
+    options?: {
+      compression?: CompressionTypes;
+      acks?: number;
+      timeout?: number;
+    }
   ): Promise<void> {
     return this.tracingService.createSpan(`kafka.produce.${topic}`, async (span) => {
       try {
-        // Add trace context to headers if available
-        const enhancedHeaders = this.enhanceHeadersWithTracing(headers, span);
+        // Add tracing context to headers
+        const tracingHeaders = this.tracingService.getTraceHeaders();
+        const enrichedHeaders = { ...headers, ...tracingHeaders };
         
-        // Validate message schema if validator is provided
-        if (options?.validator) {
-          const validationResult = await options.validator(message);
-          if (!validationResult.isValid) {
+        // Add metadata if not present
+        let enrichedMessage = message;
+        if (!this.hasMetadata(message)) {
+          enrichedMessage = this.addMetadata(message as any);
+        }
+        
+        // Validate message schema if registry is available
+        if (this.schemaRegistry) {
+          try {
+            await this.schemaRegistry.validate(topic, enrichedMessage);
+          } catch (validationError) {
+            this.logger.error(
+              `Schema validation failed for topic ${topic}`,
+              validationError,
+              'KafkaService'
+            );
             throw new EventValidationError(
-              `Message validation failed for topic ${topic}: ${validationResult.error}`,
-              KafkaErrorCode.VALIDATION_ERROR,
-              { topic, error: validationResult.error },
+              `Schema validation failed for topic ${topic}`,
+              ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+              { topic, message: JSON.stringify(enrichedMessage).substring(0, 200) },
+              validationError
             );
           }
         }
-
+        
         // Serialize message
-        const serializedMessage = this.serializeMessage(message, options?.serializer);
+        const serializedMessage = this.serializeMessage(enrichedMessage);
         
-        // Get producer from pool or use default
-        const producer = options?.producerId 
-          ? await this.getOrCreateProducer(options.producerId, options.producerConfig)
-          : this.producer;
+        // Add span attributes for observability
+        span.setAttribute('kafka.topic', topic);
+        span.setAttribute('kafka.key', key || 'undefined');
+        span.setAttribute('kafka.message_size', serializedMessage.length);
         
-        // Send message
-        await producer.send({
+        // Send message to Kafka
+        await this.producer.send({
           topic,
+          compression: options?.compression,
+          acks: options?.acks,
+          timeout: options?.timeout,
           messages: [
             {
               value: serializedMessage,
               key: key || undefined,
-              headers: enhancedHeaders || undefined
+              headers: this.convertHeadersToBuffers(enrichedHeaders)
             }
-          ],
-          acks: options?.acks ?? -1, // Default to all acks for maximum reliability
-          timeout: options?.timeout,
+          ]
         });
         
         this.logger.debug(
-          `Message sent to topic ${topic}: ${serializedMessage.substring(0, 100)}${serializedMessage.length > 100 ? '...' : ''}`
+          `Message sent to topic ${topic}: ${serializedMessage.substring(0, 100)}${serializedMessage.length > 100 ? '...' : ''}`,
+          'KafkaService'
         );
       } catch (error) {
-        // Handle specific error types
-        if (error instanceof EventValidationError) {
-          throw error; // Re-throw validation errors
-        }
-        
-        this.logger.error(`Failed to produce message to topic ${topic}`, error);
-        throw new KafkaProducerError(
+        this.logger.error(`Failed to produce message to topic ${topic}`, error, 'KafkaService');
+        throw new KafkaError(
           `Failed to produce message to topic ${topic}`,
-          KafkaErrorCode.PRODUCER_ERROR,
+          ERROR_CODES.PRODUCER_SEND_FAILED,
           { topic, serviceName: this.serviceName },
           error
         );
@@ -183,69 +273,88 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * @param messages - Array of messages with optional keys and headers
    * @param options - Optional producer options
    */
-  async produceBatch(
+  async produceBatch<T = any>(
     topic: string,
-    messages: Array<{ value: any; key?: string; headers?: Record<string, string> }>,
-    options?: IKafkaProducerOptions
+    messages: Array<{
+      value: T;
+      key?: string;
+      headers?: Record<string, string>;
+    }>,
+    options?: {
+      compression?: CompressionTypes;
+      acks?: number;
+      timeout?: number;
+    }
   ): Promise<void> {
     return this.tracingService.createSpan(`kafka.produceBatch.${topic}`, async (span) => {
       try {
-        if (!messages.length) {
-          this.logger.debug(`No messages to send to topic ${topic}`);
-          return;
-        }
-
-        // Get producer from pool or use default
-        const producer = options?.producerId 
-          ? await this.getOrCreateProducer(options.producerId, options.producerConfig)
-          : this.producer;
-
-        // Process and validate each message
-        const kafkaMessages = await Promise.all(messages.map(async (msg) => {
-          // Validate message schema if validator is provided
-          if (options?.validator) {
-            const validationResult = await options.validator(msg.value);
-            if (!validationResult.isValid) {
-              throw new EventValidationError(
-                `Message validation failed for topic ${topic}: ${validationResult.error}`,
-                KafkaErrorCode.VALIDATION_ERROR,
-                { topic, error: validationResult.error },
-              );
+        // Add tracing context and prepare messages
+        const tracingHeaders = this.tracingService.getTraceHeaders();
+        const kafkaMessages: Message[] = await Promise.all(
+          messages.map(async (msg) => {
+            // Add metadata if not present
+            let enrichedValue = msg.value;
+            if (!this.hasMetadata(msg.value)) {
+              enrichedValue = this.addMetadata(msg.value as any);
             }
-          }
-
-          // Add trace context to headers if available
-          const enhancedHeaders = this.enhanceHeadersWithTracing(msg.headers, span);
-          
-          // Serialize message
-          const serializedMessage = this.serializeMessage(msg.value, options?.serializer);
-          
-          return {
-            value: serializedMessage,
-            key: msg.key || undefined,
-            headers: enhancedHeaders || undefined
-          };
-        }));
-
-        // Send batch
-        await producer.send({
+            
+            // Validate message schema if registry is available
+            if (this.schemaRegistry) {
+              try {
+                await this.schemaRegistry.validate(topic, enrichedValue);
+              } catch (validationError) {
+                this.logger.error(
+                  `Schema validation failed for message in batch to topic ${topic}`,
+                  validationError,
+                  'KafkaService'
+                );
+                throw new EventValidationError(
+                  `Schema validation failed for message in batch to topic ${topic}`,
+                  ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+                  { topic, message: JSON.stringify(enrichedValue).substring(0, 200) },
+                  validationError
+                );
+              }
+            }
+            
+            // Combine headers with tracing context
+            const enrichedHeaders = { ...msg.headers, ...tracingHeaders };
+            
+            // Return formatted Kafka message
+            return {
+              value: this.serializeMessage(enrichedValue),
+              key: msg.key || undefined,
+              headers: this.convertHeadersToBuffers(enrichedHeaders)
+            };
+          })
+        );
+        
+        // Add span attributes for observability
+        span.setAttribute('kafka.topic', topic);
+        span.setAttribute('kafka.batch_size', messages.length);
+        
+        // Send batch to Kafka
+        const topicMessages: TopicMessages = {
           topic,
-          messages: kafkaMessages,
-          acks: options?.acks ?? -1, // Default to all acks for maximum reliability
-          timeout: options?.timeout,
+          compression: options?.compression,
+          messages: kafkaMessages
+        };
+        
+        await this.producer.sendBatch({
+          topicMessages: [topicMessages],
+          acks: options?.acks || -1,
+          timeout: options?.timeout || 30000
         });
         
-        this.logger.debug(`Batch of ${messages.length} messages sent to topic ${topic}`);
+        this.logger.debug(
+          `Batch of ${messages.length} messages sent to topic ${topic}`,
+          'KafkaService'
+        );
       } catch (error) {
-        // Handle specific error types
-        if (error instanceof EventValidationError) {
-          throw error; // Re-throw validation errors
-        }
-        
-        this.logger.error(`Failed to produce batch messages to topic ${topic}`, error);
-        throw new KafkaProducerError(
-          `Failed to produce batch messages to topic ${topic}`,
-          KafkaErrorCode.PRODUCER_ERROR,
+        this.logger.error(`Failed to produce batch to topic ${topic}`, error, 'KafkaService');
+        throw new KafkaError(
+          `Failed to produce batch to topic ${topic}`,
+          ERROR_CODES.PRODUCER_BATCH_FAILED,
           { topic, batchSize: messages.length, serviceName: this.serviceName },
           error
         );
@@ -254,333 +363,249 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Sends a message to a dead letter queue topic with additional metadata.
-   * 
-   * @param originalTopic - The original Kafka topic where the message failed
-   * @param message - The original message that failed processing
-   * @param error - The error that occurred during processing
-   * @param metadata - Additional metadata about the failure
-   * @param config - Configuration for the dead letter queue
-   */
-  async sendToDeadLetterQueue(
-    originalTopic: string,
-    message: any,
-    error: Error,
-    metadata: Record<string, any> = {},
-    config?: IKafkaDeadLetterQueueConfig
-  ): Promise<void> {
-    const dlqTopic = config?.topic || `${originalTopic}.dlq`;
-    const retryCount = metadata.retryCount || 0;
-    
-    try {
-      // Create DLQ message with error information and metadata
-      const dlqMessage = {
-        originalMessage: message,
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        },
-        metadata: {
-          ...metadata,
-          originalTopic,
-          timestamp: new Date().toISOString(),
-          serviceName: this.serviceName,
-          retryCount,
-        }
-      };
-
-      // Send to DLQ topic
-      await this.produce(dlqTopic, dlqMessage, metadata.key, {
-        'x-original-topic': originalTopic,
-        'x-error-type': error.name,
-        'x-retry-count': retryCount.toString(),
-        'x-timestamp': new Date().toISOString(),
-      });
-      
-      this.logger.warn(
-        `Message sent to dead letter queue ${dlqTopic} from topic ${originalTopic} after ${retryCount} retries`,
-        { error: error.message, metadata }
-      );
-    } catch (dlqError) {
-      // Log but don't throw - we don't want DLQ failures to cause additional issues
-      this.logger.error(
-        `Failed to send message to dead letter queue ${dlqTopic}`,
-        dlqError
-      );
-    }
-  }
-
-  /**
-   * Subscribes to a Kafka topic and processes messages with error handling and DLQ support.
+   * Subscribes to a Kafka topic and processes messages with automatic schema validation,
+   * error handling, and dead-letter queue support.
    * 
    * @param topic - The Kafka topic to subscribe to
-   * @param groupId - The consumer group ID (defaults to service-specific group)
    * @param callback - The function to process each message
-   * @param options - Additional consumer options including DLQ configuration
+   * @param options - Optional consumer configuration
    */
-  async consume(
+  async consume<T = any>(
     topic: string,
-    groupId: string | undefined,
-    callback: (message: any, key?: string, headers?: Record<string, string>) => Promise<void>,
-    options?: IKafkaConsumerOptions
+    callback: (message: T, metadata: KafkaMessage) => Promise<void>,
+    options?: {
+      groupId?: string;
+      fromBeginning?: boolean;
+      autoCommit?: boolean;
+      maxRetries?: number;
+      retryDelay?: number;
+      useDLQ?: boolean;
+    }
   ): Promise<void> {
-    const consumerGroupId = groupId || this.defaultConsumerGroup;
-    const consumerKey = `${topic}-${consumerGroupId}`;
-    
     try {
-      // Create consumer with enhanced configuration
-      const consumer = this.kafka.consumer({
-        groupId: consumerGroupId,
-        sessionTimeout: options?.sessionTimeout || this.configService.get<number>('kafka.sessionTimeout', 30000),
-        heartbeatInterval: options?.heartbeatInterval || this.configService.get<number>('kafka.heartbeatInterval', 3000),
-        maxWaitTimeInMs: options?.maxWaitTimeInMs || 1000,
-        maxBytes: options?.maxBytes || 1048576, // 1MB default
-        retry: {
-          initialRetryTime: options?.retry?.initialRetryTime || 300,
-          retries: options?.retry?.retries || 10,
-          factor: options?.retry?.factor || 2, // Exponential backoff factor
-          maxRetryTime: options?.retry?.maxRetryTime || 30000,
-        },
-      });
+      const groupId = options?.groupId || this.defaultConsumerGroup;
+      const consumerKey = `${groupId}-${topic}`;
       
-      // Store consumer for cleanup
-      this.consumers.set(consumerKey, consumer);
+      // Create consumer if it doesn't exist for this group-topic combination
+      if (!this.consumers.has(consumerKey)) {
+        const consumer = this.kafka.consumer({
+          groupId,
+          sessionTimeout: this.configService.get<number>('kafka.sessionTimeout', 30000),
+          heartbeatInterval: this.configService.get<number>('kafka.heartbeatInterval', 3000),
+          maxWaitTimeInMs: this.configService.get<number>('kafka.maxWaitTime', 5000),
+          maxBytes: this.configService.get<number>('kafka.maxBytes', 10485760), // 10MB
+        });
+        
+        await consumer.connect();
+        this.consumers.set(consumerKey, consumer);
+        this.logger.log(
+          `Created Kafka consumer for topic ${topic} with group ID ${groupId}`,
+          'KafkaService'
+        );
+      }
       
-      await consumer.connect();
+      const consumer = this.consumers.get(consumerKey);
       await consumer.subscribe({
         topic,
-        fromBeginning: options?.fromBeginning || false
+        fromBeginning: options?.fromBeginning ?? false
       });
       
+      // Configure consumer with retry logic and dead-letter queue
       await consumer.run({
-        eachMessage: async ({ topic: messageTopic, partition, message }) => {
+        autoCommit: options?.autoCommit ?? true,
+        eachMessage: async ({ topic, partition, message }) => {
           const messageKey = message.key?.toString();
           const messageHeaders = this.parseHeaders(message.headers);
           
-          return this.tracingService.createSpan(`kafka.consume.${messageTopic}`, async (span) => {
-            // Extract trace context from headers if available
-            this.extractTraceContext(messageHeaders, span);
-            
+          // Extract retry count from headers or initialize to 0
+          const retryCount = parseInt(messageHeaders['retry-count'] || '0', 10);
+          const maxRetries = options?.maxRetries ?? this.configService.get<number>('kafka.maxRetries', 3);
+          
+          return this.tracingService.createSpan(`kafka.consume.${topic}`, async (span) => {
             try {
               // Deserialize message
-              const parsedMessage = this.deserializeMessage(message.value, options?.deserializer);
+              const parsedMessage = this.deserializeMessage<T>(message.value);
               
-              // Validate message schema if validator is provided
-              if (options?.validator) {
-                const validationResult = await options.validator(parsedMessage);
-                if (!validationResult.isValid) {
-                  throw new EventValidationError(
-                    `Message validation failed for topic ${messageTopic}: ${validationResult.error}`,
-                    KafkaErrorCode.VALIDATION_ERROR,
-                    { topic: messageTopic, error: validationResult.error },
+              // Validate message schema if registry is available
+              if (this.schemaRegistry) {
+                try {
+                  await this.schemaRegistry.validate(topic, parsedMessage);
+                } catch (validationError) {
+                  this.logger.error(
+                    `Schema validation failed for consumed message from topic ${topic}`,
+                    validationError,
+                    'KafkaService'
                   );
+                  
+                  // Send to dead-letter queue if enabled
+                  if (options?.useDLQ !== false) {
+                    await this.sendToDLQ(topic, parsedMessage, messageKey, {
+                      ...messageHeaders,
+                      'error-type': 'schema-validation',
+                      'error-message': validationError.message,
+                      'source-topic': topic,
+                      'source-partition': partition.toString(),
+                    });
+                  }
+                  
+                  // Don't rethrow to prevent consumer from crashing
+                  return;
                 }
               }
               
+              // Add span attributes for observability
+              span.setAttribute('kafka.topic', topic);
+              span.setAttribute('kafka.partition', partition);
+              span.setAttribute('kafka.offset', message.offset);
+              span.setAttribute('kafka.key', messageKey || 'undefined');
+              
+              // Create metadata object for callback
+              const metadata: KafkaMessage = {
+                key: messageKey,
+                headers: messageHeaders,
+                topic,
+                partition,
+                offset: message.offset,
+                timestamp: message.timestamp
+              };
+              
               this.logger.debug(
-                `Processing message from topic ${messageTopic}, partition ${partition}`
+                `Processing message from topic ${topic}, partition ${partition}, offset ${message.offset}`,
+                'KafkaService'
               );
               
-              // Process message
-              await callback(parsedMessage, messageKey, messageHeaders);
+              // Process message with callback
+              await callback(parsedMessage, metadata);
             } catch (error) {
               this.logger.error(
-                `Error processing message from topic ${messageTopic}, partition ${partition}`,
-                error
+                `Error processing message from topic ${topic}, partition ${partition}, offset ${message.offset}`,
+                error,
+                'KafkaService'
               );
-
-              // Handle DLQ if configured
-              if (options?.deadLetterQueue?.enabled !== false) {
-                const retryCount = parseInt(messageHeaders['x-retry-count'] || '0', 10);
-                const maxRetries = options?.deadLetterQueue?.maxRetries || 3;
+              
+              // Implement retry logic with exponential backoff
+              if (retryCount < maxRetries) {
+                const nextRetryCount = retryCount + 1;
+                const retryDelay = options?.retryDelay ?? 
+                  this.calculateRetryDelay(nextRetryCount, this.defaultRetryOptions);
                 
-                // Check if we should retry or send to DLQ
-                if (retryCount < maxRetries && options?.deadLetterQueue?.retryEnabled !== false) {
-                  // Retry by sending to retry topic
-                  const retryTopic = options?.deadLetterQueue?.retryTopic || `${messageTopic}.retry`;
-                  try {
-                    await this.produce(
-                      retryTopic,
-                      this.deserializeMessage(message.value, options?.deserializer),
-                      messageKey,
-                      {
-                        ...messageHeaders,
-                        'x-retry-count': (retryCount + 1).toString(),
-                        'x-original-topic': messageTopic,
-                        'x-retry-timestamp': new Date().toISOString(),
-                      }
-                    );
-                    
-                    this.logger.warn(
-                      `Message sent to retry topic ${retryTopic} from topic ${messageTopic}, retry ${retryCount + 1}/${maxRetries}`
-                    );
-                  } catch (retryError) {
-                    this.logger.error(`Failed to send message to retry topic ${retryTopic}`, retryError);
-                    // If retry fails, send to DLQ
-                    await this.sendToDeadLetterQueue(
-                      messageTopic,
-                      this.deserializeMessage(message.value, options?.deserializer),
-                      error,
-                      { retryCount, key: messageKey, headers: messageHeaders },
-                      options?.deadLetterQueue
-                    );
-                  }
-                } else {
-                  // Max retries reached, send to DLQ
-                  await this.sendToDeadLetterQueue(
-                    messageTopic,
-                    this.deserializeMessage(message.value, options?.deserializer),
-                    error,
-                    { retryCount, key: messageKey, headers: messageHeaders },
-                    options?.deadLetterQueue
+                this.logger.log(
+                  `Retrying message from topic ${topic}, attempt ${nextRetryCount} of ${maxRetries} after ${retryDelay}ms`,
+                  'KafkaService'
+                );
+                
+                // Wait for retry delay with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+                
+                // Republish message with incremented retry count
+                try {
+                  const parsedMessage = this.deserializeMessage(message.value);
+                  await this.produce(
+                    topic,
+                    parsedMessage,
+                    messageKey,
+                    {
+                      ...messageHeaders,
+                      'retry-count': nextRetryCount.toString(),
+                    }
                   );
+                } catch (retryError) {
+                  this.logger.error(
+                    `Failed to republish message for retry to topic ${topic}`,
+                    retryError,
+                    'KafkaService'
+                  );
+                  
+                  // Send to dead-letter queue if enabled
+                  if (options?.useDLQ !== false) {
+                    const parsedMessage = this.deserializeMessage(message.value);
+                    await this.sendToDLQ(topic, parsedMessage, messageKey, {
+                      ...messageHeaders,
+                      'error-type': 'processing-failed',
+                      'error-message': error.message,
+                      'retry-count': nextRetryCount.toString(),
+                      'source-topic': topic,
+                      'source-partition': partition.toString(),
+                    });
+                  }
+                }
+              } else {
+                // Max retries exceeded, send to dead-letter queue if enabled
+                if (options?.useDLQ !== false) {
+                  const parsedMessage = this.deserializeMessage(message.value);
+                  await this.sendToDLQ(topic, parsedMessage, messageKey, {
+                    ...messageHeaders,
+                    'error-type': 'max-retries-exceeded',
+                    'error-message': error.message,
+                    'retry-count': retryCount.toString(),
+                    'max-retries': maxRetries.toString(),
+                    'source-topic': topic,
+                    'source-partition': partition.toString(),
+                  });
                 }
               }
               
               // Don't rethrow to prevent consumer from crashing
-              // unless explicitly configured to do so
-              if (options?.throwOriginalError) {
-                throw error;
-              }
             }
-          });
-        },
-        ...(options?.consumerRunConfig || {})
+          }, messageHeaders);
+        }
       });
       
-      this.logger.log(`Subscribed to topic ${topic} with group ID ${consumerGroupId}`);
+      this.logger.log(`Subscribed to topic ${topic} with group ID ${groupId}`, 'KafkaService');
     } catch (error) {
-      this.logger.error(`Failed to consume from topic ${topic}`, error);
-      throw new KafkaConsumerError(
+      this.logger.error(`Failed to consume from topic ${topic}`, error, 'KafkaService');
+      throw new KafkaError(
         `Failed to consume from topic ${topic}`,
-        KafkaErrorCode.CONSUMER_ERROR,
-        { topic, groupId: consumerGroupId, serviceName: this.serviceName },
+        ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED,
+        { topic, serviceName: this.serviceName },
         error
       );
     }
   }
 
   /**
-   * Subscribes to a retry topic to handle message retries with exponential backoff.
+   * Sends a message to the dead-letter queue topic.
    * 
-   * @param originalTopic - The original topic name
-   * @param groupId - The consumer group ID
-   * @param callback - The function to process each message
-   * @param options - Additional consumer options
+   * @param sourceTopic - The original topic where the message was intended
+   * @param message - The message that failed processing
+   * @param key - Optional message key
+   * @param headers - Optional message headers with error context
+   * @private
    */
-  async consumeRetry(
-    originalTopic: string,
-    groupId: string | undefined,
-    callback: (message: any, key?: string, headers?: Record<string, string>) => Promise<void>,
-    options?: IKafkaConsumerOptions
+  private async sendToDLQ<T = any>(
+    sourceTopic: string,
+    message: T,
+    key?: string,
+    headers?: Record<string, string>
   ): Promise<void> {
-    const retryTopic = options?.deadLetterQueue?.retryTopic || `${originalTopic}.retry`;
-    const consumerGroupId = groupId || `${this.defaultConsumerGroup}-retry`;
-    
-    return this.consume(
-      retryTopic,
-      consumerGroupId,
-      async (message, key, headers) => {
-        // Extract retry information
-        const retryCount = parseInt(headers?.['x-retry-count'] || '1', 10);
-        const maxRetries = options?.deadLetterQueue?.maxRetries || 3;
-        
-        try {
-          // Apply exponential backoff based on retry count
-          // This is just a simulation as Kafka doesn't natively support delayed processing
-          // In production, consider using a scheduled consumer or a time-based partitioning strategy
-          const backoffMs = Math.min(
-            options?.deadLetterQueue?.maxBackoffMs || 30000,
-            Math.pow(2, retryCount) * (options?.deadLetterQueue?.baseBackoffMs || 1000)
-          );
-          
-          this.logger.debug(
-            `Processing retry message from topic ${retryTopic}, retry ${retryCount}/${maxRetries} with backoff ${backoffMs}ms`
-          );
-          
-          // Process the message
-          await callback(message, key, headers);
-        } catch (error) {
-          this.logger.error(
-            `Error processing retry message from topic ${retryTopic}, retry ${retryCount}/${maxRetries}`,
-            error
-          );
-          
-          // Check if we should retry again or send to DLQ
-          if (retryCount < maxRetries) {
-            // Send back to retry topic with incremented retry count
-            await this.produce(
-              retryTopic,
-              message,
-              key,
-              {
-                ...headers,
-                'x-retry-count': (retryCount + 1).toString(),
-                'x-retry-timestamp': new Date().toISOString(),
-              }
-            );
-            
-            this.logger.warn(
-              `Message sent back to retry topic ${retryTopic}, retry ${retryCount + 1}/${maxRetries}`
-            );
-          } else {
-            // Max retries reached, send to DLQ
-            await this.sendToDeadLetterQueue(
-              originalTopic,
-              message,
-              error,
-              { retryCount, key, headers },
-              options?.deadLetterQueue
-            );
-          }
-        }
-      },
-      options
-    );
-  }
-
-  /**
-   * Subscribes to a dead letter queue topic to handle failed messages.
-   * 
-   * @param originalTopic - The original topic name
-   * @param groupId - The consumer group ID
-   * @param callback - The function to process each dead letter message
-   * @param options - Additional consumer options
-   */
-  async consumeDeadLetterQueue(
-    originalTopic: string,
-    groupId: string | undefined,
-    callback: (message: any, error: any, metadata: any) => Promise<void>,
-    options?: IKafkaConsumerOptions
-  ): Promise<void> {
-    const dlqTopic = options?.deadLetterQueue?.topic || `${originalTopic}.dlq`;
-    const consumerGroupId = groupId || `${this.defaultConsumerGroup}-dlq`;
-    
-    return this.consume(
-      dlqTopic,
-      consumerGroupId,
-      async (dlqMessage, key, headers) => {
-        try {
-          // Extract original message and error information
-          const { originalMessage, error, metadata } = dlqMessage;
-          
-          // Process the dead letter message
-          await callback(originalMessage, error, metadata);
-          
-          this.logger.debug(
-            `Processed dead letter message from topic ${dlqTopic}, original topic ${originalTopic}`
-          );
-        } catch (error) {
-          this.logger.error(
-            `Error processing dead letter message from topic ${dlqTopic}`,
-            error
-          );
-          // Don't retry DLQ processing to avoid infinite loops
-        }
-      },
-      options
-    );
+    try {
+      // Add DLQ metadata to headers
+      const dlqHeaders = {
+        ...headers,
+        'dlq-timestamp': Date.now().toString(),
+        'source-topic': sourceTopic,
+        'source-service': this.serviceName,
+      };
+      
+      await this.produce(
+        this.deadLetterTopic,
+        message,
+        key,
+        dlqHeaders
+      );
+      
+      this.logger.log(
+        `Message from topic ${sourceTopic} sent to dead-letter queue`,
+        'KafkaService'
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send message to dead-letter queue from topic ${sourceTopic}`,
+        error,
+        'KafkaService'
+      );
+      // Don't rethrow to prevent cascading failures
+    }
   }
 
   /**
@@ -588,32 +613,24 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * @private
    */
   private async connectProducer(): Promise<void> {
-    if (this.isProducerConnected) {
-      return;
-    }
-
     try {
-      this.producer = this.kafka.producer({
+      const producerConfig: ProducerConfig = {
         allowAutoTopicCreation: this.configService.get<boolean>('kafka.allowAutoTopicCreation', true),
         transactionalId: this.configService.get<string>('kafka.transactionalId'),
-        idempotent: this.configService.get<boolean>('kafka.idempotent', true),
+        idempotent: this.configService.get<boolean>('kafka.idempotent', false),
         maxInFlightRequests: this.configService.get<number>('kafka.maxInFlightRequests', 5),
-        retry: {
-          initialRetryTime: this.configService.get<number>('kafka.retry.initialRetryTime', 300),
-          retries: this.configService.get<number>('kafka.retry.retries', 10),
-          factor: this.configService.get<number>('kafka.retry.factor', 2), // Exponential backoff factor
-          maxRetryTime: this.configService.get<number>('kafka.retry.maxRetryTime', 30000),
-        },
-      });
+        retry: this.defaultRetryOptions,
+      };
+      
+      this.producer = this.kafka.producer(producerConfig);
       
       await this.producer.connect();
-      this.isProducerConnected = true;
-      this.logger.log('Kafka producer connected successfully');
+      this.logger.log('Kafka producer connected successfully', 'KafkaService');
     } catch (error) {
-      this.logger.error('Failed to connect Kafka producer', error);
-      throw new KafkaConnectionError(
+      this.logger.error('Failed to connect Kafka producer', error, 'KafkaService');
+      throw new KafkaError(
         'Failed to connect Kafka producer',
-        KafkaErrorCode.PRODUCER_CONNECTION_ERROR,
+        ERROR_CODES.PRODUCER_CONNECTION_FAILED,
         { serviceName: this.serviceName },
         error
       );
@@ -628,24 +645,11 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     if (this.producer) {
       try {
         await this.producer.disconnect();
-        this.isProducerConnected = false;
-        this.logger.log('Kafka producer disconnected successfully');
+        this.logger.log('Kafka producer disconnected successfully', 'KafkaService');
       } catch (error) {
-        this.logger.error('Error disconnecting Kafka producer', error);
+        this.logger.error('Error disconnecting Kafka producer', error, 'KafkaService');
       }
     }
-    
-    // Disconnect all producers in the pool
-    for (const [producerId, producer] of this.producerPool.entries()) {
-      try {
-        await producer.disconnect();
-        this.logger.log(`Kafka producer ${producerId} from pool disconnected successfully`);
-      } catch (error) {
-        this.logger.error(`Error disconnecting Kafka producer ${producerId} from pool`, error);
-      }
-    }
-    
-    this.producerPool.clear();
   }
 
   /**
@@ -653,66 +657,36 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * @private
    */
   private async disconnectAllConsumers(): Promise<void> {
-    for (const [consumerKey, consumer] of this.consumers.entries()) {
-      try {
-        await consumer.disconnect();
-        this.logger.log(`Kafka consumer ${consumerKey} disconnected successfully`);
-      } catch (error) {
-        this.logger.error(`Error disconnecting Kafka consumer ${consumerKey}`, error);
-      }
+    const disconnectPromises: Promise<void>[] = [];
+    
+    for (const [key, consumer] of this.consumers.entries()) {
+      disconnectPromises.push(
+        consumer.disconnect()
+          .then(() => {
+            this.logger.log(`Kafka consumer ${key} disconnected successfully`, 'KafkaService');
+          })
+          .catch((error) => {
+            this.logger.error(`Error disconnecting Kafka consumer ${key}`, error, 'KafkaService');
+          })
+      );
     }
     
+    await Promise.allSettled(disconnectPromises);
     this.consumers.clear();
   }
 
   /**
-   * Gets or creates a producer from the connection pool.
+   * Serializes a message to JSON string.
    * @private
    */
-  private async getOrCreateProducer(producerId: string, config?: ProducerConfig): Promise<Producer> {
-    if (this.producerPool.has(producerId)) {
-      return this.producerPool.get(producerId)!;
-    }
-    
+  private serializeMessage(message: any): Buffer {
     try {
-      const producer = this.kafka.producer({
-        ...config,
-        allowAutoTopicCreation: config?.allowAutoTopicCreation ?? this.configService.get<boolean>('kafka.allowAutoTopicCreation', true),
-        idempotent: config?.idempotent ?? this.configService.get<boolean>('kafka.idempotent', true),
-      });
-      
-      await producer.connect();
-      this.producerPool.set(producerId, producer);
-      this.logger.log(`Created and connected Kafka producer ${producerId} in pool`);
-      
-      return producer;
-    } catch (error) {
-      this.logger.error(`Failed to create Kafka producer ${producerId} in pool`, error);
-      throw new KafkaConnectionError(
-        `Failed to create Kafka producer ${producerId} in pool`,
-        KafkaErrorCode.PRODUCER_CONNECTION_ERROR,
-        { producerId, serviceName: this.serviceName },
-        error
-      );
-    }
-  }
-
-  /**
-   * Serializes a message to JSON string or uses custom serializer if provided.
-   * @private
-   */
-  private serializeMessage(message: any, serializer?: (message: any) => Buffer): Buffer {
-    try {
-      if (serializer) {
-        return serializer(message);
-      }
-      
       return Buffer.from(JSON.stringify(message));
     } catch (error) {
-      this.logger.error('Failed to serialize message', error);
-      throw new KafkaSerializationError(
+      this.logger.error('Failed to serialize message', error, 'KafkaService');
+      throw new KafkaError(
         'Failed to serialize message',
-        KafkaErrorCode.SERIALIZATION_ERROR,
+        ERROR_CODES.MESSAGE_SERIALIZATION_FAILED,
         { serviceName: this.serviceName },
         error
       );
@@ -720,22 +694,18 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Deserializes a message from JSON string or uses custom deserializer if provided.
+   * Deserializes a message from JSON string.
    * @private
    */
-  private deserializeMessage(buffer: Buffer, deserializer?: (buffer: Buffer) => any): any {
+  private deserializeMessage<T = any>(buffer: Buffer): T {
     try {
-      if (deserializer) {
-        return deserializer(buffer);
-      }
-      
       const message = buffer.toString();
       return JSON.parse(message);
     } catch (error) {
-      this.logger.error('Failed to deserialize message', error);
-      throw new KafkaSerializationError(
+      this.logger.error('Failed to deserialize message', error, 'KafkaService');
+      throw new KafkaError(
         'Failed to deserialize message',
-        KafkaErrorCode.DESERIALIZATION_ERROR,
+        ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED,
         { serviceName: this.serviceName },
         error
       );
@@ -746,12 +716,32 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * Parses Kafka message headers from binary to string key-value pairs.
    * @private
    */
-  private parseHeaders(headers: IHeaders): Record<string, string> {
+  private parseHeaders(headers: Record<string, Buffer>): Record<string, string> {
     const result: Record<string, string> = {};
     
     if (headers) {
       Object.entries(headers).forEach(([key, value]) => {
-        result[key] = value?.toString() || '';
+        if (value) {
+          result[key] = value.toString();
+        }
+      });
+    }
+    
+    return result;
+  }
+
+  /**
+   * Converts string headers to Buffer for Kafka.
+   * @private
+   */
+  private convertHeadersToBuffers(headers: Record<string, string>): Record<string, Buffer> {
+    const result: Record<string, Buffer> = {};
+    
+    if (headers) {
+      Object.entries(headers).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          result[key] = Buffer.from(value.toString());
+        }
       });
     }
     
@@ -763,67 +753,93 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    * @private
    */
   private getSaslConfig(configNamespace: string): { mechanism: string; username: string; password: string } | undefined {
-    const saslEnabled = this.configService.get<boolean>(`${configNamespace}.kafka.sasl.enabled`, 
-                                                      this.configService.get<boolean>('kafka.sasl.enabled', false));
+    const saslEnabled = this.configService.get<boolean>(
+      `${configNamespace}.kafka.sasl.enabled`, 
+      this.configService.get<boolean>('kafka.sasl.enabled', false)
+    );
     
     if (!saslEnabled) {
       return undefined;
     }
     
     return {
-      mechanism: this.configService.get<string>(`${configNamespace}.kafka.sasl.mechanism`, 
-                                              this.configService.get<string>('kafka.sasl.mechanism', 'plain')),
-      username: this.configService.get<string>(`${configNamespace}.kafka.sasl.username`, 
-                                             this.configService.get<string>('kafka.sasl.username', '')),
-      password: this.configService.get<string>(`${configNamespace}.kafka.sasl.password`, 
-                                             this.configService.get<string>('kafka.sasl.password', ''))
+      mechanism: this.configService.get<string>(
+        `${configNamespace}.kafka.sasl.mechanism`, 
+        this.configService.get<string>('kafka.sasl.mechanism', 'plain')
+      ),
+      username: this.configService.get<string>(
+        `${configNamespace}.kafka.sasl.username`, 
+        this.configService.get<string>('kafka.sasl.username', '')
+      ),
+      password: this.configService.get<string>(
+        `${configNamespace}.kafka.sasl.password`, 
+        this.configService.get<string>('kafka.sasl.password', '')
+      )
     };
   }
 
   /**
-   * Enhances message headers with tracing information.
+   * Gets the log level for Kafka client.
    * @private
    */
-  private enhanceHeadersWithTracing(headers: Record<string, string> = {}, span: any): Record<string, string> {
-    const enhancedHeaders = { ...headers };
+  private getLogLevel(configNamespace: string): logLevel {
+    const level = this.configService.get<string>(
+      `${configNamespace}.kafka.logLevel`, 
+      this.configService.get<string>('kafka.logLevel', 'info')
+    );
     
-    // Add trace context to headers if available
-    if (span) {
-      const traceContext = this.tracingService.getTraceContext(span);
-      if (traceContext) {
-        Object.entries(traceContext).forEach(([key, value]) => {
-          enhancedHeaders[`x-trace-${key}`] = value;
-        });
-      }
+    switch (level.toLowerCase()) {
+      case 'debug':
+        return logLevel.DEBUG;
+      case 'info':
+        return logLevel.INFO;
+      case 'warn':
+        return logLevel.WARN;
+      case 'error':
+        return logLevel.ERROR;
+      case 'nothing':
+        return logLevel.NOTHING;
+      default:
+        return logLevel.INFO;
     }
-    
-    // Add service name and timestamp
-    enhancedHeaders['x-service-name'] = this.serviceName;
-    enhancedHeaders['x-timestamp'] = new Date().toISOString();
-    
-    return enhancedHeaders;
   }
 
   /**
-   * Extracts trace context from message headers.
+   * Calculates retry delay with exponential backoff.
    * @private
    */
-  private extractTraceContext(headers: Record<string, string>, span: any): void {
-    if (!span) return;
+  private calculateRetryDelay(attempt: number, options: RetryOptions): number {
+    const { initialRetryTime, factor, maxRetryTime } = options;
+    const delay = Math.min(
+      initialRetryTime * Math.pow(factor, attempt - 1),
+      maxRetryTime
+    );
     
-    const traceContext: Record<string, string> = {};
+    // Add jitter to prevent thundering herd problem
+    return Math.floor(delay * (0.8 + Math.random() * 0.4));
+  }
+
+  /**
+   * Checks if a message already has metadata attached.
+   * @private
+   */
+  private hasMetadata(message: any): boolean {
+    return message && typeof message === 'object' && message.metadata instanceof EventMetadataDto;
+  }
+
+  /**
+   * Adds standard metadata to a message.
+   * @private
+   */
+  private addMetadata<T = any>(message: T): T & { metadata: EventMetadataDto } {
+    const metadata = new EventMetadataDto();
+    metadata.timestamp = new Date().toISOString();
+    metadata.source = this.serviceName;
+    metadata.correlationId = this.tracingService.getCurrentTraceId() || undefined;
     
-    // Extract trace headers
-    Object.entries(headers).forEach(([key, value]) => {
-      if (key.startsWith('x-trace-')) {
-        const traceKey = key.replace('x-trace-', '');
-        traceContext[traceKey] = value;
-      }
-    });
-    
-    // Set trace context if available
-    if (Object.keys(traceContext).length > 0) {
-      this.tracingService.setTraceContext(span, traceContext);
-    }
+    return {
+      ...message as any,
+      metadata
+    };
   }
 }
