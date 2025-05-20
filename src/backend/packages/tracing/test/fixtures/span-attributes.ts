@@ -1,212 +1,182 @@
 /**
- * Test fixtures for span attributes used in tracing tests
- * 
- * This file defines common span attributes used across different journeys (health, care, plan)
- * for consistent testing of attribute management in traces. It provides standard attribute sets
- * for different operation types including HTTP requests, database operations, and message processing,
- * ensuring traces can be properly filtered and analyzed.
+ * Standard span attributes for testing tracing functionality across different journeys.
+ * These fixtures provide consistent attribute sets for various operation types and journeys.
  */
 
-import {
-  SpanAttributes,
-  HttpSpanAttributes,
-  DatabaseSpanAttributes,
-  MessagingSpanAttributes,
-  JourneySpanAttributes,
-  HealthJourneySpanAttributes,
-  CareJourneySpanAttributes,
-  PlanJourneySpanAttributes,
-  GamificationSpanAttributes,
-  ErrorSpanAttributes,
-  JOURNEY_NAMES,
-  DATABASE_SYSTEMS,
-  MESSAGING_SYSTEMS,
-  ERROR_TYPES,
-  GAMIFICATION_EVENT_TYPES,
-} from '../../src/interfaces/span-attributes.interface';
-
-import { JourneyType } from '../../src/interfaces/journey-context.interface';
-
-// Common test user IDs
-const TEST_USER_ID = 'test-user-123';
-const TEST_SESSION_ID = 'test-session-456';
-const TEST_REQUEST_ID = 'test-request-789';
+import { SpanAttributes } from '@opentelemetry/api';
 
 /**
- * Common base attributes for all spans
+ * Common attributes that should be present in all spans
  */
-export const COMMON_ATTRIBUTES: SpanAttributes = {
-  'service.name': 'austa-test-service',
+export const commonAttributes: SpanAttributes = {
+  'service.name': 'austa-service',
   'service.version': '1.0.0',
   'deployment.environment': 'test',
 };
 
 /**
- * HTTP request attributes for testing
+ * Base attributes for HTTP operations
  */
-export const HTTP_ATTRIBUTES: HttpSpanAttributes = {
+export const httpAttributes: SpanAttributes = {
   'http.method': 'GET',
-  'http.url': 'https://api.austa.health/v1/users',
-  'http.host': 'api.austa.health',
-  'http.scheme': 'https',
-  'http.target': '/v1/users',
+  'http.url': 'https://api.austa.health/v1/resource',
   'http.status_code': 200,
   'http.flavor': '1.1',
   'http.user_agent': 'AUSTA-SuperApp/1.0',
-  'http.request_content_length': 0,
-  'http.response_content_length': 1024,
-  'http.route': '/v1/users',
+  'net.peer.name': 'api.austa.health',
+  'net.peer.port': 443,
 };
 
 /**
- * HTTP error attributes for testing
+ * Base attributes for database operations
  */
-export const HTTP_ERROR_ATTRIBUTES: HttpSpanAttributes = {
-  'http.method': 'POST',
-  'http.url': 'https://api.austa.health/v1/users',
-  'http.host': 'api.austa.health',
-  'http.scheme': 'https',
-  'http.target': '/v1/users',
-  'http.status_code': 400,
-  'http.flavor': '1.1',
-  'http.user_agent': 'AUSTA-SuperApp/1.0',
-  'http.request_content_length': 256,
-  'http.response_content_length': 128,
-  'http.route': '/v1/users',
-};
-
-/**
- * Database operation attributes for testing
- */
-export const DATABASE_ATTRIBUTES: DatabaseSpanAttributes = {
-  'db.system': DATABASE_SYSTEMS.POSTGRES,
+export const dbAttributes: SpanAttributes = {
+  'db.system': 'postgresql',
   'db.name': 'austa_db',
   'db.user': 'austa_service',
-  'db.statement': 'SELECT * FROM users WHERE id = $1',
   'db.operation': 'SELECT',
-  'db.instance': 'austa-db-instance',
-  'db.sql.table': 'users',
+  'db.statement': 'SELECT * FROM users WHERE id = $1',
+  'db.connection_string': 'postgresql://localhost:5432/austa_db',
 };
 
 /**
- * Redis database operation attributes for testing
+ * Base attributes for messaging operations
  */
-export const REDIS_ATTRIBUTES: DatabaseSpanAttributes = {
-  'db.system': DATABASE_SYSTEMS.REDIS,
-  'db.name': 'austa_cache',
-  'db.statement': 'GET user:123',
-  'db.operation': 'GET',
-  'db.instance': 'austa-redis-instance',
-};
-
-/**
- * Kafka messaging attributes for testing
- */
-export const KAFKA_ATTRIBUTES: MessagingSpanAttributes = {
-  'messaging.system': MESSAGING_SYSTEMS.KAFKA,
-  'messaging.destination': 'austa.events',
+export const messagingAttributes: SpanAttributes = {
+  'messaging.system': 'kafka',
+  'messaging.destination': 'austa-events',
   'messaging.destination_kind': 'topic',
-  'messaging.temp_destination': false,
-  'messaging.protocol': 'kafka',
-  'messaging.protocol_version': '2.0',
-  'messaging.message_id': 'msg-123',
-  'messaging.conversation_id': 'conv-456',
-  'messaging.message_payload_size_bytes': 512,
+  'messaging.operation': 'publish',
+  'messaging.message_id': '1234567890',
+  'messaging.conversation_id': 'conv-123456',
 };
 
 /**
- * Base journey attributes for testing
+ * Health journey specific attributes
  */
-export const BASE_JOURNEY_ATTRIBUTES: JourneySpanAttributes = {
-  'austa.journey.user_id': TEST_USER_ID,
-  'austa.journey.session_id': TEST_SESSION_ID,
-  'austa.journey.feature': 'test-feature',
-  'austa.journey.step': 'test-step',
+export const healthJourneyAttributes: SpanAttributes = {
+  'austa.journey': 'health',
+  'austa.journey.context': 'metrics',
+  'austa.user.id': 'user-123456',
+  'austa.tenant.id': 'tenant-123456',
 };
 
 /**
- * Health journey attributes for testing
+ * Health journey specific attributes for different contexts
  */
-export const HEALTH_JOURNEY_ATTRIBUTES: HealthJourneySpanAttributes = {
-  ...BASE_JOURNEY_ATTRIBUTES,
-  'austa.journey.name': JOURNEY_NAMES.HEALTH,
-  'austa.journey.operation': 'record_metric',
-  'austa.health.metric_type': 'blood_pressure',
-  'austa.health.metric_value': 120,
-  'austa.health.goal_id': 'goal-123',
-  'austa.health.device_id': 'device-456',
-  'austa.health.integration_type': 'fitbit',
+export const healthMetricsAttributes: SpanAttributes = {
+  ...healthJourneyAttributes,
+  'austa.journey.context': 'metrics',
+  'austa.health.metric.type': 'blood_pressure',
+  'austa.health.device.id': 'device-123456',
+};
+
+export const healthHistoryAttributes: SpanAttributes = {
+  ...healthJourneyAttributes,
+  'austa.journey.context': 'history',
+  'austa.health.record.type': 'medication',
+  'austa.health.record.id': 'record-123456',
+};
+
+export const healthDeviceAttributes: SpanAttributes = {
+  ...healthJourneyAttributes,
+  'austa.journey.context': 'device',
+  'austa.health.device.type': 'smartwatch',
+  'austa.health.device.manufacturer': 'FitBit',
+  'austa.health.device.model': 'Sense',
 };
 
 /**
- * Care journey attributes for testing
+ * Care journey specific attributes
  */
-export const CARE_JOURNEY_ATTRIBUTES: CareJourneySpanAttributes = {
-  ...BASE_JOURNEY_ATTRIBUTES,
-  'austa.journey.name': JOURNEY_NAMES.CARE,
-  'austa.journey.operation': 'book_appointment',
-  'austa.care.appointment_id': 'appt-123',
-  'austa.care.provider_id': 'provider-456',
-  'austa.care.telemedicine_session_id': 'tele-789',
-  'austa.care.medication_id': 'med-123',
-  'austa.care.treatment_id': 'treatment-456',
+export const careJourneyAttributes: SpanAttributes = {
+  'austa.journey': 'care',
+  'austa.journey.context': 'appointments',
+  'austa.user.id': 'user-123456',
+  'austa.tenant.id': 'tenant-123456',
 };
 
 /**
- * Plan journey attributes for testing
+ * Care journey specific attributes for different contexts
  */
-export const PLAN_JOURNEY_ATTRIBUTES: PlanJourneySpanAttributes = {
-  ...BASE_JOURNEY_ATTRIBUTES,
-  'austa.journey.name': JOURNEY_NAMES.PLAN,
-  'austa.journey.operation': 'submit_claim',
-  'austa.plan.plan_id': 'plan-123',
-  'austa.plan.benefit_id': 'benefit-456',
-  'austa.plan.claim_id': 'claim-789',
-  'austa.plan.coverage_id': 'coverage-123',
-  'austa.plan.document_id': 'document-456',
+export const careAppointmentAttributes: SpanAttributes = {
+  ...careJourneyAttributes,
+  'austa.journey.context': 'appointments',
+  'austa.care.appointment.id': 'appointment-123456',
+  'austa.care.provider.id': 'provider-123456',
+};
+
+export const careTelemedicineAttributes: SpanAttributes = {
+  ...careJourneyAttributes,
+  'austa.journey.context': 'telemedicine',
+  'austa.care.session.id': 'session-123456',
+  'austa.care.provider.id': 'provider-123456',
+};
+
+export const careTreatmentAttributes: SpanAttributes = {
+  ...careJourneyAttributes,
+  'austa.journey.context': 'treatment',
+  'austa.care.treatment.id': 'treatment-123456',
+  'austa.care.treatment.type': 'medication',
 };
 
 /**
- * Gamification attributes for testing
+ * Plan journey specific attributes
  */
-export const GAMIFICATION_ATTRIBUTES: GamificationSpanAttributes = {
-  'austa.gamification.event_type': GAMIFICATION_EVENT_TYPES.ACHIEVEMENT_UNLOCKED,
-  'austa.gamification.profile_id': 'profile-123',
-  'austa.gamification.achievement_id': 'achievement-456',
-  'austa.gamification.quest_id': 'quest-789',
-  'austa.gamification.reward_id': 'reward-123',
-  'austa.gamification.points': 100,
-  'austa.gamification.level': 5,
+export const planJourneyAttributes: SpanAttributes = {
+  'austa.journey': 'plan',
+  'austa.journey.context': 'coverage',
+  'austa.user.id': 'user-123456',
+  'austa.tenant.id': 'tenant-123456',
 };
 
 /**
- * Error attributes for testing
+ * Plan journey specific attributes for different contexts
  */
-export const ERROR_ATTRIBUTES: ErrorSpanAttributes = {
-  'error.type': ERROR_TYPES.VALIDATION,
-  'error.message': 'Invalid input data',
-  'error.stack': 'Error: Invalid input data\n    at validateInput (/app/src/validator.ts:42:11)',
-  'error.code': 'ERR_VALIDATION_FAILED',
-  'error.retry_count': 0,
-  'error.is_retryable': false,
+export const planCoverageAttributes: SpanAttributes = {
+  ...planJourneyAttributes,
+  'austa.journey.context': 'coverage',
+  'austa.plan.coverage.id': 'coverage-123456',
+  'austa.plan.provider.id': 'provider-123456',
+};
+
+export const planClaimAttributes: SpanAttributes = {
+  ...planJourneyAttributes,
+  'austa.journey.context': 'claim',
+  'austa.plan.claim.id': 'claim-123456',
+  'austa.plan.claim.type': 'medical',
+  'austa.plan.claim.status': 'submitted',
+};
+
+export const planBenefitAttributes: SpanAttributes = {
+  ...planJourneyAttributes,
+  'austa.journey.context': 'benefit',
+  'austa.plan.benefit.id': 'benefit-123456',
+  'austa.plan.benefit.type': 'wellness',
 };
 
 /**
- * Dependency error attributes for testing
+ * Gamification specific attributes
  */
-export const DEPENDENCY_ERROR_ATTRIBUTES: ErrorSpanAttributes = {
-  'error.type': ERROR_TYPES.DEPENDENCY,
-  'error.message': 'External service unavailable',
-  'error.stack': 'Error: External service unavailable\n    at callExternalService (/app/src/service.ts:123:11)',
-  'error.code': 'ERR_EXTERNAL_SERVICE',
-  'error.retry_count': 3,
-  'error.is_retryable': true,
+export const gamificationAttributes: SpanAttributes = {
+  'austa.system': 'gamification',
+  'austa.gamification.event.type': 'achievement',
+  'austa.gamification.user.id': 'user-123456',
+  'austa.gamification.achievement.id': 'achievement-123456',
+};
+
+/**
+ * Business transaction attributes for tracking operations across services
+ */
+export const businessTransactionAttributes: SpanAttributes = {
+  'austa.transaction.id': 'tx-123456789',
+  'austa.transaction.name': 'CompleteHealthCheckup',
+  'austa.transaction.origin': 'mobile-app',
+  'austa.correlation.id': 'corr-123456789',
 };
 
 /**
  * Helper function to combine multiple attribute sets
- * @param attributeSets - Array of attribute sets to combine
- * @returns Combined attributes object
  */
 export function combineAttributes(...attributeSets: SpanAttributes[]): SpanAttributes {
   return attributeSets.reduce((combined, current) => {
@@ -215,239 +185,93 @@ export function combineAttributes(...attributeSets: SpanAttributes[]): SpanAttri
 }
 
 /**
- * Creates HTTP attributes with journey context
- * @param journeyType - Type of journey (health, care, plan)
- * @param operation - Operation being performed
- * @param method - HTTP method
- * @param path - API path
- * @returns Combined HTTP and journey attributes
+ * Helper function to create HTTP attributes with custom values
  */
-export function createHttpJourneyAttributes(
-  journeyType: JourneyType,
-  operation: string,
-  method = 'GET',
-  path = '/v1/users'
-): SpanAttributes {
-  const baseHttp: HttpSpanAttributes = {
-    ...HTTP_ATTRIBUTES,
+export function createHttpAttributes(method: string, url: string, statusCode: number): SpanAttributes {
+  return {
+    ...httpAttributes,
     'http.method': method,
-    'http.target': path,
-    'http.route': path,
-    'http.url': `https://api.austa.health${path}`,
+    'http.url': url,
+    'http.status_code': statusCode,
   };
-  
-  let journeyAttributes: JourneySpanAttributes;
-  
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      journeyAttributes = HEALTH_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.CARE:
-      journeyAttributes = CARE_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.PLAN:
-      journeyAttributes = PLAN_JOURNEY_ATTRIBUTES;
-      break;
-    default:
-      journeyAttributes = BASE_JOURNEY_ATTRIBUTES;
-  }
-  
-  return combineAttributes(
-    COMMON_ATTRIBUTES,
-    baseHttp,
-    {
-      ...journeyAttributes,
-      'austa.journey.operation': operation,
-    }
-  );
 }
 
 /**
- * Creates database attributes with journey context
- * @param journeyType - Type of journey (health, care, plan)
- * @param operation - Database operation
- * @param table - Database table
- * @param dbSystem - Database system
- * @returns Combined database and journey attributes
+ * Helper function to create database attributes with custom values
  */
-export function createDatabaseJourneyAttributes(
-  journeyType: JourneyType,
-  operation: string,
-  table: string,
-  dbSystem = DATABASE_SYSTEMS.POSTGRES
-): SpanAttributes {
-  const baseDb: DatabaseSpanAttributes = {
-    ...DATABASE_ATTRIBUTES,
-    'db.system': dbSystem,
+export function createDbAttributes(operation: string, statement: string): SpanAttributes {
+  return {
+    ...dbAttributes,
     'db.operation': operation,
-    'db.sql.table': table,
+    'db.statement': statement,
   };
-  
-  let journeyAttributes: JourneySpanAttributes;
-  
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      journeyAttributes = HEALTH_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.CARE:
-      journeyAttributes = CARE_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.PLAN:
-      journeyAttributes = PLAN_JOURNEY_ATTRIBUTES;
-      break;
-    default:
-      journeyAttributes = BASE_JOURNEY_ATTRIBUTES;
-  }
-  
-  return combineAttributes(
-    COMMON_ATTRIBUTES,
-    baseDb,
-    {
-      ...journeyAttributes,
-      'austa.journey.operation': `db_${operation.toLowerCase()}`,
-    }
-  );
 }
 
 /**
- * Creates messaging attributes with journey context
- * @param journeyType - Type of journey (health, care, plan)
- * @param eventType - Type of event being processed
- * @param topic - Kafka topic
- * @returns Combined messaging and journey attributes
+ * Helper function to create messaging attributes with custom values
  */
-export function createMessagingJourneyAttributes(
-  journeyType: JourneyType,
-  eventType: string,
-  topic = 'austa.events'
-): SpanAttributes {
-  const baseMessaging: MessagingSpanAttributes = {
-    ...KAFKA_ATTRIBUTES,
-    'messaging.destination': topic,
+export function createMessagingAttributes(destination: string, operation: string, messageId: string): SpanAttributes {
+  return {
+    ...messagingAttributes,
+    'messaging.destination': destination,
+    'messaging.operation': operation,
+    'messaging.message_id': messageId,
   };
-  
-  let journeyAttributes: JourneySpanAttributes;
-  
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      journeyAttributes = HEALTH_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.CARE:
-      journeyAttributes = CARE_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.PLAN:
-      journeyAttributes = PLAN_JOURNEY_ATTRIBUTES;
-      break;
-    default:
-      journeyAttributes = BASE_JOURNEY_ATTRIBUTES;
-  }
-  
-  return combineAttributes(
-    COMMON_ATTRIBUTES,
-    baseMessaging,
-    {
-      ...journeyAttributes,
-      'austa.journey.operation': `process_${eventType}`,
-    },
-    {
-      'austa.gamification.event_type': eventType,
-    }
-  );
 }
 
 /**
- * Creates error attributes with journey context
- * @param journeyType - Type of journey (health, care, plan)
- * @param errorType - Type of error
- * @param message - Error message
- * @param code - Error code
- * @param isRetryable - Whether the error is retryable
- * @returns Combined error and journey attributes
+ * Helper function to create journey-specific attributes with custom user and tenant
  */
-export function createErrorJourneyAttributes(
-  journeyType: JourneyType,
-  errorType: string,
-  message: string,
-  code: string,
-  isRetryable = false
-): SpanAttributes {
-  const baseError: ErrorSpanAttributes = {
-    'error.type': errorType,
-    'error.message': message,
-    'error.code': code,
-    'error.is_retryable': isRetryable,
+export function createJourneyAttributes(journey: 'health' | 'care' | 'plan', context: string, userId: string, tenantId: string): SpanAttributes {
+  const baseAttributes = {
+    'austa.journey': journey,
+    'austa.journey.context': context,
+    'austa.user.id': userId,
+    'austa.tenant.id': tenantId,
   };
   
-  let journeyAttributes: JourneySpanAttributes;
-  
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      journeyAttributes = HEALTH_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.CARE:
-      journeyAttributes = CARE_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.PLAN:
-      journeyAttributes = PLAN_JOURNEY_ATTRIBUTES;
-      break;
-    default:
-      journeyAttributes = BASE_JOURNEY_ATTRIBUTES;
-  }
-  
-  return combineAttributes(
-    COMMON_ATTRIBUTES,
-    baseError,
-    {
-      ...journeyAttributes,
-      'austa.journey.error_code': code,
-      'austa.journey.error_message': message,
-    }
-  );
+  return baseAttributes;
 }
 
 /**
- * Creates gamification attributes with journey context
- * @param journeyType - Type of journey (health, care, plan)
- * @param gamificationEventType - Type of gamification event
- * @param achievementId - Achievement ID (optional)
- * @param points - Points earned (optional)
- * @returns Combined gamification and journey attributes
+ * Helper function to create business transaction attributes
  */
-export function createGamificationJourneyAttributes(
-  journeyType: JourneyType,
-  gamificationEventType: string,
-  achievementId?: string,
-  points?: number
-): SpanAttributes {
-  const baseGamification: GamificationSpanAttributes = {
-    'austa.gamification.event_type': gamificationEventType,
-    'austa.gamification.profile_id': `profile-${TEST_USER_ID}`,
-    ...(achievementId && { 'austa.gamification.achievement_id': achievementId }),
-    ...(points !== undefined && { 'austa.gamification.points': points }),
+export function createBusinessTransactionAttributes(transactionId: string, transactionName: string, origin: string): SpanAttributes {
+  return {
+    'austa.transaction.id': transactionId,
+    'austa.transaction.name': transactionName,
+    'austa.transaction.origin': origin,
+    'austa.correlation.id': `corr-${transactionId}`,
   };
-  
-  let journeyAttributes: JourneySpanAttributes;
-  
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      journeyAttributes = HEALTH_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.CARE:
-      journeyAttributes = CARE_JOURNEY_ATTRIBUTES;
-      break;
-    case JourneyType.PLAN:
-      journeyAttributes = PLAN_JOURNEY_ATTRIBUTES;
-      break;
-    default:
-      journeyAttributes = BASE_JOURNEY_ATTRIBUTES;
-  }
-  
-  return combineAttributes(
-    COMMON_ATTRIBUTES,
-    baseGamification,
-    {
-      ...journeyAttributes,
-      'austa.journey.operation': `gamification_${gamificationEventType}`,
-    }
-  );
 }
+
+/**
+ * Predefined attribute combinations for common testing scenarios
+ */
+export const healthMetricsHttpAttributes = combineAttributes(
+  commonAttributes,
+  httpAttributes,
+  healthMetricsAttributes,
+  businessTransactionAttributes
+);
+
+export const careAppointmentDbAttributes = combineAttributes(
+  commonAttributes,
+  dbAttributes,
+  careAppointmentAttributes,
+  businessTransactionAttributes
+);
+
+export const planClaimMessagingAttributes = combineAttributes(
+  commonAttributes,
+  messagingAttributes,
+  planClaimAttributes,
+  businessTransactionAttributes
+);
+
+export const gamificationEventAttributes = combineAttributes(
+  commonAttributes,
+  messagingAttributes,
+  gamificationAttributes,
+  businessTransactionAttributes
+);
