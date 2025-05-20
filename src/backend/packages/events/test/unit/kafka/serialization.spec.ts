@@ -1,475 +1,541 @@
-import { Buffer } from 'buffer';
-import {
-  serializeEvent,
-  deserializeEvent,
-  serializeBinaryEvent,
-  deserializeBinaryEvent,
-  serializeJourneyEvent,
-  deserializeJourneyEvent,
-  isVersionSupported,
-  extractEventVersion,
-  isSerializedEvent,
-  EventSerializationError
-} from '../../../src/utils/event-serializer';
+import { Test, TestingModule } from '@nestjs/testing';
+import { KafkaService } from '../../../src/kafka/kafka.service';
+import { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
+import { Kafka, KafkaMessage, Producer, logLevel } from 'kafkajs';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { VersionDto } from '../../../src/dto/version.dto';
 
-describe('Event Serialization Utilities', () => {
-  // Test fixtures
-  const simpleEvent = {
-    id: '123',
-    type: 'test-event',
-    timestamp: '2023-01-01T00:00:00.000Z',
-    payload: {
-      message: 'Hello, world!',
-      count: 42
-    }
-  };
+// Mock implementations
+const mockSchemaRegistry = {
+  register: jest.fn(),
+  getSchema: jest.fn(),
+  getLatestSchemaId: jest.fn(),
+  encode: jest.fn(),
+  decode: jest.fn(),
+};
 
-  const eventWithBinaryData = {
-    id: '456',
-    type: 'binary-event',
-    data: Buffer.from('Binary data for testing', 'utf8'),
-    nestedData: {
-      buffer: Buffer.from([1, 2, 3, 4]),
-      array: [Buffer.from('Array item', 'utf8')]
-    }
-  };
+const mockProducer = {
+  connect: jest.fn(),
+  disconnect: jest.fn(),
+  send: jest.fn(),
+};
 
-  const journeyEvent = {
-    id: '789',
-    type: 'health-metric-recorded',
-    userId: 'user-123',
-    payload: {
-      metricType: 'HEART_RATE',
-      value: 75,
-      unit: 'bpm',
-      recordedAt: '2023-01-01T12:30:00.000Z'
-    }
-  };
+const mockKafka = {
+  producer: jest.fn().mockReturnValue(mockProducer),
+};
 
-  describe('Basic Serialization and Deserialization', () => {
-    it('should serialize and deserialize a simple event', () => {
-      // Serialize the event
-      const serialized = serializeEvent(simpleEvent);
-      
-      // Verify it's a string
-      expect(typeof serialized).toBe('string');
-      
-      // Deserialize the event
-      const deserialized = deserializeEvent(serialized);
-      
-      // Verify the deserialized event matches the original
-      expect(deserialized).toEqual(simpleEvent);
-    });
+// Sample test data
+const sampleHealthEvent = {
+  userId: '123',
+  metricType: 'HEART_RATE',
+  value: 75,
+  unit: 'bpm',
+  timestamp: new Date().toISOString(),
+};
 
-    it('should serialize with a specific version', () => {
-      const version = '2.0.0';
-      const serialized = serializeEvent(simpleEvent, version);
-      const parsed = JSON.parse(serialized);
-      
-      expect(parsed.version).toBe(version);
-      
-      // Should throw when deserializing with default options since version 2.0.0 is not supported
-      expect(() => deserializeEvent(serialized)).toThrow();
-      
-      // Should work when allowing unknown versions
-      const deserialized = deserializeEvent(serialized, { allowUnknownVersion: true });
-      expect(deserialized).toEqual(simpleEvent);
-    });
+const sampleEventMetadata: EventMetadataDto = {
+  correlationId: 'corr-123',
+  timestamp: new Date().toISOString(),
+  source: 'health-service',
+  version: '1.0.0',
+};
 
-    it('should serialize with pretty printing', () => {
-      const serialized = serializeEvent(simpleEvent, '1.0.0', { pretty: true });
-      
-      // Pretty printed JSON should contain newlines
-      expect(serialized).toContain('\n');
-      
-      // Should still deserialize correctly
-      const deserialized = deserializeEvent(serialized);
-      expect(deserialized).toEqual(simpleEvent);
-    });
+const sampleVersionedEvent: VersionDto<any> = {
+  schemaVersion: '1.0.0',
+  payload: sampleHealthEvent,
+};
 
-    it('should include custom metadata in serialized event', () => {
-      const metadata = {
-        source: 'test-suite',
-        correlationId: 'corr-123'
-      };
-      
-      const serialized = serializeEvent(simpleEvent, '1.0.0', { metadata });
-      const parsed = JSON.parse(serialized);
-      
-      expect(parsed.meta).toBeDefined();
-      expect(parsed.meta.source).toBe(metadata.source);
-      expect(parsed.meta.correlationId).toBe(metadata.correlationId);
-      expect(parsed.meta.timestamp).toBeDefined(); // Should always include timestamp
-      
-      // Metadata shouldn't affect the deserialized event data
-      const deserialized = deserializeEvent(serialized);
-      expect(deserialized).toEqual(simpleEvent);
-    });
-  });
+describe('Kafka Serialization', () => {
+  let kafkaService: KafkaService;
 
-  describe('Binary Data Handling', () => {
-    it('should serialize and deserialize Buffer objects', () => {
-      const event = { data: Buffer.from('test buffer', 'utf8') };
-      
-      const serialized = serializeBinaryEvent(event);
-      const deserialized = deserializeBinaryEvent(serialized);
-      
-      // Buffer objects should be preserved
-      expect(deserialized.data).toBeInstanceOf(Buffer);
-      expect(Buffer.from('test buffer', 'utf8').equals(deserialized.data as Buffer)).toBe(true);
-    });
+  beforeEach(async () => {
+    jest.clearAllMocks();
 
-    it('should serialize and deserialize ArrayBuffer objects', () => {
-      const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
-      const event = { data: buffer };
-      
-      const serialized = serializeBinaryEvent(event);
-      const deserialized = deserializeBinaryEvent(serialized);
-      
-      // ArrayBuffer should be preserved
-      expect(deserialized.data).toBeInstanceOf(ArrayBuffer);
-      
-      // Compare the contents
-      const originalArray = new Uint8Array(buffer);
-      const deserializedArray = new Uint8Array(deserialized.data as ArrayBuffer);
-      expect(Array.from(deserializedArray)).toEqual(Array.from(originalArray));
-    });
-
-    it('should serialize and deserialize Uint8Array objects', () => {
-      const array = new Uint8Array([5, 6, 7, 8]);
-      const event = { data: array };
-      
-      const serialized = serializeBinaryEvent(event);
-      const deserialized = deserializeBinaryEvent(serialized);
-      
-      // Uint8Array should be preserved
-      expect(deserialized.data).toBeInstanceOf(Uint8Array);
-      expect(Array.from(deserialized.data as Uint8Array)).toEqual(Array.from(array));
-    });
-
-    it('should serialize and deserialize Int8Array objects', () => {
-      const array = new Int8Array([-1, 0, 1, 2]);
-      const event = { data: array };
-      
-      const serialized = serializeBinaryEvent(event);
-      const deserialized = deserializeBinaryEvent(serialized);
-      
-      // Int8Array should be preserved
-      expect(deserialized.data).toBeInstanceOf(Int8Array);
-      expect(Array.from(deserialized.data as Int8Array)).toEqual(Array.from(array));
-    });
-
-    it('should handle nested binary data in objects and arrays', () => {
-      const serialized = serializeBinaryEvent(eventWithBinaryData);
-      const deserialized = deserializeBinaryEvent(serialized);
-      
-      // Top-level binary data
-      expect(deserialized.data).toBeInstanceOf(Buffer);
-      expect(Buffer.from('Binary data for testing', 'utf8').equals(deserialized.data as Buffer)).toBe(true);
-      
-      // Nested binary data in object
-      expect(deserialized.nestedData.buffer).toBeInstanceOf(Buffer);
-      expect(Buffer.from([1, 2, 3, 4]).equals(deserialized.nestedData.buffer as Buffer)).toBe(true);
-      
-      // Nested binary data in array
-      expect(deserialized.nestedData.array[0]).toBeInstanceOf(Buffer);
-      expect(Buffer.from('Array item', 'utf8').equals(deserialized.nestedData.array[0] as Buffer)).toBe(true);
-    });
-
-    it('should not process binary data when handleBinary is false', () => {
-      const event = { data: Buffer.from('test buffer', 'utf8') };
-      
-      // Serialize without binary handling
-      const serialized = serializeEvent(event, '1.0.0', { handleBinary: false });
-      const parsed = JSON.parse(serialized);
-      const parsedData = JSON.parse(parsed.data);
-      
-      // Buffer should be converted to object by JSON.stringify
-      expect(typeof parsedData.data).toBe('object');
-      expect(parsedData.data).not.toBeInstanceOf(Buffer);
-      expect(parsedData.data).toHaveProperty('type');
-      expect(parsedData.data).toHaveProperty('data');
-      
-      // Deserialize without binary handling
-      const deserialized = deserializeEvent(serialized, { handleBinary: false });
-      expect(deserialized.data).not.toBeInstanceOf(Buffer);
-    });
-  });
-
-  describe('Journey Context Handling', () => {
-    it('should add journey context during serialization', () => {
-      const serialized = serializeJourneyEvent(journeyEvent, 'health');
-      const deserialized = deserializeEvent(serialized);
-      
-      // Journey context should be added
-      expect(deserialized).toHaveProperty('journey', 'health');
-      expect(deserialized).toHaveProperty('metadata.journeyContext', 'health');
-    });
-
-    it('should preserve existing journey context', () => {
-      const eventWithContext = {
-        ...journeyEvent,
-        journey: 'care',
-        metadata: { journeyContext: 'care' }
-      };
-      
-      const serialized = serializeJourneyEvent(eventWithContext, 'health');
-      const deserialized = deserializeEvent(serialized);
-      
-      // Original journey context should be preserved
-      expect(deserialized).toHaveProperty('journey', 'care');
-      expect(deserialized).toHaveProperty('metadata.journeyContext', 'care');
-    });
-
-    it('should add journey context during deserialization', () => {
-      const serialized = serializeEvent(journeyEvent);
-      const deserialized = deserializeJourneyEvent(serialized, 'health');
-      
-      // Journey context should be added during deserialization
-      expect(deserialized).toHaveProperty('journey', 'health');
-      expect(deserialized).toHaveProperty('metadata.journeyContext', 'health');
-    });
-
-    it('should handle all journey types', () => {
-      const journeys: Array<'health' | 'care' | 'plan'> = ['health', 'care', 'plan'];
-      
-      for (const journey of journeys) {
-        const serialized = serializeJourneyEvent(journeyEvent, journey);
-        const deserialized = deserializeEvent(serialized);
-        
-        expect(deserialized).toHaveProperty('journey', journey);
-        expect(deserialized).toHaveProperty('metadata.journeyContext', journey);
-      }
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should throw EventSerializationError on serialization failure', () => {
-      // Create an object with circular reference
-      const circular: any = { name: 'circular' };
-      circular.self = circular;
-      
-      // Should throw when serializing
-      expect(() => serializeEvent(circular)).toThrow(EventSerializationError);
-      
-      try {
-        serializeEvent(circular);
-      } catch (error) {
-        // Verify error properties
-        expect(error).toBeInstanceOf(EventSerializationError);
-        expect(error.message).toContain('Failed to serialize event');
-        expect(error.originalError).toBeDefined();
-        expect(error.event).toBe(circular);
-        expect(error.context).toHaveProperty('version');
-        expect(error.context).toHaveProperty('options');
-      }
-    });
-
-    it('should throw EventSerializationError on deserialization failure', () => {
-      // Invalid JSON string
-      const invalidJson = '{"version":"1.0.0","data":"invalid json"}';
-      
-      // Should throw when deserializing
-      expect(() => deserializeEvent(invalidJson)).toThrow(EventSerializationError);
-      
-      try {
-        deserializeEvent(invalidJson);
-      } catch (error) {
-        // Verify error properties
-        expect(error).toBeInstanceOf(EventSerializationError);
-        expect(error.message).toContain('Failed to deserialize event');
-        expect(error.originalError).toBeDefined();
-        expect(error.event).toBe(invalidJson);
-        expect(error.context).toHaveProperty('options');
-      }
-    });
-
-    it('should throw on validation errors', () => {
-      // Missing version
-      const missingVersion = JSON.stringify({ data: JSON.stringify(simpleEvent) });
-      expect(() => deserializeEvent(missingVersion)).toThrow(/Missing event version/);
-      
-      // Missing data
-      const missingData = JSON.stringify({ version: '1.0.0' });
-      expect(() => deserializeEvent(missingData)).toThrow(/Missing event data/);
-      
-      // Should not throw when validation is disabled
-      expect(() => deserializeEvent(missingVersion, { validate: false })).not.toThrow();
-      expect(() => deserializeEvent(missingData, { validate: false })).not.toThrow();
-    });
-
-    it('should throw on unsupported versions', () => {
-      const unsupportedVersion = '99.0.0';
-      const serialized = serializeEvent(simpleEvent, unsupportedVersion);
-      
-      // Should throw by default
-      expect(() => deserializeEvent(serialized)).toThrow(/Unsupported event version/);
-      
-      // Should not throw when allowUnknownVersion is true
-      expect(() => deserializeEvent(serialized, { allowUnknownVersion: true })).not.toThrow();
-    });
-  });
-
-  describe('Utility Functions', () => {
-    it('should check if a version is supported', () => {
-      // Supported versions
-      expect(isVersionSupported('1.0.0')).toBe(true);
-      expect(isVersionSupported('1.1.0')).toBe(true);
-      expect(isVersionSupported('1.2.3')).toBe(true);
-      
-      // Unsupported versions
-      expect(isVersionSupported('2.0.0')).toBe(false);
-      expect(isVersionSupported('0.1.0')).toBe(false);
-      expect(isVersionSupported('invalid')).toBe(false);
-    });
-
-    it('should extract event version from serialized event', () => {
-      const version = '1.5.0';
-      const serialized = serializeEvent(simpleEvent, version);
-      
-      expect(extractEventVersion(serialized)).toBe(version);
-      
-      // Should return null for invalid input
-      expect(extractEventVersion('invalid')).toBeNull();
-      expect(extractEventVersion('{}')).toBeNull();
-    });
-
-    it('should check if a string is a serialized event', () => {
-      const serialized = serializeEvent(simpleEvent);
-      
-      // Valid serialized event
-      expect(isSerializedEvent(serialized)).toBe(true);
-      
-      // Invalid inputs
-      expect(isSerializedEvent('invalid')).toBe(false);
-      expect(isSerializedEvent('{}')).toBe(false);
-      expect(isSerializedEvent(JSON.stringify({ version: '1.0.0' }))).toBe(false);
-      expect(isSerializedEvent(JSON.stringify({ data: 'test' }))).toBe(false);
-      expect(isSerializedEvent(JSON.stringify({ version: 1, data: 'test' }))).toBe(false); // version must be string
-      expect(isSerializedEvent(JSON.stringify({ version: '1.0.0', data: 123 }))).toBe(false); // data must be string
-    });
-  });
-
-  describe('Schema Evolution and Backward Compatibility', () => {
-    it('should handle schema evolution with backward compatibility', () => {
-      // Original event schema (v1.0.0)
-      const originalEvent = {
-        id: 'event-123',
-        type: 'user-action',
-        timestamp: '2023-01-01T00:00:00.000Z',
-        data: {
-          userId: 'user-456',
-          action: 'login'
-        }
-      };
-      
-      // Serialize with original schema version
-      const serializedV1 = serializeEvent(originalEvent, '1.0.0');
-      
-      // Evolve the schema (v1.1.0) - add new fields
-      const evolvedEvent = {
-        id: 'event-123',
-        type: 'user-action',
-        timestamp: '2023-01-01T00:00:00.000Z',
-        data: {
-          userId: 'user-456',
-          action: 'login',
-          device: 'mobile', // New field
-          location: { // New nested field
-            country: 'Brazil',
-            city: 'São Paulo'
-          }
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        KafkaService,
+        {
+          provide: SchemaRegistry,
+          useValue: mockSchemaRegistry,
         },
-        metadata: { // New field
-          correlationId: 'corr-789'
-        }
-      };
+        {
+          provide: Kafka,
+          useValue: mockKafka,
+        },
+      ],
+    }).compile();
+
+    kafkaService = module.get<KafkaService>(KafkaService);
+  });
+
+  describe('JSON Serialization', () => {
+    it('should serialize an event to JSON format', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const expectedBuffer = Buffer.from(JSON.stringify(event));
       
-      // Serialize with evolved schema version
-      const serializedV1_1 = serializeEvent(evolvedEvent, '1.1.0');
+      // Act
+      const result = await kafkaService.serializeToJson(event);
       
-      // Old code should be able to deserialize new events
-      // (ignoring new fields it doesn't understand)
-      const deserializedNewEventWithOldCode = deserializeEvent(serializedV1_1);
-      expect(deserializedNewEventWithOldCode).toHaveProperty('id', 'event-123');
-      expect(deserializedNewEventWithOldCode).toHaveProperty('data.userId', 'user-456');
-      expect(deserializedNewEventWithOldCode).toHaveProperty('data.device', 'mobile');
-      
-      // New code should be able to deserialize old events
-      // (with default values for missing fields)
-      const deserializedOldEventWithNewCode = deserializeEvent(serializedV1);
-      expect(deserializedOldEventWithNewCode).toHaveProperty('id', 'event-123');
-      expect(deserializedOldEventWithNewCode).toHaveProperty('data.userId', 'user-456');
-      expect(deserializedOldEventWithNewCode).not.toHaveProperty('data.device');
+      // Assert
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.toString()).toEqual(expectedBuffer.toString());
     });
 
-    it('should handle renamed fields with custom transformation', () => {
-      // Original event schema (v1.0.0)
-      const originalEvent = {
-        id: 'event-123',
-        user_id: 'user-456', // Old field name
-        action_type: 'login' // Old field name
+    it('should deserialize JSON data to an event object', async () => {
+      // Arrange
+      const jsonBuffer = Buffer.from(JSON.stringify(sampleHealthEvent));
+      
+      // Act
+      const result = await kafkaService.deserializeFromJson<typeof sampleHealthEvent>(jsonBuffer);
+      
+      // Assert
+      expect(result).toEqual(sampleHealthEvent);
+    });
+
+    it('should validate JSON against a schema during serialization', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const schema = {
+        type: 'object',
+        required: ['userId', 'metricType', 'value', 'unit', 'timestamp'],
+        properties: {
+          userId: { type: 'string' },
+          metricType: { type: 'string' },
+          value: { type: 'number' },
+          unit: { type: 'string' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
       };
       
-      // Serialize with original schema version
-      const serializedV1 = serializeEvent(originalEvent, '1.0.0');
+      // Act
+      const result = await kafkaService.serializeToJsonWithValidation(event, schema);
       
-      // Deserialize and transform
-      const deserialized = deserializeEvent(serializedV1);
-      
-      // Manual transformation (would be handled by a schema migration utility in real code)
-      const transformed = {
-        id: deserialized.id,
-        userId: deserialized.user_id, // Transform to new field name
-        actionType: deserialized.action_type, // Transform to new field name
+      // Assert
+      expect(result).toBeInstanceOf(Buffer);
+      expect(JSON.parse(result.toString())).toEqual(event);
+    });
+
+    it('should throw an error when JSON validation fails', async () => {
+      // Arrange
+      const invalidEvent = { ...sampleHealthEvent, value: 'not-a-number' };
+      const schema = {
+        type: 'object',
+        required: ['userId', 'metricType', 'value', 'unit', 'timestamp'],
+        properties: {
+          userId: { type: 'string' },
+          metricType: { type: 'string' },
+          value: { type: 'number' },
+          unit: { type: 'string' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
       };
       
-      expect(transformed).toHaveProperty('id', 'event-123');
-      expect(transformed).toHaveProperty('userId', 'user-456');
-      expect(transformed).toHaveProperty('actionType', 'login');
+      // Act & Assert
+      await expect(kafkaService.serializeToJsonWithValidation(invalidEvent, schema))
+        .rejects.toThrow(/validation failed/);
+    });
+  });
+
+  describe('Avro Serialization', () => {
+    const avroSchema = {
+      type: 'record',
+      name: 'HealthMetric',
+      namespace: 'org.austa.health',
+      fields: [
+        { name: 'userId', type: 'string' },
+        { name: 'metricType', type: 'string' },
+        { name: 'value', type: 'double' },
+        { name: 'unit', type: 'string' },
+        { name: 'timestamp', type: 'string' },
+      ],
+    };
+
+    it('should serialize an event using Avro with schema registry', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const schemaId = 123;
+      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      
+      mockSchemaRegistry.getLatestSchemaId.mockResolvedValue(schemaId);
+      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
+      
+      // Act
+      const result = await kafkaService.serializeToAvro(event, 'health-metric');
+      
+      // Assert
+      expect(mockSchemaRegistry.getLatestSchemaId).toHaveBeenCalledWith('health-metric');
+      expect(mockSchemaRegistry.encode).toHaveBeenCalledWith({
+        schemaId,
+        payload: event,
+      });
+      expect(result).toEqual(encodedBuffer);
+    });
+
+    it('should deserialize Avro data using schema registry', async () => {
+      // Arrange
+      const avroBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      mockSchemaRegistry.decode.mockResolvedValue(sampleHealthEvent);
+      
+      // Act
+      const result = await kafkaService.deserializeFromAvro(avroBuffer);
+      
+      // Assert
+      expect(mockSchemaRegistry.decode).toHaveBeenCalledWith(avroBuffer);
+      expect(result).toEqual(sampleHealthEvent);
+    });
+
+    it('should register a new schema if it does not exist', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const schemaId = 456;
+      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      
+      mockSchemaRegistry.getLatestSchemaId.mockRejectedValue(new Error('Schema not found'));
+      mockSchemaRegistry.register.mockResolvedValue({ id: schemaId });
+      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
+      
+      // Act
+      const result = await kafkaService.serializeToAvro(event, 'health-metric', avroSchema);
+      
+      // Assert
+      expect(mockSchemaRegistry.register).toHaveBeenCalledWith({
+        type: 'AVRO',
+        schema: JSON.stringify(avroSchema),
+      });
+      expect(mockSchemaRegistry.encode).toHaveBeenCalledWith({
+        schemaId,
+        payload: event,
+      });
+      expect(result).toEqual(encodedBuffer);
+    });
+  });
+
+  describe('Schema Evolution and Compatibility', () => {
+    // Original schema
+    const originalSchema = {
+      type: 'record',
+      name: 'HealthMetric',
+      namespace: 'org.austa.health',
+      fields: [
+        { name: 'userId', type: 'string' },
+        { name: 'metricType', type: 'string' },
+        { name: 'value', type: 'double' },
+        { name: 'unit', type: 'string' },
+        { name: 'timestamp', type: 'string' },
+      ],
+    };
+
+    // Evolved schema with a new field (backward compatible)
+    const evolvedSchema = {
+      type: 'record',
+      name: 'HealthMetric',
+      namespace: 'org.austa.health',
+      fields: [
+        { name: 'userId', type: 'string' },
+        { name: 'metricType', type: 'string' },
+        { name: 'value', type: 'double' },
+        { name: 'unit', type: 'string' },
+        { name: 'timestamp', type: 'string' },
+        { name: 'deviceId', type: ['null', 'string'], default: null },
+      ],
+    };
+
+    it('should deserialize data with an older schema version', async () => {
+      // Arrange
+      const originalEvent = sampleHealthEvent;
+      const originalBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      
+      mockSchemaRegistry.decode.mockResolvedValue(originalEvent);
+      
+      // Act
+      const result = await kafkaService.deserializeFromAvroWithSchema(originalBuffer, evolvedSchema);
+      
+      // Assert
+      expect(result).toEqual({ ...originalEvent, deviceId: null });
+    });
+
+    it('should serialize data with a newer schema version', async () => {
+      // Arrange
+      const evolvedEvent = { ...sampleHealthEvent, deviceId: 'device-123' };
+      const schemaId = 789;
+      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      
+      mockSchemaRegistry.register.mockResolvedValue({ id: schemaId });
+      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
+      
+      // Act
+      const result = await kafkaService.serializeToAvro(evolvedEvent, 'health-metric-v2', evolvedSchema);
+      
+      // Assert
+      expect(mockSchemaRegistry.register).toHaveBeenCalledWith({
+        type: 'AVRO',
+        schema: JSON.stringify(evolvedSchema),
+      });
+      expect(result).toEqual(encodedBuffer);
+    });
+
+    it('should check schema compatibility before registering', async () => {
+      // Arrange
+      mockSchemaRegistry.getLatestSchemaId.mockResolvedValue(123);
+      mockSchemaRegistry.getSchema.mockResolvedValue({
+        schema: JSON.stringify(originalSchema),
+      });
+      
+      // Act
+      const result = await kafkaService.checkSchemaCompatibility('health-metric', evolvedSchema);
+      
+      // Assert
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('Header Serialization', () => {
+    it('should serialize event metadata to message headers', () => {
+      // Arrange
+      const metadata = sampleEventMetadata;
+      
+      // Act
+      const headers = kafkaService.serializeHeaders(metadata);
+      
+      // Assert
+      expect(headers).toEqual({
+        correlationId: Buffer.from(metadata.correlationId),
+        timestamp: Buffer.from(metadata.timestamp),
+        source: Buffer.from(metadata.source),
+        version: Buffer.from(metadata.version),
+      });
+    });
+
+    it('should deserialize message headers to event metadata', () => {
+      // Arrange
+      const kafkaHeaders = {
+        correlationId: Buffer.from(sampleEventMetadata.correlationId),
+        timestamp: Buffer.from(sampleEventMetadata.timestamp),
+        source: Buffer.from(sampleEventMetadata.source),
+        version: Buffer.from(sampleEventMetadata.version),
+      };
+      
+      // Act
+      const metadata = kafkaService.deserializeHeaders(kafkaHeaders);
+      
+      // Assert
+      expect(metadata).toEqual(sampleEventMetadata);
+    });
+
+    it('should handle missing headers gracefully', () => {
+      // Arrange
+      const incompleteHeaders = {
+        correlationId: Buffer.from(sampleEventMetadata.correlationId),
+        // Missing other headers
+      };
+      
+      // Act
+      const metadata = kafkaService.deserializeHeaders(incompleteHeaders);
+      
+      // Assert
+      expect(metadata.correlationId).toEqual(sampleEventMetadata.correlationId);
+      expect(metadata.timestamp).toBeUndefined();
+      expect(metadata.source).toBeUndefined();
+      expect(metadata.version).toBeUndefined();
     });
   });
 
   describe('Performance Testing', () => {
-    it('should handle large events efficiently', () => {
-      // Create a large event with many properties
-      const largeEvent: Record<string, unknown> = {
-        id: 'large-event',
-        timestamp: new Date().toISOString(),
-        type: 'performance-test'
+    it('should serialize JSON within acceptable time limits', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const iterations = 1000;
+      
+      // Act
+      const startTime = process.hrtime.bigint();
+      
+      for (let i = 0; i < iterations; i++) {
+        await kafkaService.serializeToJson(event);
+      }
+      
+      const endTime = process.hrtime.bigint();
+      const duration = Number(endTime - startTime) / 1e6; // Convert to milliseconds
+      
+      // Assert
+      expect(duration / iterations).toBeLessThan(1); // Less than 1ms per operation
+    });
+
+    it('should deserialize JSON within acceptable time limits', async () => {
+      // Arrange
+      const jsonBuffer = Buffer.from(JSON.stringify(sampleHealthEvent));
+      const iterations = 1000;
+      
+      // Act
+      const startTime = process.hrtime.bigint();
+      
+      for (let i = 0; i < iterations; i++) {
+        await kafkaService.deserializeFromJson(jsonBuffer);
+      }
+      
+      const endTime = process.hrtime.bigint();
+      const duration = Number(endTime - startTime) / 1e6; // Convert to milliseconds
+      
+      // Assert
+      expect(duration / iterations).toBeLessThan(1); // Less than 1ms per operation
+    });
+  });
+
+  describe('Binary and String Format Conversion', () => {
+    it('should convert between string and binary formats', () => {
+      // Arrange
+      const originalString = JSON.stringify(sampleHealthEvent);
+      
+      // Act
+      const binaryData = kafkaService.stringToBinary(originalString);
+      const recoveredString = kafkaService.binaryToString(binaryData);
+      
+      // Assert
+      expect(binaryData).toBeInstanceOf(Buffer);
+      expect(recoveredString).toEqual(originalString);
+    });
+
+    it('should handle UTF-8 special characters correctly', () => {
+      // Arrange
+      const specialCharsString = 'Special characters: áéíóú ñ ç ß Ø 你好';
+      
+      // Act
+      const binaryData = kafkaService.stringToBinary(specialCharsString);
+      const recoveredString = kafkaService.binaryToString(binaryData);
+      
+      // Assert
+      expect(recoveredString).toEqual(specialCharsString);
+    });
+
+    it('should handle empty strings', () => {
+      // Arrange
+      const emptyString = '';
+      
+      // Act
+      const binaryData = kafkaService.stringToBinary(emptyString);
+      const recoveredString = kafkaService.binaryToString(binaryData);
+      
+      // Assert
+      expect(binaryData.length).toBe(0);
+      expect(recoveredString).toEqual(emptyString);
+    });
+  });
+
+  describe('Complete Message Serialization', () => {
+    it('should serialize a complete Kafka message with headers and payload', async () => {
+      // Arrange
+      const event = sampleHealthEvent;
+      const metadata = sampleEventMetadata;
+      const topic = 'health.events';
+      const key = 'user-123';
+      
+      const mockJsonBuffer = Buffer.from(JSON.stringify(event));
+      jest.spyOn(kafkaService, 'serializeToJson').mockResolvedValue(mockJsonBuffer);
+      jest.spyOn(kafkaService, 'serializeHeaders').mockReturnValue({
+        correlationId: Buffer.from(metadata.correlationId),
+        timestamp: Buffer.from(metadata.timestamp),
+        source: Buffer.from(metadata.source),
+        version: Buffer.from(metadata.version),
+      });
+      
+      // Act
+      const message = await kafkaService.createKafkaMessage(topic, event, key, metadata);
+      
+      // Assert
+      expect(message).toEqual({
+        topic,
+        messages: [
+          {
+            key: Buffer.from(key),
+            value: mockJsonBuffer,
+            headers: {
+              correlationId: Buffer.from(metadata.correlationId),
+              timestamp: Buffer.from(metadata.timestamp),
+              source: Buffer.from(metadata.source),
+              version: Buffer.from(metadata.version),
+            },
+          },
+        ],
+      });
+    });
+
+    it('should deserialize a complete Kafka message with headers and payload', async () => {
+      // Arrange
+      const kafkaMessage: KafkaMessage = {
+        key: Buffer.from('user-123'),
+        value: Buffer.from(JSON.stringify(sampleHealthEvent)),
+        timestamp: '1620000000000',
+        size: 100,
+        attributes: 0,
+        offset: '0',
+        headers: {
+          correlationId: Buffer.from(sampleEventMetadata.correlationId),
+          timestamp: Buffer.from(sampleEventMetadata.timestamp),
+          source: Buffer.from(sampleEventMetadata.source),
+          version: Buffer.from(sampleEventMetadata.version),
+        },
       };
       
-      // Add 1000 properties
-      for (let i = 0; i < 1000; i++) {
-        largeEvent[`prop_${i}`] = `value_${i}`;
-      }
+      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(sampleHealthEvent);
+      jest.spyOn(kafkaService, 'deserializeHeaders').mockReturnValue(sampleEventMetadata);
       
-      // Add nested objects
-      largeEvent.nested = {};
-      for (let i = 0; i < 100; i++) {
-        (largeEvent.nested as Record<string, unknown>)[`nested_${i}`] = {
-          id: `nested_${i}`,
-          values: Array.from({ length: 10 }, (_, j) => `nested_value_${i}_${j}`)
-        };
-      }
+      // Act
+      const result = await kafkaService.parseKafkaMessage<typeof sampleHealthEvent>(kafkaMessage);
       
-      // Measure serialization time
-      const startSerialize = performance.now();
-      const serialized = serializeEvent(largeEvent);
-      const serializeTime = performance.now() - startSerialize;
+      // Assert
+      expect(result).toEqual({
+        key: 'user-123',
+        value: sampleHealthEvent,
+        metadata: sampleEventMetadata,
+      });
+    });
+  });
+
+  describe('Versioned Events', () => {
+    it('should serialize a versioned event', async () => {
+      // Arrange
+      const versionedEvent = sampleVersionedEvent;
+      const mockJsonBuffer = Buffer.from(JSON.stringify(versionedEvent));
       
-      // Measure deserialization time
-      const startDeserialize = performance.now();
-      const deserialized = deserializeEvent(serialized);
-      const deserializeTime = performance.now() - startDeserialize;
+      jest.spyOn(kafkaService, 'serializeToJson').mockResolvedValue(mockJsonBuffer);
       
-      // Log performance metrics (these are not assertions, just informational)
-      console.log(`Serialization time: ${serializeTime.toFixed(2)}ms`);
-      console.log(`Deserialization time: ${deserializeTime.toFixed(2)}ms`);
-      console.log(`Serialized size: ${serialized.length} bytes`);
+      // Act
+      const result = await kafkaService.serializeVersionedEvent(versionedEvent);
       
-      // Verify the result is correct
-      expect(deserialized).toEqual(largeEvent);
+      // Assert
+      expect(kafkaService.serializeToJson).toHaveBeenCalledWith(versionedEvent);
+      expect(result).toEqual(mockJsonBuffer);
+    });
+
+    it('should deserialize to a versioned event', async () => {
+      // Arrange
+      const versionedEventBuffer = Buffer.from(JSON.stringify(sampleVersionedEvent));
+      
+      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(sampleVersionedEvent);
+      
+      // Act
+      const result = await kafkaService.deserializeToVersionedEvent<typeof sampleHealthEvent>(versionedEventBuffer);
+      
+      // Assert
+      expect(kafkaService.deserializeFromJson).toHaveBeenCalledWith(versionedEventBuffer);
+      expect(result).toEqual(sampleVersionedEvent);
+    });
+
+    it('should validate schema version during deserialization', async () => {
+      // Arrange
+      const oldVersionedEvent = {
+        schemaVersion: '0.5.0',
+        payload: sampleHealthEvent,
+      };
+      const versionedEventBuffer = Buffer.from(JSON.stringify(oldVersionedEvent));
+      
+      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(oldVersionedEvent);
+      
+      // Act & Assert
+      await expect(kafkaService.deserializeToVersionedEvent<typeof sampleHealthEvent>(
+        versionedEventBuffer,
+        { minVersion: '1.0.0' }
+      )).rejects.toThrow(/incompatible schema version/);
     });
   });
 });
