@@ -1,56 +1,42 @@
 /**
- * Date utilities
+ * Date Utilities Package
  * 
- * This module serves as the main entry point for all date-related utilities,
- * re-exporting functions from specialized modules to provide a convenient
- * single import point while enabling selective imports and tree-shaking.
+ * This package provides a comprehensive set of date manipulation, formatting, parsing,
+ * and validation utilities for use across the AUSTA SuperApp. It ensures consistent
+ * date handling across all services and journeys.
  * 
- * @example Import all date utilities
- * ```typescript
- * import * as DateUtils from '@austa/utils/date';
+ * The utilities are organized into logical categories for better maintainability
+ * and to enable selective imports for tree-shaking, while still providing a
+ * convenient entry point for importing all date utilities from a single location.
  * 
- * // Use any date utility
- * const formattedDate = DateUtils.formatDate(new Date());
- * ```
- * 
- * @example Import specific utilities
- * ```typescript
- * import { formatDate, formatTime } from '@austa/utils/date';
- * 
- * // Use specific utilities
- * const formattedDate = formatDate(new Date());
- * ```
- * 
- * @example Import from specialized modules (enables better tree-shaking)
- * ```typescript
- * import { formatDate } from '@austa/utils/date/format';
- * import { calculateAge } from '@austa/utils/date/calculation';
- * ```
+ * @packageDocumentation
  */
 
-// Re-export all date-related constants
-export * from './constants';
+// Re-export all date utilities from their respective modules
 
-// Re-export all date formatting utilities
-export * from './format';
-
-// Re-export all date parsing utilities
-export * from './parse';
-
-// Re-export all date validation utilities
-export * from './validation';
-
-// Re-export all date range utilities
-export * from './range';
-
-// Re-export all date comparison utilities
-export * from './comparison';
-
-// Re-export all date calculation utilities
+// Calculation utilities
 export * from './calculation';
 
-// Re-export all timezone utilities
+// Comparison utilities
+export * from './comparison';
+
+// Constants and types
+export * from './constants';
+
+// Formatting utilities
+export * from './format';
+
+// Journey-specific utilities
+export * from './journey';
+
+// Parsing utilities
+export * from './parse';
+
+// Range utilities
+export * from './range';
+
+// Timezone utilities
 export * from './timezone';
 
-// Re-export all journey-specific date utilities
-export * from './journey';
+// Validation utilities
+export * from './validation';
