@@ -15,18 +15,3 @@ CREATE TABLE "medical_events" (
 
 -- CreateIndex
 CREATE INDEX "medical_events_recordId_type_idx" ON "medical_events"("recordId", "type");
-
--- Create trigger function for automatic updatedAt timestamp
-CREATE OR REPLACE FUNCTION update_modified_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW."updatedAt" = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger for medical_events table
-CREATE TRIGGER update_medical_events_modtime
-BEFORE UPDATE ON "medical_events"
-FOR EACH ROW
-EXECUTE FUNCTION update_modified_column();
