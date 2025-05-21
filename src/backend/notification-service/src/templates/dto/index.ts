@@ -5,7 +5,6 @@
  * and promoting code organization in accordance with the standardized module resolution architecture.
  */
 
-// Export all DTOs from the templates/dto directory
 export * from './create-notification-template.dto';
 export * from './update-notification-template.dto';
 export * from './find-template.dto';
