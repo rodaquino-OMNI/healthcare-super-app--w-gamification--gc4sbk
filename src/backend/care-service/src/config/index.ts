@@ -1,413 +1,248 @@
 /**
- * Configuration Module for Care Service
+ * Care Service Configuration Module
  * 
  * This module provides a clean public API for the Care Service configuration,
  * exporting configuration factory functions, types, constants, and utility methods.
- * It serves as the main entry point for importing configuration across the Care Service.
+ * It serves as the main entry point for importing configuration across the Care Service,
+ * enabling standardized imports and hiding implementation details.
  */
 
-import { ConfigType, ConfigModule, ConfigService } from '@nestjs/config';
+// Export the main configuration object
+export { configuration } from './configuration';
+
+// Export the validation schema
+export { validationSchema } from './validation.schema';
+
+// Import types from NestJS for type definitions
+import { ConfigType } from '@nestjs/config';
 import { configuration } from './configuration';
-import { validationSchema } from './validation.schema';
 
 /**
- * Type definition for the Care Service configuration
- * Provides type safety when accessing configuration values
+ * Type definition for the Care Service configuration object.
+ * This provides type safety when accessing configuration values.
  */
 export type CareServiceConfig = ConfigType<typeof configuration>;
 
 /**
- * Database configuration interface
+ * Type definition for the database configuration section.
  */
-export interface DatabaseConfig {
-  url: string;
-  maxConnections: number;
-  idleTimeoutMillis: number;
-  ssl: boolean;
-}
+export type DatabaseConfig = CareServiceConfig['database'];
 
 /**
- * Redis configuration interface
+ * Type definition for the Redis configuration section.
  */
-export interface RedisConfig {
-  url: string;
-  ttl: number;
-  prefix: string;
-}
+export type RedisConfig = CareServiceConfig['redis'];
 
 /**
- * Authentication configuration interface
+ * Type definition for the authentication configuration section.
  */
-export interface AuthConfig {
-  jwtSecret: string;
-  jwtExpiresIn: string;
-  oauth: {
-    authority: string;
-    clientId: string;
-    clientSecret: string;
-    audience: string;
-  };
-}
+export type AuthConfig = CareServiceConfig['auth'];
 
 /**
- * Provider systems integration configuration interface
+ * Type definition for the provider systems integration configuration section.
  */
-export interface ProvidersConfig {
-  apiUrl: string;
-  apiKey: string;
-  timeout: number;
-  cacheEnabled: boolean;
-  cacheTtl: number;
-  retryAttempts: number;
-  retryDelay: number;
-}
+export type ProvidersConfig = CareServiceConfig['providers'];
 
 /**
- * Appointment scheduling configuration interface
+ * Type definition for the appointment scheduling configuration section.
  */
-export interface AppointmentsConfig {
-  maxAdvanceDays: number;
-  reminderSchedule: string;
-  defaultDuration: number;
-  cancellationPolicy: {
-    enabled: boolean;
-    minimumNoticeHours: number;
-    penaltyXpLoss: number;
-  };
-  availabilityBuffer: number;
-}
+export type AppointmentsConfig = CareServiceConfig['appointments'];
 
 /**
- * Telemedicine configuration interface
+ * Type definition for the telemedicine configuration section.
  */
-export interface TelemedicineConfig {
-  enabled: boolean;
-  provider: string;
-  agora: {
-    appId: string;
-    appCertificate: string;
-    tokenExpirationTimeInSeconds: number;
-  };
-  recordingEnabled: boolean;
-  recordingStorage: {
-    bucket: string;
-    region: string;
-    retentionDays: number;
-  };
-  qualityThresholds: {
-    minimumBitrate: number;
-    minimumFramerate: number;
-    connectionTimeout: number;
-  };
-  sessionDuration: {
-    default: number;
-    maximum: number;
-    warningTime: number;
-  };
-}
+export type TelemedicineConfig = CareServiceConfig['telemedicine'];
 
 /**
- * Medication tracking configuration interface
+ * Type definition for the medication tracking configuration section.
  */
-export interface MedicationsConfig {
-  reminderEnabled: boolean;
-  reminderDefaultTime: string;
-  adherenceThreshold: number;
-  refillReminderDays: number;
-  maxMissedDoses: number;
-  doseWindowMinutes: number;
-}
+export type MedicationsConfig = CareServiceConfig['medications'];
 
 /**
- * Treatment plans configuration interface
+ * Type definition for the treatment plans configuration section.
  */
-export interface TreatmentPlansConfig {
-  reminderEnabled: boolean;
-  progressUpdateFrequency: string;
-  progressThresholds: {
-    atRisk: number;
-    onTrack: number;
-  };
-  interventionTriggers: {
-    missedActivities: number;
-    missedAppointments: number;
-  };
-}
+export type TreatmentPlansConfig = CareServiceConfig['treatmentPlans'];
 
 /**
- * Symptom checker configuration interface
+ * Type definition for the symptom checker configuration section.
  */
-export interface SymptomsCheckerConfig {
-  enabled: boolean;
-  provider: string;
-  externalApi: {
-    url: string;
-    apiKey: string;
-    timeout: number;
-  };
-  emergencySymptoms: string;
-  updateFrequency: string;
-}
+export type SymptomsCheckerConfig = CareServiceConfig['symptomsChecker'];
 
 /**
- * Notification service integration configuration interface
+ * Type definition for the notification service integration configuration section.
  */
-export interface NotificationsConfig {
-  serviceUrl: string;
-  apiKey: string;
-  defaultChannel: string;
-  throttling: {
-    enabled: boolean;
-    maxPerHour: number;
-    maxPerDay: number;
-  };
-  templates: {
-    appointmentReminder: string;
-    appointmentConfirmation: string;
-    medicationReminder: string;
-    treatmentUpdate: string;
-  };
-}
+export type NotificationsConfig = CareServiceConfig['notifications'];
 
 /**
- * Gamification integration configuration interface
+ * Type definition for the gamification integration configuration section.
  */
-export interface GamificationConfig {
-  enabled: boolean;
-  serviceUrl: string;
-  apiKey: string;
-  defaultEvents: {
-    appointmentBooked: string;
-    appointmentAttended: string;
-    appointmentCancelled: string;
-    telemedicineCompleted: string;
-    medicationAdherence: string;
-    treatmentProgress: string;
-    symptomCheckerCompleted: string;
-  };
-  pointValues: {
-    appointmentBooked: number;
-    appointmentAttended: number;
-    telemedicineCompleted: number;
-    medicationPerfectWeek: number;
-    treatmentMilestone: number;
-  };
-}
+export type GamificationConfig = CareServiceConfig['gamification'];
 
 /**
- * External integrations configuration interface
+ * Type definition for the external integrations configuration section.
  */
-export interface IntegrationsConfig {
-  pharmacyNetworks: {
-    enabled: boolean;
-    apiUrl: string;
-    apiKey: string;
-    timeout: number;
-    cacheEnabled: boolean;
-    cacheTtl: number;
-  };
-  emergencyServices: {
-    enabled: boolean;
-    apiUrl: string;
-    apiKey: string;
-    emergencyNumber: string;
-  };
-}
+export type IntegrationsConfig = CareServiceConfig['integrations'];
 
 /**
- * Logging and monitoring configuration interface
+ * Type definition for the logging and monitoring configuration section.
  */
-export interface LoggingConfig {
-  level: string;
-  format: string;
-  requestLogging: boolean;
-  sensitiveDataFields: string;
-  journeyContext: string;
-}
+export type LoggingConfig = CareServiceConfig['logging'];
 
 /**
- * Feature flags configuration interface
+ * Type definition for the feature flags configuration section.
  */
-export interface FeaturesConfig {
-  enableSymptomsChecker: boolean;
-  enableTreatmentTracking: boolean;
-  enableEmergencyAccess: boolean;
-  enableVirtualWaitingRoom: boolean;
-  enableProviderRatings: boolean;
-  enableDocumentSharing: boolean;
-  enableFollowUpSuggestions: boolean;
-}
+export type FeaturesConfig = CareServiceConfig['features'];
 
 /**
- * Factory function to create a NestJS ConfigModule for the Care Service
- * @param envFilePath Path to the environment file
- * @returns A dynamically configured NestJS ConfigModule
+ * Configuration module for the Care Service.
+ * 
+ * This module provides factory functions and utilities for accessing configuration values.
  */
-export const createCareConfigModule = (envFilePath?: string | string[]) => {
-  return ConfigModule.forRoot({
-    load: [configuration],
-    validationSchema,
-    envFilePath,
-    isGlobal: true,
-    cache: true,
-    expandVariables: true,
-  });
+export const CareServiceConfigModule = {
+  /**
+   * Creates a NestJS ConfigModule for the Care Service.
+   * 
+   * @returns A configured NestJS ConfigModule for the Care Service.
+   */
+  forRoot() {
+    const { ConfigModule } = require('@nestjs/config');
+    return ConfigModule.forRoot({
+      load: [configuration],
+      validationSchema,
+      validationOptions: {
+        abortEarly: false,
+      },
+      isGlobal: true,
+    });
+  },
+
+  /**
+   * Creates a NestJS ConfigModule for the Care Service with custom options.
+   * 
+   * @param options Custom options for the ConfigModule.
+   * @returns A configured NestJS ConfigModule for the Care Service.
+   */
+  forRootAsync(options: any) {
+    const { ConfigModule } = require('@nestjs/config');
+    return ConfigModule.forRootAsync({
+      ...options,
+      load: [configuration],
+    });
+  },
 };
 
 /**
- * Utility class for accessing Care Service configuration values
- * Provides type-safe access to configuration properties
+ * Utility functions for accessing configuration values.
  */
-export class CareConfigService {
-  constructor(private configService: ConfigService) {}
+export const ConfigUtils = {
+  /**
+   * Gets a configuration value from the Care Service configuration.
+   * 
+   * @param config The Care Service configuration object.
+   * @param path The path to the configuration value, using dot notation.
+   * @param defaultValue The default value to return if the configuration value is not found.
+   * @returns The configuration value, or the default value if not found.
+   */
+  get<T>(config: CareServiceConfig, path: string, defaultValue?: T): T {
+    const parts = path.split('.');
+    let current: any = config;
+
+    for (const part of parts) {
+      if (current === undefined || current === null) {
+        return defaultValue as T;
+      }
+      current = current[part];
+    }
+
+    return current !== undefined ? current : defaultValue as T;
+  },
 
   /**
-   * Get the complete Care Service configuration
-   * @returns The complete typed configuration object
+   * Gets a database configuration value.
+   * 
+   * @param config The Care Service configuration object.
+   * @param key The database configuration key.
+   * @param defaultValue The default value to return if the configuration value is not found.
+   * @returns The database configuration value, or the default value if not found.
    */
-  public getConfig(): CareServiceConfig {
-    return this.configService.get<CareServiceConfig>('care');
-  }
+  getDatabase<K extends keyof DatabaseConfig, T extends DatabaseConfig[K]>(
+    config: CareServiceConfig,
+    key: K,
+    defaultValue?: T
+  ): T {
+    return config.database?.[key] !== undefined 
+      ? (config.database[key] as T) 
+      : defaultValue as T;
+  },
 
   /**
-   * Get database configuration
-   * @returns Database configuration object
+   * Gets a feature flag value.
+   * 
+   * @param config The Care Service configuration object.
+   * @param featureKey The feature flag key.
+   * @param defaultValue The default value to return if the feature flag is not found.
+   * @returns The feature flag value, or the default value if not found.
    */
-  public getDatabaseConfig(): DatabaseConfig {
-    return this.configService.get<CareServiceConfig>('care').database;
-  }
+  isFeatureEnabled(
+    config: CareServiceConfig,
+    featureKey: keyof FeaturesConfig,
+    defaultValue = false
+  ): boolean {
+    return config.features?.[featureKey] !== undefined 
+      ? Boolean(config.features[featureKey]) 
+      : defaultValue;
+  },
 
   /**
-   * Get Redis configuration
-   * @returns Redis configuration object
+   * Gets a gamification event type.
+   * 
+   * @param config The Care Service configuration object.
+   * @param eventKey The gamification event key.
+   * @returns The gamification event type, or undefined if not found.
    */
-  public getRedisConfig(): RedisConfig {
-    return this.configService.get<CareServiceConfig>('care').redis;
-  }
+  getGamificationEvent(
+    config: CareServiceConfig,
+    eventKey: keyof GamificationConfig['defaultEvents']
+  ): string | undefined {
+    return config.gamification?.defaultEvents?.[eventKey];
+  },
 
   /**
-   * Get authentication configuration
-   * @returns Authentication configuration object
+   * Gets a notification template ID.
+   * 
+   * @param config The Care Service configuration object.
+   * @param templateKey The notification template key.
+   * @returns The notification template ID, or undefined if not found.
    */
-  public getAuthConfig(): AuthConfig {
-    return this.configService.get<CareServiceConfig>('care').auth;
-  }
-
-  /**
-   * Get providers configuration
-   * @returns Providers configuration object
-   */
-  public getProvidersConfig(): ProvidersConfig {
-    return this.configService.get<CareServiceConfig>('care').providers;
-  }
-
-  /**
-   * Get appointments configuration
-   * @returns Appointments configuration object
-   */
-  public getAppointmentsConfig(): AppointmentsConfig {
-    return this.configService.get<CareServiceConfig>('care').appointments;
-  }
-
-  /**
-   * Get telemedicine configuration
-   * @returns Telemedicine configuration object
-   */
-  public getTelemedicineConfig(): TelemedicineConfig {
-    return this.configService.get<CareServiceConfig>('care').telemedicine;
-  }
-
-  /**
-   * Get medications configuration
-   * @returns Medications configuration object
-   */
-  public getMedicationsConfig(): MedicationsConfig {
-    return this.configService.get<CareServiceConfig>('care').medications;
-  }
-
-  /**
-   * Get treatment plans configuration
-   * @returns Treatment plans configuration object
-   */
-  public getTreatmentPlansConfig(): TreatmentPlansConfig {
-    return this.configService.get<CareServiceConfig>('care').treatmentPlans;
-  }
-
-  /**
-   * Get symptoms checker configuration
-   * @returns Symptoms checker configuration object
-   */
-  public getSymptomsCheckerConfig(): SymptomsCheckerConfig {
-    return this.configService.get<CareServiceConfig>('care').symptomsChecker;
-  }
-
-  /**
-   * Get notifications configuration
-   * @returns Notifications configuration object
-   */
-  public getNotificationsConfig(): NotificationsConfig {
-    return this.configService.get<CareServiceConfig>('care').notifications;
-  }
-
-  /**
-   * Get gamification configuration
-   * @returns Gamification configuration object
-   */
-  public getGamificationConfig(): GamificationConfig {
-    return this.configService.get<CareServiceConfig>('care').gamification;
-  }
-
-  /**
-   * Get integrations configuration
-   * @returns Integrations configuration object
-   */
-  public getIntegrationsConfig(): IntegrationsConfig {
-    return this.configService.get<CareServiceConfig>('care').integrations;
-  }
-
-  /**
-   * Get logging configuration
-   * @returns Logging configuration object
-   */
-  public getLoggingConfig(): LoggingConfig {
-    return this.configService.get<CareServiceConfig>('care').logging;
-  }
-
-  /**
-   * Get features configuration
-   * @returns Features configuration object
-   */
-  public getFeaturesConfig(): FeaturesConfig {
-    return this.configService.get<CareServiceConfig>('care').features;
-  }
-
-  /**
-   * Check if a feature is enabled
-   * @param featureName Name of the feature to check
-   * @returns Boolean indicating if the feature is enabled
-   */
-  public isFeatureEnabled(featureName: keyof FeaturesConfig): boolean {
-    return this.getFeaturesConfig()[featureName];
-  }
-}
-
-// Export configuration and validation schema
-export { configuration, validationSchema };
-
-// Export constants for configuration keys
-export const CONFIG_NAMESPACE = 'care';
-
-// Export provider token for dependency injection
-export const CARE_CONFIG_SERVICE = 'CARE_CONFIG_SERVICE';
+  getNotificationTemplate(
+    config: CareServiceConfig,
+    templateKey: keyof NotificationsConfig['templates']
+  ): string | undefined {
+    return config.notifications?.templates?.[templateKey];
+  },
+};
 
 /**
- * Provider definition for CareConfigService
- * Use this to inject the CareConfigService into NestJS components
+ * Constants for the Care Service configuration.
  */
-export const CareConfigServiceProvider = {
-  provide: CARE_CONFIG_SERVICE,
-  useFactory: (configService: ConfigService) => {
-    return new CareConfigService(configService);
-  },
-  inject: [ConfigService],
+export const ConfigConstants = {
+  /**
+   * The default journey context for the Care Service.
+   */
+  JOURNEY_CONTEXT: 'care',
+
+  /**
+   * The default API prefix for the Care Service.
+   */
+  DEFAULT_API_PREFIX: 'api/v1',
+
+  /**
+   * The default port for the Care Service.
+   */
+  DEFAULT_PORT: 3002,
+
+  /**
+   * The environment variable prefix for the Care Service.
+   */
+  ENV_PREFIX: 'CARE_SERVICE_',
 };
