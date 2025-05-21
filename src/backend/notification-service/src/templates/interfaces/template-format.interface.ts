@@ -1,145 +1,120 @@
 /**
  * Interfaces for template formatting operations in the notification service.
  * These interfaces define the contract for replacing placeholder variables in templates
- * with actual data, supporting the formatTemplateWithData method in TemplatesService.
+ * with actual data, supporting journey-specific customization and enhanced error handling.
  */
 
 import { NotificationTemplate } from '../entities/notification-template.entity';
 
 /**
- * Represents the journey types in the AUSTA SuperApp.
- * Used for journey-specific template customization.
- */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-}
-
-/**
- * Interface for template formatting options.
- * Defines the structure for placeholder data objects used in template formatting.
+ * Defines the options for template formatting operations.
+ * Provides type-safe structure for placeholder data and formatting preferences.
  */
 export interface ITemplateFormattingOptions {
   /**
-   * The data object containing values to replace placeholders in the template.
-   * Keys should match the placeholder names in the template (without {{ }}).
+   * Data object containing values to replace placeholders in the template.
+   * Keys should match the placeholder names in the template (without {{ }} delimiters).
+   * Example: { userName: 'João', appointmentTime: '14:00' }
    */
-  data: Record<string, string | number | boolean>;
-  
+  data: Record<string, any>;
+
   /**
    * Optional journey context for journey-specific template customization.
-   * When provided, enables journey-specific formatting rules.
+   * Valid values are 'health', 'care', 'plan' or undefined.
    */
-  journeyContext?: JourneyType;
-  
+  journeyContext?: 'health' | 'care' | 'plan';
+
   /**
-   * Optional flag to throw errors when placeholders are not found in the data object.
-   * When true, missing placeholders will cause an error instead of being left unchanged.
-   * Default is false (missing placeholders are left as-is).
+   * Optional language preference for the template.
+   * If provided, will be used to select the appropriate language version of the template.
+   * Format should follow ISO 639-1 with optional region (e.g., 'pt-BR', 'en-US').
+   */
+  language?: string;
+
+  /**
+   * Optional flag to throw an error if a placeholder is not found in the data object.
+   * If true, the formatting operation will throw an error when a placeholder cannot be replaced.
+   * If false (default), missing placeholders will be left unchanged in the output.
    */
   strictMode?: boolean;
-  
+
   /**
-   * Optional custom placeholder pattern.
-   * Defaults to {{variableName}} if not specified.
+   * Optional custom placeholder pattern to use instead of the default {{variableName}} pattern.
+   * Should be a regular expression with a capturing group for the variable name.
+   * Example: /\{\{(\w+)\}\}/g for the default {{variableName}} pattern.
    */
   placeholderPattern?: RegExp;
 }
 
 /**
- * Interface for the formatted template result.
- * Specifies the return type for formatted template outputs.
+ * Represents the result of a template formatting operation.
+ * Provides a type-safe structure for the formatted template output.
  */
 export interface IFormattedTemplate {
   /**
-   * The original template ID.
-   */
-  id: string;
-  
-  /**
-   * The template identifier.
+   * The original template ID that was formatted.
    */
   templateId: string;
-  
+
   /**
-   * The formatted template title with placeholders replaced.
+   * The formatted title with placeholders replaced by actual data.
    */
   title: string;
-  
+
   /**
-   * The formatted template body with placeholders replaced.
+   * The formatted body with placeholders replaced by actual data.
    */
   body: string;
-  
+
   /**
-   * The language of the template.
+   * The language of the formatted template.
    */
   language: string;
-  
+
   /**
-   * The channel for which this template is intended (email, sms, push, in-app).
+   * The channels through which this notification can be delivered.
    */
-  channel: string;
-  
-  /**
-   * Optional metadata for the template.
-   */
-  metadata?: Record<string, any>;
-  
-  /**
-   * List of placeholders that were successfully replaced.
-   */
-  replacedPlaceholders: string[];
-  
-  /**
-   * List of placeholders that were not found in the data object.
-   * Empty if all placeholders were successfully replaced or if none were found.
-   */
-  missingPlaceholders: string[];
-  
+  channels: string[];
+
   /**
    * The journey context used for formatting, if any.
    */
-  journeyContext?: JourneyType;
-  
+  journeyContext?: 'health' | 'care' | 'plan';
+
   /**
-   * Flag indicating if the template was successfully formatted.
+   * Metadata about the formatting operation.
    */
-  isFormatted: boolean;
+  metadata: {
+    /**
+     * Timestamp when the template was formatted.
+     */
+    formattedAt: Date;
+
+    /**
+     * List of placeholder variables that were successfully replaced.
+     */
+    replacedVariables: string[];
+
+    /**
+     * List of placeholder variables that were not found in the data object.
+     * Only populated if strictMode is false and placeholders were left unchanged.
+     */
+    missingVariables?: string[];
+  };
 }
 
 /**
- * Interface for template formatting errors.
- * Provides structured error information for template formatting failures.
+ * Interface for the template formatting service.
+ * Defines the contract for services that perform template formatting operations.
  */
-export interface ITemplateFormattingError extends Error {
+export interface ITemplateFormatter {
   /**
-   * The template ID that caused the error.
+   * Formats a template by replacing placeholders with actual data.
+   * 
+   * @param template The notification template to format
+   * @param options The formatting options including data for placeholder replacement
+   * @returns A formatted template with placeholders replaced by actual data
+   * @throws Error if strictMode is true and a placeholder cannot be replaced
    */
-  templateId: string;
-  
-  /**
-   * The specific placeholders that caused the error.
-   */
-  placeholders: string[];
-  
-  /**
-   * The journey context in which the error occurred, if any.
-   */
-  journeyContext?: JourneyType;
-  
-  /**
-   * Additional error details.
-   */
-  details: Record<string, any>;
+  formatTemplate(template: NotificationTemplate, options: ITemplateFormattingOptions): IFormattedTemplate;
 }
-
-/**
- * Type for a function that formats a template with data.
- * Defines the signature for template formatting functions.
- */
-export type TemplateFormatter = (
-  template: NotificationTemplate,
-  options: ITemplateFormattingOptions
-) => IFormattedTemplate | Promise<IFormattedTemplate>;
