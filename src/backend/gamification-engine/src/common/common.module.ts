@@ -26,7 +26,7 @@ import { RetryStrategy } from './kafka/retry.strategy';
 
 // Import exception filters and utilities
 import { AppExceptionBase } from './exceptions/app-exception.base';
-import { ExceptionFilter } from './exceptions/exception.filter';
+import { GamificationExceptionFilter } from './exceptions/exception.filter';
 import { CircuitBreaker } from './exceptions/circuit-breaker';
 
 // Import decorators
@@ -101,7 +101,7 @@ import * as utils from './utils';
     RetryStrategy,
     
     // Exception handling
-    ExceptionFilter,
+    GamificationExceptionFilter,
     CircuitBreaker,
     
     // Utility providers
@@ -124,7 +124,7 @@ import * as utils from './utils';
     RetryStrategy,
     
     // Export exception handling
-    ExceptionFilter,
+    GamificationExceptionFilter,
     CircuitBreaker,
     
     // Export utility services
