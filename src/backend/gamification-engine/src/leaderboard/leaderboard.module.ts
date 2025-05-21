@@ -1,24 +1,17 @@
-import { Module } from '@nestjs/common';
-import { LeaderboardController } from './leaderboard.controller';
+import { Module } from '@nestjs/common'; // 10.3.0
 import { LeaderboardService } from './leaderboard.service';
-import { ProfilesModule } from '@app/profiles/profiles.module';
-import { RedisModule } from '@app/shared/redis/redis.module';
-import { LoggingModule } from '@app/logging';
-import { TracingModule } from '@app/tracing';
+import { LeaderboardController } from './leaderboard.controller';
+import { RedisModule } from '@app/shared/redis';
 
 /**
- * Module for leaderboard functionality
- * Provides controllers and services for retrieving leaderboard data
+ * Module for handling leaderboard functionality in the gamification engine.
+ * Provides services for calculating and retrieving leaderboard data based on
+ * user achievements and XP across different journeys.
  */
 @Module({
-  imports: [
-    ProfilesModule,
-    RedisModule,
-    LoggingModule,
-    TracingModule
-  ],
+  imports: [RedisModule],
   controllers: [LeaderboardController],
   providers: [LeaderboardService],
-  exports: [LeaderboardService]
+  exports: [LeaderboardService],
 })
 export class LeaderboardModule {}
