@@ -5,6 +5,7 @@ import { PreferencesModule } from '@app/preferences/preferences.module';
 import { TemplatesModule } from '@app/templates/templates.module';
 import { WebsocketsModule } from '@app/websockets/websockets.module';
 import { RetryModule } from '@app/retry/retry.module';
+import { ChannelsModule } from '@app/channels/channels.module';
 import { KafkaModule } from '@austa/events/kafka/kafka.module';
 import { LoggerModule } from '@austa/logging/logger.module';
 import { TracingModule } from '@austa/tracing/tracing.module';
@@ -26,6 +27,9 @@ import { TracingModule } from '@austa/tracing/tracing.module';
     PreferencesModule, 
     TemplatesModule, 
     WebsocketsModule, 
+    
+    // Notification delivery channels
+    ChannelsModule,
     
     // Retry functionality for failed notifications
     RetryModule,
