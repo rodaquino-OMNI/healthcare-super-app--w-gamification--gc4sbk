@@ -189,7 +189,7 @@ export default {
   TransientException: require('./transient.exception').TransientException,
   
   // Utilities
-  ExceptionFilter: require('./exception.filter').ExceptionFilter,
+  GamificationExceptionFilter: require('./exception.filter').GamificationExceptionFilter,
   RetryUtils: require('./retry.utils'),
   CircuitBreaker: require('./circuit-breaker').CircuitBreaker,
   
