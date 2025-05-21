@@ -1,73 +1,129 @@
 # Gamification Engine Utilities
 
-## Overview
+This directory contains utility functions and classes used throughout the gamification engine to provide common functionality and ensure consistent implementation patterns.
 
-This directory contains utility functions and services used throughout the gamification engine to standardize common operations, ensure consistent error handling, and provide reusable functionality across different components.
+## Available Utilities
 
-## Key Utilities
+### Circuit Breaker (`circuit-breaker.util.ts`)
 
-### Event Processing Utility
+Implements the circuit breaker pattern for managing failures in external dependencies and services. Prevents cascading failures by automatically detecting repeated failures and temporarily disabling problematic operations with fallback mechanisms.
 
-The `event-processing.util.ts` file provides standardized event handling, schema validation, and event transformation within the gamification engine. It ensures consistent processing of events from all journeys and integrates with the retry mechanism for resilient event handling.
+#### Features
 
-#### Key Features
+- Configurable failure thresholds for opening the circuit
+- Automatic recovery with half-open state for testing service health
+- Fallback mechanism for graceful degradation of features
+- Integration with monitoring for tracking circuit breaker status
+- Method decorators for easy application to service methods
 
-- **Event Validation**: Validates events against standardized schemas defined in `@austa/interfaces`
-- **Event Enrichment**: Adds metadata and tracking information to events
-- **Journey-Specific Handling**: Provides specialized handling for health, care, and plan journey events
-- **Retry Mechanism**: Integrates with the retry service for resilient event processing
-- **Type Safety**: Implements strong typing for all event operations
+#### Usage Examples
 
-#### Usage Example
+**Basic Usage:**
 
 ```typescript
-// Inject the utility in your service
-constructor(private readonly eventProcessingUtil: EventProcessingUtil) {}
+import { createCircuitBreaker } from '@app/common/utils';
 
-// Validate an event
-if (this.eventProcessingUtil.validateEvent(event)) {
-  // Event is valid, proceed with processing
-}
+// Create a circuit breaker with default options
+const breaker = createCircuitBreaker('external-service');
 
-// Enrich an event with metadata
-const enrichedEvent = this.eventProcessingUtil.enrichEvent(event);
-
-// Process an event with retry capabilities
-const result = await this.eventProcessingUtil.processWithRetry(
-  enrichedEvent,
-  (e) => this.processEvent(e)
-);
-
-// Check if an event belongs to a specific journey
-if (this.eventProcessingUtil.isHealthEvent(event)) {
-  // Handle health journey event
+// Execute a function with circuit breaker protection
+try {
+  const result = await breaker.execute(async () => {
+    // Call to external service that might fail
+    return await externalService.getData();
+  });
+  // Process result
+} catch (error) {
+  // Handle error (could be CircuitBreakerOpenError or original error)
 }
 ```
 
-### Other Utilities
+**With Fallback:**
 
-- **date-time.util.ts**: Date and time utilities for managing achievement deadlines, quest durations, and reward expiration
-- **format.util.ts**: Data formatting utilities for standardizing event formats and normalizing achievement data
-- **circuit-breaker.util.ts**: Circuit breaker pattern implementation for managing failures in external dependencies
-- **logging.util.ts**: Gamification-specific logging utilities with correlation IDs for tracing events
-- **validation.util.ts**: Validation utilities using Zod/class-validator for consistent validation patterns
-- **retry.util.ts**: Retry utilities with configurable strategies and exponential backoff
-- **error-handling.util.ts**: Error handling framework with journey-specific error classification
+```typescript
+import { createCircuitBreaker } from '@app/common/utils';
 
-## Integration with Other Services
+// Create a circuit breaker with custom options
+const breaker = createCircuitBreaker('payment-service', {
+  failureThreshold: 3,     // Open after 3 failures
+  resetTimeout: 10000,      // Try again after 10 seconds
+  successThreshold: 2,      // Close after 2 successful calls
+  callTimeout: 5000         // Timeout calls after 5 seconds
+});
 
-These utilities are designed to work seamlessly with other services in the AUSTA SuperApp, particularly:
+// Execute with fallback
+const result = await breaker.executeWithFallback(
+  async () => {
+    return await paymentService.processPayment(amount);
+  },
+  async (error) => {
+    // Fallback logic when circuit is open or call fails
+    return { success: false, error: error.message };
+  }
+);
+```
 
-- **@austa/interfaces**: For standardized type definitions and schemas
-- **@austa/events**: For event production and consumption
-- **@austa/logging**: For structured logging
-- **@austa/tracing**: For distributed tracing
-- **@austa/errors**: For standardized error handling
+**Using Decorators:**
 
-## Best Practices
+```typescript
+import { WithCircuitBreaker, WithCircuitBreakerFallback } from '@app/common/utils';
 
-1. Always use these utilities instead of implementing custom solutions for common operations
-2. Ensure proper error handling by using the provided error handling utilities
-3. Leverage the retry mechanisms for operations that may fail transiently
-4. Use the journey-specific utilities to maintain consistent handling across all journeys
-5. Keep the utilities stateless to ensure they can be safely used across multiple services
+@Injectable()
+export class AchievementService {
+  constructor(private readonly externalService: ExternalService) {}
+
+  // Apply circuit breaker to method
+  @WithCircuitBreaker({
+    failureThreshold: 3,
+    resetTimeout: 30000,
+    successThreshold: 2
+  })
+  async getAchievementData(userId: string): Promise<AchievementData> {
+    return this.externalService.fetchAchievements(userId);
+  }
+
+  // Apply circuit breaker with fallback to method
+  @WithCircuitBreakerFallback(
+    {
+      failureThreshold: 3,
+      resetTimeout: 30000,
+      successThreshold: 2
+    },
+    async (error, userId: string) => {
+      // Fallback implementation
+      return { achievements: [], lastUpdated: new Date() };
+    }
+  )
+  async getUserRewards(userId: string): Promise<RewardData> {
+    return this.externalService.fetchRewards(userId);
+  }
+}
+```
+
+### Date Time (`date-time.util.ts`)
+
+Provides date and time calculation utilities for the gamification engine, essential for managing achievement deadlines, quest durations, and reward expiration.
+
+### Format (`format.util.ts`)
+
+Provides data formatting and transformation utilities for standardizing event formats, normalizing achievement data, and formatting user-facing notifications.
+
+### Logging (`logging.util.ts`)
+
+Gamification-specific logging utilities with correlation IDs that trace events across journey services.
+
+### Event Processing (`event-processing.util.ts`)
+
+Utilities for standardized event handling, schema validation, and event transformation within the gamification engine.
+
+### Validation (`validation.util.ts`)
+
+Validation utilities using Zod/class-validator for the gamification engine to ensure data integrity.
+
+### Retry (`retry.util.ts`)
+
+Configurable retry strategies with exponential backoff for handling transient failures in event processing and external service calls.
+
+### Error Handling (`error-handling.util.ts`)
+
+Comprehensive error handling framework with journey-specific error classification, standardized error codes, and context enrichment.
