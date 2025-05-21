@@ -1,92 +1,116 @@
+import { IsString, IsNotEmpty, IsJSON, IsBoolean, IsOptional, IsEnum, Matches, ValidateNested, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
-import { JourneyType } from '@austa/interfaces';
-import { RuleActionDto } from './rule-action.dto';
-import { EventType } from './rule-filter.dto';
+import { EventType, JourneyType } from '@austa/interfaces/gamification/events';
+import { RuleActionType } from '@austa/interfaces/gamification/rules';
 
 /**
- * Data Transfer Object for creating a new gamification rule.
- * 
- * Rules define when and how users earn rewards, points, or achievements
- * based on their actions within the application.
+ * Represents a single action to be performed when a rule is triggered.
+ */
+export class RuleActionDto {
+  /**
+   * The type of action to perform.
+   * Examples: AWARD_XP, PROGRESS_ACHIEVEMENT, UNLOCK_REWARD
+   */
+  @IsNotEmpty()
+  @IsEnum(RuleActionType, {
+    message: 'Action type must be a valid RuleActionType',
+  })
+  type: RuleActionType;
+
+  /**
+   * The value associated with the action.
+   * For AWARD_XP, this is the amount of XP to award.
+   * For PROGRESS_ACHIEVEMENT, this is the amount of progress to add.
+   */
+  @IsNotEmpty()
+  @IsString()
+  value: string;
+
+  /**
+   * Optional ID reference for the action target.
+   * For PROGRESS_ACHIEVEMENT, this would be the achievement ID.
+   * For UNLOCK_REWARD, this would be the reward ID.
+   */
+  @IsOptional()
+  @IsString()
+  targetId?: string;
+}
+
+/**
+ * Data transfer object for creating a new rule in the gamification engine.
+ * Rules define how user actions are translated into gamification rewards.
  */
 export class CreateRuleDto {
   /**
    * The name of the rule.
-   * @example 'Daily Step Goal'
+   * Should be descriptive and indicate the rule's purpose.
+   * Example: "Daily Step Goal Achieved", "First Appointment Booked"
    */
-  @IsNotEmpty({ message: 'Rule name is required' })
-  @IsString({ message: 'Rule name must be a string' })
+  @IsNotEmpty()
+  @IsString()
   name: string;
 
   /**
-   * A description of what the rule does.
-   * @example 'Awards XP when a user reaches their daily step goal'
+   * A detailed description of what the rule does and when it triggers.
    */
-  @IsNotEmpty({ message: 'Rule description is required' })
-  @IsString({ message: 'Rule description must be a string' })
+  @IsNotEmpty()
+  @IsString()
   description: string;
 
   /**
    * The type of event that triggers this rule.
-   * @example 'STEPS_RECORDED'
+   * Must be a valid EventType from the @austa/interfaces package.
    */
-  @IsNotEmpty({ message: 'Event type is required' })
-  @IsEnum(EventType, { message: 'Event type must be a valid EventType' })
+  @IsNotEmpty()
+  @IsEnum(EventType, {
+    message: 'Event type must be a valid EventType from @austa/interfaces',
+  })
   eventType: EventType;
 
   /**
-   * The specific journey this rule applies to (e.g., 'health', 'care', 'plan').
-   * If not specified, the rule applies to events from any journey.
-   * @example 'health'
+   * The journey associated with this rule.
+   * Specifies which user journey this rule belongs to.
    */
-  @IsOptional()
-  @IsEnum(JourneyType, { message: 'Journey must be a valid JourneyType' })
-  journey?: JourneyType;
+  @IsNotEmpty()
+  @IsEnum(JourneyType, {
+    message: 'Journey must be a valid JourneyType (health, care, plan)',
+  })
+  journey: JourneyType;
 
   /**
-   * The condition that determines if the rule should be triggered.
-   * This is a JavaScript expression that will be evaluated against the event data.
-   * @example 'event.data.steps >= 10000'
+   * A JavaScript expression that determines if the rule should be triggered.
+   * This condition will be evaluated at runtime with the event data.
+   * 
+   * Examples:
+   * - "event.data.steps >= 10000"
+   * - "event.data.appointmentType === 'TELEMEDICINE'"
+   * - "event.data.claimAmount > 100"
+   * 
+   * The condition must be a valid JavaScript expression and should only
+   * reference the event object and its properties for security reasons.
    */
-  @IsNotEmpty({ message: 'Condition is required' })
-  @IsString({ message: 'Condition must be a string' })
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^[\w\s.()>=<!=+\-*/'"\[\]{}]+$/, {
+    message: 'Condition must be a valid JavaScript expression',
+  })
   condition: string;
 
   /**
-   * The actions that specify what happens when the rule is triggered.
-   * Each action has a type and parameters specific to that type.
+   * An array of actions to be performed when the rule is triggered.
+   * Each action specifies what should happen when the rule condition is met.
    */
-  @IsNotEmpty({ message: 'At least one action is required' })
-  @IsArray({ message: 'Actions must be an array' })
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RuleActionDto)
   actions: RuleActionDto[];
 
   /**
-   * Priority of the rule (lower number = higher priority).
-   * Used to determine execution order when multiple rules match the same event.
-   * @example 10
+   * Whether the rule is enabled and should be evaluated.
+   * Disabled rules are ignored by the rule engine.
+   * Defaults to true if not specified.
    */
   @IsOptional()
-  @IsNumber({}, { message: 'Priority must be a number' })
-  @Min(0, { message: 'Priority must be a non-negative number' })
-  priority?: number = 100;
-
-  /**
-   * Indicates whether the rule is currently active.
-   * Inactive rules are not evaluated against incoming events.
-   * @example true
-   */
-  @IsOptional()
-  @IsBoolean({ message: 'Enabled flag must be a boolean' })
-  enabled?: boolean = true;
-
-  /**
-   * Optional metadata for the rule.
-   * Can contain additional information specific to the rule type or journey.
-   */
-  @IsOptional()
-  @IsObject({ message: 'Metadata must be an object' })
-  metadata?: Record<string, any>;
+  @IsBoolean()
+  enabled: boolean = true;
 }
