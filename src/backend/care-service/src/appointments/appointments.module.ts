@@ -1,40 +1,47 @@
-import { Module } from '@nestjs/common'; // v10.3.0+
-
+import { Module } from '@nestjs/common';
 import { AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
 import { PrismaService } from '@app/shared/database/prisma.service';
 import { ProvidersModule } from '../providers/providers.module';
 import { TelemedicineModule } from '../telemedicine/telemedicine.module';
 import { KafkaModule } from '@app/shared/kafka/kafka.module';
+import { ExceptionsModule } from '@app/shared/exceptions/exceptions.module';
+import { LoggerModule } from '@app/shared/logging/logger.module';
 
 /**
- * AppointmentsModule encapsulates all appointment-related functionality within the Care Service.
- * It configures dependency injection for the AppointmentsController and AppointmentsService,
- * and imports required dependencies from other modules.
- *
- * This module implements the following requirements:
- * - Clarifies service boundaries between journey services
- * - Establishes proper package exposure patterns with clear public APIs
- * - Creates standardized module resolution across the monorepo
- * - Implements consistent dependency management between services
+ * Appointments Module for the Care Journey
+ * 
+ * This module is responsible for managing healthcare appointments within the Care Journey,
+ * enabling users to schedule, reschedule, and manage appointments with healthcare providers.
+ * It implements the appointment booking requirements for the Care Now journey (F-102-RQ-002).
+ * 
+ * The module provides functionality for:
+ * - Creating and scheduling appointments with healthcare providers
+ * - Managing appointment status (scheduled, confirmed, completed, cancelled)
+ * - Initiating telemedicine sessions for virtual appointments
+ * - Publishing appointment-related events for gamification and notifications
+ * 
+ * The module integrates with:
+ * - Providers module for healthcare provider information and availability
+ * - Telemedicine module for virtual appointment sessions
+ * - Kafka for event streaming (appointment created, updated, completed events)
+ * - Prisma for database access with proper connection management
+ * 
+ * @module AppointmentsModule
  */
 @Module({
   imports: [
-    // Import ProvidersModule to use ProvidersService for provider availability checks
-    ProvidersModule,
-    // Import TelemedicineModule to use TelemedicineService for telemedicine session management
-    TelemedicineModule,
-    // Import KafkaModule for event streaming capabilities
+    // Core infrastructure modules
     KafkaModule,
+    LoggerModule,
+    ExceptionsModule,
+    
+    // Feature modules
+    ProvidersModule,
+    TelemedicineModule,
   ],
   controllers: [AppointmentsController],
-  providers: [
-    // Register AppointmentsService as a provider
-    AppointmentsService,
-    // Register PrismaService for database access
-    PrismaService,
-  ],
-  // Export AppointmentsService for use in other modules
+  providers: [AppointmentsService, PrismaService],
   exports: [AppointmentsService],
 })
 export class AppointmentsModule {}
