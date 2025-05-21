@@ -1,1 +1,12 @@
-Failed to process file
+# This is a generated file by Prisma Migrate
+# Please do not manually edit this file
+
+migration_name = "20230301000000_add_indices_and_relations"
+provider = "postgresql"
+
+# Timestamps for tracking migration creation and application
+created_at = "2023-03-01T00:00:00Z"
+applied_at = "2023-03-01T00:00:00Z"
+
+# Checksum for migration integrity verification
+checksum = "8a3d7e9f6b8c5d2e1a0f7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
