@@ -1,9 +1,15 @@
+/**
+ * Provides standardized sorting DTOs for the gamification engine.
+ * These DTOs ensure consistent ordering of results in list operations
+ * across all modules and services.
+ */
+
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 /**
- * Enum for sorting direction
+ * Defines the possible sort directions for query results.
  */
 export enum SortDirection {
   ASC = 'asc',
@@ -11,137 +17,214 @@ export enum SortDirection {
 }
 
 /**
- * DTO for a single sort field
+ * Base DTO for sorting operations on a single field.
+ * Provides validation for field name and direction.
  */
 export class SortDto {
-  /**
-   * Field to sort by
-   */
   @ApiProperty({
-    description: 'Field to sort by',
+    description: 'Field name to sort by',
     example: 'createdAt',
   })
   @IsString()
+  @IsNotEmpty()
   field: string;
 
-  /**
-   * Sort direction
-   */
   @ApiProperty({
-    description: 'Sort direction',
+    description: 'Sort direction (ascending or descending)',
     enum: SortDirection,
     example: SortDirection.DESC,
+    default: SortDirection.DESC,
   })
   @IsEnum(SortDirection)
+  @IsOptional()
   direction: SortDirection = SortDirection.DESC;
 
   /**
-   * Creates a sort DTO for the specified field and direction
-   * 
-   * @param field Field to sort by
-   * @param direction Sort direction (defaults to DESC)
-   * @returns A new SortDto instance
+   * Converts the SortDto to a format compatible with repository queries
+   * @returns Record with field name as key and direction as value
    */
-  static create(field: string, direction: SortDirection = SortDirection.DESC): SortDto {
-    const sort = new SortDto();
-    sort.field = field;
-    sort.direction = direction;
-    return sort;
-  }
-
-  /**
-   * Creates a sort DTO for the createdAt field
-   * 
-   * @param direction Sort direction (defaults to DESC)
-   * @returns A new SortDto instance for the createdAt field
-   */
-  static byCreatedAt(direction: SortDirection = SortDirection.DESC): SortDto {
-    return SortDto.create('createdAt', direction);
-  }
-
-  /**
-   * Creates a sort DTO for the updatedAt field
-   * 
-   * @param direction Sort direction (defaults to DESC)
-   * @returns A new SortDto instance for the updatedAt field
-   */
-  static byUpdatedAt(direction: SortDirection = SortDirection.DESC): SortDto {
-    return SortDto.create('updatedAt', direction);
-  }
-
-  /**
-   * Creates a sort DTO for the name field
-   * 
-   * @param direction Sort direction (defaults to ASC)
-   * @returns A new SortDto instance for the name field
-   */
-  static byName(direction: SortDirection = SortDirection.ASC): SortDto {
-    return SortDto.create('name', direction);
-  }
-
-  /**
-   * Converts the sort to Prisma orderBy format
-   * @returns Object with orderBy property for Prisma queries
-   */
-  toPrismaOrderBy(): Record<string, any> {
-    return {
-      [this.field]: this.direction,
-    };
+  toOrderByClause(): Record<string, string> {
+    return { [this.field]: this.direction };
   }
 }
 
 /**
- * DTO for multiple sort fields
+ * DTO for sorting by multiple fields with priority order.
+ * The first sort option in the array has the highest priority.
  */
 export class MultiSortDto {
-  /**
-   * Array of sort fields
-   */
-  @ApiPropertyOptional({
-    description: 'Array of sort fields',
+  @ApiProperty({
+    description: 'Array of sort options with priority order (first has highest priority)',
     type: [SortDto],
+    isArray: true,
   })
-  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => SortDto)
-  @IsOptional()
-  sorts?: SortDto[] = [];
+  sortBy: SortDto[];
 
   /**
-   * Creates a multi-sort DTO with the specified sort fields
-   * 
-   * @param sorts Array of sort fields
-   * @returns A new MultiSortDto instance
+   * Converts the MultiSortDto to a format compatible with repository queries
+   * @returns Record with field names as keys and directions as values
    */
-  static create(sorts: SortDto[]): MultiSortDto {
-    const multiSort = new MultiSortDto();
-    multiSort.sorts = sorts;
-    return multiSort;
-  }
-
-  /**
-   * Adds a sort field to the multi-sort
-   * 
-   * @param sort Sort field to add
-   * @returns This MultiSortDto instance for chaining
-   */
-  addSort(sort: SortDto): MultiSortDto {
-    if (!this.sorts) {
-      this.sorts = [];
+  toOrderByClause(): Record<string, string> {
+    if (!this.sortBy || this.sortBy.length === 0) {
+      return {};
     }
-    this.sorts.push(sort);
-    return this;
-  }
 
-  /**
-   * Converts the multi-sort to Prisma orderBy format
-   * @returns Array of orderBy objects for Prisma queries
-   */
-  toPrismaOrderBy(): Record<string, any>[] {
-    if (!this.sorts || this.sorts.length === 0) {
-      return [SortDto.byCreatedAt().toPrismaOrderBy()];
-    }
-    
-    return this.sorts.map(sort => sort.toPrismaOrderBy());
+    return this.sortBy.reduce((acc, sort) => {
+      return { ...acc, ...sort.toOrderByClause() };
+    }, {});
   }
+}
+
+/**
+ * Common sort fields used across gamification entities
+ */
+export enum CommonSortField {
+  ID = 'id',
+  CREATED_AT = 'createdAt',
+  UPDATED_AT = 'updatedAt',
+  NAME = 'name',
+  TITLE = 'title',
+  POINTS = 'points',
+  LEVEL = 'level',
+  PROGRESS = 'progress',
+  STATUS = 'status',
+}
+
+/**
+ * DTO for sorting by common entity fields with validation
+ * against the CommonSortField enum.
+ */
+export class CommonSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Common field name to sort by',
+    enum: CommonSortField,
+    example: CommonSortField.CREATED_AT,
+  })
+  @IsIn(Object.values(CommonSortField))
+  @IsNotEmpty()
+  field: CommonSortField;
+}
+
+/**
+ * Achievement-specific sort fields
+ */
+export enum AchievementSortField {
+  DIFFICULTY = 'difficulty',
+  COMPLETION_COUNT = 'completionCount',
+  UNLOCK_DATE = 'unlockDate',
+}
+
+/**
+ * DTO for sorting achievements with validation
+ * against achievement-specific fields.
+ */
+export class AchievementSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Achievement field to sort by',
+    enum: { ...CommonSortField, ...AchievementSortField },
+    example: AchievementSortField.DIFFICULTY,
+  })
+  @IsIn([...Object.values(CommonSortField), ...Object.values(AchievementSortField)])
+  @IsNotEmpty()
+  field: CommonSortField | AchievementSortField;
+}
+
+/**
+ * Quest-specific sort fields
+ */
+export enum QuestSortField {
+  DEADLINE = 'deadline',
+  REWARD_POINTS = 'rewardPoints',
+  DIFFICULTY = 'difficulty',
+}
+
+/**
+ * DTO for sorting quests with validation
+ * against quest-specific fields.
+ */
+export class QuestSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Quest field to sort by',
+    enum: { ...CommonSortField, ...QuestSortField },
+    example: QuestSortField.DEADLINE,
+  })
+  @IsIn([...Object.values(CommonSortField), ...Object.values(QuestSortField)])
+  @IsNotEmpty()
+  field: CommonSortField | QuestSortField;
+}
+
+/**
+ * Reward-specific sort fields
+ */
+export enum RewardSortField {
+  COST = 'cost',
+  AVAILABILITY = 'availability',
+  REDEMPTION_COUNT = 'redemptionCount',
+}
+
+/**
+ * DTO for sorting rewards with validation
+ * against reward-specific fields.
+ */
+export class RewardSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Reward field to sort by',
+    enum: { ...CommonSortField, ...RewardSortField },
+    example: RewardSortField.COST,
+  })
+  @IsIn([...Object.values(CommonSortField), ...Object.values(RewardSortField)])
+  @IsNotEmpty()
+  field: CommonSortField | RewardSortField;
+}
+
+/**
+ * Profile-specific sort fields
+ */
+export enum ProfileSortField {
+  XP = 'xp',
+  LEVEL = 'level',
+  ACHIEVEMENT_COUNT = 'achievementCount',
+  QUEST_COMPLETION_RATE = 'questCompletionRate',
+}
+
+/**
+ * DTO for sorting profiles with validation
+ * against profile-specific fields.
+ */
+export class ProfileSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Profile field to sort by',
+    enum: { ...CommonSortField, ...ProfileSortField },
+    example: ProfileSortField.XP,
+  })
+  @IsIn([...Object.values(CommonSortField), ...Object.values(ProfileSortField)])
+  @IsNotEmpty()
+  field: CommonSortField | ProfileSortField;
+}
+
+/**
+ * Event-specific sort fields
+ */
+export enum EventSortField {
+  TIMESTAMP = 'timestamp',
+  EVENT_TYPE = 'eventType',
+  SOURCE = 'source',
+  JOURNEY = 'journey',
+}
+
+/**
+ * DTO for sorting events with validation
+ * against event-specific fields.
+ */
+export class EventSortDto extends SortDto {
+  @ApiProperty({
+    description: 'Event field to sort by',
+    enum: { ...CommonSortField, ...EventSortField },
+    example: EventSortField.TIMESTAMP,
+  })
+  @IsIn([...Object.values(CommonSortField), ...Object.values(EventSortField)])
+  @IsNotEmpty()
+  field: CommonSortField | EventSortField;
 }
