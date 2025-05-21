@@ -1,29 +1,22 @@
-/**
- * @file base.consumer.ts
- * @description Abstract base class that implements common functionality for all reward event consumers
- * in the gamification engine. Provides dead letter queue handling, exponential backoff retry strategies,
- * structured error handling, and centralized event processing for rewards across all journeys.
- */
-
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { Consumer, ConsumerSubscribeTopics, Kafka } from 'kafkajs';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Consumer, Kafka, KafkaMessage } from 'kafkajs';
 import { v4 as uuidv4 } from 'uuid';
-
-import { LoggerService } from '@austa/logging';
-import { BaseError, ErrorType } from '@austa/errors';
-import { IVersionedEvent } from '@austa/interfaces';
-
-import { DlqService } from '../../common/kafka/dlq.service';
-import { RetryStrategy } from '../../common/kafka/retry.strategy';
 import { RewardsService } from '../rewards.service';
-import { EventProcessingError } from '../../common/exceptions/event-processing.error';
+import { DLQService } from '../../common/kafka/dlq.service';
+import { RetryStrategy } from '../../common/kafka/retry.strategy';
+import { GamificationEvent } from '@austa/interfaces/gamification';
 
 /**
- * Configuration options for the base reward consumer
+ * Configuration options for the base consumer
  */
-export interface RewardConsumerOptions {
+export interface BaseConsumerOptions {
   /**
-   * Kafka consumer group ID
+   * Kafka client instance
+   */
+  kafka: Kafka;
+  
+  /**
+   * Consumer group ID
    */
   groupId: string;
   
@@ -34,422 +27,341 @@ export interface RewardConsumerOptions {
   
   /**
    * Maximum number of retry attempts before sending to DLQ
-   * @default 5
+   * @default 3
    */
   maxRetries?: number;
   
   /**
-   * Initial delay for retry in milliseconds
+   * Initial retry delay in milliseconds
    * @default 1000
    */
   initialRetryDelay?: number;
   
   /**
-   * Maximum delay for retry in milliseconds
-   * @default 60000
+   * Maximum retry delay in milliseconds
+   * @default 30000
    */
   maxRetryDelay?: number;
-  
-  /**
-   * Jitter factor to add randomness to retry delays (0-1)
-   * @default 0.1
-   */
-  jitterFactor?: number;
 }
 
 /**
- * Base abstract class for all reward event consumers
- * 
- * Provides common functionality for:
- * - Dead letter queue handling for failed events
- * - Exponential backoff retry strategy
- * - Structured error logging with correlation IDs
- * - Centralized event processing
+ * Abstract base class for all reward event consumers in the gamification engine.
+ * Provides common functionality for event processing, error handling, and retry logic.
  */
 @Injectable()
-export abstract class BaseConsumer implements OnModuleInit, OnModuleDestroy {
+export abstract class BaseConsumer implements OnModuleInit {
   protected consumer: Consumer;
-  protected readonly retryStrategy: RetryStrategy;
-  protected readonly logger: Logger;
+  protected logger: Logger;
+  protected retryStrategy: RetryStrategy;
+  protected options: BaseConsumerOptions;
   
   /**
-   * Default consumer options
-   */
-  private readonly defaultOptions: Partial<RewardConsumerOptions> = {
-    maxRetries: 5,
-    initialRetryDelay: 1000, // 1 second
-    maxRetryDelay: 60000,    // 1 minute
-    jitterFactor: 0.1,       // 10% jitter
-  };
-  
-  /**
-   * Consumer options with defaults applied
-   */
-  protected readonly options: RewardConsumerOptions;
-
-  /**
-   * Creates a new BaseConsumer instance
+   * Creates a new instance of the BaseConsumer
    * 
-   * @param kafkaClient - Kafka client instance
    * @param rewardsService - Service for processing rewards
-   * @param dlqService - Dead letter queue service
-   * @param loggerService - Logger service for structured logging
-   * @param consumerOptions - Consumer configuration options
+   * @param dlqService - Service for handling dead letter queue messages
+   * @param options - Consumer configuration options
    */
   constructor(
-    protected readonly kafkaClient: Kafka,
     protected readonly rewardsService: RewardsService,
-    protected readonly dlqService: DlqService,
-    protected readonly loggerService: LoggerService,
-    protected readonly consumerOptions: RewardConsumerOptions,
+    protected readonly dlqService: DLQService,
+    options: BaseConsumerOptions,
   ) {
     this.options = {
-      ...this.defaultOptions,
-      ...consumerOptions,
+      maxRetries: 3,
+      initialRetryDelay: 1000,
+      maxRetryDelay: 30000,
+      ...options,
     };
     
-    this.consumer = this.kafkaClient.consumer({
-      groupId: this.options.groupId,
-      // Enable manual control of message commits for at-least-once delivery
-      allowAutoTopicCreation: false,
-    });
-    
+    this.consumer = this.options.kafka.consumer({ groupId: this.options.groupId });
+    this.logger = new Logger(this.constructor.name);
     this.retryStrategy = new RetryStrategy({
       maxRetries: this.options.maxRetries,
-      initialDelay: this.options.initialRetryDelay,
-      maxDelay: this.options.maxRetryDelay,
-      jitterFactor: this.options.jitterFactor,
+      initialDelayMs: this.options.initialRetryDelay,
+      maxDelayMs: this.options.maxRetryDelay,
     });
-    
-    this.logger = new Logger(this.constructor.name);
   }
-
+  
   /**
-   * Lifecycle hook that runs when the module is initialized
-   * Sets up the Kafka consumer and message handlers
+   * Lifecycle hook that runs when the module is initialized.
+   * Connects to Kafka and subscribes to the configured topics.
    */
   async onModuleInit(): Promise<void> {
     try {
       await this.consumer.connect();
-      
-      const topics: ConsumerSubscribeTopics = {
-        topics: this.options.topics,
-        fromBeginning: false,
-      };
-      
-      await this.consumer.subscribe(topics);
+      await this.consumer.subscribe({ topics: this.options.topics, fromBeginning: false });
       
       await this.consumer.run({
-        eachMessage: async ({ topic, partition, message, heartbeat }) => {
+        eachMessage: async ({ topic, partition, message }) => {
           const correlationId = message.headers?.correlationId?.toString() || uuidv4();
-          const messageId = message.key?.toString() || uuidv4();
+          const messageId = message.headers?.messageId?.toString() || uuidv4();
           
-          const logContext = {
+          this.logger.log({
+            message: `Processing reward event from topic ${topic}`,
             correlationId,
             messageId,
-            topic,
             partition,
-          };
+            offset: message.offset,
+          });
           
           try {
-            this.loggerService.debug(
-              `Processing reward event from ${topic}`,
-              { ...logContext, headers: message.headers }
-            );
-            
-            // Parse the message payload
-            const payload = message.value ? JSON.parse(message.value.toString()) : null;
-            
-            if (!payload) {
-              throw new EventProcessingError(
-                'Empty event payload received',
-                ErrorType.VALIDATION_ERROR,
-                { topic, correlationId }
-              );
-            }
-            
-            // Process the event with the journey-specific implementation
-            await this.processEvent(payload, correlationId);
-            
-            // Commit the message after successful processing
-            await this.consumer.commitOffsets([{
-              topic,
-              partition,
-              offset: (parseInt(message.offset, 10) + 1).toString(),
-            }]);
-            
-            this.loggerService.debug(
-              `Successfully processed reward event from ${topic}`,
-              logContext
-            );
+            await this.processMessage(message, correlationId);
           } catch (error) {
-            await this.handleProcessingError(
-              error,
-              topic,
-              partition,
-              message,
-              correlationId,
-              messageId
-            );
+            await this.handleError(error, message, topic, partition, correlationId);
           }
         },
       });
       
-      this.loggerService.log(
-        `Reward consumer initialized and subscribed to topics: ${this.options.topics.join(', ')}`,
-        { groupId: this.options.groupId }
-      );
+      this.logger.log(`Consumer subscribed to topics: ${this.options.topics.join(', ')}`);
     } catch (error) {
-      this.loggerService.error(
-        `Failed to initialize reward consumer: ${error.message}`,
-        error.stack,
-        { groupId: this.options.groupId, error }
-      );
+      this.logger.error({
+        message: 'Failed to initialize consumer',
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
-
+  
   /**
-   * Handles processing errors with retry logic and dead letter queue
+   * Processes a Kafka message containing a reward event
    * 
-   * @param error - The error that occurred during processing
-   * @param topic - Kafka topic
-   * @param partition - Kafka partition
-   * @param message - Original Kafka message
-   * @param correlationId - Correlation ID for tracing
-   * @param messageId - Unique message identifier
+   * @param message - The Kafka message to process
+   * @param correlationId - Correlation ID for distributed tracing
    */
-  private async handleProcessingError(
-    error: any,
-    topic: string,
-    partition: number,
-    message: any,
-    correlationId: string,
-    messageId: string,
-  ): Promise<void> {
-    const baseError = error instanceof BaseError 
-      ? error 
-      : new EventProcessingError(
-          error.message || 'Unknown error during event processing',
-          ErrorType.SYSTEM_ERROR,
-          { cause: error, correlationId }
-        );
-    
-    const retryCount = parseInt(message.headers?.retryCount?.toString() || '0', 10);
-    const logContext = {
-      correlationId,
-      messageId,
-      topic,
-      partition,
-      retryCount,
-      errorType: baseError.type,
-      errorMessage: baseError.message,
-    };
-    
-    // Check if we should retry based on error type and retry count
-    const shouldRetry = this.retryStrategy.shouldRetry(baseError, retryCount);
-    
-    if (shouldRetry) {
-      const nextRetryDelay = this.retryStrategy.calculateNextRetryDelay(retryCount);
-      
-      this.loggerService.warn(
-        `Reward event processing failed, scheduling retry ${retryCount + 1}/${this.options.maxRetries} in ${nextRetryDelay}ms`,
-        { ...logContext, nextRetryDelay }
-      );
-      
-      // Update retry count in headers
-      const headers = {
-        ...message.headers,
-        retryCount: Buffer.from((retryCount + 1).toString()),
-        correlationId: Buffer.from(correlationId),
-      };
-      
-      // Schedule retry after delay
-      setTimeout(async () => {
-        try {
-          await this.kafkaClient.producer().send({
-            topic,
-            messages: [{
-              key: message.key,
-              value: message.value,
-              headers,
-            }],
-          });
-          
-          this.loggerService.debug(
-            `Retry ${retryCount + 1} scheduled for reward event`,
-            logContext
-          );
-        } catch (retryError) {
-          this.loggerService.error(
-            `Failed to schedule retry for reward event: ${retryError.message}`,
-            retryError.stack,
-            { ...logContext, retryError }
-          );
-          
-          // If retry scheduling fails, send to DLQ
-          await this.sendToDlq(message, baseError, correlationId, topic, retryCount);
-        }
-      }, nextRetryDelay);
-    } else {
-      // Max retries exceeded or non-retriable error, send to DLQ
-      this.loggerService.error(
-        `Reward event processing failed after ${retryCount} retries or non-retriable error`,
-        baseError.stack,
-        logContext
-      );
-      
-      await this.sendToDlq(message, baseError, correlationId, topic, retryCount);
+  private async processMessage(message: KafkaMessage, correlationId: string): Promise<void> {
+    if (!message.value) {
+      this.logger.warn({
+        message: 'Received empty message',
+        correlationId,
+      });
+      return;
     }
     
-    // Commit the message to avoid reprocessing the same failed message
-    await this.consumer.commitOffsets([{
+    try {
+      const event = this.parseEvent(message);
+      
+      // Validate the event before processing
+      if (!this.validateEvent(event)) {
+        this.logger.warn({
+          message: 'Invalid event format',
+          correlationId,
+          event,
+        });
+        return;
+      }
+      
+      // Process the event based on its type
+      await this.processRewardEvent(event, correlationId);
+      
+      this.logger.log({
+        message: 'Successfully processed reward event',
+        correlationId,
+        eventType: event.type,
+        userId: event.userId,
+      });
+    } catch (error) {
+      // Let the outer error handler deal with retries
+      throw error;
+    }
+  }
+  
+  /**
+   * Handles errors that occur during message processing
+   * Implements exponential backoff retry strategy and dead letter queue
+   * 
+   * @param error - The error that occurred
+   * @param message - The Kafka message that caused the error
+   * @param topic - The topic the message was consumed from
+   * @param partition - The partition the message was consumed from
+   * @param correlationId - Correlation ID for distributed tracing
+   */
+  private async handleError(
+    error: Error,
+    message: KafkaMessage,
+    topic: string,
+    partition: number,
+    correlationId: string,
+  ): Promise<void> {
+    const retryCount = this.getRetryCount(message);
+    const shouldRetry = this.retryStrategy.shouldRetry(retryCount, error);
+    
+    this.logger.error({
+      message: `Error processing reward event: ${error.message}`,
+      correlationId,
+      error: error.message,
+      stack: error.stack,
       topic,
       partition,
-      offset: (parseInt(message.offset, 10) + 1).toString(),
-    }]);
+      offset: message.offset,
+      retryCount,
+      willRetry: shouldRetry,
+    });
+    
+    if (shouldRetry) {
+      const delayMs = this.retryStrategy.getDelayMs(retryCount);
+      
+      this.logger.log({
+        message: `Retrying message after ${delayMs}ms (attempt ${retryCount + 1} of ${this.options.maxRetries})`,
+        correlationId,
+        retryCount: retryCount + 1,
+        delayMs,
+      });
+      
+      // Increment retry count in headers
+      const updatedMessage = this.incrementRetryCount(message, retryCount);
+      
+      // Wait for the calculated delay before retrying
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      
+      // Retry processing the message
+      try {
+        await this.processMessage(updatedMessage, correlationId);
+      } catch (retryError) {
+        // If we still have retries left, the next iteration will handle it
+        // Otherwise, it will go to the DLQ in the next block
+        if (retryCount + 1 >= this.options.maxRetries) {
+          await this.sendToDLQ(retryError, updatedMessage, topic, correlationId);
+        }
+      }
+    } else {
+      // Send to dead letter queue if we've exhausted retries or the error is non-retriable
+      await this.sendToDLQ(error, message, topic, correlationId);
+    }
   }
-
+  
   /**
-   * Sends a failed message to the Dead Letter Queue
+   * Sends a failed message to the dead letter queue
    * 
-   * @param message - The original Kafka message
-   * @param error - The error that caused the failure
-   * @param correlationId - Correlation ID for tracing
-   * @param sourceTopic - Original topic the message was from
-   * @param retryCount - Number of retry attempts made
+   * @param error - The error that caused the message to be sent to the DLQ
+   * @param message - The Kafka message to send to the DLQ
+   * @param sourceTopic - The original topic the message was consumed from
+   * @param correlationId - Correlation ID for distributed tracing
    */
-  private async sendToDlq(
-    message: any,
-    error: BaseError,
-    correlationId: string,
+  private async sendToDLQ(
+    error: Error,
+    message: KafkaMessage,
     sourceTopic: string,
-    retryCount: number,
+    correlationId: string,
   ): Promise<void> {
     try {
-      const payload = message.value ? JSON.parse(message.value.toString()) : null;
-      
-      await this.dlqService.sendToDlq({
-        payload,
+      await this.dlqService.sendToDLQ({
+        message,
+        sourceTopic,
         error: {
+          name: error.name,
           message: error.message,
-          type: error.type,
           stack: error.stack,
-          context: error.context,
         },
         metadata: {
           correlationId,
-          sourceTopic,
-          retryCount,
           timestamp: new Date().toISOString(),
-          headers: message.headers,
+          consumer: this.constructor.name,
         },
       });
       
-      this.loggerService.debug(
-        `Reward event sent to DLQ after ${retryCount} failed attempts`,
-        { correlationId, sourceTopic, errorType: error.type }
-      );
+      this.logger.log({
+        message: 'Message sent to dead letter queue',
+        correlationId,
+        sourceTopic,
+      });
     } catch (dlqError) {
-      this.loggerService.error(
-        `Failed to send reward event to DLQ: ${dlqError.message}`,
-        dlqError.stack,
-        { correlationId, sourceTopic, originalError: error, dlqError }
-      );
-    }
-  }
-
-  /**
-   * Abstract method that must be implemented by journey-specific consumers
-   * to process events according to their specific requirements
-   * 
-   * @param payload - The event payload to process
-   * @param correlationId - Correlation ID for tracing
-   */
-  protected abstract processEvent(payload: any, correlationId: string): Promise<void>;
-  
-  /**
-   * Validates that an event has the required properties
-   * 
-   * @param event - The event to validate
-   * @param correlationId - Correlation ID for tracing
-   */
-  protected validateEvent(event: any, correlationId: string): void {
-    if (!event) {
-      throw new EventProcessingError(
-        'Event is null or undefined',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId }
-      );
-    }
-    
-    if (!event.type) {
-      throw new EventProcessingError(
-        'Event is missing required "type" property',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId, event }
-      );
-    }
-    
-    if (!event.payload) {
-      throw new EventProcessingError(
-        'Event is missing required "payload" property',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId, eventType: event.type }
-      );
-    }
-    
-    if (!event.payload.userId) {
-      throw new EventProcessingError(
-        'Event payload is missing required "userId" property',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId, eventType: event.type }
-      );
-    }
-    
-    if (!event.payload.timestamp) {
-      throw new EventProcessingError(
-        'Event payload is missing required "timestamp" property',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId, eventType: event.type }
-      );
+      this.logger.error({
+        message: 'Failed to send message to dead letter queue',
+        correlationId,
+        error: dlqError.message,
+        originalError: error.message,
+      });
     }
   }
   
   /**
-   * Validates that an event has proper versioning information
+   * Gets the current retry count from the message headers
+   * 
+   * @param message - The Kafka message
+   * @returns The current retry count, or 0 if not present
+   */
+  private getRetryCount(message: KafkaMessage): number {
+    const retryHeader = message.headers?.retryCount;
+    if (retryHeader) {
+      return parseInt(retryHeader.toString(), 10);
+    }
+    return 0;
+  }
+  
+  /**
+   * Increments the retry count in the message headers
+   * 
+   * @param message - The Kafka message
+   * @param currentRetryCount - The current retry count
+   * @returns A new message with updated headers
+   */
+  private incrementRetryCount(message: KafkaMessage, currentRetryCount: number): KafkaMessage {
+    const newHeaders = {
+      ...message.headers,
+      retryCount: Buffer.from((currentRetryCount + 1).toString()),
+    };
+    
+    return {
+      ...message,
+      headers: newHeaders,
+    };
+  }
+  
+  /**
+   * Parses the event from the Kafka message
+   * 
+   * @param message - The Kafka message to parse
+   * @returns The parsed gamification event
+   */
+  protected parseEvent(message: KafkaMessage): GamificationEvent {
+    try {
+      return JSON.parse(message.value.toString()) as GamificationEvent;
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to parse event',
+        error: error.message,
+        rawMessage: message.value.toString(),
+      });
+      throw new Error(`Failed to parse event: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Validates that the event has the required properties
    * 
    * @param event - The event to validate
-   * @param correlationId - Correlation ID for tracing
+   * @returns True if the event is valid, false otherwise
    */
-  protected validateVersionedEvent(event: any, correlationId: string): void {
-    this.validateEvent(event, correlationId);
-    
-    if (!event.version) {
-      throw new EventProcessingError(
-        'Versioned event is missing required "version" property',
-        ErrorType.VALIDATION_ERROR,
-        { correlationId, eventType: event.type }
-      );
-    }
+  protected validateEvent(event: GamificationEvent): boolean {
+    return !!event && 
+           !!event.type && 
+           !!event.userId && 
+           !!event.timestamp && 
+           !!event.payload;
   }
   
   /**
-   * Gracefully shuts down the consumer
+   * Abstract method that must be implemented by subclasses to process specific reward events
+   * 
+   * @param event - The gamification event to process
+   * @param correlationId - Correlation ID for distributed tracing
+   */
+  protected abstract processRewardEvent(event: GamificationEvent, correlationId: string): Promise<void>;
+  
+  /**
+   * Gracefully disconnects the consumer when the application is shutting down
    */
   async onModuleDestroy(): Promise<void> {
     try {
+      this.logger.log('Disconnecting consumer');
       await this.consumer.disconnect();
-      this.loggerService.log(
-        'Reward consumer disconnected gracefully',
-        { groupId: this.options.groupId }
-      );
     } catch (error) {
-      this.loggerService.error(
-        `Error during reward consumer shutdown: ${error.message}`,
-        error.stack,
-        { groupId: this.options.groupId, error }
-      );
+      this.logger.error({
+        message: 'Error disconnecting consumer',
+        error: error.message,
+      });
     }
   }
 }
