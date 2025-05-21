@@ -1,96 +1,62 @@
-import { IsString, IsOptional, IsDate, IsNumber, IsUUID, Min, Max, Length, IsNotEmpty } from 'class-validator';
+import { IsDate, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
 
 /**
  * Data Transfer Object for creating a new treatment plan.
- * Validates input data for treatment plan creation.
+ * This DTO validates treatment plan creation requests in the Care service.
+ * It ensures data integrity and type safety for treatment plan data passed to the TreatmentsService.
  */
 export class CreateTreatmentPlanDto {
   /**
    * Name of the treatment plan.
-   * Must be between 3 and 255 characters.
+   * Required field with maximum length of 255 characters.
    */
-  @ApiProperty({
-    description: 'Name of the treatment plan',
-    example: 'Physical Therapy Plan',
-    minLength: 3,
-    maxLength: 255,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @Length(3, 255)
+  @IsString({ message: 'Name must be a string' })
+  @IsNotEmpty({ message: 'Name is required' })
+  @MaxLength(255, { message: 'Name cannot exceed 255 characters' })
   name: string;
 
   /**
    * Description of the treatment plan.
-   * Optional field that can contain detailed information.
+   * Optional field providing details about the treatment plan.
    */
-  @ApiProperty({
-    description: 'Description of the treatment plan',
-    example: 'A comprehensive physical therapy plan for post-surgery recovery',
-    required: false,
-  })
-  @IsString()
+  @IsString({ message: 'Description must be a string' })
   @IsOptional()
   description?: string;
 
   /**
    * Start date of the treatment plan.
-   * Must be a valid date.
+   * Required field indicating when the treatment plan begins.
    */
-  @ApiProperty({
-    description: 'Start date of the treatment plan',
-    example: '2023-01-01T00:00:00Z',
-    type: Date,
-  })
+  @IsDate({ message: 'Start date must be a valid date' })
+  @IsNotEmpty({ message: 'Start date is required' })
   @Type(() => Date)
-  @IsDate()
-  @IsNotEmpty()
   startDate: Date;
 
   /**
    * End date of the treatment plan.
-   * Optional field that must be a valid date if provided.
+   * Optional field indicating when the treatment plan ends.
    */
-  @ApiProperty({
-    description: 'End date of the treatment plan',
-    example: '2023-03-01T00:00:00Z',
-    required: false,
-    type: Date,
-  })
-  @Type(() => Date)
-  @IsDate()
+  @IsDate({ message: 'End date must be a valid date' })
   @IsOptional()
+  @Type(() => Date)
   endDate?: Date;
 
   /**
    * Progress of the treatment plan (percentage from 0 to 100).
    * Optional field with default value of 0.
    */
-  @ApiProperty({
-    description: 'Progress of the treatment plan (percentage from 0 to 100)',
-    example: 25,
-    required: false,
-    minimum: 0,
-    maximum: 100,
-    default: 0,
-  })
-  @IsNumber()
-  @Min(0)
-  @Max(100)
+  @IsNumber({}, { message: 'Progress must be a number' })
   @IsOptional()
+  @Min(0, { message: 'Progress cannot be less than 0' })
+  @Max(100, { message: 'Progress cannot exceed 100' })
   progress?: number;
 
   /**
    * ID of the care activity this treatment plan is associated with.
-   * Must be a valid UUID.
+   * Required field to establish relationship with a CareActivity.
    */
-  @ApiProperty({
-    description: 'ID of the care activity this treatment plan is associated with',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsUUID()
-  @IsNotEmpty()
+  @IsUUID('4', { message: 'Care activity ID must be a valid UUID' })
+  @IsNotEmpty({ message: 'Care activity ID is required' })
   careActivityId: string;
 }
