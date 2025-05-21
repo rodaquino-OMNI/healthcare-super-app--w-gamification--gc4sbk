@@ -1,1 +1,14 @@
-Failed to process file
+# This is a generated file by Prisma Migrate
+# Please do not manually modify this file
+
+provider = "postgresql"
+
+# Migration identifier
+migration_id = "20230206000000_create_documents"
+
+# Timestamps
+timestamp = "2023-02-06T00:00:00Z"
+applied_steps_count = 1
+
+# Checksum for migration integrity verification
+checksum = "8a9c7f3e5d6b2c1a4f7e8d9c0b1a2f3e5d6b2c1a4f7e8d9c0b1a2f3e5d6b2c1a"
