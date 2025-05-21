@@ -1,4 +1,6 @@
 import { DynamicModule, Module, Provider } from '@nestjs/common';
+import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
+import { Connection, Repository } from 'typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 // Import from @austa/events package for Kafka functionality
@@ -27,11 +29,14 @@ import { TracingModule, TracingService } from '@austa/tracing';
 // Import local services and utilities
 import { BaseConsumer } from './base-consumer.abstract';
 import { BaseProducer } from './base-producer.abstract';
-import { DLQService } from './dlq.service';
+import { DlqService } from './dlq.service';
+import { DlqController } from './dlq.controller';
 import { ErrorHandler } from './error-handler';
 import { MessageSerializer } from './message-serializer';
 import { RetryStrategy } from './retry.strategy';
 import { KafkaTypes } from './kafka.types';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DlqEntry } from './entities/dlq-entry.entity';
 
 /**
  * Configuration options for the Kafka module
@@ -164,17 +169,23 @@ export interface KafkaModuleOptions {
 @Module({
   imports: [
     LoggerModule,
-    TracingModule
+    TracingModule,
+    TypeOrmModule.forFeature([DlqEntry])
+  ],
+  controllers: [
+    DlqController
   ],
   providers: [
     ErrorHandler,
     MessageSerializer,
-    RetryStrategy
+    RetryStrategy,
+    DlqService
   ],
   exports: [
     ErrorHandler,
     MessageSerializer,
-    RetryStrategy
+    RetryStrategy,
+    DlqService
   ]
 })
 export class KafkaModule {
@@ -190,7 +201,8 @@ export class KafkaModule {
       module: KafkaModule,
       imports: [
         LoggerModule,
-        TracingModule
+        TracingModule,
+        TypeOrmModule.forFeature([DlqEntry])
       ],
       providers,
       exports: providers
@@ -218,7 +230,7 @@ export class KafkaModule {
 
     return {
       module: KafkaModule,
-      imports: [...(options.imports || []), LoggerModule, TracingModule],
+      imports: [...(options.imports || []), LoggerModule, TracingModule, TypeOrmModule.forFeature([DlqEntry])],
       providers,
       exports: providers
     };
@@ -284,15 +296,21 @@ export class KafkaModule {
         inject: [KafkaService, LoggerService, TracingService]
       },
       {
-        provide: DLQService,
-        useFactory: (producerFactory: KafkaProducerFactory, loggerService: LoggerService) => {
-          return new DLQService(producerFactory, {
-            enabled: options.deadLetterQueue?.enabled ?? true,
-            suffix: options.deadLetterQueue?.suffix ?? '-dlq',
-            loggerService
-          });
+        provide: DlqService,
+        useFactory: (producerFactory: KafkaProducerFactory, loggerService: LoggerService, configService: ConfigService, dlqRepository: Repository<DlqEntry>, transactionService: TransactionService) => {
+          return new DlqService(
+            dlqRepository,
+            producerFactory.createProducer(),
+            configService,
+            transactionService
+          );
         },
-        inject: [KafkaProducerFactory, LoggerService]
+        inject: [KafkaProducerFactory, LoggerService, ConfigService, getRepositoryToken(DlqEntry), TransactionService]
+      },
+      {
+        provide: getRepositoryToken(DlqEntry),
+        useFactory: (connection: Connection) => connection.getRepository(DlqEntry),
+        inject: [Connection]
       },
       {
         provide: KafkaHealthIndicator,
@@ -392,15 +410,21 @@ export class KafkaModule {
         inject: ['KAFKA_MODULE_OPTIONS', KafkaService, LoggerService, TracingService, 'KAFKA_RETRY_POLICY']
       },
       {
-        provide: DLQService,
-        useFactory: (options: KafkaModuleOptions, producerFactory: KafkaProducerFactory, loggerService: LoggerService) => {
-          return new DLQService(producerFactory, {
-            enabled: options.deadLetterQueue?.enabled ?? true,
-            suffix: options.deadLetterQueue?.suffix ?? '-dlq',
-            loggerService
-          });
+        provide: DlqService,
+        useFactory: (options: KafkaModuleOptions, producerFactory: KafkaProducerFactory, loggerService: LoggerService, configService: ConfigService, dlqRepository: Repository<DlqEntry>, transactionService: TransactionService) => {
+          return new DlqService(
+            dlqRepository,
+            producerFactory.createProducer(),
+            configService,
+            transactionService
+          );
         },
-        inject: ['KAFKA_MODULE_OPTIONS', KafkaProducerFactory, LoggerService]
+        inject: ['KAFKA_MODULE_OPTIONS', KafkaProducerFactory, LoggerService, ConfigService, getRepositoryToken(DlqEntry), TransactionService]
+      },
+      {
+        provide: getRepositoryToken(DlqEntry),
+        useFactory: (connection: Connection) => connection.getRepository(DlqEntry),
+        inject: [Connection]
       },
       {
         provide: KafkaHealthIndicator,
@@ -462,7 +486,8 @@ export class KafkaModule {
       module: KafkaModule,
       imports: [
         LoggerModule,
-        TracingModule
+        TracingModule,
+        TypeOrmModule.forFeature([DlqEntry])
       ],
       providers,
       exports: providers
@@ -498,7 +523,7 @@ export class KafkaModule {
 
     return {
       module: KafkaModule,
-      imports: [...(options.imports || []), LoggerModule, TracingModule],
+      imports: [...(options.imports || []), LoggerModule, TracingModule, TypeOrmModule.forFeature([DlqEntry])],
       providers,
       exports: providers
     };
@@ -532,7 +557,8 @@ export class KafkaModule {
       module: KafkaModule,
       imports: [
         LoggerModule,
-        TracingModule
+        TracingModule,
+        TypeOrmModule.forFeature([DlqEntry])
       ],
       providers,
       exports: providers
@@ -578,7 +604,7 @@ export class KafkaModule {
 
     return {
       module: KafkaModule,
-      imports: [...(options.imports || []), LoggerModule, TracingModule],
+      imports: [...(options.imports || []), LoggerModule, TracingModule, TypeOrmModule.forFeature([DlqEntry])],
       providers,
       exports: providers
     };
