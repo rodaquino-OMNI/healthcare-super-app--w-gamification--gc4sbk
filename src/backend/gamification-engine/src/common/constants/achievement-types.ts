@@ -1,374 +1,553 @@
 /**
- * Achievement Types Constants
- * 
- * This file defines constants for different achievement categories and types used throughout the gamification engine.
+ * @file achievement-types.ts
+ * @description Defines constants for different achievement categories and types used throughout the gamification engine.
  * These constants are used to categorize achievements, define their behavior, and establish consistent achievement types
  * across the application.
- * 
- * The achievement system is a core component of the gamification engine, which processes events from all journeys
- * (Health, Care, Plan) and assigns achievements based on configurable rules. These achievements drive user engagement
- * through recognition and rewards for completing health-positive actions.
  */
+
+import { AchievementType } from '../../achievements/interfaces/achievement-types.enum';
 
 /**
  * Enum representing the journey categories for achievements.
- * Each achievement is associated with a specific journey in the application.
+ * 
+ * Each achievement is associated with a specific journey or can be cross-journey.
  */
 export enum AchievementJourney {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  CROSS_JOURNEY = 'cross_journey', // For achievements that span multiple journeys
+  /**
+   * Health journey achievements related to tracking health metrics, connecting devices,
+   * setting health goals, and maintaining healthy habits.
+   */
+  HEALTH = 'HEALTH',
+
+  /**
+   * Care journey achievements related to appointments, telemedicine, 
+   * provider interactions, and treatment plans.
+   */
+  CARE = 'CARE',
+
+  /**
+   * Plan journey achievements related to insurance plans, claims, 
+   * benefits utilization, and coverage understanding.
+   */
+  PLAN = 'PLAN',
+
+  /**
+   * Cross-journey achievements that span multiple journeys and require
+   * actions across different parts of the application.
+   */
+  CROSS_JOURNEY = 'CROSS_JOURNEY'
 }
+
+/**
+ * Type representing the string literal values of the AchievementJourney enum.
+ */
+export type AchievementJourneyValue = `${AchievementJourney}`;
 
 /**
  * Enum representing the difficulty levels for achievements.
- * Used to categorize achievements by their complexity and effort required.
+ * 
+ * The difficulty level affects the XP reward and visibility of achievements.
  */
 export enum AchievementDifficulty {
-  BEGINNER = 'beginner',
-  INTERMEDIATE = 'intermediate',
-  ADVANCED = 'advanced',
-  EXPERT = 'expert',
+  /**
+   * Easy achievements that require minimal effort to complete.
+   * Typically awarded for basic onboarding actions or simple tasks.
+   */
+  EASY = 'EASY',
+
+  /**
+   * Medium difficulty achievements that require moderate effort or consistency.
+   * Typically awarded for regular engagement or completing common tasks.
+   */
+  MEDIUM = 'MEDIUM',
+
+  /**
+   * Hard achievements that require significant effort or dedication.
+   * Typically awarded for sustained engagement or completing complex tasks.
+   */
+  HARD = 'HARD',
+
+  /**
+   * Expert achievements that require exceptional effort or mastery.
+   * Typically awarded for exceptional performance or completing challenging tasks.
+   */
+  EXPERT = 'EXPERT'
 }
+
+/**
+ * Type representing the string literal values of the AchievementDifficulty enum.
+ */
+export type AchievementDifficultyValue = `${AchievementDifficulty}`;
 
 /**
  * Enum representing the trigger types for achievements.
- * Defines how achievements are activated and tracked.
+ * 
+ * The trigger type determines how an achievement is unlocked based on user actions.
  */
-export enum AchievementTriggerType {
-  ONE_TIME = 'one_time',       // Triggered once when a specific action is completed
-  CUMULATIVE = 'cumulative',   // Triggered when a specific action is performed a certain number of times
-  STREAK = 'streak',           // Triggered when a specific action is performed consistently over time
-  MILESTONE = 'milestone',     // Triggered when a specific value reaches a threshold
-  COLLECTION = 'collection',   // Triggered when a set of related items is collected
+export enum AchievementTrigger {
+  /**
+   * One-time achievements that are unlocked after a single action or event.
+   * Example: "Complete your profile" or "Book your first appointment"
+   */
+  ONE_TIME = 'ONE_TIME',
+
+  /**
+   * Cumulative achievements that track progress over time and unlock when a threshold is reached.
+   * Example: "Track 100 health metrics" or "Submit 10 claims"
+   */
+  CUMULATIVE = 'CUMULATIVE',
+
+  /**
+   * Streak achievements that require consecutive actions over a period of time.
+   * Example: "Log in for 7 consecutive days" or "Track steps for 30 days in a row"
+   */
+  STREAK = 'STREAK',
+
+  /**
+   * Milestone achievements that unlock at specific thresholds within a progression.
+   * Example: "Reach level 10" or "Earn 5000 XP in the Health journey"
+   */
+  MILESTONE = 'MILESTONE',
+
+  /**
+   * Collection achievements that require completing a set of related achievements.
+   * Example: "Unlock all Health journey achievements" or "Complete all appointment-related achievements"
+   */
+  COLLECTION = 'COLLECTION'
 }
 
 /**
- * Enum representing the visibility status of achievements.
- * Controls whether achievements are visible to users before being unlocked.
+ * Type representing the string literal values of the AchievementTrigger enum.
  */
-export enum AchievementVisibility {
-  VISIBLE = 'visible',         // Achievement is visible before unlocking
-  HIDDEN = 'hidden',           // Achievement is hidden until unlocked
-  PARTIALLY_HIDDEN = 'partially_hidden', // Achievement is visible but details are hidden
+export type AchievementTriggerValue = `${AchievementTrigger}`;
+
+/**
+ * Interface for achievement journey metadata.
+ */
+export interface AchievementJourneyMetadata {
+  /**
+   * The journey identifier.
+   */
+  journey: AchievementJourney;
+
+  /**
+   * The display name of the journey.
+   */
+  displayName: string;
+
+  /**
+   * The description of the journey.
+   */
+  description: string;
+
+  /**
+   * The icon name to use for representing this journey.
+   */
+  icon: string;
+
+  /**
+   * The primary color associated with this journey.
+   */
+  primaryColor: string;
+
+  /**
+   * The secondary color associated with this journey.
+   */
+  secondaryColor: string;
 }
 
 /**
- * Enum representing the categories of health-related achievements.
+ * Metadata for all achievement journeys.
  */
-export enum HealthAchievementCategory {
-  STEPS = 'steps',
-  SLEEP = 'sleep',
-  HEART_RATE = 'heart_rate',
-  WEIGHT = 'weight',
-  BLOOD_PRESSURE = 'blood_pressure',
-  BLOOD_GLUCOSE = 'blood_glucose',
-  ACTIVITY = 'activity',
-  GOALS = 'goals',
-  DEVICE_CONNECTION = 'device_connection',
-  HEALTH_RECORDS = 'health_records',
+export const ACHIEVEMENT_JOURNEY_METADATA: Record<AchievementJourney, AchievementJourneyMetadata> = {
+  [AchievementJourney.HEALTH]: {
+    journey: AchievementJourney.HEALTH,
+    displayName: 'Minha Saúde',
+    description: 'Achievements related to health tracking and wellness',
+    icon: 'health-journey',
+    primaryColor: '#4CAF50',
+    secondaryColor: '#E8F5E9'
+  },
+  [AchievementJourney.CARE]: {
+    journey: AchievementJourney.CARE,
+    displayName: 'Cuidar-me Agora',
+    description: 'Achievements related to medical care and appointments',
+    icon: 'care-journey',
+    primaryColor: '#2196F3',
+    secondaryColor: '#E3F2FD'
+  },
+  [AchievementJourney.PLAN]: {
+    journey: AchievementJourney.PLAN,
+    displayName: 'Meu Plano & Benefícios',
+    description: 'Achievements related to insurance plans and benefits',
+    icon: 'plan-journey',
+    primaryColor: '#9C27B0',
+    secondaryColor: '#F3E5F5'
+  },
+  [AchievementJourney.CROSS_JOURNEY]: {
+    journey: AchievementJourney.CROSS_JOURNEY,
+    displayName: 'Cross-Journey',
+    description: 'Achievements that span multiple journeys',
+    icon: 'cross-journey',
+    primaryColor: '#FF9800',
+    secondaryColor: '#FFF3E0'
+  }
+};
+
+/**
+ * Interface for achievement difficulty metadata.
+ */
+export interface AchievementDifficultyMetadata {
+  /**
+   * The difficulty level.
+   */
+  difficulty: AchievementDifficulty;
+
+  /**
+   * The display name of the difficulty level.
+   */
+  displayName: string;
+
+  /**
+   * The description of the difficulty level.
+   */
+  description: string;
+
+  /**
+   * The icon name to use for representing this difficulty level.
+   */
+  icon: string;
+
+  /**
+   * The base XP reward for achievements of this difficulty level.
+   */
+  baseXpReward: number;
+
+  /**
+   * The color associated with this difficulty level.
+   */
+  color: string;
 }
 
 /**
- * Enum representing the categories of care-related achievements.
+ * Metadata for all achievement difficulty levels.
  */
-export enum CareAchievementCategory {
-  APPOINTMENTS = 'appointments',
-  TELEMEDICINE = 'telemedicine',
-  MEDICATION = 'medication',
-  TREATMENT_PLAN = 'treatment_plan',
-  SYMPTOM_CHECKER = 'symptom_checker',
-  PROVIDER_INTERACTION = 'provider_interaction',
+export const ACHIEVEMENT_DIFFICULTY_METADATA: Record<AchievementDifficulty, AchievementDifficultyMetadata> = {
+  [AchievementDifficulty.EASY]: {
+    difficulty: AchievementDifficulty.EASY,
+    displayName: 'Easy',
+    description: 'Simple achievements that require minimal effort',
+    icon: 'difficulty-easy',
+    baseXpReward: 50,
+    color: '#4CAF50' // Green
+  },
+  [AchievementDifficulty.MEDIUM]: {
+    difficulty: AchievementDifficulty.MEDIUM,
+    displayName: 'Medium',
+    description: 'Achievements that require moderate effort',
+    icon: 'difficulty-medium',
+    baseXpReward: 100,
+    color: '#2196F3' // Blue
+  },
+  [AchievementDifficulty.HARD]: {
+    difficulty: AchievementDifficulty.HARD,
+    displayName: 'Hard',
+    description: 'Challenging achievements that require significant effort',
+    icon: 'difficulty-hard',
+    baseXpReward: 250,
+    color: '#FF9800' // Orange
+  },
+  [AchievementDifficulty.EXPERT]: {
+    difficulty: AchievementDifficulty.EXPERT,
+    displayName: 'Expert',
+    description: 'Exceptional achievements that require mastery',
+    icon: 'difficulty-expert',
+    baseXpReward: 500,
+    color: '#F44336' // Red
+  }
+};
+
+/**
+ * Interface for achievement trigger metadata.
+ */
+export interface AchievementTriggerMetadata {
+  /**
+   * The trigger type.
+   */
+  trigger: AchievementTrigger;
+
+  /**
+   * The display name of the trigger type.
+   */
+  displayName: string;
+
+  /**
+   * The description of the trigger type.
+   */
+  description: string;
+
+  /**
+   * The icon name to use for representing this trigger type.
+   */
+  icon: string;
+
+  /**
+   * Whether this trigger type requires tracking progress.
+   */
+  requiresProgress: boolean;
+
+  /**
+   * Whether this trigger type supports partial completion.
+   */
+  supportsPartialCompletion: boolean;
 }
 
 /**
- * Enum representing the categories of plan-related achievements.
+ * Metadata for all achievement trigger types.
  */
-export enum PlanAchievementCategory {
-  CLAIMS = 'claims',
-  BENEFITS = 'benefits',
-  COVERAGE = 'coverage',
-  INSURANCE_CARD = 'insurance_card',
-  COST_SIMULATOR = 'cost_simulator',
-}
-
-/**
- * Enum representing the categories of cross-journey achievements.
- */
-export enum CrossJourneyAchievementCategory {
-  PLATFORM_USAGE = 'platform_usage',
-  PROFILE_COMPLETION = 'profile_completion',
-  REFERRALS = 'referrals',
-  FEEDBACK = 'feedback',
-  ENGAGEMENT = 'engagement',
-}
+export const ACHIEVEMENT_TRIGGER_METADATA: Record<AchievementTrigger, AchievementTriggerMetadata> = {
+  [AchievementTrigger.ONE_TIME]: {
+    trigger: AchievementTrigger.ONE_TIME,
+    displayName: 'One-Time',
+    description: 'Unlocked after a single action or event',
+    icon: 'trigger-one-time',
+    requiresProgress: false,
+    supportsPartialCompletion: false
+  },
+  [AchievementTrigger.CUMULATIVE]: {
+    trigger: AchievementTrigger.CUMULATIVE,
+    displayName: 'Cumulative',
+    description: 'Tracks progress over time and unlocks at a threshold',
+    icon: 'trigger-cumulative',
+    requiresProgress: true,
+    supportsPartialCompletion: true
+  },
+  [AchievementTrigger.STREAK]: {
+    trigger: AchievementTrigger.STREAK,
+    displayName: 'Streak',
+    description: 'Requires consecutive actions over time',
+    icon: 'trigger-streak',
+    requiresProgress: true,
+    supportsPartialCompletion: true
+  },
+  [AchievementTrigger.MILESTONE]: {
+    trigger: AchievementTrigger.MILESTONE,
+    displayName: 'Milestone',
+    description: 'Unlocks at specific thresholds within a progression',
+    icon: 'trigger-milestone',
+    requiresProgress: true,
+    supportsPartialCompletion: true
+  },
+  [AchievementTrigger.COLLECTION]: {
+    trigger: AchievementTrigger.COLLECTION,
+    displayName: 'Collection',
+    description: 'Requires completing a set of related achievements',
+    icon: 'trigger-collection',
+    requiresProgress: true,
+    supportsPartialCompletion: true
+  }
+};
 
 /**
  * Interface for achievement display metadata.
- * Contains information used for rendering achievements in the UI.
+ * 
+ * This interface provides additional information for rendering achievements in the UI.
  */
 export interface AchievementDisplayMetadata {
-  iconUrl: string;             // URL to the achievement icon
-  lockedIconUrl: string;       // URL to the locked version of the achievement icon
-  backgroundColor: string;     // Background color for the achievement display
-  borderColor: string;         // Border color for the achievement display
-  journeyColor: string;        // Journey-specific color for the achievement
-  animationUrl?: string;       // Optional URL to animation displayed when achievement is unlocked
-  badgeShape?: AchievementBadgeShape; // Shape of the achievement badge
-  tier?: AchievementTier;      // Visual tier of the achievement
-}
+  /**
+   * The achievement type.
+   */
+  type: AchievementType;
 
-/**
- * Enum representing the shapes of achievement badges.
- */
-export enum AchievementBadgeShape {
-  CIRCLE = 'circle',
-  SHIELD = 'shield',
-  STAR = 'star',
-  HEXAGON = 'hexagon',
-  RIBBON = 'ribbon',
-}
-
-/**
- * Enum representing the visual tiers of achievements.
- */
-export enum AchievementTier {
-  BRONZE = 'bronze',
-  SILVER = 'silver',
-  GOLD = 'gold',
-  PLATINUM = 'platinum',
-  DIAMOND = 'diamond',
-}
-
-/**
- * Interface for achievement point values.
- * Defines the XP and other point values awarded for completing an achievement.
- */
-export interface AchievementPointValues {
-  xp: number;                  // Experience points awarded
-  journeyPoints: number;       // Journey-specific points awarded
-  rewardPoints?: number;       // Optional reward points that can be redeemed
-}
-
-/**
- * Constants for achievement point multipliers based on difficulty.
- */
-export const ACHIEVEMENT_POINT_MULTIPLIERS = {
-  [AchievementDifficulty.BEGINNER]: 1,
-  [AchievementDifficulty.INTERMEDIATE]: 2,
-  [AchievementDifficulty.ADVANCED]: 3,
-  [AchievementDifficulty.EXPERT]: 5,
-};
-
-/**
- * Constants for base XP values for different achievement trigger types.
- */
-export const BASE_XP_VALUES = {
-  [AchievementTriggerType.ONE_TIME]: 50,
-  [AchievementTriggerType.CUMULATIVE]: 75,
-  [AchievementTriggerType.STREAK]: 100,
-  [AchievementTriggerType.MILESTONE]: 125,
-  [AchievementTriggerType.COLLECTION]: 150,
-};
-
-/**
- * Constants for journey-specific colors used in achievement displays.
- */
-export const JOURNEY_COLORS = {
-  [AchievementJourney.HEALTH]: '#4CAF50',      // Green
-  [AchievementJourney.CARE]: '#FF9800',        // Orange
-  [AchievementJourney.PLAN]: '#2196F3',        // Blue
-  [AchievementJourney.CROSS_JOURNEY]: '#9C27B0', // Purple
-};
-
-/**
- * Constants for achievement notification priorities.
- */
-export enum AchievementNotificationPriority {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-}
-
-/**
- * Mapping of achievement difficulties to notification priorities.
- */
-export const ACHIEVEMENT_NOTIFICATION_PRIORITIES = {
-  [AchievementDifficulty.BEGINNER]: AchievementNotificationPriority.LOW,
-  [AchievementDifficulty.INTERMEDIATE]: AchievementNotificationPriority.LOW,
-  [AchievementDifficulty.ADVANCED]: AchievementNotificationPriority.MEDIUM,
-  [AchievementDifficulty.EXPERT]: AchievementNotificationPriority.HIGH,
-};
-
-/**
- * Mapping of achievement difficulties to badge tiers.
- */
-export const ACHIEVEMENT_BADGE_TIERS = {
-  [AchievementDifficulty.BEGINNER]: AchievementTier.BRONZE,
-  [AchievementDifficulty.INTERMEDIATE]: AchievementTier.SILVER,
-  [AchievementDifficulty.ADVANCED]: AchievementTier.GOLD,
-  [AchievementDifficulty.EXPERT]: AchievementTier.DIAMOND,
-};
-
-/**
- * Mapping of achievement journeys to badge shapes.
- */
-export const ACHIEVEMENT_BADGE_SHAPES = {
-  [AchievementJourney.HEALTH]: AchievementBadgeShape.CIRCLE,
-  [AchievementJourney.CARE]: AchievementBadgeShape.SHIELD,
-  [AchievementJourney.PLAN]: AchievementBadgeShape.HEXAGON,
-  [AchievementJourney.CROSS_JOURNEY]: AchievementBadgeShape.STAR,
-};
-
-/**
- * Constants for achievement streak requirements.
- */
-export const STREAK_REQUIREMENTS = {
-  SHORT: 3,   // 3 consecutive days/actions
-  MEDIUM: 7,  // 7 consecutive days/actions
-  LONG: 14,   // 14 consecutive days/actions
-  EPIC: 30,   // 30 consecutive days/actions
-};
-
-/**
- * Constants for achievement cumulative requirements.
- */
-export const CUMULATIVE_REQUIREMENTS = {
-  TIER_1: 5,    // 5 total actions
-  TIER_2: 10,   // 10 total actions
-  TIER_3: 25,   // 25 total actions
-  TIER_4: 50,   // 50 total actions
-  TIER_5: 100,  // 100 total actions
-};
-
-/**
- * Constants for milestone-based achievements in the Health journey.
- */
-export const HEALTH_MILESTONES = {
-  STEPS: {
-    DAILY: 10000,     // 10,000 steps in a day
-    WEEKLY: 70000,    // 70,000 steps in a week
-    MONTHLY: 300000,  // 300,000 steps in a month
-  },
-  SLEEP: {
-    OPTIMAL: 8,       // 8 hours of sleep
-    WEEKLY_AVG: 7,    // 7 hours average sleep per night in a week
-  },
-  WEIGHT: {
-    GOAL_REACHED: 'goal_reached',  // Reached weight goal
-    CONSISTENT: 30,   // Maintained weight for 30 days
-  },
-  ACTIVITY: {
-    ACTIVE_MINUTES: 30,  // 30 active minutes per day
-    WEEKLY_WORKOUTS: 5,   // 5 workouts per week
-  },
-};
-
-/**
- * Constants for milestone-based achievements in the Care journey.
- */
-export const CARE_MILESTONES = {
-  MEDICATION: {
-    ADHERENCE_RATE: 0.95,  // 95% medication adherence
-    DAYS_PERFECT: 30,      // 30 days of perfect medication adherence
-  },
-  APPOINTMENTS: {
-    ATTENDED: 5,            // Attended 5 appointments
-    NO_CANCELLATIONS: 10,   // 10 appointments without cancellations
-  },
-  TELEMEDICINE: {
-    SESSIONS_COMPLETED: 3,  // Completed 3 telemedicine sessions
-  },
-};
-
-/**
- * Constants for milestone-based achievements in the Plan journey.
- */
-export const PLAN_MILESTONES = {
-  CLAIMS: {
-    SUBMITTED: 5,           // Submitted 5 claims
-    DIGITAL_SUBMISSION: 3,  // Submitted 3 claims digitally
-  },
-  BENEFITS: {
-    UTILIZATION_RATE: 0.5,  // Used 50% of available benefits
-    EXPLORED_ALL: true,      // Explored all benefits
-  },
-};
-
-/**
- * Interface for achievement rule configuration.
- * Defines the parameters for achievement rules processing.
- */
-export interface AchievementRuleConfig {
-  triggerType: AchievementTriggerType;
+  /**
+   * The journey associated with the achievement.
+   */
   journey: AchievementJourney;
-  category: string;  // From journey-specific category enums
+
+  /**
+   * The difficulty level of the achievement.
+   */
   difficulty: AchievementDifficulty;
-  threshold?: number;  // For cumulative, streak, or milestone achievements
-  timeframe?: number;  // Time period in days for completing the achievement
-  resetOnFailure?: boolean;  // Whether progress resets on breaking a streak
-  requiresConsecutiveDays?: boolean;  // Whether days must be consecutive
-  visibility?: AchievementVisibility;  // Whether the achievement is visible before unlocking
-  prerequisiteAchievements?: string[];  // IDs of achievements that must be completed first
-  exclusiveWith?: string[];  // IDs of achievements that cannot be active simultaneously
+
+  /**
+   * The trigger type for the achievement.
+   */
+  trigger: AchievementTrigger;
+
+  /**
+   * The target value for cumulative or streak achievements.
+   * For example, the number of days for a streak or the count for a cumulative achievement.
+   */
+  targetValue?: number;
+
+  /**
+   * Whether the achievement should be visible before it's unlocked.
+   */
+  visibleBeforeUnlock: boolean;
+
+  /**
+   * Whether the achievement should show progress.
+   */
+  showProgress: boolean;
+
+  /**
+   * The badge image to display for the achievement.
+   */
+  badgeImage: string;
+
+  /**
+   * The animation to play when the achievement is unlocked.
+   */
+  unlockAnimation?: string;
 }
 
 /**
- * Interface for achievement event payload.
- * Represents the data structure for events that can trigger achievements.
+ * Returns the metadata for a specific achievement journey.
+ * 
+ * @param journey - The achievement journey to get metadata for
+ * @returns The metadata for the specified achievement journey
  */
-export interface AchievementEventPayload {
-  userId: string;  // ID of the user who performed the action
-  journeyType: AchievementJourney;  // Journey where the action was performed
-  category: string;  // Category of the action
-  action: string;  // Specific action performed
-  value?: number;  // Optional numeric value associated with the action
-  metadata?: Record<string, any>;  // Additional context about the action
-  timestamp: Date;  // When the action occurred
+export function getAchievementJourneyMetadata(journey: AchievementJourney): AchievementJourneyMetadata {
+  return ACHIEVEMENT_JOURNEY_METADATA[journey];
 }
 
 /**
- * Constants for achievement event types that can trigger achievements.
+ * Returns the metadata for a specific achievement difficulty level.
+ * 
+ * @param difficulty - The achievement difficulty to get metadata for
+ * @returns The metadata for the specified achievement difficulty
  */
-export enum AchievementEventType {
-  // Health journey events
-  STEPS_RECORDED = 'steps_recorded',
-  SLEEP_RECORDED = 'sleep_recorded',
-  WEIGHT_RECORDED = 'weight_recorded',
-  BLOOD_PRESSURE_RECORDED = 'blood_pressure_recorded',
-  BLOOD_GLUCOSE_RECORDED = 'blood_glucose_recorded',
-  ACTIVITY_COMPLETED = 'activity_completed',
-  GOAL_CREATED = 'goal_created',
-  GOAL_ACHIEVED = 'goal_achieved',
-  DEVICE_CONNECTED = 'device_connected',
-  HEALTH_RECORD_ADDED = 'health_record_added',
+export function getAchievementDifficultyMetadata(difficulty: AchievementDifficulty): AchievementDifficultyMetadata {
+  return ACHIEVEMENT_DIFFICULTY_METADATA[difficulty];
+}
+
+/**
+ * Returns the metadata for a specific achievement trigger type.
+ * 
+ * @param trigger - The achievement trigger to get metadata for
+ * @returns The metadata for the specified achievement trigger
+ */
+export function getAchievementTriggerMetadata(trigger: AchievementTrigger): AchievementTriggerMetadata {
+  return ACHIEVEMENT_TRIGGER_METADATA[trigger];
+}
+
+/**
+ * Calculates the XP reward for an achievement based on its difficulty and trigger type.
+ * 
+ * @param difficulty - The difficulty level of the achievement
+ * @param trigger - The trigger type of the achievement
+ * @param targetValue - The target value for cumulative or streak achievements
+ * @returns The calculated XP reward
+ */
+export function calculateAchievementXpReward(
+  difficulty: AchievementDifficulty,
+  trigger: AchievementTrigger,
+  targetValue?: number
+): number {
+  const baseReward = ACHIEVEMENT_DIFFICULTY_METADATA[difficulty].baseXpReward;
   
-  // Care journey events
-  APPOINTMENT_BOOKED = 'appointment_booked',
-  APPOINTMENT_ATTENDED = 'appointment_attended',
-  TELEMEDICINE_SESSION_COMPLETED = 'telemedicine_session_completed',
-  MEDICATION_TRACKED = 'medication_tracked',
-  MEDICATION_ADHERENCE_STREAK = 'medication_adherence_streak',
-  TREATMENT_PLAN_PROGRESS = 'treatment_plan_progress',
-  TREATMENT_PLAN_COMPLETED = 'treatment_plan_completed',
-  SYMPTOM_CHECK_COMPLETED = 'symptom_check_completed',
-  PROVIDER_RATED = 'provider_rated',
+  // Apply multipliers based on trigger type
+  switch (trigger) {
+    case AchievementTrigger.ONE_TIME:
+      return baseReward;
+    
+    case AchievementTrigger.CUMULATIVE:
+      // Scale reward based on target value, with diminishing returns
+      return targetValue ? baseReward * Math.sqrt(targetValue / 10) : baseReward;
+    
+    case AchievementTrigger.STREAK:
+      // Streaks are more valuable, so apply a higher multiplier
+      return targetValue ? baseReward * Math.sqrt(targetValue / 5) : baseReward;
+    
+    case AchievementTrigger.MILESTONE:
+      // Milestones are significant achievements
+      return baseReward * 1.5;
+    
+    case AchievementTrigger.COLLECTION:
+      // Collections are the most valuable achievements
+      return baseReward * 2;
+    
+    default:
+      return baseReward;
+  }
+}
+
+/**
+ * Creates a standardized achievement display metadata object.
+ * 
+ * @param type - The achievement type
+ * @param journey - The journey associated with the achievement
+ * @param difficulty - The difficulty level of the achievement
+ * @param trigger - The trigger type for the achievement
+ * @param options - Additional options for the achievement display
+ * @returns The achievement display metadata
+ */
+export function createAchievementDisplayMetadata(
+  type: AchievementType,
+  journey: AchievementJourney,
+  difficulty: AchievementDifficulty,
+  trigger: AchievementTrigger,
+  options?: {
+    targetValue?: number;
+    visibleBeforeUnlock?: boolean;
+    showProgress?: boolean;
+    badgeImage?: string;
+    unlockAnimation?: string;
+  }
+): AchievementDisplayMetadata {
+  // Determine if the achievement should be visible before unlock based on type
+  const defaultVisibleBeforeUnlock = type !== AchievementType.HIDDEN;
   
-  // Plan journey events
-  CLAIM_SUBMITTED = 'claim_submitted',
-  CLAIM_APPROVED = 'claim_approved',
-  BENEFIT_USED = 'benefit_used',
-  BENEFIT_EXPLORED = 'benefit_explored',
-  COVERAGE_REVIEWED = 'coverage_reviewed',
-  DIGITAL_CARD_USED = 'digital_card_used',
-  COST_ESTIMATE_GENERATED = 'cost_estimate_generated',
+  // Determine if progress should be shown based on trigger type
+  const defaultShowProgress = ACHIEVEMENT_TRIGGER_METADATA[trigger].requiresProgress;
   
-  // Cross-journey events
-  PROFILE_UPDATED = 'profile_updated',
-  FEEDBACK_PROVIDED = 'feedback_provided',
-  APP_OPENED = 'app_opened',
-  FEATURE_USED = 'feature_used',
-  REFERRAL_SENT = 'referral_sent',
-  REFERRAL_ACCEPTED = 'referral_accepted',
+  // Generate a default badge image path based on journey and difficulty
+  const journeyCode = journey.toLowerCase();
+  const difficultyCode = difficulty.toLowerCase();
+  const defaultBadgeImage = `achievements/${journeyCode}_${difficultyCode}.png`;
+  
+  return {
+    type,
+    journey,
+    difficulty,
+    trigger,
+    targetValue: options?.targetValue,
+    visibleBeforeUnlock: options?.visibleBeforeUnlock ?? defaultVisibleBeforeUnlock,
+    showProgress: options?.showProgress ?? defaultShowProgress,
+    badgeImage: options?.badgeImage ?? defaultBadgeImage,
+    unlockAnimation: options?.unlockAnimation
+  };
+}
+
+/**
+ * Maps a journey value to the corresponding achievement type.
+ * 
+ * @param journey - The achievement journey
+ * @returns The corresponding achievement type
+ */
+export function mapJourneyToAchievementType(journey: AchievementJourney): AchievementType {
+  if (journey === AchievementJourney.CROSS_JOURNEY) {
+    return AchievementType.CROSS_JOURNEY;
+  }
+  return AchievementType.JOURNEY;
+}
+
+/**
+ * Determines if an achievement requires progress tracking based on its trigger type.
+ * 
+ * @param trigger - The achievement trigger type
+ * @returns Whether the achievement requires progress tracking
+ */
+export function requiresProgressTracking(trigger: AchievementTrigger): boolean {
+  return ACHIEVEMENT_TRIGGER_METADATA[trigger].requiresProgress;
+}
+
+/**
+ * Determines if an achievement supports partial completion based on its trigger type.
+ * 
+ * @param trigger - The achievement trigger type
+ * @returns Whether the achievement supports partial completion
+ */
+export function supportsPartialCompletion(trigger: AchievementTrigger): boolean {
+  return ACHIEVEMENT_TRIGGER_METADATA[trigger].supportsPartialCompletion;
 }
