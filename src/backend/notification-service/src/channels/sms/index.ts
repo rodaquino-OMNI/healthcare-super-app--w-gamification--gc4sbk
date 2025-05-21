@@ -1,12 +1,7 @@
 /**
- * @file SMS Channel Barrel Export
- * 
- * This file serves as a centralized export point for all SMS channel-related
- * components, interfaces, and utilities used throughout the notification service.
+ * Barrel file that exports all components from the SMS module.
+ * This file simplifies imports by providing a single entry point.
  */
 
-// Export SMS interfaces
-export * from './sms.interfaces';
-
-// Export SMS service
 export * from './sms.service';
+export * from './sms.module';
