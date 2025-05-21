@@ -1,364 +1,457 @@
-/**
- * @file notification-channel.interface.ts
- * @description Defines interfaces for notification channel configurations, capabilities, and integration with the retry subsystem.
- * This file provides a unified interface hierarchy for all notification delivery methods in the AUSTA SuperApp.
- */
-
 import { NotificationEntity } from '../notifications/entities/notification.entity';
-import { RetryPolicy } from '../retry/policies/retry-policy.interface';
-import { NotificationErrorCategory } from '@austa/interfaces/notification';
+import { RetryStatus } from '../retry/interfaces/retry-status.enum';
+import { IRetryOptions } from '../retry/interfaces/retry-options.interface';
+import { IRetryableOperation } from '../retry/interfaces/retryable-operation.interface';
+
+// Import from @austa/interfaces package for standardized schemas
+import { NotificationChannel, NotificationType, NotificationPriority } from '@austa/interfaces/notification/types';
+import { Notification } from '@austa/interfaces/notification/types';
 
 /**
- * Defines the base capabilities that a notification channel can support.
- * Used for feature detection and fallback decision making.
+ * Represents the result of a notification channel delivery attempt
+ */
+export interface IChannelDeliveryResult {
+  /** Whether the delivery was successful */
+  success: boolean;
+  
+  /** Unique identifier for the delivery attempt */
+  attemptId: string;
+  
+  /** Timestamp when the delivery was attempted */
+  timestamp: Date;
+  
+  /** Provider-specific message ID or reference (if available) */
+  providerMessageId?: string;
+  
+  /** Error information if delivery failed */
+  error?: IChannelError;
+  
+  /** Additional metadata about the delivery */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Standardized error information for notification channel failures
+ */
+export interface IChannelError {
+  /** Error code (can be provider-specific or standardized) */
+  code: string;
+  
+  /** Human-readable error message */
+  message: string;
+  
+  /** Classification of the error for retry decisions */
+  classification: FailureClassification;
+  
+  /** Original error object or details (if available) */
+  originalError?: any;
+  
+  /** Additional context about the error */
+  context?: Record<string, any>;
+}
+
+/**
+ * Classification of channel delivery failures for retry decisions
+ */
+export enum FailureClassification {
+  /** Temporary failure that can be retried (e.g., network timeout) */
+  TRANSIENT = 'transient',
+  
+  /** Permanent failure that should not be retried (e.g., invalid recipient) */
+  PERMANENT = 'permanent',
+  
+  /** Failure due to rate limiting that should be retried after a delay */
+  RATE_LIMITED = 'rate_limited',
+  
+  /** Failure due to authentication or authorization issues */
+  AUTH_ERROR = 'auth_error',
+  
+  /** Failure due to provider service being unavailable */
+  SERVICE_UNAVAILABLE = 'service_unavailable',
+  
+  /** Failure due to invalid request format or content */
+  INVALID_REQUEST = 'invalid_request',
+  
+  /** Unknown or unclassified failure */
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * Base interface for notification channel capabilities
  */
 export interface IChannelCapabilities {
   /** Whether the channel supports rich content (HTML, formatting, etc.) */
   supportsRichContent: boolean;
+  
   /** Whether the channel supports attachments (files, images, etc.) */
   supportsAttachments: boolean;
-  /** Whether the channel supports delivery receipts */
-  supportsDeliveryReceipts: boolean;
+  
+  /** Whether the channel supports delivery confirmation */
+  supportsDeliveryConfirmation: boolean;
+  
   /** Whether the channel supports read receipts */
   supportsReadReceipts: boolean;
-  /** Whether the channel supports user interaction (buttons, actions, etc.) */
-  supportsInteractiveElements: boolean;
-  /** Maximum message size in bytes (if applicable) */
-  maxMessageSize?: number;
-  /** Whether the channel is journey-aware (can handle journey-specific formatting) */
-  isJourneyAware: boolean;
-  /** Whether the channel supports offline delivery (store and forward) */
-  supportsOfflineDelivery: boolean;
-  /** Whether the channel supports priority levels */
-  supportsPriority: boolean;
+  
+  /** Maximum size of message content in bytes (if applicable) */
+  maxContentSize?: number;
+  
+  /** Maximum number of recipients per message (if applicable) */
+  maxRecipients?: number;
+  
+  /** Supported notification priorities */
+  supportedPriorities: NotificationPriority[];
+  
+  /** Supported notification types */
+  supportedTypes: NotificationType[];
 }
 
 /**
- * Base configuration interface for all notification channels.
- * Provides common configuration properties that all channels should implement.
+ * Base interface for notification channel configuration
  */
 export interface IChannelConfig {
   /** Whether the channel is enabled */
   enabled: boolean;
-  /** Maximum number of retries for failed deliveries */
-  maxRetries: number;
-  /** Retry policy to use for failed deliveries */
-  retryPolicy: RetryPolicy;
-  /** Timeout in milliseconds for delivery attempts */
-  timeoutMs: number;
-  /** Whether to use fallback channels if delivery fails */
-  useFallback: boolean;
-  /** Priority of this channel (lower number = higher priority) */
-  priority: number;
-  /** Journey-specific configuration overrides */
-  journeyOverrides?: {
-    [journeyKey: string]: Partial<IChannelConfig>;
+  
+  /** Maximum number of delivery attempts before giving up */
+  maxRetryAttempts: number;
+  
+  /** Retry options for failed deliveries */
+  retryOptions: IRetryOptions;
+  
+  /** Default sender identity (email address, phone number, etc.) */
+  defaultSender?: string;
+  
+  /** Rate limiting configuration (requests per minute, etc.) */
+  rateLimits?: {
+    requestsPerMinute?: number;
+    requestsPerHour?: number;
+    requestsPerDay?: number;
   };
+  
+  /** Channel-specific configuration parameters */
+  providerConfig: Record<string, any>;
+  
+  /** Fallback channel to use if this channel fails */
+  fallbackChannel?: NotificationChannel;
 }
 
 /**
- * Error classification for notification delivery failures.
- * Used to determine appropriate retry and fallback strategies.
+ * Base interface for all notification channels
  */
-export interface IDeliveryError {
-  /** Original error that caused the failure */
-  originalError: Error;
-  /** Error category for classification */
-  category: NotificationErrorCategory;
-  /** Whether this error is considered transient (temporary) */
-  isTransient: boolean;
-  /** Whether this error is related to the recipient (e.g., invalid email) */
-  isRecipientError: boolean;
-  /** Whether this error is related to the channel provider (e.g., SMS service down) */
-  isProviderError: boolean;
-  /** Whether this error is related to the message content (e.g., message too large) */
-  isContentError: boolean;
-  /** Recommended action for handling this error */
-  recommendedAction: 'retry' | 'fallback' | 'drop' | 'alert';
-  /** Time to wait before retrying (in milliseconds) */
-  retryAfterMs?: number;
-}
-
-/**
- * Base interface for all notification channel providers.
- * Defines the contract that all channel providers must implement.
- */
-export interface IChannelProvider {
-  /** Unique identifier for this provider */
-  readonly providerId: string;
-  /** Display name of this provider */
-  readonly displayName: string;
-  /** Whether this provider is currently available */
-  isAvailable(): Promise<boolean>;
-  /** Get the current health status of this provider */
-  getHealthStatus(): Promise<{
-    isHealthy: boolean;
-    details?: Record<string, any>;
-  }>;
-}
-
-/**
- * Base interface for all notification channels.
- * Defines the core functionality that all notification channels must implement.
- */
-export interface INotificationChannel<TConfig extends IChannelConfig = IChannelConfig> {
-  /** Unique identifier for this channel */
-  readonly channelId: string;
-  /** Display name of this channel */
-  readonly displayName: string;
-  /** Channel type (email, sms, push, in-app) */
-  readonly channelType: 'email' | 'sms' | 'push' | 'in-app';
-  /** Channel provider */
-  readonly provider: IChannelProvider;
-  /** Channel configuration */
-  readonly config: TConfig;
+export interface INotificationChannel {
+  /** Unique identifier for the channel type */
+  readonly channelType: NotificationChannel;
+  
   /** Channel capabilities */
   readonly capabilities: IChannelCapabilities;
   
-  /**
-   * Sends a notification through this channel.
-   * @param recipientId - ID of the recipient (user ID, email, phone number, etc.)
-   * @param notification - The notification entity to send
-   * @returns A promise that resolves to a delivery result
-   */
-  send(recipientId: string, notification: NotificationEntity): Promise<IDeliveryResult>;
+  /** Channel configuration */
+  readonly config: IChannelConfig;
   
   /**
-   * Checks if this channel can deliver to the specified recipient.
-   * @param recipientId - ID of the recipient to check
-   * @returns A promise that resolves to true if the channel can deliver to the recipient
+   * Sends a notification through this channel
+   * @param recipient The recipient identifier (email, phone, device token, user ID)
+   * @param notification The notification entity to send
+   * @returns A promise that resolves to the delivery result
    */
-  canDeliver(recipientId: string): Promise<boolean>;
+  send(recipient: string, notification: NotificationEntity): Promise<IChannelDeliveryResult>;
   
   /**
-   * Validates the notification content for this channel.
-   * @param notification - The notification to validate
-   * @returns A promise that resolves to a validation result
+   * Checks if this channel can handle the given notification type
+   * @param notificationType The notification type to check
+   * @returns True if this channel can handle the notification type
    */
-  validateContent(notification: NotificationEntity): Promise<{
-    isValid: boolean;
-    errors?: string[];
-  }>;
+  canHandle(notificationType: NotificationType): boolean;
   
   /**
-   * Classifies a delivery error for retry and fallback decisions.
-   * @param error - The error that occurred during delivery
-   * @param recipientId - ID of the recipient
-   * @param notification - The notification that failed to deliver
-   * @returns A classified delivery error
+   * Validates a recipient identifier for this channel
+   * @param recipient The recipient identifier to validate
+   * @returns True if the recipient identifier is valid for this channel
    */
-  classifyError(error: Error, recipientId: string, notification: NotificationEntity): IDeliveryError;
+  validateRecipient(recipient: string): boolean;
+  
+  /**
+   * Gets the current status of the channel (online, degraded, offline)
+   * @returns A promise that resolves to the channel status
+   */
+  getStatus(): Promise<ChannelStatus>;
 }
 
 /**
- * Result of a notification delivery attempt.
- * Contains information about the delivery status and any errors that occurred.
+ * Status of a notification channel
  */
-export interface IDeliveryResult {
-  /** Whether the delivery was successful */
-  success: boolean;
-  /** Unique identifier for this delivery attempt */
-  deliveryId?: string;
-  /** Timestamp when the delivery was attempted */
-  timestamp: Date;
-  /** Error that occurred during delivery (if any) */
-  error?: IDeliveryError;
-  /** Provider-specific response details */
-  providerResponse?: Record<string, any>;
-  /** Number of retry attempts made */
-  retryCount: number;
-  /** Whether this was delivered through a fallback channel */
-  usedFallback: boolean;
-  /** ID of the fallback channel used (if any) */
-  fallbackChannelId?: string;
+export enum ChannelStatus {
+  /** Channel is fully operational */
+  ONLINE = 'online',
+  
+  /** Channel is operational but with degraded performance */
+  DEGRADED = 'degraded',
+  
+  /** Channel is not operational */
+  OFFLINE = 'offline'
 }
 
 /**
- * Email channel specific configuration.
+ * Interface for notification channels that support retry operations
+ */
+export interface IRetryableChannel extends INotificationChannel, IRetryableOperation {
+  /**
+   * Gets the current retry status for a specific notification
+   * @param notificationId The ID of the notification
+   * @returns A promise that resolves to the retry status
+   */
+  getRetryStatus(notificationId: string): Promise<RetryStatus>;
+  
+  /**
+   * Schedules a retry for a failed notification
+   * @param recipient The recipient identifier
+   * @param notification The notification entity
+   * @param error The error that caused the failure
+   * @returns A promise that resolves when the retry is scheduled
+   */
+  scheduleRetry(recipient: string, notification: NotificationEntity, error: IChannelError): Promise<void>;
+  
+  /**
+   * Classifies an error to determine retry strategy
+   * @param error The error to classify
+   * @returns The failure classification
+   */
+  classifyError(error: any): FailureClassification;
+}
+
+/**
+ * Interface for email channel capabilities
+ */
+export interface IEmailChannelCapabilities extends IChannelCapabilities {
+  /** Whether HTML content is supported */
+  supportsHtml: boolean;
+  
+  /** Whether inline CSS is supported */
+  supportsInlineCSS: boolean;
+  
+  /** Maximum size of attachments in bytes */
+  maxAttachmentSize: number;
+  
+  /** Supported attachment file types */
+  supportedAttachmentTypes: string[];
+}
+
+/**
+ * Interface for email channel configuration
  */
 export interface IEmailChannelConfig extends IChannelConfig {
-  /** SMTP host */
-  host: string;
-  /** SMTP port */
-  port: number;
-  /** Whether to use secure connection */
-  secure: boolean;
-  /** SMTP authentication user */
-  user: string;
-  /** SMTP authentication password */
-  password: string;
-  /** Default sender email address */
-  from: string;
-  /** Whether to use HTML content by default */
-  useHtml: boolean;
-  /** Maximum attachment size in bytes */
-  maxAttachmentSize: number;
-}
-
-/**
- * SMS channel specific configuration.
- */
-export interface ISmsChannelConfig extends IChannelConfig {
-  /** SMS provider account SID */
-  accountSid: string;
-  /** SMS provider authentication token */
-  authToken: string;
-  /** Default sender phone number */
-  defaultFrom: string;
-  /** Maximum message length */
-  maxMessageLength: number;
-  /** Whether to split long messages */
-  splitLongMessages: boolean;
-}
-
-/**
- * Push notification channel specific configuration.
- */
-export interface IPushChannelConfig extends IChannelConfig {
-  /** Firebase Cloud Messaging API key or service account */
-  apiKey: string;
-  /** Default notification icon */
-  defaultIcon?: string;
-  /** Default notification sound */
-  defaultSound?: string;
-  /** Whether to use high priority by default */
-  highPriorityByDefault: boolean;
-  /** Time-to-live in seconds */
-  ttlSeconds: number;
-  /** Platform-specific configuration */
-  platformConfig?: {
-    android?: Record<string, any>;
-    ios?: Record<string, any>;
-    web?: Record<string, any>;
+  /** SMTP server configuration */
+  providerConfig: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth: {
+      user: string;
+      pass: string;
+    };
+    from: string;
   };
 }
 
 /**
- * In-app notification channel specific configuration.
+ * Interface for email notification channel
+ */
+export interface IEmailChannel extends IRetryableChannel {
+  readonly channelType: NotificationChannel.EMAIL;
+  readonly capabilities: IEmailChannelCapabilities;
+  readonly config: IEmailChannelConfig;
+  
+  /**
+   * Sends an email with attachments
+   * @param to Recipient email address
+   * @param subject Email subject
+   * @param html Email HTML content
+   * @param attachments Optional email attachments
+   * @returns A promise that resolves to the delivery result
+   */
+  sendEmail(to: string, subject: string, html: string, attachments?: any[]): Promise<IChannelDeliveryResult>;
+}
+
+/**
+ * Interface for SMS channel capabilities
+ */
+export interface ISmsChannelCapabilities extends IChannelCapabilities {
+  /** Maximum length of SMS messages in characters */
+  maxMessageLength: number;
+  
+  /** Whether Unicode characters are supported */
+  supportsUnicode: boolean;
+  
+  /** Whether message concatenation is supported for long messages */
+  supportsConcatenation: boolean;
+}
+
+/**
+ * Interface for SMS channel configuration
+ */
+export interface ISmsChannelConfig extends IChannelConfig {
+  /** SMS provider configuration */
+  providerConfig: {
+    accountSid: string;
+    authToken: string;
+    defaultFrom: string;
+  };
+}
+
+/**
+ * Interface for SMS notification channel
+ */
+export interface ISmsChannel extends IRetryableChannel {
+  readonly channelType: NotificationChannel.SMS;
+  readonly capabilities: ISmsChannelCapabilities;
+  readonly config: ISmsChannelConfig;
+  
+  /**
+   * Sends an SMS message
+   * @param phoneNumber Recipient phone number
+   * @param message SMS message content
+   * @returns A promise that resolves to the delivery result
+   */
+  sendSms(phoneNumber: string, message: string): Promise<IChannelDeliveryResult>;
+}
+
+/**
+ * Interface for push notification channel capabilities
+ */
+export interface IPushChannelCapabilities extends IChannelCapabilities {
+  /** Whether the channel supports action buttons */
+  supportsActionButtons: boolean;
+  
+  /** Whether the channel supports notification badges */
+  supportsBadges: boolean;
+  
+  /** Whether the channel supports notification sounds */
+  supportsSounds: boolean;
+  
+  /** Whether the channel supports notification images */
+  supportsImages: boolean;
+  
+  /** Maximum number of action buttons supported */
+  maxActionButtons?: number;
+}
+
+/**
+ * Interface for push channel configuration
+ */
+export interface IPushChannelConfig extends IChannelConfig {
+  /** Push notification provider configuration */
+  providerConfig: {
+    apiKey: string;
+    projectId?: string;
+    appId?: string;
+  };
+}
+
+/**
+ * Interface for push notification channel
+ */
+export interface IPushChannel extends IRetryableChannel {
+  readonly channelType: NotificationChannel.PUSH;
+  readonly capabilities: IPushChannelCapabilities;
+  readonly config: IPushChannelConfig;
+  
+  /**
+   * Sends a push notification
+   * @param token Device token
+   * @param payload Push notification payload
+   * @returns A promise that resolves to the delivery result
+   */
+  sendPush(token: string, payload: any): Promise<IChannelDeliveryResult>;
+}
+
+/**
+ * Interface for in-app notification channel capabilities
+ */
+export interface IInAppChannelCapabilities extends IChannelCapabilities {
+  /** Whether the channel supports notification persistence */
+  supportsPersistence: boolean;
+  
+  /** Whether the channel supports notification actions */
+  supportsActions: boolean;
+  
+  /** Whether the channel supports notification grouping */
+  supportsGrouping: boolean;
+  
+  /** Whether the channel supports notification dismissal */
+  supportsDismissal: boolean;
+}
+
+/**
+ * Interface for in-app channel configuration
  */
 export interface IInAppChannelConfig extends IChannelConfig {
-  /** Whether to persist notifications */
-  persistNotifications: boolean;
-  /** Time-to-live in seconds for persisted notifications */
-  persistenceTtlSeconds: number;
-  /** Maximum number of notifications to keep per user */
-  maxNotificationsPerUser: number;
-  /** Whether to mark notifications as read when delivered */
-  markAsReadOnDelivery: boolean;
-  /** Whether to use WebSockets for delivery */
-  useWebSockets: boolean;
-  /** Fallback polling interval in milliseconds (if WebSockets not available) */
-  pollingIntervalMs?: number;
+  /** In-app notification provider configuration */
+  providerConfig: {
+    /** Time-to-live for notifications in seconds */
+    ttl: number;
+    
+    /** Maximum number of notifications to store per user */
+    maxNotificationsPerUser: number;
+    
+    /** Whether to persist notifications for offline users */
+    persistForOfflineUsers: boolean;
+  };
 }
 
 /**
- * Email channel specific interface.
+ * Interface for in-app notification channel
  */
-export interface IEmailChannel extends INotificationChannel<IEmailChannelConfig> {
-  /**
-   * Sends an email with attachments.
-   * @param to - Recipient email address
-   * @param subject - Email subject
-   * @param content - Email content (HTML or plain text)
-   * @param attachments - Optional attachments
-   * @returns A promise that resolves to a delivery result
-   */
-  sendWithAttachments(to: string, subject: string, content: string, attachments?: Array<{
-    filename: string;
-    content: Buffer | string;
-    contentType?: string;
-  }>): Promise<IDeliveryResult>;
+export interface IInAppChannel extends IRetryableChannel {
+  readonly channelType: NotificationChannel.IN_APP;
+  readonly capabilities: IInAppChannelCapabilities;
+  readonly config: IInAppChannelConfig;
   
   /**
-   * Validates an email address.
-   * @param email - Email address to validate
-   * @returns Whether the email address is valid
+   * Sends an in-app notification
+   * @param userId User ID
+   * @param notification Notification entity
+   * @returns A promise that resolves to the delivery result
    */
-  validateEmailAddress(email: string): boolean;
-}
-
-/**
- * SMS channel specific interface.
- */
-export interface ISmsChannel extends INotificationChannel<ISmsChannelConfig> {
-  /**
-   * Validates a phone number.
-   * @param phoneNumber - Phone number to validate
-   * @returns Whether the phone number is valid
-   */
-  validatePhoneNumber(phoneNumber: string): boolean;
+  sendInApp(userId: string, notification: NotificationEntity): Promise<IChannelDeliveryResult>;
   
   /**
-   * Formats a phone number for delivery.
-   * @param phoneNumber - Phone number to format
-   * @returns Formatted phone number
-   */
-  formatPhoneNumber(phoneNumber: string): string;
-}
-
-/**
- * Push notification channel specific interface.
- */
-export interface IPushChannel extends INotificationChannel<IPushChannelConfig> {
-  /**
-   * Registers a device token for a user.
-   * @param userId - User ID
-   * @param token - Device token
-   * @param platform - Device platform (ios, android, web)
-   * @returns A promise that resolves when the token is registered
-   */
-  registerDeviceToken(userId: string, token: string, platform: 'ios' | 'android' | 'web'): Promise<void>;
-  
-  /**
-   * Unregisters a device token for a user.
-   * @param userId - User ID
-   * @param token - Device token to unregister
-   * @returns A promise that resolves when the token is unregistered
-   */
-  unregisterDeviceToken(userId: string, token: string): Promise<void>;
-  
-  /**
-   * Gets all device tokens for a user.
-   * @param userId - User ID
-   * @returns A promise that resolves to an array of device tokens
-   */
-  getDeviceTokens(userId: string): Promise<Array<{
-    token: string;
-    platform: 'ios' | 'android' | 'web';
-    lastUsed: Date;
-  }>>;
-}
-
-/**
- * In-app notification channel specific interface.
- */
-export interface IInAppChannel extends INotificationChannel<IInAppChannelConfig> {
-  /**
-   * Checks if a user is currently connected.
-   * @param userId - User ID to check
+   * Checks if a user is currently connected
+   * @param userId User ID
    * @returns A promise that resolves to true if the user is connected
    */
-  isUserConnected(userId: string): Promise<boolean>;
+  checkUserConnection(userId: string): Promise<boolean>;
   
   /**
-   * Gets all pending notifications for a user.
-   * @param userId - User ID
-   * @returns A promise that resolves to an array of pending notifications
+   * Stores a notification for later delivery
+   * @param userId User ID
+   * @param notification Notification entity
+   * @returns A promise that resolves to true if the notification was stored successfully
    */
-  getPendingNotifications(userId: string): Promise<NotificationEntity[]>;
+  storeNotificationForLaterDelivery(userId: string, notification: NotificationEntity): Promise<boolean>;
+}
+
+/**
+ * Interface for channel provider factory
+ */
+export interface IChannelProviderFactory {
+  /**
+   * Creates a notification channel instance
+   * @param channelType The type of channel to create
+   * @param config The channel configuration
+   * @returns A promise that resolves to the channel instance
+   */
+  createChannel<T extends INotificationChannel>(channelType: NotificationChannel, config: IChannelConfig): Promise<T>;
   
   /**
-   * Marks a notification as read.
-   * @param userId - User ID
-   * @param notificationId - Notification ID to mark as read
-   * @returns A promise that resolves when the notification is marked as read
+   * Gets all available channel types
+   * @returns An array of available channel types
    */
-  markAsRead(userId: string, notificationId: string): Promise<void>;
+  getAvailableChannels(): NotificationChannel[];
   
   /**
-   * Marks all notifications as read for a user.
-   * @param userId - User ID
-   * @returns A promise that resolves when all notifications are marked as read
+   * Gets the default channel for a notification type
+   * @param notificationType The notification type
+   * @returns The default channel for the notification type
    */
-  markAllAsRead(userId: string): Promise<void>;
+  getDefaultChannelForType(notificationType: NotificationType): NotificationChannel;
 }
