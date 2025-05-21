@@ -1,18 +1,15 @@
 /**
  * @file Rule condition interfaces for the gamification engine
- * 
- * This file defines the interfaces for rule conditions and evaluation contexts
- * in the gamification engine. It establishes the contract for condition evaluation,
- * including the structure of the evaluation context that combines event data and
- * user profile information.
+ * @description Defines TypeScript interfaces for rule conditions and evaluation contexts.
+ * These interfaces provide the foundation for all rule condition structures, ensuring type safety
+ * and consistent condition evaluation across the gamification engine.
  */
 
-import { JourneyType } from '@austa/interfaces/common';
-import { GameEvent } from '@austa/interfaces/gamification';
-import { UserProfile } from '@austa/interfaces/gamification';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import { IBaseEvent } from '../../events/interfaces/event.interface';
 
 /**
- * Logical operators for combining multiple conditions
+ * Logical operator types for combining multiple conditions
  */
 export enum LogicalOperator {
   AND = 'AND',
@@ -21,7 +18,7 @@ export enum LogicalOperator {
 }
 
 /**
- * Comparison operators for condition evaluation
+ * Comparison operator types for condition evaluation
  */
 export enum ComparisonOperator {
   EQUALS = 'EQUALS',
@@ -34,7 +31,8 @@ export enum ComparisonOperator {
   NOT_CONTAINS = 'NOT_CONTAINS',
   STARTS_WITH = 'STARTS_WITH',
   ENDS_WITH = 'ENDS_WITH',
-  MATCHES_REGEX = 'MATCHES_REGEX'
+  EXISTS = 'EXISTS',
+  NOT_EXISTS = 'NOT_EXISTS'
 }
 
 /**
@@ -42,80 +40,133 @@ export enum ComparisonOperator {
  */
 export interface IRuleCondition {
   /**
-   * Optional journey type to restrict this condition to a specific journey
+   * Optional journey type to restrict the condition to a specific journey
+   * If not provided, the condition applies to all journeys
    */
-  journeyType?: JourneyType;
+  journey?: JourneyType;
 }
 
 /**
- * Simple condition that compares a field value against a target value
+ * Interface for simple comparison conditions
  */
-export interface ISimpleCondition extends IRuleCondition {
+export interface IComparisonCondition extends IRuleCondition {
   /**
-   * The field path to evaluate (e.g., 'event.data.steps', 'profile.level')
+   * The field path to evaluate in the event data or user profile
+   * @example "event.data.metricValue", "profile.level", "event.journey"
    */
   field: string;
-  
+
   /**
    * The comparison operator to use
    */
   operator: ComparisonOperator;
-  
+
   /**
    * The value to compare against
+   * Can be a primitive value (string, number, boolean) or an array for certain operators
    */
-  value: string | number | boolean | null;
+  value: string | number | boolean | Array<string | number | boolean>;
 }
 
 /**
- * Compound condition that combines multiple conditions with a logical operator
+ * Interface for logical conditions that combine multiple conditions
  */
-export interface ICompoundCondition extends IRuleCondition {
+export interface ILogicalCondition extends IRuleCondition {
   /**
    * The logical operator to apply to the conditions
    */
   operator: LogicalOperator;
-  
+
   /**
-   * The conditions to combine
+   * The conditions to combine with the logical operator
+   * Can be a mix of comparison and nested logical conditions
    */
-  conditions: Array<ISimpleCondition | ICompoundCondition>;
+  conditions: Array<IComparisonCondition | ILogicalCondition>;
 }
 
 /**
- * Evaluation context that provides the data needed to evaluate a rule condition
+ * Union type for all possible condition types
+ */
+export type RuleCondition = IComparisonCondition | ILogicalCondition;
+
+/**
+ * Interface for user profile data available during rule evaluation
+ */
+export interface IUserProfile {
+  /**
+   * Unique identifier for the user
+   */
+  id: string;
+
+  /**
+   * User's current experience points
+   */
+  xp: number;
+
+  /**
+   * User's current level
+   */
+  level: number;
+
+  /**
+   * User's completed achievements
+   */
+  achievements?: string[];
+
+  /**
+   * User's active quests
+   */
+  quests?: string[];
+
+  /**
+   * User's earned rewards
+   */
+  rewards?: string[];
+
+  /**
+   * Additional user metadata
+   */
+  metadata?: Record<string, any>;
+
+  /**
+   * Journey-specific user data
+   */
+  journeyData?: {
+    health?: Record<string, any>;
+    care?: Record<string, any>;
+    plan?: Record<string, any>;
+  };
+}
+
+/**
+ * Interface for the evaluation context used during rule condition evaluation
+ * Combines event data and user profile information
  */
 export interface IEvaluationContext {
   /**
-   * The event that triggered the rule evaluation
+   * The event being evaluated
    */
-  event: GameEvent;
-  
+  event: IBaseEvent;
+
   /**
    * The user profile associated with the event
    */
-  profile: UserProfile;
-  
+  profile: IUserProfile;
+
   /**
-   * The journey type associated with the event
+   * The timestamp when the evaluation is occurring
+   * Defaults to the current time if not provided
    */
-  journeyType: JourneyType;
+  evaluationTime?: Date;
+
+  /**
+   * Additional context data that may be needed for evaluation
+   */
+  metadata?: Record<string, any>;
 }
 
 /**
  * Type definition for a condition evaluation function
+ * Returns true if the condition is satisfied, false otherwise
  */
-export type ConditionEvaluator = (condition: IRuleCondition, context: IEvaluationContext) => boolean;
-
-/**
- * Interface for a service that evaluates rule conditions
- */
-export interface IRuleConditionEvaluator {
-  /**
-   * Evaluates a rule condition against the provided context
-   * @param condition The condition to evaluate
-   * @param context The context containing event and profile data
-   * @returns True if the condition is satisfied, false otherwise
-   */
-  evaluate(condition: IRuleCondition | ISimpleCondition | ICompoundCondition, context: IEvaluationContext): boolean;
-}
+export type ConditionEvaluator = (condition: RuleCondition, context: IEvaluationContext) => boolean;

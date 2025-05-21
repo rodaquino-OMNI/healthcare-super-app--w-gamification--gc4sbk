@@ -9,7 +9,7 @@ CREATE TYPE "GoalPeriod" AS ENUM ('daily', 'weekly', 'monthly', 'custom');
 
 -- CreateTable
 CREATE TABLE "health_goals" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "recordId" UUID NOT NULL,
     "type" "GoalType" NOT NULL,
     "title" VARCHAR(255) NOT NULL,
@@ -36,17 +36,3 @@ CREATE INDEX "health_goals_status_idx" ON "health_goals"("status");
 
 -- CreateIndex
 CREATE INDEX "health_goals_period_idx" ON "health_goals"("period");
-
--- Add trigger for automatic updatedAt timestamp
-CREATE OR REPLACE FUNCTION update_health_goals_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW."updatedAt" = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_health_goals_updated_at
-BEFORE UPDATE ON "health_goals"
-FOR EACH ROW
-EXECUTE FUNCTION update_health_goals_updated_at();

@@ -1,4 +1,4 @@
-import { IsDate, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsDate, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -9,15 +9,16 @@ import { Type } from 'class-transformer';
 export class CreateTreatmentPlanDto {
   /**
    * Name of the treatment plan.
-   * @example "Physical Therapy Plan"
+   * Required field with maximum length of 255 characters.
    */
   @IsString({ message: 'Name must be a string' })
   @IsNotEmpty({ message: 'Name is required' })
+  @MaxLength(255, { message: 'Name cannot exceed 255 characters' })
   name: string;
 
   /**
    * Description of the treatment plan.
-   * @example "Weekly physical therapy sessions focusing on lower back rehabilitation"
+   * Optional field providing details about the treatment plan.
    */
   @IsString({ message: 'Description must be a string' })
   @IsOptional()
@@ -25,35 +26,35 @@ export class CreateTreatmentPlanDto {
 
   /**
    * Start date of the treatment plan.
-   * @example "2023-04-15T00:00:00.000Z"
+   * Required field indicating when the treatment plan begins.
    */
   @IsDate({ message: 'Start date must be a valid date' })
-  @Type(() => Date)
   @IsNotEmpty({ message: 'Start date is required' })
+  @Type(() => Date)
   startDate: Date;
 
   /**
    * End date of the treatment plan.
-   * @example "2023-07-15T00:00:00.000Z"
+   * Optional field indicating when the treatment plan ends.
    */
   @IsDate({ message: 'End date must be a valid date' })
-  @Type(() => Date)
   @IsOptional()
+  @Type(() => Date)
   endDate?: Date;
 
   /**
    * Progress of the treatment plan (percentage from 0 to 100).
-   * @example 25
+   * Optional field with default value of 0.
    */
   @IsNumber({}, { message: 'Progress must be a number' })
-  @Min(0, { message: 'Progress cannot be less than 0' })
-  @Max(100, { message: 'Progress cannot be greater than 100' })
   @IsOptional()
+  @Min(0, { message: 'Progress cannot be less than 0' })
+  @Max(100, { message: 'Progress cannot exceed 100' })
   progress?: number;
 
   /**
    * ID of the care activity this treatment plan is associated with.
-   * @example "123e4567-e89b-12d3-a456-426614174000"
+   * Required field to establish relationship with a CareActivity.
    */
   @IsUUID('4', { message: 'Care activity ID must be a valid UUID' })
   @IsNotEmpty({ message: 'Care activity ID is required' })

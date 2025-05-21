@@ -21,5 +21,8 @@ CREATE TABLE "device_connections" (
 -- CreateIndex
 CREATE INDEX "device_connections_recordId_idx" ON "device_connections"("recordId");
 
+-- CreateIndex
+CREATE INDEX "device_connections_deviceId_idx" ON "device_connections"("deviceId");
+
 -- AddForeignKey
-ALTER TABLE "device_connections" ADD CONSTRAINT "device_connections_recordId_fkey" FOREIGN KEY ("recordId") REFERENCES "health_records"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "device_connections" ADD CONSTRAINT "device_connections_recordId_fkey" FOREIGN KEY ("recordId") REFERENCES "health_records"("id") ON DELETE CASCADE ON UPDATE CASCADE;

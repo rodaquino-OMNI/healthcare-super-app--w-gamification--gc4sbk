@@ -1,651 +1,627 @@
 import { SpanStatusCode } from '@opentelemetry/api';
-import { MockSpan } from '../../mocks/mock-span';
+import { MockSpan } from '../../mocks/mock-tracer';
 import {
-  addCommonAttributes,
-  addHttpAttributes,
-  addDatabaseAttributes,
+  AttributeNamespace,
+  JourneyType,
+  ErrorType,
+  addUserAttributes,
+  addRequestAttributes,
+  addServiceAttributes,
   addHealthJourneyAttributes,
   addCareJourneyAttributes,
   addPlanJourneyAttributes,
-  addGamificationAttributes,
   addErrorAttributes,
-  addPerformanceAttributes
+  classifyHttpError,
+  addDatabasePerformanceAttributes,
+  addExternalServicePerformanceAttributes,
+  addProcessingPerformanceAttributes,
+  measureExecutionTime
 } from '../../../src/utils/span-attributes';
 
-/**
- * Creates a mock span context for testing purposes.
- */
-const createMockSpanContext = () => ({
-  traceId: '0af7651916cd43dd8448eb211c80319c',
-  spanId: 'b7ad6b7169203331',
-  traceFlags: 1,
-  isRemote: false,
-});
-
 describe('Span Attribute Utilities', () => {
-  describe('addCommonAttributes', () => {
-    it('should add all provided common attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        userId: 'user-123',
-        requestId: 'req-456',
-        sessionId: 'session-789',
-        serviceName: 'test-service',
-        serviceVersion: '1.0.0',
-        environment: 'test'
-      };
+  let span: MockSpan;
 
-      // Act
-      addCommonAttributes(span, attributes);
+  beforeEach(() => {
+    // Create a fresh span for each test
+    span = new MockSpan('test-span');
+  });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['user.id']).toBe('user-123');
-      expect(spanAttributes['request.id']).toBe('req-456');
-      expect(spanAttributes['session.id']).toBe('session-789');
-      expect(spanAttributes['service.name']).toBe('test-service');
-      expect(spanAttributes['service.version']).toBe('1.0.0');
-      expect(spanAttributes['deployment.environment']).toBe('test');
+  // ===== COMMON ATTRIBUTE HELPERS =====
+
+  describe('Common Attribute Helpers', () => {
+    describe('addUserAttributes', () => {
+      it('should add user ID attribute', () => {
+        const userId = 'user-123';
+        addUserAttributes(span, userId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.id`]).toBe(userId);
+      });
+
+      it('should add session ID attribute when provided', () => {
+        const userId = 'user-123';
+        const sessionId = 'session-456';
+        addUserAttributes(span, userId, sessionId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.id`]).toBe(userId);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.session_id`]).toBe(sessionId);
+      });
+
+      it('should add additional attributes when provided', () => {
+        const userId = 'user-123';
+        const additionalAttributes = {
+          role: 'admin',
+          premium: true,
+          loginCount: 42
+        };
+        addUserAttributes(span, userId, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.id`]).toBe(userId);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.role`]).toBe('admin');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.premium`]).toBe(true);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.USER}.loginCount`]).toBe(42);
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addUserAttributes(span, 'user-123');
+        expect(result).toBe(span);
+      });
     });
 
-    it('should only add provided attributes and ignore undefined ones', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        userId: 'user-123',
-        // requestId is intentionally omitted
-        sessionId: 'session-789'
-        // other attributes are intentionally omitted
-      };
+    describe('addRequestAttributes', () => {
+      it('should add request ID attribute', () => {
+        const requestId = 'req-123';
+        addRequestAttributes(span, requestId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.id`]).toBe(requestId);
+      });
 
-      // Act
-      addCommonAttributes(span, attributes);
+      it('should add correlation ID attribute when provided', () => {
+        const requestId = 'req-123';
+        const correlationId = 'corr-456';
+        addRequestAttributes(span, requestId, correlationId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.id`]).toBe(requestId);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.correlation_id`]).toBe(correlationId);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['user.id']).toBe('user-123');
-      expect(spanAttributes['session.id']).toBe('session-789');
-      expect(spanAttributes['request.id']).toBeUndefined();
-      expect(spanAttributes['service.name']).toBeUndefined();
-      expect(spanAttributes['service.version']).toBeUndefined();
-      expect(spanAttributes['deployment.environment']).toBeUndefined();
+      it('should add additional attributes when provided', () => {
+        const requestId = 'req-123';
+        const additionalAttributes = {
+          method: 'POST',
+          path: '/api/health',
+          duration: 150
+        };
+        addRequestAttributes(span, requestId, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.id`]).toBe(requestId);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.method`]).toBe('POST');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.path`]).toBe('/api/health');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.REQUEST}.duration`]).toBe(150);
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addRequestAttributes(span, 'req-123');
+        expect(result).toBe(span);
+      });
     });
 
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        userId: 'user-123',
-        requestId: 'req-456'
-      };
+    describe('addServiceAttributes', () => {
+      it('should add service name attribute', () => {
+        const serviceName = 'health-service';
+        addServiceAttributes(span, serviceName);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.name`]).toBe(serviceName);
+      });
 
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
+      it('should add service version attribute when provided', () => {
+        const serviceName = 'health-service';
+        const serviceVersion = '1.2.3';
+        addServiceAttributes(span, serviceName, serviceVersion);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.name`]).toBe(serviceName);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.version`]).toBe(serviceVersion);
+      });
 
-      // Act
-      addCommonAttributes(span, attributes);
+      it('should add additional attributes when provided', () => {
+        const serviceName = 'health-service';
+        const additionalAttributes = {
+          region: 'us-east-1',
+          instance: 'i-12345',
+          environment: 'production'
+        };
+        addServiceAttributes(span, serviceName, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.name`]).toBe(serviceName);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.region`]).toBe('us-east-1');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.instance`]).toBe('i-12345');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.SERVICE}.environment`]).toBe('production');
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['user.id']).toBeUndefined();
-      expect(spanAttributes['request.id']).toBeUndefined();
+      it('should return the span for chaining', () => {
+        const result = addServiceAttributes(span, 'health-service');
+        expect(result).toBe(span);
+      });
     });
   });
 
-  describe('addHttpAttributes', () => {
-    it('should add all provided HTTP attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        method: 'GET',
-        url: 'https://api.example.com/users',
-        statusCode: 200,
-        route: '/users',
-        userAgent: 'Mozilla/5.0',
-        clientIp: '192.168.1.1'
-      };
+  // ===== JOURNEY-SPECIFIC ATTRIBUTE HELPERS =====
 
-      // Act
-      addHttpAttributes(span, attributes);
+  describe('Journey-Specific Attribute Helpers', () => {
+    describe('addHealthJourneyAttributes', () => {
+      it('should add journey type attribute', () => {
+        addHealthJourneyAttributes(span);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.HEALTH);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['http.method']).toBe('GET');
-      expect(spanAttributes['http.url']).toBe('https://api.example.com/users');
-      expect(spanAttributes['http.status_code']).toBe(200);
-      expect(spanAttributes['http.route']).toBe('/users');
-      expect(spanAttributes['http.user_agent']).toBe('Mozilla/5.0');
-      expect(spanAttributes['http.client_ip']).toBe('192.168.1.1');
+      it('should add metric type attribute when provided', () => {
+        const metricType = 'heart_rate';
+        addHealthJourneyAttributes(span, metricType);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.HEALTH);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.metric_type`]).toBe(metricType);
+      });
+
+      it('should add device ID attribute when provided', () => {
+        const deviceId = 'device-123';
+        addHealthJourneyAttributes(span, undefined, deviceId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.HEALTH);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.device_id`]).toBe(deviceId);
+      });
+
+      it('should add goal ID attribute when provided', () => {
+        const goalId = 'goal-123';
+        addHealthJourneyAttributes(span, undefined, undefined, goalId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.HEALTH);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.goal_id`]).toBe(goalId);
+      });
+
+      it('should add additional attributes when provided', () => {
+        const additionalAttributes = {
+          value: 72,
+          unit: 'bpm',
+          timestamp: '2023-01-01T12:00:00Z'
+        };
+        addHealthJourneyAttributes(span, undefined, undefined, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.HEALTH);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.value`]).toBe(72);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.unit`]).toBe('bpm');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.HEALTH}.timestamp`]).toBe('2023-01-01T12:00:00Z');
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addHealthJourneyAttributes(span);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should set span status to ERROR for HTTP status codes >= 400', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        method: 'GET',
-        url: 'https://api.example.com/users',
-        statusCode: 404
-      };
+    describe('addCareJourneyAttributes', () => {
+      it('should add journey type attribute', () => {
+        addCareJourneyAttributes(span);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+      });
 
-      // Act
-      addHttpAttributes(span, attributes);
+      it('should add appointment ID attribute when provided', () => {
+        const appointmentId = 'appointment-123';
+        addCareJourneyAttributes(span, appointmentId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.appointment_id`]).toBe(appointmentId);
+      });
 
-      // Assert
-      const status = span.getStatus();
-      expect(status).toBeDefined();
-      expect(status?.code).toBe(SpanStatusCode.ERROR);
-      expect(status?.message).toBe('HTTP error 404');
+      it('should add provider ID attribute when provided', () => {
+        const providerId = 'provider-123';
+        addCareJourneyAttributes(span, undefined, providerId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.provider_id`]).toBe(providerId);
+      });
+
+      it('should add session ID attribute when provided', () => {
+        const sessionId = 'session-123';
+        addCareJourneyAttributes(span, undefined, undefined, sessionId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.session_id`]).toBe(sessionId);
+      });
+
+      it('should add treatment plan ID attribute when provided', () => {
+        const treatmentPlanId = 'treatment-123';
+        addCareJourneyAttributes(span, undefined, undefined, undefined, treatmentPlanId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.treatment_plan_id`]).toBe(treatmentPlanId);
+      });
+
+      it('should add additional attributes when provided', () => {
+        const additionalAttributes = {
+          speciality: 'cardiology',
+          duration: 30,
+          virtual: true
+        };
+        addCareJourneyAttributes(span, undefined, undefined, undefined, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.CARE);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.speciality`]).toBe('cardiology');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.duration`]).toBe(30);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.CARE}.virtual`]).toBe(true);
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addCareJourneyAttributes(span);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should not set span status to ERROR for HTTP status codes < 400', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        method: 'GET',
-        url: 'https://api.example.com/users',
-        statusCode: 200
-      };
+    describe('addPlanJourneyAttributes', () => {
+      it('should add journey type attribute', () => {
+        addPlanJourneyAttributes(span);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.PLAN);
+      });
 
-      // Act
-      addHttpAttributes(span, attributes);
+      it('should add plan ID attribute when provided', () => {
+        const planId = 'plan-123';
+        addPlanJourneyAttributes(span, planId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.PLAN);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.plan_id`]).toBe(planId);
+      });
 
-      // Assert
-      const status = span.getStatus();
-      expect(status).toBeUndefined();
-    });
+      it('should add claim ID attribute when provided', () => {
+        const claimId = 'claim-123';
+        addPlanJourneyAttributes(span, undefined, claimId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.PLAN);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.claim_id`]).toBe(claimId);
+      });
 
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        method: 'GET',
-        url: 'https://api.example.com/users'
-      };
+      it('should add benefit ID attribute when provided', () => {
+        const benefitId = 'benefit-123';
+        addPlanJourneyAttributes(span, undefined, undefined, benefitId);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.PLAN);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.benefit_id`]).toBe(benefitId);
+      });
 
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
+      it('should add additional attributes when provided', () => {
+        const additionalAttributes = {
+          coverage: 'full',
+          amount: 1500.50,
+          status: 'approved'
+        };
+        addPlanJourneyAttributes(span, undefined, undefined, undefined, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.type`]).toBe(JourneyType.PLAN);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.coverage`]).toBe('full');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.amount`]).toBe(1500.50);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.JOURNEY}.${JourneyType.PLAN}.status`]).toBe('approved');
+      });
 
-      // Act
-      addHttpAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['http.method']).toBeUndefined();
-      expect(spanAttributes['http.url']).toBeUndefined();
-    });
-  });
-
-  describe('addDatabaseAttributes', () => {
-    it('should add all provided database attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        system: 'postgresql',
-        operation: 'SELECT',
-        statement: 'SELECT * FROM users WHERE id = $1',
-        table: 'users',
-        connectionString: 'postgresql://user:password@localhost:5432/db'
-      };
-
-      // Act
-      addDatabaseAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['db.system']).toBe('postgresql');
-      expect(spanAttributes['db.operation']).toBe('SELECT');
-      expect(spanAttributes['db.statement']).toBe('SELECT * FROM users WHERE id = $1');
-      expect(spanAttributes['db.sql.table']).toBe('users');
-      expect(spanAttributes['db.connection_string']).toBe('postgresql://user:***@localhost:5432/db');
-    });
-
-    it('should sanitize connection string to remove sensitive information', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        system: 'postgresql',
-        connectionString: 'postgresql://user:password@localhost:5432/db'
-      };
-
-      // Act
-      addDatabaseAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['db.connection_string']).toBe('postgresql://user:***@localhost:5432/db');
-    });
-
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        system: 'postgresql',
-        operation: 'SELECT'
-      };
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addDatabaseAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['db.system']).toBeUndefined();
-      expect(spanAttributes['db.operation']).toBeUndefined();
-    });
-  });
-
-  describe('addHealthJourneyAttributes', () => {
-    it('should add journey type and all provided health journey attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        metricType: 'blood_pressure',
-        metricValue: 120,
-        metricUnit: 'mmHg',
-        goalId: 'goal-123',
-        goalType: 'blood_pressure_control',
-        deviceId: 'device-456',
-        deviceType: 'blood_pressure_monitor'
-      };
-
-      // Act
-      addHealthJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('health');
-      expect(spanAttributes['health.metric.type']).toBe('blood_pressure');
-      expect(spanAttributes['health.metric.value']).toBe(120);
-      expect(spanAttributes['health.metric.unit']).toBe('mmHg');
-      expect(spanAttributes['health.goal.id']).toBe('goal-123');
-      expect(spanAttributes['health.goal.type']).toBe('blood_pressure_control');
-      expect(spanAttributes['health.device.id']).toBe('device-456');
-      expect(spanAttributes['health.device.type']).toBe('blood_pressure_monitor');
-    });
-
-    it('should add journey type even when no other attributes are provided', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {};
-
-      // Act
-      addHealthJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('health');
-      expect(spanAttributes['health.metric.type']).toBeUndefined();
-      expect(spanAttributes['health.metric.value']).toBeUndefined();
-    });
-
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        metricType: 'blood_pressure',
-        metricValue: 120
-      };
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addHealthJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBeUndefined();
-      expect(spanAttributes['health.metric.type']).toBeUndefined();
-      expect(spanAttributes['health.metric.value']).toBeUndefined();
+      it('should return the span for chaining', () => {
+        const result = addPlanJourneyAttributes(span);
+        expect(result).toBe(span);
+      });
     });
   });
 
-  describe('addCareJourneyAttributes', () => {
-    it('should add journey type and all provided care journey attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        appointmentId: 'appt-123',
-        appointmentType: 'consultation',
-        providerId: 'provider-456',
-        providerSpecialty: 'cardiology',
-        medicationId: 'med-789',
-        medicationType: 'prescription',
-        telemedicineSessionId: 'tele-101'
-      };
+  // ===== ERROR ATTRIBUTE UTILITIES =====
 
-      // Act
-      addCareJourneyAttributes(span, attributes);
+  describe('Error Attribute Utilities', () => {
+    describe('addErrorAttributes', () => {
+      it('should set span status to ERROR', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.SYSTEM);
+        
+        expect(span.getStatus().code).toBe(SpanStatusCode.ERROR);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('care');
-      expect(spanAttributes['care.appointment.id']).toBe('appt-123');
-      expect(spanAttributes['care.appointment.type']).toBe('consultation');
-      expect(spanAttributes['care.provider.id']).toBe('provider-456');
-      expect(spanAttributes['care.provider.specialty']).toBe('cardiology');
-      expect(spanAttributes['care.medication.id']).toBe('med-789');
-      expect(spanAttributes['care.medication.type']).toBe('prescription');
-      expect(spanAttributes['care.telemedicine.session_id']).toBe('tele-101');
+      it('should record the exception', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.SYSTEM);
+        
+        const events = span.getEvents();
+        expect(events.length).toBe(1);
+        expect(events[0].name).toBe('exception');
+        expect(events[0].attributes?.['exception.type']).toBe('Error');
+        expect(events[0].attributes?.['exception.message']).toBe('Test error');
+      });
+
+      it('should add error type attribute', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.CLIENT);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.type`]).toBe(ErrorType.CLIENT);
+      });
+
+      it('should add error message attribute', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.EXTERNAL);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.message`]).toBe('Test error');
+      });
+
+      it('should add error name attribute', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.TRANSIENT);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.name`]).toBe('Error');
+      });
+
+      it('should add error stack attribute when available', () => {
+        const error = new Error('Test error');
+        addErrorAttributes(span, error, ErrorType.SYSTEM);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.stack`]).toBeDefined();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.stack`]).toContain('Error: Test error');
+      });
+
+      it('should add additional attributes when provided', () => {
+        const error = new Error('Test error');
+        const additionalAttributes = {
+          code: 'ERR_INVALID_INPUT',
+          retryable: false,
+          component: 'validation'
+        };
+        addErrorAttributes(span, error, ErrorType.CLIENT, additionalAttributes);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.code`]).toBe('ERR_INVALID_INPUT');
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.retryable`]).toBe(false);
+        expect(attributes[`${AttributeNamespace.AUSTA}.${AttributeNamespace.ERROR}.component`]).toBe('validation');
+      });
+
+      it('should return the span for chaining', () => {
+        const error = new Error('Test error');
+        const result = addErrorAttributes(span, error, ErrorType.SYSTEM);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should add journey type even when no other attributes are provided', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {};
+    describe('classifyHttpError', () => {
+      it('should classify 4xx errors as CLIENT', () => {
+        expect(classifyHttpError(400)).toBe(ErrorType.CLIENT);
+        expect(classifyHttpError(401)).toBe(ErrorType.CLIENT);
+        expect(classifyHttpError(403)).toBe(ErrorType.CLIENT);
+        expect(classifyHttpError(404)).toBe(ErrorType.CLIENT);
+        expect(classifyHttpError(422)).toBe(ErrorType.CLIENT);
+        expect(classifyHttpError(429)).toBe(ErrorType.CLIENT);
+      });
 
-      // Act
-      addCareJourneyAttributes(span, attributes);
+      it('should classify 5xx errors as SYSTEM', () => {
+        expect(classifyHttpError(500)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(501)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(502)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(503)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(504)).toBe(ErrorType.SYSTEM);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('care');
-      expect(spanAttributes['care.appointment.id']).toBeUndefined();
-      expect(spanAttributes['care.provider.id']).toBeUndefined();
-    });
-
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        appointmentId: 'appt-123',
-        providerId: 'provider-456'
-      };
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addCareJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBeUndefined();
-      expect(spanAttributes['care.appointment.id']).toBeUndefined();
-      expect(spanAttributes['care.provider.id']).toBeUndefined();
-    });
-  });
-
-  describe('addPlanJourneyAttributes', () => {
-    it('should add journey type and all provided plan journey attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        planId: 'plan-123',
-        planType: 'health_insurance',
-        benefitId: 'benefit-456',
-        benefitType: 'dental',
-        claimId: 'claim-789',
-        claimStatus: 'approved',
-        documentId: 'doc-101'
-      };
-
-      // Act
-      addPlanJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('plan');
-      expect(spanAttributes['plan.id']).toBe('plan-123');
-      expect(spanAttributes['plan.type']).toBe('health_insurance');
-      expect(spanAttributes['plan.benefit.id']).toBe('benefit-456');
-      expect(spanAttributes['plan.benefit.type']).toBe('dental');
-      expect(spanAttributes['plan.claim.id']).toBe('claim-789');
-      expect(spanAttributes['plan.claim.status']).toBe('approved');
-      expect(spanAttributes['plan.document.id']).toBe('doc-101');
-    });
-
-    it('should add journey type even when no other attributes are provided', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {};
-
-      // Act
-      addPlanJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBe('plan');
-      expect(spanAttributes['plan.id']).toBeUndefined();
-      expect(spanAttributes['plan.benefit.id']).toBeUndefined();
-    });
-
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        planId: 'plan-123',
-        claimId: 'claim-789'
-      };
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addPlanJourneyAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['journey.type']).toBeUndefined();
-      expect(spanAttributes['plan.id']).toBeUndefined();
-      expect(spanAttributes['plan.claim.id']).toBeUndefined();
+      it('should classify unexpected status codes as SYSTEM', () => {
+        expect(classifyHttpError(600)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(0)).toBe(ErrorType.SYSTEM);
+        expect(classifyHttpError(-1)).toBe(ErrorType.SYSTEM);
+      });
     });
   });
 
-  describe('addGamificationAttributes', () => {
-    it('should add all provided gamification attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        eventType: 'achievement_unlocked',
-        achievementId: 'achievement-123',
-        achievementType: 'milestone',
-        rewardId: 'reward-456',
-        rewardType: 'points',
-        questId: 'quest-789',
-        profileId: 'profile-101',
-        pointsEarned: 100
-      };
+  // ===== PERFORMANCE METRIC ATTRIBUTE HELPERS =====
 
-      // Act
-      addGamificationAttributes(span, attributes);
+  describe('Performance Metric Attribute Helpers', () => {
+    describe('addDatabasePerformanceAttributes', () => {
+      it('should add database operation attributes', () => {
+        const operation = 'query';
+        const table = 'users';
+        const durationMs = 150;
+        addDatabasePerformanceAttributes(span, operation, table, durationMs);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.database`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.operation`]).toBe(operation);
+        expect(attributes[`${perfNamespace}.table`]).toBe(table);
+        expect(attributes[`${perfNamespace}.duration_ms`]).toBe(durationMs);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['gamification.event.type']).toBe('achievement_unlocked');
-      expect(spanAttributes['gamification.achievement.id']).toBe('achievement-123');
-      expect(spanAttributes['gamification.achievement.type']).toBe('milestone');
-      expect(spanAttributes['gamification.reward.id']).toBe('reward-456');
-      expect(spanAttributes['gamification.reward.type']).toBe('points');
-      expect(spanAttributes['gamification.quest.id']).toBe('quest-789');
-      expect(spanAttributes['gamification.profile.id']).toBe('profile-101');
-      expect(spanAttributes['gamification.points.earned']).toBe(100);
+      it('should add record count attribute when provided', () => {
+        const operation = 'query';
+        const table = 'users';
+        const durationMs = 150;
+        const recordCount = 42;
+        addDatabasePerformanceAttributes(span, operation, table, durationMs, recordCount);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.database`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.record_count`]).toBe(recordCount);
+      });
+
+      it('should add additional attributes when provided', () => {
+        const operation = 'query';
+        const table = 'users';
+        const durationMs = 150;
+        const additionalAttributes = {
+          query: 'SELECT * FROM users WHERE id = ?',
+          params: 'user-123',
+          index: 'idx_users_id'
+        };
+        addDatabasePerformanceAttributes(span, operation, table, durationMs, undefined, additionalAttributes);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.database`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.query`]).toBe('SELECT * FROM users WHERE id = ?');
+        expect(attributes[`${perfNamespace}.params`]).toBe('user-123');
+        expect(attributes[`${perfNamespace}.index`]).toBe('idx_users_id');
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addDatabasePerformanceAttributes(span, 'query', 'users', 150);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should only add provided attributes and ignore undefined ones', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        eventType: 'achievement_unlocked',
-        achievementId: 'achievement-123'
-        // other attributes are intentionally omitted
-      };
+    describe('addExternalServicePerformanceAttributes', () => {
+      it('should add external service performance attributes', () => {
+        const serviceName = 'payment-api';
+        const operation = 'processPayment';
+        const durationMs = 250;
+        addExternalServicePerformanceAttributes(span, serviceName, operation, durationMs);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.external`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.service`]).toBe(serviceName);
+        expect(attributes[`${perfNamespace}.operation`]).toBe(operation);
+        expect(attributes[`${perfNamespace}.duration_ms`]).toBe(durationMs);
+      });
 
-      // Act
-      addGamificationAttributes(span, attributes);
+      it('should add status code attribute when provided', () => {
+        const serviceName = 'payment-api';
+        const operation = 'processPayment';
+        const durationMs = 250;
+        const statusCode = 200;
+        addExternalServicePerformanceAttributes(span, serviceName, operation, durationMs, statusCode);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.external`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.status_code`]).toBe(statusCode);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['gamification.event.type']).toBe('achievement_unlocked');
-      expect(spanAttributes['gamification.achievement.id']).toBe('achievement-123');
-      expect(spanAttributes['gamification.reward.id']).toBeUndefined();
-      expect(spanAttributes['gamification.points.earned']).toBeUndefined();
+      it('should add additional attributes when provided', () => {
+        const serviceName = 'payment-api';
+        const operation = 'processPayment';
+        const durationMs = 250;
+        const additionalAttributes = {
+          endpoint: 'https://api.payment.com/v1/process',
+          method: 'POST',
+          paymentId: 'payment-123'
+        };
+        addExternalServicePerformanceAttributes(span, serviceName, operation, durationMs, undefined, additionalAttributes);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.external`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.endpoint`]).toBe('https://api.payment.com/v1/process');
+        expect(attributes[`${perfNamespace}.method`]).toBe('POST');
+        expect(attributes[`${perfNamespace}.paymentId`]).toBe('payment-123');
+      });
+
+      it('should return the span for chaining', () => {
+        const result = addExternalServicePerformanceAttributes(span, 'payment-api', 'processPayment', 250);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        eventType: 'achievement_unlocked',
-        achievementId: 'achievement-123'
-      };
+    describe('addProcessingPerformanceAttributes', () => {
+      it('should add processing performance attributes', () => {
+        const operationType = 'data-transformation';
+        const durationMs = 75;
+        addProcessingPerformanceAttributes(span, operationType, durationMs);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.processing`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.operation_type`]).toBe(operationType);
+        expect(attributes[`${perfNamespace}.duration_ms`]).toBe(durationMs);
+      });
 
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
+      it('should add item count attribute when provided', () => {
+        const operationType = 'data-transformation';
+        const durationMs = 75;
+        const itemCount = 100;
+        addProcessingPerformanceAttributes(span, operationType, durationMs, itemCount);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.processing`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.item_count`]).toBe(itemCount);
+      });
 
-      // Act
-      addGamificationAttributes(span, attributes);
+      it('should add additional attributes when provided', () => {
+        const operationType = 'data-transformation';
+        const durationMs = 75;
+        const additionalAttributes = {
+          source: 'csv',
+          destination: 'database',
+          batchSize: 50
+        };
+        addProcessingPerformanceAttributes(span, operationType, durationMs, undefined, additionalAttributes);
+        
+        const perfNamespace = `${AttributeNamespace.AUSTA}.${AttributeNamespace.PERFORMANCE}.processing`;
+        const attributes = span.getAttributes();
+        expect(attributes[`${perfNamespace}.source`]).toBe('csv');
+        expect(attributes[`${perfNamespace}.destination`]).toBe('database');
+        expect(attributes[`${perfNamespace}.batchSize`]).toBe(50);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['gamification.event.type']).toBeUndefined();
-      expect(spanAttributes['gamification.achievement.id']).toBeUndefined();
-    });
-  });
-
-  describe('addErrorAttributes', () => {
-    it('should add error information and set span status to ERROR', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const error = new Error('Test error message');
-      error.name = 'TestError';
-
-      // Act
-      addErrorAttributes(span, error);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['error']).toBe(true);
-      expect(spanAttributes['error.message']).toBe('Test error message');
-      expect(spanAttributes['error.stack']).toBeDefined();
-      expect(spanAttributes['error.type']).toBe('TestError');
-
-      // Verify span status is set to ERROR
-      const status = span.getStatus();
-      expect(status).toBeDefined();
-      expect(status?.code).toBe(SpanStatusCode.ERROR);
-      expect(status?.message).toBe('Test error message');
-
-      // Verify exception is recorded
-      const exceptions = span.getExceptions();
-      expect(exceptions.length).toBe(1);
-      expect(exceptions[0]).toBe(error);
+      it('should return the span for chaining', () => {
+        const result = addProcessingPerformanceAttributes(span, 'data-transformation', 75);
+        expect(result).toBe(span);
+      });
     });
 
-    it('should add additional error attributes when provided', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const error = new Error('Test error message');
-      const additionalAttributes = {
-        code: 'ERR_INVALID_INPUT',
-        type: 'validation_error',
-        retryable: false,
-        component: 'user_service'
-      };
+    describe('measureExecutionTime', () => {
+      it('should measure execution time and add it as an attribute', async () => {
+        const fn = jest.fn().mockImplementation(async () => {
+          // Simulate some work
+          await new Promise(resolve => setTimeout(resolve, 10));
+          return 'result';
+        });
 
-      // Act
-      addErrorAttributes(span, error, additionalAttributes);
+        const result = await measureExecutionTime(span, 'test', 'operation', fn);
+        
+        expect(result).toBe('result');
+        expect(fn).toHaveBeenCalledTimes(1);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBeDefined();
+        expect(typeof attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBe('number');
+        expect(attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBeGreaterThan(0);
+      });
 
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['error.code']).toBe('ERR_INVALID_INPUT');
-      expect(spanAttributes['error.category']).toBe('validation_error');
-      expect(spanAttributes['error.retryable']).toBe(false);
-      expect(spanAttributes['error.component']).toBe('user_service');
-    });
+      it('should add attribute even if function throws an error', async () => {
+        const error = new Error('Test error');
+        const fn = jest.fn().mockImplementation(async () => {
+          // Simulate some work
+          await new Promise(resolve => setTimeout(resolve, 10));
+          throw error;
+        });
 
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const error = new Error('Test error message');
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addErrorAttributes(span, error);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['error']).toBeUndefined();
-      expect(spanAttributes['error.message']).toBeUndefined();
-
-      // Verify exception is not recorded
-      const exceptions = span.getExceptions();
-      expect(exceptions.length).toBe(0);
-    });
-  });
-
-  describe('addPerformanceAttributes', () => {
-    it('should add all provided performance attributes to the span', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        operationDuration: 150,
-        queueTime: 50,
-        processingTime: 100,
-        resourceUsage: 0.75,
-        cacheHit: true,
-        itemCount: 42
-      };
-
-      // Act
-      addPerformanceAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['performance.duration_ms']).toBe(150);
-      expect(spanAttributes['performance.queue_time_ms']).toBe(50);
-      expect(spanAttributes['performance.processing_time_ms']).toBe(100);
-      expect(spanAttributes['performance.resource_usage']).toBe(0.75);
-      expect(spanAttributes['performance.cache_hit']).toBe(true);
-      expect(spanAttributes['performance.item_count']).toBe(42);
-    });
-
-    it('should only add provided attributes and ignore undefined ones', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        operationDuration: 150,
-        // queueTime is intentionally omitted
-        processingTime: 100
-        // other attributes are intentionally omitted
-      };
-
-      // Act
-      addPerformanceAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['performance.duration_ms']).toBe(150);
-      expect(spanAttributes['performance.processing_time_ms']).toBe(100);
-      expect(spanAttributes['performance.queue_time_ms']).toBeUndefined();
-      expect(spanAttributes['performance.resource_usage']).toBeUndefined();
-      expect(spanAttributes['performance.cache_hit']).toBeUndefined();
-      expect(spanAttributes['performance.item_count']).toBeUndefined();
-    });
-
-    it('should not add attributes if span is not recording', () => {
-      // Arrange
-      const span = new MockSpan('test-span', createMockSpanContext());
-      const attributes = {
-        operationDuration: 150,
-        processingTime: 100
-      };
-
-      // Mock span not recording
-      jest.spyOn(span, 'isRecording').mockReturnValue(false);
-
-      // Act
-      addPerformanceAttributes(span, attributes);
-
-      // Assert
-      const spanAttributes = span.getAttributes();
-      expect(spanAttributes['performance.duration_ms']).toBeUndefined();
-      expect(spanAttributes['performance.processing_time_ms']).toBeUndefined();
+        await expect(measureExecutionTime(span, 'test', 'operation', fn)).rejects.toThrow(error);
+        
+        expect(fn).toHaveBeenCalledTimes(1);
+        
+        const attributes = span.getAttributes();
+        expect(attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBeDefined();
+        expect(typeof attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBe('number');
+        expect(attributes[`${AttributeNamespace.AUSTA}.test.operation_duration_ms`]).toBeGreaterThan(0);
+      });
     });
   });
 });

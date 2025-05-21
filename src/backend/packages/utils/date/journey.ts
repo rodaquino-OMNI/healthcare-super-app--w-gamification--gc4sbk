@@ -1,16 +1,15 @@
 /**
  * Journey-specific date utilities
  * 
- * This module provides date formatting utilities tailored to the specific needs
- * of each journey (Health, Care, Plan) in the AUSTA SuperApp.
- * 
- * @module utils/date/journey
+ * This module provides date formatting utilities specific to each journey context
+ * (Health, Care, Plan) in the AUSTA SuperApp. It ensures consistent date representation
+ * across all journey-specific components and services.
  */
 
-import { formatJourneyDate as formatJourneyDateImpl } from '../src/date/journey';
+import { formatJourneyDate as formatJourneyDateImpl } from '../../src/date';
 
 /**
- * Journey type identifiers
+ * Journey type representing the three main journeys in the AUSTA SuperApp
  */
 export type JourneyType = 'health' | 'care' | 'plan';
 
@@ -20,22 +19,28 @@ export type JourneyType = 'health' | 'care' | 'plan';
  * @param date - The date to format
  * @param journeyId - The journey identifier (health, care, plan)
  * @param locale - The locale to use for formatting (defaults to pt-BR)
- * @returns Journey-specific formatted date
+ * @returns Journey-specific formatted date string
  * 
  * @example
- * // Health journey - returns date with time (dd/MM/yyyy HH:mm)
- * formatJourneyDate(new Date(), 'health');
+ * // Health journey - returns "15/03/2023 14:30"
+ * formatJourneyDate(new Date(2023, 2, 15, 14, 30), 'health');
  * 
  * @example
- * // Care journey - returns appointment-friendly format (EEE, dd MMM yyyy)
- * formatJourneyDate(new Date(), 'care');
+ * // Care journey - returns "qua, 15 mar 2023"
+ * formatJourneyDate(new Date(2023, 2, 15), 'care');
  * 
  * @example
- * // Plan journey - returns formal date format (dd/MM/yyyy)
- * formatJourneyDate(new Date(), 'plan');
+ * // Plan journey - returns "15/03/2023"
+ * formatJourneyDate(new Date(2023, 2, 15), 'plan');
  */
 export const formatJourneyDate = (
   date: Date | string | number,
-  journeyId: string | JourneyType,
+  journeyId: JourneyType | string,
   locale: string = 'pt-BR'
-): string => formatJourneyDateImpl(date, journeyId, locale);
+): string => {
+  return formatJourneyDateImpl(date, journeyId, locale);
+};
+
+/**
+ * Re-export additional journey-specific date utilities here as needed
+ */

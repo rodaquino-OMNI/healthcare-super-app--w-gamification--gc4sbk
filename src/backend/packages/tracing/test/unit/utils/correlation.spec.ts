@@ -1,404 +1,485 @@
-/**
- * @file correlation.spec.ts
- * @description Unit tests for trace correlation utilities
- */
-
-import { trace, context, SpanStatusCode } from '@opentelemetry/api';
+import { context, trace, SpanContext, SpanStatusCode } from '@opentelemetry/api';
 import {
-  extractTraceInfo,
-  createExternalCorrelationObject,
+  getTraceCorrelation,
+  getTraceCorrelationFromContext,
   enrichLogWithTraceInfo,
-  enrichMetricWithTraceInfo,
-  createJourneyCorrelationInfo,
-  recordErrorWithTraceInfo,
-  formatTraceInfoForDisplay,
-  TraceCorrelationInfo,
+  createExternalCorrelationHeaders,
+  createMetricsCorrelation,
+  getTraceCorrelationFromSpanContext,
+  hasActiveTrace,
+  TraceCorrelation,
+  EnrichedLogContext
 } from '../../../src/utils/correlation';
-import { MockTracer } from '../../mocks/mock-tracer';
-import { MockSpan } from '../../mocks/mock-span';
-import { MockContext, MockContextManager, ROOT_CONTEXT, createMockContextKey } from '../../mocks/mock-context';
+import { MockSpan, MockTracer, createMockTracer } from '../../../test/mocks/mock-tracer';
+import {
+  createMockSpanContext,
+  createMockTraceContext,
+  generateTraceId,
+  generateSpanId,
+  createMockTracingService
+} from '../../../test/utils/mock-tracer.utils';
 
 // Mock OpenTelemetry API
-const mockTracer = new MockTracer('test-tracer');
-const mockContextManager = new MockContextManager();
-
-// Create a mock span key for context
-const SPAN_KEY = createMockContextKey<MockSpan>('current-span');
-
-// Mock the OpenTelemetry API
 jest.mock('@opentelemetry/api', () => {
-  const original = jest.requireActual('@opentelemetry/api');
+  const originalModule = jest.requireActual('@opentelemetry/api');
+  let mockActiveSpan: MockSpan | undefined;
+  let mockCurrentContext: any = {};
+  
   return {
-    ...original,
+    ...originalModule,
     trace: {
-      ...original.trace,
-      getSpan: jest.fn((ctx) => {
-        if (ctx instanceof MockContext) {
-          return ctx.getValue(SPAN_KEY);
-        }
-        return undefined;
-      }),
-      getTracer: jest.fn(() => mockTracer),
+      ...originalModule.trace,
+      getActiveSpan: jest.fn(() => mockActiveSpan),
+      getSpan: jest.fn(() => mockActiveSpan),
       setSpan: jest.fn((ctx, span) => {
-        if (ctx instanceof MockContext) {
-          return ctx.setValue(SPAN_KEY, span);
-        }
+        mockActiveSpan = span as MockSpan;
         return ctx;
       }),
     },
     context: {
-      ...original.context,
-      active: jest.fn(() => mockContextManager.active()),
+      ...originalModule.context,
+      active: jest.fn(() => mockCurrentContext),
     },
-    propagation: {
-      ...original.propagation,
-      inject: jest.fn((ctx, carrier) => {
-        const span = trace.getSpan(ctx);
-        if (span) {
-          const spanContext = span.spanContext();
-          carrier['traceparent'] = `00-${spanContext.traceId}-${spanContext.spanId}-01`;
-        }
-      }),
+    // Helper functions for tests to control the mock state
+    __setMockActiveSpan: (span: MockSpan | undefined) => {
+      mockActiveSpan = span;
+    },
+    __setMockCurrentContext: (ctx: any) => {
+      mockCurrentContext = ctx;
+    },
+    __resetMocks: () => {
+      mockActiveSpan = undefined;
+      mockCurrentContext = {};
     },
   };
 });
 
+// Get the mocked module
+const mockedOpenTelemetry = jest.mocked(trace);
+
 describe('Correlation Utilities', () => {
-  // Create a test span for each test
-  let testSpan: MockSpan;
-  let activeContext: MockContext;
-
+  let mockTracer: MockTracer;
+  let mockSpan: MockSpan;
+  let mockSpanContext: SpanContext;
+  
   beforeEach(() => {
-    // Reset mocks before each test
+    // Reset all mocks
     jest.clearAllMocks();
-    mockTracer.reset();
-
-    // Create a test span with known trace and span IDs
-    const spanContext = {
-      traceId: '1234567890abcdef1234567890abcdef',
-      spanId: 'abcdef1234567890',
+    (trace as any).__resetMocks();
+    
+    // Create mock tracer and span for testing
+    mockTracer = createMockTracer('test-service');
+    mockSpanContext = {
+      traceId: generateTraceId(),
+      spanId: generateSpanId(),
       traceFlags: 1, // Sampled
       isRemote: false,
     };
-    testSpan = new MockSpan('test-span', spanContext, SpanStatusCode.UNSET);
-
-    // Set up the active context with the test span
-    activeContext = ROOT_CONTEXT.setValue(SPAN_KEY, testSpan);
-    jest.spyOn(mockContextManager, 'active').mockReturnValue(activeContext);
+    mockSpan = mockTracer.startSpan('test-span');
+    
+    // Set the mock active span
+    (trace as any).__setMockActiveSpan(mockSpan);
   });
-
-  describe('extractTraceInfo', () => {
-    it('should extract trace and span IDs from the current context', () => {
+  
+  afterEach(() => {
+    // Clean up
+    (trace as any).__resetMocks();
+  });
+  
+  describe('getTraceCorrelation', () => {
+    it('should return trace correlation information from active span', () => {
+      // Arrange
+      const expectedCorrelation: TraceCorrelation = {
+        traceId: mockSpan.spanContext().traceId,
+        spanId: mockSpan.spanContext().spanId,
+        traceFlags: mockSpan.spanContext().traceFlags,
+        isRemote: mockSpan.spanContext().isRemote,
+        traceState: undefined, // Mock doesn't implement traceState
+      };
+      
       // Act
-      const traceInfo = extractTraceInfo();
-
+      const correlation = getTraceCorrelation();
+      
       // Assert
-      expect(traceInfo).toBeDefined();
-      expect(traceInfo?.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(traceInfo?.spanId).toBe('abcdef1234567890');
-      expect(traceInfo?.traceFlags).toBe(1);
-      expect(traceInfo?.isSampled).toBe(true);
-      expect(context.active).toHaveBeenCalled();
-      expect(trace.getSpan).toHaveBeenCalledWith(activeContext);
+      expect(correlation).toEqual(expectedCorrelation);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
+    
     it('should return undefined when no active span exists', () => {
       // Arrange
-      jest.spyOn(mockContextManager, 'active').mockReturnValue(ROOT_CONTEXT);
-
+      (trace as any).__setMockActiveSpan(undefined);
+      
       // Act
-      const traceInfo = extractTraceInfo();
-
+      const correlation = getTraceCorrelation();
+      
       // Assert
-      expect(traceInfo).toBeUndefined();
+      expect(correlation).toBeUndefined();
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
+    });
+    
+    it('should return undefined when span context is incomplete', () => {
+      // Arrange
+      const incompleteSpan = {
+        spanContext: () => ({ traceId: '', spanId: '' }),
+        isRecording: () => true,
+      } as unknown as MockSpan;
+      (trace as any).__setMockActiveSpan(incompleteSpan);
+      
+      // Act
+      const correlation = getTraceCorrelation();
+      
+      // Assert
+      expect(correlation).toBeUndefined();
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
+    });
+  });
+  
+  describe('getTraceCorrelationFromContext', () => {
+    it('should return trace correlation information from current context', () => {
+      // Arrange
+      const expectedCorrelation: TraceCorrelation = {
+        traceId: mockSpan.spanContext().traceId,
+        spanId: mockSpan.spanContext().spanId,
+        traceFlags: mockSpan.spanContext().traceFlags,
+        isRemote: mockSpan.spanContext().isRemote,
+        traceState: undefined, // Mock doesn't implement traceState
+      };
+      
+      // Act
+      const correlation = getTraceCorrelationFromContext();
+      
+      // Assert
+      expect(correlation).toEqual(expectedCorrelation);
+      expect(mockedOpenTelemetry.getSpan).toHaveBeenCalled();
       expect(context.active).toHaveBeenCalled();
-      expect(trace.getSpan).toHaveBeenCalledWith(ROOT_CONTEXT);
+    });
+    
+    it('should return undefined when no span exists in context', () => {
+      // Arrange
+      (trace as any).__setMockActiveSpan(undefined);
+      
+      // Act
+      const correlation = getTraceCorrelationFromContext();
+      
+      // Assert
+      expect(correlation).toBeUndefined();
+      expect(mockedOpenTelemetry.getSpan).toHaveBeenCalled();
+      expect(context.active).toHaveBeenCalled();
+    });
+    
+    it('should return undefined when span context is incomplete', () => {
+      // Arrange
+      const incompleteSpan = {
+        spanContext: () => ({ traceId: '', spanId: '' }),
+        isRecording: () => true,
+      } as unknown as MockSpan;
+      (trace as any).__setMockActiveSpan(incompleteSpan);
+      
+      // Act
+      const correlation = getTraceCorrelationFromContext();
+      
+      // Assert
+      expect(correlation).toBeUndefined();
+      expect(mockedOpenTelemetry.getSpan).toHaveBeenCalled();
+      expect(context.active).toHaveBeenCalled();
     });
   });
-
-  describe('createExternalCorrelationObject', () => {
-    it('should create a correlation object with trace context headers', () => {
-      // Act
-      const correlationObject = createExternalCorrelationObject();
-
-      // Assert
-      expect(correlationObject).toBeDefined();
-      expect(correlationObject['traceparent']).toBe(
-        `00-${testSpan.spanContext().traceId}-${testSpan.spanContext().spanId}-01`
-      );
-    });
-
-    it('should include additional context in the correlation object', () => {
-      // Arrange
-      const additionalContext = {
-        userId: '12345',
-        journeyType: 'health',
-      };
-
-      // Act
-      const correlationObject = createExternalCorrelationObject(additionalContext);
-
-      // Assert
-      expect(correlationObject).toBeDefined();
-      expect(correlationObject['traceparent']).toBe(
-        `00-${testSpan.spanContext().traceId}-${testSpan.spanContext().spanId}-01`
-      );
-      expect(correlationObject['x-austa-userId']).toBe('12345');
-      expect(correlationObject['x-austa-journeyType']).toBe('health');
-    });
-
-    it('should stringify non-string values in additional context', () => {
-      // Arrange
-      const additionalContext = {
-        metadata: { key: 'value' },
-        count: 42,
-      };
-
-      // Act
-      const correlationObject = createExternalCorrelationObject(additionalContext);
-
-      // Assert
-      expect(correlationObject).toBeDefined();
-      expect(correlationObject['x-austa-metadata']).toBe(JSON.stringify({ key: 'value' }));
-      expect(correlationObject['x-austa-count']).toBe(JSON.stringify(42));
-    });
-  });
-
+  
   describe('enrichLogWithTraceInfo', () => {
-    it('should enrich a log object with trace information', () => {
+    it('should enrich log object with trace information', () => {
       // Arrange
-      const logObject = {
-        message: 'Test log message',
-        level: 'info',
-        context: 'TestService',
+      const logObject = { message: 'Test log message', level: 'info' };
+      const expectedEnrichedLog = {
+        ...logObject,
+        'trace.id': mockSpan.spanContext().traceId,
+        'span.id': mockSpan.spanContext().spanId,
+        'trace.flags': mockSpan.spanContext().traceFlags,
+        'trace.remote': mockSpan.spanContext().isRemote,
       };
-
+      
       // Act
       const enrichedLog = enrichLogWithTraceInfo(logObject);
-
+      
       // Assert
-      expect(enrichedLog).toBeDefined();
-      expect(enrichedLog.message).toBe('Test log message');
-      expect(enrichedLog.level).toBe('info');
-      expect(enrichedLog.context).toBe('TestService');
-      expect(enrichedLog.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(enrichedLog.spanId).toBe('abcdef1234567890');
-      expect(enrichedLog.traceFlags).toBe(1);
-      expect(enrichedLog.isSampled).toBe(true);
+      expect(enrichedLog).toEqual(expectedEnrichedLog);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
-    it('should handle log objects without a message property', () => {
+    
+    it('should return original log object when no active span exists', () => {
       // Arrange
-      const logObject = {
-        level: 'error',
-        error: new Error('Test error'),
-      };
-
+      (trace as any).__setMockActiveSpan(undefined);
+      const logObject = { message: 'Test log message', level: 'info' };
+      
       // Act
       const enrichedLog = enrichLogWithTraceInfo(logObject);
-
+      
       // Assert
-      expect(enrichedLog).toBeDefined();
-      expect(enrichedLog.message).toBe('');
-      expect(enrichedLog.level).toBe('error');
-      expect(enrichedLog.error).toBeInstanceOf(Error);
-      expect(enrichedLog.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(enrichedLog.spanId).toBe('abcdef1234567890');
+      expect(enrichedLog).toBe(logObject);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
-    it('should handle log objects when no active span exists', () => {
+    
+    it('should include traceState when available', () => {
       // Arrange
-      jest.spyOn(mockContextManager, 'active').mockReturnValue(ROOT_CONTEXT);
-      const logObject = {
-        message: 'Test log message',
-        level: 'info',
+      const spanWithTraceState = {
+        spanContext: () => ({
+          traceId: mockSpanContext.traceId,
+          spanId: mockSpanContext.spanId,
+          traceFlags: mockSpanContext.traceFlags,
+          isRemote: mockSpanContext.isRemote,
+          traceState: { toString: () => 'vendor1=value1,vendor2=value2' },
+        }),
+        isRecording: () => true,
+      } as unknown as MockSpan;
+      (trace as any).__setMockActiveSpan(spanWithTraceState);
+      
+      const logObject = { message: 'Test log message', level: 'info' };
+      const expectedEnrichedLog = {
+        ...logObject,
+        'trace.id': mockSpanContext.traceId,
+        'span.id': mockSpanContext.spanId,
+        'trace.flags': mockSpanContext.traceFlags,
+        'trace.remote': mockSpanContext.isRemote,
+        'trace.state': 'vendor1=value1,vendor2=value2',
       };
-
+      
       // Act
       const enrichedLog = enrichLogWithTraceInfo(logObject);
-
+      
       // Assert
-      expect(enrichedLog).toBeDefined();
-      expect(enrichedLog.message).toBe('Test log message');
-      expect(enrichedLog.level).toBe('info');
-      expect(enrichedLog.traceId).toBeUndefined();
-      expect(enrichedLog.spanId).toBeUndefined();
+      expect(enrichedLog).toEqual(expectedEnrichedLog);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
   });
-
-  describe('enrichMetricWithTraceInfo', () => {
-    it('should enrich a metric with trace information', () => {
-      // Act
-      const enrichedMetric = enrichMetricWithTraceInfo('test_metric', 42, { unit: 'ms' });
-
-      // Assert
-      expect(enrichedMetric).toBeDefined();
-      expect(enrichedMetric.metricName).toBe('test_metric');
-      expect(enrichedMetric.value).toBe(42);
-      expect(enrichedMetric.unit).toBe('ms');
-      expect(enrichedMetric.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(enrichedMetric.spanId).toBe('abcdef1234567890');
-      expect(enrichedMetric.traceFlags).toBe(1);
-      expect(enrichedMetric.isSampled).toBe(true);
-    });
-
-    it('should handle metrics when no active span exists', () => {
+  
+  describe('createExternalCorrelationHeaders', () => {
+    it('should create W3C trace context headers from active span', () => {
       // Arrange
-      jest.spyOn(mockContextManager, 'active').mockReturnValue(ROOT_CONTEXT);
-
-      // Act
-      const enrichedMetric = enrichMetricWithTraceInfo('test_metric', 42);
-
-      // Assert
-      expect(enrichedMetric).toBeDefined();
-      expect(enrichedMetric.metricName).toBe('test_metric');
-      expect(enrichedMetric.value).toBe(42);
-      expect(enrichedMetric.traceId).toBeUndefined();
-      expect(enrichedMetric.spanId).toBeUndefined();
-    });
-  });
-
-  describe('createJourneyCorrelationInfo', () => {
-    it('should create a correlation context for journey-specific tracing', () => {
-      // Arrange
-      const journeyType = 'health';
-      const journeyContext = {
-        userId: '12345',
-        action: 'view_metrics',
+      const traceFlags = mockSpanContext.traceFlags.toString(16).padStart(2, '0');
+      const expectedHeaders = {
+        traceparent: `00-${mockSpanContext.traceId}-${mockSpanContext.spanId}-${traceFlags}`,
       };
-
+      
       // Act
-      const correlationInfo = createJourneyCorrelationInfo(journeyType, journeyContext);
-
+      const headers = createExternalCorrelationHeaders();
+      
       // Assert
-      expect(correlationInfo).toBeDefined();
-      expect(correlationInfo.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(correlationInfo.spanId).toBe('abcdef1234567890');
-      expect(correlationInfo.journeyContext).toBeDefined();
-      expect(correlationInfo.journeyContext?.journeyType).toBe('health');
-      expect(correlationInfo.journeyContext?.userId).toBe('12345');
-      expect(correlationInfo.journeyContext?.action).toBe('view_metrics');
+      expect(headers).toEqual(expectedHeaders);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
-    it('should create a correlation context with empty trace info when no active span exists', () => {
+    
+    it('should include tracestate header when available', () => {
       // Arrange
-      jest.spyOn(mockContextManager, 'active').mockReturnValue(ROOT_CONTEXT);
-      const journeyType = 'care';
-      const journeyContext = {
-        appointmentId: 'appt-123',
+      const traceStateValue = 'vendor1=value1,vendor2=value2';
+      const spanWithTraceState = {
+        spanContext: () => ({
+          traceId: mockSpanContext.traceId,
+          spanId: mockSpanContext.spanId,
+          traceFlags: mockSpanContext.traceFlags,
+          isRemote: mockSpanContext.isRemote,
+          traceState: { toString: () => traceStateValue },
+        }),
+        isRecording: () => true,
+      } as unknown as MockSpan;
+      (trace as any).__setMockActiveSpan(spanWithTraceState);
+      
+      const traceFlags = mockSpanContext.traceFlags.toString(16).padStart(2, '0');
+      const expectedHeaders = {
+        traceparent: `00-${mockSpanContext.traceId}-${mockSpanContext.spanId}-${traceFlags}`,
+        tracestate: traceStateValue,
       };
-
+      
       // Act
-      const correlationInfo = createJourneyCorrelationInfo(journeyType, journeyContext);
-
+      const headers = createExternalCorrelationHeaders();
+      
       // Assert
-      expect(correlationInfo).toBeDefined();
-      expect(correlationInfo.traceId).toBe('');
-      expect(correlationInfo.spanId).toBe('');
-      expect(correlationInfo.journeyContext).toBeDefined();
-      expect(correlationInfo.journeyContext?.journeyType).toBe('care');
-      expect(correlationInfo.journeyContext?.appointmentId).toBe('appt-123');
+      expect(headers).toEqual(expectedHeaders);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
+    });
+    
+    it('should return undefined when no active span exists', () => {
+      // Arrange
+      (trace as any).__setMockActiveSpan(undefined);
+      
+      // Act
+      const headers = createExternalCorrelationHeaders();
+      
+      // Assert
+      expect(headers).toBeUndefined();
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
   });
-
-  describe('recordErrorWithTraceInfo', () => {
-    it('should record an error in the current span and return trace info', () => {
+  
+  describe('createMetricsCorrelation', () => {
+    it('should create metrics correlation object from active span', () => {
       // Arrange
-      const error = new Error('Test error');
-      const errorContext = {
-        component: 'TestService',
-        operation: 'getData',
+      const expectedCorrelation = {
+        'trace_id': mockSpanContext.traceId,
+        'span_id': mockSpanContext.spanId,
       };
-
+      
       // Act
-      const traceInfo = recordErrorWithTraceInfo(error, errorContext);
-
+      const correlation = createMetricsCorrelation();
+      
       // Assert
-      expect(traceInfo).toBeDefined();
-      expect(traceInfo.traceId).toBe('1234567890abcdef1234567890abcdef');
-      expect(traceInfo.spanId).toBe('abcdef1234567890');
-      expect(traceInfo.error).toBeDefined();
-      expect(traceInfo.error.message).toBe('Test error');
-      expect(traceInfo.error.name).toBe('Error');
-      expect(traceInfo.error.component).toBe('TestService');
-      expect(traceInfo.error.operation).toBe('getData');
-
-      // Verify the error was recorded in the span
-      expect(testSpan.operations.some(op => op.name === 'recordException')).toBe(true);
-      expect(testSpan.operations.some(op => op.name === 'setStatus')).toBe(true);
+      expect(correlation).toEqual(expectedCorrelation);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
-    it('should return trace info with error details when no active span exists', () => {
+    
+    it('should return empty object when no active span exists', () => {
       // Arrange
-      jest.spyOn(mockContextManager, 'active').mockReturnValue(ROOT_CONTEXT);
-      const error = new Error('Test error');
-
+      (trace as any).__setMockActiveSpan(undefined);
+      
       // Act
-      const traceInfo = recordErrorWithTraceInfo(error);
-
+      const correlation = createMetricsCorrelation();
+      
       // Assert
-      expect(traceInfo).toBeDefined();
-      expect(traceInfo.traceId).toBe('');
-      expect(traceInfo.spanId).toBe('');
-      expect(traceInfo.error).toBeDefined();
-      expect(traceInfo.error.message).toBe('Test error');
-      expect(traceInfo.error.name).toBe('Error');
+      expect(correlation).toEqual({});
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
   });
-
-  describe('formatTraceInfoForDisplay', () => {
-    it('should format trace information for display', () => {
+  
+  describe('getTraceCorrelationFromSpanContext', () => {
+    it('should extract trace correlation from span context', () => {
       // Arrange
-      const traceInfo: TraceCorrelationInfo = {
-        traceId: '1234567890abcdef1234567890abcdef',
-        spanId: 'abcdef1234567890',
+      const spanContext: SpanContext = {
+        traceId: generateTraceId(),
+        spanId: generateSpanId(),
         traceFlags: 1,
-        isSampled: true,
+        isRemote: false,
       };
-
+      
+      const expectedCorrelation: TraceCorrelation = {
+        traceId: spanContext.traceId,
+        spanId: spanContext.spanId,
+        traceFlags: spanContext.traceFlags,
+        isRemote: spanContext.isRemote,
+        traceState: undefined,
+      };
+      
       // Act
-      const formattedInfo = formatTraceInfoForDisplay(traceInfo);
-
+      const correlation = getTraceCorrelationFromSpanContext(spanContext);
+      
       // Assert
-      expect(formattedInfo).toBe('Trace ID: 1234567890abcdef1234567890abcdef | Span ID: abcdef1234567890 | Sampled');
+      expect(correlation).toEqual(expectedCorrelation);
     });
-
-    it('should format trace information without sampled flag when not sampled', () => {
+    
+    it('should include traceState when available', () => {
       // Arrange
-      const traceInfo: TraceCorrelationInfo = {
-        traceId: '1234567890abcdef1234567890abcdef',
-        spanId: 'abcdef1234567890',
-        traceFlags: 0,
-        isSampled: false,
+      const traceStateValue = 'vendor1=value1,vendor2=value2';
+      const spanContext: SpanContext = {
+        traceId: generateTraceId(),
+        spanId: generateSpanId(),
+        traceFlags: 1,
+        isRemote: true,
+        traceState: { toString: () => traceStateValue } as any,
       };
-
+      
+      const expectedCorrelation: TraceCorrelation = {
+        traceId: spanContext.traceId,
+        spanId: spanContext.spanId,
+        traceFlags: spanContext.traceFlags,
+        isRemote: spanContext.isRemote,
+        traceState: traceStateValue,
+      };
+      
       // Act
-      const formattedInfo = formatTraceInfoForDisplay(traceInfo);
-
+      const correlation = getTraceCorrelationFromSpanContext(spanContext);
+      
       // Assert
-      expect(formattedInfo).toBe('Trace ID: 1234567890abcdef1234567890abcdef | Span ID: abcdef1234567890');
+      expect(correlation).toEqual(expectedCorrelation);
     });
-
-    it('should return a message when no trace information is available', () => {
+  });
+  
+  describe('hasActiveTrace', () => {
+    it('should return true when active span exists', () => {
       // Act
-      const formattedInfo = formatTraceInfoForDisplay(undefined);
-
+      const result = hasActiveTrace();
+      
       // Assert
-      expect(formattedInfo).toBe('No trace information available');
+      expect(result).toBe(true);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
     });
-
-    it('should return a message when trace ID is empty', () => {
+    
+    it('should return false when no active span exists', () => {
       // Arrange
-      const traceInfo: TraceCorrelationInfo = {
-        traceId: '',
-        spanId: 'abcdef1234567890',
-      };
-
+      (trace as any).__setMockActiveSpan(undefined);
+      
       // Act
-      const formattedInfo = formatTraceInfoForDisplay(traceInfo);
-
+      const result = hasActiveTrace();
+      
       // Assert
-      expect(formattedInfo).toBe('No trace information available');
+      expect(result).toBe(false);
+      expect(mockedOpenTelemetry.getActiveSpan).toHaveBeenCalled();
+    });
+  });
+  
+  describe('Integration with real tracing service', () => {
+    it('should work with the mock tracing service', () => {
+      // Arrange
+      const mockTracingService = createMockTracingService('test-service');
+      const logObject = { message: 'Test log message', level: 'info' };
+      
+      // Act - Create a span and test correlation within it
+      mockTracingService.createSpan('test-operation', async () => {
+        // Get the current span from the mock service
+        const currentSpan = mockTracingService.getMockTracer().getCurrentSpan();
+        (trace as any).__setMockActiveSpan(currentSpan);
+        
+        // Test correlation functions
+        const correlation = getTraceCorrelation();
+        const enrichedLog = enrichLogWithTraceInfo(logObject);
+        const headers = createExternalCorrelationHeaders();
+        const metricsCorrelation = createMetricsCorrelation();
+        
+        // Assert within the span
+        expect(correlation).toBeDefined();
+        expect(correlation?.traceId).toBe(currentSpan?.spanContext().traceId);
+        expect(correlation?.spanId).toBe(currentSpan?.spanContext().spanId);
+        
+        expect(enrichedLog['trace.id']).toBe(currentSpan?.spanContext().traceId);
+        expect(enrichedLog['span.id']).toBe(currentSpan?.spanContext().spanId);
+        
+        expect(headers).toBeDefined();
+        expect(headers?.traceparent).toContain(currentSpan?.spanContext().traceId);
+        expect(headers?.traceparent).toContain(currentSpan?.spanContext().spanId);
+        
+        expect(metricsCorrelation['trace_id']).toBe(currentSpan?.spanContext().traceId);
+        expect(metricsCorrelation['span_id']).toBe(currentSpan?.spanContext().spanId);
+        
+        return { correlation, enrichedLog, headers, metricsCorrelation };
+      });
+    });
+    
+    it('should handle journey-specific context in logs', async () => {
+      // Arrange
+      const mockTracingService = createMockTracingService('test-service');
+      const journeyId = 'journey-123';
+      const userId = 'user-456';
+      const logObject = { message: 'Health journey log', level: 'info' };
+      
+      // Create a health journey context
+      const healthContext = mockTracingService.createHealthJourneyContext(journeyId, userId);
+      const mockSpan = mockTracingService.getMockTracer().startSpan('health-operation', {
+        attributes: {
+          'journey.type': 'health',
+          'journey.id': journeyId,
+          'user.id': userId,
+        },
+      });
+      
+      // Set as active span
+      (trace as any).__setMockActiveSpan(mockSpan);
+      
+      // Act
+      const enrichedLog = enrichLogWithTraceInfo(logObject);
+      
+      // Assert
+      expect(enrichedLog['trace.id']).toBe(mockSpan.spanContext().traceId);
+      expect(enrichedLog['span.id']).toBe(mockSpan.spanContext().spanId);
+      
+      // The correlation utilities don't directly expose journey context
+      // This would typically be added by a higher-level logging service
+      // that combines trace correlation with journey context
     });
   });
 });

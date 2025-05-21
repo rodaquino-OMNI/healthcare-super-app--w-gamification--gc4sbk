@@ -1,165 +1,151 @@
 /**
- * @file Unit tests for the tracing utilities barrel file
- * 
- * These tests verify that all utility functions are properly exported from the barrel file,
- * ensuring that consumers of the package can import utility functions using the correct paths
- * and that the public API remains consistent.
+ * @file Unit tests for tracing utilities barrel file
+ * @description Verifies that all utility functions are properly exported from the barrel file
  */
 
-import * as tracingUtils from '../../../src/utils';
+import * as correlationUtils from '../../../src/utils/correlation';
+import * as spanAttributesUtils from '../../../src/utils/span-attributes';
+import * as contextPropagationUtils from '../../../src/utils/context-propagation';
+import * as barrelExports from '../../../src/utils';
 
 describe('Tracing Utilities Barrel File', () => {
   describe('Correlation Utilities', () => {
-    it('should export TraceCorrelationInfo interface', () => {
-      // We can't directly test interfaces, but we can verify the module has the expected structure
-      expect(tracingUtils).toBeDefined();
-    });
-
-    it('should export extractTraceInfo function', () => {
-      expect(tracingUtils.extractTraceInfo).toBeDefined();
-      expect(typeof tracingUtils.extractTraceInfo).toBe('function');
-    });
-
-    it('should export createExternalCorrelationObject function', () => {
-      expect(tracingUtils.createExternalCorrelationObject).toBeDefined();
-      expect(typeof tracingUtils.createExternalCorrelationObject).toBe('function');
-    });
-
-    it('should export enrichLogWithTraceInfo function', () => {
-      expect(tracingUtils.enrichLogWithTraceInfo).toBeDefined();
-      expect(typeof tracingUtils.enrichLogWithTraceInfo).toBe('function');
-    });
-
-    it('should export enrichMetricWithTraceInfo function', () => {
-      expect(tracingUtils.enrichMetricWithTraceInfo).toBeDefined();
-      expect(typeof tracingUtils.enrichMetricWithTraceInfo).toBe('function');
-    });
-
-    it('should export createJourneyCorrelationInfo function', () => {
-      expect(tracingUtils.createJourneyCorrelationInfo).toBeDefined();
-      expect(typeof tracingUtils.createJourneyCorrelationInfo).toBe('function');
-    });
-
-    it('should export recordErrorWithTraceInfo function', () => {
-      expect(tracingUtils.recordErrorWithTraceInfo).toBeDefined();
-      expect(typeof tracingUtils.recordErrorWithTraceInfo).toBe('function');
-    });
-
-    it('should export formatTraceInfoForDisplay function', () => {
-      expect(tracingUtils.formatTraceInfoForDisplay).toBeDefined();
-      expect(typeof tracingUtils.formatTraceInfoForDisplay).toBe('function');
-    });
-
-    it('should re-export propagation from OpenTelemetry', () => {
-      expect(tracingUtils.propagation).toBeDefined();
+    it('should export all correlation utility functions', () => {
+      // Get all exported functions from the correlation module
+      const correlationExports = Object.keys(correlationUtils);
+      
+      // Verify each function is exported from the barrel file
+      correlationExports.forEach(exportName => {
+        expect(barrelExports).toHaveProperty(exportName);
+        expect(barrelExports[exportName]).toBe(correlationUtils[exportName]);
+      });
     });
   });
 
   describe('Span Attributes Utilities', () => {
-    it('should export addCommonAttributes function', () => {
-      expect(tracingUtils.addCommonAttributes).toBeDefined();
-      expect(typeof tracingUtils.addCommonAttributes).toBe('function');
-    });
-
-    it('should export addHttpAttributes function', () => {
-      expect(tracingUtils.addHttpAttributes).toBeDefined();
-      expect(typeof tracingUtils.addHttpAttributes).toBe('function');
-    });
-
-    it('should export addDatabaseAttributes function', () => {
-      expect(tracingUtils.addDatabaseAttributes).toBeDefined();
-      expect(typeof tracingUtils.addDatabaseAttributes).toBe('function');
-    });
-
-    it('should export addHealthJourneyAttributes function', () => {
-      expect(tracingUtils.addHealthJourneyAttributes).toBeDefined();
-      expect(typeof tracingUtils.addHealthJourneyAttributes).toBe('function');
-    });
-
-    it('should export addCareJourneyAttributes function', () => {
-      expect(tracingUtils.addCareJourneyAttributes).toBeDefined();
-      expect(typeof tracingUtils.addCareJourneyAttributes).toBe('function');
-    });
-
-    it('should export addPlanJourneyAttributes function', () => {
-      expect(tracingUtils.addPlanJourneyAttributes).toBeDefined();
-      expect(typeof tracingUtils.addPlanJourneyAttributes).toBe('function');
-    });
-
-    it('should export addGamificationAttributes function', () => {
-      expect(tracingUtils.addGamificationAttributes).toBeDefined();
-      expect(typeof tracingUtils.addGamificationAttributes).toBe('function');
-    });
-
-    it('should export addErrorAttributes function', () => {
-      expect(tracingUtils.addErrorAttributes).toBeDefined();
-      expect(typeof tracingUtils.addErrorAttributes).toBe('function');
-    });
-
-    it('should export addPerformanceAttributes function', () => {
-      expect(tracingUtils.addPerformanceAttributes).toBeDefined();
-      expect(typeof tracingUtils.addPerformanceAttributes).toBe('function');
+    it('should export all span attribute utility functions and enums', () => {
+      // Get all exported functions and enums from the span-attributes module
+      const spanAttributesExports = Object.keys(spanAttributesUtils);
+      
+      // Verify each function and enum is exported from the barrel file
+      spanAttributesExports.forEach(exportName => {
+        expect(barrelExports).toHaveProperty(exportName);
+        expect(barrelExports[exportName]).toBe(spanAttributesUtils[exportName]);
+      });
     });
   });
 
   describe('Context Propagation Utilities', () => {
-    it('should export injectTraceContextIntoHttpHeaders function', () => {
-      expect(tracingUtils.injectTraceContextIntoHttpHeaders).toBeDefined();
-      expect(typeof tracingUtils.injectTraceContextIntoHttpHeaders).toBe('function');
-    });
-
-    it('should export extractTraceContextFromHttpHeaders function', () => {
-      expect(tracingUtils.extractTraceContextFromHttpHeaders).toBeDefined();
-      expect(typeof tracingUtils.extractTraceContextFromHttpHeaders).toBe('function');
-    });
-
-    it('should export injectTraceContextIntoKafkaHeaders function', () => {
-      expect(tracingUtils.injectTraceContextIntoKafkaHeaders).toBeDefined();
-      expect(typeof tracingUtils.injectTraceContextIntoKafkaHeaders).toBe('function');
-    });
-
-    it('should export extractTraceContextFromKafkaHeaders function', () => {
-      expect(tracingUtils.extractTraceContextFromKafkaHeaders).toBeDefined();
-      expect(typeof tracingUtils.extractTraceContextFromKafkaHeaders).toBe('function');
-    });
-
-    it('should export serializeTraceContext function', () => {
-      expect(tracingUtils.serializeTraceContext).toBeDefined();
-      expect(typeof tracingUtils.serializeTraceContext).toBe('function');
-    });
-
-    it('should export deserializeTraceContext function', () => {
-      expect(tracingUtils.deserializeTraceContext).toBeDefined();
-      expect(typeof tracingUtils.deserializeTraceContext).toBe('function');
-    });
-
-    it('should export addJourneyContext function', () => {
-      expect(tracingUtils.addJourneyContext).toBeDefined();
-      expect(typeof tracingUtils.addJourneyContext).toBe('function');
-    });
-
-    it('should export getCurrentTraceId function', () => {
-      expect(tracingUtils.getCurrentTraceId).toBeDefined();
-      expect(typeof tracingUtils.getCurrentTraceId).toBe('function');
-    });
-
-    it('should export getCurrentSpanId function', () => {
-      expect(tracingUtils.getCurrentSpanId).toBeDefined();
-      expect(typeof tracingUtils.getCurrentSpanId).toBe('function');
-    });
-
-    it('should export getTraceCorrelationInfo function', () => {
-      expect(tracingUtils.getTraceCorrelationInfo).toBeDefined();
-      expect(typeof tracingUtils.getTraceCorrelationInfo).toBe('function');
+    it('should export all context propagation utility functions and interfaces', () => {
+      // Get all exported functions and interfaces from the context-propagation module
+      const contextPropagationExports = Object.keys(contextPropagationUtils);
+      
+      // Verify each function and interface is exported from the barrel file
+      contextPropagationExports.forEach(exportName => {
+        expect(barrelExports).toHaveProperty(exportName);
+        expect(barrelExports[exportName]).toBe(contextPropagationUtils[exportName]);
+      });
     });
   });
 
-  describe('Tree-shaking support', () => {
-    it('should allow importing individual functions directly', () => {
-      // This test doesn't actually import individually, but verifies the structure
-      // that enables tree-shaking. In a real application, users would import like:
-      // import { addCommonAttributes } from '@austa/tracing/utils';
-      expect(Object.keys(tracingUtils).length).toBeGreaterThan(0);
+  describe('Export Structure', () => {
+    it('should maintain proper export structure for tree-shaking support', () => {
+      // Verify that the barrel file is using named exports (not default exports)
+      // This ensures proper tree-shaking support
+      expect(barrelExports).not.toHaveProperty('default');
+    });
+
+    it('should not have any unexpected exports', () => {
+      // Get all exports from the barrel file
+      const allBarrelExports = Object.keys(barrelExports);
+      
+      // Get all exports from the individual modules
+      const allModuleExports = [
+        ...Object.keys(correlationUtils),
+        ...Object.keys(spanAttributesUtils),
+        ...Object.keys(contextPropagationUtils)
+      ];
+      
+      // Verify that the barrel file doesn't export anything not in the individual modules
+      allBarrelExports.forEach(exportName => {
+        expect(allModuleExports).toContain(exportName);
+      });
+    });
+  });
+
+  describe('Public API Consistency', () => {
+    // Test specific important functions to ensure they're properly exported
+    
+    it('should export correlation utility functions', () => {
+      // Key correlation functions that must be exported
+      const keyCorrelationFunctions = [
+        'getTraceCorrelation',
+        'enrichLogWithTraceInfo',
+        'createExternalCorrelationHeaders',
+        'createMetricsCorrelation',
+        'hasActiveTrace'
+      ];
+      
+      keyCorrelationFunctions.forEach(functionName => {
+        expect(barrelExports).toHaveProperty(functionName);
+        expect(typeof barrelExports[functionName]).toBe('function');
+      });
+    });
+
+    it('should export span attribute utility functions', () => {
+      // Key span attribute functions that must be exported
+      const keySpanAttributeFunctions = [
+        'addUserAttributes',
+        'addRequestAttributes',
+        'addServiceAttributes',
+        'addHealthJourneyAttributes',
+        'addCareJourneyAttributes',
+        'addPlanJourneyAttributes',
+        'addErrorAttributes',
+        'classifyHttpError'
+      ];
+      
+      keySpanAttributeFunctions.forEach(functionName => {
+        expect(barrelExports).toHaveProperty(functionName);
+        expect(typeof barrelExports[functionName]).toBe('function');
+      });
+    });
+
+    it('should export context propagation utility functions', () => {
+      // Key context propagation functions that must be exported
+      const keyContextPropagationFunctions = [
+        'extractContextFromHttpHeaders',
+        'injectContextIntoHttpHeaders',
+        'extractContextFromKafkaMessage',
+        'injectContextIntoKafkaMessage',
+        'serializeContext',
+        'deserializeContext',
+        'createHealthJourneyContext',
+        'createCareJourneyContext',
+        'createPlanJourneyContext'
+      ];
+      
+      keyContextPropagationFunctions.forEach(functionName => {
+        expect(barrelExports).toHaveProperty(functionName);
+        expect(typeof barrelExports[functionName]).toBe('function');
+      });
+    });
+
+    it('should export important enums and interfaces', () => {
+      // Key enums that must be exported
+      expect(barrelExports).toHaveProperty('AttributeNamespace');
+      expect(barrelExports).toHaveProperty('JourneyType');
+      expect(barrelExports).toHaveProperty('ErrorType');
+      
+      // Verify enum values
+      expect(barrelExports.JourneyType).toHaveProperty('HEALTH');
+      expect(barrelExports.JourneyType).toHaveProperty('CARE');
+      expect(barrelExports.JourneyType).toHaveProperty('PLAN');
+      
+      expect(barrelExports.ErrorType).toHaveProperty('CLIENT');
+      expect(barrelExports.ErrorType).toHaveProperty('SYSTEM');
+      expect(barrelExports.ErrorType).toHaveProperty('TRANSIENT');
+      expect(barrelExports.ErrorType).toHaveProperty('EXTERNAL');
     });
   });
 });

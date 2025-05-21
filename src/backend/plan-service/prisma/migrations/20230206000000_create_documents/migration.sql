@@ -4,10 +4,10 @@ CREATE TYPE "DocumentType" AS ENUM (
   'REFERRAL',
   'PRESCRIPTION',
   'MEDICAL_REPORT',
-  'INVOICE',
   'INSURANCE_CARD',
-  'CONSENT_FORM',
-  'LAB_RESULT',
+  'IDENTITY_DOCUMENT',
+  'AUTHORIZATION_FORM',
+  'INVOICE',
   'OTHER'
 );
 
@@ -51,17 +51,3 @@ CREATE INDEX "documents_verificationStatus_idx" ON "documents"("verificationStat
 
 -- CreateIndex
 CREATE INDEX "documents_uploadedAt_idx" ON "documents"("uploadedAt");
-
--- Comment on table and columns
-COMMENT ON TABLE "documents" IS 'Stores document metadata for claim attachments and supporting documentation';
-COMMENT ON COLUMN "documents"."id" IS 'Unique identifier for the document';
-COMMENT ON COLUMN "documents"."claimId" IS 'Reference to the associated claim';
-COMMENT ON COLUMN "documents"."filePath" IS 'Path to the document in S3 storage';
-COMMENT ON COLUMN "documents"."fileName" IS 'Original filename of the uploaded document';
-COMMENT ON COLUMN "documents"."fileSize" IS 'Size of the document in bytes';
-COMMENT ON COLUMN "documents"."mimeType" IS 'MIME type of the document';
-COMMENT ON COLUMN "documents"."documentType" IS 'Type of document (receipt, referral, etc.)';
-COMMENT ON COLUMN "documents"."verificationStatus" IS 'Current verification status of the document';
-COMMENT ON COLUMN "documents"."verifiedAt" IS 'Timestamp when the document was verified or rejected';
-COMMENT ON COLUMN "documents"."uploadedAt" IS 'Timestamp when the document was uploaded';
-COMMENT ON COLUMN "documents"."metadata" IS 'Additional document metadata stored as JSON';

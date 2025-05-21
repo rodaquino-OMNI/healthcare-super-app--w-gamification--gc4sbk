@@ -1,170 +1,251 @@
-import { Prisma } from '@prisma/client';
-import { IsDate, IsUUID, validateOrReject } from 'class-validator';
-import { GameProfile } from '@app/shared/profiles/entities/game-profile.entity';
-import { Reward } from '@app/shared/rewards/entities/reward.entity';
+import { IsDate, IsUUID, ValidateIf } from 'class-validator';
 import { IUserReward, IGameProfile } from '@austa/interfaces/gamification';
-import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import { Reward } from '@app/rewards/entities/reward.entity';
+import { GameProfile } from '@app/profiles/entities/game-profile.entity';
+import * as crypto from 'crypto';
 
 /**
  * Represents a reward earned by a user.
  * Part of the reward management feature (F-303) that handles distribution of 
  * digital and physical rewards based on user achievements and progress.
  * 
- * @implements {IUserReward} from @austa/interfaces/gamification
+ * This entity is used with Prisma ORM and implements the IUserReward interface
+ * from @austa/interfaces for type safety across services.
  */
 export class UserReward implements IUserReward {
   /**
+   * Creates a new UserReward instance with the given properties.
+   * Validates the input data and sets default values where appropriate.
+   * 
+   * @param data The data to create the UserReward with
+   * @returns A new UserReward instance
+   * @throws Error if the data is invalid
+   */
+  static create(data: Partial<IUserReward>): UserReward {
+    const userReward = new UserReward();
+    
+    if (!data.profileId) {
+      throw new Error('ProfileId is required');
+    }
+    
+    if (!data.rewardId) {
+      throw new Error('RewardId is required');
+    }
+    
+    userReward.id = data.id || crypto.randomUUID();
+    userReward.profileId = data.profileId;
+    userReward.rewardId = data.rewardId;
+    userReward.earnedAt = data.earnedAt || new Date();
+    userReward.journey = data.journey || 'global';
+    
+    // Optional relationships
+    if (data.profile) {
+      userReward.profile = data.profile;
+    }
+    
+    if (data.reward) {
+      userReward.reward = data.reward;
+    }
+    
+    // Validate the created instance
+    if (!userReward.isValidTimestamp()) {
+      throw new Error('Invalid earnedAt timestamp');
+    }
+    
+    userReward.validateRelationships();
+    
+    return userReward;
+  }
+  /**
    * Unique identifier for the user reward.
    */
-  @IsUUID(4)
+  @IsUUID()
   id: string;
 
   /**
-   * The game profile associated with this reward.
+   * ID of the game profile associated with this reward.
+   * References the GameProfile entity.
    */
-  profile: GameProfile;
-
-  /**
-   * The ID of the associated game profile.
-   */
-  @IsUUID(4)
+  @IsUUID()
   profileId: string;
 
   /**
-   * The reward earned by the user.
+   * The game profile associated with this reward.
+   * This is a virtual field populated by Prisma's include functionality.
    */
-  reward: Reward;
+  @ValidateIf((o) => !!o.profile)
+  profile?: GameProfile;
 
   /**
-   * The ID of the earned reward.
+   * ID of the reward earned by the user.
+   * References the Reward entity.
    */
-  @IsUUID(4)
+  @IsUUID()
   rewardId: string;
 
   /**
+   * The reward earned by the user.
+   * This is a virtual field populated by Prisma's include functionality.
+   */
+  @ValidateIf((o) => !!o.reward)
+  reward?: Reward;
+
+  /**
    * The date and time when the reward was earned.
-   * Stored in ISO format for consistent cross-platform representation.
+   * Stored in ISO format for consistent timezone handling.
    */
   @IsDate()
   earnedAt: Date;
 
   /**
-   * The journey type associated with this reward.
+   * The journey this reward is associated with.
+   * Can be 'health', 'care', 'plan', or 'global' for cross-journey rewards.
    * Used for journey-aware relationship querying and filtering.
    */
-  journeyType?: JourneyType;
+  journey: string;
+  
+  /**
+   * Version number for optimistic locking.
+   * Automatically incremented by Prisma on each update.
+   * Used to prevent concurrent updates from overwriting each other.
+   */
+  version?: number;
 
   /**
-   * Creates a new UserReward instance from a Prisma UserReward record.
-   * 
-   * @param userReward - The Prisma UserReward record
-   * @returns A new UserReward entity instance
+   * Validates that the earnedAt timestamp is in the correct ISO format.
+   * This is used by the validation pipeline to ensure data integrity.
+   * @returns boolean indicating if the timestamp is valid
    */
-  static fromPrisma(userReward: Prisma.UserRewardGetPayload<{
-    include: {
-      profile: true;
-      reward: true;
-    };
-  }>): UserReward {
-    const entity = new UserReward();
-    entity.id = userReward.id;
-    entity.profileId = userReward.profileId;
-    entity.rewardId = userReward.rewardId;
-    entity.earnedAt = userReward.earnedAt;
+  isValidTimestamp(): boolean {
+    if (!this.earnedAt) return false;
     
-    // Map related entities if included in the query
-    if (userReward.profile) {
-      entity.profile = GameProfile.fromPrisma(userReward.profile);
-    }
-    
-    if (userReward.reward) {
-      entity.reward = Reward.fromPrisma(userReward.reward);
-    }
-    
-    // Set journey type if available from the profile
-    if (entity.profile && (entity.profile as unknown as IGameProfile).journeyType) {
-      entity.journeyType = (entity.profile as unknown as IGameProfile).journeyType;
-    }
-    
-    return entity;
-  }
-
-  /**
-   * Validates the UserReward entity.
-   * Throws validation errors if the entity is invalid.
-   * 
-   * @throws {Error} If validation fails
-   */
-  async validate(): Promise<void> {
     try {
-      await validateOrReject(this);
-    } catch (errors) {
-      // Transform validation errors into a standardized format
-      const formattedErrors = errors.map(error => ({
-        property: error.property,
-        constraints: error.constraints,
-        value: error.value
-      }));
-      
-      throw new Error(
-        `UserReward validation failed: ${JSON.stringify(formattedErrors)}`
-      );
+      // Ensure the date is in valid ISO format
+      return !isNaN(this.earnedAt.getTime());
+    } catch (error) {
+      return false;
     }
   }
-
+  
   /**
-   * Creates a Prisma create input object from this entity.
-   * Used when creating new UserReward records in the database.
-   * 
-   * @returns Prisma.UserRewardCreateInput
+   * Validates that the required relationships exist.
+   * Throws appropriate errors for constraint violations.
+   * @throws Error if profileId or rewardId is invalid
    */
-  toPrismaCreateInput(): Prisma.UserRewardCreateInput {
-    return {
-      id: this.id,
-      earnedAt: this.earnedAt,
-      profile: {
-        connect: { id: this.profileId }
-      },
-      reward: {
-        connect: { id: this.rewardId }
+  validateRelationships(): void {
+    if (!this.profileId) {
+      throw new Error('UserReward must be associated with a valid GameProfile');
+    }
+    
+    if (!this.rewardId) {
+      throw new Error('UserReward must be associated with a valid Reward');
+    }
+    
+    // Additional journey-specific validation
+    if (this.reward && this.profile) {
+      // For journey-specific rewards, ensure they match the user's active journey
+      if (this.reward.journey !== 'global' && this.reward.journey !== this.journey) {
+        throw new Error(`Reward from journey '${this.reward.journey}' cannot be assigned to user in journey '${this.journey}'`);
       }
-    };
+    }
   }
-
+  
   /**
-   * Creates a Prisma update input object from this entity.
-   * Used when updating existing UserReward records in the database.
+   * Creates a Prisma query filter for journey-aware relationship querying.
+   * This helps optimize database queries by filtering based on journey.
    * 
-   * @returns Prisma.UserRewardUpdateInput
+   * @param journey The journey to filter by ('health', 'care', 'plan', or undefined for all)
+   * @returns A query object that can be used with Prisma's findMany
    */
-  toPrismaUpdateInput(): Prisma.UserRewardUpdateInput {
-    return {
-      earnedAt: this.earnedAt,
-      profile: {
-        connect: { id: this.profileId }
-      },
-      reward: {
-        connect: { id: this.rewardId }
-      }
-    };
-  }
-
-  /**
-   * Creates a journey-aware query filter for finding user rewards.
-   * Enables optimized performance when querying by journey type.
-   * 
-   * @param journeyType - Optional journey type to filter by
-   * @returns Prisma.UserRewardWhereInput
-   */
-  static createJourneyFilter(journeyType?: JourneyType): Prisma.UserRewardWhereInput {
-    if (!journeyType) {
+  static createJourneyFilter(journey?: string): Record<string, any> {
+    if (!journey) {
       return {};
     }
     
     return {
-      profile: {
-        journeyType: journeyType
+      OR: [
+        { journey },
+        { journey: 'global' }
+      ],
+      reward: {
+        OR: [
+          { journey },
+          { journey: 'global' }
+        ]
       }
     };
+  }
+  
+  /**
+   * Handles database errors related to relationship constraints.
+   * Converts database-specific errors into user-friendly error messages.
+   * 
+   * @param error The error thrown by Prisma
+   * @returns A user-friendly error message
+   */
+  static handleConstraintError(error: any): Error {
+    // Check for Prisma-specific error codes
+    if (error.code === 'P2003') {
+      // Foreign key constraint failed
+      if (error.meta?.field_name?.includes('profileId')) {
+        return new Error('The specified game profile does not exist');
+      }
+      
+      if (error.meta?.field_name?.includes('rewardId')) {
+        return new Error('The specified reward does not exist');
+      }
+    }
+    
+    if (error.code === 'P2002') {
+      // Unique constraint failed
+      return new Error('This reward has already been earned by the user');
+    }
+    
+    // Return the original error if it's not a constraint violation
+    return error;
+  }
+
+  /**
+   * Creates a plain object representation of this entity.
+   * Useful for serialization and API responses.
+   * @param includeVersion Whether to include the version field for optimistic locking
+   * @returns A plain object with all properties
+   */
+  toJSON(includeVersion = false): Record<string, any> {
+    const result: Record<string, any> = {
+      id: this.id,
+      profileId: this.profileId,
+      rewardId: this.rewardId,
+      earnedAt: this.earnedAt.toISOString(),
+      journey: this.journey
+    };
+    
+    // Include version for optimistic locking if requested
+    if (includeVersion && 'version' in this) {
+      result.version = (this as any).version;
+    }
+    
+    // Include related entities if they're loaded
+    if (this.profile) {
+      result.profile = {
+        id: this.profile.id,
+        userId: this.profile.userId,
+        level: this.profile.level,
+        xp: this.profile.xp
+      };
+    }
+    
+    if (this.reward) {
+      result.reward = {
+        id: this.reward.id,
+        title: this.reward.title,
+        description: this.reward.description,
+        xpReward: this.reward.xpReward,
+        icon: this.reward.icon,
+        journey: this.reward.journey
+      };
+    }
+    
+    return result;
   }
 }
