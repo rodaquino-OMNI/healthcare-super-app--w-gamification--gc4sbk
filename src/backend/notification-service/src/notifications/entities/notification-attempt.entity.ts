@@ -1,35 +1,30 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm'; // typeorm v0.3.0+
 import { Notification } from './notification.entity';
 
 /**
  * Enum representing the possible statuses of a notification delivery attempt
  */
 export enum AttemptStatus {
-  /**
-   * The attempt is scheduled or in progress
-   */
   PENDING = 'pending',
-  
-  /**
-   * The attempt was successful and the notification was delivered
-   */
   SUCCESS = 'success',
-  
-  /**
-   * The attempt failed to deliver the notification
-   */
   FAILURE = 'failure'
 }
 
 /**
- * NotificationAttempt entity - represents a single attempt to deliver a notification
+ * NotificationAttempt entity - tracks individual notification delivery attempts
  * 
- * This entity tracks detailed information about each individual attempt to deliver
- * a notification, including the channel used, timestamp, status, and any error details.
- * It enables comprehensive tracking of the notification delivery lifecycle and provides
- * the data needed for retry logic, troubleshooting, and delivery analytics.
+ * Stores detailed information about each attempt to deliver a notification, including:
+ * - The channel used for delivery
+ * - Timestamp of the attempt
+ * - Sequential attempt number
+ * - Status outcome (pending, success, failure)
+ * - Error details if the attempt failed
+ * - Provider-specific response data for troubleshooting
  */
 @Entity()
+@Index(['notificationId', 'attemptNumber'])
+@Index(['status', 'createdAt'])
+@Index(['channel', 'status'])
 export class NotificationAttempt {
   /**
    * Unique identifier for the notification attempt
@@ -38,101 +33,79 @@ export class NotificationAttempt {
   id: number;
 
   /**
-   * Reference to the parent notification this attempt is for
+   * Reference to the parent notification
    */
   @Column()
+  @Index()
   notificationId: number;
 
   /**
    * Many-to-one relationship with the Notification entity
    */
-  @ManyToOne(() => Notification)
+  @ManyToOne(() => Notification, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'notificationId' })
   notification: Notification;
 
   /**
-   * Delivery channel used for this attempt (e.g., 'push', 'email', 'sms', 'in-app')
-   */
-  @Column()
-  channel: string;
-
-  /**
-   * The attempt number in the sequence (1 for first attempt, 2+ for retries)
+   * Sequential number of this attempt (1 for first attempt, 2 for first retry, etc.)
    */
   @Column()
   attemptNumber: number;
 
   /**
-   * Current status of this delivery attempt
+   * Delivery channel used for this attempt (e.g., 'push', 'email', 'sms', 'in-app')
+   */
+  @Column()
+  @Index()
+  channel: string;
+
+  /**
+   * Status of this delivery attempt
    */
   @Column({
     type: 'enum',
     enum: AttemptStatus,
     default: AttemptStatus.PENDING
   })
+  @Index()
   status: AttemptStatus;
 
   /**
    * Error message if the attempt failed
    */
   @Column({ type: 'text', nullable: true })
-  errorMessage: string | null;
+  errorMessage?: string;
 
   /**
-   * Error code if the attempt failed (provider-specific)
+   * Error code if the attempt failed
+   * Useful for categorizing and analyzing failures
    */
   @Column({ nullable: true })
-  errorCode: string | null;
+  errorCode?: string;
 
   /**
-   * Stack trace or detailed error information for troubleshooting
-   */
-  @Column({ type: 'text', nullable: true })
-  errorDetails: string | null;
-
-  /**
-   * Provider-specific response data as JSON string
-   * This can include delivery receipts, message IDs, or other provider metadata
-   */
-  @Column({ type: 'text', nullable: true })
-  providerResponse: string | null;
-
-  /**
-   * Timestamp when this attempt was initiated
-   */
-  @CreateDateColumn()
-  attemptedAt: Date;
-
-  /**
-   * Timestamp when the notification was delivered (only for successful attempts)
+   * Provider-specific error code (if available)
    */
   @Column({ nullable: true })
-  deliveredAt: Date | null;
+  providerErrorCode?: string;
 
   /**
-   * Time taken to process this attempt in milliseconds
+   * Raw response data from the provider
+   * Stored as JSON for troubleshooting and auditing
+   */
+  @Column({ type: 'json', nullable: true })
+  providerResponse?: Record<string, any>;
+
+  /**
+   * Duration of the attempt in milliseconds
    * Useful for performance monitoring and SLA tracking
    */
   @Column({ nullable: true })
-  processingTimeMs: number | null;
+  durationMs?: number;
 
   /**
-   * Provider-specific identifier for this delivery attempt
-   * (e.g., AWS SNS message ID, SendGrid message ID, etc.)
+   * Timestamp when the attempt was created/initiated
    */
-  @Column({ nullable: true })
-  providerMessageId: string | null;
-
-  /**
-   * IP address or endpoint used for delivery
-   */
-  @Column({ nullable: true })
-  deliveryEndpoint: string | null;
-
-  /**
-   * Additional metadata about this attempt as JSON string
-   * Can include device info, email client details, etc.
-   */
-  @Column({ type: 'text', nullable: true })
-  metadata: string | null;
+  @CreateDateColumn()
+  createdAt: Date;
 }

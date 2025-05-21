@@ -1,15 +1,10 @@
 /**
- * Barrel file for retry entities
+ * Barrel file that exports all entities from the retry/entities directory
  * 
- * This file exports all entity classes from the retry/entities directory,
- * providing a clean, unified import interface for consumers.
- * 
- * By using this barrel file, consumers can import multiple entities from a single path:
- * import { RetryOperation } from '@app/notification/retry/entities';
- * 
- * This approach simplifies imports throughout the application and establishes
- * a clear public API boundary for the retry module's entities.
+ * This file provides a clean, unified import interface for consumers of retry entities.
+ * It simplifies imports throughout the application by allowing consumers to import
+ * multiple entities from a single path, enforcing a consistent pattern for module exports,
+ * and establishing a clear public API boundary for the retry module's entities.
  */
 
-// Export all entities from this directory
 export * from './retry-operation.entity';
