@@ -1,106 +1,141 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, UseFilters } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '@app/auth/auth/guards/jwt-auth.guard';
-import { AllExceptionsFilter } from '@app/shared/exceptions/exceptions.filter';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@app/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@app/auth/guards/roles.guard';
+import { Roles } from '@app/auth/decorators/roles.decorator';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
-import { DlqEntryEntity } from './entities/dlq-entry.entity';
-import { DlqProcessAction, DlqEntryStatus, ErrorType } from './interfaces';
+import { JourneyType } from '@austa/interfaces';
+import { ErrorType } from '@app/shared/errors/error-type.enum';
 
 /**
- * Controller for managing Dead Letter Queue entries
+ * Controller for managing dead-letter queue entries.
+ * Provides endpoints for retrieving, reprocessing, and resolving failed events.
  */
-@ApiTags('dead-letter-queue')
+@ApiTags('Dead Letter Queue')
 @Controller('events/dlq')
-@UseGuards(JwtAuthGuard)
-@UseFilters(AllExceptionsFilter)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin', 'support')
 export class DeadLetterQueueController {
   constructor(private readonly dlqService: DeadLetterQueueService) {}
 
   /**
-   * Get all DLQ entries with filtering and pagination
+   * Retrieves DLQ entries with filtering options
    */
   @Get()
-  @ApiOperation({ summary: 'Get all DLQ entries with filtering and pagination' })
-  @ApiResponse({ status: 200, description: 'Returns paginated DLQ entries' })
+  @ApiOperation({ summary: 'Get DLQ entries with filtering' })
   @ApiQuery({ name: 'userId', required: false, type: String })
-  @ApiQuery({ name: 'journey', required: false, type: String })
   @ApiQuery({ name: 'eventType', required: false, type: String })
+  @ApiQuery({ name: 'journeyType', required: false, enum: JourneyType })
   @ApiQuery({ name: 'errorType', required: false, enum: ErrorType })
-  @ApiQuery({ name: 'status', required: false, enum: DlqEntryStatus })
   @ApiQuery({ name: 'startDate', required: false, type: Date })
   @ApiQuery({ name: 'endDate', required: false, type: Date })
   @ApiQuery({ name: 'page', required: false, type: Number, default: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
+  @ApiResponse({ status: 200, description: 'Returns DLQ entries matching the filters' })
   async getDlqEntries(
     @Query('userId') userId?: string,
-    @Query('journey') journey?: string,
     @Query('eventType') eventType?: string,
+    @Query('journeyType') journeyType?: JourneyType,
     @Query('errorType') errorType?: ErrorType,
-    @Query('status') status?: DlqEntryStatus,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
+    @Query('startDate') startDate?: Date,
+    @Query('endDate') endDate?: Date,
     @Query('page') page = 1,
     @Query('limit') limit = 20,
   ) {
-    const filters: any = {};
-    
-    if (userId) filters.userId = userId;
-    if (journey) filters.journey = journey;
-    if (eventType) filters.eventType = eventType;
-    if (errorType) filters.errorType = errorType;
-    if (status) filters.status = status;
-    
-    if (startDate) {
-      filters.startDate = new Date(startDate);
-    }
-    
-    if (endDate) {
-      filters.endDate = new Date(endDate);
-    }
-    
-    return this.dlqService.getDlqEntries(filters, page, limit);
+    return this.dlqService.getDlqEntries(
+      {
+        userId,
+        eventType,
+        journeyType,
+        errorType,
+        startDate,
+        endDate,
+      },
+      page,
+      limit,
+    );
   }
 
   /**
-   * Get a specific DLQ entry by ID
+   * Retrieves a single DLQ entry by ID
    */
   @Get(':id')
-  @ApiOperation({ summary: 'Get a specific DLQ entry by ID' })
+  @ApiOperation({ summary: 'Get a DLQ entry by ID' })
+  @ApiParam({ name: 'id', type: String, description: 'DLQ entry ID' })
   @ApiResponse({ status: 200, description: 'Returns the DLQ entry' })
   @ApiResponse({ status: 404, description: 'DLQ entry not found' })
-  @ApiParam({ name: 'id', type: String, description: 'DLQ entry ID' })
-  async getDlqEntryById(@Param('id') id: string): Promise<DlqEntryEntity> {
-    const entry = await this.dlqService.getDlqEntryById(id);
-    
-    if (!entry) {
-      throw new Error(`DLQ entry with ID ${id} not found`);
-    }
-    
-    return entry;
+  async getDlqEntryById(@Param('id') id: string) {
+    return this.dlqService.getDlqEntryById(id);
   }
 
   /**
-   * Process a DLQ entry (reprocess, resolve, or ignore)
+   * Reprocesses a failed event from the DLQ
    */
-  @Post(':id/process')
-  @ApiOperation({ summary: 'Process a DLQ entry (reprocess, resolve, or ignore)' })
-  @ApiResponse({ status: 200, description: 'Returns the updated DLQ entry' })
+  @Post(':id/reprocess')
+  @ApiOperation({ summary: 'Reprocess a DLQ entry' })
+  @ApiParam({ name: 'id', type: String, description: 'DLQ entry ID' })
+  @ApiResponse({ status: 200, description: 'DLQ entry reprocessed successfully' })
   @ApiResponse({ status: 404, description: 'DLQ entry not found' })
-  @ApiParam({ name: 'id', type: String, description: 'DLQ entry ID' })
-  async processDlqEntry(
+  async reprocessDlqEntry(
     @Param('id') id: string,
-    @Body() body: { action: DlqProcessAction; comment?: string },
-  ): Promise<DlqEntryEntity> {
-    return this.dlqService.processDlqEntry(id, body.action, body.comment);
+    @Body() options?: { modifyEvent?: Record<string, any> },
+  ) {
+    const modifyEventFn = options?.modifyEvent
+      ? (event: any) => ({ ...event, ...options.modifyEvent })
+      : undefined;
+
+    const success = await this.dlqService.reprocessDlqEntry(id, {
+      modifyEvent: modifyEventFn,
+    });
+
+    return { success };
   }
 
   /**
-   * Get statistics about DLQ entries
+   * Marks a DLQ entry as resolved without reprocessing
    */
-  @Get('stats/summary')
-  @ApiOperation({ summary: 'Get statistics about DLQ entries' })
+  @Put(':id/resolve')
+  @ApiOperation({ summary: 'Resolve a DLQ entry without reprocessing' })
+  @ApiParam({ name: 'id', type: String, description: 'DLQ entry ID' })
+  @ApiResponse({ status: 200, description: 'DLQ entry resolved successfully' })
+  @ApiResponse({ status: 404, description: 'DLQ entry not found' })
+  async resolveDlqEntry(
+    @Param('id') id: string,
+    @Body() body: { resolutionNotes?: string },
+  ) {
+    const success = await this.dlqService.resolveDlqEntry(
+      id,
+      body.resolutionNotes,
+    );
+
+    return { success };
+  }
+
+  /**
+   * Gets DLQ statistics for monitoring and alerting
+   */
+  @Get('stats')
+  @ApiOperation({ summary: 'Get DLQ statistics' })
   @ApiResponse({ status: 200, description: 'Returns DLQ statistics' })
   async getDlqStatistics() {
     return this.dlqService.getDlqStatistics();
+  }
+
+  /**
+   * Purges resolved DLQ entries older than the specified retention period
+   */
+  @Delete('purge')
+  @ApiOperation({ summary: 'Purge resolved DLQ entries' })
+  @ApiQuery({
+    name: 'retentionDays',
+    required: false,
+    type: Number,
+    default: 30,
+  })
+  @ApiResponse({ status: 200, description: 'Returns the number of purged entries' })
+  async purgeResolvedEntries(@Query('retentionDays') retentionDays = 30) {
+    const purgedCount = await this.dlqService.purgeResolvedEntries(retentionDays);
+
+    return { purgedCount };
   }
 }
