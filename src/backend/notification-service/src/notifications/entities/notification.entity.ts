@@ -1,4 +1,32 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm'; // typeorm v0.3.0+
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm'; // typeorm v0.3.0+
+
+/**
+ * Enum representing the possible notification channels
+ */
+export enum NotificationChannel {
+  PUSH = 'push',
+  EMAIL = 'email',
+  SMS = 'sms',
+  IN_APP = 'in-app'
+}
+
+/**
+ * Enum representing the possible notification statuses
+ */
+export enum NotificationStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  DELIVERED = 'delivered',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+  SCHEDULED = 'scheduled'
+}
+
+/**
+ * Entity representing a notification attempt
+ * This is a forward reference to avoid circular dependencies
+ */
+export class NotificationAttempt {}
 
 /**
  * Notification entity - represents a notification record stored in the database
@@ -7,13 +35,11 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
  * - The recipient user ID
  * - Notification type and content
  * - Delivery channel and status
- * - Retry information and failure tracking
- * - Timestamps for creation and updates
+ * - Retry and fallback information
+ * - Delivery confirmation
+ * - Timestamps for creation, updates, and delivery
  */
 @Entity()
-@Index(['userId', 'status'])
-@Index(['channel', 'status'])
-@Index(['journeyContext', 'status'])
 export class Notification {
   /**
    * Unique identifier for the notification
@@ -25,14 +51,12 @@ export class Notification {
    * ID of the user who will receive this notification
    */
   @Column()
-  @Index()
   userId: string;
 
   /**
    * Type of notification (e.g., 'achievement', 'appointment-reminder', 'claim-status')
    */
   @Column()
-  @Index()
   type: string;
 
   /**
@@ -50,60 +74,66 @@ export class Notification {
   /**
    * Delivery channel (e.g., 'push', 'email', 'sms', 'in-app')
    */
-  @Column()
-  @Index()
-  channel: string;
+  @Column({
+    type: 'enum',
+    enum: NotificationChannel,
+    default: NotificationChannel.IN_APP
+  })
+  channel: NotificationChannel;
 
   /**
    * Current status of the notification
-   * Possible values:
-   * - 'pending': Initial state, notification is being processed
-   * - 'sent': Successfully sent to the delivery channel
-   * - 'delivered': Confirmed delivery to the user
-   * - 'read': User has viewed the notification
-   * - 'failed': Failed to deliver after all retry attempts
-   * - 'retry-scheduled': Failed but scheduled for retry
-   * - 'retry-in-progress': Currently being retried
    */
-  @Column()
-  @Index()
-  status: string;
-
-  /**
-   * Detailed status message providing additional context about the current status
-   * Especially useful for debugging failures and tracking retry progress
-   */
-  @Column({ type: 'text', nullable: true })
-  statusMessage?: string;
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.PENDING
+  })
+  status: NotificationStatus;
 
   /**
    * Number of retry attempts made for this notification
-   * Incremented each time a retry is attempted
    */
   @Column({ default: 0 })
   retryCount: number;
 
   /**
-   * Timestamp when the next retry is scheduled
-   * Null if no retry is scheduled or retries are exhausted
+   * Maximum number of retry attempts allowed for this notification
    */
-  @Column({ type: 'timestamp', nullable: true })
-  nextRetryAt?: Date;
+  @Column({ default: 3 })
+  maxRetries: number;
 
   /**
-   * Error code if the notification failed
-   * Useful for categorizing and analyzing failures
+   * Detailed reason for failure if the notification failed
    */
-  @Column({ nullable: true })
-  errorCode?: string;
+  @Column({ type: 'text', nullable: true })
+  failureReason: string | null;
 
   /**
-   * Journey context this notification belongs to (health, care, plan, game)
-   * Used for filtering and analytics
+   * Array of fallback channels to try if the primary channel fails
+   * Stored as a JSON array of NotificationChannel enum values
+   */
+  @Column({ type: 'simple-array', nullable: true })
+  fallbackChannels: NotificationChannel[] | null;
+
+  /**
+   * Flag indicating whether delivery was confirmed
+   */
+  @Column({ default: false })
+  deliveryConfirmed: boolean;
+
+  /**
+   * Timestamp when the notification was delivered
    */
   @Column({ nullable: true })
-  @Index()
-  journeyContext?: string;
+  deliveredAt: Date | null;
+
+  /**
+   * Relationship with notification attempts
+   * Each notification can have multiple delivery attempts
+   */
+  @OneToMany(() => NotificationAttempt, attempt => attempt.notification)
+  attempts: NotificationAttempt[];
 
   /**
    * Timestamp when the notification was created
