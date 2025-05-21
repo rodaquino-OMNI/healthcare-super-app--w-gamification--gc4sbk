@@ -1,482 +1,748 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { InjectRedis } from '@app/shared/redis';
+import { Redis } from 'ioredis';
 import { ProfilesService } from '@app/profiles/profiles.service';
-import { RedisService } from '@app/shared/redis/redis.service';
-import { LoggerService } from '@app/logging';
-import { GameProfile } from '@app/profiles/entities/game-profile.entity';
+import { TracingService } from '@app/tracing';
 import { JourneyType } from '@austa/interfaces/gamification';
-import { LeaderboardQueryDto, LeaderboardResponseDto, LeaderboardTimeframeDto, UserRankResponseDto } from './dto';
+import { ConfigService } from '@nestjs/config';
+import { 
+  LeaderboardData, 
+  LeaderboardEntry, 
+  LeaderboardOptions, 
+  LeaderboardTimePeriod, 
+  RedisLeaderboardOptions,
+  JourneyLeaderboardConfig
+} from './leaderboard.interface';
+import { LeaderboardTimeframeDto } from './dto';
 
 /**
- * Service for generating and retrieving leaderboard data.
- * Handles the business logic for creating leaderboards based on user XP and achievements
- * within the gamification engine.
+ * Service responsible for managing leaderboards using Redis Sorted Sets
+ * Provides methods for retrieving global and journey-specific leaderboards,
+ * as well as user rankings and time-period specific leaderboards.
  */
 @Injectable()
-export class LeaderboardService {
-  private readonly LEADERBOARD_MAX_ENTRIES: number;
-  private readonly LEADERBOARD_TTL: number;
-  private readonly SURROUNDING_USERS_COUNT: number = 5; // Number of users to show above and below current user
+export class LeaderboardService implements OnModuleInit {
+  private readonly logger = new Logger(LeaderboardService.name);
+  private readonly leaderboardKeyPrefix = 'leaderboard';
+  private readonly userScoreKeyPrefix = 'user:score';
+  private readonly defaultTTL = 3600; // 1 hour in seconds
+  private readonly journeyConfigs: Map<JourneyType, JourneyLeaderboardConfig> = new Map();
+  
+  // Redis key patterns
+  private readonly globalLeaderboardKey = `${this.leaderboardKeyPrefix}:global`;
+  private readonly journeyLeaderboardKeyPattern = `${this.leaderboardKeyPrefix}:journey:%s`;
+  private readonly timeframeLeaderboardKeyPattern = `${this.leaderboardKeyPrefix}:timeframe:%s`;
+  private readonly journeyTimeframeLeaderboardKeyPattern = `${this.leaderboardKeyPrefix}:journey:%s:timeframe:%s`;
 
-  /**
-   * Injects the ProfilesService, RedisService, LoggerService and ConfigService dependencies.
-   */
   constructor(
+    @InjectRedis() private readonly redis: Redis,
     private readonly profilesService: ProfilesService,
-    private readonly redisService: RedisService,
-    private readonly logger: LoggerService,
+    private readonly tracingService: TracingService,
     private readonly configService: ConfigService,
-  ) {
-    this.logger.log('Initializing LeaderboardService', 'LeaderboardService');
-    this.LEADERBOARD_MAX_ENTRIES = this.configService.get<number>('gamification.leaderboard.maxEntries', 100);
-    this.LEADERBOARD_TTL = this.configService.get<number>('gamification.leaderboard.ttl', 60 * 5); // 5 minutes default
-  }
+  ) {}
 
   /**
-   * Retrieves the global leaderboard across all journeys
-   * @param query Pagination and filtering parameters
-   * @returns A promise that resolves to the global leaderboard data
+   * Initialize the service and set up journey-specific configurations
    */
-  async getGlobalLeaderboard(query: LeaderboardQueryDto): Promise<LeaderboardResponseDto> {
+  async onModuleInit() {
+    this.logger.log('Initializing LeaderboardService');
+    
+    // Initialize journey-specific leaderboard configurations
+    this.initJourneyConfigs();
+    
+    // Verify Redis connection
     try {
-      // Create a cache key based on pagination parameters
-      const cacheKey = `leaderboard:global:page:${query.page}:size:${query.pageSize}`;
-      
-      // Try to get cached leaderboard data
-      const cachedData = await this.redisService.get(cacheKey);
-      
-      if (cachedData) {
-        this.logger.log(`Retrieved global leaderboard from cache: ${cacheKey}`, 'LeaderboardService');
-        return JSON.parse(cachedData);
-      }
-      
-      // Calculate leaderboard if not in cache
-      this.logger.log(`Calculating global leaderboard with pagination: page ${query.page}, size ${query.pageSize}`, 'LeaderboardService');
-      
-      // Get user profiles sorted by XP
-      const profiles = await this.calculateGlobalLeaderboard();
-      const totalItems = profiles.length;
-      
-      // Apply pagination
-      const startIndex = (query.page - 1) * query.pageSize;
-      const endIndex = startIndex + query.pageSize;
-      const paginatedProfiles = profiles.slice(startIndex, endIndex);
-      
-      // Prepare the leaderboard data with ranks
-      const entries = paginatedProfiles.map((profile, index) => ({
-        rank: startIndex + index + 1,
-        userId: profile.userId,
-        displayName: profile.displayName || `User-${profile.userId.substring(0, 8)}`,
-        level: profile.level,
-        xp: profile.xp,
-        achievements: profile.achievements?.length || 0,
-        avatarUrl: profile.avatarUrl
-      }));
-      
-      const leaderboardData: LeaderboardResponseDto = {
-        entries,
-        totalItems
-      };
-      
-      // Cache the leaderboard data
-      await this.redisService.set(
-        cacheKey,
-        JSON.stringify(leaderboardData),
-        this.LEADERBOARD_TTL
-      );
-      
-      this.logger.log(`Cached global leaderboard for ${this.LEADERBOARD_TTL} seconds: ${cacheKey}`, 'LeaderboardService');
-      
-      return leaderboardData;
+      await this.redis.ping();
+      this.logger.log('Successfully connected to Redis');
     } catch (error) {
-      this.logger.error(`Failed to get global leaderboard: ${error.message}`, error.stack, 'LeaderboardService');
-      throw error;
+      this.logger.error(`Failed to connect to Redis: ${error.message}`, error.stack);
     }
   }
 
   /**
-   * Retrieves a journey-specific leaderboard
-   * @param journey The journey type (health, care, plan)
-   * @param query Pagination and filtering parameters
-   * @returns A promise that resolves to the journey-specific leaderboard data
+   * Initialize journey-specific leaderboard configurations from config service
    */
-  async getJourneyLeaderboard(journey: JourneyType, query: LeaderboardQueryDto): Promise<LeaderboardResponseDto> {
-    try {
-      // Create a cache key based on the journey and pagination parameters
-      const cacheKey = `leaderboard:${journey.toLowerCase()}:page:${query.page}:size:${query.pageSize}`;
-      
-      // Try to get cached leaderboard data
-      const cachedData = await this.redisService.get(cacheKey);
-      
-      if (cachedData) {
-        this.logger.log(`Retrieved journey leaderboard from cache: ${cacheKey}`, 'LeaderboardService');
-        return JSON.parse(cachedData);
+  private initJourneyConfigs() {
+    // Set default configurations for each journey type
+    this.journeyConfigs.set(JourneyType.HEALTH, {
+      journey: JourneyType.HEALTH,
+      maxEntries: 100,
+      cacheTtl: this.defaultTTL,
+      enabled: true,
+      redisKeyPrefix: 'health'
+    });
+
+    this.journeyConfigs.set(JourneyType.CARE, {
+      journey: JourneyType.CARE,
+      maxEntries: 100,
+      cacheTtl: this.defaultTTL,
+      enabled: true,
+      redisKeyPrefix: 'care'
+    });
+
+    this.journeyConfigs.set(JourneyType.PLAN, {
+      journey: JourneyType.PLAN,
+      maxEntries: 100,
+      cacheTtl: this.defaultTTL,
+      enabled: true,
+      redisKeyPrefix: 'plan'
+    });
+
+    // Override with configurations from config service if available
+    const configuredJourneys = this.configService.get<JourneyLeaderboardConfig[]>('leaderboard.journeys');
+    if (configuredJourneys) {
+      for (const config of configuredJourneys) {
+        if (this.journeyConfigs.has(config.journey)) {
+          this.journeyConfigs.set(config.journey, {
+            ...this.journeyConfigs.get(config.journey),
+            ...config
+          });
+        }
       }
+    }
+
+    this.logger.log(`Initialized ${this.journeyConfigs.size} journey leaderboard configurations`);
+  }
+
+  /**
+   * Get the global leaderboard across all journeys
+   * @param options Leaderboard options for filtering and pagination
+   * @returns Leaderboard data with entries and metadata
+   */
+  async getGlobalLeaderboard(options: LeaderboardOptions = {}): Promise<LeaderboardData> {
+    const span = this.tracingService.startSpan('leaderboard.getGlobalLeaderboard');
+    try {
+      const { limit = 10, offset = 0, timePeriod } = options;
+      const redisKey = this.getLeaderboardKey(null, timePeriod);
       
-      // Calculate leaderboard if not in cache
-      this.logger.log(`Calculating leaderboard for journey: ${journey} with pagination: page ${query.page}, size ${query.pageSize}`, 'LeaderboardService');
+      // Check if leaderboard exists in Redis
+      const exists = await this.redis.exists(redisKey);
       
-      // Get user profiles sorted by XP for the specific journey
-      const profiles = await this.calculateJourneyLeaderboard(journey);
-      const totalItems = profiles.length;
-      
-      // Apply pagination
-      const startIndex = (query.page - 1) * query.pageSize;
-      const endIndex = startIndex + query.pageSize;
-      const paginatedProfiles = profiles.slice(startIndex, endIndex);
-      
-      // Prepare the leaderboard data with ranks
-      const entries = paginatedProfiles.map((profile, index) => ({
-        rank: startIndex + index + 1,
-        userId: profile.userId,
-        displayName: profile.displayName || `User-${profile.userId.substring(0, 8)}`,
-        level: profile.journeyLevels?.[journey] || profile.level,
-        xp: profile.journeyXp?.[journey] || profile.xp,
-        achievements: profile.journeyAchievements?.[journey]?.length || 0,
-        avatarUrl: profile.avatarUrl
-      }));
-      
-      const leaderboardData: LeaderboardResponseDto = {
+      if (!exists) {
+        // If leaderboard doesn't exist, generate it
+        await this.generateGlobalLeaderboard(redisKey, timePeriod);
+      }
+
+      // Get leaderboard entries from Redis
+      const entries = await this.getLeaderboardEntries(redisKey, offset, limit);
+      const totalUsers = await this.redis.zcard(redisKey);
+
+      // Get user position if requested
+      let userPosition: LeaderboardEntry | undefined;
+      if (options.includeUserPosition && options.userId) {
+        userPosition = await this.getUserPositionInLeaderboard(redisKey, options.userId);
+      }
+
+      return {
         entries,
-        totalItems
+        totalUsers,
+        journey: null, // Global leaderboard has no specific journey
+        timePeriod: timePeriod || { type: 'all-time' },
+        lastUpdated: new Date().toISOString(),
+        userPosition
       };
-      
-      // Cache the leaderboard data with journey-specific TTL
-      const ttl = this.redisService.getJourneyTTL(journey) || this.LEADERBOARD_TTL;
-      await this.redisService.set(
-        cacheKey,
-        JSON.stringify(leaderboardData),
-        ttl
-      );
-      
-      this.logger.log(`Cached journey leaderboard for ${ttl} seconds: ${cacheKey}`, 'LeaderboardService');
-      
-      return leaderboardData;
     } catch (error) {
-      this.logger.error(`Failed to get leaderboard for journey ${journey}: ${error.message}`, error.stack, 'LeaderboardService');
+      this.logger.error(`Failed to get global leaderboard: ${error.message}`, error.stack);
       throw error;
+    } finally {
+      span.finish();
     }
   }
 
   /**
-   * Retrieves a time-period specific leaderboard (daily, weekly, monthly, all-time)
-   * @param timeframe The time period (daily, weekly, monthly, all-time)
+   * Get a journey-specific leaderboard
+   * @param journey Journey type to get leaderboard for
+   * @param options Leaderboard options for filtering and pagination
+   * @returns Leaderboard data with entries and metadata
+   */
+  async getJourneyLeaderboard(journey: JourneyType, options: LeaderboardOptions = {}): Promise<LeaderboardData> {
+    const span = this.tracingService.startSpan('leaderboard.getJourneyLeaderboard');
+    try {
+      const { limit = 10, offset = 0, timePeriod } = options;
+      const redisKey = this.getLeaderboardKey(journey, timePeriod);
+      
+      // Check if leaderboard exists in Redis
+      const exists = await this.redis.exists(redisKey);
+      
+      if (!exists) {
+        // If leaderboard doesn't exist, generate it
+        await this.generateJourneyLeaderboard(journey, redisKey, timePeriod);
+      }
+
+      // Get leaderboard entries from Redis
+      const entries = await this.getLeaderboardEntries(redisKey, offset, limit);
+      const totalUsers = await this.redis.zcard(redisKey);
+
+      // Get user position if requested
+      let userPosition: LeaderboardEntry | undefined;
+      if (options.includeUserPosition && options.userId) {
+        userPosition = await this.getUserPositionInLeaderboard(redisKey, options.userId);
+      }
+
+      return {
+        entries,
+        totalUsers,
+        journey,
+        timePeriod: timePeriod || { type: 'all-time' },
+        lastUpdated: new Date().toISOString(),
+        userPosition
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get journey leaderboard for ${journey}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      span.finish();
+    }
+  }
+
+  /**
+   * Get a time-period specific leaderboard
+   * @param timeframe Time period to get leaderboard for
    * @param journey Optional journey type to filter by
-   * @param query Pagination and filtering parameters
-   * @returns A promise that resolves to the time-period specific leaderboard data
+   * @param options Leaderboard options for filtering and pagination
+   * @returns Leaderboard data with entries and metadata
    */
   async getTimeframeLeaderboard(
     timeframe: LeaderboardTimeframeDto,
     journey?: JourneyType,
-    query?: LeaderboardQueryDto
-  ): Promise<LeaderboardResponseDto> {
+    options: LeaderboardOptions = {}
+  ): Promise<LeaderboardData> {
+    const span = this.tracingService.startSpan('leaderboard.getTimeframeLeaderboard');
     try {
-      // Use default pagination if not provided
-      const paginationQuery = query || { page: 1, pageSize: 10 };
-      
-      // Create a cache key based on the timeframe, optional journey, and pagination parameters
-      const journeyPart = journey ? `:${journey.toLowerCase()}` : '';
-      const cacheKey = `leaderboard:${timeframe}${journeyPart}:page:${paginationQuery.page}:size:${paginationQuery.pageSize}`;
-      
-      // Try to get cached leaderboard data
-      const cachedData = await this.redisService.get(cacheKey);
-      
-      if (cachedData) {
-        this.logger.log(`Retrieved timeframe leaderboard from cache: ${cacheKey}`, 'LeaderboardService');
-        return JSON.parse(cachedData);
-      }
-      
-      // Calculate leaderboard if not in cache
-      this.logger.log(
-        `Calculating leaderboard for timeframe: ${timeframe}${journey ? ` and journey: ${journey}` : ''} with pagination: page ${paginationQuery.page}, size ${paginationQuery.pageSize}`,
-        'LeaderboardService'
-      );
-      
-      // Get user profiles sorted by XP for the specific timeframe and optional journey
-      const profiles = await this.calculateTimeframeLeaderboard(timeframe, journey);
-      const totalItems = profiles.length;
-      
-      // Apply pagination
-      const startIndex = (paginationQuery.page - 1) * paginationQuery.pageSize;
-      const endIndex = startIndex + paginationQuery.pageSize;
-      const paginatedProfiles = profiles.slice(startIndex, endIndex);
-      
-      // Prepare the leaderboard data with ranks
-      const entries = paginatedProfiles.map((profile, index) => {
-        // For journey-specific timeframe, use journey-specific XP and level
-        const xp = journey ? (profile.journeyXp?.[journey] || profile.xp) : profile.xp;
-        const level = journey ? (profile.journeyLevels?.[journey] || profile.level) : profile.level;
-        const achievements = journey 
-          ? (profile.journeyAchievements?.[journey]?.length || 0)
-          : (profile.achievements?.length || 0);
-          
-        return {
-          rank: startIndex + index + 1,
-          userId: profile.userId,
-          displayName: profile.displayName || `User-${profile.userId.substring(0, 8)}`,
-          level,
-          xp,
-          achievements,
-          avatarUrl: profile.avatarUrl
-        };
-      });
-      
-      const leaderboardData: LeaderboardResponseDto = {
-        entries,
-        totalItems
+      const timePeriod: LeaderboardTimePeriod = {
+        type: timeframe.toLowerCase() as 'daily' | 'weekly' | 'monthly' | 'all-time'
       };
       
-      // Cache the leaderboard data with appropriate TTL based on timeframe
-      let ttl = this.LEADERBOARD_TTL;
-      switch (timeframe) {
-        case LeaderboardTimeframeDto.DAILY:
-          ttl = 60 * 60; // 1 hour
-          break;
-        case LeaderboardTimeframeDto.WEEKLY:
-          ttl = 60 * 60 * 3; // 3 hours
-          break;
-        case LeaderboardTimeframeDto.MONTHLY:
-          ttl = 60 * 60 * 6; // 6 hours
-          break;
-        case LeaderboardTimeframeDto.ALL_TIME:
-          ttl = 60 * 60 * 12; // 12 hours
-          break;
-      }
-      
-      // If journey-specific, adjust TTL based on journey
       if (journey) {
-        ttl = Math.min(ttl, this.redisService.getJourneyTTL(journey) || ttl);
+        return this.getJourneyLeaderboard(journey, { ...options, timePeriod });
+      } else {
+        return this.getGlobalLeaderboard({ ...options, timePeriod });
       }
-      
-      await this.redisService.set(
-        cacheKey,
-        JSON.stringify(leaderboardData),
-        ttl
-      );
-      
-      this.logger.log(`Cached timeframe leaderboard for ${ttl} seconds: ${cacheKey}`, 'LeaderboardService');
-      
-      return leaderboardData;
     } catch (error) {
-      this.logger.error(
-        `Failed to get leaderboard for timeframe ${timeframe}${journey ? ` and journey ${journey}` : ''}: ${error.message}`,
-        error.stack,
-        'LeaderboardService'
-      );
+      this.logger.error(`Failed to get timeframe leaderboard for ${timeframe}: ${error.message}`, error.stack);
       throw error;
+    } finally {
+      span.finish();
     }
   }
 
   /**
-   * Retrieves the current user's rank and surrounding users on the leaderboard
-   * @param userId The ID of the user to get rank for
+   * Get a user's rank and surrounding users on the leaderboard
+   * @param userId User ID to get rank for
    * @param journey Optional journey type to filter by
-   * @returns A promise that resolves to the user's rank and surrounding users
+   * @param options Leaderboard options for filtering and pagination
+   * @returns User rank data with surrounding users
    */
-  async getUserRank(userId: string, journey?: JourneyType): Promise<UserRankResponseDto> {
+  async getUserRank(
+    userId: string,
+    journey?: JourneyType,
+    options: LeaderboardOptions = {}
+  ): Promise<{ userRank: LeaderboardEntry; above: LeaderboardEntry[]; below: LeaderboardEntry[] }> {
+    const span = this.tracingService.startSpan('leaderboard.getUserRank');
     try {
-      // Create a cache key based on the user ID and optional journey
-      const journeyPart = journey ? `:${journey.toLowerCase()}` : '';
-      const cacheKey = `leaderboard:user:${userId}${journeyPart}`;
+      const { timePeriod } = options;
+      const redisKey = this.getLeaderboardKey(journey, timePeriod);
       
-      // Try to get cached user rank data
-      const cachedData = await this.redisService.get(cacheKey);
+      // Check if leaderboard exists in Redis
+      const exists = await this.redis.exists(redisKey);
       
-      if (cachedData) {
-        this.logger.log(`Retrieved user rank from cache: ${cacheKey}`, 'LeaderboardService');
-        return JSON.parse(cachedData);
+      if (!exists) {
+        if (journey) {
+          await this.generateJourneyLeaderboard(journey, redisKey, timePeriod);
+        } else {
+          await this.generateGlobalLeaderboard(redisKey, timePeriod);
+        }
       }
+
+      // Get user's rank
+      const userRank = await this.getUserPositionInLeaderboard(redisKey, userId);
       
-      // Calculate user rank if not in cache
-      this.logger.log(
-        `Calculating rank for user: ${userId}${journey ? ` in journey: ${journey}` : ''}`,
-        'LeaderboardService'
-      );
-      
-      // Get all profiles for ranking
-      const profiles = journey 
-        ? await this.calculateJourneyLeaderboard(journey)
-        : await this.calculateGlobalLeaderboard();
-      
-      // Find the user's position in the leaderboard
-      const userIndex = profiles.findIndex(profile => profile.userId === userId);
-      
-      if (userIndex === -1) {
+      if (!userRank) {
         throw new Error(`User ${userId} not found in leaderboard`);
       }
-      
-      // Get the user's profile
-      const userProfile = profiles[userIndex];
-      
-      // Calculate surrounding users
-      const startAboveIndex = Math.max(0, userIndex - this.SURROUNDING_USERS_COUNT);
-      const endBelowIndex = Math.min(profiles.length - 1, userIndex + this.SURROUNDING_USERS_COUNT);
-      
-      const usersAbove = profiles
-        .slice(startAboveIndex, userIndex)
-        .map((profile, index) => this.mapProfileToLeaderboardEntry(profile, startAboveIndex + index + 1, journey));
-      
-      const usersBelow = profiles
-        .slice(userIndex + 1, endBelowIndex + 1)
-        .map((profile, index) => this.mapProfileToLeaderboardEntry(profile, userIndex + index + 2, journey));
-      
-      // Create the current user entry
-      const currentUser = this.mapProfileToLeaderboardEntry(userProfile, userIndex + 1, journey);
-      
-      // Calculate percentile (higher is better)
-      const percentile = ((profiles.length - userIndex) / profiles.length) * 100;
-      
-      const userRankData: UserRankResponseDto = {
-        currentUser,
-        usersAbove,
-        usersBelow,
-        totalUsers: profiles.length,
-        percentile: Math.min(100, Math.round(percentile * 10) / 10) // Round to 1 decimal place, max 100
+
+      // Get users above and below
+      const above = await this.getLeaderboardEntries(redisKey, Math.max(0, userRank.rank - 6), 5);
+      const below = await this.getLeaderboardEntries(redisKey, userRank.rank, 5);
+
+      return {
+        userRank,
+        above,
+        below
       };
-      
-      // Cache the user rank data
-      const ttl = journey 
-        ? (this.redisService.getJourneyTTL(journey) || this.LEADERBOARD_TTL)
-        : this.LEADERBOARD_TTL;
-      
-      await this.redisService.set(
-        cacheKey,
-        JSON.stringify(userRankData),
-        ttl
-      );
-      
-      this.logger.log(`Cached user rank for ${ttl} seconds: ${cacheKey}`, 'LeaderboardService');
-      
-      return userRankData;
     } catch (error) {
-      this.logger.error(
-        `Failed to get rank for user ${userId}${journey ? ` in journey ${journey}` : ''}: ${error.message}`,
-        error.stack,
-        'LeaderboardService'
-      );
+      this.logger.error(`Failed to get user rank for ${userId}: ${error.message}`, error.stack);
       throw error;
+    } finally {
+      span.finish();
     }
   }
 
   /**
-   * Maps a GameProfile to a LeaderboardEntryDto
-   * @param profile The GameProfile to map
-   * @param rank The rank to assign
-   * @param journey Optional journey to use for journey-specific data
-   * @returns A LeaderboardEntryDto
+   * Update a user's score in all relevant leaderboards
+   * @param userId User ID to update score for
+   * @param score New score value
+   * @param journey Optional journey type the score is associated with
+   * @returns Boolean indicating success
    */
-  private mapProfileToLeaderboardEntry(profile: GameProfile, rank: number, journey?: JourneyType) {
-    return {
-      rank,
-      userId: profile.userId,
-      displayName: profile.displayName || `User-${profile.userId.substring(0, 8)}`,
-      level: journey ? (profile.journeyLevels?.[journey] || profile.level) : profile.level,
-      xp: journey ? (profile.journeyXp?.[journey] || profile.xp) : profile.xp,
-      achievements: journey 
-        ? (profile.journeyAchievements?.[journey]?.length || 0)
-        : (profile.achievements?.length || 0),
-      avatarUrl: profile.avatarUrl
-    };
-  }
-
-  /**
-   * Calculates the global leaderboard across all journeys
-   * @returns A promise that resolves to sorted GameProfiles
-   */
-  private async calculateGlobalLeaderboard(): Promise<GameProfile[]> {
+  async updateUserScore(userId: string, score: number, journey?: JourneyType): Promise<boolean> {
+    const span = this.tracingService.startSpan('leaderboard.updateUserScore');
     try {
-      // In a real implementation, this would query the database to get all game profiles
-      // sorted by XP in descending order
-      const profiles = await this.profilesService.getAllProfiles();
+      const pipeline = this.redis.pipeline();
       
-      // Sort by XP in descending order
-      return profiles.sort((a, b) => b.xp - a.xp);
-    } catch (error) {
-      this.logger.error(`Failed to calculate global leaderboard: ${error.message}`, error.stack, 'LeaderboardService');
-      throw error;
-    }
-  }
-
-  /**
-   * Calculates a journey-specific leaderboard
-   * @param journey The journey type
-   * @returns A promise that resolves to sorted GameProfiles
-   */
-  private async calculateJourneyLeaderboard(journey: JourneyType): Promise<GameProfile[]> {
-    try {
-      // In a real implementation, this would query the database to get all game profiles
-      // with journey-specific XP and sort them
-      const profiles = await this.profilesService.getAllProfiles();
+      // Update global leaderboard
+      pipeline.zadd(this.globalLeaderboardKey, score, userId);
       
-      // Sort by journey-specific XP in descending order
-      return profiles.sort((a, b) => {
-        const aXp = a.journeyXp?.[journey] || 0;
-        const bXp = b.journeyXp?.[journey] || 0;
-        return bXp - aXp;
-      });
-    } catch (error) {
-      this.logger.error(`Failed to calculate leaderboard for journey ${journey}: ${error.message}`, error.stack, 'LeaderboardService');
-      throw error;
-    }
-  }
-
-  /**
-   * Calculates a time-period specific leaderboard
-   * @param timeframe The time period
-   * @param journey Optional journey type
-   * @returns A promise that resolves to sorted GameProfiles
-   */
-  private async calculateTimeframeLeaderboard(timeframe: LeaderboardTimeframeDto, journey?: JourneyType): Promise<GameProfile[]> {
-    try {
-      // Calculate the start date based on the timeframe
-      const now = new Date();
-      let startDate: Date;
-      
-      switch (timeframe) {
-        case LeaderboardTimeframeDto.DAILY:
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case LeaderboardTimeframeDto.WEEKLY:
-          // Start of the current week (Sunday)
-          const day = now.getDay();
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
-          break;
-        case LeaderboardTimeframeDto.MONTHLY:
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          break;
-        case LeaderboardTimeframeDto.ALL_TIME:
-        default:
-          // No date filtering for all-time
-          return journey 
-            ? await this.calculateJourneyLeaderboard(journey)
-            : await this.calculateGlobalLeaderboard();
-      }
-      
-      // In a real implementation, this would query the database to get all game profiles
-      // with XP earned during the specified timeframe
-      const profiles = await this.profilesService.getProfilesByTimeframe(startDate, now);
-      
-      // Sort by XP earned during the timeframe
+      // Update journey-specific leaderboard if provided
       if (journey) {
-        return profiles.sort((a, b) => {
-          const aXp = a.journeyXpByTimeframe?.[timeframe]?.[journey] || 0;
-          const bXp = b.journeyXpByTimeframe?.[timeframe]?.[journey] || 0;
-          return bXp - aXp;
-        });
-      } else {
-        return profiles.sort((a, b) => {
-          const aXp = a.xpByTimeframe?.[timeframe] || 0;
-          const bXp = b.xpByTimeframe?.[timeframe] || 0;
-          return bXp - aXp;
-        });
+        const journeyKey = this.formatKey(this.journeyLeaderboardKeyPattern, journey);
+        pipeline.zadd(journeyKey, score, userId);
       }
+      
+      // Update timeframe leaderboards
+      const timeframes: ('daily' | 'weekly' | 'monthly')[] = ['daily', 'weekly', 'monthly'];
+      for (const timeframe of timeframes) {
+        const timeframeKey = this.formatKey(this.timeframeLeaderboardKeyPattern, timeframe);
+        pipeline.zadd(timeframeKey, score, userId);
+        
+        if (journey) {
+          const journeyTimeframeKey = this.formatKey(
+            this.journeyTimeframeLeaderboardKeyPattern, 
+            journey, 
+            timeframe
+          );
+          pipeline.zadd(journeyTimeframeKey, score, userId);
+        }
+      }
+      
+      // Execute pipeline
+      await pipeline.exec();
+      
+      this.logger.log(`Updated score for user ${userId} to ${score}${journey ? ` in journey ${journey}` : ''}`);
+      return true;
     } catch (error) {
-      this.logger.error(
-        `Failed to calculate leaderboard for timeframe ${timeframe}${journey ? ` and journey ${journey}` : ''}: ${error.message}`,
-        error.stack,
-        'LeaderboardService'
-      );
+      this.logger.error(`Failed to update user score for ${userId}: ${error.message}`, error.stack);
+      return false;
+    } finally {
+      span.finish();
+    }
+  }
+
+  /**
+   * Increment a user's score in all relevant leaderboards
+   * @param userId User ID to increment score for
+   * @param increment Amount to increment score by
+   * @param journey Optional journey type the score is associated with
+   * @returns New score after increment
+   */
+  async incrementUserScore(userId: string, increment: number, journey?: JourneyType): Promise<number> {
+    const span = this.tracingService.startSpan('leaderboard.incrementUserScore');
+    try {
+      const pipeline = this.redis.pipeline();
+      
+      // Increment global leaderboard
+      pipeline.zincrby(this.globalLeaderboardKey, increment, userId);
+      
+      // Increment journey-specific leaderboard if provided
+      if (journey) {
+        const journeyKey = this.formatKey(this.journeyLeaderboardKeyPattern, journey);
+        pipeline.zincrby(journeyKey, increment, userId);
+      }
+      
+      // Increment timeframe leaderboards
+      const timeframes: ('daily' | 'weekly' | 'monthly')[] = ['daily', 'weekly', 'monthly'];
+      for (const timeframe of timeframes) {
+        const timeframeKey = this.formatKey(this.timeframeLeaderboardKeyPattern, timeframe);
+        pipeline.zincrby(timeframeKey, increment, userId);
+        
+        if (journey) {
+          const journeyTimeframeKey = this.formatKey(
+            this.journeyTimeframeLeaderboardKeyPattern, 
+            journey, 
+            timeframe
+          );
+          pipeline.zincrby(journeyTimeframeKey, increment, userId);
+        }
+      }
+      
+      // Execute pipeline
+      const results = await pipeline.exec();
+      
+      // Get the new score from the global leaderboard result
+      const newScore = parseFloat(results[0][1] as string);
+      
+      this.logger.log(`Incremented score for user ${userId} by ${increment} to ${newScore}${journey ? ` in journey ${journey}` : ''}`);
+      return newScore;
+    } catch (error) {
+      this.logger.error(`Failed to increment user score for ${userId}: ${error.message}`, error.stack);
       throw error;
+    } finally {
+      span.finish();
+    }
+  }
+
+  /**
+   * Reset timeframe-specific leaderboards (e.g., daily, weekly, monthly)
+   * @param timeframe Time period to reset
+   * @returns Boolean indicating success
+   */
+  async resetTimeframeLeaderboards(timeframe: 'daily' | 'weekly' | 'monthly'): Promise<boolean> {
+    const span = this.tracingService.startSpan('leaderboard.resetTimeframeLeaderboards');
+    try {
+      const pipeline = this.redis.pipeline();
+      
+      // Reset global timeframe leaderboard
+      const timeframeKey = this.formatKey(this.timeframeLeaderboardKeyPattern, timeframe);
+      pipeline.del(timeframeKey);
+      
+      // Reset journey-specific timeframe leaderboards
+      for (const [journey] of this.journeyConfigs) {
+        const journeyTimeframeKey = this.formatKey(
+          this.journeyTimeframeLeaderboardKeyPattern, 
+          journey, 
+          timeframe
+        );
+        pipeline.del(journeyTimeframeKey);
+      }
+      
+      // Execute pipeline
+      await pipeline.exec();
+      
+      this.logger.log(`Reset ${timeframe} leaderboards`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to reset ${timeframe} leaderboards: ${error.message}`, error.stack);
+      return false;
+    } finally {
+      span.finish();
+    }
+  }
+
+  /**
+   * Generate the global leaderboard by aggregating user scores across all journeys
+   * @param redisKey Redis key to store the leaderboard under
+   * @param timePeriod Optional time period to filter by
+   * @returns Boolean indicating success
+   */
+  private async generateGlobalLeaderboard(redisKey: string, timePeriod?: LeaderboardTimePeriod): Promise<boolean> {
+    try {
+      // Get all journey leaderboards
+      const journeyKeys = Array.from(this.journeyConfigs.keys()).map(journey => 
+        this.getLeaderboardKey(journey, timePeriod)
+      );
+      
+      if (journeyKeys.length === 0) {
+        this.logger.warn('No journey leaderboards found to generate global leaderboard');
+        return false;
+      }
+      
+      // Use ZUNIONSTORE to combine all journey leaderboards
+      // This aggregates scores for users who appear in multiple journeys
+      await this.redis.zunionstore(
+        redisKey,
+        journeyKeys.length,
+        ...journeyKeys,
+        'AGGREGATE',
+        'SUM'
+      );
+      
+      // Set TTL for the generated leaderboard
+      await this.redis.expire(redisKey, this.defaultTTL);
+      
+      this.logger.log(`Generated global leaderboard at ${redisKey}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to generate global leaderboard: ${error.message}`, error.stack);
+      return false;
+    }
+  }
+
+  /**
+   * Generate a journey-specific leaderboard
+   * @param journey Journey type to generate leaderboard for
+   * @param redisKey Redis key to store the leaderboard under
+   * @param timePeriod Optional time period to filter by
+   * @returns Boolean indicating success
+   */
+  private async generateJourneyLeaderboard(
+    journey: JourneyType,
+    redisKey: string,
+    timePeriod?: LeaderboardTimePeriod
+  ): Promise<boolean> {
+    try {
+      // For journey-specific leaderboards, we need to get user scores from the profiles service
+      // This is a fallback mechanism if the Redis cache doesn't have the data
+      const journeyConfig = this.journeyConfigs.get(journey);
+      
+      if (!journeyConfig || !journeyConfig.enabled) {
+        this.logger.warn(`Journey ${journey} is not enabled for leaderboards`);
+        return false;
+      }
+      
+      // Get top users for this journey from the profiles service
+      const topUsers = await this.profilesService.getTopUsersByJourney(journey, journeyConfig.maxEntries);
+      
+      if (topUsers.length === 0) {
+        this.logger.warn(`No users found for journey ${journey} leaderboard`);
+        return false;
+      }
+      
+      // Add users to the leaderboard
+      const pipeline = this.redis.pipeline();
+      
+      for (const user of topUsers) {
+        pipeline.zadd(redisKey, user.xp, user.userId);
+      }
+      
+      // Set TTL for the generated leaderboard
+      pipeline.expire(redisKey, journeyConfig.cacheTtl);
+      
+      await pipeline.exec();
+      
+      this.logger.log(`Generated journey leaderboard for ${journey} at ${redisKey} with ${topUsers.length} users`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to generate journey leaderboard for ${journey}: ${error.message}`, error.stack);
+      return false;
+    }
+  }
+
+  /**
+   * Get leaderboard entries from Redis
+   * @param redisKey Redis key for the leaderboard
+   * @param offset Starting position (0-based)
+   * @param limit Maximum number of entries to retrieve
+   * @returns Array of leaderboard entries
+   */
+  private async getLeaderboardEntries(redisKey: string, offset: number, limit: number): Promise<LeaderboardEntry[]> {
+    try {
+      // Get user IDs and scores from Redis sorted set
+      // WITHSCORES returns the score along with each member
+      // ZREVRANGE returns members in descending order by score (highest first)
+      const results = await this.redis.zrevrange(redisKey, offset, offset + limit - 1, 'WITHSCORES');
+      
+      if (!results || results.length === 0) {
+        return [];
+      }
+      
+      // Process results into LeaderboardEntry objects
+      const entries: LeaderboardEntry[] = [];
+      
+      for (let i = 0; i < results.length; i += 2) {
+        const userId = results[i];
+        const score = parseFloat(results[i + 1]);
+        
+        // Get user profile data
+        try {
+          const profile = await this.profilesService.getUserProfile(userId);
+          
+          if (profile) {
+            entries.push({
+              rank: Math.floor(offset / 2) + Math.floor(i / 2) + 1, // 1-based rank
+              userId,
+              level: profile.level,
+              xp: score,
+              achievements: profile.achievements?.length || 0,
+              displayName: profile.displayName,
+              avatarUrl: profile.avatarUrl
+            });
+          } else {
+            // If profile not found, still include basic entry
+            entries.push({
+              rank: Math.floor(offset / 2) + Math.floor(i / 2) + 1, // 1-based rank
+              userId,
+              level: 1,
+              xp: score,
+              achievements: 0
+            });
+          }
+        } catch (error) {
+          // If profile service fails, still include basic entry
+          this.logger.warn(`Failed to get profile for user ${userId}: ${error.message}`);
+          entries.push({
+            rank: Math.floor(offset / 2) + Math.floor(i / 2) + 1, // 1-based rank
+            userId,
+            level: 1,
+            xp: score,
+            achievements: 0
+          });
+        }
+      }
+      
+      return entries;
+    } catch (error) {
+      this.logger.error(`Failed to get leaderboard entries: ${error.message}`, error.stack);
+      return [];
+    }
+  }
+
+  /**
+   * Get a user's position in a leaderboard
+   * @param redisKey Redis key for the leaderboard
+   * @param userId User ID to get position for
+   * @returns LeaderboardEntry with user's position or undefined if not found
+   */
+  private async getUserPositionInLeaderboard(redisKey: string, userId: string): Promise<LeaderboardEntry | undefined> {
+    try {
+      // Get user's rank (0-based) using ZREVRANK (for descending order)
+      const rank = await this.redis.zrevrank(redisKey, userId);
+      
+      if (rank === null) {
+        return undefined;
+      }
+      
+      // Get user's score
+      const score = await this.redis.zscore(redisKey, userId);
+      
+      if (score === null) {
+        return undefined;
+      }
+      
+      // Get user profile data
+      try {
+        const profile = await this.profilesService.getUserProfile(userId);
+        
+        if (profile) {
+          return {
+            rank: rank + 1, // Convert to 1-based rank
+            userId,
+            level: profile.level,
+            xp: parseFloat(score),
+            achievements: profile.achievements?.length || 0,
+            displayName: profile.displayName,
+            avatarUrl: profile.avatarUrl
+          };
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to get profile for user ${userId}: ${error.message}`);
+      }
+      
+      // If profile not found or service fails, return basic entry
+      return {
+        rank: rank + 1, // Convert to 1-based rank
+        userId,
+        level: 1,
+        xp: parseFloat(score),
+        achievements: 0
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get user position for ${userId}: ${error.message}`, error.stack);
+      return undefined;
+    }
+  }
+
+  /**
+   * Get the Redis key for a leaderboard based on journey and time period
+   * @param journey Journey type or null for global leaderboard
+   * @param timePeriod Optional time period
+   * @returns Redis key string
+   */
+  private getLeaderboardKey(journey: JourneyType | null, timePeriod?: LeaderboardTimePeriod): string {
+    if (!journey && !timePeriod) {
+      return this.globalLeaderboardKey;
+    }
+    
+    if (journey && !timePeriod) {
+      return this.formatKey(this.journeyLeaderboardKeyPattern, journey);
+    }
+    
+    if (!journey && timePeriod) {
+      return this.formatKey(this.timeframeLeaderboardKeyPattern, timePeriod.type);
+    }
+    
+    return this.formatKey(this.journeyTimeframeLeaderboardKeyPattern, journey, timePeriod.type);
+  }
+
+  /**
+   * Format a Redis key pattern with provided values
+   * @param pattern Key pattern with %s placeholders
+   * @param values Values to insert into the pattern
+   * @returns Formatted key string
+   */
+  private formatKey(pattern: string, ...values: any[]): string {
+    let result = pattern;
+    for (const value of values) {
+      result = result.replace('%s', value);
+    }
+    return result;
+  }
+
+  /**
+   * Clear all leaderboard data from Redis
+   * This is primarily used for testing and maintenance
+   * @returns Boolean indicating success
+   */
+  async clearAllLeaderboards(): Promise<boolean> {
+    const span = this.tracingService.startSpan('leaderboard.clearAllLeaderboards');
+    try {
+      // Get all leaderboard keys
+      const keys = await this.redis.keys(`${this.leaderboardKeyPrefix}:*`);
+      
+      if (keys.length === 0) {
+        return true;
+      }
+      
+      // Delete all keys
+      await this.redis.del(...keys);
+      
+      this.logger.log(`Cleared ${keys.length} leaderboard keys`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to clear leaderboards: ${error.message}`, error.stack);
+      return false;
+    } finally {
+      span.finish();
+    }
+  }
+
+  /**
+   * Rebuild all leaderboards from scratch
+   * This is used for maintenance and recovery
+   * @returns Boolean indicating success
+   */
+  async rebuildAllLeaderboards(): Promise<boolean> {
+    const span = this.tracingService.startSpan('leaderboard.rebuildAllLeaderboards');
+    try {
+      // Clear existing leaderboards
+      await this.clearAllLeaderboards();
+      
+      // Rebuild journey-specific leaderboards
+      const journeyPromises = Array.from(this.journeyConfigs.keys()).map(journey => {
+        const redisKey = this.formatKey(this.journeyLeaderboardKeyPattern, journey);
+        return this.generateJourneyLeaderboard(journey, redisKey);
+      });
+      
+      await Promise.all(journeyPromises);
+      
+      // Rebuild global leaderboard
+      await this.generateGlobalLeaderboard(this.globalLeaderboardKey);
+      
+      // Rebuild timeframe leaderboards
+      const timeframes: ('daily' | 'weekly' | 'monthly')[] = ['daily', 'weekly', 'monthly'];
+      
+      for (const timeframe of timeframes) {
+        // Global timeframe
+        const timeframeKey = this.formatKey(this.timeframeLeaderboardKeyPattern, timeframe);
+        await this.generateGlobalLeaderboard(timeframeKey, { type: timeframe });
+        
+        // Journey-specific timeframes
+        for (const [journey] of this.journeyConfigs) {
+          const journeyTimeframeKey = this.formatKey(
+            this.journeyTimeframeLeaderboardKeyPattern, 
+            journey, 
+            timeframe
+          );
+          await this.generateJourneyLeaderboard(journey, journeyTimeframeKey, { type: timeframe });
+        }
+      }
+      
+      this.logger.log('Successfully rebuilt all leaderboards');
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to rebuild leaderboards: ${error.message}`, error.stack);
+      return false;
+    } finally {
+      span.finish();
     }
   }
 }
