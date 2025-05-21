@@ -1,10 +1,26 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateTreatmentPlanDto } from '@app/care/treatments/dto/create-treatment-plan.dto';
+import { ApiProperty } from '@nestjs/swagger';
+import { CreateTreatmentPlanDto } from './create-treatment-plan.dto';
 
 /**
  * Data Transfer Object for updating an existing treatment plan.
- * Extends CreateTreatmentPlanDto but makes all fields optional for partial updates.
- * This allows clients to submit only the fields they want to update without requiring all fields.
- * All validation rules from CreateTreatmentPlanDto are preserved.
+ * Extends CreateTreatmentPlanDto but makes all fields optional.
+ * This allows for partial updates where only the fields that need to be changed are provided.
  */
-export class UpdateTreatmentPlanDto extends PartialType(CreateTreatmentPlanDto) {}
+export class UpdateTreatmentPlanDto extends PartialType(CreateTreatmentPlanDto) {
+  /**
+   * All fields from CreateTreatmentPlanDto are inherited but made optional.
+   * This includes:
+   * - name: string (optional)
+   * - description: string (optional)
+   * - startDate: Date (optional)
+   * - endDate: Date (optional)
+   * - progress: number (optional)
+   * - careActivityId: string (optional)
+   */
+  @ApiProperty({
+    description: 'All fields are optional for updates',
+    required: false,
+  })
+  _placeholder?: never;
+}
