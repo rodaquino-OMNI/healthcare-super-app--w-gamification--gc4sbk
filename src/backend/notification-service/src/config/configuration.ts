@@ -1,133 +1,83 @@
 /**
- * Notification Service Configuration
- * 
- * This module provides the configuration for the notification service using NestJS's
- * registerAs factory pattern. It loads environment variables for server settings,
- * notification channels, Kafka integration, and retry policies.
- * 
- * The configuration is structured into logical sections:
- * - server: Basic server configuration (port, host, etc.)
- * - channels: Configuration for notification delivery channels (email, SMS, push, in-app)
- * - kafka: Kafka integration settings for event-based notifications
- * - retry: Retry policies for failed notification delivery attempts
- * - dlq: Dead Letter Queue configuration for notifications that exceed retry attempts
+ * @file configuration.ts
+ * @description Configuration provider for the notification service using NestJS's registerAs factory pattern.
+ * Loads environment variables for server settings, notification channels, Kafka integration, and retry policies.
+ * Applies sensible defaults, performs type conversions, and enforces a strongly typed configuration object structure.
  */
 
 import { registerAs } from '@nestjs/config';
-import * as Joi from 'joi';
-
-// Import interfaces from shared packages
-import { IRetryPolicy } from '@austa/interfaces/notification';
-import { LogLevel } from '@app/shared/logging';
-import { parseBoolean, parseNumber } from '@app/shared/utils';
-
-// Import local constants
-import { DEFAULT_PORT, DEFAULT_HOST, ENV } from './constants';
-import { RetryPolicyType } from '../retry/constants/policy-types.constants';
-import { ErrorType } from '../retry/constants/error-types.constants';
+import { KafkaOptions } from '@nestjs/microservices';
+import { NotificationChannel } from '@austa/interfaces/notification/types';
+import { RetryPolicyType } from '@app/shared/retry/constants';
 
 /**
  * Server configuration interface
  */
 export interface ServerConfig {
-  /** Port the server listens on */
+  /** Node environment (development, production, test, provision) */
+  nodeEnv: string;
+  /** HTTP server port */
   port: number;
-  /** Host the server binds to */
-  host: string;
-  /** Current environment (development, staging, production) */
-  environment: string;
-  /** Application name for service discovery and logging */
-  appName: string;
-  /** Log level for the application */
-  logLevel: LogLevel;
-  /** Whether to enable debug mode */
-  debug: boolean;
+  /** WebSocket server port */
+  websocketPort: number;
+  /** Base URL for the service */
+  baseUrl: string;
 }
 
 /**
  * Email channel configuration interface
  */
 export interface EmailChannelConfig {
-  /** Email provider to use (sendgrid, ses, smtp) */
+  /** Email service provider (sendgrid, mailgun, etc.) */
   provider: string;
-  /** API key for the email provider */
+  /** API key for the email service */
   apiKey: string;
   /** Default sender email address */
-  defaultSender: string;
-  /** SMTP configuration if using SMTP provider */
-  smtp?: {
-    host: string;
-    port: number;
-    secure: boolean;
-    auth: {
-      user: string;
-      pass: string;
-    };
-  };
-  /** Maximum rate of emails per minute */
-  rateLimit: number;
-  /** Whether to enable the email channel */
-  enabled: boolean;
+  defaultFrom: string;
+  /** Maximum retries for failed email deliveries */
+  maxRetries: number;
 }
 
 /**
  * SMS channel configuration interface
  */
 export interface SmsChannelConfig {
-  /** SMS provider to use (twilio, sns, etc.) */
-  provider: string;
-  /** Account SID for Twilio or equivalent */
+  /** Twilio account SID */
   accountSid: string;
-  /** Auth token for the SMS provider */
+  /** Twilio auth token */
   authToken: string;
   /** Default sender phone number */
-  defaultSender: string;
-  /** Maximum rate of SMS per minute */
-  rateLimit: number;
-  /** Whether to enable the SMS channel */
-  enabled: boolean;
+  defaultFrom: string;
+  /** Maximum retries for failed SMS deliveries */
+  maxRetries: number;
 }
 
 /**
  * Push notification channel configuration interface
  */
 export interface PushChannelConfig {
-  /** Push notification provider (fcm, apns, etc.) */
-  provider: string;
-  /** API key for the push notification provider */
+  /** Firebase Cloud Messaging API key */
   apiKey: string;
-  /** FCM project ID if using Firebase */
-  fcmProjectId?: string;
-  /** APNS certificate path if using Apple Push Notification Service */
-  apnsCertPath?: string;
-  /** APNS key ID if using Apple Push Notification Service */
-  apnsKeyId?: string;
-  /** APNS team ID if using Apple Push Notification Service */
-  apnsTeamId?: string;
-  /** Maximum rate of push notifications per minute */
-  rateLimit: number;
-  /** Whether to enable the push notification channel */
-  enabled: boolean;
+  /** Maximum retries for failed push deliveries */
+  maxRetries: number;
+  /** TTL for push notifications in seconds */
+  ttl: number;
 }
 
 /**
  * In-app notification channel configuration interface
  */
 export interface InAppChannelConfig {
-  /** Whether to persist in-app notifications to database */
-  persistToDatabase: boolean;
   /** Maximum number of unread notifications to keep per user */
   maxUnreadNotifications: number;
-  /** Time to live for in-app notifications in days */
-  ttlDays: number;
-  /** Whether to enable the in-app notification channel */
-  enabled: boolean;
+  /** Time in days to keep notifications before archiving */
+  retentionDays: number;
 }
 
 /**
  * Notification channels configuration interface
  */
-export interface ChannelsConfig {
+export interface NotificationChannelsConfig {
   /** Email channel configuration */
   email: EmailChannelConfig;
   /** SMS channel configuration */
@@ -136,81 +86,87 @@ export interface ChannelsConfig {
   push: PushChannelConfig;
   /** In-app notification channel configuration */
   inApp: InAppChannelConfig;
-  /** Whether to enable fallback to alternative channels when primary channel fails */
-  enableFallback: boolean;
-  /** Order of fallback channels to try */
-  fallbackOrder: string[];
+  /** Default channels to use for each notification type */
+  defaultChannels: Record<string, NotificationChannel[]>;
+  /** Fallback channels to use when primary channel fails */
+  fallbackChannels: Record<NotificationChannel, NotificationChannel[]>;
+}
+
+/**
+ * Fixed delay retry policy configuration interface
+ */
+export interface FixedDelayRetryConfig {
+  /** Type of retry policy */
+  type: RetryPolicyType.FIXED_DELAY;
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Delay between retry attempts in milliseconds */
+  delayMs: number;
+}
+
+/**
+ * Exponential backoff retry policy configuration interface
+ */
+export interface ExponentialBackoffRetryConfig {
+  /** Type of retry policy */
+  type: RetryPolicyType.EXPONENTIAL_BACKOFF;
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Initial delay for first retry in milliseconds */
+  initialDelayMs: number;
+  /** Maximum delay between retries in milliseconds */
+  maxDelayMs: number;
+  /** Backoff factor to multiply delay by after each attempt */
+  backoffFactor: number;
+  /** Jitter factor to add randomness to delay (0-1) */
+  jitter: number;
+}
+
+/**
+ * Dead letter queue configuration interface
+ */
+export interface DlqConfig {
+  /** Whether to enable the dead letter queue */
+  enabled: boolean;
+  /** Kafka topic for the dead letter queue */
+  topic: string;
+  /** Time in days to retain messages in the DLQ */
+  retentionDays: number;
+}
+
+/**
+ * Retry configuration interface
+ */
+export interface RetryConfig {
+  /** Default retry policy for all channels */
+  defaultPolicy: FixedDelayRetryConfig | ExponentialBackoffRetryConfig;
+  /** Channel-specific retry policies */
+  channelPolicies: {
+    [key in NotificationChannel]?: FixedDelayRetryConfig | ExponentialBackoffRetryConfig;
+  };
+  /** Dead letter queue configuration */
+  dlq: DlqConfig;
 }
 
 /**
  * Kafka configuration interface
  */
 export interface KafkaConfig {
-  /** List of Kafka broker addresses */
-  brokers: string[];
-  /** Consumer group ID for this service */
-  groupId: string;
-  /** Prefix for Kafka topics */
-  topicPrefix: string;
-  /** Topic for notification requests */
-  notificationTopic: string;
-  /** Topic for notification status updates */
-  statusTopic: string;
-  /** Client ID for this service */
-  clientId: string;
-  /** Whether to enable Kafka integration */
-  enabled: boolean;
-}
-
-/**
- * Retry policy configuration interface
- */
-export interface RetryConfig {
-  /** Whether to enable retry mechanism */
-  enabled: boolean;
-  /** Maximum number of retry attempts */
-  maxAttempts: number;
-  /** Initial delay before first retry in milliseconds */
-  initialDelay: number;
-  /** Maximum delay between retries in milliseconds */
-  maxDelay: number;
-  /** Default retry policy type */
-  defaultPolicyType: RetryPolicyType;
-  /** Channel-specific retry policies */
-  policies: {
-    [channel: string]: {
-      /** Policy type for this channel */
-      policyType: RetryPolicyType;
-      /** Maximum attempts for this channel */
-      maxAttempts: number;
-      /** Initial delay for this channel */
-      initialDelay: number;
-      /** Maximum delay for this channel */
-      maxDelay: number;
-      /** Backoff factor for exponential policies */
-      backoffFactor?: number;
-    };
+  /** Kafka client options */
+  options: KafkaOptions['options'];
+  /** Consumer group ID */
+  consumerGroup: string;
+  /** Topics configuration */
+  topics: {
+    /** Notification requests topic */
+    notificationRequests: string;
+    /** Notification status updates topic */
+    notificationStatus: string;
+    /** Journey events topic */
+    journeyEvents: string;
+    /** Gamification events topic */
+    gamificationEvents: string;
   };
-  /** Error type to retry policy mapping */
-  errorTypeToPolicy: {
-    [key in ErrorType]?: RetryPolicyType;
-  };
-}
-
-/**
- * Dead Letter Queue configuration interface
- */
-export interface DlqConfig {
-  /** Whether to enable the Dead Letter Queue */
-  enabled: boolean;
-  /** Topic prefix for DLQ topics */
-  topicPrefix: string;
-  /** Whether to automatically retry messages from DLQ */
-  autoRetry: boolean;
-  /** Interval in milliseconds to check DLQ for retryable messages */
-  retryInterval: number;
-  /** Maximum age in milliseconds for messages to be retried from DLQ */
-  maxAgeMs: number;
 }
 
 /**
@@ -220,138 +176,121 @@ export interface NotificationServiceConfig {
   /** Server configuration */
   server: ServerConfig;
   /** Notification channels configuration */
-  channels: ChannelsConfig;
-  /** Kafka configuration */
-  kafka: KafkaConfig;
+  channels: NotificationChannelsConfig;
   /** Retry configuration */
   retry: RetryConfig;
-  /** Dead Letter Queue configuration */
-  dlq: DlqConfig;
+  /** Kafka configuration */
+  kafka: KafkaConfig;
 }
 
 /**
- * Configuration factory for the notification service
+ * Configuration factory function that loads environment variables and returns a strongly typed configuration object.
+ * Uses the NestJS registerAs pattern to make the configuration available through the ConfigService.
  * 
- * Uses NestJS's registerAs pattern to provide a structured configuration object
- * loaded from environment variables with sensible defaults.
- * 
- * @returns The complete notification service configuration
+ * @returns The complete notification service configuration object
  */
 export default registerAs('notification', (): NotificationServiceConfig => {
   return {
     server: {
-      port: parseNumber(process.env.PORT, DEFAULT_PORT),
-      host: process.env.HOST || DEFAULT_HOST,
-      environment: process.env.NODE_ENV || ENV.DEVELOPMENT,
-      appName: process.env.APP_NAME || 'notification-service',
-      logLevel: (process.env.LOG_LEVEL as LogLevel) || LogLevel.INFO,
-      debug: parseBoolean(process.env.DEBUG, false),
+      nodeEnv: process.env.NODE_ENV || 'development',
+      port: parseInt(process.env.PORT || '3000', 10),
+      websocketPort: parseInt(process.env.WEBSOCKET_PORT || '3001', 10),
+      baseUrl: process.env.BASE_URL || 'http://localhost:3000',
     },
     channels: {
       email: {
-        provider: process.env.EMAIL_PROVIDER || 'sendgrid',
+        provider: process.env.EMAIL_PROVIDER || '',
         apiKey: process.env.EMAIL_API_KEY || '',
-        defaultSender: process.env.EMAIL_DEFAULT_SENDER || 'noreply@austa.health',
-        smtp: process.env.EMAIL_PROVIDER === 'smtp' ? {
-          host: process.env.EMAIL_SMTP_HOST || 'localhost',
-          port: parseNumber(process.env.EMAIL_SMTP_PORT, 587),
-          secure: parseBoolean(process.env.EMAIL_SMTP_SECURE, false),
-          auth: {
-            user: process.env.EMAIL_SMTP_USER || '',
-            pass: process.env.EMAIL_SMTP_PASS || '',
-          },
-        } : undefined,
-        rateLimit: parseNumber(process.env.EMAIL_RATE_LIMIT, 100),
-        enabled: parseBoolean(process.env.EMAIL_ENABLED, true),
+        defaultFrom: process.env.EMAIL_DEFAULT_FROM || '',
+        maxRetries: parseInt(process.env.EMAIL_MAX_RETRIES || '3', 10),
       },
       sms: {
-        provider: process.env.SMS_PROVIDER || 'twilio',
         accountSid: process.env.SMS_ACCOUNT_SID || '',
         authToken: process.env.SMS_AUTH_TOKEN || '',
-        defaultSender: process.env.SMS_DEFAULT_SENDER || '',
-        rateLimit: parseNumber(process.env.SMS_RATE_LIMIT, 10),
-        enabled: parseBoolean(process.env.SMS_ENABLED, true),
+        defaultFrom: process.env.SMS_DEFAULT_FROM || '',
+        maxRetries: parseInt(process.env.SMS_MAX_RETRIES || '3', 10),
       },
       push: {
-        provider: process.env.PUSH_PROVIDER || 'fcm',
         apiKey: process.env.PUSH_API_KEY || '',
-        fcmProjectId: process.env.FCM_PROJECT_ID,
-        apnsCertPath: process.env.APNS_CERT_PATH,
-        apnsKeyId: process.env.APNS_KEY_ID,
-        apnsTeamId: process.env.APNS_TEAM_ID,
-        rateLimit: parseNumber(process.env.PUSH_RATE_LIMIT, 1000),
-        enabled: parseBoolean(process.env.PUSH_ENABLED, true),
+        maxRetries: parseInt(process.env.PUSH_MAX_RETRIES || '3', 10),
+        ttl: parseInt(process.env.PUSH_TTL || '86400', 10), // 24 hours
       },
       inApp: {
-        persistToDatabase: parseBoolean(process.env.IN_APP_PERSIST_TO_DB, true),
-        maxUnreadNotifications: parseNumber(process.env.IN_APP_MAX_UNREAD, 100),
-        ttlDays: parseNumber(process.env.IN_APP_TTL_DAYS, 30),
-        enabled: parseBoolean(process.env.IN_APP_ENABLED, true),
+        maxUnreadNotifications: parseInt(process.env.IN_APP_MAX_UNREAD || '100', 10),
+        retentionDays: parseInt(process.env.IN_APP_RETENTION_DAYS || '90', 10),
       },
-      enableFallback: parseBoolean(process.env.ENABLE_CHANNEL_FALLBACK, true),
-      fallbackOrder: process.env.FALLBACK_CHANNEL_ORDER
-        ? process.env.FALLBACK_CHANNEL_ORDER.split(',')
-        : ['push', 'inApp', 'email', 'sms'],
-    },
-    kafka: {
-      brokers: process.env.KAFKA_BROKERS
-        ? process.env.KAFKA_BROKERS.split(',')
-        : ['localhost:9092'],
-      groupId: process.env.KAFKA_GROUP_ID || 'notification-service',
-      topicPrefix: process.env.KAFKA_TOPIC_PREFIX || 'austa.',
-      notificationTopic: process.env.KAFKA_NOTIFICATION_TOPIC || 'notifications',
-      statusTopic: process.env.KAFKA_STATUS_TOPIC || 'notification-status',
-      clientId: process.env.KAFKA_CLIENT_ID || 'notification-service-client',
-      enabled: parseBoolean(process.env.KAFKA_ENABLED, true),
+      // Default channels for different notification types
+      defaultChannels: {
+        system: [NotificationChannel.IN_APP],
+        achievement: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
+        appointment: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.SMS],
+        medication: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
+        claim: [NotificationChannel.EMAIL, NotificationChannel.IN_APP],
+      },
+      // Fallback channels when primary channel fails
+      fallbackChannels: {
+        [NotificationChannel.EMAIL]: [NotificationChannel.IN_APP],
+        [NotificationChannel.SMS]: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
+        [NotificationChannel.PUSH]: [NotificationChannel.IN_APP],
+        [NotificationChannel.IN_APP]: [],
+      },
     },
     retry: {
-      enabled: parseBoolean(process.env.RETRY_ENABLED, true),
-      maxAttempts: parseNumber(process.env.RETRY_MAX_ATTEMPTS, 5),
-      initialDelay: parseNumber(process.env.RETRY_INITIAL_DELAY, 1000),
-      maxDelay: parseNumber(process.env.RETRY_MAX_DELAY, 60000),
-      defaultPolicyType: (process.env.RETRY_DEFAULT_POLICY as RetryPolicyType) || RetryPolicyType.EXPONENTIAL_BACKOFF,
-      policies: {
-        email: {
-          policyType: RetryPolicyType.EXPONENTIAL_BACKOFF,
-          maxAttempts: parseNumber(process.env.EMAIL_RETRY_MAX_ATTEMPTS, 5),
-          initialDelay: parseNumber(process.env.EMAIL_RETRY_INITIAL_DELAY, 5000),
-          maxDelay: parseNumber(process.env.EMAIL_RETRY_MAX_DELAY, 3600000),
-          backoffFactor: parseNumber(process.env.EMAIL_RETRY_BACKOFF_FACTOR, 2),
+      defaultPolicy: {
+        type: RetryPolicyType.EXPONENTIAL_BACKOFF,
+        maxRetries: parseInt(process.env.DEFAULT_MAX_RETRIES || '3', 10),
+        initialDelayMs: parseInt(process.env.DEFAULT_INITIAL_DELAY_MS || '1000', 10),
+        maxDelayMs: parseInt(process.env.DEFAULT_MAX_DELAY_MS || '60000', 10),
+        backoffFactor: parseFloat(process.env.DEFAULT_BACKOFF_FACTOR || '2.0'),
+        jitter: parseFloat(process.env.DEFAULT_JITTER || '0.1'),
+      },
+      channelPolicies: {
+        [NotificationChannel.EMAIL]: {
+          type: RetryPolicyType.EXPONENTIAL_BACKOFF,
+          maxRetries: parseInt(process.env.EMAIL_MAX_RETRIES || '5', 10),
+          initialDelayMs: parseInt(process.env.EMAIL_INITIAL_DELAY_MS || '2000', 10),
+          maxDelayMs: parseInt(process.env.EMAIL_MAX_DELAY_MS || '300000', 10), // 5 minutes
+          backoffFactor: parseFloat(process.env.EMAIL_BACKOFF_FACTOR || '2.0'),
+          jitter: parseFloat(process.env.EMAIL_JITTER || '0.2'),
         },
-        sms: {
-          policyType: RetryPolicyType.EXPONENTIAL_BACKOFF,
-          maxAttempts: parseNumber(process.env.SMS_RETRY_MAX_ATTEMPTS, 3),
-          initialDelay: parseNumber(process.env.SMS_RETRY_INITIAL_DELAY, 10000),
-          maxDelay: parseNumber(process.env.SMS_RETRY_MAX_DELAY, 3600000),
-          backoffFactor: parseNumber(process.env.SMS_RETRY_BACKOFF_FACTOR, 3),
+        [NotificationChannel.SMS]: {
+          type: RetryPolicyType.EXPONENTIAL_BACKOFF,
+          maxRetries: parseInt(process.env.SMS_MAX_RETRIES || '3', 10),
+          initialDelayMs: parseInt(process.env.SMS_INITIAL_DELAY_MS || '5000', 10),
+          maxDelayMs: parseInt(process.env.SMS_MAX_DELAY_MS || '180000', 10), // 3 minutes
+          backoffFactor: parseFloat(process.env.SMS_BACKOFF_FACTOR || '2.0'),
+          jitter: parseFloat(process.env.SMS_JITTER || '0.2'),
         },
-        push: {
-          policyType: RetryPolicyType.EXPONENTIAL_BACKOFF,
-          maxAttempts: parseNumber(process.env.PUSH_RETRY_MAX_ATTEMPTS, 3),
-          initialDelay: parseNumber(process.env.PUSH_RETRY_INITIAL_DELAY, 1000),
-          maxDelay: parseNumber(process.env.PUSH_RETRY_MAX_DELAY, 60000),
-          backoffFactor: parseNumber(process.env.PUSH_RETRY_BACKOFF_FACTOR, 2),
-        },
-        inApp: {
-          policyType: RetryPolicyType.FIXED,
-          maxAttempts: parseNumber(process.env.IN_APP_RETRY_MAX_ATTEMPTS, 2),
-          initialDelay: parseNumber(process.env.IN_APP_RETRY_INITIAL_DELAY, 1000),
-          maxDelay: parseNumber(process.env.IN_APP_RETRY_MAX_DELAY, 5000),
+        [NotificationChannel.PUSH]: {
+          type: RetryPolicyType.FIXED_DELAY,
+          maxRetries: parseInt(process.env.PUSH_MAX_RETRIES || '2', 10),
+          delayMs: parseInt(process.env.PUSH_RETRY_DELAY_MS || '10000', 10), // 10 seconds
         },
       },
-      errorTypeToPolicy: {
-        [ErrorType.TRANSIENT]: RetryPolicyType.EXPONENTIAL_BACKOFF,
-        [ErrorType.EXTERNAL]: RetryPolicyType.EXPONENTIAL_BACKOFF,
-        [ErrorType.SYSTEM]: RetryPolicyType.LINEAR,
-        // Client errors are not retried by default
+      dlq: {
+        enabled: process.env.DLQ_ENABLED !== 'false',
+        topic: process.env.DLQ_TOPIC || 'notification-service-dlq',
+        retentionDays: parseInt(process.env.DLQ_RETENTION_DAYS || '7', 10),
       },
     },
-    dlq: {
-      enabled: parseBoolean(process.env.DLQ_ENABLED, true),
-      topicPrefix: process.env.DLQ_TOPIC_PREFIX || 'dlq.',
-      autoRetry: parseBoolean(process.env.DLQ_AUTO_RETRY, false),
-      retryInterval: parseNumber(process.env.DLQ_RETRY_INTERVAL, 3600000), // 1 hour
-      maxAgeMs: parseNumber(process.env.DLQ_MAX_AGE_MS, 86400000 * 7), // 7 days
+    kafka: {
+      options: {
+        client: {
+          clientId: process.env.KAFKA_CLIENT_ID || 'notification-service',
+          brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+        },
+        consumer: {
+          groupId: process.env.KAFKA_CONSUMER_GROUP || 'notification-service-group',
+          allowAutoTopicCreation: process.env.KAFKA_AUTO_TOPIC_CREATION !== 'false',
+        },
+      },
+      consumerGroup: process.env.KAFKA_CONSUMER_GROUP || 'notification-service-group',
+      topics: {
+        notificationRequests: process.env.KAFKA_TOPIC_NOTIFICATION_REQUESTS || 'notification-requests',
+        notificationStatus: process.env.KAFKA_TOPIC_NOTIFICATION_STATUS || 'notification-status',
+        journeyEvents: process.env.KAFKA_TOPIC_JOURNEY_EVENTS || 'journey-events',
+        gamificationEvents: process.env.KAFKA_TOPIC_GAMIFICATION_EVENTS || 'gamification-events',
+      },
     },
   };
 });

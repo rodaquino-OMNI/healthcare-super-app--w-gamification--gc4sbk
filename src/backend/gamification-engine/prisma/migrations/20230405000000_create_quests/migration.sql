@@ -1,13 +1,10 @@
--- CreateEnum
-CREATE TYPE "Journey" AS ENUM ('HEALTH', 'CARE', 'PLAN');
-
 -- CreateTable
 CREATE TABLE "quests" (
     "id" UUID NOT NULL,
-    "title" VARCHAR(255) NOT NULL,
+    "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "journey" "Journey" NOT NULL,
-    "icon" VARCHAR(255),
+    "journey" TEXT NOT NULL,
+    "icon" TEXT,
     "xpReward" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
