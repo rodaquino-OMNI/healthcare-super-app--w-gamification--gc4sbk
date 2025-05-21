@@ -1,10 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { KafkaConsumerService } from './events/kafka/kafka.consumer';
-import { LoggerService } from '@app/shared/logging/logger.service';
+import { LoggerService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { GamificationExceptionFilter } from './common/exceptions/exception.filter';
 import axios from 'axios';
 import { createSecureAxios } from '@app/shared/utils/secure-axios';
 import helmet from 'helmet';
@@ -27,8 +29,19 @@ async function bootstrap(): Promise<void> {
     // Get the LoggerService from the application context
     const loggerService = app.get(LoggerService);
     
+    // Get the TracingService from the application context
+    const tracingService = app.get(TracingService);
+    
     // Set the custom logger as the application logger
     app.useLogger(loggerService);
+    
+    // Register the global exception filter
+    const exceptionFilter = new GamificationExceptionFilter(
+      loggerService,
+      tracingService,
+      configService
+    );
+    app.useGlobalFilters(exceptionFilter);
     
     // Log application bootstrap start
     loggerService.log('Starting Gamification Engine service', 'Bootstrap');
