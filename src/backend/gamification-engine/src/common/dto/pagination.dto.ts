@@ -1,201 +1,266 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+/**
+ * @file pagination.dto.ts
+ * @description Standardized pagination DTOs for the gamification engine.
+ * 
+ * This file implements the pagination interfaces from @austa/interfaces package
+ * and provides class-validator decorators for validation. It includes:
+ * 
+ * - PaginationRequestDto: For handling pagination requests with validation
+ * - PaginationMetaDto: For pagination metadata (current page, total items, etc.)
+ * - PaginationResponseDto: Generic response wrapper with pagination metadata
+ * 
+ * Example usage in a controller:
+ * 
+ * ```typescript
+ * @Get()
+ * async findAll(@Query() paginationDto: PaginationRequestDto): Promise<PaginationResponseDto<ItemDto>> {
+ *   const { items, count } = await this.service.findAll(paginationDto);
+ *   return PaginationResponseDto.fromItems(items, count, paginationDto.page, paginationDto.size);
+ * }
+ * ```
+ */
+
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsPositive,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IPaginationRequest, IPaginationMeta, IPaginationResponse } from '@austa/interfaces';
 
 /**
- * Data Transfer Object for pagination request parameters
- * Used to standardize pagination handling across all modules
+ * Data transfer object for pagination requests.
+ * Used to standardize pagination parameters across all API endpoints.
+ * Implements the IPaginationRequest interface from @austa/interfaces for consistency.
  */
-export class PaginationRequestDto {
+export class PaginationRequestDto implements IPaginationRequest {
   /**
-   * Page number (1-based)
+   * The page number to retrieve (1-based indexing).
+   * @default 1
+   * @example 1
    */
   @ApiProperty({
-    description: 'Page number (1-based)',
-    example: 1,
+    description: 'Page number (1-based indexing)',
     default: 1,
     minimum: 1,
+    type: Number,
   })
   @IsInt()
   @Min(1)
-  @Type(() => Number)
-  page: number = 1;
+  @IsOptional()
+  page?: number = 1;
 
   /**
-   * Number of items per page
+   * The number of items to retrieve per page.
+   * @default 10
+   * @example 10
    */
   @ApiProperty({
     description: 'Number of items per page',
-    example: 10,
     default: 10,
     minimum: 1,
     maximum: 100,
+    type: Number,
   })
   @IsInt()
   @Min(1)
   @Max(100)
-  @Type(() => Number)
-  limit: number = 10;
+  @IsOptional()
+  size?: number = 10;
 
   /**
-   * Converts pagination parameters to Prisma skip/take format
+   * Calculates the number of items to skip based on page and size.
+   * Used for database queries with skip/take pagination.
    */
-  toPrismaSkipTake(): { skip: number; take: number } {
-    return {
-      skip: (this.page - 1) * this.limit,
-      take: this.limit,
-    };
+  get skip(): number {
+    return (this.page - 1) * this.size;
+  }
+
+  /**
+   * Returns the number of items to take per page.
+   * Alias for size property, used for database queries.
+   */
+  get take(): number {
+    return this.size;
   }
 }
 
 /**
- * Data Transfer Object for pagination response metadata
- * Provides information about the pagination state
+ * Metadata for paginated responses, containing information about
+ * the current page, total items, and total pages.
+ * Implements the IPaginationMeta interface from @austa/interfaces for consistency.
  */
-export class PaginationResponseDto {
+export class PaginationMetaDto implements IPaginationMeta {
   /**
-   * Current page number (1-based)
+   * The current page number (1-based indexing).
+   * @example 1
    */
   @ApiProperty({
-    description: 'Current page number (1-based)',
+    description: 'Current page number',
+    type: Number,
     example: 1,
   })
-  @IsInt()
-  @Min(1)
-  page: number;
+  readonly page: number;
 
   /**
-   * Number of items per page
+   * The number of items per page.
+   * @example 10
    */
   @ApiProperty({
     description: 'Number of items per page',
+    type: Number,
     example: 10,
   })
-  @IsInt()
-  @Min(1)
-  limit: number;
+  readonly size: number;
 
   /**
-   * Total number of items across all pages
+   * The total number of items across all pages.
+   * @example 100
    */
   @ApiProperty({
-    description: 'Total number of items across all pages',
-    example: 42,
+    description: 'Total number of items',
+    type: Number,
+    example: 100,
   })
-  @IsInt()
-  @Min(0)
-  totalItems: number;
+  readonly totalItems: number;
 
   /**
-   * Total number of pages
+   * The total number of pages.
+   * @example 10
    */
   @ApiProperty({
     description: 'Total number of pages',
-    example: 5,
+    type: Number,
+    example: 10,
   })
-  @IsInt()
-  @Min(0)
-  totalPages: number;
+  readonly totalPages: number;
 
   /**
-   * Whether there is a next page available
+   * Indicates if there is a previous page available.
+   * @example false
    */
   @ApiProperty({
-    description: 'Whether there is a next page available',
-    example: true,
-  })
-  hasNextPage: boolean;
-
-  /**
-   * Whether there is a previous page available
-   */
-  @ApiProperty({
-    description: 'Whether there is a previous page available',
+    description: 'Indicates if there is a previous page',
+    type: Boolean,
     example: false,
   })
-  hasPreviousPage: boolean;
+  readonly hasPreviousPage: boolean;
 
   /**
-   * Creates a pagination response DTO from the provided parameters
-   * 
-   * @param page Current page number
-   * @param limit Number of items per page
-   * @param totalItems Total number of items across all pages
-   * @returns A new PaginationResponseDto instance
+   * Indicates if there is a next page available.
+   * @example true
    */
-  static create(page: number, limit: number, totalItems: number): PaginationResponseDto {
-    const totalPages = Math.ceil(totalItems / limit);
-    
-    const response = new PaginationResponseDto();
-    response.page = page;
-    response.limit = limit;
-    response.totalItems = totalItems;
-    response.totalPages = totalPages;
-    response.hasNextPage = page < totalPages;
-    response.hasPreviousPage = page > 1;
-    
-    return response;
+  @ApiProperty({
+    description: 'Indicates if there is a next page',
+    type: Boolean,
+    example: true,
+  })
+  readonly hasNextPage: boolean;
+
+  constructor(page: number, size: number, totalItems: number) {
+    this.page = page;
+    this.size = size;
+    this.totalItems = totalItems;
+    this.totalPages = Math.ceil(totalItems / size);
+    this.hasPreviousPage = page > 1;
+    this.hasNextPage = page < this.totalPages;
   }
 }
 
 /**
- * Generic paginated response wrapper
- * Combines an array of items with pagination metadata
- * 
- * @template T Type of items in the paginated response
+ * Generic paginated response DTO that wraps any entity type with pagination metadata.
+ * Implements the IPaginationResponse interface from @austa/interfaces for consistency.
+ * @template T - The entity type contained in the paginated response
  */
-export class PaginatedResponseDto<T> {
+export class PaginationResponseDto<T> implements IPaginationResponse<T> {
   /**
-   * Array of items for the current page
+   * Array of items for the current page.
    */
   @ApiProperty({
     description: 'Array of items for the current page',
     isArray: true,
   })
-  @IsArray()
-  items: T[];
+  readonly items: T[];
 
   /**
-   * Pagination metadata
+   * Pagination metadata including page information and total counts.
    */
   @ApiProperty({
     description: 'Pagination metadata',
-    type: PaginationResponseDto,
+    type: PaginationMetaDto,
   })
-  pagination: PaginationResponseDto;
+  @ValidateNested()
+  @Type(() => PaginationMetaDto)
+  readonly meta: PaginationMetaDto;
 
   /**
-   * Additional metadata (optional)
+   * Creates a new paginated response with the provided items and metadata.
+   * @param items - Array of items for the current page
+   * @param meta - Pagination metadata
    */
-  @ApiPropertyOptional({
-    description: 'Additional metadata',
-    example: { processingTimeMs: 123 },
-  })
-  @IsOptional()
-  meta?: Record<string, any>;
+  constructor(items: T[], meta: PaginationMetaDto) {
+    this.items = items;
+    this.meta = meta;
+  }
 
   /**
-   * Creates a paginated response DTO from the provided items and pagination parameters
-   * 
-   * @param items Array of items for the current page
-   * @param page Current page number
-   * @param limit Number of items per page
-   * @param totalItems Total number of items across all pages
-   * @param meta Additional metadata (optional)
-   * @returns A new PaginatedResponseDto instance
+   * Creates a paginated response from an array of items and pagination parameters.
+   * @param items - The array of items to paginate
+   * @param totalItems - The total number of items across all pages
+   * @param page - The current page number
+   * @param size - The number of items per page
+   * @returns A new PaginationResponseDto instance
    */
-  static create<T>(
+  static fromItems<T>(
     items: T[],
-    page: number,
-    limit: number,
     totalItems: number,
-    meta?: Record<string, any>,
-  ): PaginatedResponseDto<T> {
-    const response = new PaginatedResponseDto<T>();
-    response.items = items;
-    response.pagination = PaginationResponseDto.create(page, limit, totalItems);
-    response.meta = meta;
-    
-    return response;
+    page: number,
+    size: number,
+  ): PaginationResponseDto<T> {
+    const meta = new PaginationMetaDto(page, size, totalItems);
+    return new PaginationResponseDto(items, meta);
+  }
+
+  /**
+   * Creates an empty paginated response with zero items.
+   * @param page - The current page number
+   * @param size - The number of items per page
+   * @returns A new PaginationResponseDto instance with an empty array
+   */
+  static empty<T>(page: number, size: number): PaginationResponseDto<T> {
+    return PaginationResponseDto.fromItems<T>([], 0, page, size);
+  }
+
+  /**
+   * Creates a paginated response from a database query result that includes count.
+   * Useful when working with Prisma's findMany with count.
+   * 
+   * @param result - Object containing items array and count
+   * @param page - The current page number
+   * @param size - The number of items per page
+   * @returns A new PaginationResponseDto instance
+   */
+  static fromPrismaResult<T>(
+    result: { data: T[]; count: number },
+    page: number,
+    size: number,
+  ): PaginationResponseDto<T> {
+    return PaginationResponseDto.fromItems<T>(result.data, result.count, page, size);
+  }
+
+  /**
+   * Maps the items in the paginated response using a transform function.
+   * Useful for converting between entity and DTO types while preserving pagination metadata.
+   * 
+   * @param transform - Function to transform each item
+   * @returns A new PaginationResponseDto with transformed items
+   */
+  map<R>(transform: (item: T) => R): PaginationResponseDto<R> {
+    const transformedItems = this.items.map(transform);
+    return new PaginationResponseDto<R>(transformedItems, this.meta);
   }
 }
