@@ -18,7 +18,14 @@ export { IDlqEntry } from './dlq-entry.interface';
 export { 
   IRetryOptions,
   IFixedDelayOptions,
-  IExponentialBackoffOptions 
+  IExponentialBackoffOptions,
+  ILinearBackoffOptions,
+  RetryOptions,
+  IJitterOptions,
+  JitterType,
+  IRetryPhaseOptions,
+  IMultiPhaseRetryOptions,
+  IChannelRetryOptions
 } from './retry-options.interface';
 
 // Export retry policy interface
