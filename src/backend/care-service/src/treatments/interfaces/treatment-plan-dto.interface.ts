@@ -1,81 +1,70 @@
-import { IJourneyDto } from '@austa/interfaces/journey';
-import { ICareJourneyDto } from '@austa/interfaces/journey/care';
+import { ICareActivity } from '@austa/interfaces/journey/care/appointment.interface';
 
 /**
  * Interface for creating a new treatment plan.
- * Defines the required and optional fields for treatment plan creation.
+ * Defines the structure and validation requirements for treatment plan creation
+ * requests in the Care Journey.
  */
-export interface ICreateTreatmentPlanDto extends IJourneyDto {
+export interface ICreateTreatmentPlanDto {
   /**
    * Name of the treatment plan.
-   * @example "Physical Therapy Plan"
    */
   name: string;
 
   /**
-   * Detailed description of the treatment plan.
-   * @example "A 12-week physical therapy program focusing on lower back rehabilitation."
+   * Description of the treatment plan.
    */
-  description?: string;
+  description: string;
 
   /**
    * Start date of the treatment plan.
-   * @example "2023-04-15T00:00:00.000Z"
    */
   startDate: Date;
 
   /**
-   * Optional end date of the treatment plan.
-   * @example "2023-07-15T00:00:00.000Z"
+   * End date of the treatment plan.
    */
-  endDate?: Date;
+  endDate: Date;
 
   /**
-   * Progress percentage of the treatment plan (0-100).
-   * Defaults to 0 if not provided.
-   * @example 25
+   * Progress of the treatment plan (percentage from 0 to 100).
+   * Optional, defaults to 0 if not provided.
    */
   progress?: number;
 
   /**
    * ID of the care activity this treatment plan is associated with.
-   * @example "550e8400-e29b-41d4-a716-446655440000"
    */
   careActivityId: string;
 }
 
 /**
  * Interface for updating an existing treatment plan.
- * All fields are optional since updates may be partial.
+ * All fields are optional to allow partial updates.
  */
-export interface IUpdateTreatmentPlanDto extends ICareJourneyDto {
+export interface IUpdateTreatmentPlanDto {
   /**
    * Updated name of the treatment plan.
-   * @example "Updated Physical Therapy Plan"
    */
   name?: string;
 
   /**
    * Updated description of the treatment plan.
-   * @example "An updated 12-week physical therapy program with additional exercises."
    */
   description?: string;
 
   /**
    * Updated start date of the treatment plan.
-   * @example "2023-04-20T00:00:00.000Z"
    */
   startDate?: Date;
 
   /**
    * Updated end date of the treatment plan.
-   * @example "2023-07-20T00:00:00.000Z"
    */
   endDate?: Date;
 
   /**
-   * Updated progress percentage of the treatment plan (0-100).
-   * @example 35
+   * Updated progress of the treatment plan (percentage from 0 to 100).
    */
   progress?: number;
 }
