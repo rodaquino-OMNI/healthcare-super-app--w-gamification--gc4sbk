@@ -7,7 +7,7 @@
  * and REST endpoints of the AUSTA SuperApp, outputting in OpenAPI format.
  * 
  * @version 2.0.0
- * @requires Node.js ≥18.0.0
+ * @requires Node.js >= 18.0.0
  */
 
 const fs = require('fs');
@@ -15,111 +15,105 @@ const path = require('path');
 const { generate } = require('@graphql-codegen/cli'); // @graphql-codegen/cli@5.0.0
 const yaml = require('js-yaml'); // js-yaml@4.1.0
 
-// Journey types for grouping APIs
-const JOURNEY_TYPES = {
-  HEALTH: 'health',
-  CARE: 'care',
-  PLAN: 'plan',
-  GAMIFICATION: 'gamification',
-  COMMON: 'common'
+// Paths configuration with improved error handling for refactored structure
+const PATHS = {
+  graphqlSchema: path.resolve(__dirname, '../../../api-gateway/src/graphql/schema.graphql'),
+  restDefinitions: path.resolve(__dirname, '../../../api-gateway/src/config/rest-endpoints.json'),
+  outputDir: path.resolve(__dirname, '../../../docs/api'),
+  outputFile: 'openapi-spec.yaml'
 };
 
-// Paths configuration with fallbacks for better error handling
-const PATHS = {
-  // Main schema paths
-  graphqlSchema: path.resolve(__dirname, '../../../backend/api-gateway/src/graphql/schema.graphql'),
-  restDefinitions: path.resolve(__dirname, '../../../backend/api-gateway/src/config/rest-endpoints.json'),
-  outputDir: path.resolve(__dirname, '../../../docs/api'),
-  outputFile: 'openapi-spec.yaml',
-  
-  // Journey-specific schema paths
-  journeySchemas: {
-    [JOURNEY_TYPES.HEALTH]: path.resolve(__dirname, '../../../backend/health-service/src/graphql/schema.graphql'),
-    [JOURNEY_TYPES.CARE]: path.resolve(__dirname, '../../../backend/care-service/src/graphql/schema.graphql'),
-    [JOURNEY_TYPES.PLAN]: path.resolve(__dirname, '../../../backend/plan-service/src/graphql/schema.graphql'),
-    [JOURNEY_TYPES.GAMIFICATION]: path.resolve(__dirname, '../../../backend/gamification-engine/src/graphql/schema.graphql')
+// API version configuration
+const API_VERSION = '2.0.0';
+const API_VERSIONS = {
+  current: API_VERSION,
+  supported: ['1.0.0', '2.0.0']
+};
+
+// Journey-specific configuration
+const JOURNEYS = {
+  health: {
+    name: 'Health Journey',
+    description: 'APIs for health metrics, goals, and device connections',
+    tag: 'health'
+  },
+  care: {
+    name: 'Care Journey',
+    description: 'APIs for appointments, providers, and telemedicine',
+    tag: 'care'
+  },
+  plan: {
+    name: 'Plan Journey',
+    description: 'APIs for insurance plans, claims, and benefits',
+    tag: 'plan'
+  },
+  gamification: {
+    name: 'Gamification',
+    description: 'Cross-journey APIs for achievements, rewards, and challenges',
+    tag: 'gamification'
+  },
+  auth: {
+    name: 'Authentication',
+    description: 'APIs for user authentication and authorization',
+    tag: 'auth'
   }
 };
 
 /**
- * Safely resolves a file path and checks if it exists
- * @param {string} filePath - The path to resolve
- * @param {string} fallbackPath - Optional fallback path if the primary doesn't exist
- * @param {boolean} required - Whether the file is required (throws if not found)
- * @returns {string|null} The resolved path or null if not found and not required
+ * Verifies that all required paths exist and are accessible
+ * @returns {Promise<void>}
  */
-function safeResolvePath(filePath, fallbackPath = null, required = false) {
+async function verifyPaths() {
   try {
-    if (fs.existsSync(filePath)) {
-      return filePath;
+    console.log('Verifying path configuration...');
+    
+    // Check if GraphQL schema exists
+    if (!fs.existsSync(PATHS.graphqlSchema)) {
+      throw new Error(`GraphQL schema not found at ${PATHS.graphqlSchema}`);
     }
     
-    if (fallbackPath && fs.existsSync(fallbackPath)) {
-      console.warn(`Primary path ${filePath} not found, using fallback ${fallbackPath}`);
-      return fallbackPath;
+    // Check if REST definitions exist
+    if (!fs.existsSync(PATHS.restDefinitions)) {
+      console.warn(`REST definitions not found at ${PATHS.restDefinitions}. Only GraphQL documentation will be generated.`);
     }
     
-    if (required) {
-      throw new Error(`Required file not found at ${filePath}${fallbackPath ? ` or ${fallbackPath}` : ''}`);
+    // Ensure output directory exists
+    if (!fs.existsSync(PATHS.outputDir)) {
+      console.log(`Creating output directory at ${PATHS.outputDir}`);
+      fs.mkdirSync(PATHS.outputDir, { recursive: true });
     }
     
-    console.warn(`Optional file not found at ${filePath}`);
-    return null;
+    console.log('Path verification completed successfully.');
   } catch (error) {
-    if (error.code !== 'ENOENT' || required) {
-      throw error;
-    }
-    console.warn(`Error checking path ${filePath}: ${error.message}`);
-    return null;
+    console.error('Path verification failed:', error);
+    throw error;
   }
 }
 
 /**
- * Reads the GraphQL schema files, including journey-specific schemas if available
- * @returns {Promise<{mainSchema: string, journeySchemas: Object<string, string>}>} The GraphQL schemas
+ * Reads the GraphQL schema file
+ * @returns {Promise<string>} The GraphQL schema as a string
  */
-async function readGraphQLSchemas() {
+async function readGraphQLSchema() {
   try {
-    console.log('Reading GraphQL schemas...');
-    
-    // Resolve the main schema path with fallback
-    const mainSchemaPath = safeResolvePath(
-      PATHS.graphqlSchema,
-      path.resolve(__dirname, '../../../api/schema.graphql'),
-      true
-    );
-    
-    console.log(`Reading main GraphQL schema from ${mainSchemaPath}`);
-    const mainSchema = await fs.promises.readFile(mainSchemaPath, 'utf8');
-    
-    // Read journey-specific schemas if available
-    const journeySchemas = {};
-    for (const [journey, schemaPath] of Object.entries(PATHS.journeySchemas)) {
-      const resolvedPath = safeResolvePath(schemaPath);
-      if (resolvedPath) {
-        console.log(`Reading ${journey} journey GraphQL schema from ${resolvedPath}`);
-        journeySchemas[journey] = await fs.promises.readFile(resolvedPath, 'utf8');
-      }
-    }
-    
-    return { mainSchema, journeySchemas };
+    console.log(`Reading GraphQL schema from ${PATHS.graphqlSchema}`);
+    return fs.promises.readFile(PATHS.graphqlSchema, 'utf8');
   } catch (error) {
-    console.error('Error reading GraphQL schemas:', error);
-    throw error;
+    console.error('Error reading GraphQL schema:', error);
+    throw new Error(`Failed to read GraphQL schema: ${error.message}`);
   }
 }
 
 /**
  * Generates JSON schema from GraphQL schema using graphql-codegen
  * @param {string} schema - The GraphQL schema as a string
- * @param {string} [outputName='temp-schema'] - Base name for the temporary output file
  * @returns {Promise<object>} The generated JSON schema
  */
-async function generateJsonSchema(schema, outputName = 'temp-schema') {
+async function generateJsonSchema(schema) {
   try {
-    console.log(`Generating JSON schema from GraphQL schema (${outputName})...`);
+    console.log('Generating JSON schema from GraphQL schema...');
     
-    const tempOutputFile = path.join(PATHS.outputDir, `${outputName}.json`);
+    const tempOutputFile = path.join(PATHS.outputDir, 'temp-schema.json');
     
     // Ensure output directory exists
     if (!fs.existsSync(PATHS.outputDir)) {
@@ -147,8 +141,8 @@ async function generateJsonSchema(schema, outputName = 'temp-schema') {
     
     return jsonSchema;
   } catch (error) {
-    console.error(`Error generating JSON schema (${outputName}):`, error);
-    throw error;
+    console.error('Error generating JSON schema:', error);
+    throw new Error(`Failed to generate JSON schema: ${error.message}`);
   }
 }
 
@@ -158,60 +152,49 @@ async function generateJsonSchema(schema, outputName = 'temp-schema') {
  */
 async function readRestDefinitions() {
   try {
-    // Resolve the REST definitions path with fallback
-    const restDefinitionsPath = safeResolvePath(
-      PATHS.restDefinitions,
-      path.resolve(__dirname, '../../../api/rest-endpoints.json'),
-      true
-    );
-    
-    console.log(`Reading REST API definitions from ${restDefinitionsPath}`);
-    const data = await fs.promises.readFile(restDefinitionsPath, 'utf8');
+    console.log(`Reading REST API definitions from ${PATHS.restDefinitions}`);
+    if (!fs.existsSync(PATHS.restDefinitions)) {
+      console.warn(`REST definitions file not found. Returning empty definitions.`);
+      return { endpoints: [] };
+    }
+    const data = await fs.promises.readFile(PATHS.restDefinitions, 'utf8');
     return JSON.parse(data);
   } catch (error) {
     console.error('Error reading REST API definitions:', error);
-    throw error;
+    throw new Error(`Failed to read REST API definitions: ${error.message}`);
   }
 }
 
 /**
- * Determines the journey type from a GraphQL field or type name
- * @param {string} name - The field or type name to analyze
- * @returns {string} The journey type
+ * Determines the journey tag for a GraphQL field based on naming conventions
+ * @param {string} fieldName - The name of the GraphQL field
+ * @returns {string} The journey tag
  */
-function determineJourneyType(name) {
-  const lowerName = name.toLowerCase();
+function determineJourneyTag(fieldName) {
+  const fieldNameLower = fieldName.toLowerCase();
   
-  if (lowerName.includes('health') || lowerName.includes('metric') || lowerName.includes('device')) {
-    return JOURNEY_TYPES.HEALTH;
+  if (fieldNameLower.includes('health') || fieldNameLower.includes('metric') || fieldNameLower.includes('device')) {
+    return JOURNEYS.health.tag;
+  } else if (fieldNameLower.includes('care') || fieldNameLower.includes('appointment') || fieldNameLower.includes('provider')) {
+    return JOURNEYS.care.tag;
+  } else if (fieldNameLower.includes('plan') || fieldNameLower.includes('claim') || fieldNameLower.includes('benefit')) {
+    return JOURNEYS.plan.tag;
+  } else if (fieldNameLower.includes('achievement') || fieldNameLower.includes('reward') || fieldNameLower.includes('challenge')) {
+    return JOURNEYS.gamification.tag;
+  } else if (fieldNameLower.includes('auth') || fieldNameLower.includes('login') || fieldNameLower.includes('user')) {
+    return JOURNEYS.auth.tag;
   }
   
-  if (lowerName.includes('care') || lowerName.includes('appointment') || lowerName.includes('provider') || 
-      lowerName.includes('telemedicine') || lowerName.includes('medication')) {
-    return JOURNEY_TYPES.CARE;
-  }
-  
-  if (lowerName.includes('plan') || lowerName.includes('insurance') || lowerName.includes('claim') || 
-      lowerName.includes('benefit') || lowerName.includes('coverage')) {
-    return JOURNEY_TYPES.PLAN;
-  }
-  
-  if (lowerName.includes('achievement') || lowerName.includes('reward') || lowerName.includes('quest') || 
-      lowerName.includes('gamification') || lowerName.includes('leaderboard') || lowerName.includes('point')) {
-    return JOURNEY_TYPES.GAMIFICATION;
-  }
-  
-  return JOURNEY_TYPES.COMMON;
+  return 'general';
 }
 
 /**
  * Converts GraphQL schema to OpenAPI paths with journey-specific grouping
  * @param {object} jsonSchema - The GraphQL schema in JSON format
- * @param {string} [journeyType=null] - Optional journey type for specific tagging
  * @returns {object} OpenAPI paths derived from GraphQL schema
  */
-function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
-  console.log(`Converting GraphQL schema to OpenAPI format${journeyType ? ` for ${journeyType} journey` : ''}...`);
+function convertGraphQLToOpenAPI(jsonSchema) {
+  console.log('Converting GraphQL schema to OpenAPI format with journey-specific grouping...');
   
   const paths = {};
   const components = {
@@ -255,16 +238,11 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
     queryType.fields.forEach(field => {
       const operationId = `get${field.name.charAt(0).toUpperCase()}${field.name.slice(1)}`;
       const returnType = getReturnTypeName(field.type);
-      
-      // Determine the journey type for this field if not specified
-      const fieldJourneyType = journeyType || determineJourneyType(field.name);
-      const tags = journeyType ? 
-        [`${journeyType.charAt(0).toUpperCase() + journeyType.slice(1)} Journey`, 'GraphQL Queries'] : 
-        [`${fieldJourneyType.charAt(0).toUpperCase() + fieldJourneyType.slice(1)} Journey`, 'GraphQL Queries'];
+      const journeyTag = determineJourneyTag(field.name);
       
       paths[`/graphql/${field.name}`] = {
         get: {
-          tags,
+          tags: [`GraphQL ${journeyTag.charAt(0).toUpperCase() + journeyTag.slice(1)} Queries`],
           summary: field.description || `Get ${field.name}`,
           operationId,
           parameters: field.args.map(arg => ({
@@ -300,40 +278,27 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
               content: {
                 'application/json': {
                   schema: {
-                    type: 'object',
-                    properties: {
-                      errors: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            message: {
-                              type: 'string'
-                            },
-                            locations: {
-                              type: 'array',
-                              items: {
-                                type: 'object',
-                                properties: {
-                                  line: {
-                                    type: 'integer'
-                                  },
-                                  column: {
-                                    type: 'integer'
-                                  }
-                                }
-                              }
-                            },
-                            path: {
-                              type: 'array',
-                              items: {
-                                type: 'string'
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
+                    $ref: '#/components/schemas/GraphQLError'
+                  }
+                }
+              }
+            },
+            '401': {
+              description: 'Unauthorized',
+              content: {
+                'application/json': {
+                  schema: {
+                    $ref: '#/components/schemas/GraphQLError'
+                  }
+                }
+              }
+            },
+            '500': {
+              description: 'Internal server error',
+              content: {
+                'application/json': {
+                  schema: {
+                    $ref: '#/components/schemas/GraphQLError'
                   }
                 }
               }
@@ -350,16 +315,11 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
     mutationType.fields.forEach(field => {
       const operationId = field.name;
       const returnType = getReturnTypeName(field.type);
-      
-      // Determine the journey type for this field if not specified
-      const fieldJourneyType = journeyType || determineJourneyType(field.name);
-      const tags = journeyType ? 
-        [`${journeyType.charAt(0).toUpperCase() + journeyType.slice(1)} Journey`, 'GraphQL Mutations'] : 
-        [`${fieldJourneyType.charAt(0).toUpperCase() + fieldJourneyType.slice(1)} Journey`, 'GraphQL Mutations'];
+      const journeyTag = determineJourneyTag(field.name);
       
       paths[`/graphql/${field.name}`] = {
         post: {
-          tags,
+          tags: [`GraphQL ${journeyTag.charAt(0).toUpperCase() + journeyTag.slice(1)} Mutations`],
           summary: field.description || `Execute ${field.name} mutation`,
           operationId,
           requestBody: {
@@ -408,20 +368,27 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
               content: {
                 'application/json': {
                   schema: {
-                    type: 'object',
-                    properties: {
-                      errors: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            message: {
-                              type: 'string'
-                            }
-                          }
-                        }
-                      }
-                    }
+                    $ref: '#/components/schemas/GraphQLError'
+                  }
+                }
+              }
+            },
+            '401': {
+              description: 'Unauthorized',
+              content: {
+                'application/json': {
+                  schema: {
+                    $ref: '#/components/schemas/GraphQLError'
+                  }
+                }
+              }
+            },
+            '500': {
+              description: 'Internal server error',
+              content: {
+                'application/json': {
+                  schema: {
+                    $ref: '#/components/schemas/GraphQLError'
                   }
                 }
               }
@@ -432,6 +399,61 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
     });
   }
   
+  // Add GraphQLError schema
+  components.schemas['GraphQLError'] = {
+    type: 'object',
+    properties: {
+      errors: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            message: {
+              type: 'string',
+              description: 'Error message'
+            },
+            locations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  line: {
+                    type: 'integer',
+                    description: 'Line number where the error occurred'
+                  },
+                  column: {
+                    type: 'integer',
+                    description: 'Column number where the error occurred'
+                  }
+                }
+              }
+            },
+            path: {
+              type: 'array',
+              items: {
+                type: 'string',
+                description: 'Path to the field that caused the error'
+              }
+            },
+            extensions: {
+              type: 'object',
+              properties: {
+                code: {
+                  type: 'string',
+                  description: 'Error code'
+                },
+                classification: {
+                  type: 'string',
+                  description: 'Error classification'
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  
   return { paths, components };
 }
 
@@ -441,7 +463,7 @@ function convertGraphQLToOpenAPI(jsonSchema, journeyType = null) {
  * @returns {object} OpenAPI paths for REST endpoints
  */
 function convertRestToOpenAPI(restDefinitions) {
-  console.log('Converting REST definitions to OpenAPI format...');
+  console.log('Converting REST definitions to OpenAPI format with journey-specific grouping...');
   const paths = {};
   
   restDefinitions.endpoints.forEach(endpoint => {
@@ -452,33 +474,10 @@ function convertRestToOpenAPI(restDefinitions) {
     }
     
     const method = endpoint.method.toLowerCase();
-    
-    // Determine journey type from path or tags
-    let journeyType = JOURNEY_TYPES.COMMON;
-    if (endpoint.journey) {
-      journeyType = endpoint.journey;
-    } else if (pathKey.includes('/health/')) {
-      journeyType = JOURNEY_TYPES.HEALTH;
-    } else if (pathKey.includes('/care/')) {
-      journeyType = JOURNEY_TYPES.CARE;
-    } else if (pathKey.includes('/plan/')) {
-      journeyType = JOURNEY_TYPES.PLAN;
-    } else if (pathKey.includes('/gamification/')) {
-      journeyType = JOURNEY_TYPES.GAMIFICATION;
-    }
-    
-    // Add journey-specific tag
-    const journeyTag = `${journeyType.charAt(0).toUpperCase() + journeyType.slice(1)} Journey`;
-    const tags = endpoint.tags || [];
-    if (!tags.includes(journeyTag)) {
-      tags.unshift(journeyTag);
-    }
-    if (!tags.includes('REST API')) {
-      tags.push('REST API');
-    }
+    const journeyTag = endpoint.journey || determineJourneyTag(endpoint.operationId || pathKey);
     
     paths[pathKey][method] = {
-      tags,
+      tags: endpoint.tags || [`REST ${journeyTag.charAt(0).toUpperCase() + journeyTag.slice(1)} API`],
       summary: endpoint.summary || '',
       description: endpoint.description || '',
       operationId: endpoint.operationId || `${method}${pathKey.replace(/\//g, '_')}`,
@@ -492,6 +491,15 @@ function convertRestToOpenAPI(restDefinitions) {
       responses: endpoint.responses || {
         '200': {
           description: 'Successful operation'
+        },
+        '400': {
+          description: 'Bad request'
+        },
+        '401': {
+          description: 'Unauthorized'
+        },
+        '500': {
+          description: 'Internal server error'
         }
       }
     };
@@ -499,12 +507,6 @@ function convertRestToOpenAPI(restDefinitions) {
     // Add request body if applicable
     if (endpoint.requestBody) {
       paths[pathKey][method].requestBody = endpoint.requestBody;
-    }
-    
-    // Add API version if available
-    if (endpoint.version) {
-      paths[pathKey][method].description = 
-        `${paths[pathKey][method].description}\n\nAPI Version: ${endpoint.version}`;
     }
   });
   
@@ -515,41 +517,38 @@ function convertRestToOpenAPI(restDefinitions) {
  * Merges GraphQL and REST API OpenAPI paths into a single specification
  * @param {object} graphqlOpenAPI - OpenAPI paths from GraphQL schema
  * @param {object} restOpenAPI - OpenAPI paths from REST definitions
- * @param {object} journeyGraphQLOpenAPIs - Journey-specific OpenAPI paths
  * @returns {object} Merged OpenAPI specification
  */
-function mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI, journeyGraphQLOpenAPIs = {}) {
+function mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI) {
   console.log('Merging GraphQL and REST API documentation...');
   
-  // Merge all paths
-  let mergedPaths = {
+  const mergedPaths = {
     ...graphqlOpenAPI.paths,
     ...restOpenAPI.paths
   };
   
-  // Merge journey-specific paths
-  Object.values(journeyGraphQLOpenAPIs).forEach(journeyAPI => {
-    mergedPaths = {
-      ...mergedPaths,
-      ...journeyAPI.paths
-    };
-  });
+  // Create tags for each journey
+  const tags = Object.values(JOURNEYS).map(journey => ({
+    name: journey.name,
+    description: journey.description
+  }));
   
-  // Merge all components.schemas
-  const mergedSchemas = {
-    ...(graphqlOpenAPI.components && graphqlOpenAPI.components.schemas)
-  };
-  
-  // Merge journey-specific schemas
-  Object.values(journeyGraphQLOpenAPIs).forEach(journeyAPI => {
-    if (journeyAPI.components && journeyAPI.components.schemas) {
-      Object.entries(journeyAPI.components.schemas).forEach(([schemaName, schema]) => {
-        // Only add if not already present or override with more specific schema
-        if (!mergedSchemas[schemaName] || schemaName.includes(journeyAPI.journeyType)) {
-          mergedSchemas[schemaName] = schema;
-        }
-      });
-    }
+  // Add GraphQL and REST specific tags
+  Object.values(JOURNEYS).forEach(journey => {
+    tags.push(
+      {
+        name: `GraphQL ${journey.tag.charAt(0).toUpperCase() + journey.tag.slice(1)} Queries`,
+        description: `GraphQL queries for the ${journey.name}`
+      },
+      {
+        name: `GraphQL ${journey.tag.charAt(0).toUpperCase() + journey.tag.slice(1)} Mutations`,
+        description: `GraphQL mutations for the ${journey.name}`
+      },
+      {
+        name: `REST ${journey.tag.charAt(0).toUpperCase() + journey.tag.slice(1)} API`,
+        description: `REST endpoints for the ${journey.name}`
+      }
+    );
   });
   
   return {
@@ -557,7 +556,7 @@ function mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI, journeyGraphQLOpenAPIs =
     info: {
       title: 'AUSTA SuperApp API',
       description: 'API documentation for the AUSTA SuperApp',
-      version: '2.0.0',
+      version: API_VERSION,
       contact: {
         name: 'AUSTA Team',
         email: 'api@austa.com.br'
@@ -573,43 +572,12 @@ function mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI, journeyGraphQLOpenAPIs =
         description: 'Staging API Server'
       }
     ],
-    tags: [
-      {
-        name: 'Health Journey',
-        description: 'APIs related to the Health journey'
-      },
-      {
-        name: 'Care Journey',
-        description: 'APIs related to the Care journey'
-      },
-      {
-        name: 'Plan Journey',
-        description: 'APIs related to the Plan journey'
-      },
-      {
-        name: 'Gamification Journey',
-        description: 'APIs related to the Gamification system'
-      },
-      {
-        name: 'Common',
-        description: 'APIs shared across multiple journeys'
-      },
-      {
-        name: 'GraphQL Queries',
-        description: 'GraphQL query operations'
-      },
-      {
-        name: 'GraphQL Mutations',
-        description: 'GraphQL mutation operations'
-      },
-      {
-        name: 'REST API',
-        description: 'REST API endpoints'
-      }
-    ],
+    tags,
     paths: mergedPaths,
     components: {
-      schemas: mergedSchemas,
+      schemas: {
+        ...(graphqlOpenAPI.components && graphqlOpenAPI.components.schemas)
+      },
       securitySchemes: {
         bearerAuth: {
           type: 'http',
@@ -622,7 +590,8 @@ function mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI, journeyGraphQLOpenAPIs =
       {
         bearerAuth: []
       }
-    ]
+    ],
+    'x-api-versions': API_VERSIONS
   };
 }
 
@@ -651,7 +620,7 @@ async function writeOpenAPISpecToFile(openAPISpec) {
     console.log('OpenAPI specification generated successfully!');
   } catch (error) {
     console.error('Error writing OpenAPI specification to file:', error);
-    throw error;
+    throw new Error(`Failed to write OpenAPI specification: ${error.message}`);
   }
 }
 
@@ -710,12 +679,10 @@ function getOpenAPIType(type) {
       return { type: 'string', format: 'date-time' };
     case 'Date':
       return { type: 'string', format: 'date' };
-    case 'Time':
-      return { type: 'string', format: 'time' };
     case 'JSON':
       return { type: 'object', additionalProperties: true };
-    case 'JSONObject':
-      return { type: 'object', additionalProperties: true };
+    case 'URL':
+      return { type: 'string', format: 'uri' };
     default:
       return { type: 'object', $ref: `#/components/schemas/${type.name}` };
   }
@@ -740,39 +707,29 @@ function isNonNullType(type) {
 async function generateApiDocs() {
   try {
     console.log('Starting API documentation generation...');
+    console.log(`Using Node.js ${process.version}`);
+    console.log(`API Version: ${API_VERSION}`);
     
-    // Read GraphQL schemas (main and journey-specific)
-    const { mainSchema, journeySchemas } = await readGraphQLSchemas();
+    // Verify paths
+    await verifyPaths();
     
-    // Generate JSON schema from main GraphQL schema
-    const mainJsonSchema = await generateJsonSchema(mainSchema, 'main-schema');
+    // Read GraphQL schema
+    const graphqlSchema = await readGraphQLSchema();
     
-    // Generate JSON schemas for journey-specific schemas
-    const journeyJsonSchemas = {};
-    for (const [journey, schema] of Object.entries(journeySchemas)) {
-      journeyJsonSchemas[journey] = await generateJsonSchema(schema, `${journey}-schema`);
-    }
+    // Generate JSON schema from GraphQL schema
+    const jsonSchema = await generateJsonSchema(graphqlSchema);
     
     // Read REST API endpoint definitions
     const restDefinitions = await readRestDefinitions();
     
-    // Convert main GraphQL schema to OpenAPI paths
-    const graphqlOpenAPI = convertGraphQLToOpenAPI(mainJsonSchema);
-    
-    // Convert journey-specific GraphQL schemas to OpenAPI paths
-    const journeyGraphQLOpenAPIs = {};
-    for (const [journey, jsonSchema] of Object.entries(journeyJsonSchemas)) {
-      journeyGraphQLOpenAPIs[journey] = {
-        ...convertGraphQLToOpenAPI(jsonSchema, journey),
-        journeyType: journey
-      };
-    }
+    // Convert GraphQL schema to OpenAPI paths
+    const graphqlOpenAPI = convertGraphQLToOpenAPI(jsonSchema);
     
     // Convert REST API definitions to OpenAPI paths
     const restOpenAPI = convertRestToOpenAPI(restDefinitions);
     
-    // Merge all OpenAPI paths
-    const openAPISpec = mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI, journeyGraphQLOpenAPIs);
+    // Merge GraphQL and REST API OpenAPI paths
+    const openAPISpec = mergeOpenAPISpecs(graphqlOpenAPI, restOpenAPI);
     
     // Write the OpenAPI specification to a YAML file
     await writeOpenAPISpecToFile(openAPISpec);
