@@ -1,101 +1,75 @@
 /**
  * @file Configuration type definitions for the Care Service
- * @description Defines TypeScript interfaces for all Care Service configuration objects,
- * ensuring type safety and consistency throughout the service.
  * 
- * @requires @austa/interfaces - Shared TypeScript interfaces for data models
- * @version 1.0.0
- * @compatibility Requires TypeScript 5.3.3+
- * @compatibility Requires @austa/interfaces 1.0.0+
- * @compatibility Requires NestJS 10.3.0+
+ * This file defines TypeScript interfaces for all Care Service configuration objects,
+ * ensuring type safety and consistency throughout the service. It includes journey-specific
+ * type definitions for appointment scheduling, medication tracking, telemedicine, treatments,
+ * and external integrations.
  */
+
+import { JourneyType } from '@austa/interfaces/common';
+import { NotificationChannel, NotificationTemplate } from '@austa/interfaces/notification';
+import { GamificationEvent } from '@austa/interfaces/gamification';
 
 /**
- * Version Compatibility:
- * - TypeScript: 5.3.3 or higher
- * - @austa/interfaces: 1.0.0 or higher
- * - NestJS: 10.3.0 or higher
- * 
- * This file defines the type structure for the Care Service configuration.
- * It provides type safety and IntelliSense support for the configuration object
- * defined in configuration.ts.
+ * Database configuration options for the Care Service
  */
-
-import { JourneyConfig } from '@austa/interfaces/journey/care';
-import { GamificationEventTypes } from '@austa/interfaces/gamification';
-import { LogLevel, LogFormat } from '@austa/interfaces/common';
-
-/**
- * This file provides TypeScript interfaces for the configuration object defined in
- * the `configuration.ts` file. These interfaces ensure type safety when accessing
- * configuration properties throughout the Care Service.
- * 
- * Related files:
- * - configuration.ts: Defines the actual configuration values
- * - config.module.ts: Registers the configuration with NestJS
- * 
- * @see configuration.ts for the implementation of these configuration values
- */
-
-/**
- * Core database configuration for the Care Service
- */
-export interface CareServiceDatabaseConfig {
+export interface DatabaseConfig {
   /** Database connection URL */
   url: string;
   /** Maximum number of database connections in the pool */
   maxConnections: number;
-  /** Timeout in milliseconds for idle connections */
+  /** Timeout in milliseconds before idle connections are closed */
   idleTimeoutMillis: number;
   /** Whether to use SSL for database connections */
   ssl: boolean;
 }
 
 /**
- * Redis configuration for caching and real-time features
+ * Redis configuration options for caching and real-time features
  */
-export interface CareServiceRedisConfig {
+export interface RedisConfig {
   /** Redis connection URL */
   url: string;
-  /** Time-to-live in seconds for cached items */
+  /** Default TTL (time to live) for cached items in seconds */
   ttl: number;
-  /** Prefix for Redis keys to avoid collisions */
+  /** Prefix for all Redis keys to avoid collisions with other services */
   prefix: string;
 }
 
 /**
- * OAuth configuration for authentication
+ * OAuth configuration options for authentication
  */
-export interface CareServiceOAuthConfig {
+export interface OAuthConfig {
   /** OAuth authority URL */
   authority: string;
-  /** Client ID for OAuth authentication */
+  /** OAuth client ID */
   clientId: string;
-  /** Client secret for OAuth authentication */
+  /** OAuth client secret */
   clientSecret: string;
-  /** OAuth audience for token validation */
+  /** OAuth audience */
   audience: string;
 }
 
 /**
- * Authentication configuration for the Care Service
+ * Authentication configuration options
  */
-export interface CareServiceAuthConfig {
+export interface AuthConfig {
   /** Secret key for JWT signing */
   jwtSecret: string;
-  /** JWT token expiration time */
+  /** JWT expiration time */
   jwtExpiresIn: string;
   /** OAuth configuration */
-  oauth: CareServiceOAuthConfig;
+  oauth: OAuthConfig;
 }
 
 /**
  * Provider systems integration configuration
  */
-export interface CareServiceProvidersConfig {
+export interface ProvidersConfig {
   /** Provider API URL */
   apiUrl: string;
-  /** API key for provider system */
+  /** API key for provider API */
   apiKey: string;
   /** Request timeout in milliseconds */
   timeout: number;
@@ -112,35 +86,35 @@ export interface CareServiceProvidersConfig {
 /**
  * Cancellation policy configuration for appointments
  */
-export interface CareServiceCancellationPolicyConfig {
+export interface CancellationPolicyConfig {
   /** Whether the cancellation policy is enabled */
   enabled: boolean;
   /** Minimum notice hours required for cancellation without penalty */
   minimumNoticeHours: number;
-  /** XP points lost for late cancellations */
+  /** XP loss penalty for late cancellations */
   penaltyXpLoss: number;
 }
 
 /**
  * Appointment scheduling configuration
  */
-export interface CareServiceAppointmentsConfig {
-  /** Maximum number of days in advance for booking appointments */
+export interface AppointmentsConfig {
+  /** Maximum number of days in advance that appointments can be scheduled */
   maxAdvanceDays: number;
-  /** Comma-separated schedule for appointment reminders (e.g., "24h,1h") */
+  /** Comma-separated list of reminder times before appointment (e.g., "24h,1h") */
   reminderSchedule: string;
   /** Default appointment duration in minutes */
   defaultDuration: number;
   /** Cancellation policy configuration */
-  cancellationPolicy: CareServiceCancellationPolicyConfig;
+  cancellationPolicy: CancellationPolicyConfig;
   /** Buffer time in minutes between appointments */
   availabilityBuffer: number;
 }
 
 /**
- * Agora configuration for telemedicine
+ * Agora video service configuration for telemedicine
  */
-export interface CareServiceAgoraConfig {
+export interface AgoraConfig {
   /** Agora App ID */
   appId: string;
   /** Agora App Certificate */
@@ -150,24 +124,24 @@ export interface CareServiceAgoraConfig {
 }
 
 /**
- * Recording storage configuration for telemedicine
+ * Recording storage configuration for telemedicine sessions
  */
-export interface CareServiceRecordingStorageConfig {
-  /** S3 bucket for storing recordings */
+export interface RecordingStorageConfig {
+  /** S3 bucket name for storing recordings */
   bucket: string;
   /** AWS region for the S3 bucket */
   region: string;
-  /** Number of days to retain recordings */
+  /** Number of days to retain recordings before deletion */
   retentionDays: number;
 }
 
 /**
- * Quality thresholds for telemedicine sessions
+ * Quality thresholds configuration for telemedicine video
  */
-export interface CareServiceQualityThresholdsConfig {
-  /** Minimum bitrate in bps for acceptable video quality */
+export interface QualityThresholdsConfig {
+  /** Minimum acceptable bitrate in bps */
   minimumBitrate: number;
-  /** Minimum framerate for acceptable video quality */
+  /** Minimum acceptable framerate */
   minimumFramerate: number;
   /** Connection timeout in milliseconds */
   connectionTimeout: number;
@@ -176,7 +150,7 @@ export interface CareServiceQualityThresholdsConfig {
 /**
  * Session duration configuration for telemedicine
  */
-export interface CareServiceSessionDurationConfig {
+export interface SessionDurationConfig {
   /** Default session duration in minutes */
   default: number;
   /** Maximum session duration in minutes */
@@ -188,82 +162,82 @@ export interface CareServiceSessionDurationConfig {
 /**
  * Telemedicine configuration
  */
-export interface CareServiceTelemedicineConfig {
+export interface TelemedicineConfig {
   /** Whether telemedicine is enabled */
   enabled: boolean;
   /** Telemedicine provider (e.g., "agora") */
   provider: string;
   /** Agora configuration */
-  agora: CareServiceAgoraConfig;
+  agora: AgoraConfig;
   /** Whether recording is enabled for telemedicine sessions */
   recordingEnabled: boolean;
   /** Recording storage configuration */
-  recordingStorage: CareServiceRecordingStorageConfig;
-  /** Quality thresholds for telemedicine sessions */
-  qualityThresholds: CareServiceQualityThresholdsConfig;
+  recordingStorage: RecordingStorageConfig;
+  /** Quality thresholds for video */
+  qualityThresholds: QualityThresholdsConfig;
   /** Session duration configuration */
-  sessionDuration: CareServiceSessionDurationConfig;
+  sessionDuration: SessionDurationConfig;
 }
 
 /**
  * Medication tracking configuration
  */
-export interface CareServiceMedicationsConfig {
+export interface MedicationsConfig {
   /** Whether medication reminders are enabled */
   reminderEnabled: boolean;
-  /** Default reminder times (e.g., "1h,0h") */
+  /** Default reminder times for medications (e.g., "1h,0h") */
   reminderDefaultTime: string;
   /** Threshold for medication adherence (0.0-1.0) */
   adherenceThreshold: number;
-  /** Days before medication refill to send reminder */
+  /** Days before medication runs out to send refill reminder */
   refillReminderDays: number;
-  /** Maximum number of missed doses before alert */
+  /** Maximum number of missed doses before intervention */
   maxMissedDoses: number;
   /** Time window in minutes for taking medication */
   doseWindowMinutes: number;
 }
 
 /**
- * Progress thresholds for treatment plans
+ * Progress thresholds configuration for treatment plans
  */
-export interface CareServiceProgressThresholdsConfig {
-  /** Threshold for at-risk treatment progress (0.0-1.0) */
+export interface ProgressThresholdsConfig {
+  /** Threshold below which treatment is considered at risk (0.0-1.0) */
   atRisk: number;
-  /** Threshold for on-track treatment progress (0.0-1.0) */
+  /** Threshold above which treatment is considered on track (0.0-1.0) */
   onTrack: number;
 }
 
 /**
- * Intervention triggers for treatment plans
+ * Intervention triggers configuration for treatment plans
  */
-export interface CareServiceInterventionTriggersConfig {
-  /** Number of missed activities before intervention */
+export interface InterventionTriggersConfig {
+  /** Number of missed activities that triggers intervention */
   missedActivities: number;
-  /** Number of missed appointments before intervention */
+  /** Number of missed appointments that triggers intervention */
   missedAppointments: number;
 }
 
 /**
  * Treatment plans configuration
  */
-export interface CareServiceTreatmentPlansConfig {
+export interface TreatmentPlansConfig {
   /** Whether treatment reminders are enabled */
   reminderEnabled: boolean;
-  /** Frequency of progress updates (e.g., "daily") */
+  /** Frequency of progress updates (e.g., "daily", "weekly") */
   progressUpdateFrequency: string;
   /** Progress thresholds configuration */
-  progressThresholds: CareServiceProgressThresholdsConfig;
+  progressThresholds: ProgressThresholdsConfig;
   /** Intervention triggers configuration */
-  interventionTriggers: CareServiceInterventionTriggersConfig;
+  interventionTriggers: InterventionTriggersConfig;
 }
 
 /**
  * External API configuration for symptom checker
  */
-export interface CareServiceSymptomsCheckerExternalApiConfig {
+export interface ExternalApiConfig {
   /** External API URL */
   url: string;
-  /** API key for external service */
+  /** API key for external API */
   apiKey: string;
   /** Request timeout in milliseconds */
   timeout: number;
@@ -272,85 +246,85 @@ export interface CareServiceSymptomsCheckerExternalApiConfig {
 /**
  * Symptom checker configuration
  */
-export interface CareServiceSymptomsCheckerConfig {
+export interface SymptomsCheckerConfig {
   /** Whether symptom checker is enabled */
   enabled: boolean;
-  /** Symptom checker provider (e.g., "internal") */
+  /** Symptom checker provider (e.g., "internal", "external") */
   provider: string;
   /** External API configuration */
-  externalApi: CareServiceSymptomsCheckerExternalApiConfig;
+  externalApi: ExternalApiConfig;
   /** Comma-separated list of emergency symptoms */
   emergencySymptoms: string;
-  /** Frequency of symptom database updates */
+  /** Frequency of symptom database updates (e.g., "weekly") */
   updateFrequency: string;
 }
 
 /**
  * Notification throttling configuration
  */
-export interface CareServiceNotificationThrottlingConfig {
-  /** Whether throttling is enabled */
+export interface NotificationThrottlingConfig {
+  /** Whether notification throttling is enabled */
   enabled: boolean;
-  /** Maximum notifications per hour */
+  /** Maximum number of notifications per hour */
   maxPerHour: number;
-  /** Maximum notifications per day */
+  /** Maximum number of notifications per day */
   maxPerDay: number;
 }
 
 /**
  * Notification templates configuration
  */
-export interface CareServiceNotificationTemplatesConfig {
+export interface NotificationTemplatesConfig {
   /** Template ID for appointment reminders */
-  appointmentReminder: string;
+  appointmentReminder: NotificationTemplate;
   /** Template ID for appointment confirmations */
-  appointmentConfirmation: string;
+  appointmentConfirmation: NotificationTemplate;
   /** Template ID for medication reminders */
-  medicationReminder: string;
+  medicationReminder: NotificationTemplate;
   /** Template ID for treatment updates */
-  treatmentUpdate: string;
+  treatmentUpdate: NotificationTemplate;
 }
 
 /**
- * Notification service integration configuration
+ * Notifications service integration configuration
  */
-export interface CareServiceNotificationsConfig {
+export interface NotificationsConfig {
   /** Notification service URL */
   serviceUrl: string;
   /** API key for notification service */
   apiKey: string;
-  /** Default notification channels (e.g., "push,email") */
+  /** Default notification channels (comma-separated) */
   defaultChannel: string;
   /** Notification throttling configuration */
-  throttling: CareServiceNotificationThrottlingConfig;
+  throttling: NotificationThrottlingConfig;
   /** Notification templates configuration */
-  templates: CareServiceNotificationTemplatesConfig;
+  templates: NotificationTemplatesConfig;
 }
 
 /**
  * Default gamification events configuration
  */
-export interface CareServiceGamificationDefaultEventsConfig {
+export interface DefaultEventsConfig {
   /** Event type for appointment booking */
-  appointmentBooked: GamificationEventTypes;
+  appointmentBooked: GamificationEvent;
   /** Event type for appointment attendance */
-  appointmentAttended: GamificationEventTypes;
+  appointmentAttended: GamificationEvent;
   /** Event type for appointment cancellation */
-  appointmentCancelled: GamificationEventTypes;
-  /** Event type for telemedicine completion */
-  telemedicineCompleted: GamificationEventTypes;
+  appointmentCancelled: GamificationEvent;
+  /** Event type for completed telemedicine session */
+  telemedicineCompleted: GamificationEvent;
   /** Event type for medication adherence */
-  medicationAdherence: GamificationEventTypes;
+  medicationAdherence: GamificationEvent;
   /** Event type for treatment progress */
-  treatmentProgress: GamificationEventTypes;
-  /** Event type for symptom checker completion */
-  symptomCheckerCompleted: GamificationEventTypes;
+  treatmentProgress: GamificationEvent;
+  /** Event type for completed symptom checker */
+  symptomCheckerCompleted: GamificationEvent;
 }
 
 /**
- * Gamification point values configuration
+ * Point values configuration for gamification events
  */
-export interface CareServiceGamificationPointValuesConfig {
+export interface PointValuesConfig {
   /** Points for booking an appointment */
   appointmentBooked: number;
   /** Points for attending an appointment */
@@ -366,32 +340,32 @@ export interface CareServiceGamificationPointValuesConfig {
 /**
  * Gamification integration configuration
  */
-export interface CareServiceGamificationConfig {
+export interface GamificationConfig {
   /** Whether gamification is enabled */
   enabled: boolean;
   /** Gamification service URL */
   serviceUrl: string;
   /** API key for gamification service */
   apiKey: string;
-  /** Default event types configuration */
-  defaultEvents: CareServiceGamificationDefaultEventsConfig;
+  /** Default gamification events configuration */
+  defaultEvents: DefaultEventsConfig;
   /** Point values configuration */
-  pointValues: CareServiceGamificationPointValuesConfig;
+  pointValues: PointValuesConfig;
 }
 
 /**
  * Pharmacy networks integration configuration
  */
-export interface CareServicePharmacyNetworksConfig {
+export interface PharmacyNetworksConfig {
   /** Whether pharmacy integration is enabled */
   enabled: boolean;
   /** Pharmacy API URL */
   apiUrl: string;
-  /** API key for pharmacy service */
+  /** API key for pharmacy API */
   apiKey: string;
   /** Request timeout in milliseconds */
   timeout: number;
-  /** Whether caching is enabled for pharmacy data */
+  /** Whether to enable caching for pharmacy data */
   cacheEnabled: boolean;
   /** Cache TTL in seconds for pharmacy data */
   cacheTtl: number;
@@ -400,12 +374,12 @@ export interface CareServicePharmacyNetworksConfig {
 /**
  * Emergency services integration configuration
  */
-export interface CareServiceEmergencyServicesConfig {
+export interface EmergencyServicesConfig {
   /** Whether emergency services integration is enabled */
   enabled: boolean;
   /** Emergency services API URL */
   apiUrl: string;
-  /** API key for emergency services */
+  /** API key for emergency services API */
   apiKey: string;
   /** Emergency phone number */
   emergencyNumber: string;
@@ -414,99 +388,85 @@ export interface CareServiceEmergencyServicesConfig {
 /**
  * External integrations configuration
  */
-export interface CareServiceIntegrationsConfig {
+export interface IntegrationsConfig {
   /** Pharmacy networks integration configuration */
-  pharmacyNetworks: CareServicePharmacyNetworksConfig;
+  pharmacyNetworks: PharmacyNetworksConfig;
   /** Emergency services integration configuration */
-  emergencyServices: CareServiceEmergencyServicesConfig;
+  emergencyServices: EmergencyServicesConfig;
 }
 
 /**
  * Logging configuration
  */
-export interface CareServiceLoggingConfig {
-  /** Log level (debug, info, warn, error) */
-  level: LogLevel;
-  /** Log format (json, text) */
-  format: LogFormat;
-  /** Whether request logging is enabled */
+export interface LoggingConfig {
+  /** Log level (e.g., "debug", "info", "warn", "error") */
+  level: string;
+  /** Log format (e.g., "json", "text") */
+  format: string;
+  /** Whether to log HTTP requests */
   requestLogging: boolean;
-  /** Comma-separated list of sensitive data fields to mask */
+  /** Comma-separated list of sensitive data fields to redact */
   sensitiveDataFields: string;
   /** Journey context identifier */
-  journeyContext: string;
+  journeyContext: JourneyType;
 }
 
 /**
  * Feature flags configuration
  */
-export interface CareServiceFeaturesConfig {
-  /** Whether symptoms checker is enabled */
+export interface FeaturesConfig {
+  /** Whether to enable the symptoms checker feature */
   enableSymptomsChecker: boolean;
-  /** Whether treatment tracking is enabled */
+  /** Whether to enable the treatment tracking feature */
   enableTreatmentTracking: boolean;
-  /** Whether emergency access is enabled */
+  /** Whether to enable emergency access feature */
   enableEmergencyAccess: boolean;
-  /** Whether virtual waiting room is enabled */
+  /** Whether to enable virtual waiting room feature */
   enableVirtualWaitingRoom: boolean;
-  /** Whether provider ratings are enabled */
+  /** Whether to enable provider ratings feature */
   enableProviderRatings: boolean;
-  /** Whether document sharing is enabled */
+  /** Whether to enable document sharing feature */
   enableDocumentSharing: boolean;
-  /** Whether follow-up suggestions are enabled */
+  /** Whether to enable follow-up suggestions feature */
   enableFollowUpSuggestions: boolean;
 }
 
 /**
  * Complete Care Service configuration interface
- * @implements {JourneyConfig} from @austa/interfaces/journey/care
- * 
- * Usage example:
- * ```typescript
- * import { CareServiceConfig } from './config/types';
- * import { configuration } from './config/configuration';
- * 
- * // Type-safe configuration access
- * const config = configuration() as CareServiceConfig;
- * 
- * // Access configuration properties with full type safety
- * const appointmentDuration = config.appointments.defaultDuration;
- * const isTelemedicineEnabled = config.telemedicine.enabled;
- * ```
  */
-export interface CareServiceConfig extends JourneyConfig {
-  /** Environment (development, staging, production) */
+export interface CareServiceConfig {
+  /** Environment (e.g., "development", "production") */
   env: string;
   /** Service port number */
   port: number;
-  /** API prefix for all endpoints */
+  /** API prefix */
   apiPrefix: string;
   /** Database configuration */
-  database: CareServiceDatabaseConfig;
+  database: DatabaseConfig;
   /** Redis configuration */
-  redis: CareServiceRedisConfig;
+  redis: RedisConfig;
   /** Authentication configuration */
-  auth: CareServiceAuthConfig;
+  auth: AuthConfig;
   /** Provider systems integration configuration */
-  providers: CareServiceProvidersConfig;
+  providers: ProvidersConfig;
   /** Appointment scheduling configuration */
-  appointments: CareServiceAppointmentsConfig;
+  appointments: AppointmentsConfig;
   /** Telemedicine configuration */
-  telemedicine: CareServiceTelemedicineConfig;
+  telemedicine: TelemedicineConfig;
   /** Medication tracking configuration */
-  medications: CareServiceMedicationsConfig;
+  medications: MedicationsConfig;
   /** Treatment plans configuration */
-  treatmentPlans: CareServiceTreatmentPlansConfig;
+  treatmentPlans: TreatmentPlansConfig;
   /** Symptom checker configuration */
-  symptomsChecker: CareServiceSymptomsCheckerConfig;
-  /** Notification service integration configuration */
-  notifications: CareServiceNotificationsConfig;
+  symptomsChecker: SymptomsCheckerConfig;
+  /** Notifications service integration configuration */
+  notifications: NotificationsConfig;
   /** Gamification integration configuration */
-  gamification: CareServiceGamificationConfig;
+  gamification: GamificationConfig;
   /** External integrations configuration */
-  integrations: CareServiceIntegrationsConfig;
+  integrations: IntegrationsConfig;
   /** Logging configuration */
-  logging: CareServiceLoggingConfig;
+  logging: LoggingConfig;
   /** Feature flags configuration */
-  features: CareServiceFeaturesConfig;
+  features: FeaturesConfig;
 }
