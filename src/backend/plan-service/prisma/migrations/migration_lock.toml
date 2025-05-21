@@ -1,0 +1,5 @@
+# This is a Prisma Migration lockfile v1
+
+# Read more about conflict resolution here: https://pris.ly/d/migrate-resolve
+
+provider = "postgresql"
