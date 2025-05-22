@@ -1,1 +1,29 @@
-Failed to process file
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "es2022",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "@austa/events/*": ["./src/*"],
+      "@austa/events": ["./src"],
+      "@austa/interfaces/*": ["../interfaces/*"],
+      "@austa/interfaces": ["../interfaces"],
+      "@austa/errors/*": ["../errors/*"],
+      "@austa/errors": ["../errors"]
+    }
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ]
+}
