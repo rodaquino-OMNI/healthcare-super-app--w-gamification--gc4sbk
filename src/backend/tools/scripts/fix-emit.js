@@ -8,16 +8,20 @@
  * that restores the original configuration.
  * 
  * This file is kept for historical reference only and should not be executed.
- * 
- * Compatible with:
- * - Node.js ≥18.0.0
- * - TypeScript 5.3.3
+ * Running this script may interfere with the new standardized path resolution
+ * approach implemented in the refactored codebase.
  */
 
 /**
  * This script fixes the "may not disable emit" errors by setting noEmit:false
- * in all tsconfig.json files across the monorepo and enabling composite project
- * references to support standardized path resolution.
+ * in all tsconfig.json files across the monorepo.
+ * 
+ * Compatible with:
+ * - Node.js ≥18.0.0
+ * - TypeScript 5.3.3
+ * 
+ * HISTORICAL REFERENCE ONLY - The functionality provided by this script has been
+ * superseded by the standardized TypeScript configuration approach in the refactored codebase.
  */
 
 const fs = require('fs');
@@ -65,11 +69,6 @@ function updateTsconfigEmit(servicePath) {
     // Ensure composite is true for project references
     config.compilerOptions.composite = true;
     
-    // Support standardized path resolution
-    if (!config.compilerOptions.paths) {
-      config.compilerOptions.paths = {};
-    }
-    
     // Write the updated config
     fs.writeFileSync(tsconfigPath, JSON.stringify(config, null, 2));
     console.log(`✅ Updated emit configuration in ${tsconfigPath}`);
@@ -98,11 +97,6 @@ function updateRootTsconfig() {
     // Set noEmit to false explicitly in the root config
     config.compilerOptions.noEmit = false;
     
-    // Ensure TypeScript 5.3.3 compatibility
-    if (!config.compilerOptions.target) {
-      config.compilerOptions.target = "ES2022";
-    }
-    
     // Write the updated config
     fs.writeFileSync(rootTsconfigPath, JSON.stringify(config, null, 2));
     console.log(`✅ Updated root tsconfig.json emit configuration`);
@@ -113,6 +107,12 @@ function updateRootTsconfig() {
     return false;
   }
 }
+
+/**
+ * Note: This script does not support the new standardized path resolution approach
+ * implemented in the refactored codebase. The new approach uses consistent path aliases
+ * and TypeScript project references for proper build ordering.
+ */
 
 // Main execution
 let success = updateRootTsconfig();
@@ -131,6 +131,7 @@ services.forEach(service => {
 if (success) {
   console.log('🎉 TypeScript emit configurations fixed successfully!');
   console.log('⚠️ You may need to restart your TypeScript server for changes to take effect.');
+  console.log('⚠️ Note: This script is deprecated and may interfere with the standardized TypeScript configuration.');
 } else {
   console.error('❌ There were errors fixing TypeScript emit configurations.');
   process.exit(1);
