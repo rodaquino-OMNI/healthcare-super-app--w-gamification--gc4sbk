@@ -5,538 +5,451 @@
  * migration paths, automatic migration execution, and validation of migration results.
  */
 
-import { EventVersion, MigrationDirection, MigrationPath, MigrationRegistry, MigrationResult, MigrationTransformer, SchemaValidator, VersionedEvent } from './types';
-import { VersionDetectionError, MigrationPathNotFoundError, MigrationExecutionError, ValidationError } from './errors';
-import { LATEST_VERSION, DEFAULT_MIGRATION_OPTIONS } from './constants';
-import { isCompatible } from './compatibility-checker';
-import { transformEvent } from './transformer';
+import { IVersionedEvent } from '../interfaces';
+import {
+  EventTransformer,
+  MigrationPath,
+  MigrationRegistryConfig,
+  MigrationResult,
+  SchemaValidator,
+  TransformDirection,
+  TransformOptions,
+  isVersionedEvent
+} from './types';
+import {
+  DEFAULT_MIGRATION_REGISTRY_CONFIG,
+  DEFAULT_TRANSFORM_OPTIONS,
+  ERROR_TEMPLATES,
+  LATEST_VERSION,
+  MAX_TRANSFORMATION_STEPS,
+  MINIMUM_SUPPORTED_VERSION,
+  SUPPORTED_VERSIONS,
+  VERSION_FORMAT_REGEX
+} from './constants';
+import { VersioningError, MigrationError, ValidationError } from './errors';
 
 /**
- * Schema Migrator class that provides utilities for migrating events between different schema versions.
- * It maintains a registry of migration paths and provides methods to discover and execute migrations.
+ * Parses a semantic version string into its components.
+ * 
+ * @param version - The version string to parse (e.g., "1.2.3")
+ * @returns An object with major, minor, and patch numbers
+ * @throws {VersioningError} If the version format is invalid
  */
-export class SchemaMigrator {
-  private registry: MigrationRegistry = new Map();
-  private validators: Map<string, SchemaValidator> = new Map();
-
-  /**
-   * Registers a migration path between two versions of an event schema.
-   * 
-   * @param eventType - The type of event this migration applies to
-   * @param fromVersion - The source version of the event
-   * @param toVersion - The target version of the event
-   * @param transformer - The function that transforms the event from source to target version
-   * @param validator - Optional validator function to validate the transformed event
-   * @returns The SchemaMigrator instance for method chaining
-   */
-  public registerMigration<T extends VersionedEvent, U extends VersionedEvent>(
-    eventType: string,
-    fromVersion: EventVersion,
-    toVersion: EventVersion,
-    transformer: MigrationTransformer<T, U>,
-    validator?: SchemaValidator
-  ): SchemaMigrator {
-    // Create a unique key for this event type
-    const eventKey = this.getEventTypeKey(eventType);
-    
-    // Initialize the event type in the registry if it doesn't exist
-    if (!this.registry.has(eventKey)) {
-      this.registry.set(eventKey, new Map());
-    }
-    
-    // Get the migrations map for this event type
-    const eventMigrations = this.registry.get(eventKey)!;
-    
-    // Create a unique key for this migration path
-    const migrationKey = this.getMigrationKey(fromVersion, toVersion);
-    
-    // Register the migration path
-    eventMigrations.set(migrationKey, {
-      eventType,
-      fromVersion,
-      toVersion,
-      transformer
-    });
-    
-    // Register the validator if provided
-    if (validator) {
-      this.validators.set(this.getValidatorKey(eventType, toVersion), validator);
-    }
-    
-    return this;
-  }
-
-  /**
-   * Registers a bidirectional migration path between two versions of an event schema.
-   * This is a convenience method that registers both upgrade and downgrade paths.
-   * 
-   * @param eventType - The type of event this migration applies to
-   * @param version1 - The first version of the event
-   * @param version2 - The second version of the event
-   * @param upgradeTransformer - The function that transforms from version1 to version2
-   * @param downgradeTransformer - The function that transforms from version2 to version1
-   * @param validator1 - Optional validator function for version1
-   * @param validator2 - Optional validator function for version2
-   * @returns The SchemaMigrator instance for method chaining
-   */
-  public registerBidirectionalMigration<T extends VersionedEvent, U extends VersionedEvent>(
-    eventType: string,
-    version1: EventVersion,
-    version2: EventVersion,
-    upgradeTransformer: MigrationTransformer<T, U>,
-    downgradeTransformer: MigrationTransformer<U, T>,
-    validator1?: SchemaValidator,
-    validator2?: SchemaValidator
-  ): SchemaMigrator {
-    // Register the upgrade path
-    this.registerMigration(eventType, version1, version2, upgradeTransformer, validator2);
-    
-    // Register the downgrade path
-    this.registerMigration(eventType, version2, version1, downgradeTransformer, validator1);
-    
-    return this;
-  }
-
-  /**
-   * Migrates an event from its current version to the specified target version.
-   * If no target version is specified, it migrates to the latest known version.
-   * 
-   * @param event - The event to migrate
-   * @param targetVersion - Optional target version to migrate to
-   * @param options - Optional migration options
-   * @returns A promise that resolves to the migration result
-   * @throws {VersionDetectionError} If the event version cannot be detected
-   * @throws {MigrationPathNotFoundError} If no migration path can be found
-   * @throws {MigrationExecutionError} If the migration fails during execution
-   * @throws {ValidationError} If the migrated event fails validation
-   */
-  public async migrateEvent<T extends VersionedEvent>(
-    event: T,
-    targetVersion?: EventVersion,
-    options = DEFAULT_MIGRATION_OPTIONS
-  ): Promise<MigrationResult<VersionedEvent>> {
-    // If no target version is specified, use the latest version
-    const finalTargetVersion = targetVersion || LATEST_VERSION;
-    
-    // Get the current version of the event
-    const currentVersion = event.version;
-    
-    // If the event is already at the target version, return it as is
-    if (currentVersion === finalTargetVersion) {
-      return {
-        success: true,
-        originalEvent: event,
-        migratedEvent: event,
-        fromVersion: currentVersion,
-        toVersion: finalTargetVersion,
-        migrationPath: []
-      };
-    }
-    
-    // Find the migration path from the current version to the target version
-    const migrationPath = this.discoverMigrationPath(
-      event.type,
-      currentVersion,
-      finalTargetVersion
+function parseVersion(version: string): { major: number; minor: number; patch: number } {
+  const match = version.match(VERSION_FORMAT_REGEX);
+  if (!match) {
+    throw new VersioningError(
+      ERROR_TEMPLATES.INVALID_VERSION_FORMAT
+        .replace('{version}', version)
+        .replace('{expectedFormat}', 'major.minor.patch')
     );
-    
-    if (!migrationPath || migrationPath.length === 0) {
-      throw new MigrationPathNotFoundError(
-        `No migration path found from version ${currentVersion} to ${finalTargetVersion} for event type ${event.type}`
+  }
+
+  return {
+    major: parseInt(match[1], 10),
+    minor: parseInt(match[2], 10),
+    patch: parseInt(match[3], 10)
+  };
+}
+
+/**
+ * Compares two version strings to determine their order.
+ * 
+ * @param versionA - First version to compare
+ * @param versionB - Second version to compare
+ * @returns -1 if versionA < versionB, 0 if equal, 1 if versionA > versionB
+ */
+function compareVersions(versionA: string, versionB: string): number {
+  const a = parseVersion(versionA);
+  const b = parseVersion(versionB);
+
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1;
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1;
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Validates if a version is supported by the system.
+ * 
+ * @param version - The version to validate
+ * @returns True if the version is supported, false otherwise
+ */
+function isVersionSupported(version: string): boolean {
+  if (!VERSION_FORMAT_REGEX.test(version)) return false;
+  if (compareVersions(version, MINIMUM_SUPPORTED_VERSION) < 0) return false;
+  return SUPPORTED_VERSIONS.includes(version);
+}
+
+/**
+ * MigrationRegistry manages migration paths between different event schema versions.
+ * It provides methods to register migrations, find migration paths, and execute migrations
+ * with validation against target schemas.
+ */
+export class MigrationRegistry {
+  private migrations: Map<string, MigrationPath[]> = new Map();
+  private validators: Map<string, SchemaValidator> = new Map();
+  private config: MigrationRegistryConfig;
+
+  /**
+   * Creates a new MigrationRegistry instance.
+   * 
+   * @param config - Configuration options for the registry
+   */
+  constructor(config: Partial<MigrationRegistryConfig> = {}) {
+    this.config = { ...DEFAULT_MIGRATION_REGISTRY_CONFIG, ...config };
+  }
+
+  /**
+   * Registers a schema validator for a specific version.
+   * 
+   * @param version - The version to register the validator for
+   * @param validator - The validator function
+   * @returns The registry instance for chaining
+   */
+  registerValidator(version: string, validator: SchemaValidator): MigrationRegistry {
+    if (!isVersionSupported(version)) {
+      throw new VersioningError(
+        ERROR_TEMPLATES.VERSION_NOT_SUPPORTED
+          .replace('{version}', version)
+          .replace('{supportedVersions}', SUPPORTED_VERSIONS.join(', '))
       );
     }
-    
-    // Execute the migration path
-    try {
-      let currentEvent = event;
-      const executedPaths: MigrationPath[] = [];
-      
-      // Apply each migration step in the path
-      for (const path of migrationPath) {
-        const result = await this.executeMigrationStep(currentEvent, path, options);
-        currentEvent = result.migratedEvent as T;
-        executedPaths.push(path);
-      }
-      
-      // Validate the final migrated event if validation is enabled
-      if (options.validateResult) {
-        const validator = this.validators.get(this.getValidatorKey(event.type, finalTargetVersion));
-        if (validator && !validator(currentEvent)) {
-          throw new ValidationError(
-            `Migrated event failed validation for version ${finalTargetVersion}`
-          );
-        }
-      }
-      
-      return {
-        success: true,
-        originalEvent: event,
-        migratedEvent: currentEvent,
-        fromVersion: currentVersion,
-        toVersion: finalTargetVersion,
-        migrationPath: executedPaths
-      };
-    } catch (error) {
-      // If rollback is enabled, try to roll back to the original event
-      if (options.rollbackOnError) {
-        // In a real implementation, we would apply the reverse migrations here
-        // For simplicity, we just return the original event
-        return {
-          success: false,
-          originalEvent: event,
-          migratedEvent: event,
-          fromVersion: currentVersion,
-          toVersion: currentVersion,
-          error: error instanceof Error ? error : new Error(String(error)),
-          migrationPath: []
-        };
-      }
-      
-      // Re-throw the error if rollback is not enabled
-      throw error;
-    }
+
+    this.validators.set(version, validator);
+    return this;
   }
 
   /**
-   * Discovers a migration path between two versions of an event schema.
-   * Uses a breadth-first search algorithm to find the shortest path.
+   * Registers a migration path between two versions.
    * 
-   * @param eventType - The type of event to find a migration path for
-   * @param fromVersion - The source version to migrate from
-   * @param toVersion - The target version to migrate to
-   * @returns An array of migration paths that form the complete migration, or null if no path is found
+   * @param sourceVersion - The source version
+   * @param targetVersion - The target version
+   * @param transformer - The transformer function to convert between versions
+   * @returns The registry instance for chaining
    */
-  public discoverMigrationPath(
-    eventType: string,
-    fromVersion: EventVersion,
-    toVersion: EventVersion
-  ): MigrationPath[] | null {
-    // If the versions are the same, no migration is needed
-    if (fromVersion === toVersion) {
+  registerMigration(
+    sourceVersion: string,
+    targetVersion: string,
+    transformer: EventTransformer
+  ): MigrationRegistry {
+    if (!isVersionSupported(sourceVersion)) {
+      throw new VersioningError(
+        ERROR_TEMPLATES.VERSION_NOT_SUPPORTED
+          .replace('{version}', sourceVersion)
+          .replace('{supportedVersions}', SUPPORTED_VERSIONS.join(', '))
+      );
+    }
+
+    if (!isVersionSupported(targetVersion)) {
+      throw new VersioningError(
+        ERROR_TEMPLATES.VERSION_NOT_SUPPORTED
+          .replace('{version}', targetVersion)
+          .replace('{supportedVersions}', SUPPORTED_VERSIONS.join(', '))
+      );
+    }
+
+    // Store migration path
+    const migrationPath: MigrationPath = {
+      sourceVersion,
+      targetVersion,
+      transformer
+    };
+
+    // Get existing migrations for this source version or create a new array
+    const existingMigrations = this.migrations.get(sourceVersion) || [];
+    
+    // Check if this migration path already exists
+    const existingIndex = existingMigrations.findIndex(
+      m => m.targetVersion === targetVersion
+    );
+
+    if (existingIndex >= 0) {
+      // Replace existing migration
+      existingMigrations[existingIndex] = migrationPath;
+    } else {
+      // Add new migration
+      existingMigrations.push(migrationPath);
+    }
+
+    this.migrations.set(sourceVersion, existingMigrations);
+    return this;
+  }
+
+  /**
+   * Finds the shortest migration path between two versions.
+   * 
+   * @param sourceVersion - The source version
+   * @param targetVersion - The target version
+   * @returns An array of migration paths representing the shortest path
+   * @throws {MigrationError} If no migration path is found
+   */
+  findMigrationPath(sourceVersion: string, targetVersion: string): MigrationPath[] {
+    // If source and target are the same, no migration needed
+    if (sourceVersion === targetVersion) {
       return [];
     }
-    
-    // Get the event type key
-    const eventKey = this.getEventTypeKey(eventType);
-    
-    // If there are no migrations registered for this event type, return null
-    if (!this.registry.has(eventKey)) {
-      return null;
+
+    // Check if downgrade is allowed
+    const isDowngrade = compareVersions(sourceVersion, targetVersion) > 0;
+    if (isDowngrade && !this.config.allowDowngrade) {
+      throw new MigrationError(
+        ERROR_TEMPLATES.DOWNGRADE_NOT_ALLOWED
+          .replace('{sourceVersion}', sourceVersion)
+          .replace('{targetVersion}', targetVersion)
+      );
     }
-    
-    // Get the migrations map for this event type
-    const eventMigrations = this.registry.get(eventKey)!;
-    
-    // Check if there's a direct migration path
-    const directKey = this.getMigrationKey(fromVersion, toVersion);
-    if (eventMigrations.has(directKey)) {
-      return [eventMigrations.get(directKey)!];
-    }
-    
-    // If no direct path, use breadth-first search to find the shortest path
-    const queue: { version: EventVersion; path: MigrationPath[] }[] = [
-      { version: fromVersion, path: [] }
+
+    // Use breadth-first search to find the shortest path
+    const queue: { version: string; path: MigrationPath[] }[] = [
+      { version: sourceVersion, path: [] }
     ];
-    const visited = new Set<EventVersion>([fromVersion]);
-    
+    const visited = new Set<string>([sourceVersion]);
+
     while (queue.length > 0) {
       const { version, path } = queue.shift()!;
-      
-      // Find all migrations that start from the current version
-      for (const [key, migration] of eventMigrations.entries()) {
-        if (key.startsWith(`${version}->`) && !visited.has(migration.toVersion)) {
-          const newPath = [...path, migration];
-          
-          // If we've reached the target version, return the path
-          if (migration.toVersion === toVersion) {
-            return newPath;
-          }
-          
-          // Otherwise, add the new version to the queue
-          visited.add(migration.toVersion);
-          queue.push({ version: migration.toVersion, path: newPath });
+
+      // Get all possible migrations from this version
+      const possibleMigrations = this.migrations.get(version) || [];
+
+      for (const migration of possibleMigrations) {
+        const nextVersion = migration.targetVersion;
+
+        // If we've found a path to the target version, return it
+        if (nextVersion === targetVersion) {
+          return [...path, migration];
+        }
+
+        // If we haven't visited this version yet, add it to the queue
+        if (!visited.has(nextVersion)) {
+          visited.add(nextVersion);
+          queue.push({
+            version: nextVersion,
+            path: [...path, migration]
+          });
         }
       }
     }
-    
-    // If we've exhausted all possibilities and haven't found a path, return null
-    return null;
+
+    // If we get here, no path was found
+    throw new MigrationError(
+      ERROR_TEMPLATES.NO_MIGRATION_PATH
+        .replace('{sourceVersion}', sourceVersion)
+        .replace('{targetVersion}', targetVersion)
+        .replace('{eventType}', 'unknown')
+    );
   }
 
   /**
-   * Executes a single migration step, transforming an event from one version to another.
+   * Validates an event against a schema for a specific version.
+   * 
+   * @param event - The event to validate
+   * @param version - The version to validate against
+   * @returns True if the event is valid, false otherwise
+   */
+  validateEvent(event: unknown, version: string): boolean {
+    const validator = this.validators.get(version);
+    if (!validator) {
+      // If no validator is registered for this version, assume it's valid
+      return true;
+    }
+
+    return validator(event, version);
+  }
+
+  /**
+   * Migrates an event from its current version to the target version.
    * 
    * @param event - The event to migrate
-   * @param migrationPath - The migration path to execute
-   * @param options - Migration options
-   * @returns A promise that resolves to the migration result
-   * @throws {MigrationExecutionError} If the migration fails during execution
-   * @throws {ValidationError} If the migrated event fails validation
+   * @param targetVersion - The target version to migrate to
+   * @param options - Options for the migration
+   * @returns The result of the migration
    */
-  private async executeMigrationStep<T extends VersionedEvent>(
+  migrateEvent<T extends IVersionedEvent>(
     event: T,
-    migrationPath: MigrationPath,
-    options: typeof DEFAULT_MIGRATION_OPTIONS
-  ): Promise<MigrationResult<VersionedEvent>> {
+    targetVersion: string = LATEST_VERSION,
+    options: Partial<TransformOptions> = {}
+  ): MigrationResult<T> {
+    // Ensure the event is a versioned event
+    if (!isVersionedEvent(event)) {
+      return {
+        success: false,
+        error: new ValidationError('Event is not a valid versioned event')
+      };
+    }
+
+    // If the event is already at the target version, return it
+    if (event.version === targetVersion) {
+      return { success: true, event };
+    }
+
+    const sourceVersion = event.version;
+    const transformOptions: TransformOptions = {
+      ...DEFAULT_TRANSFORM_OPTIONS,
+      ...options,
+      direction: compareVersions(sourceVersion, targetVersion) < 0 
+        ? TransformDirection.UPGRADE 
+        : TransformDirection.DOWNGRADE
+    };
+
     try {
-      // Execute the transformation
-      const migratedEvent = await migrationPath.transformer(event);
+      // Find the migration path
+      const migrationPath = this.findMigrationPath(sourceVersion, targetVersion);
       
-      // Ensure the version is updated in the migrated event
-      migratedEvent.version = migrationPath.toVersion;
-      
-      // Validate the migrated event if step validation is enabled
-      if (options.validateSteps) {
-        const validator = this.validators.get(
-          this.getValidatorKey(event.type, migrationPath.toVersion)
-        );
-        
-        if (validator && !validator(migratedEvent)) {
-          throw new ValidationError(
-            `Migrated event failed validation for version ${migrationPath.toVersion}`
-          );
+      // If no migrations are needed, return the original event
+      if (migrationPath.length === 0) {
+        return { success: true, event };
+      }
+
+      // Check if the migration path is too long
+      if (migrationPath.length > MAX_TRANSFORMATION_STEPS) {
+        return {
+          success: false,
+          error: new MigrationError(
+            `Migration path from ${sourceVersion} to ${targetVersion} is too long (${migrationPath.length} steps)`
+          )
+        };
+      }
+
+      // Apply migrations in sequence
+      let currentEvent = event;
+      const migrationSteps: string[] = [sourceVersion];
+
+      for (const migration of migrationPath) {
+        // Apply the transformation
+        currentEvent = migration.transformer(currentEvent, transformOptions) as T;
+        migrationSteps.push(migration.targetVersion);
+
+        // Validate the result if required
+        if (transformOptions.validateResult && !this.validateEvent(currentEvent, migration.targetVersion)) {
+          return {
+            success: false,
+            error: new ValidationError(
+              ERROR_TEMPLATES.VALIDATION_FAILED.replace('{targetVersion}', migration.targetVersion)
+            ),
+            migrationPath: migrationSteps
+          };
+        }
+
+        // Ensure the version was updated correctly
+        if (currentEvent.version !== migration.targetVersion) {
+          currentEvent = { ...currentEvent, version: migration.targetVersion } as T;
         }
       }
-      
+
       return {
         success: true,
-        originalEvent: event,
-        migratedEvent,
-        fromVersion: migrationPath.fromVersion,
-        toVersion: migrationPath.toVersion,
-        migrationPath: [migrationPath]
+        event: currentEvent,
+        migrationPath: migrationSteps
       };
     } catch (error) {
-      throw new MigrationExecutionError(
-        `Failed to execute migration from ${migrationPath.fromVersion} to ${migrationPath.toVersion}`,
-        { cause: error instanceof Error ? error : new Error(String(error)) }
-      );
+      return {
+        success: false,
+        error: error instanceof Error 
+          ? error 
+          : new MigrationError(`Unknown error during migration: ${error}`)
+      };
     }
   }
 
   /**
-   * Determines if a direct migration is possible between two versions of an event schema.
+   * Migrates an event to the latest supported version.
    * 
-   * @param eventType - The type of event to check
-   * @param fromVersion - The source version
-   * @param toVersion - The target version
-   * @returns True if a direct migration is possible, false otherwise
+   * @param event - The event to migrate
+   * @param options - Options for the migration
+   * @returns The result of the migration
    */
-  public canMigrateDirect(
-    eventType: string,
-    fromVersion: EventVersion,
-    toVersion: EventVersion
-  ): boolean {
-    // If the versions are the same, no migration is needed
-    if (fromVersion === toVersion) {
-      return true;
+  migrateToLatest<T extends IVersionedEvent>(
+    event: T,
+    options: Partial<TransformOptions> = {}
+  ): MigrationResult<T> {
+    return this.migrateEvent(event, LATEST_VERSION, options);
+  }
+
+  /**
+   * Attempts to migrate an event with transaction-like semantics.
+   * If the migration fails at any point, the original event is returned.
+   * 
+   * @param event - The event to migrate
+   * @param targetVersion - The target version to migrate to
+   * @param options - Options for the migration
+   * @returns The migrated event or the original event if migration fails
+   */
+  safeMigrate<T extends IVersionedEvent>(
+    event: T,
+    targetVersion: string = LATEST_VERSION,
+    options: Partial<TransformOptions> = {}
+  ): T {
+    const result = this.migrateEvent(event, targetVersion, options);
+    return result.success ? result.event! : event;
+  }
+
+  /**
+   * Gets all registered migration paths.
+   * 
+   * @returns A map of all registered migration paths
+   */
+  getAllMigrationPaths(): Map<string, MigrationPath[]> {
+    return new Map(this.migrations);
+  }
+
+  /**
+   * Gets all supported versions.
+   * 
+   * @returns An array of all supported versions
+   */
+  getSupportedVersions(): string[] {
+    return [...SUPPORTED_VERSIONS];
+  }
+
+  /**
+   * Clears all registered migrations and validators.
+   * 
+   * @returns The registry instance for chaining
+   */
+  clear(): MigrationRegistry {
+    this.migrations.clear();
+    this.validators.clear();
+    return this;
+  }
+}
+
+/**
+ * Creates a default migration registry with common migrations pre-registered.
+ * 
+ * @param config - Configuration options for the registry
+ * @returns A pre-configured migration registry
+ */
+export function createDefaultMigrationRegistry(
+  config: Partial<MigrationRegistryConfig> = {}
+): MigrationRegistry {
+  const registry = new MigrationRegistry(config);
+  
+  // Register migrations between consecutive versions
+  for (let i = 0; i < SUPPORTED_VERSIONS.length - 1; i++) {
+    const sourceVersion = SUPPORTED_VERSIONS[i];
+    const targetVersion = SUPPORTED_VERSIONS[i + 1];
+    
+    // Register an identity transformer as a fallback
+    // This should be replaced with actual transformers in a real implementation
+    registry.registerMigration(sourceVersion, targetVersion, event => ({
+      ...event,
+      version: targetVersion
+    }));
+    
+    // Register a downgrade path if allowed
+    if (config.allowDowngrade) {
+      registry.registerMigration(targetVersion, sourceVersion, event => ({
+        ...event,
+        version: sourceVersion
+      }));
     }
-    
-    // Get the event type key
-    const eventKey = this.getEventTypeKey(eventType);
-    
-    // If there are no migrations registered for this event type, return false
-    if (!this.registry.has(eventKey)) {
-      return false;
-    }
-    
-    // Get the migrations map for this event type
-    const eventMigrations = this.registry.get(eventKey)!;
-    
-    // Check if there's a direct migration path
-    const directKey = this.getMigrationKey(fromVersion, toVersion);
-    return eventMigrations.has(directKey);
   }
-
-  /**
-   * Determines if a migration path exists between two versions of an event schema.
-   * 
-   * @param eventType - The type of event to check
-   * @param fromVersion - The source version
-   * @param toVersion - The target version
-   * @returns True if a migration path exists, false otherwise
-   */
-  public canMigrate(
-    eventType: string,
-    fromVersion: EventVersion,
-    toVersion: EventVersion
-  ): boolean {
-    // If the versions are the same, no migration is needed
-    if (fromVersion === toVersion) {
-      return true;
-    }
-    
-    // Try to discover a migration path
-    const path = this.discoverMigrationPath(eventType, fromVersion, toVersion);
-    return path !== null && path.length > 0;
-  }
-
-  /**
-   * Gets all registered migration paths for a specific event type.
-   * 
-   * @param eventType - The type of event to get migrations for
-   * @returns An array of migration paths, or an empty array if none are found
-   */
-  public getMigrations(eventType: string): MigrationPath[] {
-    const eventKey = this.getEventTypeKey(eventType);
-    
-    if (!this.registry.has(eventKey)) {
-      return [];
-    }
-    
-    const eventMigrations = this.registry.get(eventKey)!;
-    return Array.from(eventMigrations.values());
-  }
-
-  /**
-   * Gets all registered event types that have migration paths.
-   * 
-   * @returns An array of event types
-   */
-  public getRegisteredEventTypes(): string[] {
-    return Array.from(this.registry.keys()).map(key => {
-      // Remove the 'event:' prefix from the key
-      return key.substring(6);
-    });
-  }
-
-  /**
-   * Creates a unique key for an event type in the registry.
-   * 
-   * @param eventType - The event type
-   * @returns A unique key for the event type
-   */
-  private getEventTypeKey(eventType: string): string {
-    return `event:${eventType}`;
-  }
-
-  /**
-   * Creates a unique key for a migration path in the registry.
-   * 
-   * @param fromVersion - The source version
-   * @param toVersion - The target version
-   * @returns A unique key for the migration path
-   */
-  private getMigrationKey(fromVersion: EventVersion, toVersion: EventVersion): string {
-    return `${fromVersion}->${toVersion}`;
-  }
-
-  /**
-   * Creates a unique key for a validator in the registry.
-   * 
-   * @param eventType - The event type
-   * @param version - The event version
-   * @returns A unique key for the validator
-   */
-  private getValidatorKey(eventType: string, version: EventVersion): string {
-    return `validator:${eventType}:${version}`;
-  }
+  
+  return registry;
 }
 
 /**
- * Singleton instance of the SchemaMigrator.
+ * Default instance of the migration registry for convenience.
  */
-export const schemaMigrator = new SchemaMigrator();
-
-/**
- * Migrates an event from its current version to the specified target version.
- * This is a convenience function that uses the singleton SchemaMigrator instance.
- * 
- * @param event - The event to migrate
- * @param targetVersion - Optional target version to migrate to
- * @param options - Optional migration options
- * @returns A promise that resolves to the migration result
- */
-export async function migrateEvent<T extends VersionedEvent>(
-  event: T,
-  targetVersion?: EventVersion,
-  options = DEFAULT_MIGRATION_OPTIONS
-): Promise<MigrationResult<VersionedEvent>> {
-  return schemaMigrator.migrateEvent(event, targetVersion, options);
-}
-
-/**
- * Registers a migration path between two versions of an event schema.
- * This is a convenience function that uses the singleton SchemaMigrator instance.
- * 
- * @param eventType - The type of event this migration applies to
- * @param fromVersion - The source version of the event
- * @param toVersion - The target version of the event
- * @param transformer - The function that transforms the event from source to target version
- * @param validator - Optional validator function to validate the transformed event
- */
-export function registerMigration<T extends VersionedEvent, U extends VersionedEvent>(
-  eventType: string,
-  fromVersion: EventVersion,
-  toVersion: EventVersion,
-  transformer: MigrationTransformer<T, U>,
-  validator?: SchemaValidator
-): void {
-  schemaMigrator.registerMigration(eventType, fromVersion, toVersion, transformer, validator);
-}
-
-/**
- * Registers a bidirectional migration path between two versions of an event schema.
- * This is a convenience function that uses the singleton SchemaMigrator instance.
- * 
- * @param eventType - The type of event this migration applies to
- * @param version1 - The first version of the event
- * @param version2 - The second version of the event
- * @param upgradeTransformer - The function that transforms from version1 to version2
- * @param downgradeTransformer - The function that transforms from version2 to version1
- * @param validator1 - Optional validator function for version1
- * @param validator2 - Optional validator function for version2
- */
-export function registerBidirectionalMigration<T extends VersionedEvent, U extends VersionedEvent>(
-  eventType: string,
-  version1: EventVersion,
-  version2: EventVersion,
-  upgradeTransformer: MigrationTransformer<T, U>,
-  downgradeTransformer: MigrationTransformer<U, T>,
-  validator1?: SchemaValidator,
-  validator2?: SchemaValidator
-): void {
-  schemaMigrator.registerBidirectionalMigration(
-    eventType,
-    version1,
-    version2,
-    upgradeTransformer,
-    downgradeTransformer,
-    validator1,
-    validator2
-  );
-}
-
-/**
- * Determines if a migration path exists between two versions of an event schema.
- * This is a convenience function that uses the singleton SchemaMigrator instance.
- * 
- * @param eventType - The type of event to check
- * @param fromVersion - The source version
- * @param toVersion - The target version
- * @returns True if a migration path exists, false otherwise
- */
-export function canMigrate(
-  eventType: string,
-  fromVersion: EventVersion,
-  toVersion: EventVersion
-): boolean {
-  return schemaMigrator.canMigrate(eventType, fromVersion, toVersion);
-}
-
-/**
- * Discovers a migration path between two versions of an event schema.
- * This is a convenience function that uses the singleton SchemaMigrator instance.
- * 
- * @param eventType - The type of event to find a migration path for
- * @param fromVersion - The source version to migrate from
- * @param toVersion - The target version to migrate to
- * @returns An array of migration paths that form the complete migration, or null if no path is found
- */
-export function discoverMigrationPath(
-  eventType: string,
-  fromVersion: EventVersion,
-  toVersion: EventVersion
-): MigrationPath[] | null {
-  return schemaMigrator.discoverMigrationPath(eventType, fromVersion, toVersion);
-}
+export const defaultMigrationRegistry = createDefaultMigrationRegistry();
