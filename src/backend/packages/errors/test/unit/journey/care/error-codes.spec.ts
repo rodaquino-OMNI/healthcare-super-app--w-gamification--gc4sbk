@@ -1,292 +1,421 @@
 import * as ErrorCodes from '../../../../src/journey/care/error-codes';
 
 describe('Care Journey Error Codes', () => {
-  // Helper function to check if a string follows the CARE_DOMAIN_* pattern
-  const hasValidPrefix = (code: string, domain: string): boolean => {
-    const expectedPrefix = `CARE_${domain}_`;
-    return code.startsWith(expectedPrefix);
+  // Helper function to get all error codes
+  const getAllErrorCodes = () => {
+    return Object.keys(ErrorCodes).filter(key => typeof ErrorCodes[key] === 'string');
   };
 
-  // Helper function to extract all error codes from the error-codes.ts file
-  const getAllErrorCodes = (): string[] => {
-    return Object.values(ErrorCodes).filter(
-      (value): value is string => typeof value === 'string'
-    );
-  };
-
-  // Helper function to extract error codes for a specific domain
-  const getErrorCodesForDomain = (domain: string): string[] => {
-    const allCodes = getAllErrorCodes();
-    return allCodes.filter(code => hasValidPrefix(code, domain));
-  };
-
-  describe('Error Code Structure', () => {
-    it('should have all error codes as uppercase strings', () => {
-      const allCodes = getAllErrorCodes();
+  describe('Error Code Format', () => {
+    it('should follow the CARE_[DOMAIN]_[TYPE]_[SPECIFIC_ERROR] pattern', () => {
+      const errorCodes = getAllErrorCodes();
       
-      allCodes.forEach(code => {
-        expect(code).toBe(code.toUpperCase());
-        expect(typeof code).toBe('string');
+      errorCodes.forEach(codeKey => {
+        const code = ErrorCodes[codeKey];
+        expect(code).toMatch(/^CARE_[A-Z]+_[A-Z]+_[A-Z_]+$/);
       });
     });
 
-    it('should have all error codes follow the CARE_DOMAIN_* pattern', () => {
-      const allCodes = getAllErrorCodes();
-      const validDomains = ['APPOINTMENT', 'PROVIDER', 'TELEMEDICINE', 'MEDICATION', 'SYMPTOM', 'TREATMENT'];
+    it('should have consistent domain prefixes', () => {
+      const validDomains = [
+        'APPOINTMENT',
+        'PROVIDER',
+        'TELEMEDICINE',
+        'MEDICATION',
+        'SYMPTOM',
+        'TREATMENT'
+      ];
+
+      const errorCodes = getAllErrorCodes();
       
-      allCodes.forEach(code => {
-        const domainMatch = code.match(/^CARE_([A-Z]+)_/);
-        expect(domainMatch).not.toBeNull();
-        
-        if (domainMatch) {
-          const [, domain] = domainMatch;
-          expect(validDomains).toContain(domain);
-        }
+      errorCodes.forEach(codeKey => {
+        const code = ErrorCodes[codeKey];
+        const parts = code.split('_');
+        expect(parts[0]).toBe('CARE');
+        expect(validDomains).toContain(parts[1]);
+      });
+    });
+
+    it('should have consistent error type classifications', () => {
+      const validTypes = [
+        'VALIDATION',
+        'BUSINESS',
+        'TECHNICAL',
+        'EXTERNAL'
+      ];
+
+      const errorCodes = getAllErrorCodes();
+      
+      errorCodes.forEach(codeKey => {
+        const code = ErrorCodes[codeKey];
+        const parts = code.split('_');
+        expect(validTypes).toContain(parts[2]);
       });
     });
   });
 
   describe('Error Code Uniqueness', () => {
-    it('should have unique error codes across all domains', () => {
-      const allCodes = getAllErrorCodes();
-      const uniqueCodes = new Set(allCodes);
+    it('should have unique error code values', () => {
+      const errorCodes = getAllErrorCodes();
+      const codeValues = errorCodes.map(key => ErrorCodes[key]);
+      const uniqueValues = new Set(codeValues);
       
-      expect(uniqueCodes.size).toBe(allCodes.length);
+      expect(uniqueValues.size).toBe(codeValues.length);
+    });
+
+    it('should have unique error code keys', () => {
+      const errorCodes = getAllErrorCodes();
+      const uniqueKeys = new Set(errorCodes);
+      
+      expect(uniqueKeys.size).toBe(errorCodes.length);
     });
   });
 
-  describe('Domain-Specific Error Codes', () => {
-    describe('Appointment Error Codes', () => {
-      it('should have error codes with CARE_APPOINTMENT_ prefix', () => {
-        const appointmentCodes = getErrorCodesForDomain('APPOINTMENT');
-        expect(appointmentCodes.length).toBeGreaterThan(0);
-        
-        appointmentCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'APPOINTMENT')).toBe(true);
-        });
-      });
-
-      it('should include essential appointment error scenarios', () => {
-        const appointmentCodes = getErrorCodesForDomain('APPOINTMENT');
-        const essentialScenarios = [
-          'NOT_FOUND',
-          'DATE_IN_PAST',
-          'OVERLAP',
-          'PROVIDER_UNAVAILABLE',
-          'PERSISTENCE',
-          'CALENDAR_SYNC'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = appointmentCodes.some(code => 
-            code.includes(`CARE_APPOINTMENT_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-
-    describe('Provider Error Codes', () => {
-      it('should have error codes with CARE_PROVIDER_ prefix', () => {
-        const providerCodes = getErrorCodesForDomain('PROVIDER');
-        expect(providerCodes.length).toBeGreaterThan(0);
-        
-        providerCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'PROVIDER')).toBe(true);
-        });
-      });
-
-      it('should include essential provider error scenarios', () => {
-        const providerCodes = getErrorCodesForDomain('PROVIDER');
-        const essentialScenarios = [
-          'NOT_FOUND',
-          'UNAVAILABLE',
-          'SPECIALTY_MISMATCH',
-          'CREDENTIALS',
-          'DIRECTORY'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = providerCodes.some(code => 
-            code.includes(`CARE_PROVIDER_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-
-    describe('Telemedicine Error Codes', () => {
-      it('should have error codes with CARE_TELEMEDICINE_ prefix', () => {
-        const telemedicineCodes = getErrorCodesForDomain('TELEMEDICINE');
-        expect(telemedicineCodes.length).toBeGreaterThan(0);
-        
-        telemedicineCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'TELEMEDICINE')).toBe(true);
-        });
-      });
-
-      it('should include essential telemedicine error scenarios', () => {
-        const telemedicineCodes = getErrorCodesForDomain('TELEMEDICINE');
-        const essentialScenarios = [
-          'SESSION_NOT_FOUND',
-          'CONNECTION',
-          'DEVICE',
-          'PROVIDER_OFFLINE',
-          'RECORDING',
-          'SERVICE'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = telemedicineCodes.some(code => 
-            code.includes(`CARE_TELEMEDICINE_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-
-    describe('Medication Error Codes', () => {
-      it('should have error codes with CARE_MEDICATION_ prefix', () => {
-        const medicationCodes = getErrorCodesForDomain('MEDICATION');
-        expect(medicationCodes.length).toBeGreaterThan(0);
-        
-        medicationCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'MEDICATION')).toBe(true);
-        });
-      });
-
-      it('should include essential medication error scenarios', () => {
-        const medicationCodes = getErrorCodesForDomain('MEDICATION');
-        const essentialScenarios = [
-          'NOT_FOUND',
-          'INTERACTION',
-          'DOSAGE',
-          'ADHERENCE',
-          'PERSISTENCE',
-          'EXTERNAL_LOOKUP',
-          'PHARMACY_INTEGRATION'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = medicationCodes.some(code => 
-            code.includes(`CARE_MEDICATION_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-
-    describe('Symptom Error Codes', () => {
-      it('should have error codes with CARE_SYMPTOM_ prefix', () => {
-        const symptomCodes = getErrorCodesForDomain('SYMPTOM');
-        expect(symptomCodes.length).toBeGreaterThan(0);
-        
-        symptomCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'SYMPTOM')).toBe(true);
-        });
-      });
-
-      it('should include essential symptom error scenarios', () => {
-        const symptomCodes = getErrorCodesForDomain('SYMPTOM');
-        const essentialScenarios = [
-          'NOT_FOUND',
-          'ASSESSMENT_INCOMPLETE',
-          'ENGINE_FUNCTION',
-          'URGENT_CARE_RECOMMENDATION',
-          'PERSISTENCE',
-          'MEDICAL_KNOWLEDGE_BASE'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = symptomCodes.some(code => 
-            code.includes(`CARE_SYMPTOM_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-
-    describe('Treatment Error Codes', () => {
-      it('should have error codes with CARE_TREATMENT_ prefix', () => {
-        const treatmentCodes = getErrorCodesForDomain('TREATMENT');
-        expect(treatmentCodes.length).toBeGreaterThan(0);
-        
-        treatmentCodes.forEach(code => {
-          expect(hasValidPrefix(code, 'TREATMENT')).toBe(true);
-        });
-      });
-
-      it('should include essential treatment error scenarios', () => {
-        const treatmentCodes = getErrorCodesForDomain('TREATMENT');
-        const essentialScenarios = [
-          'PLAN_NOT_FOUND',
-          'STEP_INVALID',
-          'PLAN_CONFLICT',
-          'PROGRESS',
-          'PERSISTENCE',
-          'CLINICAL_GUIDELINES'
-        ];
-        
-        essentialScenarios.forEach(scenario => {
-          const hasScenario = treatmentCodes.some(code => 
-            code.includes(`CARE_TREATMENT_${scenario}`));
-          expect(hasScenario).toBe(true);
-        });
-      });
-    });
-  });
-
-  describe('Error Type Classification', () => {
-    it('should have error codes for all error types (validation, business, technical, external)', () => {
-      const allCodes = getAllErrorCodes();
-      const errorTypes = ['VALIDATION', 'BUSINESS', 'TECHNICAL', 'EXTERNAL'];
-      
-      errorTypes.forEach(type => {
-        const hasErrorType = allCodes.some(code => code.includes(`_${type}_`));
-        expect(hasErrorType).toBe(true);
-      });
-    });
-
-    it('should have validation error codes for each domain', () => {
-      const domains = ['APPOINTMENT', 'PROVIDER', 'TELEMEDICINE', 'MEDICATION', 'SYMPTOM', 'TREATMENT'];
-      
-      domains.forEach(domain => {
-        const domainCodes = getErrorCodesForDomain(domain);
-        const hasValidationError = domainCodes.some(code => code.includes('_VALIDATION_'));
-        expect(hasValidationError).toBe(true);
-      });
-    });
-
-    it('should have business error codes for each domain', () => {
-      const domains = ['APPOINTMENT', 'PROVIDER', 'TELEMEDICINE', 'MEDICATION', 'SYMPTOM', 'TREATMENT'];
-      
-      domains.forEach(domain => {
-        const domainCodes = getErrorCodesForDomain(domain);
-        const hasBusinessError = domainCodes.some(code => code.includes('_BUSINESS_'));
-        expect(hasBusinessError).toBe(true);
-      });
-    });
-
-    it('should have technical error codes for each domain', () => {
-      const domains = ['APPOINTMENT', 'PROVIDER', 'TELEMEDICINE', 'MEDICATION', 'SYMPTOM', 'TREATMENT'];
-      
-      domains.forEach(domain => {
-        const domainCodes = getErrorCodesForDomain(domain);
-        const hasTechnicalError = domainCodes.some(code => code.includes('_TECHNICAL_'));
-        expect(hasTechnicalError).toBe(true);
-      });
-    });
-
-    it('should have external error codes for domains with external integrations', () => {
-      // Domains that should have external integration error codes
-      const domainsWithExternalIntegrations = [
-        'APPOINTMENT', // Calendar sync
-        'PROVIDER',    // Provider directory
-        'TELEMEDICINE', // Video provider
-        'MEDICATION',  // Pharmacy integration
-        'SYMPTOM',     // Medical knowledge base
-        'TREATMENT'    // Clinical guidelines
+  describe('Domain Coverage', () => {
+    it('should have error codes for all domains in the Care journey', () => {
+      const domains = [
+        'APPOINTMENT',
+        'PROVIDER',
+        'TELEMEDICINE',
+        'MEDICATION',
+        'SYMPTOM',
+        'TREATMENT'
       ];
+
+      domains.forEach(domain => {
+        const domainCodes = getAllErrorCodes().filter(key => {
+          return ErrorCodes[key].includes(`CARE_${domain}_`);
+        });
+        
+        expect(domainCodes.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should have error codes for all error types in each domain', () => {
+      const domains = [
+        'APPOINTMENT',
+        'PROVIDER',
+        'TELEMEDICINE',
+        'MEDICATION',
+        'SYMPTOM',
+        'TREATMENT'
+      ];
+
+      const errorTypes = [
+        'VALIDATION',
+        'BUSINESS',
+        'TECHNICAL',
+        'EXTERNAL'
+      ];
+
+      domains.forEach(domain => {
+        errorTypes.forEach(errorType => {
+          const matchingCodes = getAllErrorCodes().filter(key => {
+            return ErrorCodes[key].includes(`CARE_${domain}_${errorType}_`);
+          });
+          
+          expect(matchingCodes.length).toBeGreaterThan(0);
+        });
+      });
+    });
+  });
+
+  describe('Appointment Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_APPOINTMENT_VALIDATION_');
+      });
       
-      domainsWithExternalIntegrations.forEach(domain => {
-        const domainCodes = getErrorCodesForDomain(domain);
-        const hasExternalError = domainCodes.some(code => code.includes('_EXTERNAL_'));
-        expect(hasExternalError).toBe(true);
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_APPOINTMENT_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_APPOINTMENT_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_APPOINTMENT_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_APPOINTMENT_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_APPOINTMENT_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_APPOINTMENT_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_APPOINTMENT_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Provider Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_PROVIDER_VALIDATION_');
+      });
+      
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_PROVIDER_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_PROVIDER_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_PROVIDER_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_PROVIDER_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_PROVIDER_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_PROVIDER_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_PROVIDER_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Telemedicine Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TELEMEDICINE_VALIDATION_');
+      });
+      
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TELEMEDICINE_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TELEMEDICINE_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TELEMEDICINE_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TELEMEDICINE_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TELEMEDICINE_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TELEMEDICINE_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TELEMEDICINE_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Medication Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_MEDICATION_VALIDATION_');
+      });
+      
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_MEDICATION_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_MEDICATION_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_MEDICATION_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_MEDICATION_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_MEDICATION_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_MEDICATION_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_MEDICATION_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Symptom Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_SYMPTOM_VALIDATION_');
+      });
+      
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_SYMPTOM_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_SYMPTOM_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_SYMPTOM_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_SYMPTOM_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_SYMPTOM_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_SYMPTOM_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_SYMPTOM_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Treatment Domain Error Codes', () => {
+    it('should have validation error codes', () => {
+      const validationCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TREATMENT_VALIDATION_');
+      });
+      
+      expect(validationCodes.length).toBeGreaterThan(0);
+      validationCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TREATMENT_VALIDATION_[A-Z_]+$/);
+      });
+    });
+
+    it('should have business error codes', () => {
+      const businessCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TREATMENT_BUSINESS_');
+      });
+      
+      expect(businessCodes.length).toBeGreaterThan(0);
+      businessCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TREATMENT_BUSINESS_[A-Z_]+$/);
+      });
+    });
+
+    it('should have technical error codes', () => {
+      const technicalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TREATMENT_TECHNICAL_');
+      });
+      
+      expect(technicalCodes.length).toBeGreaterThan(0);
+      technicalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TREATMENT_TECHNICAL_[A-Z_]+$/);
+      });
+    });
+
+    it('should have external error codes', () => {
+      const externalCodes = getAllErrorCodes().filter(key => {
+        return ErrorCodes[key].startsWith('CARE_TREATMENT_EXTERNAL_');
+      });
+      
+      expect(externalCodes.length).toBeGreaterThan(0);
+      externalCodes.forEach(code => {
+        expect(ErrorCodes[code]).toMatch(/^CARE_TREATMENT_EXTERNAL_[A-Z_]+$/);
+      });
+    });
+  });
+
+  describe('Error Code Consistency', () => {
+    it('should have consistent variable names matching error code values', () => {
+      const errorCodes = getAllErrorCodes();
+      
+      errorCodes.forEach(codeKey => {
+        const codeValue = ErrorCodes[codeKey];
+        // Variable name should match the error code value
+        expect(codeKey).toBe(codeValue);
+      });
+    });
+
+    it('should have error codes with specific error descriptions', () => {
+      const errorCodes = getAllErrorCodes();
+      
+      errorCodes.forEach(codeKey => {
+        const parts = codeKey.split('_');
+        // There should be at least 4 parts: CARE, DOMAIN, TYPE, and SPECIFIC_ERROR
+        expect(parts.length).toBeGreaterThanOrEqual(4);
+        // The specific error part should be descriptive
+        expect(parts.slice(3).join('_').length).toBeGreaterThan(0);
       });
     });
   });
