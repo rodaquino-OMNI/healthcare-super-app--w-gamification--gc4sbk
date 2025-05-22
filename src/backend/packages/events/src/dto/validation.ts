@@ -1,204 +1,59 @@
 /**
- * @file validation.ts
+ * @file Event validation utilities and decorators
  * @description Provides specialized validation utilities and decorators for event validation
- * beyond what's available in standard class-validator. This file includes custom validators
- * for journey-specific fields, complex object validation, conditional validation logic, and more.
- * 
- * It centralizes validation logic that's reused across multiple event DTOs and ensures
- * consistent validation behavior across the event processing pipeline.
- *
- * @module events/dto
+ * beyond what's available in standard class-validator. Includes custom validators for
+ * journey-specific fields, complex object validation, conditional validation logic, and more.
  */
 
 import { 
   registerDecorator, 
   ValidationOptions, 
   ValidationArguments,
-  ValidatorConstraint,
+  ValidatorConstraint, 
   ValidatorConstraintInterface,
   validate
 } from 'class-validator';
-import { ERROR_CODES, ERROR_MESSAGES } from '../constants/errors.constants';
-import { EventMetadataDto } from './event-metadata.dto';
+import { ZodSchema, z } from 'zod';
+import { IBaseEvent, IEventPayload } from '../interfaces/event.interface';
 
 /**
- * Interface for validation error response
- */
-export interface ValidationError {
-  property: string;
-  errorCode: string;
-  message: string;
-  constraints?: Record<string, string>;
-  children?: ValidationError[];
-}
-
-/**
- * Validates that a value is a valid journey name
+ * Validates that a field is only present when the event is of a specific type.
+ * Useful for ensuring that certain fields are only included for specific event types.
  * 
+ * @param eventType The event type for which the field should be present
  * @param validationOptions Additional validation options
  * @returns PropertyDecorator
- */
-export function IsValidJourney(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidJourney',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: any) {
-          const validJourneys = ['health', 'care', 'plan', 'user', 'gamification'];
-          return typeof value === 'string' && validJourneys.includes(value.toLowerCase());
-        },
-        defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid journey name (health, care, plan, user, gamification)`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid event type for the specified journey
  * 
- * @param journey The journey to validate against
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
+ * @example
+ * class HealthMetricEventDto {
+ *   @IsRequiredForEventType('HEALTH_METRIC_RECORDED')
+ *   metricValue: number;
+ * }
  */
-export function IsValidEventType(journey: string, validationOptions?: ValidationOptions): PropertyDecorator {
+export function IsRequiredForEventType(eventType: string, validationOptions?: ValidationOptions) {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isValidEventType',
+      name: 'isRequiredForEventType',
       target: object.constructor,
       propertyName: propertyName,
+      constraints: [eventType],
       options: validationOptions,
       validator: {
         validate(value: any, args: ValidationArguments) {
-          if (typeof value !== 'string') {
-            return false;
+          const [requiredEventType] = args.constraints;
+          const obj = args.object as any;
+          
+          // If this is the required event type, the field must be present
+          if (obj.type === requiredEventType) {
+            return value !== undefined && value !== null;
           }
-
-          // Get the actual journey value from the object if it's a property reference
-          let journeyValue = journey;
-          if (journey.startsWith('@')) {
-            const journeyProp = journey.substring(1);
-            journeyValue = (args.object as any)[journeyProp];
-          }
-
-          // Validate based on journey
-          switch (journeyValue.toLowerCase()) {
-            case 'health':
-              return [
-                'HEALTH_METRIC_RECORDED',
-                'HEALTH_GOAL_ACHIEVED',
-                'HEALTH_GOAL_CREATED',
-                'HEALTH_GOAL_UPDATED',
-                'DEVICE_SYNCHRONIZED',
-                'HEALTH_INSIGHT_GENERATED'
-              ].includes(value);
-            case 'care':
-              return [
-                'APPOINTMENT_BOOKED',
-                'APPOINTMENT_COMPLETED',
-                'APPOINTMENT_CANCELLED',
-                'MEDICATION_ADHERENCE',
-                'TELEMEDICINE_SESSION_STARTED',
-                'TELEMEDICINE_SESSION_ENDED',
-                'CARE_PLAN_UPDATED'
-              ].includes(value);
-            case 'plan':
-              return [
-                'CLAIM_SUBMITTED',
-                'CLAIM_UPDATED',
-                'CLAIM_APPROVED',
-                'CLAIM_REJECTED',
-                'BENEFIT_UTILIZED',
-                'PLAN_SELECTED',
-                'PLAN_COMPARED'
-              ].includes(value);
-            case 'user':
-              return [
-                'USER_REGISTERED',
-                'USER_LOGGED_IN',
-                'USER_PROFILE_UPDATED',
-                'USER_PREFERENCES_UPDATED'
-              ].includes(value);
-            case 'gamification':
-              return [
-                'ACHIEVEMENT_UNLOCKED',
-                'REWARD_EARNED',
-                'REWARD_REDEEMED',
-                'LEADERBOARD_UPDATED',
-                'LEVEL_UP'
-              ].includes(value);
-            default:
-              return false;
-          }
-        },
-        defaultMessage(args: ValidationArguments) {
-          let journeyValue = journey;
-          if (journey.startsWith('@')) {
-            const journeyProp = journey.substring(1);
-            journeyValue = (args.object as any)[journeyProp];
-          }
-          return `${args.property} must be a valid event type for the ${journeyValue} journey`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid UUID
- * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function IsValidUUID(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidUUID',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: any) {
-          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-          return typeof value === 'string' && uuidRegex.test(value);
-        },
-        defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid UUID`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that a value is present only when another property has a specific value
- * 
- * @param property The property to check
- * @param values The values that require this property
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function IsRequiredWhen(property: string, values: any[], validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isRequiredWhen',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: any, args: ValidationArguments) {
-          const relatedValue = (args.object as any)[property];
-          if (values.includes(relatedValue)) {
-            return value !== undefined && value !== null && value !== '';
-          }
+          
+          // For other event types, the field is optional
           return true;
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} is required when ${property} is one of [${values.join(', ')}]`;
+          const [requiredEventType] = args.constraints;
+          return `${args.property} is required for event type ${requiredEventType}`;
         }
       }
     });
@@ -206,30 +61,43 @@ export function IsRequiredWhen(property: string, values: any[], validationOption
 }
 
 /**
- * Validates that a value is not present when another property has a specific value
+ * Validates that a field is only present for events from a specific journey.
+ * Ensures journey-specific fields are only included in events from the appropriate journey.
  * 
- * @param property The property to check
- * @param values The values that prohibit this property
+ * @param journeyType The journey type for which the field should be present
  * @param validationOptions Additional validation options
  * @returns PropertyDecorator
+ * 
+ * @example
+ * class HealthEventDto {
+ *   @IsRequiredForJourney('health')
+ *   healthMetrics: HealthMetrics;
+ * }
  */
-export function IsProhibitedWhen(property: string, values: any[], validationOptions?: ValidationOptions): PropertyDecorator {
+export function IsRequiredForJourney(journeyType: string, validationOptions?: ValidationOptions) {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isProhibitedWhen',
+      name: 'isRequiredForJourney',
       target: object.constructor,
       propertyName: propertyName,
+      constraints: [journeyType],
       options: validationOptions,
       validator: {
         validate(value: any, args: ValidationArguments) {
-          const relatedValue = (args.object as any)[property];
-          if (values.includes(relatedValue)) {
-            return value === undefined || value === null || value === '';
+          const [requiredJourney] = args.constraints;
+          const obj = args.object as any;
+          
+          // If this is the required journey, the field must be present
+          if (obj.journey === requiredJourney) {
+            return value !== undefined && value !== null;
           }
+          
+          // For other journeys, the field is optional
           return true;
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} is not allowed when ${property} is one of [${values.join(', ')}]`;
+          const [requiredJourney] = args.constraints;
+          return `${args.property} is required for journey ${requiredJourney}`;
         }
       }
     });
@@ -237,32 +105,90 @@ export function IsProhibitedWhen(property: string, values: any[], validationOpti
 }
 
 /**
- * Validates that a value is a valid ISO 8601 date string
+ * Validates that a field conforms to a Zod schema.
+ * Allows using Zod schemas for validation within class-validator decorators.
  * 
+ * @param schema The Zod schema to validate against
  * @param validationOptions Additional validation options
  * @returns PropertyDecorator
+ * 
+ * @example
+ * const MetricValueSchema = z.number().positive().max(1000);
+ * 
+ * class HealthMetricEventDto {
+ *   @ValidateWithZod(MetricValueSchema)
+ *   metricValue: number;
+ * }
  */
-export function IsValidISODate(validationOptions?: ValidationOptions): PropertyDecorator {
+export function ValidateWithZod(schema: ZodSchema, validationOptions?: ValidationOptions) {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isValidISODate',
+      name: 'validateWithZod',
       target: object.constructor,
       propertyName: propertyName,
+      constraints: [schema],
       options: validationOptions,
       validator: {
-        validate(value: any) {
-          if (typeof value !== 'string') {
-            return false;
+        validate(value: any, args: ValidationArguments) {
+          const [zodSchema] = args.constraints;
+          const result = zodSchema.safeParse(value);
+          return result.success;
+        },
+        defaultMessage(args: ValidationArguments) {
+          const [zodSchema] = args.constraints;
+          const result = zodSchema.safeParse(args.value);
+          if (!result.success) {
+            return result.error.errors.map(err => `${err.path}: ${err.message}`).join(', ');
           }
-          try {
-            const date = new Date(value);
-            return !isNaN(date.getTime()) && value === date.toISOString();
-          } catch (e) {
-            return false;
+          return 'Invalid value';
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that a field is conditionally required based on another field's value.
+ * Useful for implementing complex validation rules that depend on other fields.
+ * 
+ * @param condition Function that determines if the field is required
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ * 
+ * @example
+ * class AppointmentEventDto {
+ *   @IsConditionallyRequired(
+ *     obj => obj.type === 'APPOINTMENT_BOOKED' || obj.type === 'APPOINTMENT_RESCHEDULED'
+ *   )
+ *   appointmentDate: Date;
+ * }
+ */
+export function IsConditionallyRequired(
+  condition: (object: any) => boolean,
+  validationOptions?: ValidationOptions
+) {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isConditionallyRequired',
+      target: object.constructor,
+      propertyName: propertyName,
+      constraints: [condition],
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          const [conditionFn] = args.constraints;
+          const obj = args.object;
+          
+          // If the condition is met, the field must be present
+          if (conditionFn(obj)) {
+            return value !== undefined && value !== null;
           }
+          
+          // Otherwise, the field is optional
+          return true;
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid ISO 8601 date string`;
+          return `${args.property} is required based on other field values`;
         }
       }
     });
@@ -270,312 +196,65 @@ export function IsValidISODate(validationOptions?: ValidationOptions): PropertyD
 }
 
 /**
- * Validates that a value is a valid health metric value based on the metric type
- */
-@ValidatorConstraint({ name: 'isValidHealthMetricValue', async: false })
-export class IsValidHealthMetricValueConstraint implements ValidatorConstraintInterface {
-  validate(value: any, args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    if (typeof value !== 'number') {
-      return false;
-    }
-    
-    switch (metricType) {
-      case 'HEART_RATE':
-        return value >= 30 && value <= 220;
-      case 'BLOOD_GLUCOSE':
-        return value >= 20 && value <= 600;
-      case 'STEPS':
-        return value >= 0 && value <= 100000;
-      case 'SLEEP':
-        return value >= 0 && value <= 24; // Hours
-      case 'WEIGHT':
-        return value >= 0 && value <= 500; // kg
-      case 'TEMPERATURE':
-        return value >= 30 && value <= 45; // Celsius
-      case 'OXYGEN_SATURATION':
-        return value >= 50 && value <= 100; // Percentage
-      case 'RESPIRATORY_RATE':
-        return value >= 0 && value <= 100; // Breaths per minute
-      case 'WATER_INTAKE':
-        return value >= 0 && value <= 10000; // ml
-      case 'CALORIES':
-        return value >= 0 && value <= 10000;
-      default:
-        return true;
-    }
-  }
-  
-  defaultMessage(args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    switch (metricType) {
-      case 'HEART_RATE':
-        return `${args.property} must be between 30 and 220 for heart rate`;
-      case 'BLOOD_GLUCOSE':
-        return `${args.property} must be between 20 and 600 for blood glucose`;
-      case 'STEPS':
-        return `${args.property} must be between 0 and 100000 for steps`;
-      case 'SLEEP':
-        return `${args.property} must be between 0 and 24 for sleep hours`;
-      case 'WEIGHT':
-        return `${args.property} must be between 0 and 500 for weight in kg`;
-      case 'TEMPERATURE':
-        return `${args.property} must be between 30 and 45 for temperature in Celsius`;
-      case 'OXYGEN_SATURATION':
-        return `${args.property} must be between 50 and 100 for oxygen saturation percentage`;
-      case 'RESPIRATORY_RATE':
-        return `${args.property} must be between 0 and 100 for respiratory rate`;
-      case 'WATER_INTAKE':
-        return `${args.property} must be between 0 and 10000 for water intake in ml`;
-      case 'CALORIES':
-        return `${args.property} must be between 0 and 10000 for calories`;
-      default:
-        return `${args.property} must be a valid value for the given metric type`;
-    }
-  }
-}
-
-/**
- * Decorator that validates a health metric value based on the metric type
+ * Validates that a numeric field is within a physiologically plausible range for health metrics.
+ * Ensures health metric values are within reasonable ranges to prevent erroneous data.
  * 
+ * @param metricType The type of health metric being validated
  * @param validationOptions Additional validation options
  * @returns PropertyDecorator
- */
-export function IsValidHealthMetricValue(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidHealthMetricValue',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: IsValidHealthMetricValueConstraint,
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid unit for the given health metric type
- */
-@ValidatorConstraint({ name: 'isValidHealthMetricUnit', async: false })
-export class IsValidHealthMetricUnitConstraint implements ValidatorConstraintInterface {
-  validate(value: any, args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    if (typeof value !== 'string') {
-      return false;
-    }
-    
-    switch (metricType) {
-      case 'HEART_RATE':
-        return ['bpm'].includes(value);
-      case 'BLOOD_GLUCOSE':
-        return ['mg/dL', 'mmol/L'].includes(value);
-      case 'STEPS':
-        return ['steps'].includes(value);
-      case 'SLEEP':
-        return ['hours', 'minutes'].includes(value);
-      case 'WEIGHT':
-        return ['kg', 'lb'].includes(value);
-      case 'TEMPERATURE':
-        return ['°C', '°F'].includes(value);
-      case 'OXYGEN_SATURATION':
-        return ['%'].includes(value);
-      case 'RESPIRATORY_RATE':
-        return ['breaths/min'].includes(value);
-      case 'WATER_INTAKE':
-        return ['ml', 'oz'].includes(value);
-      case 'CALORIES':
-        return ['kcal'].includes(value);
-      default:
-        return true;
-    }
-  }
-  
-  defaultMessage(args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    switch (metricType) {
-      case 'HEART_RATE':
-        return `${args.property} must be 'bpm' for heart rate`;
-      case 'BLOOD_GLUCOSE':
-        return `${args.property} must be 'mg/dL' or 'mmol/L' for blood glucose`;
-      case 'STEPS':
-        return `${args.property} must be 'steps' for steps`;
-      case 'SLEEP':
-        return `${args.property} must be 'hours' or 'minutes' for sleep`;
-      case 'WEIGHT':
-        return `${args.property} must be 'kg' or 'lb' for weight`;
-      case 'TEMPERATURE':
-        return `${args.property} must be '°C' or '°F' for temperature`;
-      case 'OXYGEN_SATURATION':
-        return `${args.property} must be '%' for oxygen saturation`;
-      case 'RESPIRATORY_RATE':
-        return `${args.property} must be 'breaths/min' for respiratory rate`;
-      case 'WATER_INTAKE':
-        return `${args.property} must be 'ml' or 'oz' for water intake`;
-      case 'CALORIES':
-        return `${args.property} must be 'kcal' for calories`;
-      default:
-        return `${args.property} must be a valid unit for the given metric type`;
-    }
-  }
-}
-
-/**
- * Decorator that validates a health metric unit based on the metric type
  * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
+ * @example
+ * class HealthMetricEventDto {
+ *   @IsPhysiologicallyPlausible('HEART_RATE')
+ *   heartRate: number;
+ * }
  */
-export function IsValidHealthMetricUnit(validationOptions?: ValidationOptions): PropertyDecorator {
+export function IsPhysiologicallyPlausible(
+  metricType: string,
+  validationOptions?: ValidationOptions
+) {
   return function (object: Object, propertyName: string) {
     registerDecorator({
-      name: 'isValidHealthMetricUnit',
+      name: 'isPhysiologicallyPlausible',
       target: object.constructor,
       propertyName: propertyName,
-      options: validationOptions,
-      validator: IsValidHealthMetricUnitConstraint,
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid device type
- * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function IsValidDeviceType(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidDeviceType',
-      target: object.constructor,
-      propertyName: propertyName,
+      constraints: [metricType],
       options: validationOptions,
       validator: {
-        validate(value: any) {
-          const validDeviceTypes = [
-            'FITNESS_TRACKER',
-            'SMARTWATCH',
-            'BLOOD_PRESSURE_MONITOR',
-            'GLUCOSE_MONITOR',
-            'SCALE',
-            'SLEEP_TRACKER',
-            'THERMOMETER',
-            'PULSE_OXIMETER'
-          ];
-          return typeof value === 'string' && validDeviceTypes.includes(value);
-        },
-        defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid device type`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid appointment status
- * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function IsValidAppointmentStatus(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidAppointmentStatus',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: any) {
-          const validStatuses = [
-            'SCHEDULED',
-            'CONFIRMED',
-            'CHECKED_IN',
-            'IN_PROGRESS',
-            'COMPLETED',
-            'CANCELLED',
-            'NO_SHOW',
-            'RESCHEDULED'
-          ];
-          return typeof value === 'string' && validStatuses.includes(value);
-        },
-        defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid appointment status`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that a value is a valid claim status
- * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function IsValidClaimStatus(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'isValidClaimStatus',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        validate(value: any) {
-          const validStatuses = [
-            'SUBMITTED',
-            'UNDER_REVIEW',
-            'ADDITIONAL_INFO_REQUIRED',
-            'APPROVED',
-            'PARTIALLY_APPROVED',
-            'REJECTED',
-            'PAYMENT_PENDING',
-            'PAYMENT_PROCESSED',
-            'APPEALED'
-          ];
-          return typeof value === 'string' && validStatuses.includes(value);
-        },
-        defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a valid claim status`;
-        }
-      }
-    });
-  };
-}
-
-/**
- * Validates that an event has valid metadata
- * 
- * @param validationOptions Additional validation options
- * @returns PropertyDecorator
- */
-export function HasValidEventMetadata(validationOptions?: ValidationOptions): PropertyDecorator {
-  return function (object: Object, propertyName: string) {
-    registerDecorator({
-      name: 'hasValidEventMetadata',
-      target: object.constructor,
-      propertyName: propertyName,
-      options: validationOptions,
-      validator: {
-        async validate(value: any) {
-          if (!value || typeof value !== 'object') {
+        validate(value: any, args: ValidationArguments) {
+          if (typeof value !== 'number') {
             return false;
           }
           
-          const metadata = value as EventMetadataDto;
-          const errors = await validate(metadata);
-          return errors.length === 0;
+          const [metricType] = args.constraints;
+          
+          // Define plausible ranges for different health metrics
+          switch (metricType.toUpperCase()) {
+            case 'HEART_RATE':
+              return value >= 30 && value <= 220; // bpm
+            case 'BLOOD_PRESSURE_SYSTOLIC':
+              return value >= 70 && value <= 250; // mmHg
+            case 'BLOOD_PRESSURE_DIASTOLIC':
+              return value >= 40 && value <= 150; // mmHg
+            case 'BLOOD_GLUCOSE':
+              return value >= 30 && value <= 600; // mg/dL
+            case 'BODY_TEMPERATURE':
+              return value >= 34 && value <= 42; // Celsius
+            case 'WEIGHT':
+              return value >= 1 && value <= 500; // kg
+            case 'HEIGHT':
+              return value >= 30 && value <= 250; // cm
+            case 'STEPS':
+              return value >= 0 && value <= 100000; // steps per day
+            case 'SLEEP_DURATION':
+              return value >= 0 && value <= 24; // hours
+            default:
+              return true; // For unknown metric types, defer to other validators
+          }
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must contain valid event metadata`;
+          const [metricType] = args.constraints;
+          return `${args.property} is not within a physiologically plausible range for ${metricType}`;
         }
       }
     });
@@ -583,148 +262,507 @@ export function HasValidEventMetadata(validationOptions?: ValidationOptions): Pr
 }
 
 /**
- * Utility function to format validation errors into a standardized structure
+ * Validates that a field contains a valid Brazilian currency value.
+ * Ensures financial values are properly formatted for Brazilian Real.
  * 
- * @param errors Array of validation errors from class-validator
- * @returns Formatted validation errors
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ * 
+ * @example
+ * class ClaimEventDto {
+ *   @IsBrazilianCurrency()
+ *   claimAmount: number;
+ * }
  */
-export function formatValidationErrors(errors: any[]): ValidationError[] {
-  return errors.map(error => {
-    const formattedError: ValidationError = {
-      property: error.property,
-      errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-      message: ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
-      constraints: error.constraints
-    };
-    
-    if (error.children && error.children.length > 0) {
-      formattedError.children = formatValidationErrors(error.children);
+export function IsBrazilianCurrency(validationOptions?: ValidationOptions) {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'isBrazilianCurrency',
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          // Check if it's a number or a string that can be converted to a number
+          if (typeof value === 'number') {
+            // Ensure it has at most 2 decimal places and is non-negative
+            return value >= 0 && Math.floor(value * 100) / 100 === value;
+          } else if (typeof value === 'string') {
+            // Check if it matches Brazilian currency format (R$ X.XXX,XX)
+            const brCurrencyRegex = /^R\$ ?(\d{1,3}(\.\d{3})*,\d{2})$/;
+            return brCurrencyRegex.test(value);
+          }
+          return false;
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must be a valid Brazilian currency value`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that an event payload contains all required fields for a specific event type.
+ * Ensures event payloads have the necessary data for processing.
+ * 
+ * @param requiredFields Array of field names required for the event type
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ * 
+ * @example
+ * class AppointmentEventDto {
+ *   @HasRequiredEventFields(['appointmentId', 'providerId', 'appointmentDate'])
+ *   data: object;
+ * }
+ */
+export function HasRequiredEventFields(
+  requiredFields: string[],
+  validationOptions?: ValidationOptions
+) {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'hasRequiredEventFields',
+      target: object.constructor,
+      propertyName: propertyName,
+      constraints: [requiredFields],
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          if (typeof value !== 'object' || value === null) {
+            return false;
+          }
+          
+          const [requiredFields] = args.constraints;
+          return requiredFields.every(field => 
+            Object.prototype.hasOwnProperty.call(value, field) && 
+            value[field] !== undefined && 
+            value[field] !== null
+          );
+        },
+        defaultMessage(args: ValidationArguments) {
+          const [requiredFields] = args.constraints;
+          return `${args.property} must contain the following required fields: ${requiredFields.join(', ')}`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates that an event payload is valid for a specific journey and event type.
+ * Combines multiple validation rules for comprehensive event validation.
+ * 
+ * @param journeyType The journey type to validate for
+ * @param eventType The event type to validate for
+ * @param validationOptions Additional validation options
+ * @returns PropertyDecorator
+ * 
+ * @example
+ * class EventDto {
+ *   @ValidateEventPayload('health', 'HEALTH_METRIC_RECORDED')
+ *   data: object;
+ * }
+ */
+export function ValidateEventPayload(
+  journeyType: string,
+  eventType: string,
+  validationOptions?: ValidationOptions
+) {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      name: 'validateEventPayload',
+      target: object.constructor,
+      propertyName: propertyName,
+      constraints: [journeyType, eventType],
+      options: validationOptions,
+      validator: {
+        validate(value: any, args: ValidationArguments) {
+          if (typeof value !== 'object' || value === null) {
+            return false;
+          }
+          
+          const [journeyType, eventType] = args.constraints;
+          const obj = args.object as any;
+          
+          // Verify that the event is of the correct journey and type
+          if (obj.journey !== journeyType || obj.type !== eventType) {
+            return true; // Skip validation for other event types/journeys
+          }
+          
+          // Perform journey and event type specific validation
+          switch (journeyType) {
+            case 'health':
+              return validateHealthEventPayload(eventType, value);
+            case 'care':
+              return validateCareEventPayload(eventType, value);
+            case 'plan':
+              return validatePlanEventPayload(eventType, value);
+            default:
+              return true; // Unknown journey type, defer to other validators
+          }
+        },
+        defaultMessage(args: ValidationArguments) {
+          const [journeyType, eventType] = args.constraints;
+          return `${args.property} is not valid for journey ${journeyType} and event type ${eventType}`;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Validates health journey event payloads.
+ * 
+ * @param eventType The specific health event type
+ * @param payload The event payload to validate
+ * @returns boolean indicating if the payload is valid
+ */
+function validateHealthEventPayload(eventType: string, payload: any): boolean {
+  switch (eventType) {
+    case 'HEALTH_METRIC_RECORDED':
+      return (
+        typeof payload.metricType === 'string' &&
+        (typeof payload.metricValue === 'number' || typeof payload.metricValue === 'string') &&
+        typeof payload.unit === 'string'
+      );
+    case 'GOAL_ACHIEVED':
+      return (
+        typeof payload.goalId === 'string' &&
+        typeof payload.goalType === 'string'
+      );
+    case 'DEVICE_CONNECTED':
+      return (
+        typeof payload.deviceId === 'string' &&
+        typeof payload.deviceType === 'string'
+      );
+    default:
+      return true; // Unknown event type, defer to other validators
+  }
+}
+
+/**
+ * Validates care journey event payloads.
+ * 
+ * @param eventType The specific care event type
+ * @param payload The event payload to validate
+ * @returns boolean indicating if the payload is valid
+ */
+function validateCareEventPayload(eventType: string, payload: any): boolean {
+  switch (eventType) {
+    case 'APPOINTMENT_BOOKED':
+      return (
+        typeof payload.appointmentId === 'string' &&
+        typeof payload.providerId === 'string' &&
+        payload.appointmentDate instanceof Date
+      );
+    case 'MEDICATION_TAKEN':
+      return (
+        typeof payload.medicationId === 'string' &&
+        typeof payload.dosage === 'string'
+      );
+    case 'TELEMEDICINE_SESSION_COMPLETED':
+      return (
+        typeof payload.sessionId === 'string' &&
+        typeof payload.providerId === 'string' &&
+        typeof payload.duration === 'number'
+      );
+    default:
+      return true; // Unknown event type, defer to other validators
+  }
+}
+
+/**
+ * Validates plan journey event payloads.
+ * 
+ * @param eventType The specific plan event type
+ * @param payload The event payload to validate
+ * @returns boolean indicating if the payload is valid
+ */
+function validatePlanEventPayload(eventType: string, payload: any): boolean {
+  switch (eventType) {
+    case 'CLAIM_SUBMITTED':
+      return (
+        typeof payload.claimId === 'string' &&
+        typeof payload.amount === 'number' &&
+        typeof payload.claimType === 'string'
+      );
+    case 'BENEFIT_UTILIZED':
+      return (
+        typeof payload.benefitId === 'string' &&
+        typeof payload.benefitType === 'string'
+      );
+    case 'PLAN_SELECTED':
+      return (
+        typeof payload.planId === 'string' &&
+        typeof payload.planType === 'string'
+      );
+    default:
+      return true; // Unknown event type, defer to other validators
+  }
+}
+
+/**
+ * Constraint for validating event objects against a Zod schema.
+ * Provides a reusable validator for Zod schemas.
+ */
+@ValidatorConstraint({ name: 'zodSchema', async: false })
+export class ZodSchemaValidator implements ValidatorConstraintInterface {
+  constructor(private schema: ZodSchema) {}
+
+  validate(value: any, args: ValidationArguments) {
+    const result = this.schema.safeParse(value);
+    return result.success;
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    const result = this.schema.safeParse(args.value);
+    if (!result.success) {
+      return result.error.errors.map(err => `${err.path}: ${err.message}`).join(', ');
     }
-    
-    return formattedError;
+    return 'Invalid value';
+  }
+}
+
+/**
+ * Creates a Zod schema for validating event objects.
+ * Provides a consistent way to create event validation schemas.
+ * 
+ * @param journeyType The journey type for the event
+ * @param eventType The specific event type
+ * @param dataSchema The schema for the event data
+ * @returns A Zod schema for validating the event
+ * 
+ * @example
+ * const healthMetricSchema = createEventSchema(
+ *   'health',
+ *   'HEALTH_METRIC_RECORDED',
+ *   z.object({
+ *     metricType: z.string(),
+ *     metricValue: z.number().positive(),
+ *     unit: z.string()
+ *   })
+ * );
+ */
+export function createEventSchema(
+  journeyType: string,
+  eventType: string,
+  dataSchema: ZodSchema
+): ZodSchema {
+  return z.object({
+    type: z.literal(eventType),
+    userId: z.string().uuid(),
+    timestamp: z.string().datetime(),
+    journey: z.literal(journeyType),
+    data: dataSchema,
+    source: z.string().optional(),
+    version: z.string().optional()
   });
 }
 
 /**
- * Utility function to validate an object against its class-validator decorators
+ * Validates an event object using both class-validator and Zod.
+ * Provides comprehensive validation using both libraries.
  * 
- * @param object The object to validate
- * @param options Additional validation options
- * @returns Promise resolving to validation errors or null if valid
+ * @param event The event object to validate
+ * @param schema Optional Zod schema for additional validation
+ * @returns Promise resolving to a validation result object
+ * 
+ * @example
+ * const event = {
+ *   type: 'HEALTH_METRIC_RECORDED',
+ *   userId: 'user-123',
+ *   journey: 'health',
+ *   data: { metricType: 'HEART_RATE', metricValue: 75, unit: 'bpm' }
+ * };
+ * 
+ * const result = await validateEvent(event, healthMetricSchema);
+ * if (result.isValid) {
+ *   // Process the valid event
+ * } else {
+ *   console.error(result.errors);
+ * }
  */
-export async function validateObject(object: any, options?: any): Promise<ValidationError[] | null> {
-  const errors = await validate(object, options);
-  
-  if (errors.length === 0) {
-    return null;
+export async function validateEvent(
+  event: IBaseEvent,
+  schema?: ZodSchema
+): Promise<{ isValid: boolean; errors?: string[] }> {
+  // First validate with class-validator if the event is a class instance
+  if (event.constructor !== Object) {
+    const errors = await validate(event);
+    if (errors.length > 0) {
+      return {
+        isValid: false,
+        errors: errors.flatMap(error => 
+          Object.values(error.constraints || {}).map(message => message)
+        )
+      };
+    }
   }
   
-  return formatValidationErrors(errors);
+  // Then validate with Zod if a schema is provided
+  if (schema) {
+    const result = schema.safeParse(event);
+    if (!result.success) {
+      return {
+        isValid: false,
+        errors: result.error.errors.map(err => `${err.path}: ${err.message}`)
+      };
+    }
+  }
+  
+  return { isValid: true };
 }
 
 /**
- * Utility function to check if a value is a valid UUID
+ * Validates that an event payload matches a specific structure based on event type.
+ * Provides a simple way to validate event payloads without creating full schemas.
  * 
- * @param value The value to check
- * @returns Boolean indicating if the value is a valid UUID
+ * @param event The event object to validate
+ * @returns Validation result object
+ * 
+ * @example
+ * const event = {
+ *   type: 'HEALTH_METRIC_RECORDED',
+ *   userId: 'user-123',
+ *   journey: 'health',
+ *   data: { metricType: 'HEART_RATE', metricValue: 75, unit: 'bpm' }
+ * };
+ * 
+ * const result = validateEventPayloadStructure(event);
+ * if (!result.isValid) {
+ *   console.error(result.errors);
+ * }
  */
-export function isUUID(value: any): boolean {
-  if (typeof value !== 'string') {
-    return false;
+export function validateEventPayloadStructure(
+  event: IBaseEvent
+): { isValid: boolean; errors?: string[] } {
+  if (!event || typeof event !== 'object') {
+    return { isValid: false, errors: ['Event must be an object'] };
   }
   
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(value);
+  if (!event.type) {
+    return { isValid: false, errors: ['Event must have a type'] };
+  }
+  
+  if (!event.userId) {
+    return { isValid: false, errors: ['Event must have a userId'] };
+  }
+  
+  if (!event.data || typeof event.data !== 'object') {
+    return { isValid: false, errors: ['Event must have a data object'] };
+  }
+  
+  // Validate based on journey and event type
+  if (event.journey) {
+    switch (event.journey) {
+      case 'health':
+        return validateHealthEventStructure(event.type, event.data);
+      case 'care':
+        return validateCareEventStructure(event.type, event.data);
+      case 'plan':
+        return validatePlanEventStructure(event.type, event.data);
+    }
+  }
+  
+  // If no journey is specified or it's not one of the known journeys,
+  // we can't perform journey-specific validation
+  return { isValid: true };
 }
 
 /**
- * Utility function to check if a value is a valid ISO 8601 date string
+ * Validates health event payload structure.
  * 
- * @param value The value to check
- * @returns Boolean indicating if the value is a valid ISO 8601 date string
+ * @param eventType The specific health event type
+ * @param data The event data to validate
+ * @returns Validation result object
  */
-export function isISODate(value: any): boolean {
-  if (typeof value !== 'string') {
-    return false;
+function validateHealthEventStructure(
+  eventType: string,
+  data: IEventPayload
+): { isValid: boolean; errors?: string[] } {
+  const errors: string[] = [];
+  
+  switch (eventType) {
+    case 'HEALTH_METRIC_RECORDED':
+      if (!data.metricType) errors.push('Health metric event must have a metricType');
+      if (data.metricValue === undefined) errors.push('Health metric event must have a metricValue');
+      if (!data.unit) errors.push('Health metric event must have a unit');
+      break;
+    case 'GOAL_ACHIEVED':
+      if (!data.goalId) errors.push('Goal achievement event must have a goalId');
+      if (!data.goalType) errors.push('Goal achievement event must have a goalType');
+      break;
+    case 'DEVICE_CONNECTED':
+      if (!data.deviceId) errors.push('Device connection event must have a deviceId');
+      if (!data.deviceType) errors.push('Device connection event must have a deviceType');
+      break;
   }
   
-  try {
-    const date = new Date(value);
-    return !isNaN(date.getTime()) && value === date.toISOString();
-  } catch (e) {
-    return false;
-  }
+  return errors.length > 0 ? { isValid: false, errors } : { isValid: true };
 }
 
 /**
- * Utility function to check if a value is a valid journey name
+ * Validates care event payload structure.
  * 
- * @param value The value to check
- * @returns Boolean indicating if the value is a valid journey name
+ * @param eventType The specific care event type
+ * @param data The event data to validate
+ * @returns Validation result object
  */
-export function isValidJourney(value: any): boolean {
-  const validJourneys = ['health', 'care', 'plan', 'user', 'gamification'];
-  return typeof value === 'string' && validJourneys.includes(value.toLowerCase());
+function validateCareEventStructure(
+  eventType: string,
+  data: IEventPayload
+): { isValid: boolean; errors?: string[] } {
+  const errors: string[] = [];
+  
+  switch (eventType) {
+    case 'APPOINTMENT_BOOKED':
+      if (!data.appointmentId) errors.push('Appointment event must have an appointmentId');
+      if (!data.providerId) errors.push('Appointment event must have a providerId');
+      if (!data.appointmentDate) errors.push('Appointment event must have an appointmentDate');
+      break;
+    case 'MEDICATION_TAKEN':
+      if (!data.medicationId) errors.push('Medication event must have a medicationId');
+      if (!data.dosage) errors.push('Medication event must have a dosage');
+      break;
+    case 'TELEMEDICINE_SESSION_COMPLETED':
+      if (!data.sessionId) errors.push('Telemedicine event must have a sessionId');
+      if (!data.providerId) errors.push('Telemedicine event must have a providerId');
+      if (data.duration === undefined) errors.push('Telemedicine event must have a duration');
+      break;
+  }
+  
+  return errors.length > 0 ? { isValid: false, errors } : { isValid: true };
 }
 
 /**
- * Utility function to check if a value is a valid event type for a given journey
+ * Validates plan event payload structure.
  * 
- * @param value The value to check
- * @param journey The journey to validate against
- * @returns Boolean indicating if the value is a valid event type for the journey
+ * @param eventType The specific plan event type
+ * @param data The event data to validate
+ * @returns Validation result object
  */
-export function isValidEventType(value: any, journey: string): boolean {
-  if (typeof value !== 'string' || typeof journey !== 'string') {
-    return false;
+function validatePlanEventStructure(
+  eventType: string,
+  data: IEventPayload
+): { isValid: boolean; errors?: string[] } {
+  const errors: string[] = [];
+  
+  switch (eventType) {
+    case 'CLAIM_SUBMITTED':
+      if (!data.claimId) errors.push('Claim event must have a claimId');
+      if (data.amount === undefined) errors.push('Claim event must have an amount');
+      if (!data.claimType) errors.push('Claim event must have a claimType');
+      break;
+    case 'BENEFIT_UTILIZED':
+      if (!data.benefitId) errors.push('Benefit event must have a benefitId');
+      if (!data.benefitType) errors.push('Benefit event must have a benefitType');
+      break;
+    case 'PLAN_SELECTED':
+      if (!data.planId) errors.push('Plan selection event must have a planId');
+      if (!data.planType) errors.push('Plan selection event must have a planType');
+      break;
   }
   
-  switch (journey.toLowerCase()) {
-    case 'health':
-      return [
-        'HEALTH_METRIC_RECORDED',
-        'HEALTH_GOAL_ACHIEVED',
-        'HEALTH_GOAL_CREATED',
-        'HEALTH_GOAL_UPDATED',
-        'DEVICE_SYNCHRONIZED',
-        'HEALTH_INSIGHT_GENERATED'
-      ].includes(value);
-    case 'care':
-      return [
-        'APPOINTMENT_BOOKED',
-        'APPOINTMENT_COMPLETED',
-        'APPOINTMENT_CANCELLED',
-        'MEDICATION_ADHERENCE',
-        'TELEMEDICINE_SESSION_STARTED',
-        'TELEMEDICINE_SESSION_ENDED',
-        'CARE_PLAN_UPDATED'
-      ].includes(value);
-    case 'plan':
-      return [
-        'CLAIM_SUBMITTED',
-        'CLAIM_UPDATED',
-        'CLAIM_APPROVED',
-        'CLAIM_REJECTED',
-        'BENEFIT_UTILIZED',
-        'PLAN_SELECTED',
-        'PLAN_COMPARED'
-      ].includes(value);
-    case 'user':
-      return [
-        'USER_REGISTERED',
-        'USER_LOGGED_IN',
-        'USER_PROFILE_UPDATED',
-        'USER_PREFERENCES_UPDATED'
-      ].includes(value);
-    case 'gamification':
-      return [
-        'ACHIEVEMENT_UNLOCKED',
-        'REWARD_EARNED',
-        'REWARD_REDEEMED',
-        'LEADERBOARD_UPDATED',
-        'LEVEL_UP'
-      ].includes(value);
-    default:
-      return false;
-  }
+  return errors.length > 0 ? { isValid: false, errors } : { isValid: true };
 }
