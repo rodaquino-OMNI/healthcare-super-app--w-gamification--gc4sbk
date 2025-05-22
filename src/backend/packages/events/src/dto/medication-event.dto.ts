@@ -1,439 +1,185 @@
-import { 
-  IsString, 
-  IsNotEmpty, 
-  IsUUID, 
-  IsISO8601, 
-  IsEnum, 
-  IsNumber, 
-  IsOptional, 
-  IsBoolean, 
-  Min, 
-  Max, 
-  ValidateNested,
-  IsObject
-} from 'class-validator';
 import { Type } from 'class-transformer';
-import { CareEventType } from '../interfaces/journey-events.interface';
+import {
+  IsBoolean,
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 
 /**
- * Enum representing the possible adherence states for a medication
+ * Enum representing the possible medication adherence states
  */
-export enum MedicationAdherenceStatus {
-  TAKEN = 'taken',
-  MISSED = 'missed',
-  SKIPPED = 'skipped',
-  DELAYED = 'delayed'
+export enum MedicationAdherenceState {
+  TAKEN = 'TAKEN',       // Medication was taken as prescribed
+  SKIPPED = 'SKIPPED',   // Medication was intentionally skipped
+  MISSED = 'MISSED',     // Medication was unintentionally missed
+  SCHEDULED = 'SCHEDULED' // Medication is scheduled but not yet taken
 }
 
 /**
- * Enum representing the possible units for medication dosage
+ * Enum representing the possible medication dosage units
  */
 export enum MedicationDosageUnit {
-  MG = 'mg',
-  MCG = 'mcg',
-  G = 'g',
-  ML = 'ml',
-  TABLET = 'tablet',
-  CAPSULE = 'capsule',
-  PILL = 'pill',
-  DROP = 'drop',
-  SPRAY = 'spray',
-  PATCH = 'patch',
-  INJECTION = 'injection',
-  OTHER = 'other'
+  MG = 'MG',       // Milligrams
+  MCG = 'MCG',     // Micrograms
+  G = 'G',         // Grams
+  ML = 'ML',       // Milliliters
+  TABLET = 'TABLET', // Tablets
+  CAPSULE = 'CAPSULE', // Capsules
+  DROP = 'DROP',   // Drops
+  PATCH = 'PATCH', // Patches
+  SPRAY = 'SPRAY', // Sprays
+  IU = 'IU',       // International Units
+  OTHER = 'OTHER'  // Other units
+}
+
+/**
+ * Enum representing the possible medication frequency types
+ */
+export enum MedicationFrequencyType {
+  DAILY = 'DAILY',           // Once per day
+  TWICE_DAILY = 'TWICE_DAILY', // Twice per day
+  THREE_TIMES_DAILY = 'THREE_TIMES_DAILY', // Three times per day
+  FOUR_TIMES_DAILY = 'FOUR_TIMES_DAILY', // Four times per day
+  WEEKLY = 'WEEKLY',         // Once per week
+  BIWEEKLY = 'BIWEEKLY',     // Twice per week
+  MONTHLY = 'MONTHLY',       // Once per month
+  AS_NEEDED = 'AS_NEEDED',   // As needed (PRN)
+  CUSTOM = 'CUSTOM'          // Custom schedule
 }
 
 /**
  * DTO for medication dosage information
  */
 export class MedicationDosageDto {
-  /**
-   * The amount of medication taken
-   * @example 500
-   */
+  @IsNotEmpty()
   @IsNumber()
-  @Min(0)
+  @IsPositive()
   amount: number;
 
-  /**
-   * The unit of measurement for the dosage
-   * @example MedicationDosageUnit.MG
-   */
+  @IsNotEmpty()
   @IsEnum(MedicationDosageUnit)
   unit: MedicationDosageUnit;
 
-  /**
-   * Optional additional information about the dosage
-   * @example 'Take with food'
-   */
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   instructions?: string;
 }
 
 /**
- * DTO for medication identification
+ * DTO for medication schedule information
  */
-export class MedicationIdentifierDto {
-  /**
-   * Unique identifier for the medication
-   */
-  @IsUUID()
+export class MedicationScheduleDto {
   @IsNotEmpty()
-  id: string;
+  @IsEnum(MedicationFrequencyType)
+  frequencyType: MedicationFrequencyType;
 
-  /**
-   * Name of the medication
-   * @example 'Lisinopril'
-   */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  frequencyValue?: number;
+
+  @IsOptional()
+  @IsDate()
+  startDate?: Date;
+
+  @IsOptional()
+  @IsDate()
+  endDate?: Date;
+
+  @IsOptional()
   @IsString()
+  @MaxLength(255)
+  customSchedule?: string;
+}
+
+/**
+ * DTO for medication identification information
+ */
+export class MedicationIdentificationDto {
   @IsNotEmpty()
+  @IsUUID()
+  medicationId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
   name: string;
 
-  /**
-   * Optional medication code (NDC, RxNorm, etc.)
-   * @example '12345-6789-01'
-   */
   @IsOptional()
   @IsString()
-  code?: string;
+  @MaxLength(255)
+  genericName?: string;
 
-  /**
-   * Optional medication type or category
-   * @example 'antihypertensive'
-   */
   @IsOptional()
   @IsString()
-  type?: string;
+  @MaxLength(255)
+  manufacturer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  ndc?: string; // National Drug Code
 }
 
 /**
- * Base DTO for medication events
+ * DTO for medication event data
+ * Used for tracking medication adherence, dosage information, and schedule compliance
  */
 export class MedicationEventDto {
-  /**
-   * The type of medication event
-   */
-  @IsEnum(CareEventType)
   @IsNotEmpty()
-  type: CareEventType;
+  @IsEnum(MedicationAdherenceState)
+  adherenceState: MedicationAdherenceState;
 
-  /**
-   * The ID of the user associated with the medication
-   */
-  @IsUUID()
   @IsNotEmpty()
-  userId: string;
-
-  /**
-   * The medication information
-   */
-  @IsObject()
   @ValidateNested()
-  @Type(() => MedicationIdentifierDto)
-  medication: MedicationIdentifierDto;
+  @Type(() => MedicationIdentificationDto)
+  medication: MedicationIdentificationDto;
 
-  /**
-   * The timestamp of the event in ISO 8601 format
-   */
-  @IsISO8601()
   @IsNotEmpty()
-  timestamp: string;
-
-  /**
-   * Optional correlation ID for tracking related events
-   */
-  @IsOptional()
-  @IsString()
-  correlationId?: string;
-}
-
-/**
- * DTO for medication taken events
- * Used when a user records taking their medication
- */
-export class MedicationTakenEventDto extends MedicationEventDto {
-  /**
-   * The type of medication event - must be MEDICATION_TAKEN
-   */
-  @IsEnum(CareEventType)
-  @IsNotEmpty()
-  type: CareEventType.MEDICATION_TAKEN;
-
-  /**
-   * The dosage information for the medication taken
-   */
   @ValidateNested()
   @Type(() => MedicationDosageDto)
   dosage: MedicationDosageDto;
 
-  /**
-   * The scheduled time when the medication should have been taken
-   */
-  @IsISO8601()
-  scheduledTime: string;
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => MedicationScheduleDto)
+  schedule: MedicationScheduleDto;
 
-  /**
-   * Whether the medication was taken on time according to the schedule
-   */
-  @IsBoolean()
-  takenOnTime: boolean;
+  @IsNotEmpty()
+  @IsDate()
+  scheduledDateTime: Date;
 
-  /**
-   * The number of minutes delayed from the scheduled time (if not taken on time)
-   * Only required if takenOnTime is false
-   */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  delayMinutes?: number;
+  @IsDate()
+  actualDateTime?: Date;
 
-  /**
-   * Optional notes provided by the user
-   */
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
-}
 
-/**
- * DTO for medication missed events
- * Used when a user misses taking their medication
- */
-export class MedicationMissedEventDto extends MedicationEventDto {
-  /**
-   * The type of medication event - must be MEDICATION_MISSED
-   */
-  @IsEnum(CareEventType)
-  @IsNotEmpty()
-  type: CareEventType.MEDICATION_MISSED;
-
-  /**
-   * The scheduled time when the medication should have been taken
-   */
-  @IsISO8601()
-  scheduledTime: string;
-
-  /**
-   * The reason why the medication was missed
-   */
   @IsOptional()
-  @IsString()
-  reason?: string;
-
-  /**
-   * The number of reminders sent before marking as missed
-   */
-  @IsNumber()
-  @Min(0)
-  remindersSent: number;
-
-  /**
-   * Whether this medication is critical and missing it requires attention
-   */
   @IsBoolean()
-  isCritical: boolean;
-}
+  isRescheduled?: boolean;
 
-/**
- * DTO for medication added events
- * Used when a new medication is added to a user's regimen
- */
-export class MedicationAddedEventDto extends MedicationEventDto {
-  /**
-   * The type of medication event - must be MEDICATION_ADDED
-   */
-  @IsEnum(CareEventType)
-  @IsNotEmpty()
-  type: CareEventType.MEDICATION_ADDED;
-
-  /**
-   * The date when the medication was prescribed
-   */
-  @IsISO8601()
-  prescriptionDate: string;
-
-  /**
-   * The dosage information for the medication
-   */
-  @ValidateNested()
-  @Type(() => MedicationDosageDto)
-  dosage: MedicationDosageDto;
-
-  /**
-   * The frequency of the medication (e.g., 'daily', 'twice daily', 'every 8 hours')
-   */
-  @IsString()
-  @IsNotEmpty()
-  frequency: string;
-
-  /**
-   * The duration of the medication regimen in days
-   */
-  @IsNumber()
-  @Min(1)
-  duration: number;
-
-  /**
-   * The start date of the medication regimen
-   */
-  @IsISO8601()
-  startDate: string;
-
-  /**
-   * The optional end date of the medication regimen
-   */
   @IsOptional()
-  @IsISO8601()
-  endDate?: string;
+  @IsString()
+  @MaxLength(255)
+  reasonForSkippingOrMissing?: string;
 
-  /**
-   * Whether reminders are enabled for this medication
-   */
+  @IsOptional()
   @IsBoolean()
-  remindersEnabled: boolean;
-
-  /**
-   * Optional provider who prescribed the medication
-   */
-  @IsOptional()
-  @IsString()
-  provider?: string;
+  requiresAttention?: boolean;
 }
-
-/**
- * DTO for medication refilled events
- * Used when a medication is refilled
- */
-export class MedicationRefilledEventDto extends MedicationEventDto {
-  /**
-   * The type of medication event - must be MEDICATION_REFILLED
-   */
-  @IsEnum(CareEventType)
-  @IsNotEmpty()
-  type: CareEventType.MEDICATION_REFILLED;
-
-  /**
-   * The date when the medication was refilled
-   */
-  @IsISO8601()
-  refillDate: string;
-
-  /**
-   * The quantity of medication refilled
-   */
-  @IsNumber()
-  @Min(1)
-  quantity: number;
-
-  /**
-   * The number of days the refill will last
-   */
-  @IsNumber()
-  @Min(1)
-  daysSupply: number;
-
-  /**
-   * Optional pharmacy where the refill was obtained
-   */
-  @IsOptional()
-  @IsString()
-  pharmacy?: string;
-
-  /**
-   * Whether this was an automatic refill
-   */
-  @IsBoolean()
-  isAutoRefill: boolean;
-
-  /**
-   * The number of refills remaining
-   */
-  @IsNumber()
-  @Min(0)
-  remainingRefills: number;
-}
-
-/**
- * DTO for tracking medication adherence status
- * Used for gamification and achievement tracking
- */
-export class MedicationAdherenceStatusDto {
-  /**
-   * The user ID associated with the adherence status
-   */
-  @IsUUID()
-  @IsNotEmpty()
-  userId: string;
-
-  /**
-   * The medication identifier
-   */
-  @ValidateNested()
-  @Type(() => MedicationIdentifierDto)
-  medication: MedicationIdentifierDto;
-
-  /**
-   * The current adherence status
-   */
-  @IsEnum(MedicationAdherenceStatus)
-  status: MedicationAdherenceStatus;
-
-  /**
-   * The adherence rate as a percentage (0-100)
-   */
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  adherenceRate: number;
-
-  /**
-   * The number of doses taken on time
-   */
-  @IsNumber()
-  @Min(0)
-  dosesTakenOnTime: number;
-
-  /**
-   * The number of doses taken late
-   */
-  @IsNumber()
-  @Min(0)
-  dosesTakenLate: number;
-
-  /**
-   * The number of doses missed
-   */
-  @IsNumber()
-  @Min(0)
-  dosesMissed: number;
-
-  /**
-   * The current streak of consecutive doses taken
-   */
-  @IsNumber()
-  @Min(0)
-  currentStreak: number;
-
-  /**
-   * The longest streak achieved
-   */
-  @IsNumber()
-  @Min(0)
-  longestStreak: number;
-
-  /**
-   * The timestamp when the status was last updated
-   */
-  @IsISO8601()
-  lastUpdated: string;
-}
-
-/**
- * Union type for all medication event DTOs
- */
-export type MedicationEvent = 
-  | MedicationTakenEventDto
-  | MedicationMissedEventDto
-  | MedicationAddedEventDto
-  | MedicationRefilledEventDto;
