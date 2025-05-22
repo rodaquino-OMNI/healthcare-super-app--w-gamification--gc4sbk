@@ -1,7 +1,8 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
 
 /**
- * Enhanced enum representing different types of errors in the application.
+ * Enum representing different types of errors in the application.
  * Used to categorize exceptions for consistent error handling across services.
  */
 export enum ErrorType {
@@ -12,40 +13,10 @@ export enum ErrorType {
   VALIDATION = 'validation',
   
   /**
-   * Authentication errors - user is not authenticated or session is invalid
-   * Maps to HTTP 401 Unauthorized
-   */
-  AUTHENTICATION = 'authentication',
-  
-  /**
-   * Authorization errors - user lacks permission for the requested operation
-   * Maps to HTTP 403 Forbidden
-   */
-  AUTHORIZATION = 'authorization',
-  
-  /**
-   * Not found errors - requested resource does not exist
-   * Maps to HTTP 404 Not Found
-   */
-  NOT_FOUND = 'not_found',
-  
-  /**
-   * Conflict errors - operation cannot be performed due to resource state
-   * Maps to HTTP 409 Conflict
-   */
-  CONFLICT = 'conflict',
-  
-  /**
    * Business logic errors - operation cannot be completed due to business rules
    * Maps to HTTP 422 Unprocessable Entity
    */
   BUSINESS = 'business',
-  
-  /**
-   * Rate limit errors - too many requests from client
-   * Maps to HTTP 429 Too Many Requests
-   */
-  RATE_LIMIT = 'rate_limit',
   
   /**
    * Technical errors - unexpected system errors and exceptions
@@ -58,99 +29,151 @@ export enum ErrorType {
    * Maps to HTTP 502 Bad Gateway
    */
   EXTERNAL = 'external',
-  
+
   /**
-   * Service unavailable errors - service is temporarily unavailable
-   * Maps to HTTP 503 Service Unavailable
+   * Authentication errors - user is not authenticated or session is invalid
+   * Maps to HTTP 401 Unauthorized
    */
-  UNAVAILABLE = 'unavailable',
-  
+  AUTHENTICATION = 'authentication',
+
   /**
-   * Timeout errors - operation timed out
+   * Authorization errors - user does not have permission to access a resource
+   * Maps to HTTP 403 Forbidden
+   */
+  AUTHORIZATION = 'authorization',
+
+  /**
+   * Not found errors - requested resource does not exist
+   * Maps to HTTP 404 Not Found
+   */
+  NOT_FOUND = 'not_found',
+
+  /**
+   * Conflict errors - request conflicts with current state of the server
+   * Maps to HTTP 409 Conflict
+   */
+  CONFLICT = 'conflict',
+
+  /**
+   * Rate limit errors - too many requests in a given amount of time
+   * Maps to HTTP 429 Too Many Requests
+   */
+  RATE_LIMIT = 'rate_limit',
+
+  /**
+   * Timeout errors - request took too long to process
    * Maps to HTTP 504 Gateway Timeout
    */
   TIMEOUT = 'timeout'
 }
 
 /**
- * Represents the journey context in which an error occurred.
- * Used for better error categorization and client-friendly responses.
+ * Enum representing the different journeys in the AUSTA SuperApp.
+ * Used to provide context for errors and facilitate journey-specific error handling.
  */
-export enum JourneyContext {
+export enum JourneyType {
+  /**
+   * Health journey - related to health metrics, goals, and insights
+   */
   HEALTH = 'health',
+
+  /**
+   * Care journey - related to appointments, medications, and treatments
+   */
   CARE = 'care',
+
+  /**
+   * Plan journey - related to insurance plans, benefits, and claims
+   */
   PLAN = 'plan',
+
+  /**
+   * Gamification - related to achievements, rewards, and quests
+   */
   GAMIFICATION = 'gamification',
+
+  /**
+   * Authentication - related to user authentication and authorization
+   */
   AUTH = 'auth',
+
+  /**
+   * Notification - related to user notifications
+   */
   NOTIFICATION = 'notification',
+
+  /**
+   * System - related to system-wide operations
+   */
   SYSTEM = 'system'
 }
 
 /**
  * Interface for error context information.
- * Provides additional metadata about the error for better debugging and tracking.
+ * Provides additional metadata about the error to aid in debugging and monitoring.
  */
-export interface ErrorContext {
+/**
+ * Interface for client-friendly error response.
+ * This is what gets returned to the client in API responses.
+ */
+export interface ErrorResponse {
   /**
-   * The journey context in which the error occurred
+   * Error type for categorization
    */
-  journey?: JourneyContext;
+  type: string;
   
   /**
-   * User ID associated with the error, if applicable
+   * Error code for more specific categorization
    */
-  userId?: string;
+  code: string;
   
   /**
-   * Request ID for tracking the error across services
+   * Human-readable error message
+   */
+  message: string;
+  
+  /**
+   * Additional details about the error
+   */
+  details?: any;
+  
+  /**
+   * Journey context where the error occurred
+   */
+  journey?: string;
+  
+  /**
+   * Request ID for reference
    */
   requestId?: string;
   
   /**
-   * Trace ID for distributed tracing integration
-   */
-  traceId?: string;
-  
-  /**
-   * Span ID for distributed tracing integration
-   */
-  spanId?: string;
-  
-  /**
    * Timestamp when the error occurred
    */
-  timestamp?: Date;
+  timestamp?: string;
   
   /**
-   * Additional contextual data specific to the error
+   * User guidance for resolving the error, if applicable
    */
-  [key: string]: any;
+  userGuidance?: string;
+  
+  /**
+   * Link to documentation or help resources, if applicable
+   */
+  helpLink?: string;
 }
 
 /**
- * Interface for serialized error response.
- * Defines the structure of error responses sent to clients.
- */
-export interface SerializedError {
-  error: {
-    type: string;
-    code: string;
-    message: string;
-    journey?: string;
-    requestId?: string;
-    timestamp?: string;
-    details?: any;
-    path?: string;
-    suggestion?: string;
-  };
-}
-
-/**
- * Base class for all application-specific errors in the AUSTA SuperApp.
- * Provides enhanced error handling with proper context tracking, serialization,
+ * Base class for all errors in the AUSTA SuperApp.
+ * Provides enhanced error handling with context tracking, serialization,
  * and integration with observability tools.
  */
 export class BaseError extends Error {
+  /**
+   * Error context with additional metadata
+   */
+  public readonly context: ErrorContext;
+
   /**
    * Creates a new BaseError instance.
    * 
@@ -159,51 +182,144 @@ export class BaseError extends Error {
    * @param code - Error code for more specific categorization (e.g., "HEALTH_001")
    * @param context - Additional context information about the error
    * @param details - Additional details about the error (optional)
-   * @param suggestion - Suggested action to resolve the error (optional)
    * @param cause - Original error that caused this exception, if any (optional)
    */
   constructor(
     public readonly message: string,
     public readonly type: ErrorType,
     public readonly code: string,
-    public readonly context: ErrorContext = {},
+    context?: Partial<ErrorContext>,
     public readonly details?: any,
-    public readonly suggestion?: string,
     public readonly cause?: Error
   ) {
     super(message);
     this.name = this.constructor.name;
     
-    // Set default timestamp if not provided
-    if (!this.context.timestamp) {
-      this.context.timestamp = new Date();
-    }
-    
     // Ensures proper prototype chain for instanceof checks
     Object.setPrototypeOf(this, BaseError.prototype);
+
+    // Capture stack trace
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+
+    // Initialize context with defaults and provided values
+    this.context = {
+      timestamp: new Date(),
+      stack: this.stack,
+      ...this.captureTraceContext(),
+      ...context
+    };
+
+    // Record error in current span if available
+    this.recordErrorInSpan();
   }
 
   /**
-   * Returns a JSON representation of the error.
+   * Captures the current OpenTelemetry trace context if available.
+   * @private
+   * @returns Object containing traceId and spanId if available
+   */
+  private captureTraceContext(): Pick<ErrorContext, 'traceId' | 'spanId'> {
+    const result: Pick<ErrorContext, 'traceId' | 'spanId'> = {};
+    
+    const activeSpan = trace.getSpan(context.active());
+    if (activeSpan) {
+      const spanContext = activeSpan.spanContext();
+      result.traceId = spanContext.traceId;
+      result.spanId = spanContext.spanId;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Records the error in the current OpenTelemetry span if available.
+   * @private
+   */
+  private recordErrorInSpan(): void {
+    const activeSpan = trace.getSpan(context.active());
+    if (activeSpan) {
+      activeSpan.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: this.message
+      });
+      
+      activeSpan.recordException({
+        name: this.name,
+        message: this.message,
+        stack: this.stack,
+        code: this.code,
+        type: this.type
+      });
+      
+      // Add error attributes to the span for better filtering in observability tools
+      activeSpan.setAttribute('error.type', this.type);
+      activeSpan.setAttribute('error.code', this.code);
+      
+      if (this.context.journey) {
+        activeSpan.setAttribute('error.journey', this.context.journey);
+      }
+      
+      if (this.context.component) {
+        activeSpan.setAttribute('error.component', this.context.component);
+      }
+      
+      if (this.context.operation) {
+        activeSpan.setAttribute('error.operation', this.context.operation);
+      }
+      
+      if (this.context.isTransient) {
+        activeSpan.setAttribute('error.transient', true);
+      }
+    }
+  }
+  
+  /**
+   * Returns a JSON representation of the error for client responses.
    * Used for consistent error responses across the application.
    * 
    * @returns JSON object with standardized error structure
    */
-  toJSON(): SerializedError {
+  toJSON(): { error: ErrorResponse } {
     return {
       error: {
         type: this.type,
         code: this.code,
         message: this.message,
+        details: this.details,
         journey: this.context.journey,
         requestId: this.context.requestId,
-        timestamp: this.context.timestamp?.toISOString(),
-        details: this.details,
-        suggestion: this.suggestion
+        timestamp: this.context.timestamp?.toISOString()
       }
     };
   }
-
+  
+  /**
+   * Returns a detailed JSON representation of the error for logging and debugging.
+   * Includes all context information and is not meant for client responses.
+   * 
+   * @returns Detailed JSON object with all error information
+   */
+  toDetailedJSON(): Record<string, any> {
+    return {
+      name: this.name,
+      message: this.message,
+      type: this.type,
+      code: this.code,
+      details: this.details,
+      context: {
+        ...this.context,
+        timestamp: this.context.timestamp?.toISOString()
+      },
+      cause: this.cause ? {
+        name: this.cause.name,
+        message: this.cause.message,
+        stack: this.cause.stack
+      } : undefined
+    };
+  }
+  
   /**
    * Converts the BaseError to an HttpException for NestJS.
    * Maps error types to appropriate HTTP status codes.
@@ -216,124 +332,17 @@ export class BaseError extends Error {
   }
 
   /**
-   * Creates a new BaseError with additional context information.
-   * Useful for enriching errors as they propagate through the system.
-   * 
-   * @param additionalContext - Additional context to add to the error
-   * @returns A new BaseError instance with combined context
-   */
-  withContext(additionalContext: Partial<ErrorContext>): BaseError {
-    return new BaseError(
-      this.message,
-      this.type,
-      this.code,
-      { ...this.context, ...additionalContext },
-      this.details,
-      this.suggestion,
-      this.cause
-    );
-  }
-
-  /**
-   * Creates a new BaseError with additional details.
-   * Useful for adding more information about the error.
-   * 
-   * @param additionalDetails - Additional details to add to the error
-   * @returns A new BaseError instance with combined details
-   */
-  withDetails(additionalDetails: any): BaseError {
-    return new BaseError(
-      this.message,
-      this.type,
-      this.code,
-      this.context,
-      { ...this.details, ...additionalDetails },
-      this.suggestion,
-      this.cause
-    );
-  }
-
-  /**
-   * Creates a new BaseError with a suggestion for resolving the error.
-   * Useful for providing guidance to users or developers.
-   * 
-   * @param suggestion - Suggestion for resolving the error
-   * @returns A new BaseError instance with the suggestion
-   */
-  withSuggestion(suggestion: string): BaseError {
-    return new BaseError(
-      this.message,
-      this.type,
-      this.code,
-      this.context,
-      this.details,
-      suggestion,
-      this.cause
-    );
-  }
-
-  /**
-   * Creates a new BaseError with a cause.
-   * Useful for wrapping lower-level errors with more context.
-   * 
-   * @param cause - The error that caused this error
-   * @returns A new BaseError instance with the cause
-   */
-  withCause(cause: Error): BaseError {
-    return new BaseError(
-      this.message,
-      this.type,
-      this.code,
-      this.context,
-      this.details,
-      this.suggestion,
-      cause
-    );
-  }
-
-  /**
-   * Determines if the error is a client error (4xx).
-   * 
-   * @returns True if the error is a client error, false otherwise
-   */
-  isClientError(): boolean {
-    const statusCode = this.getHttpStatusCode();
-    return statusCode >= 400 && statusCode < 500;
-  }
-
-  /**
-   * Determines if the error is a server error (5xx).
-   * 
-   * @returns True if the error is a server error, false otherwise
-   */
-  isServerError(): boolean {
-    const statusCode = this.getHttpStatusCode();
-    return statusCode >= 500;
-  }
-
-  /**
-   * Determines if the error is retryable.
-   * Generally, server errors and some specific client errors are retryable.
-   * 
-   * @returns True if the error is retryable, false otherwise
-   */
-  isRetryable(): boolean {
-    // Server errors (except 501 Not Implemented) are generally retryable
-    if (this.isServerError() && this.getHttpStatusCode() !== HttpStatus.NOT_IMPLEMENTED) {
-      return true;
-    }
-    
-    // Some specific client errors are retryable
-    return this.type === ErrorType.RATE_LIMIT || this.type === ErrorType.TIMEOUT;
-  }
-
-  /**
    * Determines the appropriate HTTP status code based on the error type.
+   * @private
    */
-  getHttpStatusCode(): HttpStatus {
+  private getHttpStatusCode(): HttpStatus {
     switch (this.type) {
       case ErrorType.VALIDATION:
         return HttpStatus.BAD_REQUEST;
+      case ErrorType.BUSINESS:
+        return HttpStatus.UNPROCESSABLE_ENTITY;
+      case ErrorType.EXTERNAL:
+        return HttpStatus.BAD_GATEWAY;
       case ErrorType.AUTHENTICATION:
         return HttpStatus.UNAUTHORIZED;
       case ErrorType.AUTHORIZATION:
@@ -342,14 +351,8 @@ export class BaseError extends Error {
         return HttpStatus.NOT_FOUND;
       case ErrorType.CONFLICT:
         return HttpStatus.CONFLICT;
-      case ErrorType.BUSINESS:
-        return HttpStatus.UNPROCESSABLE_ENTITY;
       case ErrorType.RATE_LIMIT:
         return HttpStatus.TOO_MANY_REQUESTS;
-      case ErrorType.EXTERNAL:
-        return HttpStatus.BAD_GATEWAY;
-      case ErrorType.UNAVAILABLE:
-        return HttpStatus.SERVICE_UNAVAILABLE;
       case ErrorType.TIMEOUT:
         return HttpStatus.GATEWAY_TIMEOUT;
       case ErrorType.TECHNICAL:
@@ -357,78 +360,313 @@ export class BaseError extends Error {
         return HttpStatus.INTERNAL_SERVER_ERROR;
     }
   }
-
+  
   /**
-   * Creates a standardized log entry for the error.
-   * Useful for consistent error logging across the application.
+   * Creates a new BaseError from an existing error or unknown object.
+   * Useful for wrapping unknown errors with proper context.
    * 
-   * @returns Object suitable for logging
-   */
-  toLogEntry(): Record<string, any> {
-    return {
-      error: {
-        name: this.name,
-        type: this.type,
-        code: this.code,
-        message: this.message,
-        stack: this.stack,
-        cause: this.cause ? {
-          name: this.cause.name,
-          message: this.cause.message,
-          stack: this.cause.stack
-        } : undefined,
-        details: this.details
-      },
-      context: this.context,
-      timestamp: this.context.timestamp?.toISOString() || new Date().toISOString(),
-      httpStatus: this.getHttpStatusCode()
-    };
-  }
-
-  /**
-   * Factory method to create a BaseError from any error.
-   * Useful for standardizing error handling for errors from external sources.
-   * 
-   * @param error - The error to convert
-   * @param defaultType - Default error type if not determinable from the error
-   * @param defaultCode - Default error code if not determinable from the error
-   * @param context - Additional context information
+   * @param error - The error to wrap
+   * @param defaultMessage - Default message to use if error doesn't have one
+   * @param defaultType - Default error type to use
+   * @param defaultCode - Default error code to use
+   * @param context - Additional context to add to the error
    * @returns A new BaseError instance
    */
   static from(
     error: unknown,
-    defaultType: ErrorType = ErrorType.TECHNICAL,
-    defaultCode: string = 'UNKNOWN_ERROR',
-    context: ErrorContext = {}
+    defaultMessage = 'An unexpected error occurred',
+    defaultType = ErrorType.TECHNICAL,
+    defaultCode = 'UNKNOWN_ERROR',
+    context?: Partial<ErrorContext>
   ): BaseError {
-    // If it's already a BaseError, just add the context
+    // If it's already a BaseError, just add the new context
     if (error instanceof BaseError) {
-      return error.withContext(context);
+      if (context) {
+        error.context = { ...error.context, ...context };
+      }
+      return error;
     }
     
-    // If it's a standard Error, convert it
+    // If it's a standard Error, extract information from it
     if (error instanceof Error) {
       return new BaseError(
-        error.message,
+        error.message || defaultMessage,
         defaultType,
         defaultCode,
         context,
-        undefined,
         undefined,
         error
       );
     }
     
-    // For non-Error objects or primitives
-    const errorMessage = typeof error === 'string' 
-      ? error 
-      : `Unknown error: ${JSON.stringify(error)}`;
+    // For other types, convert to string if possible
+    let errorMessage = defaultMessage;
+    try {
+      if (error !== null && error !== undefined) {
+        const stringified = String(error);
+        if (stringified !== '[object Object]') {
+          errorMessage = stringified;
+        }
+      }
+    } catch {
+      // Ignore conversion errors
+    }
     
+    return new BaseError(errorMessage, defaultType, defaultCode, context);
+  }
+  
+  /**
+   * Creates a transient error that can be retried.
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param retryStrategy - Retry strategy configuration
+   * @param context - Additional error context
+   * @param details - Error details
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance marked as transient
+   */
+  static transient(
+    message: string,
+    code: string,
+    retryStrategy: ErrorContext['retryStrategy'],
+    context?: Partial<ErrorContext>,
+    details?: any,
+    cause?: Error
+  ): BaseError {
     return new BaseError(
-      errorMessage,
-      defaultType,
-      defaultCode,
-      context
+      message,
+      ErrorType.TECHNICAL,
+      code,
+      {
+        isTransient: true,
+        retryStrategy,
+        ...context
+      },
+      details,
+      cause
     );
   }
+  
+  /**
+   * Creates a journey-specific error with appropriate context.
+   * 
+   * @param message - Error message
+   * @param type - Error type
+   * @param code - Error code
+   * @param journey - Journey type
+   * @param context - Additional error context
+   * @param details - Error details
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance with journey context
+   */
+  static journeyError(
+    message: string,
+    type: ErrorType,
+    code: string,
+    journey: JourneyType,
+    context?: Partial<ErrorContext>,
+    details?: any,
+    cause?: Error
+  ): BaseError {
+    return new BaseError(
+      message,
+      type,
+      code,
+      {
+        journey,
+        ...context
+      },
+      details,
+      cause
+    );
+  }
+  
+  /**
+   * Creates a validation error with appropriate context.
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param details - Validation error details
+   * @param context - Additional error context
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance for validation errors
+   */
+  static validation(
+    message: string,
+    code: string,
+    details?: any,
+    context?: Partial<ErrorContext>,
+    cause?: Error
+  ): BaseError {
+    return new BaseError(
+      message,
+      ErrorType.VALIDATION,
+      code,
+      context,
+      details,
+      cause
+    );
+  }
+  
+  /**
+   * Creates a business logic error with appropriate context.
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param details - Business error details
+   * @param context - Additional error context
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance for business errors
+   */
+  static business(
+    message: string,
+    code: string,
+    details?: any,
+    context?: Partial<ErrorContext>,
+    cause?: Error
+  ): BaseError {
+    return new BaseError(
+      message,
+      ErrorType.BUSINESS,
+      code,
+      context,
+      details,
+      cause
+    );
+  }
+  
+  /**
+   * Creates an external system error with appropriate context.
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param details - External system error details
+   * @param context - Additional error context
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance for external system errors
+   */
+  static external(
+    message: string,
+    code: string,
+    details?: any,
+    context?: Partial<ErrorContext>,
+    cause?: Error
+  ): BaseError {
+    return new BaseError(
+      message,
+      ErrorType.EXTERNAL,
+      code,
+      context,
+      details,
+      cause
+    );
+  }
+  
+  /**
+   * Creates a not found error with appropriate context.
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param details - Not found error details
+   * @param context - Additional error context
+   * @param cause - Original error that caused this exception
+   * @returns A new BaseError instance for not found errors
+   */
+  static notFound(
+    message: string,
+    code: string,
+    details?: any,
+    context?: Partial<ErrorContext>,
+    cause?: Error
+  ): BaseError {
+    return new BaseError(
+      message,
+      ErrorType.NOT_FOUND,
+      code,
+      context,
+      details,
+      cause
+    );
+  }
+
+/**
+ * Interface for error context information.
+ * Provides additional metadata about the error to aid in debugging and monitoring.
+ */
+export interface ErrorContext {
+  /**
+   * Request ID for tracing the error across services
+   */
+  requestId?: string;
+
+  /**
+   * User ID associated with the error, if applicable
+   */
+  userId?: string;
+
+  /**
+   * Journey context where the error occurred
+   */
+  journey?: JourneyType;
+
+  /**
+   * Operation being performed when the error occurred
+   */
+  operation?: string;
+
+  /**
+   * Component or service where the error occurred
+   */
+  component?: string;
+
+  /**
+   * Additional metadata relevant to the error
+   */
+  metadata?: Record<string, any>;
+
+  /**
+   * Timestamp when the error occurred
+   */
+  timestamp?: Date;
+
+  /**
+   * Trace ID for distributed tracing
+   */
+  traceId?: string;
+
+  /**
+   * Span ID for distributed tracing
+   */
+  spanId?: string;
+
+  /**
+   * Stack trace of the error
+   */
+  stack?: string;
+
+  /**
+   * Flag indicating if this is a transient error that can be retried
+   */
+  isTransient?: boolean;
+
+  /**
+   * Suggested retry strategy for transient errors
+   */
+  retryStrategy?: {
+    /**
+     * Maximum number of retry attempts
+     */
+    maxAttempts: number;
+    
+    /**
+     * Base delay in milliseconds between retry attempts
+     */
+    baseDelayMs: number;
+    
+    /**
+     * Whether to use exponential backoff for retries
+     */
+    useExponentialBackoff: boolean;
+  };
 }
