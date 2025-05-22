@@ -1,266 +1,327 @@
 /**
- * Serialization format constants for event processing
- * Defines supported serialization formats, encoding options, compression settings,
- * schema registry configuration, and content type identifiers.
+ * Constants related to event serialization formats, encoding options, and schema validation settings.
+ * These constants ensure consistent serialization and deserialization of events across all producers and consumers.
  */
 
 /**
- * Supported serialization formats for event data
+ * Supported serialization formats for events
  */
-export const SERIALIZATION_FORMATS = {
+export enum SerializationFormat {
   /**
-   * JSON (JavaScript Object Notation) format
-   * Human-readable text format that is easy to read and write
+   * JavaScript Object Notation - Human-readable text format
+   * Best for debugging and human readability
    */
-  JSON: {
-    id: 'json',
-    version: '1.0',
-    description: 'Human-readable text format for data interchange',
-    schemaRequired: false
-  },
+  JSON = 'json',
+  
+  /**
+   * Apache Avro - Binary format with schema evolution support
+   * Best for big data, distributed systems, and analytics scenarios
+   */
+  AVRO = 'avro',
+  
+  /**
+   * Protocol Buffers - Compact binary format by Google
+   * Best for low-latency, high-performance scenarios
+   */
+  PROTOBUF = 'protobuf'
+}
 
-  /**
-   * Apache Avro binary format
-   * Compact binary format with schema support
-   */
-  AVRO: {
-    id: 'avro',
-    version: '1.11.1',
-    description: 'Compact binary format with schema support for efficient storage',
-    schemaRequired: true
-  },
+/**
+ * Default serialization format to use when none is specified
+ */
+export const DEFAULT_SERIALIZATION_FORMAT = SerializationFormat.JSON;
 
+/**
+ * Character encoding options for serialized data
+ */
+export enum CharacterEncoding {
   /**
-   * Protocol Buffers (Protobuf) binary format
-   * Efficient binary format developed by Google
+   * UTF-8 encoding - Standard for JSON and text-based formats
    */
-  PROTOBUF: {
-    id: 'protobuf',
-    version: '3.21.12',
-    description: 'Efficient binary format with schema support for structured data',
-    schemaRequired: true
-  }
+  UTF8 = 'utf8',
+  
+  /**
+   * UTF-16 encoding - Used for wider character support
+   */
+  UTF16 = 'utf16le',
+  
+  /**
+   * ASCII encoding - Limited to basic Latin characters
+   */
+  ASCII = 'ascii',
+  
+  /**
+   * Binary encoding - Raw binary data
+   */
+  BINARY = 'binary'
+}
+
+/**
+ * Default character encoding to use when none is specified
+ */
+export const DEFAULT_CHARACTER_ENCODING = CharacterEncoding.UTF8;
+
+/**
+ * Compression algorithms supported for event payloads
+ */
+export enum CompressionType {
+  /**
+   * No compression
+   */
+  NONE = 'none',
+  
+  /**
+   * GZIP compression - High compression ratio but slower
+   * Best for storage optimization when CPU is not a concern
+   */
+  GZIP = 'gzip',
+  
+  /**
+   * Snappy compression - Moderate compression with good speed
+   * Good balance between compression and performance
+   */
+  SNAPPY = 'snappy',
+  
+  /**
+   * LZ4 compression - Fast compression with moderate ratio
+   * Best for high-throughput scenarios
+   */
+  LZ4 = 'lz4',
+  
+  /**
+   * Zstandard compression - Better compression than GZIP with better performance
+   * Good for both storage optimization and performance
+   */
+  ZSTD = 'zstd'
+}
+
+/**
+ * Default compression type to use when none is specified
+ */
+export const DEFAULT_COMPRESSION_TYPE = CompressionType.NONE;
+
+/**
+ * Content type identifiers for proper message interpretation
+ */
+export enum ContentType {
+  /**
+   * JSON content type
+   */
+  JSON = 'application/json',
+  
+  /**
+   * Avro binary content type
+   */
+  AVRO = 'application/avro',
+  
+  /**
+   * Protocol Buffers binary content type
+   */
+  PROTOBUF = 'application/protobuf',
+  
+  /**
+   * Plain text content type
+   */
+  TEXT = 'text/plain',
+  
+  /**
+   * Binary content type
+   */
+  BINARY = 'application/octet-stream'
+}
+
+/**
+ * Maps serialization formats to their corresponding content types
+ */
+export const SERIALIZATION_FORMAT_CONTENT_TYPE_MAP: Record<SerializationFormat, ContentType> = {
+  [SerializationFormat.JSON]: ContentType.JSON,
+  [SerializationFormat.AVRO]: ContentType.AVRO,
+  [SerializationFormat.PROTOBUF]: ContentType.PROTOBUF
 };
 
 /**
- * Encoding options for serialization
+ * Schema registry configuration defaults
  */
-export const ENCODING_OPTIONS = {
+export const SCHEMA_REGISTRY = {
   /**
-   * UTF-8 character encoding
-   * Standard encoding for Unicode text
+   * Default URL for the schema registry
    */
-  UTF_8: {
-    id: 'utf8',
-    description: 'Unicode Transformation Format 8-bit for text data',
-    defaultForText: true
-  },
-
+  DEFAULT_URL: 'http://localhost:8081',
+  
   /**
-   * ISO-8859-1 character encoding
-   * Latin alphabet encoding
+   * Default timeout in milliseconds for schema registry requests
    */
-  ISO_8859_1: {
-    id: 'iso8859-1',
-    description: 'Latin alphabet encoding for legacy systems',
-    defaultForText: false
-  },
-
+  DEFAULT_TIMEOUT_MS: 5000,
+  
   /**
-   * Binary encoding
-   * Raw binary data without character encoding
+   * Maximum number of schemas to cache
    */
-  BINARY: {
-    id: 'binary',
-    description: 'Raw binary data without character encoding',
-    defaultForBinary: true
-  },
-
+  MAX_CACHE_SIZE: 100,
+  
   /**
-   * Big-endian byte order
-   * Most significant byte first (network byte order)
+   * Default compatibility mode for schema evolution
    */
-  BIG_ENDIAN: {
-    id: 'big-endian',
-    description: 'Most significant byte first (network byte order)',
-    defaultEndianness: true
-  },
-
+  DEFAULT_COMPATIBILITY: 'BACKWARD',
+  
   /**
-   * Little-endian byte order
-   * Least significant byte first
-   */
-  LITTLE_ENDIAN: {
-    id: 'little-endian',
-    description: 'Least significant byte first (reverse byte order)',
-    defaultEndianness: false
-  }
-};
-
-/**
- * Compression settings for event data
- */
-export const COMPRESSION_SETTINGS = {
-  /**
-   * GZIP compression algorithm
-   * General-purpose compression with good balance of speed and compression ratio
-   */
-  GZIP: {
-    id: 'gzip',
-    compressionLevel: 6, // Default level (0-9, where 9 is highest compression)
-    description: 'General-purpose compression with good balance of speed and compression ratio',
-    defaultCompression: true
-  },
-
-  /**
-   * Snappy compression algorithm
-   * Fast compression with moderate compression ratio
-   */
-  SNAPPY: {
-    id: 'snappy',
-    description: 'Fast compression with moderate compression ratio, optimized for speed',
-    defaultCompression: false
-  },
-
-  /**
-   * LZ4 compression algorithm
-   * Very fast compression with moderate compression ratio
-   */
-  LZ4: {
-    id: 'lz4',
-    description: 'High-speed compression with moderate compression ratio',
-    defaultCompression: false
-  },
-
-  /**
-   * Zstandard (zstd) compression algorithm
-   * High compression ratio with good performance
-   */
-  ZSTD: {
-    id: 'zstd',
-    compressionLevel: 3, // Default level (1-22, where 22 is highest compression)
-    description: 'High compression ratio with good performance',
-    defaultCompression: false
-  },
-
-  /**
-   * Compression threshold
-   * Minimum size in bytes before compression is applied
-   */
-  THRESHOLD: {
-    bytes: 1024, // 1KB threshold
-    description: 'Minimum size in bytes before compression is applied'
-  }
-};
-
-/**
- * Schema Registry configuration options
- */
-export const SCHEMA_REGISTRY_CONFIG = {
-  /**
-   * Schema Registry URL
-   * Default URL for the Schema Registry service
-   */
-  URL: {
-    default: 'http://localhost:8081',
-    description: 'URL for the Schema Registry service'
-  },
-
-  /**
-   * Schema validation setting
-   * Whether to validate events against their schemas
-   */
-  VALIDATION_ENABLED: {
-    default: true,
-    description: 'Whether to validate events against their schemas'
-  },
-
-  /**
-   * Schema compatibility modes
-   * Defines how schemas can evolve over time
+   * Available compatibility modes for schema evolution
    */
   COMPATIBILITY_MODES: {
     /**
-     * Backward compatibility
      * New schema can read data written with old schema
      */
     BACKWARD: 'BACKWARD',
-
+    
     /**
-     * Forward compatibility
      * Old schema can read data written with new schema
      */
     FORWARD: 'FORWARD',
-
+    
     /**
-     * Full compatibility
      * Both backward and forward compatibility
      */
     FULL: 'FULL',
-
+    
     /**
-     * No compatibility checking
-     * Schemas can change without restrictions
+     * No compatibility checks
      */
     NONE: 'NONE'
-  },
-
-  /**
-   * Schema cache size
-   * Maximum number of schemas to cache
-   */
-  CACHE_SIZE: {
-    default: 1000,
-    description: 'Maximum number of schemas to cache in memory'
-  },
-
-  /**
-   * Schema cache expiry time
-   * Time in milliseconds before cached schemas expire
-   */
-  CACHE_EXPIRY_MS: {
-    default: 300000, // 5 minutes
-    description: 'Time in milliseconds before cached schemas expire'
   }
 };
 
 /**
- * Content type identifiers for event data
+ * Serialization error codes
  */
-export const CONTENT_TYPE_IDENTIFIERS = {
+export enum SerializationErrorCode {
   /**
-   * JSON content type
-   * MIME type for JSON data
+   * Failed to serialize data
    */
-  JSON: {
-    mimeType: 'application/json',
-    description: 'JSON data format'
-  },
+  SERIALIZATION_FAILED = 'SERIALIZATION_001',
+  
+  /**
+   * Failed to deserialize data
+   */
+  DESERIALIZATION_FAILED = 'SERIALIZATION_002',
+  
+  /**
+   * Schema validation failed
+   */
+  SCHEMA_VALIDATION_FAILED = 'SERIALIZATION_003',
+  
+  /**
+   * Compression failed
+   */
+  COMPRESSION_FAILED = 'SERIALIZATION_004',
+  
+  /**
+   * Decompression failed
+   */
+  DECOMPRESSION_FAILED = 'SERIALIZATION_005',
+  
+  /**
+   * Schema registry connection failed
+   */
+  SCHEMA_REGISTRY_CONNECTION_FAILED = 'SERIALIZATION_006',
+  
+  /**
+   * Schema not found in registry
+   */
+  SCHEMA_NOT_FOUND = 'SERIALIZATION_007',
+  
+  /**
+   * Unsupported serialization format
+   */
+  UNSUPPORTED_FORMAT = 'SERIALIZATION_008',
+  
+  /**
+   * Unsupported compression type
+   */
+  UNSUPPORTED_COMPRESSION = 'SERIALIZATION_009'
+}
 
+/**
+ * Configuration options for serialization
+ */
+export interface SerializationOptions {
   /**
-   * Avro content type
-   * MIME type for Avro binary data
+   * Serialization format to use
    */
-  AVRO: {
-    mimeType: 'avro/binary',
-    description: 'Avro binary data format'
-  },
+  format?: SerializationFormat;
+  
+  /**
+   * Character encoding to use
+   */
+  encoding?: CharacterEncoding;
+  
+  /**
+   * Compression type to use
+   */
+  compression?: CompressionType;
+  
+  /**
+   * Whether to validate against schema
+   */
+  validateSchema?: boolean;
+  
+  /**
+   * Schema registry URL
+   */
+  schemaRegistryUrl?: string;
+  
+  /**
+   * Schema version to use
+   */
+  schemaVersion?: number;
+  
+  /**
+   * Additional options for specific serialization formats
+   */
+  formatOptions?: Record<string, any>;
+}
 
-  /**
-   * Protocol Buffers content type
-   * MIME type for Protocol Buffers binary data
-   */
-  PROTOBUF: {
-    mimeType: 'application/protobuf',
-    description: 'Protocol Buffers binary data format'
-  },
+/**
+ * Default serialization options
+ */
+export const DEFAULT_SERIALIZATION_OPTIONS: SerializationOptions = {
+  format: DEFAULT_SERIALIZATION_FORMAT,
+  encoding: DEFAULT_CHARACTER_ENCODING,
+  compression: DEFAULT_COMPRESSION_TYPE,
+  validateSchema: true,
+  schemaRegistryUrl: SCHEMA_REGISTRY.DEFAULT_URL,
+  formatOptions: {}
+};
 
+/**
+ * Batch serialization configuration
+ */
+export const BATCH_SERIALIZATION = {
   /**
-   * Schema version header
-   * HTTP header for specifying schema version
+   * Maximum batch size in bytes
    */
-  VERSION_HEADER: {
-    name: 'X-Event-Schema-Version',
-    description: 'HTTP header for specifying schema version'
-  }
+  MAX_BATCH_SIZE_BYTES: 1000000, // 1MB
+  
+  /**
+   * Default batch size in bytes
+   */
+  DEFAULT_BATCH_SIZE_BYTES: 16384, // 16KB
+  
+  /**
+   * Maximum number of messages in a batch
+   */
+  MAX_BATCH_MESSAGE_COUNT: 500,
+  
+  /**
+   * Default number of messages in a batch
+   */
+  DEFAULT_BATCH_MESSAGE_COUNT: 100,
+  
+  /**
+   * Maximum linger time in milliseconds
+   */
+  MAX_LINGER_MS: 1000, // 1 second
+  
+  /**
+   * Default linger time in milliseconds
+   */
+  DEFAULT_LINGER_MS: 5 // 5 milliseconds
 };
