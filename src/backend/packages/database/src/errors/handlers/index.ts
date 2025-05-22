@@ -25,7 +25,7 @@ export { PrismaErrorHandler } from './prisma-error.handler';
  * Re-export TimescaleErrorHandler from timescale-error.handler.ts
  * Handles TimescaleDB-specific errors for health metrics and time-series data storage.
  */
-export { TimescaleErrorHandler } from './timescale-error.handler';
+export { TimescaleErrorHandler, default as timescaleErrorHandler } from './timescale-error.handler';
 
 /**
  * Re-export RedisErrorHandler from redis-error.handler.ts
@@ -90,7 +90,7 @@ export function createErrorHandler(
     case DatabaseTechnology.PRISMA:
       return new PrismaErrorHandler(options);
     case DatabaseTechnology.TIMESCALE:
-      return new TimescaleErrorHandler(options);
+      return new TimescaleErrorHandler();
     case DatabaseTechnology.REDIS:
       return new RedisErrorHandler(options);
     case DatabaseTechnology.GENERIC:
