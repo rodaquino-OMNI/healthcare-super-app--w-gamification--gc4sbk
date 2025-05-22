@@ -1,362 +1,380 @@
 /**
- * @file Defines TypeScript interfaces for the gamification rules engine.
+ * @file Defines interfaces for the gamification rules engine.
  * These interfaces standardize how rules are defined and evaluated to determine
  * when to award points, unlock achievements, and progress quests based on user events.
- * 
- * The gamification engine processes events from all journeys (Health, Care, Plan)
- * to drive user engagement through achievements, challenges, and rewards. These
- * interfaces provide type safety and consistency across the gamification system.
- * 
- * @module @austa/interfaces/gamification/rules
- * @version 1.0.0
  */
-
-/**
- * Represents the type of action to be performed when a rule is triggered.
- */
-export enum RuleActionType {
-  /** Award experience points to the user */
-  AWARD_XP = 'AWARD_XP',
-  /** Progress an achievement by a specified amount */
-  PROGRESS_ACHIEVEMENT = 'PROGRESS_ACHIEVEMENT',
-  /** Progress a quest by a specified amount */
-  PROGRESS_QUEST = 'PROGRESS_QUEST',
-  /** Unlock a specific achievement immediately */
-  UNLOCK_ACHIEVEMENT = 'UNLOCK_ACHIEVEMENT',
-  /** Grant a specific reward to the user */
-  GRANT_REWARD = 'GRANT_REWARD',
-  /** Update the user's level */
-  UPDATE_LEVEL = 'UPDATE_LEVEL',
-  /** Add the user to a leaderboard or update their position */
-  UPDATE_LEADERBOARD = 'UPDATE_LEADERBOARD',
-}
-
-/**
- * Base interface for all rule actions.
- */
-export interface BaseRuleAction {
-  /** The type of action to perform */
-  type: RuleActionType;
-}
-
-/**
- * Action to award experience points to a user.
- */
-export interface AwardXpAction extends BaseRuleAction {
-  type: RuleActionType.AWARD_XP;
-  /** The amount of XP to award */
-  value: number;
-}
-
-/**
- * Action to progress an achievement.
- */
-export interface ProgressAchievementAction extends BaseRuleAction {
-  type: RuleActionType.PROGRESS_ACHIEVEMENT;
-  /** The ID of the achievement to progress */
-  achievementId: string;
-  /** The amount to progress the achievement by */
-  value: number;
-}
-
-/**
- * Action to progress a quest.
- */
-export interface ProgressQuestAction extends BaseRuleAction {
-  type: RuleActionType.PROGRESS_QUEST;
-  /** The ID of the quest to progress */
-  questId: string;
-  /** The amount to progress the quest by */
-  value: number;
-}
-
-/**
- * Action to unlock an achievement immediately.
- */
-export interface UnlockAchievementAction extends BaseRuleAction {
-  type: RuleActionType.UNLOCK_ACHIEVEMENT;
-  /** The ID of the achievement to unlock */
-  achievementId: string;
-}
-
-/**
- * Action to grant a reward to a user.
- */
-export interface GrantRewardAction extends BaseRuleAction {
-  type: RuleActionType.GRANT_REWARD;
-  /** The ID of the reward to grant */
-  rewardId: string;
-}
-
-/**
- * Action to update a user's level.
- */
-export interface UpdateLevelAction extends BaseRuleAction {
-  type: RuleActionType.UPDATE_LEVEL;
-  /** The new level value */
-  level: number;
-}
-
-/**
- * Action to update a user's position on a leaderboard.
- */
-export interface UpdateLeaderboardAction extends BaseRuleAction {
-  type: RuleActionType.UPDATE_LEADERBOARD;
-  /** The ID of the leaderboard to update */
-  leaderboardId: string;
-  /** The score to set for the user on this leaderboard */
-  score: number;
-}
-
-/**
- * Union type of all possible rule actions.
- */
-export type RuleAction =
-  | AwardXpAction
-  | ProgressAchievementAction
-  | ProgressQuestAction
-  | UnlockAchievementAction
-  | GrantRewardAction
-  | UpdateLevelAction
-  | UpdateLeaderboardAction;
-
-/**
- * Represents the context in which a rule is evaluated.
- * This includes the event data and user profile information.
- */
-export interface RuleContext<TEventData = any, TUserProfile = any> {
-  /** The event that triggered the rule evaluation */
-  event: {
-    /** The type of event that occurred */
-    type: string;
-    /** The data associated with the event */
-    data: TEventData;
-    /** The timestamp when the event occurred */
-    timestamp: Date;
-    /** The user ID associated with the event */
-    userId: string;
-    /** Optional journey identifier */
-    journeyType?: 'HEALTH' | 'CARE' | 'PLAN';
-  };
-  /** The user's profile data */
-  userProfile: TUserProfile;
-  /** Additional context data that may be needed for rule evaluation */
-  additionalContext?: Record<string, any>;
-}
-
-/**
- * Represents a condition that must be met for a rule to be triggered.
- * This is a type-safe alternative to the string-based condition in the database.
- */
-export interface RuleCondition<TEventData = any, TUserProfile = any> {
-  /** A function that evaluates whether the condition is met */
-  evaluate: (context: RuleContext<TEventData, TUserProfile>) => boolean;
-  /** Optional description of the condition for documentation purposes */
-  description?: string;
-}
-
-/**
- * Type for a rule condition function that can be used to evaluate a rule.
- */
-export type RuleConditionFn<TEventData = any, TUserProfile = any> = 
-  (context: RuleContext<TEventData, TUserProfile>) => boolean;
 
 /**
  * Represents a rule that determines how points and achievements are awarded based on user actions.
+ * 
+ * Rules consist of:
+ * - An event type to listen for (e.g., "STEPS_RECORDED", "APPOINTMENT_COMPLETED")
+ * - A condition that determines if the rule should be triggered
+ * - Actions to perform when the rule is triggered (award points, progress achievements, etc.)
+ *
+ * @interface
  */
-export interface Rule<TEventData = any, TUserProfile = any> {
-  /** Unique identifier for the rule */
+export interface Rule {
+  /**
+   * Unique identifier for the rule
+   */
   id: string;
-  
-  /** 
+
+  /**
    * The event type that this rule listens for
    * Examples: "STEPS_RECORDED", "APPOINTMENT_COMPLETED", "CLAIM_SUBMITTED"
    */
   event: string;
-  
+
   /**
    * A condition that determines if the rule should be triggered
-   * This can be either a string (for backward compatibility) or a RuleCondition object
+   * This condition will be evaluated at runtime with the event data
    */
-  condition: string | RuleCondition<TEventData, TUserProfile>;
-  
+  condition: RuleCondition;
+
   /**
    * Actions to be performed when the rule is triggered
-   * This can be either a JSON string (for backward compatibility) or an array of RuleAction objects
    */
-  actions: string | RuleAction[];
-  
-  /**
-   * Optional description of what the rule does
-   */
-  description?: string;
-  
-  /**
-   * Optional priority of the rule (higher numbers are evaluated first)
-   */
-  priority?: number;
-  
-  /**
-   * Optional flag to indicate if the rule is currently active
-   */
-  isActive?: boolean;
-  
-  /**
-   * Optional date range during which the rule is active
-   */
-  activeFrom?: Date;
-  activeTo?: Date;
-  
-  /**
-   * Optional journey type that this rule is associated with
-   */
-  journeyType?: 'HEALTH' | 'CARE' | 'PLAN' | 'CROSS_JOURNEY';
+  actions: RuleAction[];
 }
 
 /**
- * Interface for health journey specific rule event data.
- * Contains data specific to health-related events that can trigger rules.
+ * Represents a condition that determines if a rule should be triggered.
+ * Can be a string expression or a structured condition object.
+ *
+ * @interface
  */
-export interface HealthRuleEventData {
-  /** Steps recorded by the user */
-  steps?: number;
-  /** Heart rate recorded by the user (in BPM) */
-  heartRate?: number;
-  /** Sleep duration in minutes */
-  sleepMinutes?: number;
-  /** Calories burned */
-  caloriesBurned?: number;
-  /** Distance traveled in meters */
-  distanceMeters?: number;
-  /** Health goal progress (as a percentage from 0-100) */
-  goalProgress?: number;
-  /** Health goal type (e.g., 'STEPS', 'WEIGHT', 'SLEEP') */
-  goalType?: string;
-  /** Device type that recorded the data (e.g., 'FITBIT', 'APPLE_WATCH', 'MANUAL') */
-  deviceType?: string;
-  /** Metric type being recorded */
-  metricType?: 'STEPS' | 'HEART_RATE' | 'SLEEP' | 'WEIGHT' | 'BLOOD_PRESSURE' | 'BLOOD_GLUCOSE';
-  /** Value of the metric (used with metricType) */
-  metricValue?: number;
-  /** Unit of measurement for the metric */
-  metricUnit?: string;
-}
+export interface RuleCondition {
+  /**
+   * A JavaScript expression string that will be evaluated at runtime
+   * Example: "event.data.steps >= 10000" or "event.data.appointmentType === 'TELEMEDICINE'"
+   */
+  expression?: string;
 
-/**
- * Interface for care journey specific rule event data.
- * Contains data specific to care-related events that can trigger rules.
- */
-export interface CareRuleEventData {
-  /** Type of appointment (e.g., 'ROUTINE', 'SPECIALIST', 'EMERGENCY', 'TELEMEDICINE') */
-  appointmentType?: string;
-  /** Status of appointment (e.g., 'SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW') */
-  appointmentStatus?: string;
-  /** Provider specialty (e.g., 'CARDIOLOGY', 'DERMATOLOGY', 'PRIMARY_CARE') */
-  providerSpecialty?: string;
-  /** Medication adherence percentage (0-100) */
-  medicationAdherence?: number;
-  /** Telemedicine session duration in minutes */
-  sessionDurationMinutes?: number;
-  /** Treatment plan adherence percentage (0-100) */
-  treatmentPlanAdherence?: number;
-  /** Medication ID that was taken or skipped */
-  medicationId?: string;
-  /** Medication action (e.g., 'TAKEN', 'SKIPPED', 'RESCHEDULED') */
-  medicationAction?: string;
-  /** Symptom checker usage details */
-  symptomCheckerUsed?: boolean;
-  /** Provider ID associated with the event */
-  providerId?: string;
-  /** Appointment ID associated with the event */
-  appointmentId?: string;
-}
-
-/**
- * Interface for plan journey specific rule event data.
- * Contains data specific to insurance plan-related events that can trigger rules.
- */
-export interface PlanRuleEventData {
-  /** Type of claim submitted (e.g., 'MEDICAL', 'DENTAL', 'VISION', 'PHARMACY') */
-  claimType?: string;
-  /** Status of claim (e.g., 'SUBMITTED', 'APPROVED', 'DENIED', 'PENDING') */
-  claimStatus?: string;
-  /** Amount of claim in the local currency */
-  claimAmount?: number;
-  /** Benefit type used (e.g., 'PREVENTIVE', 'EMERGENCY', 'ROUTINE') */
-  benefitType?: string;
-  /** Coverage percentage (0-100) */
-  coveragePercentage?: number;
-  /** Document type submitted (e.g., 'RECEIPT', 'MEDICAL_REPORT', 'PRESCRIPTION') */
-  documentType?: string;
-  /** Claim ID associated with the event */
-  claimId?: string;
-  /** Plan ID associated with the event */
-  planId?: string;
-  /** Benefit ID associated with the event */
-  benefitId?: string;
-  /** Whether the claim was submitted digitally */
-  digitalSubmission?: boolean;
-  /** Reimbursement amount in local currency */
-  reimbursementAmount?: number;
-  /** Out-of-pocket amount in local currency */
-  outOfPocketAmount?: number;
-}
-
-/**
- * Interface for user profile data used in rule evaluation.
- */
-export interface UserProfileData {
-  /** User's unique identifier */
-  id: string;
-  /** User's current XP level */
-  level: number;
-  /** User's current XP points */
-  xp: number;
-  /** User's achievements (IDs of unlocked achievements) */
-  achievements: string[];
-  /** User's active quests (IDs of active quests) */
-  activeQuests: string[];
-  /** User's completed quests (IDs of completed quests) */
-  completedQuests: string[];
-  /** User's rewards (IDs of earned rewards) */
-  rewards: string[];
-  /** User's journey progress for each journey type */
-  journeyProgress: {
-    health?: number;
-    care?: number;
-    plan?: number;
+  /**
+   * A structured condition object for more complex conditions
+   * This allows for more type-safe condition definitions
+   */
+  structured?: {
+    /**
+     * The operator to use for the condition
+     */
+    operator: 'AND' | 'OR' | 'NOT' | 'EQUALS' | 'GREATER_THAN' | 'LESS_THAN' | 'CONTAINS';
+    
+    /**
+     * The field to check in the event data
+     * Example: "data.steps" or "data.appointmentType"
+     */
+    field?: string;
+    
+    /**
+     * The value to compare against
+     */
+    value?: any;
+    
+    /**
+     * Nested conditions for logical operators (AND, OR, NOT)
+     */
+    conditions?: RuleCondition[];
   };
-  /** Additional user metadata that might be relevant for rules */
-  metadata?: Record<string, any>;
 }
 
 /**
- * Type alias for a Health journey specific rule.
+ * Defines the types of actions that can be performed when a rule is triggered.
+ *
+ * @enum {string}
  */
-export type HealthRule = Rule<HealthRuleEventData, UserProfileData>;
+export enum RuleActionType {
+  /**
+   * Award experience points to the user
+   */
+  AWARD_XP = 'AWARD_XP',
+  
+  /**
+   * Progress an achievement for the user
+   */
+  PROGRESS_ACHIEVEMENT = 'PROGRESS_ACHIEVEMENT',
+  
+  /**
+   * Progress a quest for the user
+   */
+  PROGRESS_QUEST = 'PROGRESS_QUEST',
+  
+  /**
+   * Grant a reward to the user
+   */
+  GRANT_REWARD = 'GRANT_REWARD',
+  
+  /**
+   * Send a notification to the user
+   */
+  SEND_NOTIFICATION = 'SEND_NOTIFICATION',
+  
+  /**
+   * Unlock a new feature or content for the user
+   */
+  UNLOCK_FEATURE = 'UNLOCK_FEATURE',
+  
+  /**
+   * Custom action defined by the implementation
+   */
+  CUSTOM = 'CUSTOM'
+}
 
 /**
- * Type alias for a Care journey specific rule.
+ * Represents an action to be performed when a rule is triggered.
+ *
+ * @interface
  */
-export type CareRule = Rule<CareRuleEventData, UserProfileData>;
+export interface RuleAction {
+  /**
+   * The type of action to perform
+   */
+  type: RuleActionType;
+  
+  /**
+   * The value associated with the action (e.g., number of XP points to award)
+   */
+  value?: number | string;
+  
+  /**
+   * The ID of the achievement to progress (for PROGRESS_ACHIEVEMENT action)
+   */
+  achievementId?: string;
+  
+  /**
+   * The ID of the quest to progress (for PROGRESS_QUEST action)
+   */
+  questId?: string;
+  
+  /**
+   * The ID of the reward to grant (for GRANT_REWARD action)
+   */
+  rewardId?: string;
+  
+  /**
+   * The notification message to send (for SEND_NOTIFICATION action)
+   */
+  message?: string;
+  
+  /**
+   * The feature to unlock (for UNLOCK_FEATURE action)
+   */
+  feature?: string;
+  
+  /**
+   * Custom data for the CUSTOM action type
+   */
+  customData?: Record<string, any>;
+}
 
 /**
- * Type alias for a Plan journey specific rule.
+ * Represents the context in which a rule is evaluated.
+ * This includes the event data and user profile information.
+ *
+ * @interface
  */
-export type PlanRule = Rule<PlanRuleEventData, UserProfileData>;
+export interface RuleContext {
+  /**
+   * The event that triggered the rule evaluation
+   */
+  event: {
+    /**
+     * The type of event
+     */
+    type: string;
+    
+    /**
+     * The data associated with the event
+     */
+    data: Record<string, any>;
+    
+    /**
+     * The timestamp when the event occurred
+     */
+    timestamp: Date | string;
+    
+    /**
+     * The user ID associated with the event
+     */
+    userId: string;
+    
+    /**
+     * The journey associated with the event (health, care, plan)
+     */
+    journey?: 'health' | 'care' | 'plan';
+  };
+  
+  /**
+   * The user profile information
+   */
+  userProfile: {
+    /**
+     * The user ID
+     */
+    id: string;
+    
+    /**
+     * The user's current XP level
+     */
+    level: number;
+    
+    /**
+     * The user's current XP points
+     */
+    xp: number;
+    
+    /**
+     * The user's achievements
+     */
+    achievements: {
+      /**
+       * The achievement ID
+       */
+      id: string;
+      
+      /**
+       * The current progress value
+       */
+      progress: number;
+      
+      /**
+       * Whether the achievement is completed
+       */
+      completed: boolean;
+    }[];
+    
+    /**
+     * The user's quests
+     */
+    quests: {
+      /**
+       * The quest ID
+       */
+      id: string;
+      
+      /**
+       * The current progress value
+       */
+      progress: number;
+      
+      /**
+       * Whether the quest is completed
+       */
+      completed: boolean;
+    }[];
+    
+    /**
+     * Additional user data
+     */
+    data?: Record<string, any>;
+  };
+}
 
 /**
- * Interface for rule evaluation result.
+ * Represents a rule specific to the Health journey.
+ * Extends the base Rule interface with health-specific properties.
+ *
+ * @interface
+ * @extends {Rule}
  */
-export interface RuleEvaluationResult {
-  /** Whether the rule condition was satisfied */
-  conditionSatisfied: boolean;
-  /** The actions that were executed as a result of the rule */
-  actionsExecuted: RuleAction[];
-  /** The rule that was evaluated */
-  rule: Rule;
-  /** Timestamp when the evaluation occurred */
-  evaluatedAt: Date;
-  /** Any error that occurred during evaluation */
-  error?: Error;
+export interface HealthRule extends Rule {
+  /**
+   * The specific health metric this rule applies to
+   * Examples: "steps", "heartRate", "sleep", "weight"
+   */
+  healthMetric?: string;
+  
+  /**
+   * The threshold value for the health metric
+   * Example: 10000 (steps)
+   */
+  threshold?: number;
+  
+  /**
+   * The time period over which the rule applies
+   * Examples: "daily", "weekly", "monthly"
+   */
+  timePeriod?: 'daily' | 'weekly' | 'monthly';
+}
+
+/**
+ * Represents a rule specific to the Care journey.
+ * Extends the base Rule interface with care-specific properties.
+ *
+ * @interface
+ * @extends {Rule}
+ */
+export interface CareRule extends Rule {
+  /**
+   * The type of care activity this rule applies to
+   * Examples: "appointment", "medication", "telemedicine"
+   */
+  careActivity?: string;
+  
+  /**
+   * The provider type associated with this rule
+   * Examples: "primaryCare", "specialist", "dentist"
+   */
+  providerType?: string;
+  
+  /**
+   * The frequency of the care activity
+   * Examples: "once", "daily", "weekly", "monthly"
+   */
+  frequency?: 'once' | 'daily' | 'weekly' | 'monthly';
+}
+
+/**
+ * Represents a rule specific to the Plan journey.
+ * Extends the base Rule interface with plan-specific properties.
+ *
+ * @interface
+ * @extends {Rule}
+ */
+export interface PlanRule extends Rule {
+  /**
+   * The type of plan activity this rule applies to
+   * Examples: "claim", "benefit", "coverage"
+   */
+  planActivity?: string;
+  
+  /**
+   * The benefit type associated with this rule
+   * Examples: "medical", "dental", "vision", "wellness"
+   */
+  benefitType?: string;
+  
+  /**
+   * The claim status that triggers this rule
+   * Examples: "submitted", "approved", "denied"
+   */
+  claimStatus?: 'submitted' | 'approved' | 'denied';
+}
+
+/**
+ * Type guard to check if a rule is a HealthRule
+ * @param rule The rule to check
+ * @returns True if the rule is a HealthRule
+ */
+export function isHealthRule(rule: Rule): rule is HealthRule {
+  return (rule as HealthRule).healthMetric !== undefined;
+}
+
+/**
+ * Type guard to check if a rule is a CareRule
+ * @param rule The rule to check
+ * @returns True if the rule is a CareRule
+ */
+export function isCareRule(rule: Rule): rule is CareRule {
+  return (rule as CareRule).careActivity !== undefined;
+}
+
+/**
+ * Type guard to check if a rule is a PlanRule
+ * @param rule The rule to check
+ * @returns True if the rule is a PlanRule
+ */
+export function isPlanRule(rule: Rule): rule is PlanRule {
+  return (rule as PlanRule).planActivity !== undefined;
 }
