@@ -1,268 +1,211 @@
-import { BaseError } from '../../../src/base';
-import { ErrorType, ErrorCategory, JourneyContext } from '../../../src/types';
-import { JourneyError } from '../../../src/journey';
+import { AppException, ErrorType } from '@backend/shared/src/exceptions/exceptions.types';
+import { BusinessError, ResourceNotFoundError } from '../../../src/categories/business.errors';
+import { Health, Care, Plan, Journey } from '../../../src/journey';
 
-describe('Common Journey Error Functionality', () => {
-  describe('Base Journey Error Class', () => {
-    it('should extend BaseError', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
+/**
+ * These tests verify the common journey error functionality that applies across
+ * all journey types (Health, Care, and Plan). They ensure consistent error handling
+ * patterns across the application's journey-centered architecture.
+ */
+describe('Journey Error Common Functionality', () => {
+  /**
+   * Test the base JourneyError class inheritance hierarchy
+   */
+  describe('JourneyError Base Class', () => {
+    it('should extend BusinessError', () => {
+      // Create a journey error from any journey type
+      const healthError = new Health.Metrics.InvalidMetricValueError('Test error', {
+        metricType: 'HEART_RATE',
+        value: 250,
+        allowedRange: { min: 30, max: 220 }
       });
 
-      expect(error).toBeInstanceOf(BaseError);
+      // Verify inheritance chain
+      expect(healthError).toBeInstanceOf(BusinessError);
+      expect(healthError).toBeInstanceOf(AppException);
     });
 
-    it('should set default journey context if not provided', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
+    it('should have consistent error type across all journeys', () => {
+      // Create errors from different journeys
+      const healthError = new Health.Metrics.InvalidMetricValueError('Test error', {
+        metricType: 'HEART_RATE',
+        value: 250
       });
+      
+      const careError = new Care.Appointments.AppointmentNotFoundError('123');
+      
+      const planError = new Plan.Claims.ClaimNotFoundError('456');
 
-      expect(error.context).toBeDefined();
-      expect(error.context.journey).toBeDefined();
-      expect(error.context.journey.type).toBe('unknown');
-    });
-
-    it('should accept and store journey context', () => {
-      const journeyContext: JourneyContext = {
-        journey: {
-          type: 'health',
-          id: 'journey-123',
-          step: 'metrics-recording',
-        },
-      };
-
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-        context: journeyContext,
-      });
-
-      expect(error.context).toBeDefined();
-      expect(error.context.journey).toEqual(journeyContext.journey);
+      // All journey errors should have the same error type (BUSINESS)
+      expect(healthError.type).toBe(ErrorType.BUSINESS);
+      expect(careError.type).toBe(ErrorType.BUSINESS);
+      expect(planError.type).toBe(ErrorType.BUSINESS);
     });
   });
 
+  /**
+   * Test common error classification functionality
+   */
   describe('Error Classification', () => {
-    it('should classify client errors correctly', () => {
-      const error = new JourneyError('Invalid input', {
-        code: 'JOURNEY_INVALID_INPUT',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
+    it('should include journey prefix in error codes', () => {
+      // Create errors from different journeys
+      const healthError = new Health.Metrics.InvalidMetricValueError('Test error', {
+        metricType: 'HEART_RATE',
+        value: 250
       });
+      
+      const careError = new Care.Appointments.AppointmentNotFoundError('123');
+      
+      const planError = new Plan.Claims.ClaimNotFoundError('456');
 
-      expect(error.isClientError()).toBe(true);
-      expect(error.isServerError()).toBe(false);
-      expect(error.isExternalError()).toBe(false);
-      expect(error.isTransientError()).toBe(false);
+      // Error codes should include journey prefixes
+      expect(healthError.code).toMatch(/^HEALTH_/);
+      expect(careError.code).toMatch(/^CARE_/);
+      expect(planError.code).toMatch(/^PLAN_/);
     });
 
-    it('should classify server errors correctly', () => {
-      const error = new JourneyError('Internal server error', {
-        code: 'JOURNEY_INTERNAL_ERROR',
-        type: ErrorType.TECHNICAL,
-        category: ErrorCategory.SERVER,
-      });
+    it('should use consistent error code patterns across journeys', () => {
+      // Resource not found errors should have consistent code patterns across journeys
+      const healthResourceError = new Health.Metrics.MetricNotFoundError('123');
+      const careResourceError = new Care.Appointments.AppointmentNotFoundError('456');
+      const planResourceError = new Plan.Claims.ClaimNotFoundError('789');
 
-      expect(error.isClientError()).toBe(false);
-      expect(error.isServerError()).toBe(true);
-      expect(error.isExternalError()).toBe(false);
-      expect(error.isTransientError()).toBe(false);
+      // All resource not found errors should have similar code patterns
+      expect(healthResourceError.code).toMatch(/NOT_FOUND$/);
+      expect(careResourceError.code).toMatch(/NOT_FOUND$/);
+      expect(planResourceError.code).toMatch(/NOT_FOUND$/);
     });
 
-    it('should classify external errors correctly', () => {
-      const error = new JourneyError('External API failure', {
-        code: 'JOURNEY_EXTERNAL_FAILURE',
-        type: ErrorType.EXTERNAL,
-        category: ErrorCategory.EXTERNAL,
+    it('should provide specific error codes for domain-specific errors', () => {
+      // Domain-specific errors should have unique error codes
+      const healthMetricError = new Health.Metrics.InvalidMetricValueError('Test error', {
+        metricType: 'HEART_RATE',
+        value: 250
+      });
+      
+      const careAppointmentError = new Care.Appointments.AppointmentOverlapError('123', {
+        existingAppointmentId: '456',
+        requestedTimeSlot: { start: new Date(), end: new Date() }
       });
 
-      expect(error.isClientError()).toBe(false);
-      expect(error.isServerError()).toBe(false);
-      expect(error.isExternalError()).toBe(true);
-      expect(error.isTransientError()).toBe(false);
-    });
-
-    it('should classify transient errors correctly', () => {
-      const error = new JourneyError('Temporary unavailable', {
-        code: 'JOURNEY_TEMPORARY_UNAVAILABLE',
-        type: ErrorType.TECHNICAL,
-        category: ErrorCategory.TRANSIENT,
-      });
-
-      expect(error.isClientError()).toBe(false);
-      expect(error.isServerError()).toBe(false);
-      expect(error.isExternalError()).toBe(false);
-      expect(error.isTransientError()).toBe(true);
+      // Error codes should be specific to the domain
+      expect(healthMetricError.code).toMatch(/METRIC/);
+      expect(careAppointmentError.code).toMatch(/APPOINTMENT/);
     });
   });
 
+  /**
+   * Test context enrichment for journey-related errors
+   */
   describe('Context Enrichment', () => {
-    it('should allow enriching context after creation', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-      });
+    it('should include journey context in error messages', () => {
+      // Create errors from different journeys
+      const healthError = new Health.Metrics.MetricNotFoundError('123');
+      const careError = new Care.Appointments.AppointmentNotFoundError('456');
+      const planError = new Plan.Claims.ClaimNotFoundError('789');
 
-      error.enrichContext({
-        journey: {
-          type: 'health',
-          id: 'journey-123',
-          step: 'metrics-recording',
-        },
-        user: {
-          id: 'user-456',
-          role: 'patient',
-        },
-      });
-
-      expect(error.context.journey).toBeDefined();
-      expect(error.context.journey.type).toBe('health');
-      expect(error.context.journey.id).toBe('journey-123');
-      expect(error.context.user).toBeDefined();
-      expect(error.context.user.id).toBe('user-456');
+      // Error messages should include journey context
+      expect(healthError.message).toContain('health');
+      expect(careError.message).toContain('care');
+      expect(planError.message).toContain('plan');
     });
 
-    it('should merge context when enriching', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-        context: {
-          journey: {
-            type: 'health',
-            id: 'journey-123',
-          },
-          request: {
-            id: 'req-789',
-          },
-        },
+    it('should include detailed context in error details', () => {
+      // Create an error with detailed context
+      const healthError = new Health.Metrics.InvalidMetricValueError('Heart rate value out of range', {
+        metricType: 'HEART_RATE',
+        value: 250,
+        allowedRange: { min: 30, max: 220 },
+        userId: 'user123',
+        timestamp: new Date()
       });
 
-      error.enrichContext({
-        journey: {
-          step: 'metrics-recording',
-        },
-        user: {
-          id: 'user-456',
-        },
-      });
+      // Error details should include all provided context
+      expect(healthError.details).toHaveProperty('metricType', 'HEART_RATE');
+      expect(healthError.details).toHaveProperty('value', 250);
+      expect(healthError.details.allowedRange).toHaveProperty('min', 30);
+      expect(healthError.details.allowedRange).toHaveProperty('max', 220);
+      expect(healthError.details).toHaveProperty('userId', 'user123');
+      expect(healthError.details).toHaveProperty('timestamp');
+    });
 
-      expect(error.context.journey).toBeDefined();
-      expect(error.context.journey.type).toBe('health');
-      expect(error.context.journey.id).toBe('journey-123');
-      expect(error.context.journey.step).toBe('metrics-recording');
-      expect(error.context.request).toBeDefined();
-      expect(error.context.request.id).toBe('req-789');
-      expect(error.context.user).toBeDefined();
-      expect(error.context.user.id).toBe('user-456');
+    it('should support error chaining with cause property', () => {
+      // Create a cause error
+      const causeError = new Error('Original error');
+      
+      // Create a journey error with a cause
+      const healthError = new Health.Metrics.MetricPersistenceError(
+        'Failed to save metric',
+        { metricId: '123', metricType: 'HEART_RATE' },
+        causeError
+      );
+
+      // Error should have the cause property set
+      expect(healthError.cause).toBe(causeError);
     });
   });
 
+  /**
+   * Test error propagation and capture mechanisms
+   */
   describe('Error Propagation', () => {
-    it('should preserve original error in cause chain', () => {
-      const originalError = new Error('Original error');
-      const journeyError = new JourneyError('Journey wrapper error', {
-        code: 'JOURNEY_WRAPPED_ERROR',
-        type: ErrorType.TECHNICAL,
-        category: ErrorCategory.SERVER,
-        cause: originalError,
+    it('should convert to HTTP exceptions with appropriate status codes', () => {
+      // Create a journey error
+      const healthError = new Health.Metrics.InvalidMetricValueError('Heart rate value out of range', {
+        metricType: 'HEART_RATE',
+        value: 250
       });
 
-      expect(journeyError.cause).toBe(originalError);
+      // Convert to HTTP exception
+      const httpException = healthError.toHttpException();
+
+      // Business errors should map to 422 Unprocessable Entity
+      expect(httpException.getStatus()).toBe(422);
+      
+      // Response body should include error details
+      const responseBody = httpException.getResponse();
+      expect(responseBody).toHaveProperty('error');
+      expect(responseBody.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(responseBody.error).toHaveProperty('code');
+      expect(responseBody.error).toHaveProperty('message');
+      expect(responseBody.error).toHaveProperty('details');
     });
 
-    it('should capture journey context when wrapping errors', () => {
-      const originalError = new Error('Original error');
-      const journeyContext: JourneyContext = {
-        journey: {
-          type: 'care',
-          id: 'journey-789',
-          step: 'appointment-booking',
-        },
+    it('should serialize to JSON with standardized structure', () => {
+      // Create a journey error
+      const healthError = new Health.Metrics.MetricNotFoundError('123');
+
+      // Convert to JSON
+      const jsonError = healthError.toJSON();
+
+      // JSON should have standardized structure
+      expect(jsonError).toHaveProperty('error');
+      expect(jsonError.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(jsonError.error).toHaveProperty('code');
+      expect(jsonError.error).toHaveProperty('message');
+      expect(jsonError.error).toHaveProperty('details');
+    });
+
+    it('should support cross-journey error handling', () => {
+      // Create errors from different journeys
+      const healthError = new Health.Metrics.MetricNotFoundError('123');
+      const careError = new Care.Appointments.AppointmentNotFoundError('456');
+      const planError = new Plan.Claims.ClaimNotFoundError('789');
+
+      // All journey errors should be instances of ResourceNotFoundError
+      expect(healthError).toBeInstanceOf(ResourceNotFoundError);
+      expect(careError).toBeInstanceOf(ResourceNotFoundError);
+      expect(planError).toBeInstanceOf(ResourceNotFoundError);
+
+      // Function that handles any resource not found error
+      const handleResourceNotFound = (error: ResourceNotFoundError) => {
+        return `Resource ${error.resourceType} with ID ${error.resourceId} not found`;
       };
 
-      const journeyError = JourneyError.fromError(originalError, {
-        code: 'JOURNEY_WRAPPED_ERROR',
-        type: ErrorType.TECHNICAL,
-        category: ErrorCategory.SERVER,
-        context: journeyContext,
-      });
-
-      expect(journeyError).toBeInstanceOf(JourneyError);
-      expect(journeyError.cause).toBe(originalError);
-      expect(journeyError.context.journey).toEqual(journeyContext.journey);
-    });
-
-    it('should preserve stack trace when wrapping errors', () => {
-      const originalError = new Error('Original error');
-      const journeyError = JourneyError.fromError(originalError, {
-        code: 'JOURNEY_WRAPPED_ERROR',
-        type: ErrorType.TECHNICAL,
-        category: ErrorCategory.SERVER,
-      });
-
-      expect(journeyError.stack).toContain('Original error');
-    });
-  });
-
-  describe('Error Serialization', () => {
-    it('should serialize to a structured format with journey context', () => {
-      const journeyContext: JourneyContext = {
-        journey: {
-          type: 'plan',
-          id: 'journey-456',
-          step: 'claim-submission',
-        },
-      };
-
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-        context: journeyContext,
-      });
-
-      const serialized = error.toJSON();
-
-      expect(serialized).toHaveProperty('message', 'Test journey error');
-      expect(serialized).toHaveProperty('code', 'JOURNEY_TEST_ERROR');
-      expect(serialized).toHaveProperty('type', ErrorType.VALIDATION);
-      expect(serialized).toHaveProperty('category', ErrorCategory.CLIENT);
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('journey');
-      expect(serialized.context.journey).toEqual(journeyContext.journey);
-    });
-
-    it('should include HTTP status code in serialized output', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-      });
-
-      const serialized = error.toJSON();
-
-      expect(serialized).toHaveProperty('statusCode');
-      expect(typeof serialized.statusCode).toBe('number');
-    });
-
-    it('should include timestamp in serialized output', () => {
-      const error = new JourneyError('Test journey error', {
-        code: 'JOURNEY_TEST_ERROR',
-        type: ErrorType.VALIDATION,
-        category: ErrorCategory.CLIENT,
-      });
-
-      const serialized = error.toJSON();
-
-      expect(serialized).toHaveProperty('timestamp');
-      expect(serialized.timestamp).toBeInstanceOf(Date);
+      // Should handle errors from any journey
+      expect(handleResourceNotFound(healthError)).toContain('123');
+      expect(handleResourceNotFound(careError)).toContain('456');
+      expect(handleResourceNotFound(planError)).toContain('789');
     });
   });
 });
