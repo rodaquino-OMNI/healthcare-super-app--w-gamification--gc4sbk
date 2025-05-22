@@ -1,474 +1,657 @@
 /**
- * @file health-events.ts
- * @description Test fixtures for Health journey events in the AUSTA SuperApp.
- * 
- * This file provides standardized test data for health-related events including:
- * - Health metric recording events (heart rate, blood pressure, weight, etc.)
- * - Goal achievement events with different progress levels
- * - Health insight generation events
- * - Device synchronization events with various device types
- * 
- * These fixtures ensure consistent and valid test data for health event consumers
- * and are used for testing gamification rules, achievement processing, and notifications.
+ * @file Health Journey Event Test Fixtures
+ * @description Provides standardized test fixtures for health-related events in the gamification system.
+ * These fixtures include health metric recording, goal achievement, health insights, and device synchronization events.
+ * They are used for testing gamification rules, achievement processing, and notifications related to the Health journey.
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import { 
-  HealthMetricRecordedEventDto,
-  HealthGoalAchievedEventDto,
-  DeviceSynchronizedEventDto,
-  HealthInsightGeneratedEventDto,
-  HealthMetricType,
-  HealthGoalType,
+  EventType, 
+  EventJourney, 
+  GamificationEvent,
+  HealthMetricRecordedPayload,
+  HealthGoalPayload,
+  HealthGoalAchievedPayload,
+  HealthGoalStreakPayload,
+  DeviceEventPayload
+} from '../../../interfaces/gamification/events';
+
+import {
+  GoalType,
+  GoalStatus,
+  GoalPeriod,
+  MetricType,
+  MetricSource,
   DeviceType,
-  HealthInsightType,
-  HealthMetricData,
-  HealthGoalData,
-  DeviceSyncData,
-  HealthInsightData
-} from '../../src/dto/health-event.dto';
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { createEventMetadata, EventMetadataDto } from '../../src/dto/event-metadata.dto';
+  ConnectionStatus
+} from '../../../interfaces/journey/health';
 
 /**
- * Creates a base event metadata object for testing
- * @param overrides Optional overrides for the metadata
- * @returns EventMetadataDto with health service origin
+ * Creates a base gamification event with common properties
+ * 
+ * @param type - The event type
+ * @param userId - The user ID associated with the event
+ * @param payload - The event payload
+ * @returns A gamification event with common properties set
  */
-export function createHealthEventMetadata(overrides?: Partial<EventMetadataDto>): EventMetadataDto {
-  return createEventMetadata('health-service', {
-    correlationId: uuidv4(),
-    timestamp: new Date(),
-    ...overrides
-  });
-}
+const createBaseEvent = <T>(type: EventType, userId: string, payload: T): GamificationEvent => ({
+  eventId: `test-event-${Math.random().toString(36).substring(2, 10)}`,
+  type,
+  userId,
+  journey: EventJourney.HEALTH,
+  payload: payload as any,
+  version: { major: 1, minor: 0, patch: 0 },
+  createdAt: new Date().toISOString(),
+  source: 'health-service',
+  correlationId: `corr-${Math.random().toString(36).substring(2, 10)}`
+});
+
+// ===== HEALTH METRIC RECORDED EVENTS =====
 
 /**
- * Test fixture for heart rate metric recording event
+ * Creates a HEALTH_METRIC_RECORDED event for heart rate
+ * 
+ * @param userId - The user ID
+ * @param value - The heart rate value in bpm
+ * @param source - The source of the metric (default: manual entry)
+ * @returns A gamification event for heart rate recording
  */
-export const heartRateMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.HEART_RATE,
-    value: 72,
+export const createHeartRateRecordedEvent = (
+  userId: string,
+  value: number,
+  source: MetricSource = MetricSource.MANUAL_ENTRY
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.HEART_RATE,
+    value,
     unit: 'bpm',
-    recordedAt: new Date().toISOString(),
-    notes: 'Resting heart rate',
-    deviceId: 'smartwatch-001'
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    isWithinHealthyRange: value >= 60 && value <= 100
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
 };
 
 /**
- * Test fixture for blood pressure metric recording event
+ * Creates a HEALTH_METRIC_RECORDED event for blood pressure
+ * 
+ * @param userId - The user ID
+ * @param systolic - The systolic blood pressure value
+ * @param diastolic - The diastolic blood pressure value
+ * @param source - The source of the metric (default: manual entry)
+ * @returns A gamification event for blood pressure recording
  */
-export const bloodPressureMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.BLOOD_PRESSURE,
-    value: 120, // Systolic value (would typically be stored as "120/80" in a real implementation)
+export const createBloodPressureRecordedEvent = (
+  userId: string,
+  systolic: number,
+  diastolic: number,
+  source: MetricSource = MetricSource.MANUAL_ENTRY
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.BLOOD_PRESSURE,
+    value: systolic, // Primary value is systolic
     unit: 'mmHg',
-    recordedAt: new Date().toISOString(),
-    notes: 'Morning measurement',
-    deviceId: 'bp-monitor-001'
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    metadata: {
+      diastolic,
+      combined: `${systolic}/${diastolic}`
+    },
+    isWithinHealthyRange: systolic <= 120 && diastolic <= 80
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
 };
 
 /**
- * Test fixture for weight metric recording event
+ * Creates a HEALTH_METRIC_RECORDED event for blood glucose
+ * 
+ * @param userId - The user ID
+ * @param value - The blood glucose value in mg/dL
+ * @param source - The source of the metric (default: manual entry)
+ * @returns A gamification event for blood glucose recording
  */
-export const weightMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.WEIGHT,
-    value: 70.5,
-    unit: 'kg',
-    recordedAt: new Date().toISOString(),
-    notes: 'Weekly weigh-in',
-    deviceId: 'smart-scale-001'
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for steps metric recording event
- */
-export const stepsMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.STEPS,
-    value: 8547,
-    unit: 'steps',
-    recordedAt: new Date().toISOString(),
-    deviceId: 'smartwatch-001'
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for sleep metric recording event
- */
-export const sleepMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.SLEEP,
-    value: 7.5,
-    unit: 'hours',
-    recordedAt: new Date().toISOString(),
-    notes: 'Good quality sleep',
-    deviceId: 'sleep-tracker-001'
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for blood glucose metric recording event
- */
-export const bloodGlucoseMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.BLOOD_GLUCOSE,
-    value: 95,
+export const createBloodGlucoseRecordedEvent = (
+  userId: string,
+  value: number,
+  source: MetricSource = MetricSource.MANUAL_ENTRY
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.BLOOD_GLUCOSE,
+    value,
     unit: 'mg/dL',
-    recordedAt: new Date().toISOString(),
-    notes: 'Before breakfast',
-    deviceId: 'glucose-monitor-001'
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    isWithinHealthyRange: value >= 70 && value <= 100
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
 };
 
 /**
- * Test fixture for oxygen saturation metric recording event
+ * Creates a HEALTH_METRIC_RECORDED event for steps
+ * 
+ * @param userId - The user ID
+ * @param value - The step count
+ * @param source - The source of the metric (default: wearable device)
+ * @returns A gamification event for step count recording
  */
-export const oxygenSaturationMetricEvent: HealthMetricRecordedEventDto = {
-  type: JourneyEvents.Health.METRIC_RECORDED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: HealthMetricType.OXYGEN_SATURATION,
-    value: 98,
-    unit: '%',
-    recordedAt: new Date().toISOString(),
-    deviceId: 'pulse-oximeter-001'
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for a completed steps goal achievement event
- */
-export const stepsGoalAchievedEvent: HealthGoalAchievedEventDto = {
-  type: JourneyEvents.Health.GOAL_ACHIEVED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.STEPS_TARGET,
-    description: 'Walk 10,000 steps daily',
-    targetValue: 10000,
+export const createStepsRecordedEvent = (
+  userId: string,
+  value: number,
+  source: MetricSource = MetricSource.WEARABLE_DEVICE
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.STEPS,
+    value,
     unit: 'steps',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    isWithinHealthyRange: value >= 5000
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
 };
 
 /**
- * Test fixture for a partially completed weight goal achievement event
+ * Creates a HEALTH_METRIC_RECORDED event for weight
+ * 
+ * @param userId - The user ID
+ * @param value - The weight value in kg
+ * @param source - The source of the metric (default: smart scale)
+ * @returns A gamification event for weight recording
  */
-export const weightGoalPartialEvent: HealthGoalAchievedEventDto = {
-  type: JourneyEvents.Health.GOAL_ACHIEVED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.WEIGHT_TARGET,
-    description: 'Lose 5kg over 2 months',
-    targetValue: 65,
+export const createWeightRecordedEvent = (
+  userId: string,
+  value: number,
+  source: MetricSource = MetricSource.MEDICAL_DEVICE
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.WEIGHT,
+    value,
     unit: 'kg',
-    progressPercentage: 60
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    // Weight healthy range depends on height, age, etc., so we don't set isWithinHealthyRange
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
 };
 
 /**
- * Test fixture for a completed sleep goal achievement event
+ * Creates a HEALTH_METRIC_RECORDED event for sleep duration
+ * 
+ * @param userId - The user ID
+ * @param value - The sleep duration in hours
+ * @param source - The source of the metric (default: wearable device)
+ * @returns A gamification event for sleep duration recording
  */
-export const sleepGoalAchievedEvent: HealthGoalAchievedEventDto = {
-  type: JourneyEvents.Health.GOAL_ACHIEVED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.SLEEP_DURATION,
-    description: 'Sleep 8 hours every night for a week',
-    targetValue: 8,
+export const createSleepRecordedEvent = (
+  userId: string,
+  value: number,
+  source: MetricSource = MetricSource.WEARABLE_DEVICE
+): GamificationEvent => {
+  const payload: HealthMetricRecordedPayload = {
+    timestamp: new Date().toISOString(),
+    metricType: MetricType.SLEEP,
+    value,
     unit: 'hours',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100
-  },
-  metadata: createHealthEventMetadata()
+    source,
+    isWithinHealthyRange: value >= 7 && value <= 9,
+    metadata: {
+      deepSleepMinutes: Math.round(value * 60 * 0.25), // 25% deep sleep
+      remSleepMinutes: Math.round(value * 60 * 0.2),    // 20% REM sleep
+      lightSleepMinutes: Math.round(value * 60 * 0.55)  // 55% light sleep
+    }
+  };
+  
+  return createBaseEvent(EventType.HEALTH_METRIC_RECORDED, userId, payload);
+};
+
+// ===== HEALTH GOAL EVENTS =====
+
+/**
+ * Creates a HEALTH_GOAL_CREATED event
+ * 
+ * @param userId - The user ID
+ * @param goalType - The type of health goal
+ * @param targetValue - The target value for the goal
+ * @param period - The period for the goal (default: daily)
+ * @returns A gamification event for goal creation
+ */
+export const createHealthGoalCreatedEvent = (
+  userId: string,
+  goalType: GoalType,
+  targetValue: number,
+  period: GoalPeriod = GoalPeriod.DAILY
+): GamificationEvent => {
+  const goalId = `goal-${Math.random().toString(36).substring(2, 10)}`;
+  let unit = 'steps';
+  
+  // Set appropriate unit based on goal type
+  switch (goalType) {
+    case GoalType.STEPS:
+      unit = 'steps';
+      break;
+    case GoalType.SLEEP:
+      unit = 'hours';
+      break;
+    case GoalType.WATER:
+      unit = 'ml';
+      break;
+    case GoalType.WEIGHT:
+      unit = 'kg';
+      break;
+    case GoalType.EXERCISE:
+      unit = 'minutes';
+      break;
+    case GoalType.HEART_RATE:
+      unit = 'bpm';
+      break;
+    case GoalType.BLOOD_PRESSURE:
+      unit = 'mmHg';
+      break;
+    case GoalType.BLOOD_GLUCOSE:
+      unit = 'mg/dL';
+      break;
+    default:
+      unit = 'units';
+  }
+  
+  const payload: HealthGoalPayload = {
+    timestamp: new Date().toISOString(),
+    goalId,
+    goalType,
+    targetValue,
+    unit,
+    period
+  };
+  
+  return createBaseEvent(EventType.HEALTH_GOAL_CREATED, userId, payload);
 };
 
 /**
- * Test fixture for a blood pressure management goal achievement event
+ * Creates a HEALTH_GOAL_UPDATED event
+ * 
+ * @param userId - The user ID
+ * @param goalId - The ID of the goal being updated
+ * @param goalType - The type of health goal
+ * @param targetValue - The new target value for the goal
+ * @param period - The period for the goal (default: daily)
+ * @returns A gamification event for goal update
  */
-export const bloodPressureGoalAchievedEvent: HealthGoalAchievedEventDto = {
-  type: JourneyEvents.Health.GOAL_ACHIEVED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.BLOOD_PRESSURE_MANAGEMENT,
-    description: 'Maintain blood pressure below 130/85 for a month',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100
-  },
-  metadata: createHealthEventMetadata()
+export const createHealthGoalUpdatedEvent = (
+  userId: string,
+  goalId: string,
+  goalType: GoalType,
+  targetValue: number,
+  period: GoalPeriod = GoalPeriod.DAILY
+): GamificationEvent => {
+  let unit = 'steps';
+  
+  // Set appropriate unit based on goal type
+  switch (goalType) {
+    case GoalType.STEPS:
+      unit = 'steps';
+      break;
+    case GoalType.SLEEP:
+      unit = 'hours';
+      break;
+    case GoalType.WATER:
+      unit = 'ml';
+      break;
+    case GoalType.WEIGHT:
+      unit = 'kg';
+      break;
+    case GoalType.EXERCISE:
+      unit = 'minutes';
+      break;
+    case GoalType.HEART_RATE:
+      unit = 'bpm';
+      break;
+    case GoalType.BLOOD_PRESSURE:
+      unit = 'mmHg';
+      break;
+    case GoalType.BLOOD_GLUCOSE:
+      unit = 'mg/dL';
+      break;
+    default:
+      unit = 'units';
+  }
+  
+  const payload: HealthGoalPayload = {
+    timestamp: new Date().toISOString(),
+    goalId,
+    goalType,
+    targetValue,
+    unit,
+    period,
+    metadata: {
+      previousTargetValue: targetValue - Math.floor(Math.random() * 10) // Simulate a change
+    }
+  };
+  
+  return createBaseEvent(EventType.HEALTH_GOAL_UPDATED, userId, payload);
 };
 
 /**
- * Test fixture for a successful smartwatch synchronization event
+ * Creates a HEALTH_GOAL_ACHIEVED event
+ * 
+ * @param userId - The user ID
+ * @param goalId - The ID of the achieved goal
+ * @param goalType - The type of health goal
+ * @param targetValue - The target value that was achieved
+ * @param isFirstTimeAchievement - Whether this is the first time achieving this goal
+ * @returns A gamification event for goal achievement
  */
-export const smartwatchSyncEvent: DeviceSynchronizedEventDto = {
-  type: JourneyEvents.Health.DEVICE_CONNECTED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    deviceId: 'smartwatch-001',
-    deviceType: DeviceType.SMARTWATCH,
-    deviceName: 'Apple Watch Series 7',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 24,
-    metricTypes: [
-      HealthMetricType.HEART_RATE,
-      HealthMetricType.STEPS,
-      HealthMetricType.SLEEP
-    ]
-  },
-  metadata: createHealthEventMetadata()
+export const createHealthGoalAchievedEvent = (
+  userId: string,
+  goalId: string,
+  goalType: GoalType,
+  targetValue: number,
+  isFirstTimeAchievement: boolean = false
+): GamificationEvent => {
+  let unit = 'steps';
+  
+  // Set appropriate unit based on goal type
+  switch (goalType) {
+    case GoalType.STEPS:
+      unit = 'steps';
+      break;
+    case GoalType.SLEEP:
+      unit = 'hours';
+      break;
+    case GoalType.WATER:
+      unit = 'ml';
+      break;
+    case GoalType.WEIGHT:
+      unit = 'kg';
+      break;
+    case GoalType.EXERCISE:
+      unit = 'minutes';
+      break;
+    case GoalType.HEART_RATE:
+      unit = 'bpm';
+      break;
+    case GoalType.BLOOD_PRESSURE:
+      unit = 'mmHg';
+      break;
+    case GoalType.BLOOD_GLUCOSE:
+      unit = 'mg/dL';
+      break;
+    default:
+      unit = 'units';
+  }
+  
+  const payload: HealthGoalAchievedPayload = {
+    timestamp: new Date().toISOString(),
+    goalId,
+    goalType,
+    targetValue,
+    unit,
+    period: GoalPeriod.DAILY,
+    completionPercentage: 100,
+    isFirstTimeAchievement
+  };
+  
+  return createBaseEvent(EventType.HEALTH_GOAL_ACHIEVED, userId, payload);
 };
 
 /**
- * Test fixture for a successful blood pressure monitor synchronization event
+ * Creates a HEALTH_GOAL_STREAK_MAINTAINED event
+ * 
+ * @param userId - The user ID
+ * @param goalId - The ID of the goal with a streak
+ * @param goalType - The type of health goal
+ * @param streakCount - The current streak count
+ * @returns A gamification event for goal streak maintenance
  */
-export const bloodPressureMonitorSyncEvent: DeviceSynchronizedEventDto = {
-  type: JourneyEvents.Health.DEVICE_CONNECTED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    deviceId: 'bp-monitor-001',
-    deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
-    deviceName: 'Omron X5',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 3,
-    metricTypes: [HealthMetricType.BLOOD_PRESSURE]
-  },
-  metadata: createHealthEventMetadata()
+export const createHealthGoalStreakEvent = (
+  userId: string,
+  goalId: string,
+  goalType: GoalType,
+  streakCount: number
+): GamificationEvent => {
+  const payload: HealthGoalStreakPayload = {
+    timestamp: new Date().toISOString(),
+    goalId,
+    goalType,
+    streakCount
+  };
+  
+  return createBaseEvent(EventType.HEALTH_GOAL_STREAK_MAINTAINED, userId, payload);
+};
+
+// ===== DEVICE EVENTS =====
+
+/**
+ * Creates a DEVICE_CONNECTED event
+ * 
+ * @param userId - The user ID
+ * @param deviceType - The type of device connected
+ * @param manufacturer - The device manufacturer
+ * @returns A gamification event for device connection
+ */
+export const createDeviceConnectedEvent = (
+  userId: string,
+  deviceType: DeviceType,
+  manufacturer: string = 'Generic'
+): GamificationEvent => {
+  const deviceId = `device-${Math.random().toString(36).substring(2, 10)}`;
+  
+  const payload: DeviceEventPayload = {
+    timestamp: new Date().toISOString(),
+    deviceId,
+    deviceType,
+    manufacturer
+  };
+  
+  return createBaseEvent(EventType.DEVICE_CONNECTED, userId, payload);
 };
 
 /**
- * Test fixture for a failed glucose monitor synchronization event
+ * Creates a DEVICE_SYNCED event
+ * 
+ * @param userId - The user ID
+ * @param deviceId - The ID of the synced device
+ * @param deviceType - The type of device synced
+ * @param manufacturer - The device manufacturer
+ * @param metricCount - The number of metrics synced
+ * @returns A gamification event for device synchronization
  */
-export const failedGlucoseMonitorSyncEvent: DeviceSynchronizedEventDto = {
-  type: JourneyEvents.Health.DEVICE_CONNECTED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    deviceId: 'glucose-monitor-001',
-    deviceType: DeviceType.GLUCOSE_MONITOR,
-    deviceName: 'Dexcom G6',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: false,
-    errorMessage: 'Connection timeout after 30 seconds'
-  },
-  metadata: createHealthEventMetadata()
+export const createDeviceSyncedEvent = (
+  userId: string,
+  deviceId: string,
+  deviceType: DeviceType,
+  manufacturer: string = 'Generic',
+  metricCount: number = 1
+): GamificationEvent => {
+  const payload: DeviceEventPayload = {
+    timestamp: new Date().toISOString(),
+    deviceId,
+    deviceType,
+    manufacturer,
+    metricCount
+  };
+  
+  return createBaseEvent(EventType.DEVICE_SYNCED, userId, payload);
+};
+
+// ===== HEALTH INSIGHT EVENTS =====
+
+/**
+ * Creates a HEALTH_INSIGHT_GENERATED event
+ * 
+ * @param userId - The user ID
+ * @param insightType - The type of health insight
+ * @param relatedMetrics - Array of metric types related to this insight
+ * @returns A gamification event for health insight generation
+ */
+export const createHealthInsightGeneratedEvent = (
+  userId: string,
+  insightType: string,
+  relatedMetrics: MetricType[] = []
+): GamificationEvent => {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    insightType,
+    insightId: `insight-${Math.random().toString(36).substring(2, 10)}`,
+    relatedMetrics,
+    metadata: {
+      severity: Math.floor(Math.random() * 3) + 1, // 1-3 severity
+      requiresAction: Math.random() > 0.7 // 30% chance of requiring action
+    }
+  };
+  
+  return createBaseEvent(EventType.HEALTH_INSIGHT_GENERATED, userId, payload);
+};
+
+// ===== HEALTH ASSESSMENT EVENTS =====
+
+/**
+ * Creates a HEALTH_ASSESSMENT_COMPLETED event
+ * 
+ * @param userId - The user ID
+ * @param assessmentType - The type of health assessment
+ * @param score - The assessment score
+ * @returns A gamification event for health assessment completion
+ */
+export const createHealthAssessmentCompletedEvent = (
+  userId: string,
+  assessmentType: string,
+  score: number
+): GamificationEvent => {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    assessmentType,
+    assessmentId: `assessment-${Math.random().toString(36).substring(2, 10)}`,
+    score,
+    metadata: {
+      completionTimeSeconds: Math.floor(Math.random() * 300) + 60, // 1-5 minutes
+      questionCount: Math.floor(Math.random() * 20) + 5, // 5-25 questions
+      recommendations: Math.random() > 0.5 ? ['Increase water intake', 'Improve sleep habits'] : ['Exercise more frequently']
+    }
+  };
+  
+  return createBaseEvent(EventType.HEALTH_ASSESSMENT_COMPLETED, userId, payload);
+};
+
+// ===== MEDICAL EVENT RECORDED EVENTS =====
+
+/**
+ * Creates a MEDICAL_EVENT_RECORDED event
+ * 
+ * @param userId - The user ID
+ * @param eventType - The type of medical event
+ * @param provider - The healthcare provider associated with the event
+ * @returns A gamification event for medical event recording
+ */
+export const createMedicalEventRecordedEvent = (
+  userId: string,
+  eventType: string,
+  provider: string = 'Unknown Provider'
+): GamificationEvent => {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    medicalEventId: `med-event-${Math.random().toString(36).substring(2, 10)}`,
+    eventType,
+    provider,
+    metadata: {
+      hasDocuments: Math.random() > 0.5, // 50% chance of having documents
+      documentCount: Math.floor(Math.random() * 3) + 1, // 1-3 documents
+      isEmergency: Math.random() > 0.9 // 10% chance of being emergency
+    }
+  };
+  
+  return createBaseEvent(EventType.MEDICAL_EVENT_RECORDED, userId, payload);
+};
+
+// ===== COLLECTIONS OF EVENTS FOR COMMON TESTING SCENARIOS =====
+
+/**
+ * Collection of health metric events for a single user
+ * 
+ * @param userId - The user ID
+ * @returns An array of health metric events
+ */
+export const createHealthMetricEventsCollection = (userId: string): GamificationEvent[] => [
+  createHeartRateRecordedEvent(userId, 72),
+  createBloodPressureRecordedEvent(userId, 120, 80),
+  createBloodGlucoseRecordedEvent(userId, 85),
+  createStepsRecordedEvent(userId, 8500),
+  createWeightRecordedEvent(userId, 70.5),
+  createSleepRecordedEvent(userId, 7.5)
+];
+
+/**
+ * Collection of health goal events for a single user
+ * 
+ * @param userId - The user ID
+ * @returns An array of health goal events
+ */
+export const createHealthGoalEventsCollection = (userId: string): GamificationEvent[] => {
+  const stepsGoalId = `goal-steps-${Math.random().toString(36).substring(2, 10)}`;
+  const sleepGoalId = `goal-sleep-${Math.random().toString(36).substring(2, 10)}`;
+  const waterGoalId = `goal-water-${Math.random().toString(36).substring(2, 10)}`;
+  
+  return [
+    createHealthGoalCreatedEvent(userId, GoalType.STEPS, 10000),
+    createHealthGoalCreatedEvent(userId, GoalType.SLEEP, 8, GoalPeriod.DAILY),
+    createHealthGoalCreatedEvent(userId, GoalType.WATER, 2000, GoalPeriod.DAILY),
+    createHealthGoalAchievedEvent(userId, stepsGoalId, GoalType.STEPS, 10000, true),
+    createHealthGoalStreakEvent(userId, stepsGoalId, GoalType.STEPS, 3),
+    createHealthGoalUpdatedEvent(userId, sleepGoalId, GoalType.SLEEP, 7.5),
+    createHealthGoalAchievedEvent(userId, waterGoalId, GoalType.WATER, 2000, false),
+    createHealthGoalStreakEvent(userId, waterGoalId, GoalType.WATER, 5)
+  ];
 };
 
 /**
- * Test fixture for a successful scale synchronization event
+ * Collection of device events for a single user
+ * 
+ * @param userId - The user ID
+ * @returns An array of device events
  */
-export const scaleSyncEvent: DeviceSynchronizedEventDto = {
-  type: JourneyEvents.Health.DEVICE_CONNECTED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    deviceId: 'smart-scale-001',
-    deviceType: DeviceType.SCALE,
-    deviceName: 'Withings Body+',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 1,
-    metricTypes: [HealthMetricType.WEIGHT]
-  },
-  metadata: createHealthEventMetadata()
+export const createDeviceEventsCollection = (userId: string): GamificationEvent[] => {
+  const smartwatchId = `device-watch-${Math.random().toString(36).substring(2, 10)}`;
+  const bpMonitorId = `device-bp-${Math.random().toString(36).substring(2, 10)}`;
+  const scaleId = `device-scale-${Math.random().toString(36).substring(2, 10)}`;
+  
+  return [
+    createDeviceConnectedEvent(userId, DeviceType.SMARTWATCH, 'Apple'),
+    createDeviceConnectedEvent(userId, DeviceType.BLOOD_PRESSURE_MONITOR, 'Omron'),
+    createDeviceConnectedEvent(userId, DeviceType.SMART_SCALE, 'Withings'),
+    createDeviceSyncedEvent(userId, smartwatchId, DeviceType.SMARTWATCH, 'Apple', 5),
+    createDeviceSyncedEvent(userId, bpMonitorId, DeviceType.BLOOD_PRESSURE_MONITOR, 'Omron', 1),
+    createDeviceSyncedEvent(userId, scaleId, DeviceType.SMART_SCALE, 'Withings', 2)
+  ];
 };
 
 /**
- * Test fixture for a trend analysis health insight event
+ * Collection of insight and assessment events for a single user
+ * 
+ * @param userId - The user ID
+ * @returns An array of insight and assessment events
  */
-export const trendAnalysisInsightEvent: HealthInsightGeneratedEventDto = {
-  type: JourneyEvents.Health.INSIGHT_GENERATED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.TREND_ANALYSIS,
-    title: 'Improving Sleep Pattern',
-    description: 'Your sleep duration has improved by 15% over the past month. Keep up the good work!',
-    relatedMetricTypes: [HealthMetricType.SLEEP],
-    confidenceScore: 85,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: false
-  },
-  metadata: createHealthEventMetadata()
-};
+export const createInsightAndAssessmentEventsCollection = (userId: string): GamificationEvent[] => [
+  createHealthInsightGeneratedEvent(userId, 'sleep_pattern', [MetricType.SLEEP]),
+  createHealthInsightGeneratedEvent(userId, 'activity_trend', [MetricType.STEPS, MetricType.EXERCISE]),
+  createHealthInsightGeneratedEvent(userId, 'heart_rate_variability', [MetricType.HEART_RATE]),
+  createHealthAssessmentCompletedEvent(userId, 'general_health', 85),
+  createHealthAssessmentCompletedEvent(userId, 'stress_assessment', 65),
+  createMedicalEventRecordedEvent(userId, 'annual_checkup', 'Dr. Smith')
+];
 
 /**
- * Test fixture for an anomaly detection health insight event (high priority)
+ * Creates a complete set of health events for a user
+ * 
+ * @param userId - The user ID
+ * @returns An array of all health-related events
  */
-export const anomalyDetectionInsightEvent: HealthInsightGeneratedEventDto = {
-  type: JourneyEvents.Health.INSIGHT_GENERATED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.ANOMALY_DETECTION,
-    title: 'Unusual Heart Rate Pattern',
-    description: 'We detected an unusual heart rate pattern during your sleep last night. Consider discussing this with your healthcare provider.',
-    relatedMetricTypes: [HealthMetricType.HEART_RATE],
-    confidenceScore: 78,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: false
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for a preventive recommendation health insight event
- */
-export const preventiveRecommendationInsightEvent: HealthInsightGeneratedEventDto = {
-  type: JourneyEvents.Health.INSIGHT_GENERATED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.PREVENTIVE_RECOMMENDATION,
-    title: 'Hydration Reminder',
-    description: 'Based on your activity level and the current weather, remember to increase your water intake today.',
-    relatedMetricTypes: [HealthMetricType.WATER_INTAKE, HealthMetricType.STEPS],
-    confidenceScore: 65,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: true
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for a goal suggestion health insight event
- */
-export const goalSuggestionInsightEvent: HealthInsightGeneratedEventDto = {
-  type: JourneyEvents.Health.INSIGHT_GENERATED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.GOAL_SUGGESTION,
-    title: 'New Step Goal Suggestion',
-    description: 'You consistently exceed your current step goal. Consider increasing it to 12,000 steps for more challenge.',
-    relatedMetricTypes: [HealthMetricType.STEPS],
-    confidenceScore: 90,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: false
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Test fixture for a health risk assessment insight event (high priority)
- */
-export const healthRiskAssessmentInsightEvent: HealthInsightGeneratedEventDto = {
-  type: JourneyEvents.Health.INSIGHT_GENERATED,
-  journey: 'health',
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.HEALTH_RISK_ASSESSMENT,
-    title: 'Blood Pressure Risk Assessment',
-    description: 'Your blood pressure readings have been consistently elevated over the past two weeks. This may indicate hypertension risk.',
-    relatedMetricTypes: [HealthMetricType.BLOOD_PRESSURE],
-    confidenceScore: 82,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: false
-  },
-  metadata: createHealthEventMetadata()
-};
-
-/**
- * Collection of all health metric events for easy import
- */
-export const healthMetricEvents = {
-  heartRateMetricEvent,
-  bloodPressureMetricEvent,
-  weightMetricEvent,
-  stepsMetricEvent,
-  sleepMetricEvent,
-  bloodGlucoseMetricEvent,
-  oxygenSaturationMetricEvent
-};
-
-/**
- * Collection of all health goal events for easy import
- */
-export const healthGoalEvents = {
-  stepsGoalAchievedEvent,
-  weightGoalPartialEvent,
-  sleepGoalAchievedEvent,
-  bloodPressureGoalAchievedEvent
-};
-
-/**
- * Collection of all device synchronization events for easy import
- */
-export const deviceSyncEvents = {
-  smartwatchSyncEvent,
-  bloodPressureMonitorSyncEvent,
-  failedGlucoseMonitorSyncEvent,
-  scaleSyncEvent
-};
-
-/**
- * Collection of all health insight events for easy import
- */
-export const healthInsightEvents = {
-  trendAnalysisInsightEvent,
-  anomalyDetectionInsightEvent,
-  preventiveRecommendationInsightEvent,
-  goalSuggestionInsightEvent,
-  healthRiskAssessmentInsightEvent
-};
-
-/**
- * Collection of all health events for easy import
- */
-export const allHealthEvents = {
-  ...healthMetricEvents,
-  ...healthGoalEvents,
-  ...deviceSyncEvents,
-  ...healthInsightEvents
-};
+export const createCompleteHealthEventSet = (userId: string): GamificationEvent[] => [
+  ...createHealthMetricEventsCollection(userId),
+  ...createHealthGoalEventsCollection(userId),
+  ...createDeviceEventsCollection(userId),
+  ...createInsightAndAssessmentEventsCollection(userId)
+];
