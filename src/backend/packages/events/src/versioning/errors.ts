@@ -1,77 +1,91 @@
 /**
  * @file errors.ts
- * @description Defines custom error classes for versioning-related failures with structured error information
- * for improved debugging and error handling. These error classes integrate with the global error handling
- * framework and provide detailed context for troubleshooting versioning issues.
+ * @description Defines custom error classes for versioning-related failures
+ * 
+ * This file provides specialized error classes for handling versioning-related
+ * errors in the event system, including version detection, compatibility,
+ * migration, and transformation errors. These errors integrate with the global
+ * error handling framework and provide detailed context for troubleshooting.
  */
 
-import { BaseError, ErrorCategory, ErrorType } from '@austa/errors';
-
-/**
- * Error codes specific to event versioning operations
- */
-export enum VersioningErrorCode {
-  // Version detection errors
-  VERSION_DETECTION_FAILED = 'EVT_VER_001',
-  VERSION_FIELD_MISSING = 'EVT_VER_002',
-  VERSION_FORMAT_INVALID = 'EVT_VER_003',
-  
-  // Version compatibility errors
-  VERSION_INCOMPATIBLE = 'EVT_VER_101',
-  VERSION_UNSUPPORTED = 'EVT_VER_102',
-  VERSION_TOO_OLD = 'EVT_VER_103',
-  VERSION_TOO_NEW = 'EVT_VER_104',
-  
-  // Migration errors
-  MIGRATION_PATH_NOT_FOUND = 'EVT_VER_201',
-  MIGRATION_FAILED = 'EVT_VER_202',
-  MIGRATION_VALIDATION_FAILED = 'EVT_VER_203',
-  
-  // Transformation errors
-  TRANSFORMATION_FAILED = 'EVT_VER_301',
-  TRANSFORMATION_SCHEMA_INVALID = 'EVT_VER_302',
-  TRANSFORMATION_FIELD_MISSING = 'EVT_VER_303',
-}
+import { BaseError, ErrorType, JourneyType } from '@austa/errors';
 
 /**
- * Context data specific to versioning errors
+ * Error code prefix for versioning-related errors
  */
-export interface VersioningErrorContext {
-  eventId?: string;
-  eventType?: string;
-  sourceVersion?: string;
-  targetVersion?: string;
-  journeyType?: 'health' | 'care' | 'plan' | 'common';
-  fieldName?: string;
-  schemaPath?: string;
-  migrationPath?: string;
-  transformationStep?: string;
-  [key: string]: any; // Additional context data
-}
+const VERSIONING_ERROR_PREFIX = 'EVENT_VERSION_';
+
+/**
+ * Error codes for versioning-related errors
+ */
+export const VERSIONING_ERROR_CODES = {
+  /** Failed to detect the version of an event */
+  DETECTION_FAILED: `${VERSIONING_ERROR_PREFIX}DETECTION_FAILED`,
+  /** Event version is not compatible with the expected version */
+  INCOMPATIBLE_VERSION: `${VERSIONING_ERROR_PREFIX}INCOMPATIBLE_VERSION`,
+  /** Failed to migrate an event from one version to another */
+  MIGRATION_FAILED: `${VERSIONING_ERROR_PREFIX}MIGRATION_FAILED`,
+  /** Failed to transform an event between versions */
+  TRANSFORMATION_FAILED: `${VERSIONING_ERROR_PREFIX}TRANSFORMATION_FAILED`,
+  /** Event version is not supported */
+  UNSUPPORTED_VERSION: `${VERSIONING_ERROR_PREFIX}UNSUPPORTED_VERSION`,
+  /** Missing version information in the event */
+  MISSING_VERSION: `${VERSIONING_ERROR_PREFIX}MISSING_VERSION`,
+  /** Invalid version format */
+  INVALID_VERSION_FORMAT: `${VERSIONING_ERROR_PREFIX}INVALID_VERSION_FORMAT`,
+  /** Version downgrade is not allowed */
+  DOWNGRADE_NOT_ALLOWED: `${VERSIONING_ERROR_PREFIX}DOWNGRADE_NOT_ALLOWED`,
+};
+
+/**
+ * Default error messages for versioning-related errors
+ */
+const DEFAULT_ERROR_MESSAGES = {
+  [VERSIONING_ERROR_CODES.DETECTION_FAILED]: 'Failed to detect event version',
+  [VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION]: 'Event version is not compatible with the expected version',
+  [VERSIONING_ERROR_CODES.MIGRATION_FAILED]: 'Failed to migrate event between versions',
+  [VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED]: 'Failed to transform event between versions',
+  [VERSIONING_ERROR_CODES.UNSUPPORTED_VERSION]: 'Event version is not supported',
+  [VERSIONING_ERROR_CODES.MISSING_VERSION]: 'Missing version information in the event',
+  [VERSIONING_ERROR_CODES.INVALID_VERSION_FORMAT]: 'Invalid version format',
+  [VERSIONING_ERROR_CODES.DOWNGRADE_NOT_ALLOWED]: 'Version downgrade is not allowed',
+};
 
 /**
  * Base class for all versioning-related errors
  */
 export class VersioningError extends BaseError {
+  /**
+   * Creates a new VersioningError instance
+   * 
+   * @param message - Error message
+   * @param code - Error code
+   * @param details - Additional error details
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   */
   constructor(
-    code: VersioningErrorCode,
     message: string,
-    context?: VersioningErrorContext,
-    cause?: Error,
+    code: string,
+    details?: any,
+    journey?: JourneyType,
+    cause?: Error
   ) {
-    super({
-      code,
+    super(
       message,
-      type: ErrorType.TECHNICAL,
-      category: ErrorCategory.VERSIONING,
-      context,
-      cause,
-      statusCode: 400, // Default status code for versioning errors
-    });
+      ErrorType.TECHNICAL,
+      code,
+      {
+        component: 'event-versioning',
+        journey,
+        isTransient: false,
+      },
+      details,
+      cause
+    );
     
-    // Ensure proper prototype chain for instanceof checks
+    // Ensures proper prototype chain for instanceof checks
     Object.setPrototypeOf(this, VersioningError.prototype);
-    this.name = 'VersioningError';
   }
 }
 
@@ -79,218 +93,337 @@ export class VersioningError extends BaseError {
  * Error thrown when version detection fails
  */
 export class VersionDetectionError extends VersioningError {
+  /**
+   * Creates a new VersionDetectionError instance
+   * 
+   * @param message - Custom error message (optional)
+   * @param details - Additional error details
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   */
   constructor(
-    message: string,
-    context?: VersioningErrorContext,
-    cause?: Error,
-    code: VersioningErrorCode = VersioningErrorCode.VERSION_DETECTION_FAILED,
+    message = DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.DETECTION_FAILED],
+    details?: any,
+    journey?: JourneyType,
+    cause?: Error
   ) {
-    super(code, message, context, cause);
+    super(
+      message,
+      VERSIONING_ERROR_CODES.DETECTION_FAILED,
+      details,
+      journey,
+      cause
+    );
+    
+    // Ensures proper prototype chain for instanceof checks
     Object.setPrototypeOf(this, VersionDetectionError.prototype);
-    this.name = 'VersionDetectionError';
   }
-  
+
   /**
-   * Creates an error for missing version field
+   * Creates a VersionDetectionError for missing version information
+   * 
+   * @param eventId - ID of the event with missing version
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionDetectionError instance
    */
-  static fieldMissing(fieldName: string, eventId?: string, eventType?: string): VersionDetectionError {
+  static missingVersion(eventId: string, journey?: JourneyType): VersionDetectionError {
     return new VersionDetectionError(
-      `Version field '${fieldName}' is missing from event`,
-      { fieldName, eventId, eventType },
-      undefined,
-      VersioningErrorCode.VERSION_FIELD_MISSING
+      DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.MISSING_VERSION],
+      { eventId },
+      journey
     );
   }
-  
+
   /**
-   * Creates an error for invalid version format
+   * Creates a VersionDetectionError for invalid version format
+   * 
+   * @param version - The invalid version string
+   * @param expectedFormat - The expected version format
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionDetectionError instance
    */
-  static invalidFormat(version: string, eventId?: string, eventType?: string): VersionDetectionError {
+  static invalidFormat(
+    version: string,
+    expectedFormat: string,
+    journey?: JourneyType
+  ): VersionDetectionError {
     return new VersionDetectionError(
-      `Invalid version format: '${version}'. Expected format: major.minor.patch`,
-      { sourceVersion: version, eventId, eventType },
-      undefined,
-      VersioningErrorCode.VERSION_FORMAT_INVALID
+      DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.INVALID_VERSION_FORMAT],
+      { version, expectedFormat },
+      journey
     );
   }
 }
 
 /**
- * Error thrown when versions are incompatible
+ * Error thrown when event versions are incompatible
  */
-export class VersionCompatibilityError extends VersioningError {
+export class IncompatibleVersionError extends VersioningError {
+  /**
+   * Creates a new IncompatibleVersionError instance
+   * 
+   * @param message - Custom error message (optional)
+   * @param details - Additional error details
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   */
   constructor(
-    message: string,
-    context?: VersioningErrorContext,
-    cause?: Error,
-    code: VersioningErrorCode = VersioningErrorCode.VERSION_INCOMPATIBLE,
+    message = DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION],
+    details?: any,
+    journey?: JourneyType,
+    cause?: Error
   ) {
-    super(code, message, context, cause);
-    Object.setPrototypeOf(this, VersionCompatibilityError.prototype);
-    this.name = 'VersionCompatibilityError';
+    super(
+      message,
+      VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION,
+      details,
+      journey,
+      cause
+    );
+    
+    // Ensures proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, IncompatibleVersionError.prototype);
   }
-  
+
   /**
-   * Creates an error for unsupported version
+   * Creates an IncompatibleVersionError for unsupported versions
+   * 
+   * @param version - The unsupported version
+   * @param supportedVersions - List of supported versions
+   * @param journey - Journey type where the error occurred
+   * @returns A new IncompatibleVersionError instance
    */
-  static unsupported(version: string, supportedVersions: string[], eventId?: string): VersionCompatibilityError {
-    return new VersionCompatibilityError(
-      `Version '${version}' is not supported. Supported versions: ${supportedVersions.join(', ')}`,
-      { sourceVersion: version, eventId },
-      undefined,
-      VersioningErrorCode.VERSION_UNSUPPORTED
+  static unsupportedVersion(
+    version: string,
+    supportedVersions: string[],
+    journey?: JourneyType
+  ): IncompatibleVersionError {
+    return new IncompatibleVersionError(
+      DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.UNSUPPORTED_VERSION],
+      { version, supportedVersions },
+      journey
     );
   }
-  
+
   /**
-   * Creates an error for version too old
+   * Creates an IncompatibleVersionError for version mismatch
+   * 
+   * @param actualVersion - The actual version of the event
+   * @param expectedVersion - The expected version
+   * @param eventType - The type of event
+   * @param journey - Journey type where the error occurred
+   * @returns A new IncompatibleVersionError instance
    */
-  static tooOld(version: string, minVersion: string, eventId?: string): VersionCompatibilityError {
-    return new VersionCompatibilityError(
-      `Version '${version}' is too old. Minimum supported version is '${minVersion}'`,
-      { sourceVersion: version, targetVersion: minVersion, eventId },
-      undefined,
-      VersioningErrorCode.VERSION_TOO_OLD
-    );
-  }
-  
-  /**
-   * Creates an error for version too new
-   */
-  static tooNew(version: string, maxVersion: string, eventId?: string): VersionCompatibilityError {
-    return new VersionCompatibilityError(
-      `Version '${version}' is too new. Maximum supported version is '${maxVersion}'`,
-      { sourceVersion: version, targetVersion: maxVersion, eventId },
-      undefined,
-      VersioningErrorCode.VERSION_TOO_NEW
+  static versionMismatch(
+    actualVersion: string,
+    expectedVersion: string,
+    eventType: string,
+    journey?: JourneyType
+  ): IncompatibleVersionError {
+    return new IncompatibleVersionError(
+      `Event version mismatch: expected ${expectedVersion} but got ${actualVersion} for event type ${eventType}`,
+      { actualVersion, expectedVersion, eventType },
+      journey
     );
   }
 }
 
 /**
- * Error thrown when migration between versions fails
+ * Error thrown when event migration between versions fails
  */
-export class MigrationError extends VersioningError {
+export class VersionMigrationError extends VersioningError {
+  /**
+   * Creates a new VersionMigrationError instance
+   * 
+   * @param message - Custom error message (optional)
+   * @param details - Additional error details
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   */
   constructor(
-    message: string,
-    context?: VersioningErrorContext,
-    cause?: Error,
-    code: VersioningErrorCode = VersioningErrorCode.MIGRATION_FAILED,
+    message = DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.MIGRATION_FAILED],
+    details?: any,
+    journey?: JourneyType,
+    cause?: Error
   ) {
-    super(code, message, context, cause);
-    Object.setPrototypeOf(this, MigrationError.prototype);
-    this.name = 'MigrationError';
+    super(
+      message,
+      VERSIONING_ERROR_CODES.MIGRATION_FAILED,
+      details,
+      journey,
+      cause
+    );
+    
+    // Ensures proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, VersionMigrationError.prototype);
   }
-  
+
   /**
-   * Creates an error for missing migration path
+   * Creates a VersionMigrationError for missing migration path
+   * 
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param eventType - The type of event
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionMigrationError instance
    */
-  static pathNotFound(sourceVersion: string, targetVersion: string, eventType?: string): MigrationError {
-    return new MigrationError(
-      `No migration path found from version '${sourceVersion}' to '${targetVersion}' for event type '${eventType || 'unknown'}'`,
-      { sourceVersion, targetVersion, eventType },
-      undefined,
-      VersioningErrorCode.MIGRATION_PATH_NOT_FOUND
+  static noMigrationPath(
+    fromVersion: string,
+    toVersion: string,
+    eventType: string,
+    journey?: JourneyType
+  ): VersionMigrationError {
+    return new VersionMigrationError(
+      `No migration path found from version ${fromVersion} to ${toVersion} for event type ${eventType}`,
+      { fromVersion, toVersion, eventType },
+      journey
     );
   }
-  
+
   /**
-   * Creates an error for failed validation after migration
+   * Creates a VersionMigrationError for validation failure after migration
+   * 
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param validationErrors - Validation errors
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionMigrationError instance
    */
-  static validationFailed(sourceVersion: string, targetVersion: string, errors: string[], eventId?: string): MigrationError {
-    return new MigrationError(
-      `Validation failed after migrating from version '${sourceVersion}' to '${targetVersion}': ${errors.join('; ')}`,
-      { sourceVersion, targetVersion, eventId, validationErrors: errors },
-      undefined,
-      VersioningErrorCode.MIGRATION_VALIDATION_FAILED
+  static validationFailed(
+    fromVersion: string,
+    toVersion: string,
+    validationErrors: any[],
+    journey?: JourneyType
+  ): VersionMigrationError {
+    return new VersionMigrationError(
+      `Validation failed after migrating from version ${fromVersion} to ${toVersion}`,
+      { fromVersion, toVersion, validationErrors },
+      journey
+    );
+  }
+
+  /**
+   * Creates a VersionMigrationError for downgrade not allowed
+   * 
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param eventType - The type of event
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionMigrationError instance
+   */
+  static downgradeNotAllowed(
+    fromVersion: string,
+    toVersion: string,
+    eventType: string,
+    journey?: JourneyType
+  ): VersionMigrationError {
+    return new VersionMigrationError(
+      DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.DOWNGRADE_NOT_ALLOWED],
+      { fromVersion, toVersion, eventType },
+      journey
     );
   }
 }
 
 /**
- * Error thrown when transformation between versions fails
+ * Error thrown when event transformation between versions fails
  */
-export class TransformationError extends VersioningError {
+export class VersionTransformationError extends VersioningError {
+  /**
+   * Creates a new VersionTransformationError instance
+   * 
+   * @param message - Custom error message (optional)
+   * @param details - Additional error details
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   */
   constructor(
-    message: string,
-    context?: VersioningErrorContext,
-    cause?: Error,
-    code: VersioningErrorCode = VersioningErrorCode.TRANSFORMATION_FAILED,
+    message = DEFAULT_ERROR_MESSAGES[VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED],
+    details?: any,
+    journey?: JourneyType,
+    cause?: Error
   ) {
-    super(code, message, context, cause);
-    Object.setPrototypeOf(this, TransformationError.prototype);
-    this.name = 'TransformationError';
-  }
-  
-  /**
-   * Creates an error for invalid schema during transformation
-   */
-  static schemaInvalid(schemaPath: string, reason: string, eventId?: string): TransformationError {
-    return new TransformationError(
-      `Invalid schema at path '${schemaPath}': ${reason}`,
-      { schemaPath, eventId },
-      undefined,
-      VersioningErrorCode.TRANSFORMATION_SCHEMA_INVALID
+    super(
+      message,
+      VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED,
+      details,
+      journey,
+      cause
     );
+    
+    // Ensures proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, VersionTransformationError.prototype);
   }
-  
-  /**
-   * Creates an error for missing required field during transformation
-   */
-  static fieldMissing(fieldName: string, sourceVersion: string, targetVersion: string, eventId?: string): TransformationError {
-    return new TransformationError(
-      `Required field '${fieldName}' is missing during transformation from version '${sourceVersion}' to '${targetVersion}'`,
-      { fieldName, sourceVersion, targetVersion, eventId },
-      undefined,
-      VersioningErrorCode.TRANSFORMATION_FIELD_MISSING
-    );
-  }
-  
-  /**
-   * Creates an error for a specific transformation step failure
-   */
-  static stepFailed(step: string, sourceVersion: string, targetVersion: string, reason: string, eventId?: string): TransformationError {
-    return new TransformationError(
-      `Transformation step '${step}' failed when converting from version '${sourceVersion}' to '${targetVersion}': ${reason}`,
-      { transformationStep: step, sourceVersion, targetVersion, eventId },
-      undefined,
-      VersioningErrorCode.TRANSFORMATION_FAILED
-    );
-  }
-}
 
-/**
- * Helper function to create the appropriate versioning error based on the error code
- */
-export function createVersioningError(
-  code: VersioningErrorCode,
-  message: string,
-  context?: VersioningErrorContext,
-  cause?: Error,
-): VersioningError {
-  switch (code) {
-    case VersioningErrorCode.VERSION_DETECTION_FAILED:
-    case VersioningErrorCode.VERSION_FIELD_MISSING:
-    case VersioningErrorCode.VERSION_FORMAT_INVALID:
-      return new VersionDetectionError(message, context, cause, code);
-      
-    case VersioningErrorCode.VERSION_INCOMPATIBLE:
-    case VersioningErrorCode.VERSION_UNSUPPORTED:
-    case VersioningErrorCode.VERSION_TOO_OLD:
-    case VersioningErrorCode.VERSION_TOO_NEW:
-      return new VersionCompatibilityError(message, context, cause, code);
-      
-    case VersioningErrorCode.MIGRATION_PATH_NOT_FOUND:
-    case VersioningErrorCode.MIGRATION_FAILED:
-    case VersioningErrorCode.MIGRATION_VALIDATION_FAILED:
-      return new MigrationError(message, context, cause, code);
-      
-    case VersioningErrorCode.TRANSFORMATION_FAILED:
-    case VersioningErrorCode.TRANSFORMATION_SCHEMA_INVALID:
-    case VersioningErrorCode.TRANSFORMATION_FIELD_MISSING:
-      return new TransformationError(message, context, cause, code);
-      
-    default:
-      return new VersioningError(code, message, context, cause);
+  /**
+   * Creates a VersionTransformationError for field transformation failure
+   * 
+   * @param field - The field that failed to transform
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   * @returns A new VersionTransformationError instance
+   */
+  static fieldTransformationFailed(
+    field: string,
+    fromVersion: string,
+    toVersion: string,
+    journey?: JourneyType,
+    cause?: Error
+  ): VersionTransformationError {
+    return new VersionTransformationError(
+      `Failed to transform field '${field}' from version ${fromVersion} to ${toVersion}`,
+      { field, fromVersion, toVersion },
+      journey,
+      cause
+    );
+  }
+
+  /**
+   * Creates a VersionTransformationError for schema transformation failure
+   * 
+   * @param schemaName - The name of the schema
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param journey - Journey type where the error occurred
+   * @param cause - Original error that caused this exception
+   * @returns A new VersionTransformationError instance
+   */
+  static schemaTransformationFailed(
+    schemaName: string,
+    fromVersion: string,
+    toVersion: string,
+    journey?: JourneyType,
+    cause?: Error
+  ): VersionTransformationError {
+    return new VersionTransformationError(
+      `Failed to transform schema '${schemaName}' from version ${fromVersion} to ${toVersion}`,
+      { schemaName, fromVersion, toVersion },
+      journey,
+      cause
+    );
+  }
+
+  /**
+   * Creates a VersionTransformationError for missing transformer
+   * 
+   * @param fromVersion - Source version
+   * @param toVersion - Target version
+   * @param eventType - The type of event
+   * @param journey - Journey type where the error occurred
+   * @returns A new VersionTransformationError instance
+   */
+  static missingTransformer(
+    fromVersion: string,
+    toVersion: string,
+    eventType: string,
+    journey?: JourneyType
+  ): VersionTransformationError {
+    return new VersionTransformationError(
+      `No transformer found for converting from version ${fromVersion} to ${toVersion} for event type ${eventType}`,
+      { fromVersion, toVersion, eventType },
+      journey
+    );
   }
 }
