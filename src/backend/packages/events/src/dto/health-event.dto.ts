@@ -1,418 +1,349 @@
-/**
- * @file health-event.dto.ts
- * @description Defines specialized DTO classes for health journey events in the AUSTA SuperApp.
- * This file extends the base event DTO with health-specific validation rules and type definitions
- * for events like health metric recording, goal achievement, health insight generation, and device connection.
- * 
- * These DTOs are used by the gamification engine to process health-related events and award
- * achievements, points, and rewards based on user health activities.
- *
- * @module events/dto
- */
-
-import { IsNotEmpty, IsString, IsObject, IsUUID, IsOptional, IsEnum, IsNumber, IsBoolean, IsDateString, ValidateNested, Min, Max, IsArray } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProcessEventDto } from '@austa/interfaces';
+import { ProcessEventDto } from '../../../gamification-engine/src/events/dto/process-event.dto';
+import { GoalStatus, GoalType, MetricSource, MetricType, DeviceType, ConnectionStatus } from '@austa/interfaces/journey/health';
 
 /**
- * Enum for health metric types tracked in the AUSTA SuperApp
+ * Base DTO for health journey events in the AUSTA SuperApp.
+ * Extends the core ProcessEventDto with health-specific validation and properties.
+ * This serves as the foundation for all health-related events processed by the gamification engine.
  */
-export enum HealthMetricType {
-  HEART_RATE = 'HEART_RATE',
-  BLOOD_PRESSURE = 'BLOOD_PRESSURE',
-  BLOOD_GLUCOSE = 'BLOOD_GLUCOSE',
-  STEPS = 'STEPS',
-  SLEEP = 'SLEEP',
-  WEIGHT = 'WEIGHT',
-  TEMPERATURE = 'TEMPERATURE',
-  OXYGEN_SATURATION = 'OXYGEN_SATURATION',
-  RESPIRATORY_RATE = 'RESPIRATORY_RATE',
-  WATER_INTAKE = 'WATER_INTAKE',
-  CALORIES = 'CALORIES'
-}
-
-/**
- * Enum for health goal types in the AUSTA SuperApp
- */
-export enum HealthGoalType {
-  STEPS_TARGET = 'STEPS_TARGET',
-  WEIGHT_TARGET = 'WEIGHT_TARGET',
-  SLEEP_DURATION = 'SLEEP_DURATION',
-  ACTIVITY_FREQUENCY = 'ACTIVITY_FREQUENCY',
-  WATER_INTAKE = 'WATER_INTAKE',
-  BLOOD_PRESSURE_MANAGEMENT = 'BLOOD_PRESSURE_MANAGEMENT',
-  BLOOD_GLUCOSE_MANAGEMENT = 'BLOOD_GLUCOSE_MANAGEMENT'
-}
-
-/**
- * Enum for device types that can be connected to the AUSTA SuperApp
- */
-export enum DeviceType {
-  FITNESS_TRACKER = 'FITNESS_TRACKER',
-  SMARTWATCH = 'SMARTWATCH',
-  BLOOD_PRESSURE_MONITOR = 'BLOOD_PRESSURE_MONITOR',
-  GLUCOSE_MONITOR = 'GLUCOSE_MONITOR',
-  SCALE = 'SCALE',
-  SLEEP_TRACKER = 'SLEEP_TRACKER',
-  THERMOMETER = 'THERMOMETER',
-  PULSE_OXIMETER = 'PULSE_OXIMETER'
-}
-
-/**
- * Enum for health insight types generated in the AUSTA SuperApp
- */
-export enum HealthInsightType {
-  ANOMALY_DETECTION = 'ANOMALY_DETECTION',
-  TREND_ANALYSIS = 'TREND_ANALYSIS',
-  PREVENTIVE_RECOMMENDATION = 'PREVENTIVE_RECOMMENDATION',
-  GOAL_SUGGESTION = 'GOAL_SUGGESTION',
-  HEALTH_RISK_ASSESSMENT = 'HEALTH_RISK_ASSESSMENT'
-}
-
-/**
- * Interface for health metric data
- */
-export class HealthMetricData {
+export class HealthEventDto extends ProcessEventDto {
+  /**
+   * The journey type, which is always 'health' for health events.
+   * This helps the gamification engine categorize and route events appropriately.
+   */
   @IsNotEmpty()
-  @IsEnum(HealthMetricType)
-  metricType: HealthMetricType;
+  @IsString()
+  journey: string = 'health';
 
+  /**
+   * The data associated with the health event.
+   * This is a placeholder that will be overridden by more specific health event DTOs.
+   */
+  @IsNotEmpty()
+  @IsObject()
+  data: Record<string, any>;
+}
+
+/**
+ * DTO for health metric recording events.
+ * Used when a user or connected device records a health measurement such as
+ * steps, heart rate, blood pressure, etc.
+ */
+export class HealthMetricRecordedEventDto extends HealthEventDto {
+  /**
+   * The type of this event is always 'HEALTH_METRIC_RECORDED'.
+   */
+  @IsNotEmpty()
+  @IsString()
+  type: string = 'HEALTH_METRIC_RECORDED';
+
+  /**
+   * The data specific to a health metric recording event.
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => HealthMetricRecordedDataDto)
+  data: HealthMetricRecordedDataDto;
+}
+
+/**
+ * Data structure for health metric recording events.
+ * Contains detailed information about the recorded health metric.
+ */
+export class HealthMetricRecordedDataDto {
+  /**
+   * The type of health metric being recorded (e.g., HEART_RATE, STEPS, etc.)
+   */
+  @IsNotEmpty()
+  @IsEnum(MetricType)
+  metricType: MetricType;
+
+  /**
+   * The numerical value of the health metric.
+   */
   @IsNotEmpty()
   @IsNumber()
   value: number;
 
+  /**
+   * The unit of measurement for the health metric (e.g., 'bpm', 'steps', 'kg').
+   */
   @IsNotEmpty()
   @IsString()
   unit: string;
 
-  @IsOptional()
-  @IsDateString()
-  recordedAt?: string;
+  /**
+   * The source of the health metric data.
+   */
+  @IsNotEmpty()
+  @IsEnum(MetricSource)
+  source: MetricSource;
 
-  @IsOptional()
-  @IsString()
-  notes?: string;
-
+  /**
+   * Optional ID of the device that recorded the metric, if applicable.
+   */
   @IsOptional()
   @IsString()
   deviceId?: string;
 
   /**
-   * Validates that the metric value is within acceptable ranges based on the metric type.
-   * This custom validation ensures that health data is within medically reasonable bounds.
+   * Optional additional notes or context about the health metric.
    */
-  validateMetricRange(): boolean {
-    switch (this.metricType) {
-      case HealthMetricType.HEART_RATE:
-        return this.value >= 30 && this.value <= 220;
-      case HealthMetricType.BLOOD_PRESSURE:
-        // For blood pressure, we expect a string like "120/80" stored in value
-        return true; // Complex validation would be implemented in a custom validator
-      case HealthMetricType.BLOOD_GLUCOSE:
-        return this.value >= 20 && this.value <= 600;
-      case HealthMetricType.STEPS:
-        return this.value >= 0 && this.value <= 100000;
-      case HealthMetricType.SLEEP:
-        return this.value >= 0 && this.value <= 24; // Hours
-      case HealthMetricType.WEIGHT:
-        return this.value >= 0 && this.value <= 500; // kg
-      case HealthMetricType.TEMPERATURE:
-        return this.value >= 30 && this.value <= 45; // Celsius
-      case HealthMetricType.OXYGEN_SATURATION:
-        return this.value >= 50 && this.value <= 100; // Percentage
-      case HealthMetricType.RESPIRATORY_RATE:
-        return this.value >= 0 && this.value <= 100; // Breaths per minute
-      case HealthMetricType.WATER_INTAKE:
-        return this.value >= 0 && this.value <= 10000; // ml
-      case HealthMetricType.CALORIES:
-        return this.value >= 0 && this.value <= 10000;
-      default:
-        return true;
-    }
-  }
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  /**
+   * Optional flag indicating if the metric value is outside normal/healthy range.
+   */
+  @IsOptional()
+  isAbnormal?: boolean;
 }
 
 /**
- * Interface for health goal data
+ * DTO for health goal achievement events.
+ * Used when a user reaches or completes a health goal they've set.
  */
-export class HealthGoalData {
+export class HealthGoalAchievedEventDto extends HealthEventDto {
+  /**
+   * The type of this event is always 'HEALTH_GOAL_ACHIEVED'.
+   */
+  @IsNotEmpty()
+  @IsString()
+  type: string = 'HEALTH_GOAL_ACHIEVED';
+
+  /**
+   * The data specific to a health goal achievement event.
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => HealthGoalAchievedDataDto)
+  data: HealthGoalAchievedDataDto;
+}
+
+/**
+ * Data structure for health goal achievement events.
+ * Contains detailed information about the achieved health goal.
+ */
+export class HealthGoalAchievedDataDto {
+  /**
+   * The unique identifier of the achieved goal.
+   */
   @IsNotEmpty()
   @IsUUID()
   goalId: string;
 
+  /**
+   * The type of health goal that was achieved.
+   */
   @IsNotEmpty()
-  @IsEnum(HealthGoalType)
-  goalType: HealthGoalType;
-
-  @IsNotEmpty()
-  @IsString()
-  description: string;
-
-  @IsOptional()
-  @IsNumber()
-  targetValue?: number;
-
-  @IsOptional()
-  @IsString()
-  unit?: string;
-
-  @IsOptional()
-  @IsDateString()
-  achievedAt?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  progressPercentage?: number;
+  @IsEnum(GoalType)
+  goalType: GoalType;
 
   /**
-   * Determines if the goal has been achieved based on the progress percentage
-   * or the presence of an achievedAt date.
-   * 
-   * @returns boolean indicating if the goal has been achieved
+   * The title or name of the achieved goal.
    */
-  isAchieved(): boolean {
-    if (this.achievedAt) {
-      return true;
-    }
-    
-    if (this.progressPercentage !== undefined && this.progressPercentage >= 100) {
-      return true;
-    }
-    
-    return false;
-  }
-
-  /**
-   * Updates the goal with achievement information when a goal is completed.
-   * Sets the achievedAt date to the current time if not already set.
-   */
-  markAsAchieved(): void {
-    if (!this.achievedAt) {
-      this.achievedAt = new Date().toISOString();
-    }
-    
-    this.progressPercentage = 100;
-  }
-}
-
-/**
- * Interface for device synchronization data
- */
-export class DeviceSyncData {
-  @IsNotEmpty()
-  @IsString()
-  deviceId: string;
-
-  @IsNotEmpty()
-  @IsEnum(DeviceType)
-  deviceType: DeviceType;
-
-  @IsNotEmpty()
-  @IsString()
-  deviceName: string;
-
-  @IsNotEmpty()
-  @IsDateString()
-  syncedAt: string;
-
-  @IsNotEmpty()
-  @IsBoolean()
-  syncSuccessful: boolean;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  dataPointsCount?: number;
-
-  @IsOptional()
-  @IsArray()
-  metricTypes?: HealthMetricType[];
-
-  @IsOptional()
-  @IsString()
-  errorMessage?: string;
-
-  /**
-   * Sets the sync as failed with the provided error message.
-   * Updates the syncSuccessful flag and sets the error message.
-   * 
-   * @param errorMessage The error message describing the sync failure
-   */
-  markAsFailed(errorMessage: string): void {
-    this.syncSuccessful = false;
-    this.errorMessage = errorMessage;
-  }
-
-  /**
-   * Sets the sync as successful with the provided data points count and metric types.
-   * Updates the syncSuccessful flag and clears any error message.
-   * 
-   * @param dataPointsCount The number of data points synchronized
-   * @param metricTypes The types of metrics that were synchronized
-   */
-  markAsSuccessful(dataPointsCount: number, metricTypes: HealthMetricType[]): void {
-    this.syncSuccessful = true;
-    this.dataPointsCount = dataPointsCount;
-    this.metricTypes = metricTypes;
-    this.errorMessage = undefined;
-  }
-}
-
-/**
- * Interface for health insight data
- */
-export class HealthInsightData {
-  @IsNotEmpty()
-  @IsUUID()
-  insightId: string;
-
-  @IsNotEmpty()
-  @IsEnum(HealthInsightType)
-  insightType: HealthInsightType;
-
   @IsNotEmpty()
   @IsString()
   title: string;
 
+  /**
+   * The target value that was set for the goal.
+   */
+  @IsNotEmpty()
+  @IsNumber()
+  targetValue: number;
+
+  /**
+   * The unit of measurement for the goal (e.g., 'steps', 'hours', 'kg').
+   */
+  @IsNotEmpty()
+  @IsString()
+  unit: string;
+
+  /**
+   * The final value achieved when completing the goal.
+   */
+  @IsNotEmpty()
+  @IsNumber()
+  achievedValue: number;
+
+  /**
+   * The current status of the goal, which should be COMPLETED for achievement events.
+   */
+  @IsNotEmpty()
+  @IsEnum(GoalStatus)
+  status: GoalStatus;
+
+  /**
+   * Optional description of the achieved goal.
+   */
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+/**
+ * DTO for health insight generation events.
+ * Used when the system generates a health insight based on user's health data.
+ */
+export class HealthInsightGeneratedEventDto extends HealthEventDto {
+  /**
+   * The type of this event is always 'HEALTH_INSIGHT_GENERATED'.
+   */
+  @IsNotEmpty()
+  @IsString()
+  type: string = 'HEALTH_INSIGHT_GENERATED';
+
+  /**
+   * The data specific to a health insight generation event.
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => HealthInsightGeneratedDataDto)
+  data: HealthInsightGeneratedDataDto;
+}
+
+/**
+ * Data structure for health insight generation events.
+ * Contains detailed information about the generated health insight.
+ */
+export class HealthInsightGeneratedDataDto {
+  /**
+   * The unique identifier of the generated insight.
+   */
+  @IsNotEmpty()
+  @IsUUID()
+  insightId: string;
+
+  /**
+   * The type of health insight that was generated.
+   */
+  @IsNotEmpty()
+  @IsString()
+  insightType: string;
+
+  /**
+   * The title or headline of the generated insight.
+   */
+  @IsNotEmpty()
+  @IsString()
+  title: string;
+
+  /**
+   * A detailed description of the health insight.
+   */
   @IsNotEmpty()
   @IsString()
   description: string;
 
-  @IsOptional()
-  @IsArray()
-  relatedMetricTypes?: HealthMetricType[];
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  confidenceScore?: number;
-
-  @IsOptional()
-  @IsDateString()
-  generatedAt?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  userAcknowledged?: boolean;
+  /**
+   * The metric types that were analyzed to generate this insight.
+   */
+  @IsNotEmpty()
+  @IsEnum(MetricType, { each: true })
+  relatedMetrics: MetricType[];
 
   /**
-   * Marks the insight as acknowledged by the user.
-   * This is used to track which insights have been seen by the user.
+   * Optional severity level of the insight (e.g., 'info', 'warning', 'critical').
    */
-  acknowledgeByUser(): void {
-    this.userAcknowledged = true;
-  }
+  @IsOptional()
+  @IsString()
+  severity?: string;
 
   /**
-   * Determines if this insight is a high-priority insight that requires
-   * immediate user attention based on the insight type and confidence score.
-   * 
-   * @returns boolean indicating if this is a high-priority insight
+   * Optional recommended actions based on the insight.
    */
-  isHighPriority(): boolean {
-    // Anomaly detection and health risk assessments with high confidence are high priority
-    if (
-      (this.insightType === HealthInsightType.ANOMALY_DETECTION || 
-       this.insightType === HealthInsightType.HEALTH_RISK_ASSESSMENT) &&
-      this.confidenceScore !== undefined && 
-      this.confidenceScore > 75
-    ) {
-      return true;
-    }
-    
-    return false;
-  }
+  @IsOptional()
+  @IsString()
+  recommendation?: string;
 }
 
 /**
- * Data transfer object for health metric recorded events.
- * Extends the base ProcessEventDto with health-specific validation rules.
+ * DTO for device synchronization events.
+ * Used when a user's device syncs health data with the AUSTA SuperApp.
  */
-export class HealthMetricRecordedEventDto extends ProcessEventDto {
+export class DeviceSynchronizedEventDto extends HealthEventDto {
+  /**
+   * The type of this event is always 'DEVICE_SYNCHRONIZED'.
+   */
   @IsNotEmpty()
   @IsString()
-  override type: string = 'HEALTH_METRIC_RECORDED';
+  type: string = 'DEVICE_SYNCHRONIZED';
 
-  @IsNotEmpty()
-  @IsString()
-  override journey: string = 'health';
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => HealthMetricData)
-  override data: HealthMetricData;
-}
-
-/**
- * Data transfer object for health goal achieved events.
- * Extends the base ProcessEventDto with health-specific validation rules.
- */
-export class HealthGoalAchievedEventDto extends ProcessEventDto {
-  @IsNotEmpty()
-  @IsString()
-  override type: string = 'HEALTH_GOAL_ACHIEVED';
-
-  @IsNotEmpty()
-  @IsString()
-  override journey: string = 'health';
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => HealthGoalData)
-  override data: HealthGoalData;
-}
-
-/**
- * Data transfer object for device synchronized events.
- * Extends the base ProcessEventDto with health-specific validation rules.
- */
-export class DeviceSynchronizedEventDto extends ProcessEventDto {
-  @IsNotEmpty()
-  @IsString()
-  override type: string = 'DEVICE_SYNCHRONIZED';
-
-  @IsNotEmpty()
-  @IsString()
-  override journey: string = 'health';
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => DeviceSyncData)
-  override data: DeviceSyncData;
-}
-
-/**
- * Data transfer object for health insight generated events.
- * Extends the base ProcessEventDto with health-specific validation rules.
- */
-export class HealthInsightGeneratedEventDto extends ProcessEventDto {
-  @IsNotEmpty()
-  @IsString()
-  override type: string = 'HEALTH_INSIGHT_GENERATED';
-
-  @IsNotEmpty()
-  @IsString()
-  override journey: string = 'health';
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => HealthInsightData)
-  override data: HealthInsightData;
-}
-
-/**
- * Base class for all health-related events.
- * Provides common validation and type checking for health events.
- */
-export class HealthEventDto extends ProcessEventDto {
-  @IsNotEmpty()
-  @IsString()
-  override journey: string = 'health';
-
+  /**
+   * The data specific to a device synchronization event.
+   */
   @IsNotEmpty()
   @IsObject()
-  override data: HealthMetricData | HealthGoalData | DeviceSyncData | HealthInsightData;
+  @ValidateNested()
+  @Type(() => DeviceSynchronizedDataDto)
+  data: DeviceSynchronizedDataDto;
+}
+
+/**
+ * Data structure for device synchronization events.
+ * Contains detailed information about the synchronized device and data.
+ */
+export class DeviceSynchronizedDataDto {
+  /**
+   * The unique identifier of the device connection.
+   */
+  @IsNotEmpty()
+  @IsUUID()
+  connectionId: string;
+
+  /**
+   * The type of device that was synchronized.
+   */
+  @IsNotEmpty()
+  @IsEnum(DeviceType)
+  deviceType: DeviceType;
+
+  /**
+   * The unique identifier provided by the device itself.
+   */
+  @IsNotEmpty()
+  @IsString()
+  deviceId: string;
+
+  /**
+   * The current connection status of the device.
+   */
+  @IsNotEmpty()
+  @IsEnum(ConnectionStatus)
+  status: ConnectionStatus;
+
+  /**
+   * The timestamp when the synchronization occurred.
+   */
+  @IsNotEmpty()
+  @IsString()
+  syncTimestamp: string;
+
+  /**
+   * The number of health metrics synchronized during this sync.
+   */
+  @IsNotEmpty()
+  @IsNumber()
+  metricsCount: number;
+
+  /**
+   * The types of metrics that were synchronized.
+   */
+  @IsNotEmpty()
+  @IsEnum(MetricType, { each: true })
+  metricTypes: MetricType[];
+
+  /**
+   * Optional duration of the synchronization process in seconds.
+   */
+  @IsOptional()
+  @IsNumber()
+  syncDuration?: number;
 }
