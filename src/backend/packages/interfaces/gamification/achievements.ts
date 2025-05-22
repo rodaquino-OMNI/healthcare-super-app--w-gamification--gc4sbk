@@ -4,51 +4,23 @@
  * including Achievement, UserAchievement, and related types. These interfaces provide a
  * standardized contract for achievements that users can unlock by completing specific actions,
  * along with tracking user progress for each achievement.
- * 
- * @packageDocumentation
- * @module @austa/interfaces/gamification
  */
 
 /**
- * Represents the possible journey types in the application.
- * Each journey has its own set of achievements, quests, and rewards.
+ * Enum representing the different journey types in the application.
+ * Used to categorize achievements by their associated journey.
  */
 export enum JourneyType {
   HEALTH = 'health',
   CARE = 'care',
   PLAN = 'plan',
+  GLOBAL = 'global'
 }
 
 /**
- * Type for journey-specific achievement types.
- * This allows for type-safe access to journey-specific achievement properties.
- */
-export type JourneySpecificAchievement<T extends JourneyType> = Achievement & {
-  journey: T;
-  /**
-   * Additional properties specific to each journey type can be added here.
-   * For example, health achievements might have health-specific properties.
-   */
-};
-
-/**
- * Type alias for Health journey achievements.
- */
-export type HealthAchievement = JourneySpecificAchievement<JourneyType.HEALTH>;
-
-/**
- * Type alias for Care journey achievements.
- */
-export type CareAchievement = JourneySpecificAchievement<JourneyType.CARE>;
-
-/**
- * Type alias for Plan journey achievements.
- */
-export type PlanAchievement = JourneySpecificAchievement<JourneyType.PLAN>;
-
-/**
  * Represents an achievement that a user can earn in the gamification system.
- * Achievements are unlocked by completing specific actions or reaching certain thresholds.
+ * Achievements are milestones that users can unlock by performing specific actions
+ * or reaching certain thresholds.
  */
 export interface Achievement {
   /**
@@ -67,7 +39,7 @@ export interface Achievement {
   description: string;
 
   /**
-   * The journey to which the achievement belongs (health, care, plan).
+   * The journey to which the achievement belongs.
    */
   journey: JourneyType | string;
 
@@ -80,12 +52,6 @@ export interface Achievement {
    * The amount of XP (experience points) awarded for unlocking the achievement.
    */
   xpReward: number;
-
-  /**
-   * The total progress needed to unlock the achievement.
-   * This is used to calculate progress percentage.
-   */
-  total?: number;
 }
 
 /**
@@ -104,9 +70,20 @@ export interface UserAchievement {
   achievementId: string;
 
   /**
+   * The achievement details.
+   */
+  achievement: Achievement;
+
+  /**
    * The user's current progress towards unlocking the achievement.
    */
   progress: number;
+
+  /**
+   * The total progress needed to unlock the achievement.
+   * This is used to calculate completion percentage.
+   */
+  total: number;
 
   /**
    * Indicates whether the achievement has been unlocked by the user.
@@ -128,66 +105,113 @@ export interface UserAchievement {
    * The date and time when the user achievement was last updated.
    */
   updatedAt: Date;
-
-  /**
-   * Reference to the achievement object.
-   * This is optional and may not be populated in all contexts.
-   */
-  achievement?: Achievement;
 }
 
 /**
- * Interface for achievement data as presented in the frontend.
- * This combines properties from both Achievement and UserAchievement.
+ * Represents an achievement specific to the Health journey.
+ * These achievements are related to health metrics, goals, and activities.
  */
-export interface AchievementPresentation {
+export interface HealthAchievement extends Achievement {
+  /**
+   * The journey is always set to health for this type of achievement.
+   */
+  journey: JourneyType.HEALTH;
+
+  /**
+   * The specific health metric category this achievement is related to.
+   * Examples: 'steps', 'weight', 'sleep', 'heartRate', etc.
+   */
+  metricCategory?: string;
+}
+
+/**
+ * Represents an achievement specific to the Care journey.
+ * These achievements are related to appointments, medications, and care activities.
+ */
+export interface CareAchievement extends Achievement {
+  /**
+   * The journey is always set to care for this type of achievement.
+   */
+  journey: JourneyType.CARE;
+
+  /**
+   * The specific care activity category this achievement is related to.
+   * Examples: 'appointments', 'medications', 'telemedicine', etc.
+   */
+  activityCategory?: string;
+}
+
+/**
+ * Represents an achievement specific to the Plan journey.
+ * These achievements are related to insurance plans, benefits, and claims.
+ */
+export interface PlanAchievement extends Achievement {
+  /**
+   * The journey is always set to plan for this type of achievement.
+   */
+  journey: JourneyType.PLAN;
+
+  /**
+   * The specific plan activity category this achievement is related to.
+   * Examples: 'claims', 'benefits', 'coverage', etc.
+   */
+  activityCategory?: string;
+}
+
+/**
+ * Represents a user achievement with combined details for frontend display.
+ * This merges properties from both Achievement and UserAchievement for easier consumption
+ * in UI components.
+ */
+export interface AchievementDisplay {
   /**
    * Unique identifier for the achievement.
    */
   id: string;
-  
+
   /**
-   * Display title of the achievement.
+   * The title of the achievement.
    */
   title: string;
-  
+
   /**
-   * Detailed description of what the achievement represents.
+   * A description of the achievement.
    */
   description: string;
-  
+
   /**
-   * Which journey this achievement belongs to (health, care, plan).
+   * The journey to which the achievement belongs.
    */
   journey: JourneyType | string;
-  
+
   /**
-   * Icon identifier for visual representation.
+   * The name of the icon to display for the achievement.
    */
   icon: string;
-  
+
   /**
-   * Current progress toward unlocking the achievement.
+   * The user's current progress towards unlocking the achievement.
    */
   progress: number;
-  
+
   /**
-   * Total progress needed to unlock the achievement.
+   * The total progress needed to unlock the achievement.
    */
   total: number;
-  
+
   /**
-   * Whether the achievement has been unlocked.
+   * Indicates whether the achievement has been unlocked by the user.
    */
   unlocked: boolean;
-  
+
   /**
    * The amount of XP (experience points) awarded for unlocking the achievement.
    */
   xpReward: number;
-  
+
   /**
-   * The date when the achievement was unlocked, if applicable.
+   * The date and time when the achievement was unlocked.
+   * Will be null if the achievement hasn't been unlocked yet.
    */
   unlockedAt?: Date | null;
 }
