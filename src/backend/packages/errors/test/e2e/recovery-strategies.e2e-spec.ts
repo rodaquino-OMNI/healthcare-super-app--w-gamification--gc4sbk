@@ -1,414 +1,593 @@
+/**
+ * End-to-end tests for error recovery strategies
+ * 
+ * This file contains tests for the error recovery strategies implemented in the AUSTA SuperApp:
+ * - Retry with exponential backoff for transient errors
+ * - Circuit breaker pattern for failing dependencies
+ * - Fallback mechanisms for graceful degradation
+ * 
+ * These tests verify that the decorators and their corresponding interceptors behave correctly
+ * in a real application context, ensuring that the error recovery strategies work as expected.
+ */
+
 import { Test, TestingModule } from '@nestjs/testing';
-import { Injectable, Module, Controller, Get, HttpStatus } from '@nestjs/common';
-import { HttpAdapterHost } from '@nestjs/core';
-import * as request from 'supertest';
-import { ErrorsModule } from '../../src/nest/module';
-import { Retry, CircuitBreaker, Fallback } from '../../src/nest/decorators';
+import { INestApplication, Injectable, Module } from '@nestjs/common';
+import { Retry, RetryWithBackoff } from '../../src/decorators/retry.decorator';
+import { CircuitBreaker, CircuitState, getCircuitBreakerState, resetCircuitBreaker } from '../../src/decorators/circuit-breaker.decorator';
+import { WithFallback, CachedFallback, DefaultFallback } from '../../src/decorators/fallback.decorator';
+import { ErrorType } from '../../src/categories/error-types';
 import { BaseError } from '../../src/base';
-import { ErrorType } from '../../src/types';
 
 /**
- * Custom error for testing transient failures
+ * Custom error class for transient errors
  */
 class TransientError extends BaseError {
   constructor(message: string) {
-    super({
-      message,
-      type: ErrorType.EXTERNAL,
-      code: 'TRANSIENT_ERROR',
-      isRetryable: true
-    });
+    super(message, ErrorType.EXTERNAL, 'TRANSIENT_ERROR', { isTransient: true });
   }
 }
 
 /**
- * Custom error for testing permanent failures
+ * Custom error class for persistent errors
  */
-class PermanentError extends BaseError {
+class PersistentError extends BaseError {
   constructor(message: string) {
-    super({
-      message,
-      type: ErrorType.EXTERNAL,
-      code: 'PERMANENT_ERROR',
-      isRetryable: false
-    });
+    super(message, ErrorType.EXTERNAL, 'PERSISTENT_ERROR', { isTransient: false });
   }
 }
 
 /**
- * Service with methods decorated with recovery strategies
+ * Mock service for testing retry strategies
  */
 @Injectable()
-class TestService {
-  // Track call counts for verification
-  public retryCallCount = 0;
-  public circuitBreakerCallCount = 0;
-  public fallbackCallCount = 0;
-  
-  // Track circuit breaker state
-  public circuitOpen = false;
-  
-  // Reset all counters for clean test state
-  resetCounters() {
-    this.retryCallCount = 0;
-    this.circuitBreakerCallCount = 0;
-    this.fallbackCallCount = 0;
-    this.circuitOpen = false;
+class RetryTestService {
+  // Track number of calls to each method
+  public callCounts: Record<string, number> = {
+    transientFailure: 0,
+    persistentFailure: 0,
+    exponentialBackoff: 0,
+    conditionalRetry: 0
+  };
+
+  // Track timestamps of calls for backoff validation
+  public callTimestamps: Record<string, number[]> = {
+    exponentialBackoff: []
+  };
+
+  // Reset call tracking
+  public reset(): void {
+    this.callCounts = {
+      transientFailure: 0,
+      persistentFailure: 0,
+      exponentialBackoff: 0,
+      conditionalRetry: 0
+    };
+    this.callTimestamps = {
+      exponentialBackoff: []
+    };
   }
 
   /**
-   * Method that fails with a transient error for the first N calls,
-   * then succeeds. Used to test retry behavior.
+   * Method that fails the first 2 times, then succeeds
+   * Tests basic retry functionality
    */
-  @Retry({
-    maxAttempts: 3,
+  @Retry({ maxAttempts: 3, delay: 100 })
+  async transientFailure(): Promise<string> {
+    this.callCounts.transientFailure++;
+    
+    if (this.callCounts.transientFailure <= 2) {
+      throw new TransientError('Transient failure');
+    }
+    
+    return 'Success after retry';
+  }
+
+  /**
+   * Method that always fails
+   * Tests that retry gives up after max attempts
+   */
+  @Retry({ maxAttempts: 3, delay: 100 })
+  async persistentFailure(): Promise<string> {
+    this.callCounts.persistentFailure++;
+    throw new PersistentError('Persistent failure');
+  }
+
+  /**
+   * Method that fails the first 3 times, then succeeds
+   * Tests exponential backoff timing
+   */
+  @RetryWithBackoff({
+    maxAttempts: 5,
     delay: 100,
     backoffFactor: 2,
-    retryableErrors: [TransientError]
+    maxDelay: 1000
   })
-  async retryableOperation(failCount: number): Promise<string> {
-    this.retryCallCount++;
+  async exponentialBackoff(): Promise<string> {
+    this.callCounts.exponentialBackoff++;
+    this.callTimestamps.exponentialBackoff.push(Date.now());
     
-    if (this.retryCallCount <= failCount) {
-      throw new TransientError(`Transient failure ${this.retryCallCount}`);
+    if (this.callCounts.exponentialBackoff <= 3) {
+      throw new TransientError('Transient failure for backoff');
     }
     
-    return 'Retry operation succeeded';
+    return 'Success after exponential backoff';
   }
 
   /**
-   * Method that consistently fails with a permanent error.
-   * Used to test that non-retryable errors are not retried.
+   * Method that only retries on TransientError
+   * Tests conditional retry based on error type
    */
   @Retry({
     maxAttempts: 3,
     delay: 100,
-    retryableErrors: [TransientError]
+    retryCondition: (error) => error instanceof TransientError
   })
-  async nonRetryableOperation(): Promise<string> {
-    this.retryCallCount++;
-    throw new PermanentError('Permanent failure');
-  }
-
-  /**
-   * Method protected by a circuit breaker that fails consistently.
-   * Used to test circuit breaker state transitions.
-   */
-  @CircuitBreaker({
-    failureThreshold: 3,
-    resetTimeout: 1000,
-    fallbackResponse: 'Circuit open response'
-  })
-  async circuitBreakerOperation(shouldFail: boolean): Promise<string> {
-    this.circuitBreakerCallCount++;
+  async conditionalRetry(shouldBeTransient: boolean): Promise<string> {
+    this.callCounts.conditionalRetry++;
     
-    if (shouldFail) {
-      throw new TransientError('Service temporarily unavailable');
+    if (shouldBeTransient) {
+      throw new TransientError('Transient error that should be retried');
+    } else {
+      throw new PersistentError('Persistent error that should not be retried');
     }
-    
-    return 'Circuit breaker operation succeeded';
-  }
-
-  /**
-   * Method with a fallback strategy that returns a default value when the primary operation fails.
-   */
-  @Fallback({
-    fallbackFn: async (error, context) => {
-      // Increment fallback call count for verification
-      (context.instance as TestService).fallbackCallCount++;
-      return 'Fallback response';
-    }
-  })
-  async operationWithFallback(shouldFail: boolean): Promise<string> {
-    if (shouldFail) {
-      throw new TransientError('Primary operation failed');
-    }
-    
-    return 'Primary operation succeeded';
-  }
-
-  /**
-   * Method that combines retry, circuit breaker, and fallback strategies.
-   * Tests the interaction between different recovery mechanisms.
-   */
-  @Retry({
-    maxAttempts: 2,
-    delay: 100,
-    retryableErrors: [TransientError]
-  })
-  @CircuitBreaker({
-    failureThreshold: 3,
-    resetTimeout: 1000
-  })
-  @Fallback({
-    fallbackFn: async () => 'Combined fallback response'
-  })
-  async combinedRecoveryOperation(shouldFail: boolean): Promise<string> {
-    this.retryCallCount++;
-    this.circuitBreakerCallCount++;
-    
-    if (shouldFail) {
-      throw new TransientError('Operation failed');
-    }
-    
-    return 'Combined operation succeeded';
   }
 }
 
 /**
- * Controller exposing the test service methods as HTTP endpoints
+ * Mock service for testing circuit breaker strategies
  */
-@Controller('test')
-class TestController {
-  constructor(private readonly testService: TestService) {}
+@Injectable()
+class CircuitBreakerTestService {
+  // Track number of calls to each method
+  public callCounts: Record<string, number> = {
+    basicCircuitBreaker: 0,
+    circuitBreakerWithFallback: 0,
+    halfOpenRecovery: 0
+  };
 
-  @Get('retry')
-  async testRetry(): Promise<string> {
-    return this.testService.retryableOperation(2);
+  // Reset call tracking
+  public reset(): void {
+    this.callCounts = {
+      basicCircuitBreaker: 0,
+      circuitBreakerWithFallback: 0,
+      halfOpenRecovery: 0
+    };
   }
 
-  @Get('retry-fail')
-  async testRetryFail(): Promise<string> {
-    return this.testService.retryableOperation(5); // Will fail even with retries
+  /**
+   * Method with basic circuit breaker
+   * Tests that circuit opens after threshold failures
+   */
+  @CircuitBreaker({
+    failureThreshold: 3,
+    failureWindow: 10000,
+    resetTimeout: 500
+  })
+  async basicCircuitBreaker(): Promise<string> {
+    this.callCounts.basicCircuitBreaker++;
+    throw new PersistentError('Service unavailable');
   }
 
-  @Get('non-retryable')
-  async testNonRetryable(): Promise<string> {
-    return this.testService.nonRetryableOperation();
+  /**
+   * Method with circuit breaker and fallback
+   * Tests that fallback is used when circuit is open
+   */
+  @CircuitBreaker({
+    failureThreshold: 3,
+    failureWindow: 10000,
+    resetTimeout: 500,
+    fallback: (error) => 'Fallback response when circuit is open'
+  })
+  async circuitBreakerWithFallback(): Promise<string> {
+    this.callCounts.circuitBreakerWithFallback++;
+    throw new PersistentError('Service unavailable');
   }
 
-  @Get('circuit-breaker')
-  async testCircuitBreaker(): Promise<string> {
-    return this.testService.circuitBreakerOperation(true); // Will fail
-  }
-
-  @Get('circuit-breaker-success')
-  async testCircuitBreakerSuccess(): Promise<string> {
-    return this.testService.circuitBreakerOperation(false); // Will succeed
-  }
-
-  @Get('fallback')
-  async testFallback(): Promise<string> {
-    return this.testService.operationWithFallback(true); // Will use fallback
-  }
-
-  @Get('fallback-success')
-  async testFallbackSuccess(): Promise<string> {
-    return this.testService.operationWithFallback(false); // Will succeed
-  }
-
-  @Get('combined')
-  async testCombined(): Promise<string> {
-    return this.testService.combinedRecoveryOperation(true); // Will use all recovery strategies
-  }
-
-  @Get('reset')
-  async resetCounters(): Promise<string> {
-    this.testService.resetCounters();
-    return 'Counters reset';
+  /**
+   * Method that recovers in half-open state
+   * Tests transition from open to half-open to closed
+   */
+  @CircuitBreaker({
+    failureThreshold: 3,
+    failureWindow: 10000,
+    resetTimeout: 500,
+    successThreshold: 2
+  })
+  async halfOpenRecovery(shouldSucceed: boolean): Promise<string> {
+    this.callCounts.halfOpenRecovery++;
+    
+    if (!shouldSucceed) {
+      throw new PersistentError('Service unavailable');
+    }
+    
+    return 'Service recovered';
   }
 }
 
 /**
- * Test module that provides the test service and controller
+ * Mock service for testing fallback strategies
+ */
+@Injectable()
+class FallbackTestService {
+  // Track number of calls to each method
+  public callCounts: Record<string, number> = {
+    withFallback: 0,
+    cachedFallback: 0,
+    defaultFallback: 0
+  };
+
+  // Track fallback executions
+  public fallbackExecutions: Record<string, number> = {
+    withFallback: 0,
+    cachedFallback: 0
+  };
+
+  // Cache for testing cached fallback
+  private cache: Map<string, any> = new Map();
+
+  // Reset call tracking
+  public reset(): void {
+    this.callCounts = {
+      withFallback: 0,
+      cachedFallback: 0,
+      defaultFallback: 0
+    };
+    this.fallbackExecutions = {
+      withFallback: 0,
+      cachedFallback: 0
+    };
+    this.cache.clear();
+  }
+
+  /**
+   * Method with custom fallback handler
+   * Tests that fallback is executed when method fails
+   */
+  @WithFallback({
+    handler: (error, id) => {
+      // Increment fallback execution counter
+      (this as FallbackTestService).fallbackExecutions.withFallback++;
+      return { id, name: 'Fallback User', isDefault: true };
+    }
+  })
+  async withFallback(id: string): Promise<{ id: string; name: string; isDefault?: boolean }> {
+    this.callCounts.withFallback++;
+    throw new PersistentError('Failed to fetch user');
+  }
+
+  /**
+   * Method with cached fallback
+   * Tests that cached results are returned when available
+   */
+  @CachedFallback({
+    ttl: 60000,
+    defaultValue: { data: [], isDefault: true }
+  })
+  async cachedFallback(shouldCache: boolean): Promise<{ data: any[]; isDefault?: boolean }> {
+    this.callCounts.cachedFallback++;
+    
+    if (shouldCache) {
+      const result = { data: ['cached', 'data'], timestamp: Date.now() };
+      // Store in our test cache to verify later
+      this.cache.set('cachedFallback', result);
+      return result;
+    }
+    
+    throw new PersistentError('Failed to fetch data');
+  }
+
+  /**
+   * Method with default fallback value
+   * Tests that default value is returned when method fails
+   */
+  @DefaultFallback({
+    defaultValue: { status: 'offline', message: 'Using default status' }
+  })
+  async defaultFallback(): Promise<{ status: string; message: string }> {
+    this.callCounts.defaultFallback++;
+    throw new PersistentError('Failed to get status');
+  }
+
+  /**
+   * Get the cached value for verification
+   */
+  getCachedValue(key: string): any {
+    return this.cache.get(key);
+  }
+}
+
+/**
+ * Test module that provides all the test services
  */
 @Module({
-  imports: [ErrorsModule.forRoot()],
-  controllers: [TestController],
-  providers: [TestService]
+  providers: [RetryTestService, CircuitBreakerTestService, FallbackTestService],
+  exports: [RetryTestService, CircuitBreakerTestService, FallbackTestService]
 })
 class TestModule {}
 
 describe('Recovery Strategies (e2e)', () => {
-  let app;
-  let moduleRef: TestingModule;
-  let testService: TestService;
+  let app: INestApplication;
+  let retryService: RetryTestService;
+  let circuitBreakerService: CircuitBreakerTestService;
+  let fallbackService: FallbackTestService;
 
   beforeAll(async () => {
-    moduleRef = await Test.createTestingModule({
+    const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [TestModule],
     }).compile();
 
-    app = moduleRef.createNestApplication();
-    
-    // Get the HttpAdapter to properly handle exceptions
-    const httpAdapter = app.get(HttpAdapterHost);
-    
+    app = moduleFixture.createNestApplication();
     await app.init();
-    
-    testService = moduleRef.get<TestService>(TestService);
+
+    retryService = moduleFixture.get<RetryTestService>(RetryTestService);
+    circuitBreakerService = moduleFixture.get<CircuitBreakerTestService>(CircuitBreakerTestService);
+    fallbackService = moduleFixture.get<FallbackTestService>(FallbackTestService);
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  beforeEach(async () => {
-    // Reset counters before each test
-    await request(app.getHttpServer()).get('/test/reset');
+  beforeEach(() => {
+    // Reset call counters before each test
+    retryService.reset();
+    circuitBreakerService.reset();
+    fallbackService.reset();
+
+    // Reset circuit breaker states
+    resetCircuitBreaker(CircuitBreakerTestService.prototype, 'basicCircuitBreaker');
+    resetCircuitBreaker(CircuitBreakerTestService.prototype, 'circuitBreakerWithFallback');
+    resetCircuitBreaker(CircuitBreakerTestService.prototype, 'halfOpenRecovery');
   });
 
-  describe('Retry with exponential backoff', () => {
+  describe('Retry Decorator', () => {
     it('should retry transient failures and eventually succeed', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/retry')
-        .expect(HttpStatus.OK);
+      // Execute method that fails twice then succeeds
+      const result = await retryService.transientFailure();
 
-      expect(response.text).toBe('Retry operation succeeded');
-      expect(testService.retryCallCount).toBe(3); // Initial call + 2 retries
+      // Verify method was called 3 times (2 failures + 1 success)
+      expect(retryService.callCounts.transientFailure).toBe(3);
+      expect(result).toBe('Success after retry');
     });
 
-    it('should not retry non-retryable errors', async () => {
-      await request(app.getHttpServer())
-        .get('/test/non-retryable')
-        .expect(HttpStatus.BAD_GATEWAY); // External error type maps to 502
-
-      expect(testService.retryCallCount).toBe(1); // Only the initial call, no retries
+    it('should stop retrying after max attempts and throw error', async () => {
+      // Execute method that always fails
+      try {
+        await retryService.persistentFailure();
+        fail('Should have thrown an error');
+      } catch (error) {
+        // Verify method was called maxAttempts times
+        expect(retryService.callCounts.persistentFailure).toBe(3);
+        expect(error).toBeInstanceOf(BaseError);
+        expect(error.code).toBe('RETRY_EXHAUSTED');
+      }
     });
 
-    it('should fail after exhausting all retry attempts', async () => {
-      await request(app.getHttpServer())
-        .get('/test/retry-fail')
-        .expect(HttpStatus.BAD_GATEWAY); // External error type maps to 502
+    it('should implement exponential backoff between retries', async () => {
+      // Execute method with exponential backoff
+      const result = await retryService.exponentialBackoff();
 
-      expect(testService.retryCallCount).toBe(4); // Initial call + 3 retries
+      // Verify method was called 4 times (3 failures + 1 success)
+      expect(retryService.callCounts.exponentialBackoff).toBe(4);
+      expect(result).toBe('Success after exponential backoff');
+
+      // Verify backoff timing
+      const timestamps = retryService.callTimestamps.exponentialBackoff;
+      const delays = [];
+      
+      // Calculate actual delays between calls
+      for (let i = 1; i < timestamps.length; i++) {
+        delays.push(timestamps[i] - timestamps[i-1]);
+      }
+
+      // First delay should be around 100ms
+      expect(delays[0]).toBeGreaterThanOrEqual(90);
+      expect(delays[0]).toBeLessThan(200);
+
+      // Second delay should be around 200ms (100ms * 2^1)
+      expect(delays[1]).toBeGreaterThanOrEqual(180);
+      expect(delays[1]).toBeLessThan(300);
+
+      // Third delay should be around 400ms (100ms * 2^2)
+      expect(delays[2]).toBeGreaterThanOrEqual(380);
+      expect(delays[2]).toBeLessThan(500);
+    });
+
+    it('should only retry when condition is met', async () => {
+      // Test with transient error (should retry)
+      try {
+        await retryService.conditionalRetry(true);
+        fail('Should have thrown an error');
+      } catch (error) {
+        // Verify method was retried maxAttempts times
+        expect(retryService.callCounts.conditionalRetry).toBe(3);
+      }
+
+      // Reset counter
+      retryService.callCounts.conditionalRetry = 0;
+
+      // Test with persistent error (should not retry)
+      try {
+        await retryService.conditionalRetry(false);
+        fail('Should have thrown an error');
+      } catch (error) {
+        // Verify method was called only once
+        expect(retryService.callCounts.conditionalRetry).toBe(1);
+        expect(error).toBeInstanceOf(PersistentError);
+      }
     });
   });
 
-  describe('Circuit Breaker pattern', () => {
-    it('should open the circuit after reaching the failure threshold', async () => {
-      // Make multiple failing requests to trigger circuit breaker
+  describe('Circuit Breaker Decorator', () => {
+    it('should open circuit after threshold failures', async () => {
+      // Call method until circuit opens
       for (let i = 0; i < 3; i++) {
-        await request(app.getHttpServer())
-          .get('/test/circuit-breaker')
-          .expect(HttpStatus.BAD_GATEWAY);
+        try {
+          await circuitBreakerService.basicCircuitBreaker();
+          fail('Should have thrown an error');
+        } catch (error) {
+          // Expected error
+        }
       }
 
-      // Circuit should be open now, request should fail fast without calling the service
-      const beforeCount = testService.circuitBreakerCallCount;
-      
-      const response = await request(app.getHttpServer())
-        .get('/test/circuit-breaker')
-        .expect(HttpStatus.SERVICE_UNAVAILABLE); // Circuit open response
+      // Verify circuit is now open
+      const circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'basicCircuitBreaker'
+      );
+      expect(circuitState?.state).toBe(CircuitState.OPEN);
 
-      expect(response.body.error.code).toBe('CIRCUIT_OPEN');
-      expect(testService.circuitBreakerCallCount).toBe(beforeCount); // Count shouldn't increase when circuit is open
+      // Call again - should fail fast without executing method
+      const startCallCount = circuitBreakerService.callCounts.basicCircuitBreaker;
+      try {
+        await circuitBreakerService.basicCircuitBreaker();
+        fail('Should have thrown an error');
+      } catch (error) {
+        // Verify method was not called
+        expect(circuitBreakerService.callCounts.basicCircuitBreaker).toBe(startCallCount);
+        expect(error).toBeInstanceOf(BaseError);
+        expect(error.code).toBe('CIRCUIT_BREAKER_OPEN');
+      }
     });
 
-    it('should transition to half-open state after reset timeout and test with a real request', async () => {
-      // Make multiple failing requests to trigger circuit breaker
+    it('should use fallback when circuit is open', async () => {
+      // Call method until circuit opens
       for (let i = 0; i < 3; i++) {
-        await request(app.getHttpServer())
-          .get('/test/circuit-breaker')
-          .expect(HttpStatus.BAD_GATEWAY);
+        try {
+          await circuitBreakerService.circuitBreakerWithFallback();
+          fail('Should have thrown an error');
+        } catch (error) {
+          // Expected error
+        }
       }
 
-      // Circuit should be open now
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker')
-        .expect(HttpStatus.SERVICE_UNAVAILABLE);
+      // Verify circuit is now open
+      const circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'circuitBreakerWithFallback'
+      );
+      expect(circuitState?.state).toBe(CircuitState.OPEN);
 
-      // Wait for the circuit to transition to half-open state
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      // Call again - should return fallback without executing method
+      const startCallCount = circuitBreakerService.callCounts.circuitBreakerWithFallback;
+      const result = await circuitBreakerService.circuitBreakerWithFallback();
 
-      // The next request should be allowed through (half-open state)
-      const beforeCount = testService.circuitBreakerCallCount;
-      
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker-success')
-        .expect(HttpStatus.OK);
-
-      expect(testService.circuitBreakerCallCount).toBe(beforeCount + 1); // Count should increase for the test request
+      // Verify method was not called and fallback was returned
+      expect(circuitBreakerService.callCounts.circuitBreakerWithFallback).toBe(startCallCount);
+      expect(result).toBe('Fallback response when circuit is open');
     });
 
-    it('should close the circuit after a successful request in half-open state', async () => {
-      // Make multiple failing requests to trigger circuit breaker
+    it('should transition from open to half-open to closed', async () => {
+      // Call method until circuit opens
       for (let i = 0; i < 3; i++) {
-        await request(app.getHttpServer())
-          .get('/test/circuit-breaker')
-          .expect(HttpStatus.BAD_GATEWAY);
+        try {
+          await circuitBreakerService.halfOpenRecovery(false);
+          fail('Should have thrown an error');
+        } catch (error) {
+          // Expected error
+        }
       }
 
-      // Circuit should be open now
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker')
-        .expect(HttpStatus.SERVICE_UNAVAILABLE);
+      // Verify circuit is now open
+      let circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'halfOpenRecovery'
+      );
+      expect(circuitState?.state).toBe(CircuitState.OPEN);
 
-      // Wait for the circuit to transition to half-open state
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      // Wait for reset timeout to elapse
+      await new Promise(resolve => setTimeout(resolve, 600));
 
-      // Send a successful request to close the circuit
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker-success')
-        .expect(HttpStatus.OK);
+      // Circuit should now be half-open
+      // First call should be allowed through
+      const result1 = await circuitBreakerService.halfOpenRecovery(true);
+      expect(result1).toBe('Service recovered');
 
-      // Circuit should be closed now, multiple requests should be allowed
-      const beforeCount = testService.circuitBreakerCallCount;
-      
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker-success')
-        .expect(HttpStatus.OK);
+      // Verify circuit is now in half-open state
+      circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'halfOpenRecovery'
+      );
+      expect(circuitState?.state).toBe(CircuitState.HALF_OPEN);
 
-      await request(app.getHttpServer())
-        .get('/test/circuit-breaker-success')
-        .expect(HttpStatus.OK);
+      // Second successful call should close the circuit
+      const result2 = await circuitBreakerService.halfOpenRecovery(true);
+      expect(result2).toBe('Service recovered');
 
-      expect(testService.circuitBreakerCallCount).toBe(beforeCount + 2); // Count should increase for both requests
+      // Verify circuit is now closed
+      circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'halfOpenRecovery'
+      );
+      expect(circuitState?.state).toBe(CircuitState.CLOSED);
+    });
+
+    it('should reopen circuit on failure in half-open state', async () => {
+      // Call method until circuit opens
+      for (let i = 0; i < 3; i++) {
+        try {
+          await circuitBreakerService.halfOpenRecovery(false);
+          fail('Should have thrown an error');
+        } catch (error) {
+          // Expected error
+        }
+      }
+
+      // Wait for reset timeout to elapse
+      await new Promise(resolve => setTimeout(resolve, 600));
+
+      // Circuit should now be half-open
+      // Call with failure should reopen the circuit
+      try {
+        await circuitBreakerService.halfOpenRecovery(false);
+        fail('Should have thrown an error');
+      } catch (error) {
+        // Expected error
+      }
+
+      // Verify circuit is open again
+      const circuitState = getCircuitBreakerState(
+        CircuitBreakerTestService.prototype,
+        'halfOpenRecovery'
+      );
+      expect(circuitState?.state).toBe(CircuitState.OPEN);
     });
   });
 
-  describe('Fallback mechanisms', () => {
-    it('should execute fallback strategy when primary operation fails', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/fallback')
-        .expect(HttpStatus.OK); // Fallback should return 200 OK
+  describe('Fallback Decorator', () => {
+    it('should execute fallback handler when method fails', async () => {
+      // Call method that will fail and use fallback
+      const result = await fallbackService.withFallback('123');
 
-      expect(response.text).toBe('Fallback response');
-      expect(testService.fallbackCallCount).toBe(1);
+      // Verify method was called and fallback was executed
+      expect(fallbackService.callCounts.withFallback).toBe(1);
+      expect(fallbackService.fallbackExecutions.withFallback).toBe(1);
+      expect(result).toEqual({ id: '123', name: 'Fallback User', isDefault: true });
     });
 
-    it('should not execute fallback when primary operation succeeds', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/fallback-success')
-        .expect(HttpStatus.OK);
+    it('should cache successful results and return them on failure', async () => {
+      // First call succeeds and caches result
+      const successResult = await fallbackService.cachedFallback(true);
+      expect(successResult).toEqual({ data: ['cached', 'data'], timestamp: expect.any(Number) });
+      expect(fallbackService.callCounts.cachedFallback).toBe(1);
 
-      expect(response.text).toBe('Primary operation succeeded');
-      expect(testService.fallbackCallCount).toBe(0); // Fallback should not be called
+      // Verify result was cached
+      const cachedValue = fallbackService.getCachedValue('cachedFallback');
+      expect(cachedValue).toEqual(successResult);
+
+      // Second call fails but returns cached result
+      const fallbackResult = await fallbackService.cachedFallback(false);
+      expect(fallbackResult).toEqual(successResult);
+      expect(fallbackService.callCounts.cachedFallback).toBe(2);
     });
-  });
 
-  describe('Combined recovery strategies', () => {
-    it('should apply retry, then circuit breaker, then fallback in sequence', async () => {
-      // First request should retry, then use fallback
-      const response1 = await request(app.getHttpServer())
-        .get('/test/combined')
-        .expect(HttpStatus.OK);
+    it('should return default value when no cache is available', async () => {
+      // Call fails with no cache available
+      const result = await fallbackService.defaultFallback();
 
-      expect(response1.text).toBe('Combined fallback response');
-      expect(testService.retryCallCount).toBe(3); // Initial + 2 retries
-      expect(testService.circuitBreakerCallCount).toBe(3); // Same count as retries
-
-      // Reset counters
-      await request(app.getHttpServer()).get('/test/reset');
-
-      // Make multiple failing requests to trigger circuit breaker
-      for (let i = 0; i < 2; i++) {
-        await request(app.getHttpServer())
-          .get('/test/combined')
-          .expect(HttpStatus.OK); // Should still return OK because of fallback
-      }
-
-      // Circuit should be open now, fallback should be used without retrying
-      const beforeRetryCount = testService.retryCallCount;
-      const beforeCircuitCount = testService.circuitBreakerCallCount;
-      
-      const response2 = await request(app.getHttpServer())
-        .get('/test/combined')
-        .expect(HttpStatus.OK);
-
-      expect(response2.text).toBe('Combined fallback response');
-      expect(testService.retryCallCount).toBe(beforeRetryCount); // Shouldn't increase when circuit is open
-      expect(testService.circuitBreakerCallCount).toBe(beforeCircuitCount); // Shouldn't increase when circuit is open
+      // Verify default value was returned
+      expect(fallbackService.callCounts.defaultFallback).toBe(1);
+      expect(result).toEqual({ status: 'offline', message: 'Using default status' });
     });
   });
 });
