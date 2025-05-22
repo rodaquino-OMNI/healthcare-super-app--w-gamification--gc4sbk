@@ -1,368 +1,548 @@
-import { Test } from '@nestjs/testing';
 import { jest } from '@jest/globals';
-
-// Import the decorators to test
-import { WithFallback, CachedFallback, DefaultFallback } from '../../../src/decorators/fallback.decorator';
-import { AppException, ErrorType } from '../../../src/categories/app.exception';
-import { LoggerService } from '@austa/logging';
+import {
+  WithFallback,
+  CachedFallback,
+  DefaultFallback,
+  clearFallbackCache,
+  getFallbackCacheSize,
+  hasFallbackCacheKey
+} from '../../../src/decorators/fallback.decorator';
+import { BaseError, ErrorType } from '../../../src/base';
 
 /**
- * Mock logger service for testing
+ * Custom error types for testing error filtering
  */
-class MockLoggerService implements Partial<LoggerService> {
-  public logs: Array<{ level: string; message: string; context?: string; trace?: string }> = [];
-
-  debug(message: string, context?: string): void {
-    this.logs.push({ level: 'debug', message, context });
+class ServiceUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ServiceUnavailableError';
+    Object.setPrototypeOf(this, ServiceUnavailableError.prototype);
   }
+}
 
-  log(message: string, context?: string): void {
-    this.logs.push({ level: 'log', message, context });
-  }
-
-  warn(message: string, context?: string): void {
-    this.logs.push({ level: 'warn', message, context });
-  }
-
-  error(message: string, trace?: string, context?: string): void {
-    this.logs.push({ level: 'error', message, context, trace });
-  }
-
-  reset(): void {
-    this.logs = [];
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+    Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
 
 /**
- * Mock service with methods that use fallback decorators
+ * Interface for testing
+ */
+interface UserProfile {
+  id: string;
+  name: string;
+  email?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Mock service with fallback-decorated methods for testing
  */
 class MockService {
-  // For tracking method calls
-  public methodCallCount = 0;
-  public fallbackCallCount = 0;
-  public cachedResults: Map<string, any> = new Map();
-
-  constructor(private readonly logger: LoggerService) {}
-
-  // Reset tracking data
-  public reset(): void {
-    this.methodCallCount = 0;
-    this.fallbackCallCount = 0;
-    this.cachedResults.clear();
-  }
-
+  public methodCalls = 0;
+  public fallbackCalls = 0;
+  public lastError: Error | null = null;
+  
   /**
-   * Method with a function fallback that returns a different value
+   * Method with basic fallback function
    */
   @WithFallback({
-    fallbackFn: function(error, methodName, args) {
-      // 'this' should be bound to the service instance
-      this.fallbackCallCount++;
-      this.logger.warn(`Executing fallback for ${methodName} with args: ${JSON.stringify(args)}`);
-      return `Fallback result for ${args[0]}`;
+    handler: (error, userId) => {
+      mockService.fallbackCalls++;
+      return { id: userId, name: 'Unknown User', isDefault: true };
     }
   })
-  public async methodWithFunctionFallback(param: string, shouldFail = false): Promise<string> {
-    this.methodCallCount++;
-    
-    if (shouldFail) {
-      throw new AppException(
-        'Simulated failure in methodWithFunctionFallback',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
-    }
-    
-    return `Original result for ${param}`;
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    this.methodCalls++;
+    throw new Error(`Failed to fetch profile for user ${userId}`);
   }
-
+  
   /**
-   * Method with a cached fallback that stores previous successful results
+   * Method with conditional fallback based on error type
+   */
+  @WithFallback({
+    handler: (error, userId) => {
+      mockService.fallbackCalls++;
+      return { id: userId, name: 'Offline User', isDefault: true };
+    },
+    condition: (error) => error instanceof ServiceUnavailableError
+  })
+  async getUserProfileWithCondition(userId: string, errorType: 'service' | 'validation'): Promise<UserProfile> {
+    this.methodCalls++;
+    
+    if (errorType === 'service') {
+      throw new ServiceUnavailableError(`Service unavailable for user ${userId}`);
+    } else {
+      throw new ValidationError(`Invalid user ID: ${userId}`);
+    }
+  }
+  
+  /**
+   * Method with fallback that also fails
+   */
+  @WithFallback({
+    handler: (error, userId) => {
+      mockService.fallbackCalls++;
+      throw new Error(`Fallback also failed for user ${userId}`);
+    },
+    errorType: ErrorType.TECHNICAL,
+    errorCode: 'FALLBACK_FAILED'
+  })
+  async getUserProfileWithFailingFallback(userId: string): Promise<UserProfile> {
+    this.methodCalls++;
+    throw new Error(`Original method failed for user ${userId}`);
+  }
+  
+  /**
+   * Method with cached fallback
    */
   @CachedFallback({
-    ttlMs: 5000, // Cache results for 5 seconds
-    cacheKeyFn: (args) => args[0] // Use first argument as cache key
+    ttl: 1000, // 1 second for testing
+    defaultValue: { id: 'default', name: 'Default User', isDefault: true },
+    updateCacheOnSuccess: true
   })
-  public async methodWithCachedFallback(param: string, shouldFail = false): Promise<string> {
-    this.methodCallCount++;
+  async getCachedUserProfile(userId: string, shouldSucceed = false): Promise<UserProfile> {
+    this.methodCalls++;
     
-    if (shouldFail) {
-      throw new AppException(
-        'Simulated failure in methodWithCachedFallback',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
+    if (shouldSucceed) {
+      return { id: userId, name: `User ${userId}`, email: `${userId}@example.com` };
     }
     
-    const result = `Original result for ${param}`;
-    // Store in our test cache to verify later
-    this.cachedResults.set(param, result);
-    return result;
+    throw new Error(`Failed to fetch profile for user ${userId}`);
   }
-
+  
   /**
-   * Method with a short TTL cached fallback
+   * Method with cached fallback and custom key generator
    */
   @CachedFallback({
-    ttlMs: 100, // Very short TTL for testing expiration
-    cacheKeyFn: (args) => args[0]
+    ttl: 1000,
+    keyGenerator: (userId: string, options?: { includeDetails: boolean }) => {
+      return `user-${userId}-${options?.includeDetails ? 'detailed' : 'basic'}`;
+    },
+    defaultValue: { id: 'default', name: 'Default User', isDefault: true }
   })
-  public async methodWithShortTtlCache(param: string, shouldFail = false): Promise<string> {
-    this.methodCallCount++;
+  async getUserProfileWithCustomKey(userId: string, options?: { includeDetails: boolean }): Promise<UserProfile> {
+    this.methodCalls++;
+    throw new Error(`Failed to fetch profile for user ${userId}`);
+  }
+  
+  /**
+   * Method with cached fallback but no default value
+   */
+  @CachedFallback({
+    ttl: 1000,
+    updateCacheOnSuccess: true
+  })
+  async getCachedUserProfileNoDefault(userId: string, shouldSucceed = false): Promise<UserProfile> {
+    this.methodCalls++;
     
-    if (shouldFail) {
-      throw new AppException(
-        'Simulated failure in methodWithShortTtlCache',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
+    if (shouldSucceed) {
+      return { id: userId, name: `User ${userId}`, email: `${userId}@example.com` };
     }
     
-    const result = `Original result for ${param}`;
-    this.cachedResults.set(param, result);
-    return result;
+    throw new Error(`Failed to fetch profile for user ${userId}`);
   }
-
+  
   /**
-   * Method with a default value fallback
+   * Method with default value fallback
    */
   @DefaultFallback({
-    defaultValue: { status: 'degraded', data: [] }
+    defaultValue: { id: 'default', name: 'Default User', isDefault: true }
   })
-  public async methodWithDefaultFallback(shouldFail = false): Promise<any> {
-    this.methodCallCount++;
-    
-    if (shouldFail) {
-      throw new AppException(
-        'Simulated failure in methodWithDefaultFallback',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
-    }
-    
-    return { status: 'success', data: [1, 2, 3] };
+  async getUserProfileWithDefault(userId: string): Promise<UserProfile> {
+    this.methodCalls++;
+    throw new Error(`Failed to fetch profile for user ${userId}`);
   }
-
+  
   /**
-   * Method with no fallback for testing error propagation
+   * Method with conditional default fallback
    */
-  public async methodWithNoFallback(shouldFail = false): Promise<string> {
-    this.methodCallCount++;
-    
-    if (shouldFail) {
-      throw new AppException(
-        'Simulated failure in methodWithNoFallback',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
-    }
-    
-    return 'Original result';
-  }
-
-  /**
-   * Method with fallback that filters errors
-   */
-  @WithFallback({
-    fallbackFn: function() {
-      this.fallbackCallCount++;
-      return 'Fallback for external error';
-    },
-    errorFilter: (error) => error instanceof AppException && error.type === ErrorType.EXTERNAL
+  @DefaultFallback({
+    defaultValue: { id: 'default', name: 'Default User', isDefault: true },
+    condition: (error) => error instanceof ServiceUnavailableError
   })
-  public async methodWithErrorFilter(errorType: ErrorType): Promise<string> {
-    this.methodCallCount++;
+  async getUserProfileWithConditionalDefault(userId: string, errorType: 'service' | 'validation'): Promise<UserProfile> {
+    this.methodCalls++;
     
-    throw new AppException(
-      `Simulated failure with type ${errorType}`,
-      errorType,
-      'TEST_ERROR'
-    );
+    if (errorType === 'service') {
+      throw new ServiceUnavailableError(`Service unavailable for user ${userId}`);
+    } else {
+      throw new ValidationError(`Invalid user ID: ${userId}`);
+    }
+  }
+  
+  /**
+   * Reset the service state for the next test
+   */
+  reset(): void {
+    this.methodCalls = 0;
+    this.fallbackCalls = 0;
+    this.lastError = null;
   }
 }
 
+// Create a mock service instance for testing
+const mockService = new MockService();
+
+// Mock the logger to verify logging behavior
+jest.mock('@nestjs/common', () => {
+  const original = jest.requireActual('@nestjs/common');
+  return {
+    ...original,
+    Logger: jest.fn().mockImplementation(() => ({
+      debug: jest.fn(),
+      log: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    })),
+  };
+});
+
+// Mock OpenTelemetry for testing metrics recording
+jest.mock('@opentelemetry/api', () => {
+  return {
+    context: {
+      active: jest.fn().mockReturnValue({}),
+    },
+    trace: {
+      getSpan: jest.fn().mockReturnValue({
+        setAttribute: jest.fn(),
+        setStatus: jest.fn(),
+      }),
+    },
+    SpanStatusCode: {
+      ERROR: 'ERROR',
+    },
+  };
+});
+
 describe('Fallback Decorators', () => {
-  let mockService: MockService;
-  let mockLogger: MockLoggerService;
-
-  beforeEach(async () => {
-    mockLogger = new MockLoggerService();
-    
-    // Create a NestJS testing module with our mock service
-    const moduleRef = await Test.createTestingModule({
-      providers: [
-        {
-          provide: LoggerService,
-          useValue: mockLogger
-        },
-        MockService
-      ],
-    }).compile();
-
-    mockService = moduleRef.get<MockService>(MockService);
+  beforeEach(() => {
     mockService.reset();
-    mockLogger.reset();
+    clearFallbackCache(); // Clear cache between tests
+    jest.clearAllMocks();
   });
-
+  
   describe('WithFallback Decorator', () => {
-    it('should execute the original method when it succeeds', async () => {
-      const result = await mockService.methodWithFunctionFallback('test', false);
+    it('should execute fallback handler when method fails', async () => {
+      const result = await mockService.getUserProfile('user123');
       
-      expect(result).toBe('Original result for test');
-      expect(mockService.methodCallCount).toBe(1);
-      expect(mockService.fallbackCallCount).toBe(0);
+      expect(mockService.methodCalls).toBe(1);
+      expect(mockService.fallbackCalls).toBe(1);
+      expect(result).toEqual({
+        id: 'user123',
+        name: 'Unknown User',
+        isDefault: true
+      });
     });
-
-    it('should execute the fallback function when the original method fails', async () => {
-      const result = await mockService.methodWithFunctionFallback('test', true);
+    
+    it('should only execute fallback for specified error types', async () => {
+      // Should execute fallback for ServiceUnavailableError
+      const serviceResult = await mockService.getUserProfileWithCondition('user123', 'service');
       
-      expect(result).toBe('Fallback result for test');
-      expect(mockService.methodCallCount).toBe(1);
-      expect(mockService.fallbackCallCount).toBe(1);
-    });
-
-    it('should log when fallback is executed', async () => {
-      await mockService.methodWithFunctionFallback('test', true);
+      expect(mockService.methodCalls).toBe(1);
+      expect(mockService.fallbackCalls).toBe(1);
+      expect(serviceResult).toEqual({
+        id: 'user123',
+        name: 'Offline User',
+        isDefault: true
+      });
       
-      const warnLogs = mockLogger.logs.filter(log => log.level === 'warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Executing fallback for methodWithFunctionFallback');
-    });
-
-    it('should only execute fallback for errors that match the filter', async () => {
-      // Should execute fallback for EXTERNAL errors
-      const externalResult = await mockService.methodWithErrorFilter(ErrorType.EXTERNAL);
-      expect(externalResult).toBe('Fallback for external error');
-      expect(mockService.fallbackCallCount).toBe(1);
-
-      // Reset counters
+      // Reset for next test
       mockService.reset();
-
-      // Should not execute fallback for VALIDATION errors
-      await expect(mockService.methodWithErrorFilter(ErrorType.VALIDATION)).rejects.toThrow();
-      expect(mockService.fallbackCallCount).toBe(0);
+      
+      // Should not execute fallback for ValidationError
+      await expect(mockService.getUserProfileWithCondition('user123', 'validation'))
+        .rejects
+        .toThrow(ValidationError);
+      
+      expect(mockService.methodCalls).toBe(1);
+      expect(mockService.fallbackCalls).toBe(0); // Fallback not called
+    });
+    
+    it('should throw enhanced error when fallback also fails', async () => {
+      try {
+        await mockService.getUserProfileWithFailingFallback('user123');
+        fail('Should have thrown an error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BaseError);
+        expect(error.type).toBe(ErrorType.TECHNICAL);
+        expect(error.code).toBe('FALLBACK_FAILED');
+        expect(error.message).toContain('Fallback for getUserProfileWithFailingFallback failed');
+        
+        // Should include original error in metadata
+        expect(error.details.metadata.originalError.message)
+          .toContain('Original method failed for user user123');
+          
+        // Should include fallback error
+        expect(error.details.fallbackError.message)
+          .toContain('Fallback also failed for user user123');
+      }
+      
+      expect(mockService.methodCalls).toBe(1);
+      expect(mockService.fallbackCalls).toBe(1);
     });
   });
-
+  
   describe('CachedFallback Decorator', () => {
-    it('should execute the original method when it succeeds', async () => {
-      const result = await mockService.methodWithCachedFallback('test', false);
+    it('should return cached result when available', async () => {
+      // First call succeeds and populates cache
+      const firstResult = await mockService.getCachedUserProfile('user123', true);
+      expect(firstResult).toEqual({
+        id: 'user123',
+        name: 'User user123',
+        email: 'user123@example.com'
+      });
+      expect(mockService.methodCalls).toBe(1);
       
-      expect(result).toBe('Original result for test');
-      expect(mockService.methodCallCount).toBe(1);
-      expect(mockService.cachedResults.get('test')).toBe('Original result for test');
+      // Reset method call counter
+      mockService.reset();
+      
+      // Second call fails but should use cached result
+      const secondResult = await mockService.getCachedUserProfile('user123', false);
+      expect(secondResult).toEqual({
+        id: 'user123',
+        name: 'User user123',
+        email: 'user123@example.com'
+      });
+      expect(mockService.methodCalls).toBe(1); // Method was called but failed
     });
-
-    it('should return cached result when the original method fails', async () => {
-      // First call succeeds and caches the result
-      await mockService.methodWithCachedFallback('test', false);
-      expect(mockService.methodCallCount).toBe(1);
+    
+    it('should use default value when no cache is available', async () => {
+      // Call fails with no cached result
+      const result = await mockService.getCachedUserProfile('user123', false);
       
-      // Reset call count
-      mockService.methodCallCount = 0;
-      
-      // Second call fails but uses cached result
-      const result = await mockService.methodWithCachedFallback('test', true);
-      
-      expect(result).toBe('Original result for test');
-      expect(mockService.methodCallCount).toBe(1); // Method was called but failed
+      expect(result).toEqual({
+        id: 'default',
+        name: 'Default User',
+        isDefault: true
+      });
+      expect(mockService.methodCalls).toBe(1);
     });
-
-    it('should propagate error when no cached result is available', async () => {
-      // First call fails, no cache available
-      await expect(mockService.methodWithCachedFallback('test', true)).rejects.toThrow(
-        'Simulated failure in methodWithCachedFallback'
-      );
-      expect(mockService.methodCallCount).toBe(1);
+    
+    it('should use custom key generator when provided', async () => {
+      // Call with basic options
+      await mockService.getUserProfileWithCustomKey('user123');
+      
+      // Call with detailed options
+      await mockService.getUserProfileWithCustomKey('user123', { includeDetails: true });
+      
+      // Verify both keys exist in cache
+      expect(hasFallbackCacheKey('user-user123-basic')).toBe(true);
+      expect(hasFallbackCacheKey('user-user123-detailed')).toBe(true);
     });
-
-    it('should respect TTL and expire cached results', async () => {
-      // First call succeeds and caches the result
-      await mockService.methodWithShortTtlCache('test', false);
-      expect(mockService.methodCallCount).toBe(1);
+    
+    it('should respect TTL for cached entries', async () => {
+      // First call succeeds and populates cache
+      await mockService.getCachedUserProfile('user123', true);
       
-      // Reset call count
-      mockService.methodCallCount = 0;
+      // Verify cache has entry
+      expect(getFallbackCacheSize()).toBe(1);
       
-      // Wait for cache to expire
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Fast-forward time past TTL
+      jest.useFakeTimers();
+      jest.advanceTimersByTime(1500); // 1.5 seconds (TTL is 1 second)
       
-      // Call fails and cache is expired, should throw
-      await expect(mockService.methodWithShortTtlCache('test', true)).rejects.toThrow(
-        'Simulated failure in methodWithShortTtlCache'
-      );
-      expect(mockService.methodCallCount).toBe(1);
+      // Call fails and should use default value as cache is expired
+      const result = await mockService.getCachedUserProfile('user123', false);
+      
+      expect(result).toEqual({
+        id: 'default',
+        name: 'Default User',
+        isDefault: true
+      });
+      
+      jest.useRealTimers();
     });
-
-    it('should use the cacheKeyFn to determine cache keys', async () => {
-      // Cache results for two different parameters
-      await mockService.methodWithCachedFallback('key1', false);
-      await mockService.methodWithCachedFallback('key2', false);
+    
+    it('should propagate error when no cache or default value is available', async () => {
+      // Call fails with no cached result and no default value
+      await expect(mockService.getCachedUserProfileNoDefault('user123', false))
+        .rejects
+        .toThrow('Failed to fetch profile for user user123');
       
-      // Reset call count
-      mockService.methodCallCount = 0;
+      expect(mockService.methodCalls).toBe(1);
+    });
+    
+    it('should update cache when method succeeds', async () => {
+      // First call succeeds and populates cache
+      await mockService.getCachedUserProfileNoDefault('user123', true);
       
-      // Both should have separate cache entries
-      const result1 = await mockService.methodWithCachedFallback('key1', true);
-      const result2 = await mockService.methodWithCachedFallback('key2', true);
+      // Reset method call counter
+      mockService.reset();
       
-      expect(result1).toBe('Original result for key1');
-      expect(result2).toBe('Original result for key2');
-      expect(mockService.methodCallCount).toBe(2); // Both methods called but used cache
+      // Second call fails but should use cached result
+      const result = await mockService.getCachedUserProfileNoDefault('user123', false);
+      
+      expect(result).toEqual({
+        id: 'user123',
+        name: 'User user123',
+        email: 'user123@example.com'
+      });
+      expect(mockService.methodCalls).toBe(1); // Method was called but failed
     });
   });
-
+  
   describe('DefaultFallback Decorator', () => {
-    it('should execute the original method when it succeeds', async () => {
-      const result = await mockService.methodWithDefaultFallback(false);
+    it('should return default value when method fails', async () => {
+      const result = await mockService.getUserProfileWithDefault('user123');
       
-      expect(result).toEqual({ status: 'success', data: [1, 2, 3] });
-      expect(mockService.methodCallCount).toBe(1);
+      expect(result).toEqual({
+        id: 'default',
+        name: 'Default User',
+        isDefault: true
+      });
+      expect(mockService.methodCalls).toBe(1);
     });
-
-    it('should return the default value when the original method fails', async () => {
-      const result = await mockService.methodWithDefaultFallback(true);
+    
+    it('should only use default value for specified error types', async () => {
+      // Should use default value for ServiceUnavailableError
+      const serviceResult = await mockService.getUserProfileWithConditionalDefault('user123', 'service');
       
-      expect(result).toEqual({ status: 'degraded', data: [] });
-      expect(mockService.methodCallCount).toBe(1);
+      expect(serviceResult).toEqual({
+        id: 'default',
+        name: 'Default User',
+        isDefault: true
+      });
+      expect(mockService.methodCalls).toBe(1);
+      
+      // Reset for next test
+      mockService.reset();
+      
+      // Should not use default value for ValidationError
+      await expect(mockService.getUserProfileWithConditionalDefault('user123', 'validation'))
+        .rejects
+        .toThrow(ValidationError);
+      
+      expect(mockService.methodCalls).toBe(1);
     });
   });
-
-  describe('Error Handling and Edge Cases', () => {
-    it('should propagate errors when no fallback is configured', async () => {
-      await expect(mockService.methodWithNoFallback(true)).rejects.toThrow(
-        'Simulated failure in methodWithNoFallback'
-      );
-      expect(mockService.methodCallCount).toBe(1);
-    });
-
-    it('should preserve the original error context in logs', async () => {
-      // Attempt to call method with fallback
-      await mockService.methodWithFunctionFallback('test', true);
+  
+  describe('Cache Utility Functions', () => {
+    it('should clear specific cache key', async () => {
+      // Populate cache with two entries
+      await mockService.getCachedUserProfile('user1', true);
+      await mockService.getCachedUserProfile('user2', true);
       
-      // Check that error logs contain the original error information
-      const errorLogs = mockLogger.logs.filter(log => log.level === 'error');
-      expect(errorLogs.length).toBeGreaterThan(0);
-      expect(errorLogs[0].message).toContain('Simulated failure');
+      // Generate cache key for user1 (using default generator)
+      const cacheKey = 'MockService:getCachedUserProfile:["user1",true]';
+      
+      // Clear specific key
+      clearFallbackCache(cacheKey);
+      
+      // Verify only one key was cleared
+      expect(getFallbackCacheSize()).toBe(1);
+      
+      // user1 should now use default value
+      const result = await mockService.getCachedUserProfile('user1', false);
+      expect(result).toEqual({
+        id: 'default',
+        name: 'Default User',
+        isDefault: true
+      });
     });
-
-    it('should handle errors thrown by the fallback function itself', async () => {
-      // Create a service with a fallback that throws an error
-      class BrokenFallbackService {
+    
+    it('should clear all cache entries', async () => {
+      // Populate cache with multiple entries
+      await mockService.getCachedUserProfile('user1', true);
+      await mockService.getCachedUserProfile('user2', true);
+      await mockService.getUserProfileWithCustomKey('user3');
+      
+      // Verify cache has entries
+      expect(getFallbackCacheSize()).toBe(3);
+      
+      // Clear all cache
+      clearFallbackCache();
+      
+      // Verify cache is empty
+      expect(getFallbackCacheSize()).toBe(0);
+    });
+    
+    it('should check if cache key exists and is not expired', async () => {
+      // Populate cache
+      await mockService.getCachedUserProfile('user1', true);
+      
+      // Generate cache key (using default generator)
+      const cacheKey = 'MockService:getCachedUserProfile:["user1",true]';
+      
+      // Verify key exists
+      expect(hasFallbackCacheKey(cacheKey)).toBe(true);
+      
+      // Fast-forward time past TTL
+      jest.useFakeTimers();
+      jest.advanceTimersByTime(1500); // 1.5 seconds (TTL is 1 second)
+      
+      // Verify key is now expired
+      expect(hasFallbackCacheKey(cacheKey)).toBe(false);
+      
+      jest.useRealTimers();
+    });
+  });
+  
+  describe('Edge Cases', () => {
+    it('should handle non-Error exceptions', async () => {
+      class StringExceptionService {
         @WithFallback({
-          fallbackFn: () => {
-            throw new Error('Fallback function failed');
-          }
+          handler: () => 'fallback result'
         })
-        public async methodWithBrokenFallback(): Promise<string> {
-          throw new Error('Original method failed');
+        async operation(): Promise<string> {
+          // Throw a string instead of an Error
+          throw 'String exception';
         }
       }
-
-      const brokenService = new BrokenFallbackService();
-
-      // Should propagate the fallback error
-      await expect(brokenService.methodWithBrokenFallback()).rejects.toThrow('Fallback function failed');
+      
+      const service = new StringExceptionService();
+      const result = await service.operation();
+      
+      expect(result).toBe('fallback result');
+    });
+    
+    it('should handle circular references in cache key generation', async () => {
+      class CircularService {
+        @CachedFallback({
+          defaultValue: 'default value'
+        })
+        async operation(obj: any): Promise<string> {
+          throw new Error('Operation failed');
+        }
+      }
+      
+      const service = new CircularService();
+      
+      // Create object with circular reference
+      const circular: any = { name: 'circular' };
+      circular.self = circular;
+      
+      // Should not throw when generating cache key
+      const result = await service.operation(circular);
+      
+      expect(result).toBe('default value');
+    });
+    
+    it('should handle undefined or null arguments', async () => {
+      class NullArgsService {
+        @CachedFallback({
+          defaultValue: 'default value'
+        })
+        async operation(arg1: any, arg2: any): Promise<string> {
+          throw new Error('Operation failed');
+        }
+      }
+      
+      const service = new NullArgsService();
+      
+      // Call with undefined and null arguments
+      const result1 = await service.operation(undefined, null);
+      const result2 = await service.operation(undefined, null); // Same args to test caching
+      
+      expect(result1).toBe('default value');
+      expect(result2).toBe('default value');
+      
+      // Should have created only one cache entry
+      expect(getFallbackCacheSize()).toBe(1);
     });
   });
 });
