@@ -1,61 +1,147 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNumber, IsDate, IsOptional, IsString, ValidateNested, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+import { BaseDto, JourneyContext, ApiVersion } from '@austa/interfaces/common/dto';
+import { <%= journeyName %>Entity } from '@austa/interfaces/journey/<%= journeyNameLower %>';
 
 /**
- * Base DTO for <%= className %> responses
+ * Data Transfer Object for <%= className %>
+ * 
+ * @description This DTO is used for <%= className %> data transfer between client and server
+ * @version 1.0.0
+ * @journey <%= journeyName %>
  */
-export class <%= className %>Dto {
-  /**
-   * Unique identifier
-   */
+@ApiVersion('1')
+@JourneyContext('<%= journeyName %>')
+export class <%= className %>Dto implements BaseDto {
   @ApiProperty({
-    description: 'Unique identifier',
-    example: '123e4567-e89b-12d3-a456-426614174000'
+    description: 'Unique identifier for the <%= className %>',
+    example: 1,
+    type: Number,
+    required: true
   })
-  id: string;
+  @IsNumber()
+  id: number;
 
-  /**
-   * Name of the entity
-   */
   @ApiProperty({
-    description: 'Name of the entity',
-    example: 'Example Name'
+    description: 'Creation timestamp',
+    example: '2023-01-01T00:00:00Z',
+    type: Date,
+    required: true
   })
-  name: string;
+  @IsDate()
+  createdAt: Date;
 
-  /**
-   * Description of the entity
-   */
   @ApiProperty({
-    description: 'Description of the entity',
-    example: 'This is an example description',
-    nullable: true
+    description: 'Last update timestamp',
+    example: '2023-01-01T00:00:00Z',
+    type: Date,
+    required: true
   })
+  @IsDate()
+  updatedAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Optional description field',
+    example: 'Description of the <%= className %>',
+    type: String,
+    required: false
+  })
+  @IsString()
+  @IsOptional()
   description?: string;
 
   /**
-   * Whether the entity is active
+   * Maps entity data to DTO
+   * @param entity The entity to map from
+   * @returns A new DTO instance with mapped data
    */
-  @ApiProperty({
-    description: 'Whether the entity is active',
-    example: true
-  })
-  isActive: boolean;
+  static fromEntity(entity: <%= journeyName %>Entity.<%= className %>Entity): <%= className %>Dto {
+    const dto = new <%= className %>Dto();
+    dto.id = entity.id;
+    dto.createdAt = entity.createdAt;
+    dto.updatedAt = entity.updatedAt;
+    dto.description = entity.description;
+    return dto;
+  }
 
   /**
-   * Creation timestamp
+   * Maps DTO to entity data
+   * @returns A plain object with entity data
    */
-  @ApiProperty({
-    description: 'Creation timestamp',
-    example: '2023-01-01T00:00:00Z'
-  })
-  createdAt: Date;
+  toEntity(): Partial<<%= journeyName %>Entity.<%= className %>Entity> {
+    return {
+      id: this.id,
+      description: this.description,
+      // Other fields as needed
+    };
+  }
+}
 
-  /**
-   * Last update timestamp
-   */
+/**
+ * Data Transfer Object for creating a new <%= className %>
+ * 
+ * @description This DTO is used for creating a new <%= className %>
+ * @version 1.0.0
+ * @journey <%= journeyName %>
+ */
+@ApiVersion('1')
+@JourneyContext('<%= journeyName %>')
+export class Create<%= className %>Dto implements Omit<BaseDto, 'id' | 'createdAt' | 'updatedAt'> {
   @ApiProperty({
-    description: 'Last update timestamp',
-    example: '2023-01-01T00:00:00Z'
+    description: 'Description of the <%= className %>',
+    example: 'Description of the <%= className %>',
+    type: String,
+    required: true
   })
-  updatedAt: Date;
+  @IsString()
+  description: string;
+
+  // Add other fields as needed for creation
+}
+
+/**
+ * Data Transfer Object for updating an existing <%= className %>
+ * 
+ * @description This DTO is used for updating an existing <%= className %>
+ * @version 1.0.0
+ * @journey <%= journeyName %>
+ */
+@ApiVersion('1')
+@JourneyContext('<%= journeyName %>')
+export class Update<%= className %>Dto implements Partial<Omit<BaseDto, 'id' | 'createdAt' | 'updatedAt'>> {
+  @ApiPropertyOptional({
+    description: 'Description of the <%= className %>',
+    example: 'Updated description of the <%= className %>',
+    type: String,
+    required: false
+  })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  // Add other fields as needed for updates
+}
+
+/**
+ * Data Transfer Object for filtering <%= className %> entities
+ * 
+ * @description This DTO is used for filtering <%= className %> entities in queries
+ * @version 1.0.0
+ * @journey <%= journeyName %>
+ */
+@ApiVersion('1')
+@JourneyContext('<%= journeyName %>')
+export class Filter<%= className %>Dto {
+  @ApiPropertyOptional({
+    description: 'Filter by description (partial match)',
+    example: 'description',
+    type: String,
+    required: false
+  })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  // Add other filter fields as needed
 }
