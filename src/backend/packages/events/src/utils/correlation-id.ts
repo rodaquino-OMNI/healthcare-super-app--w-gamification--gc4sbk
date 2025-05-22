@@ -1,50 +1,67 @@
 /**
- * @file correlation-id.ts
- * @description Manages correlation IDs across distributed systems to enable end-to-end tracing of event flows.
- * This utility provides functions to generate, extract, and propagate correlation IDs through event processing
- * pipelines, allowing related events to be linked across multiple services, topics, and processing stages.
+ * Correlation ID Utilities
+ * 
+ * Manages correlation IDs across distributed systems to enable end-to-end tracing of event flows.
+ * This utility provides functions to generate, extract, and propagate correlation IDs through
+ * event processing pipelines, allowing related events to be linked across multiple services,
+ * topics, and processing stages.
  */
 
-import { randomUUID } from 'crypto';
-import { Logger } from '@nestjs/common';
-import { context, trace, SpanStatusCode } from '@opentelemetry/api';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-
-// Import from internal packages
-import { IBaseEvent } from '../interfaces/base-event.interface';
-import { IJourneyEvent } from '../interfaces/journey-events.interface';
-import { IKafkaEvent } from '../interfaces/kafka-event.interface';
+import { v4 as uuidv4 } from 'uuid';
+import { context, Context, propagation, trace } from '@opentelemetry/api';
+import { BaseEvent } from '../interfaces/base-event.interface';
 
 /**
- * Standard header names for correlation ID propagation
+ * Standard header names for correlation ID transmission across different protocols
  */
-export const CORRELATION_ID_HEADER = 'x-correlation-id';
-export const TRACE_ID_HEADER = 'x-trace-id';
-export const SPAN_ID_HEADER = 'x-span-id';
-export const PARENT_ID_HEADER = 'x-parent-id';
-export const REQUEST_ID_HEADER = 'x-request-id';
+export const CORRELATION_HEADERS = {
+  /**
+   * Standard HTTP header for correlation ID
+   */
+  HTTP: 'x-correlation-id',
+
+  /**
+   * Kafka message header for correlation ID
+   */
+  KAFKA: 'correlation-id',
+
+  /**
+   * AMQP message property for correlation ID
+   */
+  AMQP: 'correlation_id',
+
+  /**
+   * gRPC metadata key for correlation ID
+   */
+  GRPC: 'correlation-id',
+
+  /**
+   * WebSocket message property for correlation ID
+   */
+  WEBSOCKET: 'correlationId',
+
+  /**
+   * OpenTelemetry baggage item key for correlation ID
+   */
+  OTEL_BAGGAGE: 'correlation.id'
+};
 
 /**
- * Metadata key for correlation ID in events
+ * Symbol used to store correlation ID in the async context
  */
-export const EVENT_CORRELATION_ID_KEY = 'correlation_id';
-
-/**
- * Logger instance for correlation ID utilities
- */
-const logger = new Logger('CorrelationId');
+export const CORRELATION_ID_CONTEXT_KEY = Symbol.for('austa.correlation-id');
 
 /**
  * Generates a new correlation ID using UUID v4
  * 
- * @returns A new correlation ID string
+ * @returns A new correlation ID as a string
  */
 export function generateCorrelationId(): string {
-  return randomUUID();
+  return uuidv4();
 }
 
 /**
- * Validates if a string is a valid correlation ID
+ * Validates if a string is a valid correlation ID (UUID v4 format)
  * 
  * @param id The string to validate
  * @returns True if the string is a valid correlation ID, false otherwise
@@ -58,444 +75,424 @@ export function isValidCorrelationId(id: string): boolean {
 }
 
 /**
- * Gets the current correlation ID from the active trace context
+ * Gets the current correlation ID from the context, or generates a new one if none exists
  * 
- * @returns The current correlation ID or undefined if not found
+ * @param generateIfMissing Whether to generate a new correlation ID if none exists in the context
+ * @returns The current correlation ID, or undefined if none exists and generateIfMissing is false
  */
-export function getCurrentCorrelationId(): string | undefined {
-  try {
-    const span = trace.getSpan(context.active());
-    if (!span) return undefined;
-    
-    // Try to get correlation ID from span attributes
-    const correlationId = span.attributes[CORRELATION_ID_HEADER] as string;
-    if (correlationId) return correlationId;
-    
-    // If no correlation ID is found, use the trace ID as a fallback
-    const spanContext = span.spanContext();
-    return spanContext.traceId;
-  } catch (error) {
-    logger.debug(`Failed to get current correlation ID: ${(error as Error).message}`);
-    return undefined;
+export function getCurrentCorrelationId(generateIfMissing = true): string | undefined {
+  const currentContext = context.active();
+  const correlationId = currentContext.getValue(CORRELATION_ID_CONTEXT_KEY) as string | undefined;
+  
+  if (!correlationId && generateIfMissing) {
+    return generateCorrelationId();
   }
+  
+  return correlationId;
 }
 
 /**
- * Sets the correlation ID on the current active span
+ * Sets the correlation ID in the current context
  * 
  * @param correlationId The correlation ID to set
- * @returns True if successful, false otherwise
+ * @returns A new context with the correlation ID set
  */
-export function setCurrentCorrelationId(correlationId: string): boolean {
-  try {
-    if (!isValidCorrelationId(correlationId)) {
-      logger.warn(`Invalid correlation ID format: ${correlationId}`);
-      return false;
-    }
-    
-    const span = trace.getSpan(context.active());
-    if (!span) {
-      logger.debug('No active span found to set correlation ID');
-      return false;
-    }
-    
-    span.setAttribute(CORRELATION_ID_HEADER, correlationId);
-    return true;
-  } catch (error) {
-    logger.debug(`Failed to set correlation ID: ${(error as Error).message}`);
-    return false;
-  }
+export function setCorrelationId(correlationId: string): Context {
+  const currentContext = context.active();
+  return currentContext.setValue(CORRELATION_ID_CONTEXT_KEY, correlationId);
 }
 
 /**
- * Extracts correlation ID from an event object
+ * Runs a function with a specific correlation ID in context
  * 
- * @param event The event object containing correlation ID
- * @returns The extracted correlation ID or undefined if not found
+ * @param correlationId The correlation ID to use
+ * @param fn The function to run
+ * @returns The result of the function
  */
-export function extractCorrelationId<T extends Record<string, any>>(
-  event: T
-): string | undefined {
-  try {
-    // Check in metadata first (standard location)
-    if (event?.metadata?.[EVENT_CORRELATION_ID_KEY]) {
-      const correlationId = event.metadata[EVENT_CORRELATION_ID_KEY] as string;
-      if (isValidCorrelationId(correlationId)) {
-        return correlationId;
-      }
-    }
-    
-    // Check in headers for Kafka events
-    if ('headers' in event && typeof event.headers === 'object' && event.headers) {
-      const kafkaEvent = event as unknown as IKafkaEvent;
-      if (kafkaEvent.headers[CORRELATION_ID_HEADER]) {
-        const headerValue = kafkaEvent.headers[CORRELATION_ID_HEADER];
-        const correlationId = typeof headerValue === 'string' 
-          ? headerValue 
-          : headerValue instanceof Buffer 
-            ? headerValue.toString('utf8') 
-            : undefined;
-            
-        if (correlationId && isValidCorrelationId(correlationId)) {
-          return correlationId;
-        }
-      }
-    }
-    
-    // Check in the event ID as a fallback
-    if ('eventId' in event && typeof event.eventId === 'string') {
-      const baseEvent = event as unknown as IBaseEvent;
-      if (isValidCorrelationId(baseEvent.eventId)) {
-        return baseEvent.eventId;
-      }
-    }
-    
-    return undefined;
-  } catch (error) {
-    logger.warn(`Failed to extract correlation ID from event: ${(error as Error).message}`);
-    return undefined;
-  }
+export function withCorrelationId<T>(correlationId: string, fn: () => T): T {
+  const newContext = setCorrelationId(correlationId);
+  return context.with(newContext, fn);
 }
 
 /**
- * Adds correlation ID to an event object
- * 
- * @param event The event object to add correlation ID to
- * @param correlationId Optional correlation ID to use (generates a new one if not provided)
- * @returns The event with added correlation ID
- */
-export function addCorrelationId<T extends Record<string, any>>(
-  event: T,
-  correlationId?: string
-): T {
-  try {
-    // Use provided correlation ID, current context, or generate a new one
-    const finalCorrelationId = correlationId || getCurrentCorrelationId() || generateCorrelationId();
-    
-    // Clone the event to avoid modifying the original
-    const eventWithCorrelation = { ...event };
-    
-    // Add metadata if it doesn't exist
-    if (!eventWithCorrelation.metadata) {
-      eventWithCorrelation.metadata = {};
-    }
-    
-    // Add correlation ID to metadata
-    eventWithCorrelation.metadata[EVENT_CORRELATION_ID_KEY] = finalCorrelationId;
-    
-    // If it's a Kafka event, also add to headers
-    if ('headers' in eventWithCorrelation && typeof eventWithCorrelation.headers === 'object') {
-      const kafkaEvent = eventWithCorrelation as unknown as IKafkaEvent;
-      kafkaEvent.headers = { ...kafkaEvent.headers };
-      kafkaEvent.headers[CORRELATION_ID_HEADER] = finalCorrelationId;
-    }
-    
-    return eventWithCorrelation;
-  } catch (error) {
-    logger.warn(`Failed to add correlation ID to event: ${(error as Error).message}`);
-    return event; // Return original event if modification fails
-  }
-}
-
-/**
- * Creates HTTP headers with correlation ID information
- * 
- * @param correlationId Optional correlation ID to use (uses current context or generates new if not provided)
- * @returns HTTP headers object with correlation ID
- */
-export function createCorrelationHeaders(
-  correlationId?: string
-): Record<string, string> {
-  try {
-    // Use provided correlation ID, current context, or generate a new one
-    const finalCorrelationId = correlationId || getCurrentCorrelationId() || generateCorrelationId();
-    
-    const headers: Record<string, string> = {
-      [CORRELATION_ID_HEADER]: finalCorrelationId
-    };
-    
-    // Add trace context headers if available
-    const span = trace.getSpan(context.active());
-    if (span) {
-      const spanContext = span.spanContext();
-      headers[TRACE_ID_HEADER] = spanContext.traceId;
-      headers[SPAN_ID_HEADER] = spanContext.spanId;
-    }
-    
-    return headers;
-  } catch (error) {
-    logger.warn(`Failed to create correlation headers: ${(error as Error).message}`);
-    return { [CORRELATION_ID_HEADER]: generateCorrelationId() };
-  }
-}
-
-/**
- * Extracts correlation ID from HTTP headers
+ * Extracts a correlation ID from HTTP headers
  * 
  * @param headers HTTP headers object
- * @returns The extracted correlation ID or undefined if not found
+ * @param headerName Optional custom header name to use
+ * @returns The extracted correlation ID, or undefined if none exists
  */
-export function extractCorrelationIdFromHeaders(
-  headers: Record<string, string | string[] | undefined>
+export function extractCorrelationIdFromHttpHeaders(
+  headers: Record<string, string | string[] | undefined>,
+  headerName = CORRELATION_HEADERS.HTTP
 ): string | undefined {
-  try {
-    // Check for correlation ID header
-    const correlationId = headers[CORRELATION_ID_HEADER] || 
-                          headers[CORRELATION_ID_HEADER.toLowerCase()];
-    
-    if (correlationId) {
-      const idValue = Array.isArray(correlationId) ? correlationId[0] : correlationId;
-      if (idValue && isValidCorrelationId(idValue)) {
-        return idValue;
+  const normalizedHeaderName = headerName.toLowerCase();
+  
+  // Handle case-insensitive headers
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedHeaderName) {
+      if (Array.isArray(value)) {
+        return value[0];
       }
+      return value as string;
     }
-    
-    // Check for request ID as fallback
-    const requestId = headers[REQUEST_ID_HEADER] || 
-                      headers[REQUEST_ID_HEADER.toLowerCase()];
-    
-    if (requestId) {
-      const idValue = Array.isArray(requestId) ? requestId[0] : requestId;
-      if (idValue && isValidCorrelationId(idValue)) {
-        return idValue;
-      }
-    }
-    
-    return undefined;
-  } catch (error) {
-    logger.warn(`Failed to extract correlation ID from headers: ${(error as Error).message}`);
-    return undefined;
   }
+  
+  return undefined;
 }
 
 /**
- * Creates Kafka message headers with correlation ID
+ * Extracts a correlation ID from Kafka message headers
  * 
- * @param correlationId Optional correlation ID to use (uses current context or generates new if not provided)
- * @returns Kafka headers object with correlation ID
+ * @param headers Kafka message headers
+ * @param headerName Optional custom header name to use
+ * @returns The extracted correlation ID, or undefined if none exists
  */
-export function createKafkaCorrelationHeaders(
-  correlationId?: string
-): Record<string, Buffer> {
-  try {
-    // Use provided correlation ID, current context, or generate a new one
-    const finalCorrelationId = correlationId || getCurrentCorrelationId() || generateCorrelationId();
-    
-    const headers: Record<string, Buffer> = {
-      [CORRELATION_ID_HEADER]: Buffer.from(finalCorrelationId, 'utf8')
-    };
-    
-    // Add trace context headers if available
-    const span = trace.getSpan(context.active());
-    if (span) {
-      const spanContext = span.spanContext();
-      headers[TRACE_ID_HEADER] = Buffer.from(spanContext.traceId, 'utf8');
-      headers[SPAN_ID_HEADER] = Buffer.from(spanContext.spanId, 'utf8');
-    }
-    
+export function extractCorrelationIdFromKafkaHeaders(
+  headers: Array<{ key: string; value: Buffer | string | null }>,
+  headerName = CORRELATION_HEADERS.KAFKA
+): string | undefined {
+  const header = headers.find(h => h.key === headerName);
+  
+  if (!header || header.value === null) {
+    return undefined;
+  }
+  
+  if (Buffer.isBuffer(header.value)) {
+    return header.value.toString('utf8');
+  }
+  
+  return header.value;
+}
+
+/**
+ * Extracts a correlation ID from an event object
+ * 
+ * @param event The event object
+ * @returns The extracted correlation ID, or undefined if none exists
+ */
+export function extractCorrelationIdFromEvent(event: BaseEvent): string | undefined {
+  if (!event) return undefined;
+  
+  // Check in metadata first
+  if (event.metadata?.correlationId) {
+    return event.metadata.correlationId;
+  }
+  
+  // Check in event data as fallback
+  if (event.data && typeof event.data === 'object' && 'correlationId' in event.data) {
+    return (event.data as Record<string, unknown>).correlationId as string;
+  }
+  
+  return undefined;
+}
+
+/**
+ * Adds a correlation ID to an event object
+ * 
+ * @param event The event object to add the correlation ID to
+ * @param correlationId Optional correlation ID to use, if not provided the current context's correlation ID will be used
+ * @returns A new event object with the correlation ID added
+ */
+export function addCorrelationIdToEvent<T extends BaseEvent>(event: T, correlationId?: string): T {
+  const idToUse = correlationId || getCurrentCorrelationId();
+  
+  if (!idToUse) {
+    return event;
+  }
+  
+  // Create a copy of the event to avoid mutating the original
+  const eventCopy = { ...event };
+  
+  // Initialize metadata if it doesn't exist
+  if (!eventCopy.metadata) {
+    eventCopy.metadata = {};
+  }
+  
+  // Add correlation ID to metadata
+  eventCopy.metadata.correlationId = idToUse;
+  
+  return eventCopy;
+}
+
+/**
+ * Adds a correlation ID to HTTP headers
+ * 
+ * @param headers HTTP headers object to add the correlation ID to
+ * @param correlationId Optional correlation ID to use, if not provided the current context's correlation ID will be used
+ * @param headerName Optional custom header name to use
+ * @returns The headers object with the correlation ID added
+ */
+export function addCorrelationIdToHttpHeaders(
+  headers: Record<string, string | string[] | undefined>,
+  correlationId?: string,
+  headerName = CORRELATION_HEADERS.HTTP
+): Record<string, string | string[] | undefined> {
+  const idToUse = correlationId || getCurrentCorrelationId();
+  
+  if (!idToUse) {
     return headers;
-  } catch (error) {
-    logger.warn(`Failed to create Kafka correlation headers: ${(error as Error).message}`);
-    return { [CORRELATION_ID_HEADER]: Buffer.from(generateCorrelationId(), 'utf8') };
   }
+  
+  // Create a copy of the headers to avoid mutating the original
+  const headersCopy = { ...headers };
+  
+  // Add correlation ID to headers
+  headersCopy[headerName] = idToUse;
+  
+  return headersCopy;
 }
 
 /**
- * Links related events by correlation ID in the current trace
+ * Adds a correlation ID to Kafka message headers
  * 
- * @param sourceEvent Source event containing correlation ID
- * @param targetEvent Target event to link with the source
- * @returns The target event with correlation ID from source
+ * @param headers Kafka message headers to add the correlation ID to
+ * @param correlationId Optional correlation ID to use, if not provided the current context's correlation ID will be used
+ * @param headerName Optional custom header name to use
+ * @returns The headers array with the correlation ID added
  */
-export function linkEvents<T extends Record<string, any>, U extends Record<string, any>>(
-  sourceEvent: T,
-  targetEvent: U
-): U {
-  try {
-    // Extract correlation ID from source event
-    const correlationId = extractCorrelationId(sourceEvent);
-    if (!correlationId) {
-      logger.debug('No correlation ID found in source event');
-      return targetEvent;
-    }
-    
-    // Add correlation ID to target event
-    return addCorrelationId(targetEvent, correlationId);
-  } catch (error) {
-    logger.warn(`Failed to link events: ${(error as Error).message}`);
-    return targetEvent;
+export function addCorrelationIdToKafkaHeaders(
+  headers: Array<{ key: string; value: Buffer | string | null }>,
+  correlationId?: string,
+  headerName = CORRELATION_HEADERS.KAFKA
+): Array<{ key: string; value: Buffer | string | null }> {
+  const idToUse = correlationId || getCurrentCorrelationId();
+  
+  if (!idToUse) {
+    return headers;
   }
+  
+  // Create a copy of the headers to avoid mutating the original
+  const headersCopy = [...headers];
+  
+  // Remove existing correlation ID header if it exists
+  const existingIndex = headersCopy.findIndex(h => h.key === headerName);
+  if (existingIndex !== -1) {
+    headersCopy.splice(existingIndex, 1);
+  }
+  
+  // Add correlation ID to headers
+  headersCopy.push({
+    key: headerName,
+    value: idToUse
+  });
+  
+  return headersCopy;
 }
 
 /**
- * Creates a correlation context for a new event chain
+ * Integrates correlation ID with OpenTelemetry trace context
  * 
- * @param journey Optional journey identifier (health, care, plan)
- * @returns Correlation context object with new correlation ID
+ * @param correlationId Optional correlation ID to use, if not provided the current context's correlation ID will be used
+ * @returns The current span with the correlation ID added as an attribute
  */
-export function createCorrelationContext(journey?: string): {
-  correlationId: string;
-  metadata: Record<string, any>;
-} {
-  const correlationId = generateCorrelationId();
+export function addCorrelationIdToCurrentSpan(correlationId?: string): void {
+  const idToUse = correlationId || getCurrentCorrelationId();
   
-  // Create metadata with correlation ID
-  const metadata: Record<string, any> = {
-    [EVENT_CORRELATION_ID_KEY]: correlationId
-  };
-  
-  // Add journey information if provided
-  if (journey) {
-    metadata.journey = journey;
+  if (!idToUse) {
+    return;
   }
   
-  return {
-    correlationId,
-    metadata
-  };
-}
-
-/**
- * Executes a function with correlation ID context
- * 
- * @param fn Function to execute with correlation context
- * @param correlationId Optional correlation ID to use (generates new if not provided)
- * @returns Result of the function execution
- */
-export async function withCorrelation<T>(
-  fn: (correlationId: string) => Promise<T>,
-  correlationId?: string
-): Promise<T> {
-  // Use provided correlation ID or generate a new one
-  const finalCorrelationId = correlationId || generateCorrelationId();
-  
-  // Get current span or create a new one
   const currentSpan = trace.getSpan(context.active());
   if (currentSpan) {
-    // Set correlation ID on current span
-    currentSpan.setAttribute(CORRELATION_ID_HEADER, finalCorrelationId);
-    
-    try {
-      // Execute function with correlation ID
-      return await fn(finalCorrelationId);
-    } catch (error) {
-      // Record error on span
-      currentSpan.recordException(error as Error);
-      currentSpan.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: (error as Error).message
-      });
-      throw error;
-    }
-  } else {
-    // No active span, just execute the function
-    return fn(finalCorrelationId);
+    currentSpan.setAttribute('correlation.id', idToUse);
   }
 }
 
 /**
- * Creates a correlation chain for tracking related events
+ * Extracts a correlation ID from OpenTelemetry trace context
  * 
- * @param rootEvent Root event to start the correlation chain
- * @param journey Optional journey identifier
- * @returns Correlation chain object with methods to add events to the chain
+ * @returns The correlation ID from the current span, or undefined if none exists
  */
-export function createCorrelationChain<T extends Record<string, any>>(
-  rootEvent: T,
-  journey?: string
-): {
-  correlationId: string;
-  addEvent: <U extends Record<string, any>>(event: U) => U;
-  getMetadata: () => Record<string, any>;
-} {
-  // Extract or generate correlation ID
-  const correlationId = extractCorrelationId(rootEvent) || generateCorrelationId();
+export function extractCorrelationIdFromTraceContext(): string | undefined {
+  const currentSpan = trace.getSpan(context.active());
   
-  // Create metadata with correlation ID
-  const metadata: Record<string, any> = {
-    [EVENT_CORRELATION_ID_KEY]: correlationId
-  };
-  
-  // Add journey information if provided
-  if (journey) {
-    metadata.journey = journey;
+  if (!currentSpan) {
+    return undefined;
   }
   
-  // Add correlation ID to root event if not already present
-  if (!extractCorrelationId(rootEvent)) {
-    addCorrelationId(rootEvent, correlationId);
-  }
+  // Try to get the correlation ID from the span attributes
+  const spanContext = currentSpan.spanContext();
   
-  return {
-    correlationId,
+  // If no explicit correlation ID is set, use the trace ID as a fallback
+  return spanContext.traceId;
+}
+
+/**
+ * Creates a correlation context propagator for use with OpenTelemetry
+ * 
+ * This propagator ensures that correlation IDs are properly propagated across service boundaries
+ * using the OpenTelemetry context propagation mechanism.
+ */
+export const correlationContextPropagator = {
+  inject(context: Context, carrier: Record<string, string>, setter: (carrier: Record<string, string>, key: string, value: string) => void): void {
+    const correlationId = context.getValue(CORRELATION_ID_CONTEXT_KEY) as string | undefined;
     
-    // Method to add an event to the correlation chain
-    addEvent: <U extends Record<string, any>>(event: U): U => {
-      return addCorrelationId(event, correlationId);
+    if (correlationId) {
+      setter(carrier, CORRELATION_HEADERS.HTTP, correlationId);
+    }
+  },
+  
+  extract(context: Context, carrier: Record<string, string>, getter: (carrier: Record<string, string>, key: string) => string | undefined): Context {
+    const correlationId = getter(carrier, CORRELATION_HEADERS.HTTP);
+    
+    if (correlationId && isValidCorrelationId(correlationId)) {
+      return context.setValue(CORRELATION_ID_CONTEXT_KEY, correlationId);
+    }
+    
+    return context;
+  },
+  
+  fields(): string[] {
+    return [CORRELATION_HEADERS.HTTP];
+  }
+};
+
+/**
+ * Registers the correlation context propagator with OpenTelemetry
+ */
+export function registerCorrelationContextPropagator(): void {
+  const currentPropagators = propagation.getGlobalPropagator();
+  
+  // Create a composite propagator that includes the correlation context propagator
+  const compositePropagator = {
+    inject(context: Context, carrier: unknown, setter: any): void {
+      currentPropagators.inject(context, carrier, setter);
+      if (typeof carrier === 'object' && carrier !== null) {
+        correlationContextPropagator.inject(
+          context,
+          carrier as Record<string, string>,
+          setter
+        );
+      }
     },
     
-    // Method to get metadata for new events
-    getMetadata: (): Record<string, any> => {
-      return { ...metadata };
+    extract(context: Context, carrier: unknown, getter: any): Context {
+      let updatedContext = currentPropagators.extract(context, carrier, getter);
+      if (typeof carrier === 'object' && carrier !== null) {
+        updatedContext = correlationContextPropagator.extract(
+          updatedContext,
+          carrier as Record<string, string>,
+          getter
+        );
+      }
+      return updatedContext;
+    },
+    
+    fields(): string[] {
+      return [...currentPropagators.fields(), ...correlationContextPropagator.fields()];
+    }
+  };
+  
+  // Set the composite propagator as the global propagator
+  propagation.setGlobalPropagator(compositePropagator as any);
+}
+
+/**
+ * Creates a middleware function for Express.js that extracts and sets the correlation ID from HTTP headers
+ * 
+ * @param options Configuration options
+ * @returns Express middleware function
+ */
+export function createCorrelationIdMiddleware(options: {
+  headerName?: string;
+  generateIfMissing?: boolean;
+} = {}) {
+  const { headerName = CORRELATION_HEADERS.HTTP, generateIfMissing = true } = options;
+  
+  return (req: any, res: any, next: () => void) => {
+    let correlationId = extractCorrelationIdFromHttpHeaders(req.headers, headerName);
+    
+    if (!correlationId && generateIfMissing) {
+      correlationId = generateCorrelationId();
+    }
+    
+    if (correlationId) {
+      // Set correlation ID in response headers
+      res.setHeader(headerName, correlationId);
+      
+      // Set correlation ID in context
+      const newContext = setCorrelationId(correlationId);
+      
+      // Add correlation ID to current span if one exists
+      addCorrelationIdToCurrentSpan(correlationId);
+      
+      // Run the next middleware with the new context
+      context.with(newContext, next);
+    } else {
+      next();
     }
   };
 }
 
 /**
- * Enriches an error with correlation ID information
+ * Creates a retry function with exponential backoff that preserves correlation ID context
  * 
- * @param error Error to enrich
- * @param correlationId Optional correlation ID to use (uses current context if not provided)
- * @returns Enriched error with correlation ID
+ * @param operation The operation to retry
+ * @param options Retry options
+ * @returns A promise that resolves with the result of the operation
  */
-export function enrichErrorWithCorrelation(
-  error: Error,
-  correlationId?: string
-): Error {
-  try {
-    // Use provided correlation ID or get from current context
-    const finalCorrelationId = correlationId || getCurrentCorrelationId();
-    if (!finalCorrelationId) return error;
-    
-    // Add correlation ID to error object
-    const enrichedError = error as Error & { correlationId?: string };
-    enrichedError.correlationId = finalCorrelationId;
-    
-    // Add to error message if not already present
-    if (!error.message.includes('correlationId')) {
-      enrichedError.message = `${error.message} [correlationId: ${finalCorrelationId}]`;
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    backoffFactor?: number;
+    retryableErrors?: Array<string | RegExp>;
+  } = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    initialDelayMs = 100,
+    maxDelayMs = 5000,
+    backoffFactor = 2,
+    retryableErrors = []
+  } = options;
+  
+  // Capture the current correlation ID
+  const correlationId = getCurrentCorrelationId(false);
+  
+  let lastError: Error;
+  let delay = initialDelayMs;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // If we have a correlation ID, run the operation with it
+      if (correlationId) {
+        return await withCorrelationId(correlationId, async () => operation());
+      }
+      
+      // Otherwise, just run the operation
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Check if we've reached the maximum number of retries
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+      
+      // Check if the error is retryable
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRetryable = retryableErrors.length === 0 || retryableErrors.some(pattern => {
+        if (typeof pattern === 'string') {
+          return errorMessage.includes(pattern);
+        }
+        return pattern.test(errorMessage);
+      });
+      
+      if (!isRetryable) {
+        throw error;
+      }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Increase the delay for the next retry (with a maximum limit)
+      delay = Math.min(delay * backoffFactor, maxDelayMs);
     }
-    
-    return enrichedError;
-  } catch {
-    // If enrichment fails, return original error
-    return error;
   }
-}
-
-/**
- * Extracts journey information from an event with correlation context
- * 
- * @param event Event with correlation context
- * @returns Journey identifier or undefined if not found
- */
-export function extractJourneyFromCorrelationContext<T extends Record<string, any>>(
-  event: T
-): string | undefined {
-  try {
-    // Check in metadata first
-    if (event?.metadata?.journey) {
-      return event.metadata.journey as string;
-    }
-    
-    // Check if it's a journey event
-    if ('journey' in event && typeof event.journey === 'string') {
-      return (event as unknown as IJourneyEvent).journey;
-    }
-    
-    return undefined;
-  } catch (error) {
-    logger.debug(`Failed to extract journey from correlation context: ${(error as Error).message}`);
-    return undefined;
-  }
+  
+  // This should never be reached due to the throw in the loop, but TypeScript requires it
+  throw lastError!;
 }
