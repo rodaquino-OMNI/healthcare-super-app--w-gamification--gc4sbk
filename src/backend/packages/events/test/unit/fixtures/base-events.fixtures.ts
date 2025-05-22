@@ -1,415 +1,419 @@
 /**
  * @file base-events.fixtures.ts
- * @description Provides foundational event fixtures that serve as the base for all event types
- * across journeys. Contains mock events with minimal valid properties, edge cases, and common
- * patterns used throughout event testing. These fixtures enable consistent testing of the core
- * event processing pipeline independent of journey-specific logic.
+ * @description Provides foundational event fixtures for testing the event processing pipeline.
+ * These fixtures serve as the base for all event types across journeys and enable consistent
+ * testing of the core event processing pipeline independent of journey-specific logic.
  */
 
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-import { EventMetadataDto, EventOriginDto, EventVersionDto, createEventMetadata } from '../../../src/dto/event-metadata.dto';
-
-/**
- * UUID generator for test fixtures
- * @returns A UUID v4 string
- */
-export function generateTestUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+import { BaseEvent, EventMetadata } from '../../../src/interfaces/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
 
 /**
- * Base event fixture with minimal valid properties
+ * Standard valid event with all required fields
  */
-export const baseEventFixture = {
-  type: EventType.USER_LOGIN,
-  userId: '550e8400-e29b-41d4-a716-446655440000', // Fixed UUID for consistent testing
-  data: {
-    loginMethod: 'password',
-    deviceType: 'web',
-    loginAt: new Date().toISOString()
-  },
-  journey: 'user'
-};
-
-/**
- * Base event fixture with metadata
- */
-export const baseEventWithMetadataFixture = {
-  ...baseEventFixture,
-  metadata: createEventMetadata('auth-service', {
-    correlationId: '550e8400-e29b-41d4-a716-446655440001',
-    timestamp: new Date(),
-    eventId: '550e8400-e29b-41d4-a716-446655440002'
-  })
-};
-
-/**
- * Malformed event fixture missing required properties
- */
-export const malformedEventFixture = {
-  type: EventType.USER_LOGIN,
-  // Missing userId (required)
-  data: {
-    // Missing required fields
-    deviceType: 'web'
+export const validBaseEvent: BaseEvent = {
+  eventId: '550e8400-e29b-41d4-a716-446655440000',
+  type: 'TEST_EVENT',
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  userId: 'user_123456',
+  journey: 'health',
+  payload: {
+    testProperty: 'test-value',
+    numericProperty: 42
   }
-  // Missing journey
 };
 
 /**
- * Event fixture with invalid userId format
+ * Minimal valid event with only required fields
  */
-export const invalidUserIdEventFixture = {
-  ...baseEventFixture,
-  userId: 'not-a-valid-uuid'
+export const minimalBaseEvent: BaseEvent = {
+  eventId: '550e8400-e29b-41d4-a716-446655440001',
+  type: 'MINIMAL_EVENT',
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  payload: {}
 };
 
 /**
- * Event fixture with invalid event type
+ * Event with complete metadata for testing context handling
  */
-export const invalidEventTypeFixture = {
-  ...baseEventFixture,
-  type: 'INVALID_EVENT_TYPE' as EventType
-};
-
-/**
- * Event fixture with mismatched journey and event type
- */
-export const mismatchedJourneyEventFixture = {
-  ...baseEventFixture,
-  type: EventType.HEALTH_METRIC_RECORDED,
-  journey: 'care' // Mismatched journey for the event type
-};
-
-/**
- * Event fixture with complex metadata
- */
-export const complexMetadataEventFixture = {
-  ...baseEventFixture,
-  metadata: (() => {
-    const metadata = new EventMetadataDto();
-    metadata.eventId = '550e8400-e29b-41d4-a716-446655440003';
-    metadata.correlationId = '550e8400-e29b-41d4-a716-446655440004';
-    metadata.sessionId = '550e8400-e29b-41d4-a716-446655440005';
-    metadata.requestId = '550e8400-e29b-41d4-a716-446655440006';
-    metadata.timestamp = new Date();
-    
-    const origin = new EventOriginDto();
-    origin.service = 'auth-service';
-    origin.instance = 'auth-service-pod-1234';
-    origin.component = 'login-processor';
-    origin.context = 'user-initiated';
-    metadata.origin = origin;
-    
-    const version = new EventVersionDto();
-    version.major = '2';
-    version.minor = '1';
-    version.patch = '3';
-    metadata.version = version;
-    
-    metadata.context = {
-      ipAddress: '192.168.1.1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      locale: 'pt-BR'
-    };
-    
-    return metadata;
-  })()
-};
-
-// ===== HEALTH JOURNEY EVENT FIXTURES =====
-
-/**
- * Health metric recorded event fixture
- */
-export const healthMetricRecordedEventFixture = {
-  type: EventType.HEALTH_METRIC_RECORDED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    metricType: 'HEART_RATE',
-    value: 75,
-    unit: 'bpm',
-    recordedAt: new Date().toISOString(),
-    source: 'manual'
+export const eventWithFullMetadata: BaseEvent = {
+  eventId: '550e8400-e29b-41d4-a716-446655440002',
+  type: 'METADATA_EVENT',
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  userId: 'user_123456',
+  journey: 'care',
+  payload: {
+    testProperty: 'test-value'
   },
-  journey: 'health'
+  metadata: {
+    correlationId: 'corr-550e8400-e29b-41d4-a716-446655440000',
+    traceId: 'trace-550e8400-e29b-41d4-a716-446655440000',
+    spanId: 'span-550e8400-e29b-41d4-a716-446655440000',
+    priority: 'high',
+    isRetry: false,
+    retryCount: 0,
+    originalTimestamp: '2023-04-15T14:32:17.000Z',
+    customProperty: 'custom-value'
+  }
 };
 
 /**
- * Health goal achieved event fixture
+ * Event with retry metadata for testing retry handling
  */
-export const healthGoalAchievedEventFixture = {
-  type: EventType.HEALTH_GOAL_ACHIEVED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    goalId: '550e8400-e29b-41d4-a716-446655440010',
-    goalType: 'STEPS_TARGET',
-    targetValue: 10000,
-    achievedValue: 10250,
-    completedAt: new Date().toISOString()
+export const retryEvent: BaseEvent = {
+  eventId: '550e8400-e29b-41d4-a716-446655440003',
+  type: 'RETRY_EVENT',
+  timestamp: '2023-04-15T14:35:17.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  userId: 'user_123456',
+  journey: 'plan',
+  payload: {
+    testProperty: 'test-value'
   },
-  journey: 'health'
+  metadata: {
+    correlationId: 'corr-550e8400-e29b-41d4-a716-446655440003',
+    isRetry: true,
+    retryCount: 2,
+    originalTimestamp: '2023-04-15T14:32:17.000Z',
+    priority: 'high'
+  }
 };
 
 /**
- * Health device connected event fixture
+ * Collection of events with different priorities for testing priority handling
  */
-export const healthDeviceConnectedEventFixture = {
-  type: EventType.HEALTH_DEVICE_CONNECTED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    deviceId: '550e8400-e29b-41d4-a716-446655440011',
-    deviceType: 'SMARTWATCH',
-    connectionMethod: 'bluetooth',
-    connectedAt: new Date().toISOString()
+export const priorityEvents: Record<string, BaseEvent> = {
+  high: {
+    eventId: '550e8400-e29b-41d4-a716-446655440004',
+    type: 'HIGH_PRIORITY_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' },
+    metadata: { priority: 'high' }
   },
-  journey: 'health'
+  medium: {
+    eventId: '550e8400-e29b-41d4-a716-446655440005',
+    type: 'MEDIUM_PRIORITY_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' },
+    metadata: { priority: 'medium' }
+  },
+  low: {
+    eventId: '550e8400-e29b-41d4-a716-446655440006',
+    type: 'LOW_PRIORITY_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' },
+    metadata: { priority: 'low' }
+  },
+  none: {
+    eventId: '550e8400-e29b-41d4-a716-446655440007',
+    type: 'NO_PRIORITY_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  }
 };
 
-// ===== CARE JOURNEY EVENT FIXTURES =====
-
 /**
- * Care appointment booked event fixture
+ * Collection of events for different journeys for testing journey-specific processing
  */
-export const careAppointmentBookedEventFixture = {
-  type: EventType.CARE_APPOINTMENT_BOOKED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    appointmentId: '550e8400-e29b-41d4-a716-446655440020',
-    providerId: '550e8400-e29b-41d4-a716-446655440021',
-    specialtyType: 'Cardiologia',
-    appointmentType: 'in_person',
-    scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    bookedAt: new Date().toISOString()
+export const journeyEvents: Record<JourneyType | string, BaseEvent> = {
+  health: {
+    eventId: '550e8400-e29b-41d4-a716-446655440008',
+    type: 'HEALTH_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'health-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { metricType: 'HEART_RATE', value: 75, unit: 'bpm' }
   },
-  journey: 'care'
+  care: {
+    eventId: '550e8400-e29b-41d4-a716-446655440009',
+    type: 'CARE_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'care-service',
+    userId: 'user_123456',
+    journey: 'care',
+    payload: { appointmentId: 'appt_123', providerId: 'provider_456' }
+  },
+  plan: {
+    eventId: '550e8400-e29b-41d4-a716-446655440010',
+    type: 'PLAN_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'plan-service',
+    userId: 'user_123456',
+    journey: 'plan',
+    payload: { claimId: 'claim_123', amount: 150.75 }
+  },
+  system: {
+    eventId: '550e8400-e29b-41d4-a716-446655440011',
+    type: 'SYSTEM_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'system',
+    payload: { action: 'MAINTENANCE', details: 'Scheduled database maintenance' }
+  }
 };
 
 /**
- * Care medication taken event fixture
+ * Collection of events with different versions for testing version compatibility
  */
-export const careMedicationTakenEventFixture = {
-  type: EventType.CARE_MEDICATION_TAKEN,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    medicationId: '550e8400-e29b-41d4-a716-446655440022',
-    medicationName: 'Atorvastatina',
-    dosage: '20mg',
-    takenAt: new Date().toISOString(),
-    adherence: 'on_time'
+export const versionedEvents: Record<string, BaseEvent> = {
+  current: {
+    eventId: '550e8400-e29b-41d4-a716-446655440012',
+    type: 'VERSIONED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
   },
-  journey: 'care'
+  newer: {
+    eventId: '550e8400-e29b-41d4-a716-446655440013',
+    type: 'VERSIONED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.1.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value', newProperty: 'new-value' }
+  },
+  majorUpgrade: {
+    eventId: '550e8400-e29b-41d4-a716-446655440014',
+    type: 'VERSIONED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '2.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { updatedProperty: 'updated-value' } // Different schema
+  }
 };
 
-// ===== PLAN JOURNEY EVENT FIXTURES =====
-
 /**
- * Plan claim submitted event fixture
+ * Collection of malformed events for negative testing scenarios
  */
-export const planClaimSubmittedEventFixture = {
-  type: EventType.PLAN_CLAIM_SUBMITTED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    claimId: '550e8400-e29b-41d4-a716-446655440030',
-    claimType: 'medical',
-    providerId: '550e8400-e29b-41d4-a716-446655440031',
-    serviceDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-    amount: 250.0,
-    submittedAt: new Date().toISOString()
+export const malformedEvents: Record<string, Partial<BaseEvent>> = {
+  missingEventId: {
+    // Missing eventId
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
   },
-  journey: 'plan'
+  missingType: {
+    eventId: '550e8400-e29b-41d4-a716-446655440015',
+    // Missing type
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  missingTimestamp: {
+    eventId: '550e8400-e29b-41d4-a716-446655440016',
+    type: 'MALFORMED_EVENT',
+    // Missing timestamp
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  missingVersion: {
+    eventId: '550e8400-e29b-41d4-a716-446655440017',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    // Missing version
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  missingSource: {
+    eventId: '550e8400-e29b-41d4-a716-446655440018',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    // Missing source
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  missingPayload: {
+    eventId: '550e8400-e29b-41d4-a716-446655440019',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health'
+    // Missing payload
+  },
+  invalidTimestampFormat: {
+    eventId: '550e8400-e29b-41d4-a716-446655440020',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15 14:32:17', // Invalid format (not ISO)
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  invalidVersionFormat: {
+    eventId: '550e8400-e29b-41d4-a716-446655440021',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: 'latest', // Invalid format (not semver)
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  },
+  invalidJourney: {
+    eventId: '550e8400-e29b-41d4-a716-446655440022',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'invalid-journey', // Invalid journey
+    payload: { testProperty: 'test-value' }
+  },
+  nonObjectPayload: {
+    eventId: '550e8400-e29b-41d4-a716-446655440023',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 'user_123456',
+    journey: 'health',
+    payload: 'not-an-object' as any // Invalid payload type
+  },
+  nonStringUserId: {
+    eventId: '550e8400-e29b-41d4-a716-446655440024',
+    type: 'MALFORMED_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    userId: 12345 as any, // Invalid userId type
+    journey: 'health',
+    payload: { testProperty: 'test-value' }
+  }
 };
 
 /**
- * Plan benefit utilized event fixture
- */
-export const planBenefitUtilizedEventFixture = {
-  type: EventType.PLAN_BENEFIT_UTILIZED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    benefitId: '550e8400-e29b-41d4-a716-446655440032',
-    benefitType: 'wellness',
-    providerId: '550e8400-e29b-41d4-a716-446655440033',
-    utilizationDate: new Date().toISOString(),
-    savingsAmount: 75.0
-  },
-  journey: 'plan'
-};
-
-// ===== GAMIFICATION EVENT FIXTURES =====
-
-/**
- * Gamification points earned event fixture
- */
-export const gamificationPointsEarnedEventFixture = {
-  type: EventType.GAMIFICATION_POINTS_EARNED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    sourceType: 'health',
-    sourceId: '550e8400-e29b-41d4-a716-446655440040',
-    points: 50,
-    reason: 'Recorded health metrics for 7 consecutive days',
-    earnedAt: new Date().toISOString()
-  },
-  journey: 'gamification'
-};
-
-/**
- * Gamification achievement unlocked event fixture
- */
-export const gamificationAchievementUnlockedEventFixture = {
-  type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-  userId: '550e8400-e29b-41d4-a716-446655440000',
-  data: {
-    achievementId: '550e8400-e29b-41d4-a716-446655440041',
-    achievementType: 'health-check-streak',
-    tier: 'silver',
-    points: 100,
-    unlockedAt: new Date().toISOString()
-  },
-  journey: 'gamification'
-};
-
-/**
- * Factory function to create a base event with custom properties
+ * Utility function to create a base event with customizable properties
  * @param overrides Properties to override in the base event
- * @returns A new event object with the specified overrides
+ * @returns A new BaseEvent instance with the specified overrides
  */
-export function createTestEvent(overrides: Partial<typeof baseEventFixture> = {}): typeof baseEventFixture {
+export function createBaseEvent(overrides: Partial<BaseEvent> = {}): BaseEvent {
   return {
-    ...baseEventFixture,
-    ...overrides,
-    // Generate a new userId if not provided in overrides
-    userId: overrides.userId || generateTestUUID(),
-    // Deep merge data if provided in overrides
-    data: overrides.data ? { ...baseEventFixture.data, ...overrides.data } : baseEventFixture.data
+    eventId: overrides.eventId || crypto.randomUUID(),
+    type: overrides.type || 'TEST_EVENT',
+    timestamp: overrides.timestamp || new Date().toISOString(),
+    version: overrides.version || '1.0.0',
+    source: overrides.source || 'test-service',
+    userId: overrides.userId || 'user_123456',
+    journey: overrides.journey || 'health',
+    payload: overrides.payload || { testProperty: 'test-value' },
+    metadata: overrides.metadata
   };
 }
 
 /**
- * Factory function to create a health metric recorded event with custom properties
- * @param overrides Properties to override in the health metric event
- * @returns A new health metric event with the specified overrides
+ * Utility function to create event metadata with customizable properties
+ * @param overrides Properties to override in the metadata
+ * @returns A new EventMetadata instance with the specified overrides
  */
-export function createHealthMetricEvent(overrides: Partial<typeof healthMetricRecordedEventFixture> = {}): typeof healthMetricRecordedEventFixture {
+export function createEventMetadata(overrides: Partial<EventMetadata> = {}): EventMetadata {
   return {
-    ...healthMetricRecordedEventFixture,
-    ...overrides,
-    // Generate a new userId if not provided in overrides
-    userId: overrides.userId || generateTestUUID(),
-    // Deep merge data if provided in overrides
-    data: overrides.data ? { ...healthMetricRecordedEventFixture.data, ...overrides.data } : healthMetricRecordedEventFixture.data
+    correlationId: overrides.correlationId || `corr-${crypto.randomUUID()}`,
+    traceId: overrides.traceId || `trace-${crypto.randomUUID()}`,
+    spanId: overrides.spanId || `span-${crypto.randomUUID()}`,
+    priority: overrides.priority || 'medium',
+    isRetry: overrides.isRetry !== undefined ? overrides.isRetry : false,
+    retryCount: overrides.retryCount !== undefined ? overrides.retryCount : 0,
+    originalTimestamp: overrides.originalTimestamp || new Date().toISOString(),
+    ...overrides
   };
 }
 
 /**
- * Factory function to create an event with metadata
- * @param event Base event to add metadata to
- * @param metadataOverrides Properties to override in the metadata
- * @returns A new event with the specified metadata
- */
-export function addMetadataToEvent<T extends Record<string, any>>(event: T, metadataOverrides: Partial<EventMetadataDto> = {}): T & { metadata: EventMetadataDto } {
-  const service = event.journey ? `${event.journey}-service` : 'unknown-service';
-  const metadata = createEventMetadata(service, {
-    correlationId: generateTestUUID(),
-    eventId: generateTestUUID(),
-    timestamp: new Date(),
-    ...metadataOverrides
-  });
-  
-  return {
-    ...event,
-    metadata
-  };
-}
-
-/**
- * Creates a batch of test events with sequential timestamps
+ * Creates a batch of events for testing batch processing
  * @param count Number of events to create
- * @param baseEvent Base event template to use
- * @param intervalMs Time interval between events in milliseconds
- * @returns Array of test events
+ * @param baseOverrides Base overrides to apply to all events
+ * @returns Array of BaseEvent instances
  */
-export function createEventBatch(
-  count: number,
-  baseEvent: Record<string, any> = baseEventFixture,
-  intervalMs: number = 1000
-): Array<Record<string, any>> {
-  const events = [];
-  const now = Date.now();
-  
-  for (let i = 0; i < count; i++) {
-    const timestamp = new Date(now + (i * intervalMs));
-    const event = {
-      ...baseEvent,
-      userId: generateTestUUID(),
-      data: {
-        ...baseEvent.data,
-        timestamp: timestamp.toISOString()
+export function createEventBatch(count: number, baseOverrides: Partial<BaseEvent> = {}): BaseEvent[] {
+  return Array.from({ length: count }, (_, index) => {
+    return createBaseEvent({
+      ...baseOverrides,
+      eventId: baseOverrides.eventId || `batch-event-${crypto.randomUUID()}`,
+      type: baseOverrides.type || `BATCH_EVENT_${index + 1}`,
+      metadata: {
+        ...(baseOverrides.metadata || {}),
+        batchIndex: index,
+        batchSize: count
       }
-    };
-    
-    // Add metadata if the base event has it
-    if (baseEvent.metadata) {
-      event.metadata = {
-        ...baseEvent.metadata,
-        timestamp,
-        eventId: generateTestUUID(),
-        correlationId: baseEvent.metadata.correlationId || generateTestUUID()
-      };
-    }
-    
-    events.push(event);
-  }
-  
-  return events;
+    });
+  });
 }
 
 /**
- * Creates an event with a specific journey and type
- * @param journey The journey for the event
- * @param eventType The type of event
- * @param data Custom data for the event
- * @returns A new event with the specified journey and type
+ * Creates a sequence of events with timestamps in chronological order
+ * @param count Number of events to create
+ * @param startTime Starting timestamp (defaults to now)
+ * @param intervalMs Milliseconds between events
+ * @param baseOverrides Base overrides to apply to all events
+ * @returns Array of BaseEvent instances with sequential timestamps
  */
-export function createJourneyEvent(
-  journey: 'health' | 'care' | 'plan' | 'user' | 'gamification',
-  eventType: EventType,
-  data: Record<string, any> = {}
-): Record<string, any> {
-  // Select a base fixture based on the journey
-  let baseFixture;
-  switch (journey) {
-    case 'health':
-      baseFixture = healthMetricRecordedEventFixture;
-      break;
-    case 'care':
-      baseFixture = careAppointmentBookedEventFixture;
-      break;
-    case 'plan':
-      baseFixture = planClaimSubmittedEventFixture;
-      break;
-    case 'gamification':
-      baseFixture = gamificationPointsEarnedEventFixture;
-      break;
-    case 'user':
-    default:
-      baseFixture = baseEventFixture;
-      break;
-  }
-  
-  return {
-    ...baseFixture,
-    type: eventType,
-    journey,
-    userId: generateTestUUID(),
-    data: {
-      ...data,
-      timestamp: new Date().toISOString()
-    }
-  };
+export function createChronologicalEvents(
+  count: number,
+  startTime: Date = new Date(),
+  intervalMs: number = 1000,
+  baseOverrides: Partial<BaseEvent> = {}
+): BaseEvent[] {
+  return Array.from({ length: count }, (_, index) => {
+    const eventTime = new Date(startTime.getTime() + index * intervalMs);
+    return createBaseEvent({
+      ...baseOverrides,
+      eventId: baseOverrides.eventId || `chrono-event-${crypto.randomUUID()}`,
+      type: baseOverrides.type || `CHRONO_EVENT_${index + 1}`,
+      timestamp: eventTime.toISOString(),
+      metadata: {
+        ...(baseOverrides.metadata || {}),
+        sequenceNumber: index + 1
+      }
+    });
+  });
 }
