@@ -2,509 +2,709 @@
  * Error Metadata Test Fixtures
  * 
  * This file provides standardized test fixtures for error context, metadata, and serialization
- * to ensure consistent testing of error enrichment, transformation, and formatting across
- * the AUSTA SuperApp.
+ * to be used in testing error enrichment, transformation, and formatting throughout the application.
+ * 
+ * It includes sample user contexts, request metadata, application states, and expected serialized
+ * outputs for various error scenarios across different journeys.
  */
 
-import { ErrorType } from '../../../../../shared/src/exceptions/exceptions.types';
+import { ErrorType } from '@austa/interfaces/common';
+
+// ===== USER CONTEXT FIXTURES =====
 
 /**
- * User context information for error testing
+ * Sample user contexts for testing error enrichment with user information
  */
 export const userContexts = {
-  // Standard authenticated user
+  /**
+   * Standard authenticated user context
+   */
   standard: {
     userId: '550e8400-e29b-41d4-a716-446655440000',
     email: 'user@example.com',
     roles: ['user'],
-    permissions: ['read:profile', 'update:profile'],
-    sessionId: 'sess_12345abcde',
-    authMethod: 'password',
-    lastLogin: '2023-04-15T10:30:45Z'
+    permissions: ['read:health', 'write:health', 'read:care', 'read:plan'],
+    preferences: {
+      language: 'pt-BR',
+      notifications: true
+    }
   },
   
-  // Admin user with elevated permissions
+  /**
+   * Admin user context with elevated permissions
+   */
   admin: {
-    userId: '7d793789-9d9a-4e6d-a5c8-e4f101e5b8a7',
+    userId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
     email: 'admin@austa.health',
     roles: ['admin', 'user'],
-    permissions: ['read:all', 'write:all', 'admin:system'],
-    sessionId: 'sess_admin67890',
-    authMethod: 'mfa',
-    lastLogin: '2023-04-16T08:15:22Z'
-  },
-  
-  // Healthcare provider
-  provider: {
-    userId: '9b2de0f4-95c6-4e91-90e9-8b2b0b4e1d1c',
-    email: 'doctor@hospital.org',
-    roles: ['provider', 'user'],
-    permissions: ['read:patients', 'write:medical_records', 'schedule:appointments'],
-    sessionId: 'sess_provider54321',
-    authMethod: 'sso',
-    lastLogin: '2023-04-16T09:45:10Z',
-    providerDetails: {
-      providerId: 'prov_12345',
-      specialization: 'Cardiology',
-      hospitalId: 'hosp_789'
+    permissions: ['*'],
+    preferences: {
+      language: 'pt-BR',
+      notifications: true
     }
   },
   
-  // Unauthenticated user
+  /**
+   * Healthcare provider user context
+   */
+  provider: {
+    userId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+    email: 'doctor@austa.health',
+    roles: ['provider', 'user'],
+    permissions: ['read:health', 'write:health', 'read:care', 'write:care', 'read:plan'],
+    providerDetails: {
+      providerId: 'PROV-12345',
+      specialization: 'Cardiologist',
+      licenseNumber: 'CRM-12345'
+    },
+    preferences: {
+      language: 'pt-BR',
+      notifications: true
+    }
+  },
+  
+  /**
+   * Unauthenticated/anonymous user context
+   */
   anonymous: {
-    sessionId: 'sess_anon98765',
-    authMethod: 'none'
+    userId: null,
+    roles: ['anonymous'],
+    permissions: ['read:public']
   }
 };
 
+// ===== SESSION CONTEXT FIXTURES =====
+
 /**
- * Request metadata for error context testing
+ * Sample session contexts for testing error enrichment with session information
  */
-export const requestMetadata = {
-  // Web application request
-  web: {
-    requestId: 'req_web_7d9a8b6c5d',
-    timestamp: '2023-04-16T14:22:36Z',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
-    path: '/api/health/metrics',
+export const sessionContexts = {
+  /**
+   * Active web session
+   */
+  activeWeb: {
+    sessionId: 'sess_01H1VECTBP4GXKRM69ZJDVJ1XP',
+    deviceInfo: {
+      type: 'web',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      ip: '192.168.1.1'
+    },
+    createdAt: '2023-06-15T10:30:00Z',
+    expiresAt: '2023-06-15T22:30:00Z',
+    isActive: true
+  },
+  
+  /**
+   * Active mobile session
+   */
+  activeMobile: {
+    sessionId: 'sess_01H1VECTBP4GXKRM69ZJDVJ1XQ',
+    deviceInfo: {
+      type: 'mobile',
+      userAgent: 'AUSTA-SuperApp/1.0.0 (iPhone; iOS 15.0; Scale/3.00)',
+      ip: '192.168.1.2',
+      deviceId: 'iphone12-AABBCCDD'
+    },
+    createdAt: '2023-06-15T10:30:00Z',
+    expiresAt: '2023-06-15T22:30:00Z',
+    isActive: true
+  },
+  
+  /**
+   * Expired session
+   */
+  expired: {
+    sessionId: 'sess_01H1VECTBP4GXKRM69ZJDVJ1XR',
+    deviceInfo: {
+      type: 'web',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      ip: '192.168.1.3'
+    },
+    createdAt: '2023-06-14T10:30:00Z',
+    expiresAt: '2023-06-14T22:30:00Z',
+    isActive: false
+  }
+};
+
+// ===== REQUEST CONTEXT FIXTURES =====
+
+/**
+ * Sample request contexts for testing error enrichment with request information
+ */
+export const requestContexts = {
+  /**
+   * GraphQL API request
+   */
+  graphql: {
+    requestId: 'req_01H1VECTBP4GXKRM69ZJDVJ1XS',
+    traceId: 'trace_01H1VECTBP4GXKRM69ZJDVJ1XT',
+    timestamp: '2023-06-15T14:35:42Z',
+    method: 'POST',
+    path: '/graphql',
+    query: '{ user { profile { name email } } }',
+    variables: {},
+    headers: {
+      'content-type': 'application/json',
+      'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+      'x-request-id': 'req_01H1VECTBP4GXKRM69ZJDVJ1XS',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+  },
+  
+  /**
+   * REST API request
+   */
+  rest: {
+    requestId: 'req_01H1VECTBP4GXKRM69ZJDVJ1XU',
+    traceId: 'trace_01H1VECTBP4GXKRM69ZJDVJ1XV',
+    timestamp: '2023-06-15T14:36:42Z',
     method: 'GET',
-    correlationId: 'corr_7d9a8b6c5d4e3f2a1b',
-    origin: 'https://app.austa.health',
-    referer: 'https://app.austa.health/dashboard'
+    path: '/api/health/metrics',
+    query: 'from=2023-06-01&to=2023-06-15',
+    params: {
+      from: '2023-06-01',
+      to: '2023-06-15'
+    },
+    headers: {
+      'content-type': 'application/json',
+      'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+      'x-request-id': 'req_01H1VECTBP4GXKRM69ZJDVJ1XU',
+      'user-agent': 'AUSTA-SuperApp/1.0.0 (iPhone; iOS 15.0; Scale/3.00)'
+    }
   },
   
-  // Mobile application request
-  mobile: {
-    requestId: 'req_mob_3f2a1b9c8d',
-    timestamp: '2023-04-16T14:25:12Z',
-    ipAddress: '203.0.113.45',
-    userAgent: 'AUSTA-Health-App/2.1.0 (iPhone; iOS 16.2; Scale/3.00)',
-    path: '/api/care/appointments',
+  /**
+   * Internal service-to-service request
+   */
+  internal: {
+    requestId: 'req_01H1VECTBP4GXKRM69ZJDVJ1XW',
+    traceId: 'trace_01H1VECTBP4GXKRM69ZJDVJ1XX',
+    timestamp: '2023-06-15T14:37:42Z',
     method: 'POST',
-    correlationId: 'corr_3f2a1b9c8d7e6f5a4b',
-    deviceId: 'iphone12_7d9a8b6c5d',
-    appVersion: '2.1.0',
-    osVersion: 'iOS 16.2'
-  },
-  
-  // Internal service-to-service request
-  service: {
-    requestId: 'req_svc_5a4b3c2d1e',
-    timestamp: '2023-04-16T14:26:05Z',
-    sourceService: 'health-service',
-    targetService: 'gamification-engine',
-    path: '/internal/events',
-    method: 'POST',
-    correlationId: 'corr_5a4b3c2d1e9f8g7h6i',
-    traceId: 'trace_5a4b3c2d1e9f8g7h6i5j4k'
+    path: '/internal/gamification/events',
+    source: 'health-service',
+    destination: 'gamification-engine',
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': 'req_01H1VECTBP4GXKRM69ZJDVJ1XW',
+      'x-source-service': 'health-service',
+      'x-api-key': 'internal_api_key_123'
+    }
   }
 };
 
+// ===== JOURNEY CONTEXT FIXTURES =====
+
 /**
- * Application state contexts for different journeys
+ * Sample journey contexts for testing journey-specific error handling
  */
-export const applicationStates = {
-  // Health journey context
+export const journeyContexts = {
+  /**
+   * Health journey context
+   */
   health: {
-    journey: 'health',
-    feature: 'metrics',
-    operation: 'recordMetric',
-    metricType: 'bloodPressure',
-    deviceId: 'dev_smartwatch_123',
-    goalId: 'goal_bp_normal_range'
+    journeyType: 'health',
+    journeyStage: 'metrics-tracking',
+    feature: 'blood-pressure-recording',
+    metadata: {
+      metricId: 'bp_01H1VECTBP4GXKRM69ZJDVJ1XY',
+      deviceId: 'device_01H1VECTBP4GXKRM69ZJDVJ1XZ',
+      readingTimestamp: '2023-06-15T14:30:00Z'
+    }
   },
   
-  // Care journey context
+  /**
+   * Care journey context
+   */
   care: {
-    journey: 'care',
-    feature: 'appointments',
-    operation: 'scheduleAppointment',
-    providerId: 'prov_12345',
-    specialtyId: 'spec_cardiology',
-    appointmentType: 'video',
-    facilityId: 'fac_downtown_clinic'
+    journeyType: 'care',
+    journeyStage: 'appointment-booking',
+    feature: 'provider-selection',
+    metadata: {
+      appointmentId: 'appt_01H1VECTBP4GXKRM69ZJDVJ1Y0',
+      providerId: 'provider_01H1VECTBP4GXKRM69ZJDVJ1Y1',
+      specialtyId: 'specialty_01H1VECTBP4GXKRM69ZJDVJ1Y2',
+      appointmentDate: '2023-06-20T10:00:00Z'
+    }
   },
   
-  // Plan journey context
+  /**
+   * Plan journey context
+   */
   plan: {
-    journey: 'plan',
-    feature: 'claims',
-    operation: 'submitClaim',
-    planId: 'plan_premium_family',
-    benefitId: 'ben_prescription',
-    claimAmount: 125.50,
-    serviceDate: '2023-04-10T00:00:00Z'
+    journeyType: 'plan',
+    journeyStage: 'claim-submission',
+    feature: 'document-upload',
+    metadata: {
+      claimId: 'claim_01H1VECTBP4GXKRM69ZJDVJ1Y3',
+      documentIds: ['doc_01H1VECTBP4GXKRM69ZJDVJ1Y4', 'doc_01H1VECTBP4GXKRM69ZJDVJ1Y5'],
+      claimType: 'medical',
+      claimAmount: 250.75
+    }
   },
   
-  // Gamification context
+  /**
+   * Gamification context
+   */
   gamification: {
-    journey: 'gamification',
-    feature: 'achievements',
-    operation: 'unlockAchievement',
-    achievementId: 'ach_health_streak_7days',
-    points: 50,
-    level: 3
+    journeyType: 'gamification',
+    journeyStage: 'achievement-processing',
+    feature: 'xp-calculation',
+    metadata: {
+      achievementId: 'achievement_01H1VECTBP4GXKRM69ZJDVJ1Y6',
+      profileId: 'profile_01H1VECTBP4GXKRM69ZJDVJ1Y7',
+      xpAwarded: 50,
+      achievementType: 'health-milestone'
+    }
   }
 };
 
+// ===== APPLICATION CONTEXT FIXTURES =====
+
 /**
- * Expected serialized error formats for different error types
+ * Sample application contexts for testing error enrichment with application state
  */
-export const serializedErrors = {
-  // Validation error (HTTP 400)
+export const applicationContexts = {
+  /**
+   * Health service context
+   */
+  healthService: {
+    serviceName: 'health-service',
+    version: '1.5.2',
+    environment: 'production',
+    nodeId: 'node-01',
+    podName: 'health-service-prod-7d9f6b9b6b-2x4qz',
+    region: 'us-east-1',
+    deploymentTimestamp: '2023-06-10T00:00:00Z'
+  },
+  
+  /**
+   * Care service context
+   */
+  careService: {
+    serviceName: 'care-service',
+    version: '1.4.8',
+    environment: 'production',
+    nodeId: 'node-02',
+    podName: 'care-service-prod-7d9f6b9b6b-3x5qz',
+    region: 'us-east-1',
+    deploymentTimestamp: '2023-06-09T00:00:00Z'
+  },
+  
+  /**
+   * Plan service context
+   */
+  planService: {
+    serviceName: 'plan-service',
+    version: '1.3.5',
+    environment: 'production',
+    nodeId: 'node-03',
+    podName: 'plan-service-prod-7d9f6b9b6b-4x6qz',
+    region: 'us-east-1',
+    deploymentTimestamp: '2023-06-08T00:00:00Z'
+  },
+  
+  /**
+   * Gamification engine context
+   */
+  gamificationEngine: {
+    serviceName: 'gamification-engine',
+    version: '1.6.1',
+    environment: 'production',
+    nodeId: 'node-04',
+    podName: 'gamification-engine-prod-7d9f6b9b6b-5x7qz',
+    region: 'us-east-1',
+    deploymentTimestamp: '2023-06-11T00:00:00Z'
+  }
+};
+
+// ===== ERROR CLASSIFICATION FIXTURES =====
+
+/**
+ * Sample error classification examples for different error types
+ */
+export const errorClassifications = {
+  /**
+   * Validation error examples
+   */
   validation: {
-    statusCode: 400,
-    error: {
-      type: ErrorType.VALIDATION,
-      code: 'HEALTH_001',
-      message: 'Invalid blood pressure reading format',
-      details: {
-        fields: {
-          systolic: 'Must be a number between 70 and 220',
-          diastolic: 'Must be a number between 40 and 120'
-        },
-        value: {
-          systolic: 'abc',
-          diastolic: 90
+    type: ErrorType.VALIDATION,
+    examples: [
+      {
+        code: 'VALIDATION_001',
+        message: 'Invalid input data',
+        details: {
+          field: 'email',
+          constraint: 'isEmail',
+          value: 'invalid-email'
         }
       },
-      context: {
-        requestId: 'req_mob_3f2a1b9c8d',
-        timestamp: '2023-04-16T14:25:12Z',
-        journey: 'health',
-        feature: 'metrics'
+      {
+        code: 'VALIDATION_002',
+        message: 'Required field missing',
+        details: {
+          field: 'password',
+          constraint: 'isNotEmpty'
+        }
+      },
+      {
+        code: 'VALIDATION_003',
+        message: 'Value out of range',
+        details: {
+          field: 'age',
+          constraint: 'min',
+          value: 5,
+          min: 18
+        }
       }
-    }
+    ]
   },
   
-  // Business logic error (HTTP 422)
+  /**
+   * Business logic error examples
+   */
   business: {
-    statusCode: 422,
-    error: {
-      type: ErrorType.BUSINESS,
-      code: 'CARE_003',
-      message: 'Cannot schedule appointment outside of provider availability',
-      details: {
-        requestedTime: '2023-05-01T14:00:00Z',
-        availableSlots: [
-          '2023-05-01T10:00:00Z',
-          '2023-05-01T11:00:00Z',
-          '2023-05-01T15:00:00Z'
-        ]
+    type: ErrorType.BUSINESS,
+    examples: [
+      {
+        code: 'HEALTH_001',
+        message: 'Health metric value outside physiological range',
+        details: {
+          metricType: 'blood-pressure',
+          value: '220/180',
+          acceptableRange: '70-180/40-120'
+        }
       },
-      context: {
-        requestId: 'req_web_7d9a8b6c5d',
-        timestamp: '2023-04-16T14:22:36Z',
-        journey: 'care',
-        feature: 'appointments'
+      {
+        code: 'CARE_001',
+        message: 'Appointment slot already booked',
+        details: {
+          providerId: 'provider_01H1VECTBP4GXKRM69ZJDVJ1Y1',
+          appointmentTime: '2023-06-20T10:00:00Z',
+          status: 'booked'
+        }
+      },
+      {
+        code: 'PLAN_001',
+        message: 'Claim amount exceeds coverage limit',
+        details: {
+          claimAmount: 5000,
+          coverageLimit: 3000,
+          coverageType: 'dental'
+        }
       }
-    }
+    ]
   },
   
-  // Technical error (HTTP 500)
+  /**
+   * Technical error examples
+   */
   technical: {
-    statusCode: 500,
-    error: {
-      type: ErrorType.TECHNICAL,
-      code: 'SYSTEM_002',
-      message: 'Database connection failed',
-      details: {
-        operation: 'query',
-        table: 'health_metrics'
+    type: ErrorType.TECHNICAL,
+    examples: [
+      {
+        code: 'TECH_001',
+        message: 'Database connection failed',
+        details: {
+          database: 'health-metrics',
+          operation: 'read',
+          errorCode: 'ECONNREFUSED'
+        }
       },
-      context: {
-        requestId: 'req_svc_5a4b3c2d1e',
-        timestamp: '2023-04-16T14:26:05Z',
-        service: 'health-service'
+      {
+        code: 'TECH_002',
+        message: 'Unexpected error during data processing',
+        details: {
+          operation: 'calculateHealthScore',
+          errorType: 'NullPointerException'
+        }
+      },
+      {
+        code: 'TECH_003',
+        message: 'Cache service unavailable',
+        details: {
+          cacheService: 'redis',
+          operation: 'set',
+          key: 'user:profile:550e8400-e29b-41d4-a716-446655440000'
+        }
       }
-    }
+    ]
   },
   
-  // External system error (HTTP 502)
+  /**
+   * External system error examples
+   */
   external: {
-    statusCode: 502,
+    type: ErrorType.EXTERNAL,
+    examples: [
+      {
+        code: 'EXT_001',
+        message: 'Payment gateway service unavailable',
+        details: {
+          service: 'payment-gateway',
+          operation: 'processPayment',
+          statusCode: 503
+        }
+      },
+      {
+        code: 'EXT_002',
+        message: 'FHIR API returned invalid response',
+        details: {
+          service: 'fhir-api',
+          operation: 'getPatientRecord',
+          statusCode: 400,
+          responseBody: '{"error":"Invalid patient identifier"}'
+        }
+      },
+      {
+        code: 'EXT_003',
+        message: 'Wearable device API connection timeout',
+        details: {
+          service: 'fitbit-api',
+          operation: 'syncHealthData',
+          errorCode: 'ETIMEDOUT'
+        }
+      }
+    ]
+  }
+};
+
+// ===== SERIALIZED ERROR FIXTURES =====
+
+/**
+ * Expected serialized error formats for different scenarios
+ */
+export const serializedErrors = {
+  /**
+   * Client-friendly error response (minimal details)
+   */
+  clientFriendly: {
     error: {
-      type: ErrorType.EXTERNAL,
-      code: 'EXT_004',
-      message: 'Failed to connect to wearable device API',
+      type: 'validation',
+      code: 'VALIDATION_001',
+      message: 'Invalid email format',
       details: {
-        externalSystem: 'fitbit-api',
-        operation: 'getSleepData',
-        statusCode: 503,
-        retryAfter: 30
+        field: 'email',
+        constraint: 'isEmail'
+      }
+    }
+  },
+  
+  /**
+   * Detailed error for logging (includes context)
+   */
+  detailedLogging: {
+    error: {
+      type: 'business',
+      code: 'HEALTH_001',
+      message: 'Health metric value outside physiological range',
+      details: {
+        metricType: 'blood-pressure',
+        value: '220/180',
+        acceptableRange: '70-180/40-120'
       },
       context: {
-        requestId: 'req_mob_3f2a1b9c8d',
-        timestamp: '2023-04-16T14:25:12Z',
-        journey: 'health',
-        feature: 'devices'
+        request: {
+          requestId: 'req_01H1VECTBP4GXKRM69ZJDVJ1XU',
+          traceId: 'trace_01H1VECTBP4GXKRM69ZJDVJ1XV',
+          method: 'POST',
+          path: '/api/health/metrics'
+        },
+        user: {
+          userId: '550e8400-e29b-41d4-a716-446655440000',
+          roles: ['user']
+        },
+        journey: {
+          journeyType: 'health',
+          journeyStage: 'metrics-tracking',
+          feature: 'blood-pressure-recording'
+        },
+        application: {
+          serviceName: 'health-service',
+          version: '1.5.2',
+          environment: 'production'
+        },
+        timestamp: '2023-06-15T14:36:42Z'
       }
     }
-  }
-};
-
-/**
- * Journey-specific error metadata samples
- */
-export const journeyErrorMetadata = {
-  // Health journey specific error metadata
-  health: {
-    // Metric recording errors
-    metricRecording: {
-      metricType: 'bloodPressure',
-      validRanges: {
-        systolic: { min: 70, max: 220 },
-        diastolic: { min: 40, max: 120 }
+  },
+  
+  /**
+   * Error with retry information
+   */
+  withRetryInfo: {
+    error: {
+      type: 'external',
+      code: 'EXT_001',
+      message: 'Payment gateway service unavailable',
+      details: {
+        service: 'payment-gateway',
+        operation: 'processPayment',
+        statusCode: 503
       },
-      deviceId: 'dev_smartwatch_123',
-      measurementTime: '2023-04-16T14:20:00Z',
-      previousReadings: [
-        { timestamp: '2023-04-15T08:30:00Z', systolic: 120, diastolic: 80 },
-        { timestamp: '2023-04-14T09:15:00Z', systolic: 118, diastolic: 78 }
-      ]
-    },
-    
-    // Device connection errors
-    deviceConnection: {
-      deviceType: 'smartwatch',
-      manufacturer: 'Fitbit',
-      model: 'Sense',
-      connectionMethod: 'bluetooth',
-      lastSyncTime: '2023-04-16T10:15:30Z',
-      batteryLevel: 42,
-      firmwareVersion: '2.4.1'
-    },
-    
-    // Health goal errors
-    healthGoals: {
-      goalId: 'goal_bp_normal_range',
-      goalType: 'bloodPressure',
-      targetRange: { systolic: { min: 90, max: 120 }, diastolic: { min: 60, max: 80 } },
-      startDate: '2023-04-01T00:00:00Z',
-      endDate: '2023-04-30T23:59:59Z',
-      progress: 65,
-      streakDays: 5
-    }
-  },
-  
-  // Care journey specific error metadata
-  care: {
-    // Appointment scheduling errors
-    appointmentScheduling: {
-      providerId: 'prov_12345',
-      providerName: 'Dr. Sarah Johnson',
-      specialtyId: 'spec_cardiology',
-      appointmentType: 'video',
-      requestedTime: '2023-05-01T14:00:00Z',
-      duration: 30,
-      facilityId: 'fac_downtown_clinic',
-      insurancePlanId: 'plan_premium_family',
-      patientNotes: 'Follow-up for medication adjustment'
-    },
-    
-    // Medication management errors
-    medicationManagement: {
-      medicationId: 'med_lisinopril_10mg',
-      prescriptionId: 'rx_789456',
-      dosage: '10mg',
-      frequency: 'once daily',
-      startDate: '2023-03-15T00:00:00Z',
-      endDate: '2023-06-15T00:00:00Z',
-      refillsRemaining: 2,
-      pharmacyId: 'pharm_cornerstone',
-      lastRefillDate: '2023-04-01T00:00:00Z'
-    },
-    
-    // Telemedicine errors
-    telemedicine: {
-      sessionId: 'tele_session_456789',
-      providerId: 'prov_12345',
-      scheduledStartTime: '2023-04-16T15:00:00Z',
-      actualStartTime: '2023-04-16T15:02:35Z',
-      duration: 0, // Not completed
-      connectionQuality: 'poor',
-      deviceType: 'mobile',
-      networkType: 'cellular',
-      bandwidthMbps: 1.2
-    }
-  },
-  
-  // Plan journey specific error metadata
-  plan: {
-    // Claims submission errors
-    claimsSubmission: {
-      claimId: 'claim_123456',
-      planId: 'plan_premium_family',
-      benefitId: 'ben_prescription',
-      serviceDate: '2023-04-10T00:00:00Z',
-      providerNpi: '1234567890',
-      claimAmount: 125.50,
-      receiptImageUrl: 'https://storage.austa.health/receipts/rx_789456.jpg',
-      submissionDate: '2023-04-16T14:22:36Z',
-      claimStatus: 'pending'
-    },
-    
-    // Benefits verification errors
-    benefitsVerification: {
-      benefitId: 'ben_prescription',
-      planId: 'plan_premium_family',
-      coverageStartDate: '2023-01-01T00:00:00Z',
-      coverageEndDate: '2023-12-31T23:59:59Z',
-      annualLimit: 2500.00,
-      usedAmount: 750.25,
-      remainingAmount: 1749.75,
-      coinsuranceRate: 0.2,
-      deductibleMet: true
-    },
-    
-    // Document upload errors
-    documentUpload: {
-      documentId: 'doc_987654',
-      documentType: 'insuranceCard',
-      fileName: 'insurance_card_front.jpg',
-      fileSize: 1250000, // bytes
-      mimeType: 'image/jpeg',
-      uploadTimestamp: '2023-04-16T14:20:15Z',
-      status: 'processing',
-      validationErrors: ['Image resolution too low']
-    }
-  }
-};
-
-/**
- * Error context enrichment examples for testing decorators and middleware
- */
-export const errorContextEnrichment = {
-  // Basic error without context
-  basic: {
-    type: ErrorType.VALIDATION,
-    code: 'HEALTH_001',
-    message: 'Invalid blood pressure reading format',
-    details: {
-      fields: {
-        systolic: 'Must be a number between 70 and 220',
-        diastolic: 'Must be a number between 40 and 120'
+      retry: {
+        retryable: true,
+        retryCount: 3,
+        retryAfter: 5000, // ms
+        nextRetryAt: '2023-06-15T14:37:47Z',
+        backoffStrategy: 'exponential'
       }
     }
   },
   
-  // Same error with request context added
-  withRequest: {
-    type: ErrorType.VALIDATION,
-    code: 'HEALTH_001',
-    message: 'Invalid blood pressure reading format',
-    details: {
-      fields: {
-        systolic: 'Must be a number between 70 and 220',
-        diastolic: 'Must be a number between 40 and 120'
+  /**
+   * Error with circuit breaker information
+   */
+  withCircuitBreakerInfo: {
+    error: {
+      type: 'external',
+      code: 'EXT_002',
+      message: 'FHIR API returned invalid response',
+      details: {
+        service: 'fhir-api',
+        operation: 'getPatientRecord',
+        statusCode: 400
+      },
+      circuitBreaker: {
+        status: 'open',
+        failureCount: 5,
+        lastFailureAt: '2023-06-15T14:35:42Z',
+        resetAt: '2023-06-15T14:40:42Z'
       }
-    },
-    context: {
-      requestId: 'req_mob_3f2a1b9c8d',
-      timestamp: '2023-04-16T14:25:12Z',
-      ipAddress: '203.0.113.45',
-      userAgent: 'AUSTA-Health-App/2.1.0 (iPhone; iOS 16.2; Scale/3.00)'
     }
   },
   
-  // Error with request and user context
-  withRequestAndUser: {
-    type: ErrorType.VALIDATION,
-    code: 'HEALTH_001',
-    message: 'Invalid blood pressure reading format',
-    details: {
-      fields: {
-        systolic: 'Must be a number between 70 and 220',
-        diastolic: 'Must be a number between 40 and 120'
-      }
-    },
-    context: {
-      requestId: 'req_mob_3f2a1b9c8d',
-      timestamp: '2023-04-16T14:25:12Z',
-      ipAddress: '203.0.113.45',
-      userAgent: 'AUSTA-Health-App/2.1.0 (iPhone; iOS 16.2; Scale/3.00)',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      sessionId: 'sess_12345abcde'
-    }
-  },
-  
-  // Fully enriched error with request, user, and application context
-  fullyEnriched: {
-    type: ErrorType.VALIDATION,
-    code: 'HEALTH_001',
-    message: 'Invalid blood pressure reading format',
-    details: {
-      fields: {
-        systolic: 'Must be a number between 70 and 220',
-        diastolic: 'Must be a number between 40 and 120'
-      }
-    },
-    context: {
-      requestId: 'req_mob_3f2a1b9c8d',
-      timestamp: '2023-04-16T14:25:12Z',
-      ipAddress: '203.0.113.45',
-      userAgent: 'AUSTA-Health-App/2.1.0 (iPhone; iOS 16.2; Scale/3.00)',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      sessionId: 'sess_12345abcde',
-      journey: 'health',
-      feature: 'metrics',
-      operation: 'recordMetric',
-      metricType: 'bloodPressure'
-    }
-  }
-};
-
-/**
- * Error transformation examples for testing error interceptors and filters
- */
-export const errorTransformations = {
-  // Original technical error with stack trace and sensitive info
-  original: {
-    type: ErrorType.TECHNICAL,
-    code: 'DB_ERROR_001',
-    message: 'Failed to execute database query',
-    details: {
-      query: 'SELECT * FROM users WHERE email = ?',
-      parameters: ['user@example.com'],
-      databaseHost: 'db-prod-cluster.internal',
-      errorCode: 'ER_ACCESS_DENIED_ERROR',
-      sqlMessage: 'Access denied for user 'app_user'@'10.0.1.123' (using password: YES)'
-    },
-    stack: 'Error: Failed to execute database query\n    at QueryExecutor.execute (/app/src/database/query-executor.ts:42:11)\n    at UserRepository.findByEmail (/app/src/users/user.repository.ts:78:23)\n    at AuthService.validateUser (/app/src/auth/auth.service.ts:105:45)\n    at LoginController.login (/app/src/auth/login.controller.ts:28:36)'
-  },
-  
-  // Sanitized for logging (internal systems)
-  sanitizedForLogging: {
-    type: ErrorType.TECHNICAL,
-    code: 'DB_ERROR_001',
-    message: 'Failed to execute database query',
-    details: {
-      query: 'SELECT * FROM users WHERE email = ?',
-      parameters: ['[REDACTED]'],
-      databaseHost: 'db-prod-cluster.internal',
-      errorCode: 'ER_ACCESS_DENIED_ERROR',
-      sqlMessage: 'Access denied for user '[REDACTED]'@'10.0.1.123' (using password: YES)'
-    },
-    stack: 'Error: Failed to execute database query\n    at QueryExecutor.execute (/app/src/database/query-executor.ts:42:11)\n    at UserRepository.findByEmail (/app/src/users/user.repository.ts:78:23)\n    at AuthService.validateUser (/app/src/auth/auth.service.ts:105:45)\n    at LoginController.login (/app/src/auth/login.controller.ts:28:36)',
-    context: {
-      requestId: 'req_web_7d9a8b6c5d',
-      timestamp: '2023-04-16T14:22:36Z',
-      service: 'auth-service'
-    }
-  },
-  
-  // Client-friendly version (external API response)
-  clientFriendly: {
-    statusCode: 500,
+  /**
+   * Error with fallback information
+   */
+  withFallbackInfo: {
     error: {
       type: 'technical',
-      code: 'DB_ERROR_001',
-      message: 'An unexpected error occurred while processing your request',
-      context: {
-        requestId: 'req_web_7d9a8b6c5d',
-        timestamp: '2023-04-16T14:22:36Z'
+      code: 'TECH_001',
+      message: 'Database connection failed',
+      details: {
+        database: 'health-metrics',
+        operation: 'read',
+        errorCode: 'ECONNREFUSED'
+      },
+      fallback: {
+        strategy: 'cached-data',
+        dataSource: 'redis-cache',
+        dataFreshness: '15m',
+        cachedAt: '2023-06-15T14:20:42Z'
       }
+    }
+  }
+};
+
+// ===== RETRY AND RECOVERY METADATA =====
+
+/**
+ * Sample retry and recovery metadata for testing error handling strategies
+ */
+export const retryAndRecoveryMetadata = {
+  /**
+   * Retry strategies
+   */
+  retryStrategies: {
+    /**
+     * Fixed delay retry strategy
+     */
+    fixed: {
+      strategy: 'fixed',
+      delay: 1000, // ms
+      maxRetries: 3,
+      retryableErrors: ['EXT_001', 'EXT_003', 'TECH_001', 'TECH_003']
+    },
+    
+    /**
+     * Exponential backoff retry strategy
+     */
+    exponential: {
+      strategy: 'exponential',
+      initialDelay: 1000, // ms
+      factor: 2,
+      maxDelay: 30000, // ms
+      maxRetries: 5,
+      retryableErrors: ['EXT_001', 'EXT_003', 'TECH_001', 'TECH_003']
+    },
+    
+    /**
+     * Random jitter retry strategy
+     */
+    jitter: {
+      strategy: 'jitter',
+      minDelay: 1000, // ms
+      maxDelay: 5000, // ms
+      maxRetries: 4,
+      retryableErrors: ['EXT_001', 'EXT_003', 'TECH_001', 'TECH_003']
+    }
+  },
+  
+  /**
+   * Circuit breaker configurations
+   */
+  circuitBreakers: {
+    /**
+     * Default circuit breaker configuration
+     */
+    default: {
+      failureThreshold: 5,
+      resetTimeout: 30000, // ms
+      monitoredErrors: ['EXT_001', 'EXT_002', 'EXT_003']
+    },
+    
+    /**
+     * Sensitive circuit breaker configuration (for critical services)
+     */
+    sensitive: {
+      failureThreshold: 3,
+      resetTimeout: 60000, // ms
+      monitoredErrors: ['EXT_001', 'EXT_002', 'EXT_003', 'TECH_001']
+    }
+  },
+  
+  /**
+   * Fallback strategies
+   */
+  fallbackStrategies: {
+    /**
+     * Cached data fallback strategy
+     */
+    cachedData: {
+      strategy: 'cached-data',
+      maxAge: 900000, // 15 minutes in ms
+      applicableErrors: ['TECH_001', 'EXT_001', 'EXT_002', 'EXT_003']
+    },
+    
+    /**
+     * Default value fallback strategy
+     */
+    defaultValue: {
+      strategy: 'default-value',
+      applicableErrors: ['TECH_001', 'TECH_002', 'EXT_001', 'EXT_002', 'EXT_003']
+    },
+    
+    /**
+     * Degraded service fallback strategy
+     */
+    degradedService: {
+      strategy: 'degraded-service',
+      features: {
+        'health-tracking': {
+          degradedMode: 'manual-entry-only',
+          disabledIntegrations: ['wearables', 'health-devices']
+        },
+        'appointment-booking': {
+          degradedMode: 'view-only',
+          disabledIntegrations: ['provider-calendar']
+        },
+        'claim-submission': {
+          degradedMode: 'offline-submission',
+          disabledIntegrations: ['payment-gateway', 'document-processing']
+        }
+      },
+      applicableErrors: ['TECH_001', 'TECH_003', 'EXT_001', 'EXT_002', 'EXT_003']
     }
   }
 };
