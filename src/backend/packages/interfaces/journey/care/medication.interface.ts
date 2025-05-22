@@ -1,7 +1,11 @@
 /**
- * Represents a medication interface for the Care journey.
- * This interface is used for tracking medications as part of the Care Now journey.
- * It supports medication tracking with reminders and adherence monitoring.
+ * @file Medication Interface
+ * @description Defines the interface for medications in the Care Journey.
+ */
+
+/**
+ * Interface for medication data in the Care Journey.
+ * Represents medications that users are taking, with tracking and reminder capabilities.
  */
 export interface IMedication {
   /**
