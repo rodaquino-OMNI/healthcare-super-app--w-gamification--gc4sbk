@@ -1,989 +1,577 @@
 /**
- * @file plan-events.ts
- * @description Contains test fixtures specifically for Plan journey events including claim submission,
- * benefit utilization, plan selection/comparison, and reward redemption. This file provides standardized
- * test data with realistic values for testing gamification rules, achievement processing, and notifications
- * related to the Plan journey.
+ * @file Plan journey event test fixtures
+ * @description Contains test fixtures for Plan journey events including claim submission,
+ * benefit utilization, plan selection/comparison, and reward redemption. These fixtures
+ * provide standardized test data for gamification rules, achievement processing, and
+ * notifications related to the Plan journey.
  */
 
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
+import {
+  EventType,
+  EventJourney,
+  GamificationEvent,
+  ClaimEventPayload,
+  BenefitUtilizedPayload,
+  PlanEventPayload,
+} from '../../../interfaces/gamification/events';
+
+import { ClaimStatus } from '../../../interfaces/journey/plan/claim.interface';
 
 /**
- * Base interface for all Plan journey event payloads
- */
-export interface PlanEventPayload {
-  type: string;
-  journey: string;
-  userId: string;
-  timestamp: string;
-  data: any;
-  metadata?: Record<string, any>;
-}
-
-/**
- * Claim types for test fixtures
- */
-export enum ClaimType {
-  MEDICAL = 'medical',
-  DENTAL = 'dental',
-  VISION = 'vision',
-  PHARMACY = 'pharmacy',
-  THERAPY = 'therapy',
-  HOSPITAL = 'hospital',
-  EMERGENCY = 'emergency',
-  PREVENTIVE = 'preventive'
-}
-
-/**
- * Claim status types for test fixtures
- */
-export enum ClaimStatus {
-  SUBMITTED = 'submitted',
-  IN_REVIEW = 'in_review',
-  APPROVED = 'approved',
-  PARTIAL = 'partial',
-  DENIED = 'denied',
-  APPEALED = 'appealed',
-  CANCELLED = 'cancelled'
-}
-
-/**
- * Benefit types for test fixtures
- */
-export enum BenefitType {
-  WELLNESS = 'wellness',
-  PREVENTIVE = 'preventive',
-  SPECIALIST = 'specialist',
-  TELEMEDICINE = 'telemedicine',
-  MENTAL_HEALTH = 'mental_health',
-  PHYSICAL_THERAPY = 'physical_therapy',
-  PRESCRIPTION = 'prescription',
-  DENTAL = 'dental',
-  VISION = 'vision',
-  EMERGENCY = 'emergency',
-  HOSPITAL = 'hospital'
-}
-
-/**
- * Plan types for test fixtures
- */
-export enum PlanType {
-  HEALTH = 'health',
-  DENTAL = 'dental',
-  VISION = 'vision',
-  COMBINED = 'combined'
-}
-
-/**
- * Coverage levels for test fixtures
- */
-export enum CoverageLevel {
-  INDIVIDUAL = 'individual',
-  COUPLE = 'couple',
-  FAMILY = 'family',
-  SENIOR = 'senior'
-}
-
-/**
- * Reward types for test fixtures
- */
-export enum RewardType {
-  GIFT_CARD = 'gift_card',
-  PREMIUM_DISCOUNT = 'premium_discount',
-  MERCHANDISE = 'merchandise',
-  WELLNESS_CREDIT = 'wellness_credit',
-  CHARITY_DONATION = 'charity_donation',
-  EXPERIENCE = 'experience'
-}
-
-/**
- * Document types for test fixtures
- */
-export enum DocumentType {
-  ENROLLMENT = 'enrollment',
-  CONSENT = 'consent',
-  AUTHORIZATION = 'authorization',
-  CLAIM_FORM = 'claim_form',
-  MEDICAL_RECORDS = 'medical_records',
-  INSURANCE_CARD = 'insurance_card',
-  POLICY_DOCUMENT = 'policy_document'
-}
-
-/**
- * Creates a base event payload for Plan journey events
+ * Base event fixture generator for Plan journey events
  * 
- * @param userId - The user ID
  * @param type - The event type
- * @param data - The event data
- * @returns A Plan journey event payload
+ * @param payload - The event payload
+ * @param userId - The user ID (defaults to a test user ID)
+ * @returns A complete GamificationEvent object
  */
-export function createPlanEventPayload(userId: string, type: string, data: any): PlanEventPayload {
-  return {
-    type,
-    journey: 'plan',
-    userId,
+const createPlanEvent = <T>(
+  type: EventType,
+  payload: T,
+  userId: string = 'test-user-123'
+): GamificationEvent => ({
+  eventId: `plan-event-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+  type,
+  userId,
+  journey: EventJourney.PLAN,
+  payload: payload as any,
+  version: { major: 1, minor: 0, patch: 0 },
+  createdAt: new Date().toISOString(),
+  source: 'plan-service',
+  correlationId: `corr-${Date.now()}`
+});
+
+// ==========================================
+// Claim Submission Event Fixtures
+// ==========================================
+
+/**
+ * Fixture for a claim submission event (medical consultation)
+ */
+export const claimSubmittedMedicalConsultation = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
     timestamp: new Date().toISOString(),
-    data,
+    claimId: 'claim-123',
+    claimType: 'Consulta Médica',
+    amount: 250.00,
     metadata: {
-      source: 'test-fixtures',
-      version: '1.0.0'
+      provider: 'Dr. Ana Silva',
+      specialty: 'Cardiologia',
+      date: new Date().toISOString(),
+      isComplete: true,
+      documentCount: 2
     }
-  };
-}
-
-/**
- * Creates a claim submission event payload
- * 
- * @param userId - The user ID
- * @param options - Optional claim data
- * @returns A claim submission event payload
- */
-export function createClaimSubmittedEvent(
-  userId: string,
-  options: {
-    claimId?: string;
-    claimType?: ClaimType;
-    providerId?: string;
-    serviceDate?: string;
-    amount?: number;
-    submittedAt?: string;
-    documentIds?: string[];
-    description?: string;
-  } = {}
-): PlanEventPayload {
-  const claimId = options.claimId || `claim-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const serviceDate = options.serviceDate || new Date(Date.now() - Math.floor(Math.random() * 30) * 86400000).toISOString();
-  const submittedAt = options.submittedAt || new Date().toISOString();
-  
-  return createPlanEventPayload(userId, EventType.PLAN_CLAIM_SUBMITTED, {
-    claimId,
-    claimType: options.claimType || ClaimType.MEDICAL,
-    providerId: options.providerId || `provider-${Math.floor(Math.random() * 1000)}`,
-    serviceDate,
-    amount: options.amount || Math.floor(Math.random() * 500) + 100,
-    submittedAt,
-    documentIds: options.documentIds || [],
-    description: options.description || '',
-    status: ClaimStatus.SUBMITTED
-  });
-}
-
-/**
- * Creates a claim processed event payload
- * 
- * @param userId - The user ID
- * @param options - Optional claim processing data
- * @returns A claim processed event payload
- */
-export function createClaimProcessedEvent(
-  userId: string,
-  options: {
-    claimId?: string;
-    status?: ClaimStatus;
-    amount?: number;
-    coveredAmount?: number;
-    processedAt?: string;
-    notes?: string;
-    appealDeadline?: string;
-  } = {}
-): PlanEventPayload {
-  const claimId = options.claimId || `claim-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const amount = options.amount || Math.floor(Math.random() * 500) + 100;
-  const status = options.status || (Math.random() > 0.2 ? ClaimStatus.APPROVED : ClaimStatus.DENIED);
-  const coveredAmount = options.coveredAmount || 
-    (status === ClaimStatus.APPROVED ? amount : 
-     status === ClaimStatus.PARTIAL ? Math.floor(amount * 0.7) : 0);
-  
-  return createPlanEventPayload(userId, EventType.PLAN_CLAIM_PROCESSED, {
-    claimId,
-    status,
-    amount,
-    coveredAmount,
-    processedAt: options.processedAt || new Date().toISOString(),
-    notes: options.notes || '',
-    appealDeadline: options.appealDeadline || 
-      (status === ClaimStatus.DENIED ? new Date(Date.now() + 30 * 86400000).toISOString() : undefined)
-  });
-}
-
-/**
- * Creates a plan selection event payload
- * 
- * @param userId - The user ID
- * @param options - Optional plan selection data
- * @returns A plan selection event payload
- */
-export function createPlanSelectedEvent(
-  userId: string,
-  options: {
-    planId?: string;
-    planType?: PlanType;
-    coverageLevel?: CoverageLevel;
-    premium?: number;
-    startDate?: string;
-    selectedAt?: string;
-    comparedPlans?: Array<{
-      planId: string;
-      premium: number;
-      coverageLevel: CoverageLevel;
-    }>;
-    previousPlanId?: string;
-    annualSavings?: number;
-  } = {}
-): PlanEventPayload {
-  const planId = options.planId || `plan-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const premium = options.premium || Math.floor(Math.random() * 500) + 200;
-  const startDate = options.startDate || new Date(Date.now() + 15 * 86400000).toISOString();
-  
-  return createPlanEventPayload(userId, EventType.PLAN_SELECTED, {
-    planId,
-    planType: options.planType || PlanType.HEALTH,
-    coverageLevel: options.coverageLevel || CoverageLevel.INDIVIDUAL,
-    premium,
-    startDate,
-    selectedAt: options.selectedAt || new Date().toISOString(),
-    comparedPlans: options.comparedPlans || [
-      {
-        planId: `plan-alt-1-${Math.floor(Math.random() * 1000)}`,
-        premium: premium + Math.floor(Math.random() * 100) + 50,
-        coverageLevel: CoverageLevel.INDIVIDUAL
-      },
-      {
-        planId: `plan-alt-2-${Math.floor(Math.random() * 1000)}`,
-        premium: premium - Math.floor(Math.random() * 50),
-        coverageLevel: CoverageLevel.INDIVIDUAL
-      }
-    ],
-    previousPlanId: options.previousPlanId,
-    annualSavings: options.annualSavings || (options.previousPlanId ? Math.floor(Math.random() * 1000) + 100 : undefined)
-  });
-}
-
-/**
- * Creates a benefit utilization event payload
- * 
- * @param userId - The user ID
- * @param options - Optional benefit utilization data
- * @returns A benefit utilization event payload
- */
-export function createBenefitUtilizedEvent(
-  userId: string,
-  options: {
-    benefitId?: string;
-    benefitType?: BenefitType;
-    providerId?: string;
-    utilizationDate?: string;
-    savingsAmount?: number;
-    description?: string;
-    location?: string;
-    remainingUtilizations?: number;
-  } = {}
-): PlanEventPayload {
-  const benefitId = options.benefitId || `benefit-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  
-  return createPlanEventPayload(userId, EventType.PLAN_BENEFIT_UTILIZED, {
-    benefitId,
-    benefitType: options.benefitType || BenefitType.WELLNESS,
-    providerId: options.providerId || `provider-${Math.floor(Math.random() * 1000)}`,
-    utilizationDate: options.utilizationDate || new Date().toISOString(),
-    savingsAmount: options.savingsAmount || Math.floor(Math.random() * 200) + 50,
-    description: options.description || '',
-    location: options.location || '',
-    remainingUtilizations: options.remainingUtilizations !== undefined ? 
-      options.remainingUtilizations : Math.floor(Math.random() * 5)
-  });
-}
-
-/**
- * Creates a reward redemption event payload
- * 
- * @param userId - The user ID
- * @param options - Optional reward redemption data
- * @returns A reward redemption event payload
- */
-export function createRewardRedeemedEvent(
-  userId: string,
-  options: {
-    rewardId?: string;
-    rewardType?: RewardType;
-    pointsRedeemed?: number;
-    value?: number;
-    redeemedAt?: string;
-    expirationDate?: string;
-    deliveryMethod?: string;
-    deliveryStatus?: string;
-  } = {}
-): PlanEventPayload {
-  const rewardId = options.rewardId || `reward-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const pointsRedeemed = options.pointsRedeemed || Math.floor(Math.random() * 500) + 100;
-  
-  return createPlanEventPayload(userId, EventType.PLAN_REWARD_REDEEMED, {
-    rewardId,
-    rewardType: options.rewardType || RewardType.GIFT_CARD,
-    pointsRedeemed,
-    value: options.value || Math.floor(pointsRedeemed / 10),
-    redeemedAt: options.redeemedAt || new Date().toISOString(),
-    expirationDate: options.expirationDate || new Date(Date.now() + 180 * 86400000).toISOString(),
-    deliveryMethod: options.deliveryMethod || 'email',
-    deliveryStatus: options.deliveryStatus || 'delivered'
-  });
-}
-
-/**
- * Creates a document completion event payload
- * 
- * @param userId - The user ID
- * @param options - Optional document completion data
- * @returns A document completion event payload
- */
-export function createDocumentCompletedEvent(
-  userId: string,
-  options: {
-    documentId?: string;
-    documentType?: DocumentType;
-    completedAt?: string;
-    verificationStatus?: string;
-    fileSize?: number;
-    fileType?: string;
-    relatedEntityId?: string;
-    relatedEntityType?: string;
-  } = {}
-): PlanEventPayload {
-  const documentId = options.documentId || `document-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  
-  return createPlanEventPayload(userId, EventType.PLAN_DOCUMENT_COMPLETED, {
-    documentId,
-    documentType: options.documentType || DocumentType.CLAIM_FORM,
-    completedAt: options.completedAt || new Date().toISOString(),
-    verificationStatus: options.verificationStatus || 'verified',
-    fileSize: options.fileSize || Math.floor(Math.random() * 5000) + 100,
-    fileType: options.fileType || 'application/pdf',
-    relatedEntityId: options.relatedEntityId,
-    relatedEntityType: options.relatedEntityType
-  });
-}
-
-// Pre-defined test fixtures for common scenarios
-
-/**
- * Standard user ID for test fixtures
- */
-export const TEST_USER_ID = 'test-user-123';
-
-/**
- * Claim submission test fixtures
- */
-export const claimSubmissionFixtures = {
-  /**
-   * A basic medical claim submission
-   */
-  basicMedicalClaim: createClaimSubmittedEvent(TEST_USER_ID, {
-    claimType: ClaimType.MEDICAL,
-    amount: 250,
-    description: 'Annual physical examination'
-  }),
-  
-  /**
-   * A dental claim submission
-   */
-  dentalClaim: createClaimSubmittedEvent(TEST_USER_ID, {
-    claimType: ClaimType.DENTAL,
-    amount: 180,
-    description: 'Dental cleaning and X-rays'
-  }),
-  
-  /**
-   * A high-value hospital claim submission
-   */
-  hospitalClaim: createClaimSubmittedEvent(TEST_USER_ID, {
-    claimType: ClaimType.HOSPITAL,
-    amount: 3500,
-    description: 'Outpatient procedure'
-  }),
-  
-  /**
-   * A claim with supporting documents
-   */
-  claimWithDocuments: createClaimSubmittedEvent(TEST_USER_ID, {
-    claimType: ClaimType.MEDICAL,
-    amount: 450,
-    description: 'Specialist consultation',
-    documentIds: ['doc-receipt-123', 'doc-prescription-456', 'doc-referral-789']
-  }),
-  
-  /**
-   * A pharmacy claim submission
-   */
-  pharmacyClaim: createClaimSubmittedEvent(TEST_USER_ID, {
-    claimType: ClaimType.PHARMACY,
-    amount: 75,
-    description: 'Prescription medication'
-  })
-};
-
-/**
- * Claim processing test fixtures
- */
-export const claimProcessingFixtures = {
-  /**
-   * An approved claim
-   */
-  approvedClaim: createClaimProcessedEvent(TEST_USER_ID, {
-    claimId: 'claim-approved-123',
-    status: ClaimStatus.APPROVED,
-    amount: 250,
-    coveredAmount: 250,
-    notes: 'Claim approved in full'
-  }),
-  
-  /**
-   * A partially approved claim
-   */
-  partialClaim: createClaimProcessedEvent(TEST_USER_ID, {
-    claimId: 'claim-partial-123',
-    status: ClaimStatus.PARTIAL,
-    amount: 500,
-    coveredAmount: 350,
-    notes: 'Partial coverage due to out-of-network provider'
-  }),
-  
-  /**
-   * A denied claim
-   */
-  deniedClaim: createClaimProcessedEvent(TEST_USER_ID, {
-    claimId: 'claim-denied-123',
-    status: ClaimStatus.DENIED,
-    amount: 300,
-    coveredAmount: 0,
-    notes: 'Service not covered under current plan',
-    appealDeadline: new Date(Date.now() + 30 * 86400000).toISOString()
-  }),
-  
-  /**
-   * A claim under review
-   */
-  inReviewClaim: createClaimProcessedEvent(TEST_USER_ID, {
-    claimId: 'claim-review-123',
-    status: ClaimStatus.IN_REVIEW,
-    amount: 1200,
-    notes: 'Additional documentation requested'
-  }),
-  
-  /**
-   * An appealed claim
-   */
-  appealedClaim: createClaimProcessedEvent(TEST_USER_ID, {
-    claimId: 'claim-appeal-123',
-    status: ClaimStatus.APPEALED,
-    amount: 800,
-    notes: 'Claim under appeal review'
-  })
-};
-
-/**
- * Plan selection test fixtures
- */
-export const planSelectionFixtures = {
-  /**
-   * Basic individual health plan selection
-   */
-  basicHealthPlan: createPlanSelectedEvent(TEST_USER_ID, {
-    planType: PlanType.HEALTH,
-    coverageLevel: CoverageLevel.INDIVIDUAL,
-    premium: 350
-  }),
-  
-  /**
-   * Family health plan selection
-   */
-  familyHealthPlan: createPlanSelectedEvent(TEST_USER_ID, {
-    planType: PlanType.HEALTH,
-    coverageLevel: CoverageLevel.FAMILY,
-    premium: 950
-  }),
-  
-  /**
-   * Dental plan selection
-   */
-  dentalPlan: createPlanSelectedEvent(TEST_USER_ID, {
-    planType: PlanType.DENTAL,
-    coverageLevel: CoverageLevel.INDIVIDUAL,
-    premium: 45
-  }),
-  
-  /**
-   * Plan upgrade with savings
-   */
-  planUpgrade: createPlanSelectedEvent(TEST_USER_ID, {
-    planType: PlanType.HEALTH,
-    coverageLevel: CoverageLevel.INDIVIDUAL,
-    premium: 425,
-    previousPlanId: 'plan-previous-123',
-    annualSavings: 300
-  }),
-  
-  /**
-   * Combined health and dental plan
-   */
-  combinedPlan: createPlanSelectedEvent(TEST_USER_ID, {
-    planType: PlanType.COMBINED,
-    coverageLevel: CoverageLevel.COUPLE,
-    premium: 675
-  })
-};
-
-/**
- * Benefit utilization test fixtures
- */
-export const benefitUtilizationFixtures = {
-  /**
-   * Wellness program benefit
-   */
-  wellnessBenefit: createBenefitUtilizedEvent(TEST_USER_ID, {
-    benefitType: BenefitType.WELLNESS,
-    savingsAmount: 150,
-    description: 'Gym membership discount',
-    remainingUtilizations: 11
-  }),
-  
-  /**
-   * Preventive care benefit
-   */
-  preventiveBenefit: createBenefitUtilizedEvent(TEST_USER_ID, {
-    benefitType: BenefitType.PREVENTIVE,
-    savingsAmount: 200,
-    description: 'Annual wellness check-up',
-    remainingUtilizations: 0
-  }),
-  
-  /**
-   * Telemedicine benefit
-   */
-  telemedicineBenefit: createBenefitUtilizedEvent(TEST_USER_ID, {
-    benefitType: BenefitType.TELEMEDICINE,
-    savingsAmount: 75,
-    description: 'Virtual doctor consultation',
-    remainingUtilizations: 5
-  }),
-  
-  /**
-   * Mental health benefit
-   */
-  mentalHealthBenefit: createBenefitUtilizedEvent(TEST_USER_ID, {
-    benefitType: BenefitType.MENTAL_HEALTH,
-    savingsAmount: 120,
-    description: 'Therapy session',
-    remainingUtilizations: 9
-  }),
-  
-  /**
-   * Prescription benefit
-   */
-  prescriptionBenefit: createBenefitUtilizedEvent(TEST_USER_ID, {
-    benefitType: BenefitType.PRESCRIPTION,
-    savingsAmount: 45,
-    description: 'Generic medication discount',
-    remainingUtilizations: 23
-  })
-};
-
-/**
- * Reward redemption test fixtures
- */
-export const rewardRedemptionFixtures = {
-  /**
-   * Gift card reward
-   */
-  giftCardReward: createRewardRedeemedEvent(TEST_USER_ID, {
-    rewardType: RewardType.GIFT_CARD,
-    pointsRedeemed: 500,
-    value: 50,
-    deliveryMethod: 'email'
-  }),
-  
-  /**
-   * Premium discount reward
-   */
-  premiumDiscountReward: createRewardRedeemedEvent(TEST_USER_ID, {
-    rewardType: RewardType.PREMIUM_DISCOUNT,
-    pointsRedeemed: 1000,
-    value: 100,
-    deliveryMethod: 'account_credit'
-  }),
-  
-  /**
-   * Merchandise reward
-   */
-  merchandiseReward: createRewardRedeemedEvent(TEST_USER_ID, {
-    rewardType: RewardType.MERCHANDISE,
-    pointsRedeemed: 750,
-    value: 75,
-    deliveryMethod: 'shipping',
-    deliveryStatus: 'processing'
-  }),
-  
-  /**
-   * Wellness credit reward
-   */
-  wellnessCreditReward: createRewardRedeemedEvent(TEST_USER_ID, {
-    rewardType: RewardType.WELLNESS_CREDIT,
-    pointsRedeemed: 300,
-    value: 30,
-    deliveryMethod: 'account_credit'
-  }),
-  
-  /**
-   * Charity donation reward
-   */
-  charityDonationReward: createRewardRedeemedEvent(TEST_USER_ID, {
-    rewardType: RewardType.CHARITY_DONATION,
-    pointsRedeemed: 250,
-    value: 25,
-    deliveryMethod: 'direct_transfer'
-  })
-};
-
-/**
- * Document completion test fixtures
- */
-export const documentCompletionFixtures = {
-  /**
-   * Claim form document
-   */
-  claimFormDocument: createDocumentCompletedEvent(TEST_USER_ID, {
-    documentType: DocumentType.CLAIM_FORM,
-    relatedEntityId: 'claim-123',
-    relatedEntityType: 'claim'
-  }),
-  
-  /**
-   * Enrollment document
-   */
-  enrollmentDocument: createDocumentCompletedEvent(TEST_USER_ID, {
-    documentType: DocumentType.ENROLLMENT,
-    relatedEntityId: 'plan-123',
-    relatedEntityType: 'plan'
-  }),
-  
-  /**
-   * Consent document
-   */
-  consentDocument: createDocumentCompletedEvent(TEST_USER_ID, {
-    documentType: DocumentType.CONSENT,
-    verificationStatus: 'pending_review'
-  }),
-  
-  /**
-   * Medical records document
-   */
-  medicalRecordsDocument: createDocumentCompletedEvent(TEST_USER_ID, {
-    documentType: DocumentType.MEDICAL_RECORDS,
-    fileSize: 8500,
-    relatedEntityId: 'claim-456',
-    relatedEntityType: 'claim'
-  }),
-  
-  /**
-   * Insurance card document
-   */
-  insuranceCardDocument: createDocumentCompletedEvent(TEST_USER_ID, {
-    documentType: DocumentType.INSURANCE_CARD,
-    fileType: 'image/jpeg',
-    fileSize: 1200
-  })
-};
-
-/**
- * Collection of all Plan journey test fixtures
- */
-export const planEventFixtures = {
-  claimSubmission: claimSubmissionFixtures,
-  claimProcessing: claimProcessingFixtures,
-  planSelection: planSelectionFixtures,
-  benefitUtilization: benefitUtilizationFixtures,
-  rewardRedemption: rewardRedemptionFixtures,
-  documentCompletion: documentCompletionFixtures
-};
-
-/**
- * Creates a sequence of related claim events (submission followed by processing)
- * 
- * @param userId - The user ID
- * @param options - Optional claim sequence data
- * @returns An array of related claim events
- */
-export function createClaimSequence(
-  userId: string,
-  options: {
-    claimType?: ClaimType;
-    amount?: number;
-    status?: ClaimStatus;
-    description?: string;
-    documentIds?: string[];
-  } = {}
-): PlanEventPayload[] {
-  const claimId = `claim-seq-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const amount = options.amount || Math.floor(Math.random() * 500) + 100;
-  const status = options.status || (Math.random() > 0.2 ? ClaimStatus.APPROVED : ClaimStatus.DENIED);
-  const coveredAmount = status === ClaimStatus.APPROVED ? amount : 
-                        status === ClaimStatus.PARTIAL ? Math.floor(amount * 0.7) : 0;
-  
-  // Create submission event
-  const submissionEvent = createClaimSubmittedEvent(userId, {
-    claimId,
-    claimType: options.claimType || ClaimType.MEDICAL,
-    amount,
-    description: options.description || 'Test claim',
-    documentIds: options.documentIds
-  });
-  
-  // Create processing event
-  const processingEvent = createClaimProcessedEvent(userId, {
-    claimId,
-    status,
-    amount,
-    coveredAmount,
-    processedAt: new Date(new Date(submissionEvent.timestamp).getTime() + 86400000).toISOString() // 1 day later
-  });
-  
-  return [submissionEvent, processingEvent];
-}
-
-/**
- * Creates a sequence of benefit utilization events for testing achievement tracking
- * 
- * @param userId - The user ID
- * @param count - Number of benefit utilization events to create
- * @param benefitType - Type of benefit to utilize
- * @returns An array of benefit utilization events
- */
-export function createBenefitUtilizationSequence(
-  userId: string,
-  count: number = 3,
-  benefitType: BenefitType = BenefitType.WELLNESS
-): PlanEventPayload[] {
-  const events: PlanEventPayload[] = [];
-  const baseTime = Date.now() - (count * 86400000); // Start 'count' days ago
-  
-  for (let i = 0; i < count; i++) {
-    const eventTime = new Date(baseTime + (i * 86400000)).toISOString(); // 1 day apart
-    events.push(createBenefitUtilizedEvent(userId, {
-      benefitType,
-      utilizationDate: eventTime,
-      savingsAmount: Math.floor(Math.random() * 100) + 50,
-      remainingUtilizations: count - i - 1
-    }));
   }
-  
-  return events;
-}
+);
 
 /**
- * Creates a plan comparison and selection sequence
- * 
- * @param userId - The user ID
- * @param options - Optional plan selection data
- * @returns An array of events representing the plan selection process
+ * Fixture for a claim submission event (medical exam)
  */
-export function createPlanSelectionSequence(
-  userId: string,
-  options: {
-    planType?: PlanType;
-    coverageLevel?: CoverageLevel;
-    previousPlanId?: string;
-  } = {}
-): PlanEventPayload[] {
-  const planType = options.planType || PlanType.HEALTH;
-  const coverageLevel = options.coverageLevel || CoverageLevel.INDIVIDUAL;
-  const previousPlanId = options.previousPlanId;
-  
-  // Create base premium and alternative plans
-  const basePremium = Math.floor(Math.random() * 300) + 200;
-  const plans = [
-    {
-      planId: `plan-option-1-${Date.now()}`,
-      premium: basePremium,
-      coverageLevel
-    },
-    {
-      planId: `plan-option-2-${Date.now()}`,
-      premium: basePremium + Math.floor(Math.random() * 100) + 50,
-      coverageLevel
-    },
-    {
-      planId: `plan-option-3-${Date.now()}`,
-      premium: basePremium - Math.floor(Math.random() * 50),
-      coverageLevel
-    }
-  ];
-  
-  // Select the lowest premium plan
-  const selectedPlan = plans.reduce((prev, current) => 
-    prev.premium < current.premium ? prev : current
-  );
-  
-  // Calculate annual savings if upgrading from previous plan
-  const annualSavings = previousPlanId ? Math.floor(Math.random() * 500) + 100 : undefined;
-  
-  // Create the plan selection event
-  const selectionEvent = createPlanSelectedEvent(userId, {
-    planId: selectedPlan.planId,
-    planType,
-    coverageLevel,
-    premium: selectedPlan.premium,
-    comparedPlans: plans,
-    previousPlanId,
-    annualSavings
-  });
-  
-  return [selectionEvent];
-}
-
-/**
- * Creates a reward redemption sequence with point earning and redemption
- * 
- * @param userId - The user ID
- * @param options - Optional reward redemption data
- * @returns An array of events representing the reward redemption process
- */
-export function createRewardRedemptionSequence(
-  userId: string,
-  options: {
-    rewardType?: RewardType;
-    pointsEarned?: number;
-    pointsRedeemed?: number;
-  } = {}
-): PlanEventPayload[] {
-  const pointsEarned = options.pointsEarned || Math.floor(Math.random() * 500) + 200;
-  const pointsRedeemed = options.pointsRedeemed || Math.min(pointsEarned, Math.floor(Math.random() * 300) + 100);
-  const rewardType = options.rewardType || RewardType.GIFT_CARD;
-  
-  // Create points earned event (from gamification)
-  const pointsEvent = {
-    type: EventType.GAMIFICATION_POINTS_EARNED,
-    journey: 'gamification',
-    userId,
-    timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-    data: {
-      points: pointsEarned,
-      sourceType: 'plan',
-      sourceId: `plan-activity-${Date.now()}`,
-      reason: 'Plan activity completion',
-      earnedAt: new Date(Date.now() - 86400000).toISOString()
-    },
+export const claimSubmittedMedicalExam = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-456',
+    claimType: 'Exame',
+    amount: 350.00,
     metadata: {
-      source: 'test-fixtures',
-      version: '1.0.0'
+      examType: 'Ressonância Magnética',
+      provider: 'Clínica Diagnóstica Central',
+      date: new Date().toISOString(),
+      isComplete: true,
+      documentCount: 3
     }
-  };
-  
-  // Create reward redemption event
-  const redemptionEvent = createRewardRedeemedEvent(userId, {
-    rewardType,
-    pointsRedeemed,
-    value: Math.floor(pointsRedeemed / 10)
-  });
-  
-  return [pointsEvent, redemptionEvent];
-}
+  }
+);
 
 /**
- * Creates a complete user journey through the Plan journey with multiple event types
- * 
- * @param userId - The user ID
- * @returns An array of events representing a complete user journey
+ * Fixture for a claim submission event (therapy session)
  */
-export function createCompletePlanJourney(userId: string): PlanEventPayload[] {
-  const events: PlanEventPayload[] = [];
-  const baseTime = Date.now() - (10 * 86400000); // Start 10 days ago
-  
-  // Day 1: User selects a plan
-  const planSelection = createPlanSelectedEvent(userId, {
-    planType: PlanType.HEALTH,
-    coverageLevel: CoverageLevel.INDIVIDUAL,
-    premium: 350,
-    selectedAt: new Date(baseTime).toISOString()
-  });
-  events.push(planSelection);
-  
-  // Day 2: User completes enrollment documents
-  const enrollmentDoc = createDocumentCompletedEvent(userId, {
-    documentType: DocumentType.ENROLLMENT,
-    completedAt: new Date(baseTime + 86400000).toISOString(),
-    relatedEntityId: planSelection.data.planId,
-    relatedEntityType: 'plan'
-  });
-  events.push(enrollmentDoc);
-  
-  // Day 3: User uploads insurance card
-  const insuranceCard = createDocumentCompletedEvent(userId, {
-    documentType: DocumentType.INSURANCE_CARD,
-    completedAt: new Date(baseTime + 2 * 86400000).toISOString(),
-    fileType: 'image/jpeg'
-  });
-  events.push(insuranceCard);
-  
-  // Day 5: User utilizes wellness benefit
-  const wellnessBenefit = createBenefitUtilizedEvent(userId, {
-    benefitType: BenefitType.WELLNESS,
-    utilizationDate: new Date(baseTime + 4 * 86400000).toISOString(),
-    savingsAmount: 150,
-    description: 'Gym membership discount'
-  });
-  events.push(wellnessBenefit);
-  
-  // Day 6: User submits a medical claim
-  const [claimSubmission, claimProcessing] = createClaimSequence(userId, {
-    claimType: ClaimType.MEDICAL,
-    amount: 250,
-    status: ClaimStatus.APPROVED,
-    description: 'Annual physical examination'
-  });
-  
-  // Adjust timestamps
-  claimSubmission.timestamp = new Date(baseTime + 5 * 86400000).toISOString();
-  claimProcessing.timestamp = new Date(baseTime + 7 * 86400000).toISOString();
-  
-  events.push(claimSubmission);
-  events.push(claimProcessing);
-  
-  // Day 8: User earns points for claim approval
-  const pointsEvent = {
-    type: EventType.GAMIFICATION_POINTS_EARNED,
-    journey: 'gamification',
-    userId,
-    timestamp: new Date(baseTime + 7 * 86400000).toISOString(),
-    data: {
-      points: 50,
-      sourceType: 'plan',
-      sourceId: claimProcessing.data.claimId,
-      reason: 'Claim approved',
-      earnedAt: new Date(baseTime + 7 * 86400000).toISOString()
-    },
+export const claimSubmittedTherapy = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-789',
+    claimType: 'Terapia',
+    amount: 180.00,
     metadata: {
-      source: 'test-fixtures',
-      version: '1.0.0'
+      therapyType: 'Fisioterapia',
+      provider: 'Centro de Reabilitação Física',
+      date: new Date().toISOString(),
+      isComplete: true,
+      documentCount: 1
     }
-  };
-  events.push(pointsEvent);
+  }
+);
+
+/**
+ * Fixture for a claim submission event (medication)
+ */
+export const claimSubmittedMedication = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-101',
+    claimType: 'Medicamento',
+    amount: 120.50,
+    metadata: {
+      medicationName: 'Losartana 50mg',
+      pharmacy: 'Farmácia Popular',
+      date: new Date().toISOString(),
+      isComplete: true,
+      documentCount: 2,
+      prescriptionIncluded: true
+    }
+  }
+);
+
+/**
+ * Fixture for a claim submission event (hospitalization)
+ */
+export const claimSubmittedHospitalization = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-202',
+    claimType: 'Internação',
+    amount: 5000.00,
+    metadata: {
+      hospital: 'Hospital São Lucas',
+      admissionDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+      dischargeDate: new Date().toISOString(),
+      reason: 'Cirurgia de Apendicite',
+      isComplete: true,
+      documentCount: 5
+    }
+  }
+);
+
+/**
+ * Fixture for an incomplete claim submission event
+ */
+export const claimSubmittedIncomplete = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_SUBMITTED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-303',
+    claimType: 'Consulta Médica',
+    amount: 200.00,
+    metadata: {
+      provider: 'Dr. Carlos Mendes',
+      specialty: 'Oftalmologia',
+      date: new Date().toISOString(),
+      isComplete: false,
+      documentCount: 0,
+      missingDocuments: ['receipt', 'medical_report']
+    }
+  }
+);
+
+/**
+ * Fixture for a claim approved event
+ */
+export const claimApproved = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_APPROVED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-123',
+    claimType: 'Consulta Médica',
+    amount: 250.00,
+    metadata: {
+      approvalDate: new Date().toISOString(),
+      reimbursementAmount: 200.00, // 80% coverage
+      expectedPaymentDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days from now
+      status: ClaimStatus.APPROVED
+    }
+  }
+);
+
+/**
+ * Fixture for a claim document uploaded event
+ */
+export const claimDocumentUploaded = createPlanEvent<ClaimEventPayload>(
+  EventType.CLAIM_DOCUMENT_UPLOADED,
+  {
+    timestamp: new Date().toISOString(),
+    claimId: 'claim-303',
+    claimType: 'Consulta Médica',
+    documentCount: 2,
+    metadata: {
+      documentTypes: ['receipt', 'medical_report'],
+      uploadedBy: 'test-user-123',
+      isComplete: true,
+      status: ClaimStatus.SUBMITTED
+    }
+  }
+);
+
+// ==========================================
+// Benefit Utilization Event Fixtures
+// ==========================================
+
+/**
+ * Fixture for a dental benefit utilization event
+ */
+export const benefitUtilizedDental = createPlanEvent<BenefitUtilizedPayload>(
+  EventType.BENEFIT_UTILIZED,
+  {
+    timestamp: new Date().toISOString(),
+    benefitId: 'benefit-123',
+    benefitType: 'Dental',
+    value: 150.00,
+    metadata: {
+      procedure: 'Limpeza Dental',
+      provider: 'Clínica Odontológica Sorriso',
+      date: new Date().toISOString(),
+      remainingCoverage: 850.00,
+      annualLimit: 1000.00
+    }
+  }
+);
+
+/**
+ * Fixture for a vision benefit utilization event
+ */
+export const benefitUtilizedVision = createPlanEvent<BenefitUtilizedPayload>(
+  EventType.BENEFIT_UTILIZED,
+  {
+    timestamp: new Date().toISOString(),
+    benefitId: 'benefit-456',
+    benefitType: 'Vision',
+    value: 500.00,
+    metadata: {
+      procedure: 'Exame Oftalmológico + Óculos',
+      provider: 'Ótica Visão Clara',
+      date: new Date().toISOString(),
+      remainingCoverage: 0.00,
+      annualLimit: 500.00,
+      isLimitReached: true
+    }
+  }
+);
+
+/**
+ * Fixture for a gym membership benefit utilization event
+ */
+export const benefitUtilizedGym = createPlanEvent<BenefitUtilizedPayload>(
+  EventType.BENEFIT_UTILIZED,
+  {
+    timestamp: new Date().toISOString(),
+    benefitId: 'benefit-789',
+    benefitType: 'Wellness',
+    value: 100.00,
+    metadata: {
+      benefitName: 'Reembolso Academia',
+      provider: 'Academia Corpo em Forma',
+      date: new Date().toISOString(),
+      remainingCoverage: 400.00,
+      annualLimit: 1200.00,
+      monthlyLimit: 100.00,
+      isRecurring: true
+    }
+  }
+);
+
+/**
+ * Fixture for a mental health benefit utilization event
+ */
+export const benefitUtilizedMentalHealth = createPlanEvent<BenefitUtilizedPayload>(
+  EventType.BENEFIT_UTILIZED,
+  {
+    timestamp: new Date().toISOString(),
+    benefitId: 'benefit-101',
+    benefitType: 'Mental Health',
+    value: 200.00,
+    metadata: {
+      procedure: 'Sessão de Terapia',
+      provider: 'Centro de Psicologia Bem Estar',
+      date: new Date().toISOString(),
+      remainingCoverage: 1800.00,
+      annualLimit: 2400.00,
+      sessionCount: 4,
+      maxSessions: 24
+    }
+  }
+);
+
+/**
+ * Fixture for a preventive care benefit utilization event
+ */
+export const benefitUtilizedPreventiveCare = createPlanEvent<BenefitUtilizedPayload>(
+  EventType.BENEFIT_UTILIZED,
+  {
+    timestamp: new Date().toISOString(),
+    benefitId: 'benefit-202',
+    benefitType: 'Preventive Care',
+    value: 0.00, // Fully covered
+    metadata: {
+      procedure: 'Check-up Anual',
+      provider: 'Clínica Preventiva Saúde Total',
+      date: new Date().toISOString(),
+      isCovered100Percent: true,
+      coverageType: 'direct'
+    }
+  }
+);
+
+// ==========================================
+// Plan Selection and Comparison Event Fixtures
+// ==========================================
+
+/**
+ * Fixture for a plan selection event (basic plan)
+ */
+export const planSelectedBasic = createPlanEvent<PlanEventPayload>(
+  EventType.PLAN_SELECTED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-123',
+    planType: 'Básico',
+    isUpgrade: false,
+    metadata: {
+      monthlyPremium: 350.00,
+      coverageStart: new Date().toISOString(),
+      coverageEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
+      isFirstPlan: true,
+      selectedBenefits: ['basic_medical', 'emergency', 'preventive_care']
+    }
+  }
+);
+
+/**
+ * Fixture for a plan selection event (standard plan)
+ */
+export const planSelectedStandard = createPlanEvent<PlanEventPayload>(
+  EventType.PLAN_SELECTED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-456',
+    planType: 'Standard',
+    isUpgrade: true,
+    metadata: {
+      monthlyPremium: 550.00,
+      previousPlanId: 'plan-123',
+      previousPlanType: 'Básico',
+      coverageStart: new Date().toISOString(),
+      coverageEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
+      selectedBenefits: ['standard_medical', 'emergency', 'preventive_care', 'dental', 'vision']
+    }
+  }
+);
+
+/**
+ * Fixture for a plan selection event (premium plan)
+ */
+export const planSelectedPremium = createPlanEvent<PlanEventPayload>(
+  EventType.PLAN_SELECTED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-789',
+    planType: 'Premium',
+    isUpgrade: true,
+    metadata: {
+      monthlyPremium: 950.00,
+      previousPlanId: 'plan-456',
+      previousPlanType: 'Standard',
+      coverageStart: new Date().toISOString(),
+      coverageEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
+      selectedBenefits: ['premium_medical', 'emergency', 'preventive_care', 'dental', 'vision', 'mental_health', 'wellness', 'international']
+    }
+  }
+);
+
+/**
+ * Fixture for a plan comparison event
+ */
+export const planCompared = createPlanEvent<PlanEventPayload>(
+  EventType.PLAN_COMPARED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-123', // Current plan
+    planType: 'Básico',
+    comparedPlanIds: ['plan-456', 'plan-789'],
+    metadata: {
+      comparedPlanTypes: ['Standard', 'Premium'],
+      comparisonCategories: ['price', 'coverage', 'benefits', 'network'],
+      currentMonthlyPremium: 350.00,
+      comparedMonthlyPremiums: [550.00, 950.00],
+      comparisonDuration: 300, // seconds spent comparing
+      userSegment: 'price_sensitive'
+    }
+  }
+);
+
+/**
+ * Fixture for a plan renewal event
+ */
+export const planRenewed = createPlanEvent<PlanEventPayload>(
+  EventType.PLAN_RENEWED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-456',
+    planType: 'Standard',
+    isUpgrade: false,
+    metadata: {
+      monthlyPremium: 580.00, // Slight increase from previous premium
+      previousMonthlyPremium: 550.00,
+      coverageStart: new Date().toISOString(),
+      coverageEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year from now
+      yearsWithPlan: 1,
+      renewalChanges: ['premium_adjustment', 'added_telemedicine']
+    }
+  }
+);
+
+/**
+ * Fixture for a coverage reviewed event
+ */
+export const coverageReviewed = createPlanEvent<PlanEventPayload>(
+  EventType.COVERAGE_REVIEWED,
+  {
+    timestamp: new Date().toISOString(),
+    planId: 'plan-456',
+    planType: 'Standard',
+    metadata: {
+      reviewDuration: 180, // seconds spent reviewing
+      reviewedCategories: ['medical', 'dental', 'vision', 'emergency'],
+      downloadedDocuments: ['coverage_summary', 'network_providers'],
+      searchQueries: ['cardiologist coverage', 'dental annual limit']
+    }
+  }
+);
+
+// ==========================================
+// Reward Redemption Event Fixtures
+// ==========================================
+
+/**
+ * Fixture for a reward redemption event (discount coupon)
+ */
+export const rewardRedeemedDiscount = createPlanEvent<Record<string, any>>(
+  EventType.REWARD_REDEEMED,
+  {
+    timestamp: new Date().toISOString(),
+    rewardId: 'reward-123',
+    rewardType: 'discount_coupon',
+    metadata: {
+      rewardTitle: 'Desconto de 10% na Renovação',
+      rewardValue: 10, // percentage
+      applicableTo: 'plan_renewal',
+      expirationDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
+      earnedFrom: 'claim_submission_streak'
+    }
+  }
+);
+
+/**
+ * Fixture for a reward redemption event (premium benefit)
+ */
+export const rewardRedeemedPremiumBenefit = createPlanEvent<Record<string, any>>(
+  EventType.REWARD_REDEEMED,
+  {
+    timestamp: new Date().toISOString(),
+    rewardId: 'reward-456',
+    rewardType: 'premium_benefit',
+    metadata: {
+      rewardTitle: 'Acesso a Telemedicina Premium',
+      benefitDuration: 30, // days
+      normallyIncludedIn: 'Premium',
+      expirationDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      earnedFrom: 'preventive_care_achievement'
+    }
+  }
+);
+
+/**
+ * Fixture for a reward redemption event (wellness credit)
+ */
+export const rewardRedeemedWellnessCredit = createPlanEvent<Record<string, any>>(
+  EventType.REWARD_REDEEMED,
+  {
+    timestamp: new Date().toISOString(),
+    rewardId: 'reward-789',
+    rewardType: 'wellness_credit',
+    metadata: {
+      rewardTitle: 'Crédito para Academia',
+      creditAmount: 100.00,
+      applicableTo: 'gym_membership',
+      expirationDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(), // 60 days from now
+      earnedFrom: 'health_goal_achievement'
+    }
+  }
+);
+
+/**
+ * Fixture for a reward redemption event (priority service)
+ */
+export const rewardRedeemedPriorityService = createPlanEvent<Record<string, any>>(
+  EventType.REWARD_REDEEMED,
+  {
+    timestamp: new Date().toISOString(),
+    rewardId: 'reward-101',
+    rewardType: 'priority_service',
+    metadata: {
+      rewardTitle: 'Atendimento Prioritário',
+      serviceDuration: 90, // days
+      serviceType: 'claim_processing',
+      expirationDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
+      earnedFrom: 'plan_loyalty'
+    }
+  }
+);
+
+/**
+ * Fixture for a reward redemption event (partner discount)
+ */
+export const rewardRedeemedPartnerDiscount = createPlanEvent<Record<string, any>>(
+  EventType.REWARD_REDEEMED,
+  {
+    timestamp: new Date().toISOString(),
+    rewardId: 'reward-202',
+    rewardType: 'partner_discount',
+    metadata: {
+      rewardTitle: 'Desconto em Farmácia Parceira',
+      discountAmount: 15, // percentage
+      partnerName: 'Rede de Farmácias Saúde',
+      minimumPurchase: 50.00,
+      expirationDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(), // 45 days from now
+      earnedFrom: 'medication_adherence_achievement'
+    }
+  }
+);
+
+// Export all fixtures as a collection for easy access
+export const planEventFixtures = {
+  // Claim events
+  claimSubmittedMedicalConsultation,
+  claimSubmittedMedicalExam,
+  claimSubmittedTherapy,
+  claimSubmittedMedication,
+  claimSubmittedHospitalization,
+  claimSubmittedIncomplete,
+  claimApproved,
+  claimDocumentUploaded,
   
-  // Day 9: User utilizes preventive care benefit
-  const preventiveBenefit = createBenefitUtilizedEvent(userId, {
-    benefitType: BenefitType.PREVENTIVE,
-    utilizationDate: new Date(baseTime + 8 * 86400000).toISOString(),
-    savingsAmount: 200,
-    description: 'Annual wellness check-up'
-  });
-  events.push(preventiveBenefit);
+  // Benefit utilization events
+  benefitUtilizedDental,
+  benefitUtilizedVision,
+  benefitUtilizedGym,
+  benefitUtilizedMentalHealth,
+  benefitUtilizedPreventiveCare,
   
-  // Day 10: User redeems reward points
-  const rewardRedemption = createRewardRedeemedEvent(userId, {
-    rewardType: RewardType.GIFT_CARD,
-    pointsRedeemed: 50,
-    value: 5,
-    redeemedAt: new Date(baseTime + 9 * 86400000).toISOString()
-  });
-  events.push(rewardRedemption);
+  // Plan selection and comparison events
+  planSelectedBasic,
+  planSelectedStandard,
+  planSelectedPremium,
+  planCompared,
+  planRenewed,
+  coverageReviewed,
   
-  return events;
-}
+  // Reward redemption events
+  rewardRedeemedDiscount,
+  rewardRedeemedPremiumBenefit,
+  rewardRedeemedWellnessCredit,
+  rewardRedeemedPriorityService,
+  rewardRedeemedPartnerDiscount
+};
