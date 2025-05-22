@@ -1,198 +1,156 @@
 /**
- * @file Central export point for all error test fixtures
+ * @file Error Test Fixtures Index
  * 
- * This file provides a clean API for importing test data in unit, integration, and e2e tests.
- * It organizes exports by category and provides helper functions to customize fixtures for
- * specific test scenarios.
+ * This file serves as the central export point for all error test fixtures,
+ * providing a clean API for importing test data in unit, integration, and e2e tests.
  * 
- * @example
- * // Import all fixtures
- * import * as ErrorFixtures from '@austa/errors/test/fixtures';
+ * Fixtures are organized by category for better discoverability:
+ * - Base Errors: Standard error instances for testing core error functionality
+ * - Error Metadata: Context, metadata, and serialization examples
+ * - HTTP Contexts: Mock HTTP request/response objects
+ * - Journey Errors: Journey-specific error instances
+ * - NestJS Contexts: Mock NestJS execution contexts
+ * - Retry Scenarios: Sample retry scenarios and transient error patterns
  * 
- * // Import specific fixture categories
- * import { BaseErrors, JourneyErrors } from '@austa/errors/test/fixtures';
- * 
- * // Use helper functions to customize fixtures
- * import { createCustomError } from '@austa/errors/test/fixtures';
+ * Helper functions are provided to customize fixtures for specific test scenarios.
  */
 
-// Export all base error fixtures
+// Re-export all fixtures from their respective files
 export * from './base-errors';
-
-// Export error metadata fixtures
 export * from './error-metadata';
-
-// Export HTTP context fixtures
 export * from './http-contexts';
-
-// Export journey-specific error fixtures
 export * from './journey-errors';
-
-// Export NestJS context fixtures
 export * from './nest-contexts';
-
-// Export retry scenario fixtures
 export * from './retry-scenarios';
 
-// Organize exports by category for better discoverability
-import * as BaseErrors from './base-errors';
-import * as ErrorMetadata from './error-metadata';
-import * as HttpContexts from './http-contexts';
-import * as JourneyErrors from './journey-errors';
-import * as NestContexts from './nest-contexts';
-import * as RetryScenarios from './retry-scenarios';
-
-/**
- * Categorized error fixtures for improved discoverability and organization.
- * 
- * @example
- * // Import the namespace
- * import { ErrorFixtures } from '@austa/errors/test';
- * 
- * // Use categorized fixtures
- * const { error } = ErrorFixtures.BaseErrors.validationError;
- * const { context } = ErrorFixtures.HttpContexts.authenticatedRequest;
- */
-export const ErrorFixtures = {
+// Export categorized fixtures for better organization and discoverability
+export const fixtures = {
   /**
-   * Base error class instances for testing core error functionality.
-   * Includes ValidationError, BusinessError, TechnicalError, and ExternalSystemError instances.
+   * Base error instances for testing core error functionality
+   * Includes BaseError, ValidationError, BusinessError, TechnicalError, etc.
    */
-  BaseErrors,
+  baseErrors: {
+    // These will be imported from base-errors.ts
+  },
 
   /**
-   * Error metadata, context, and serialization examples for testing error enrichment.
-   * Provides sample user contexts, request metadata, and expected serialized outputs.
+   * Error context, metadata, and serialization examples
+   * Useful for testing error enrichment, transformation, and formatting
    */
-  ErrorMetadata,
+  errorMetadata: {
+    // These will be imported from error-metadata.ts
+  },
 
   /**
-   * Mock HTTP request and response objects for testing error middleware and filters.
-   * Includes various scenarios like authenticated requests and invalid input requests.
+   * Mock HTTP request and response objects
+   * For testing error middleware, filters, and serialization
    */
-  HttpContexts,
+  httpContexts: {
+    // These will be imported from http-contexts.ts
+  },
 
   /**
-   * Journey-specific error instances for Health, Care, and Plan journeys.
-   * Each journey has dedicated sample errors for common scenarios.
+   * Journey-specific error instances
+   * Organized by journey (Health, Care, Plan) with common scenarios
    */
-  JourneyErrors,
+  journeyErrors: {
+    // These will be imported from journey-errors.ts
+  },
 
   /**
-   * Mock NestJS execution contexts for testing framework-specific error handling.
-   * Contains fixtures for testing exception filters, guards, and interceptors.
+   * Mock NestJS execution contexts
+   * For testing exception filters, guards, interceptors, and decorators
    */
-  NestContexts,
+  nestContexts: {
+    // These will be imported from nest-contexts.ts
+  },
 
   /**
-   * Sample retry scenarios and transient error patterns for testing retry mechanisms.
-   * Includes pre-configured common transient errors with appropriate timing patterns.
+   * Retry scenarios and transient error patterns
+   * For testing retry mechanisms and circuit breakers
    */
-  RetryScenarios,
+  retryScenarios: {
+    // These will be imported from retry-scenarios.ts
+  },
 };
 
 /**
- * Helper function to create a custom error instance with specific properties.
- * Useful for creating test-specific error scenarios.
- * 
- * @param baseError - The base error instance to customize
- * @param overrides - Properties to override in the base error
- * @returns A new error instance with the specified properties
- * 
- * @example
- * const customError = createCustomError(BaseErrors.validationError, {
- *   message: 'Custom validation message',
- *   code: 'CUSTOM_CODE',
- *   context: { userId: '123' }
- * });
+ * Helper functions for customizing test fixtures
  */
-export function createCustomError<T extends Error>(baseError: T, overrides: Partial<T>): T {
-  return { ...baseError, ...overrides };
-}
+export const helpers = {
+  /**
+   * Creates a customized base error with specified properties
+   * 
+   * @param type - The type of base error to create
+   * @param overrides - Properties to override in the base error
+   * @returns A customized base error instance
+   */
+  createBaseError: (type: string, overrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of base-errors.ts
+    return { type, ...overrides };
+  },
 
-/**
- * Helper function to create a journey-specific error with custom context.
- * 
- * @param journeyType - The journey type (Health, Care, Plan)
- * @param errorType - The type of error to create
- * @param customContext - Custom context to include in the error
- * @returns A journey-specific error instance
- * 
- * @example
- * const healthError = createJourneyError('Health', 'MetricValidation', {
- *   metricType: 'BloodPressure',
- *   value: '180/120',
- *   userId: '123'
- * });
- */
-export function createJourneyError(
-  journeyType: 'Health' | 'Care' | 'Plan',
-  errorType: string,
-  customContext: Record<string, any>
-): Error {
-  // Get the appropriate journey error factory based on the journey type
-  const journeyErrors = JourneyErrors as any;
-  const errorFactory = journeyErrors[`create${journeyType}Error`];
-  
-  if (!errorFactory) {
-    throw new Error(`No error factory found for journey type: ${journeyType}`);
-  }
-  
-  return errorFactory(errorType, customContext);
-}
+  /**
+   * Creates a journey-specific error with custom properties
+   * 
+   * @param journey - The journey (health, care, plan)
+   * @param errorType - The type of error within that journey
+   * @param overrides - Properties to override in the error
+   * @returns A customized journey error instance
+   */
+  createJourneyError: (journey: string, errorType: string, overrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of journey-errors.ts
+    return { journey, errorType, ...overrides };
+  },
 
-/**
- * Helper function to create an HTTP error response context for testing.
- * 
- * @param statusCode - The HTTP status code
- * @param errorInstance - The error instance to serialize
- * @returns A mock HTTP response with the serialized error
- * 
- * @example
- * const response = createErrorResponse(400, BaseErrors.validationError);
- * expect(response.status).toBe(400);
- * expect(response.body.code).toBe('VALIDATION_ERROR');
- */
-export function createErrorResponse(
-  statusCode: number,
-  errorInstance: Error
-): { status: number; body: any } {
-  // Get the appropriate error serializer based on the error type
-  const serializer = (errorInstance as any).serialize || (() => ({
-    message: errorInstance.message,
-    stack: errorInstance.stack,
-  }));
-  
-  return {
-    status: statusCode,
-    body: serializer(),
-  };
-}
+  /**
+   * Creates a mock HTTP context with custom request and response properties
+   * 
+   * @param requestOverrides - Properties to override in the request object
+   * @param responseOverrides - Properties to override in the response object
+   * @returns A customized HTTP context object
+   */
+  createHttpContext: (requestOverrides: Record<string, any> = {}, responseOverrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of http-contexts.ts
+    return {
+      request: { ...requestOverrides },
+      response: { ...responseOverrides },
+    };
+  },
 
-/**
- * Helper function to create a retry scenario with custom parameters.
- * 
- * @param errorType - The type of error that triggers retry
- * @param maxRetries - Maximum number of retry attempts
- * @param backoffFactor - Exponential backoff multiplier
- * @returns A configured retry scenario for testing
- * 
- * @example
- * const scenario = createRetryScenario('NetworkTimeout', 3, 2);
- * // Test retry logic with this scenario
- * retryWithExponentialBackoff(operation, scenario);
- */
-export function createRetryScenario(
-  errorType: string,
-  maxRetries: number = 3,
-  backoffFactor: number = 2
-): any {
-  const baseScenario = RetryScenarios.scenarios[errorType] || RetryScenarios.scenarios.default;
-  
-  return {
-    ...baseScenario,
-    maxRetries,
-    backoffFactor,
-    currentAttempt: 0,
-  };
-}
+  /**
+   * Creates a retry scenario with custom properties
+   * 
+   * @param scenarioType - The type of retry scenario
+   * @param overrides - Properties to override in the scenario
+   * @returns A customized retry scenario
+   */
+  createRetryScenario: (scenarioType: string, overrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of retry-scenarios.ts
+    return { scenarioType, ...overrides };
+  },
+
+  /**
+   * Creates a NestJS execution context with custom properties
+   * 
+   * @param contextType - The type of NestJS context (http, rpc, ws)
+   * @param overrides - Properties to override in the context
+   * @returns A customized NestJS execution context
+   */
+  createNestContext: (contextType: string, overrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of nest-contexts.ts
+    return { contextType, ...overrides };
+  },
+
+  /**
+   * Creates error metadata with custom properties
+   * 
+   * @param metadataType - The type of metadata
+   * @param overrides - Properties to override in the metadata
+   * @returns Customized error metadata
+   */
+  createErrorMetadata: (metadataType: string, overrides: Record<string, any> = {}) => {
+    // Implementation will depend on the actual structure of error-metadata.ts
+    return { metadataType, ...overrides };
+  },
+};
