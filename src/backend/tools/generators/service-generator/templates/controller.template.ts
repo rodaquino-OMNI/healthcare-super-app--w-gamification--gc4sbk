@@ -1,15 +1,16 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
-import { JwtAuthGuard } from '@austa/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '@austa/auth/guards/roles.guard';
-import { Roles } from '@austa/auth/decorators/roles.decorator';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, HttpStatus, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@app/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@app/auth/guards/roles.guard';
+import { Roles } from '@app/auth/decorators/roles.decorator';
+import { CurrentUser } from '@app/auth/decorators/current-user.decorator';
 import { Role } from '@austa/interfaces/auth/role.enum';
+import { CorrelationId } from '@app/shared/decorators/correlation-id.decorator';
+import { FilterDto, PaginationDto } from '@austa/interfaces/common/dto';
 import { {{ pascalCase name }}Service } from '../services/{{ dashCase name }}.service';
-import { LoggerService } from '@austa/logging';
-import { Create{{ pascalCase name }}Dto } from '../dto/create-{{ dashCase name }}.dto';
-import { Update{{ pascalCase name }}Dto } from '../dto/update-{{ dashCase name }}.dto';
-import { {{ pascalCase name }}ResponseDto } from '../dto/{{ dashCase name }}-response.dto';
-import { PaginationDto } from '@austa/interfaces/common/dto/pagination.dto';
+import { LoggerService } from '@app/shared/logging/logger.service';
+import { {{ pascalCase name }}Dto, Create{{ pascalCase name }}Dto, Update{{ pascalCase name }}Dto } from '../dto/{{ dashCase name }}.dto';
+import { User } from '@austa/interfaces/auth/user.interface';
 
 /**
  * Controller for managing {{ pascalCase name }} entities.
@@ -28,98 +29,133 @@ export class {{ pascalCase name }}Controller {
   }
 
   /**
-   * Retrieves all {{ pascalCase name }} entities with pagination.
+   * Retrieves all {{ pascalCase name }} entities with optional filtering and pagination.
    * 
+   * @param correlationId - Unique identifier for tracking the request
+   * @param filterDto - Filter criteria for the query
    * @param paginationDto - Pagination parameters
-   * @returns A promise that resolves to an array of {{ pascalCase name }} entities.
+   * @returns A promise that resolves to a paginated array of {{ pascalCase name }} entities.
    */
   @Get()
-  @ApiOperation({ summary: 'Get all {{ camelCase name }}s', description: 'Retrieves all {{ camelCase name }}s with pagination' })
-  @ApiResponse({ status: 200, description: 'List of {{ camelCase name }}s retrieved successfully', type: [{{ pascalCase name }}ResponseDto] })
-  async findAll(@Query() paginationDto: PaginationDto): Promise<{{ pascalCase name }}ResponseDto[]> {
-    this.logger.log('Finding all {{ camelCase name }}s', '{{ pascalCase name }}Controller');
-    return this.{{ camelCase name }}Service.findAll(paginationDto);
+  @ApiOperation({ summary: 'Get all {{ camelCase name }}s', description: 'Retrieves all {{ camelCase name }} entities with optional filtering and pagination' })
+  @ApiQuery({ type: FilterDto, required: false, description: 'Filter criteria' })
+  @ApiQuery({ type: PaginationDto, required: false, description: 'Pagination parameters' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Successfully retrieved {{ camelCase name }}s', type: [{{ pascalCase name }}Dto] })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async findAll(
+    @CorrelationId() correlationId: string,
+    @Query() filterDto: FilterDto,
+    @Query() paginationDto: PaginationDto
+  ): Promise<{{ pascalCase name }}Dto[]> {
+    this.logger.log(`Finding all {{ camelCase name }}s with filters: ${JSON.stringify(filterDto)}`, '{{ pascalCase name }}Controller', { correlationId });
+    return this.{{ camelCase name }}Service.findAll(filterDto, paginationDto);
   }
 
   /**
    * Retrieves a {{ pascalCase name }} entity by its ID.
    * 
+   * @param correlationId - Unique identifier for tracking the request
    * @param id - The ID of the {{ pascalCase name }} to find
    * @returns A promise that resolves to a {{ pascalCase name }} entity.
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get {{ camelCase name }} by ID', description: 'Retrieves a specific {{ camelCase name }} by its ID' })
-  @ApiParam({ name: 'id', description: 'The ID of the {{ camelCase name }}' })
-  @ApiResponse({ status: 200, description: '{{ pascalCase name }} retrieved successfully', type: {{ pascalCase name }}ResponseDto })
-  @ApiResponse({ status: 404, description: '{{ pascalCase name }} not found' })
-  async findOne(@Param('id') id: string): Promise<{{ pascalCase name }}ResponseDto> {
-    this.logger.log(`Finding {{ camelCase name }} with id: ${id}`, '{{ pascalCase name }}Controller');
+  @ApiParam({ name: 'id', description: 'The {{ camelCase name }} ID', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Successfully retrieved {{ camelCase name }}', type: {{ pascalCase name }}Dto })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: '{{ pascalCase name }} not found' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async findOne(
+    @CorrelationId() correlationId: string,
+    @Param('id') id: string
+  ): Promise<{{ pascalCase name }}Dto> {
+    this.logger.log(`Finding {{ camelCase name }} with id: ${id}`, '{{ pascalCase name }}Controller', { correlationId });
     return this.{{ camelCase name }}Service.findOne(id);
   }
 
   /**
    * Creates a new {{ pascalCase name }} entity.
    * 
-   * @param create{{ pascalCase name }}Dto - The data to create the {{ pascalCase name }} with
+   * @param correlationId - Unique identifier for tracking the request
+   * @param data - The data to create the {{ pascalCase name }} with
+   * @param user - The authenticated user creating the entity
    * @returns A promise that resolves to the created {{ pascalCase name }} entity.
    */
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin)
-  @ApiOperation({ summary: 'Create {{ camelCase name }}', description: 'Creates a new {{ camelCase name }}' })
-  @ApiBody({ type: Create{{ pascalCase name }}Dto })
-  @ApiResponse({ status: 201, description: '{{ pascalCase name }} created successfully', type: {{ pascalCase name }}ResponseDto })
-  @ApiResponse({ status: 400, description: 'Invalid input data' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - requires Admin role' })
-  async create(@Body() create{{ pascalCase name }}Dto: Create{{ pascalCase name }}Dto): Promise<{{ pascalCase name }}ResponseDto> {
-    this.logger.log('Creating new {{ camelCase name }}', '{{ pascalCase name }}Controller');
-    return this.{{ camelCase name }}Service.create(create{{ pascalCase name }}Dto);
+  @ApiOperation({ summary: 'Create {{ camelCase name }}', description: 'Creates a new {{ camelCase name }} entity' })
+  @ApiBody({ type: Create{{ pascalCase name }}Dto, description: 'The {{ camelCase name }} data' })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'Successfully created {{ camelCase name }}', type: {{ pascalCase name }}Dto })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid input data' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Forbidden - requires admin role' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async create(
+    @CorrelationId() correlationId: string,
+    @Body() data: Create{{ pascalCase name }}Dto,
+    @CurrentUser() user: User
+  ): Promise<{{ pascalCase name }}Dto> {
+    this.logger.log(`Creating new {{ camelCase name }} by user: ${user.id}`, '{{ pascalCase name }}Controller', { correlationId });
+    return this.{{ camelCase name }}Service.create(data, user.id);
   }
 
   /**
    * Updates an existing {{ pascalCase name }} entity.
    * 
+   * @param correlationId - Unique identifier for tracking the request
    * @param id - The ID of the {{ pascalCase name }} to update
-   * @param update{{ pascalCase name }}Dto - The data to update the {{ pascalCase name }} with
+   * @param data - The data to update the {{ pascalCase name }} with
+   * @param user - The authenticated user updating the entity
    * @returns A promise that resolves to the updated {{ pascalCase name }} entity.
    */
   @Put(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin)
-  @ApiOperation({ summary: 'Update {{ camelCase name }}', description: 'Updates an existing {{ camelCase name }}' })
-  @ApiParam({ name: 'id', description: 'The ID of the {{ camelCase name }} to update' })
-  @ApiBody({ type: Update{{ pascalCase name }}Dto })
-  @ApiResponse({ status: 200, description: '{{ pascalCase name }} updated successfully', type: {{ pascalCase name }}ResponseDto })
-  @ApiResponse({ status: 400, description: 'Invalid input data' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - requires Admin role' })
-  @ApiResponse({ status: 404, description: '{{ pascalCase name }} not found' })
+  @ApiOperation({ summary: 'Update {{ camelCase name }}', description: 'Updates an existing {{ camelCase name }} entity' })
+  @ApiParam({ name: 'id', description: 'The {{ camelCase name }} ID', type: String })
+  @ApiBody({ type: Update{{ pascalCase name }}Dto, description: 'The updated {{ camelCase name }} data' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Successfully updated {{ camelCase name }}', type: {{ pascalCase name }}Dto })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid input data' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: '{{ pascalCase name }} not found' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Forbidden - requires admin role' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
   async update(
-    @Param('id') id: string, 
-    @Body() update{{ pascalCase name }}Dto: Update{{ pascalCase name }}Dto
-  ): Promise<{{ pascalCase name }}ResponseDto> {
-    this.logger.log(`Updating {{ camelCase name }} with id: ${id}`, '{{ pascalCase name }}Controller');
-    return this.{{ camelCase name }}Service.update(id, update{{ pascalCase name }}Dto);
+    @CorrelationId() correlationId: string,
+    @Param('id') id: string,
+    @Body() data: Update{{ pascalCase name }}Dto,
+    @CurrentUser() user: User
+  ): Promise<{{ pascalCase name }}Dto> {
+    this.logger.log(`Updating {{ camelCase name }} with id: ${id} by user: ${user.id}`, '{{ pascalCase name }}Controller', { correlationId });
+    return this.{{ camelCase name }}Service.update(id, data, user.id);
   }
 
   /**
    * Deletes a {{ pascalCase name }} entity by its ID.
    * 
+   * @param correlationId - Unique identifier for tracking the request
    * @param id - The ID of the {{ pascalCase name }} to delete
+   * @param user - The authenticated user deleting the entity
    * @returns A promise that resolves when the entity is deleted.
    */
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin)
-  @ApiOperation({ summary: 'Delete {{ camelCase name }}', description: 'Deletes a {{ camelCase name }} by ID' })
-  @ApiParam({ name: 'id', description: 'The ID of the {{ camelCase name }} to delete' })
-  @ApiResponse({ status: 204, description: '{{ pascalCase name }} deleted successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - requires Admin role' })
-  @ApiResponse({ status: 404, description: '{{ pascalCase name }} not found' })
-  async delete(@Param('id') id: string): Promise<void> {
-    this.logger.log(`Removing {{ camelCase name }} with id: ${id}`, '{{ pascalCase name }}Controller');
-    return this.{{ camelCase name }}Service.remove(id);
+  @ApiOperation({ summary: 'Delete {{ camelCase name }}', description: 'Deletes a {{ camelCase name }} entity' })
+  @ApiParam({ name: 'id', description: 'The {{ camelCase name }} ID', type: String })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Successfully deleted {{ camelCase name }}' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: '{{ pascalCase name }} not found' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Forbidden - requires admin role' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async delete(
+    @CorrelationId() correlationId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: User
+  ): Promise<void> {
+    this.logger.log(`Removing {{ camelCase name }} with id: ${id} by user: ${user.id}`, '{{ pascalCase name }}Controller', { correlationId });
+    return this.{{ camelCase name }}Service.remove(id, user.id);
   }
 }
