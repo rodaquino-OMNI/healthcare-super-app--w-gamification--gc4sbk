@@ -1,20 +1,14 @@
 /**
- * @austa/interfaces/journey/health
+ * @file Health Journey Interfaces
+ * @description Centralized export point for all health journey interfaces and enums in the AUSTA SuperApp.
+ * This file provides type definitions for health goals, metrics, medical events, and device connections
+ * used throughout the health journey. These interfaces are used by both frontend and backend services
+ * to ensure type safety and consistent data structures across the application.
  * 
- * This module provides a centralized export point for all health journey interfaces
- * and type definitions used throughout the AUSTA SuperApp. It enables consistent
- * type usage across both backend services and frontend applications.
- *
- * These interfaces support the health journey's core features including health metrics
- * tracking, goal setting, medical event recording, and device connections management.
+ * @module @austa/interfaces/journey/health
  */
 
-/**
- * Health Goals
- * 
- * Interfaces and enums related to user health goals, supporting the ability
- * to set, track, and manage health-related objectives.
- */
+// ===== HEALTH GOALS =====
 
 /**
  * Enumeration of possible health goal types.
@@ -130,42 +124,34 @@ export interface IHealthGoal {
   updatedAt: Date;
 }
 
-/**
- * Health Metrics
- * 
- * Interfaces and enums related to health measurements and metrics tracking.
- */
+// ===== HEALTH METRICS =====
 
 /**
- * Enumeration of health metric types that can be tracked.
+ * Enumeration of possible health metric types.
  */
 export enum MetricType {
   HEART_RATE = 'heart_rate',
   BLOOD_PRESSURE = 'blood_pressure',
   BLOOD_GLUCOSE = 'blood_glucose',
-  WEIGHT = 'weight',
-  HEIGHT = 'height',
   STEPS = 'steps',
   SLEEP = 'sleep',
+  WEIGHT = 'weight',
   WATER = 'water',
-  CALORIES = 'calories',
   EXERCISE = 'exercise',
   OXYGEN_SATURATION = 'oxygen_saturation',
   TEMPERATURE = 'temperature',
-  BMI = 'bmi',
   CUSTOM = 'custom'
 }
 
 /**
- * Enumeration of possible sources for health metric data.
+ * Enumeration of possible health metric data sources.
  */
 export enum MetricSource {
   MANUAL_ENTRY = 'manual_entry',
   WEARABLE_DEVICE = 'wearable_device',
   MEDICAL_DEVICE = 'medical_device',
   HEALTHCARE_PROVIDER = 'healthcare_provider',
-  THIRD_PARTY_APP = 'third_party_app',
-  SYSTEM_CALCULATED = 'system_calculated'
+  THIRD_PARTY_APP = 'third_party_app'
 }
 
 /**
@@ -210,12 +196,12 @@ export interface IHealthMetric {
   /**
    * Optional additional information or comments
    */
-  notes?: string | null;
+  notes?: string;
 
   /**
    * Percentage change from previous measurement, if available
    */
-  trend?: number | null;
+  trend?: number;
 
   /**
    * Indicates if the value is outside normal/healthy range
@@ -223,11 +209,7 @@ export interface IHealthMetric {
   isAbnormal: boolean;
 }
 
-/**
- * Medical Events
- * 
- * Interfaces related to medical events in a user's health history.
- */
+// ===== MEDICAL EVENTS =====
 
 /**
  * Interface representing a medical event in a user's health history.
@@ -279,11 +261,7 @@ export interface IMedicalEvent {
   updatedAt: Date;
 }
 
-/**
- * Device Connections
- * 
- * Interfaces and enums related to wearable device connections and synchronization.
- */
+// ===== DEVICE CONNECTIONS =====
 
 /**
  * Enum representing possible device connection statuses
