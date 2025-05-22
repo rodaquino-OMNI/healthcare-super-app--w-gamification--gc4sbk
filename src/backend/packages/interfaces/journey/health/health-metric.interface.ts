@@ -1,5 +1,13 @@
 /**
- * Enum representing different types of health metrics that can be tracked.
+ * Health Metric Interfaces and Types
+ * 
+ * This file defines the interfaces and types for health metrics in the AUSTA SuperApp.
+ * It provides standardized type definitions for health measurements such as heart rate,
+ * blood pressure, blood glucose, etc., ensuring consistent data structure across the application.
+ */
+
+/**
+ * Enum representing the different types of health metrics that can be tracked.
  */
 export enum MetricType {
   HEART_RATE = 'HEART_RATE',
@@ -9,24 +17,26 @@ export enum MetricType {
   STEPS = 'STEPS',
   SLEEP = 'SLEEP',
   OXYGEN_SATURATION = 'OXYGEN_SATURATION',
-  TEMPERATURE = 'TEMPERATURE',
+  BODY_TEMPERATURE = 'BODY_TEMPERATURE',
   RESPIRATORY_RATE = 'RESPIRATORY_RATE',
-  ACTIVITY = 'ACTIVITY',
+  BODY_FAT_PERCENTAGE = 'BODY_FAT_PERCENTAGE',
   WATER_INTAKE = 'WATER_INTAKE',
-  CALORIES = 'CALORIES'
+  CALORIES_BURNED = 'CALORIES_BURNED',
+  CALORIES_CONSUMED = 'CALORIES_CONSUMED',
+  EXERCISE_MINUTES = 'EXERCISE_MINUTES',
+  DISTANCE = 'DISTANCE'
 }
 
 /**
- * Enum representing different sources of health metric data.
+ * Enum representing the source of health metric data.
  */
 export enum MetricSource {
   MANUAL_ENTRY = 'MANUAL_ENTRY',
   WEARABLE_DEVICE = 'WEARABLE_DEVICE',
   MEDICAL_DEVICE = 'MEDICAL_DEVICE',
-  HEALTHCARE_PROVIDER = 'HEALTHCARE_PROVIDER',
-  MOBILE_APP = 'MOBILE_APP',
-  THIRD_PARTY_API = 'THIRD_PARTY_API',
-  FHIR_INTEGRATION = 'FHIR_INTEGRATION'
+  HEALTH_PROVIDER = 'HEALTH_PROVIDER',
+  THIRD_PARTY_APP = 'THIRD_PARTY_APP',
+  FHIR_IMPORT = 'FHIR_IMPORT'
 }
 
 /**
