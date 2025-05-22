@@ -1,364 +1,244 @@
 /**
- * @file health-metric-event.dto.ts
- * @description Defines the DTO for health metric events in the AUSTA SuperApp.
- * This DTO validates and structures health metric events (weight, heart rate, blood pressure, steps, etc.)
- * from the Health journey. It enforces the correct structure for metrics data, validates measurement
- * units and values, and ensures consistency in how health metrics are represented across the system.
+ * @file Health Metric Event DTO
+ * @description Specialized DTO for validating and structuring health metric events from the Health journey.
+ * This DTO enforces the correct structure for metrics data, validates measurement units and values,
+ * and ensures consistency in how health metrics are represented across the system.
+ * It's essential for gamification of health tracking activities.
  */
 
+import { IsDate, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsString,
-  IsNumber,
-  IsUUID,
-  IsISO8601,
-  IsOptional,
-  ValidateNested,
-  Min,
-  Max,
-  Matches,
-  IsBoolean,
-  ValidatorConstraint,
-  ValidatorConstraintInterface,
-  Validate,
-  ValidationArguments,
-} from 'class-validator';
-
-// Import from @austa/interfaces package
-import { JourneyType } from '../interfaces/journey-events.interface';
-import { HealthEventType } from '../interfaces/journey-events.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import { MetricSource, MetricType } from '@austa/interfaces/health';
 
 /**
- * Enum for health metric types
- * Defines all possible health metrics that can be tracked in the system
- */
-export enum MetricType {
-  HEART_RATE = 'HEART_RATE',
-  BLOOD_PRESSURE = 'BLOOD_PRESSURE',
-  BLOOD_GLUCOSE = 'BLOOD_GLUCOSE',
-  WEIGHT = 'WEIGHT',
-  STEPS = 'STEPS',
-  SLEEP = 'SLEEP',
-  OXYGEN_SATURATION = 'OXYGEN_SATURATION',
-  TEMPERATURE = 'TEMPERATURE',
-  RESPIRATORY_RATE = 'RESPIRATORY_RATE',
-  WATER_INTAKE = 'WATER_INTAKE',
-  CALORIES_BURNED = 'CALORIES_BURNED',
-  CALORIES_CONSUMED = 'CALORIES_CONSUMED',
-}
-
-/**
- * Enum for health metric sources
- * Defines all possible sources of health metric data
- */
-export enum MetricSource {
-  MANUAL_ENTRY = 'MANUAL_ENTRY',
-  WEARABLE_DEVICE = 'WEARABLE_DEVICE',
-  MEDICAL_DEVICE = 'MEDICAL_DEVICE',
-  HEALTH_PROVIDER = 'HEALTH_PROVIDER',
-  THIRD_PARTY_APP = 'THIRD_PARTY_APP',
-  SYSTEM_CALCULATED = 'SYSTEM_CALCULATED',
-}
-
-/**
- * Enum for common health metric units
- * Provides standardized units for each metric type
+ * Enum for health metric units to ensure consistent unit representation
  */
 export enum MetricUnit {
+  // Weight units
+  KILOGRAMS = 'kg',
+  POUNDS = 'lb',
+  
   // Heart rate units
-  BPM = 'bpm', // Beats per minute
+  BEATS_PER_MINUTE = 'bpm',
   
   // Blood pressure units
-  MMHG = 'mmHg', // Millimeters of mercury
+  MMHG = 'mmHg',
   
   // Blood glucose units
-  MG_DL = 'mg/dL', // Milligrams per deciliter
-  MMOL_L = 'mmol/L', // Millimoles per liter
+  MILLIGRAMS_PER_DECILITER = 'mg/dL',
+  MILLIMOLES_PER_LITER = 'mmol/L',
   
-  // Weight units
-  KG = 'kg', // Kilograms
-  LB = 'lb', // Pounds
-  
-  // Steps units
-  STEPS = 'steps', // Number of steps
+  // Step units
+  STEPS = 'steps',
   
   // Sleep units
-  HOURS = 'hours', // Hours
-  MINUTES = 'minutes', // Minutes
+  HOURS = 'hours',
+  MINUTES = 'minutes',
+  
+  // Distance units
+  KILOMETERS = 'km',
+  MILES = 'mi',
+  METERS = 'm',
   
   // Oxygen saturation units
-  PERCENTAGE = '%', // Percentage
+  PERCENTAGE = '%',
   
   // Temperature units
-  CELSIUS = '°C', // Celsius
-  FAHRENHEIT = '°F', // Fahrenheit
-  
-  // Respiratory rate units
-  BREATHS_PER_MINUTE = 'breaths/min', // Breaths per minute
+  CELSIUS = '°C',
+  FAHRENHEIT = '°F',
   
   // Water intake units
-  ML = 'mL', // Milliliters
-  OZ = 'oz', // Fluid ounces
+  MILLILITERS = 'ml',
+  LITERS = 'L',
+  FLUID_OUNCES = 'fl oz',
   
-  // Calorie units
-  KCAL = 'kcal', // Kilocalories
+  // Exercise units
+  CALORIES = 'kcal',
+  ACTIVE_MINUTES = 'active_min'
 }
 
 /**
- * Custom validator for physiologically plausible metric values
- * Validates that the metric value is within a plausible range based on the metric type
+ * Blood pressure reading structure with systolic and diastolic values
  */
-@ValidatorConstraint({ name: 'isPhysiologicallyPlausible', async: false })
-export class IsPhysiologicallyPlausibleConstraint implements ValidatorConstraintInterface {
-  validate(value: number, args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    if (value === null || value === undefined) {
-      return false;
-    }
-    
-    switch (metricType) {
-      case MetricType.HEART_RATE:
-        return value >= 30 && value <= 250; // bpm
-      
-      case MetricType.BLOOD_PRESSURE:
-        // For blood pressure, we validate in the BloodPressurePayload class
-        return true;
-      
-      case MetricType.BLOOD_GLUCOSE:
-        return value >= 20 && value <= 600; // mg/dL
-      
-      case MetricType.WEIGHT:
-        return value >= 1 && value <= 500; // kg
-      
-      case MetricType.STEPS:
-        return value >= 0 && value <= 100000; // steps
-      
-      case MetricType.SLEEP:
-        return value >= 0 && value <= 24; // hours
-      
-      case MetricType.OXYGEN_SATURATION:
-        return value >= 50 && value <= 100; // percentage
-      
-      case MetricType.TEMPERATURE:
-        // Check both Celsius and Fahrenheit ranges
-        const unit = object.unit;
-        if (unit === MetricUnit.CELSIUS) {
-          return value >= 30 && value <= 45; // °C
-        } else if (unit === MetricUnit.FAHRENHEIT) {
-          return value >= 86 && value <= 113; // °F
-        }
-        return true;
-      
-      case MetricType.RESPIRATORY_RATE:
-        return value >= 4 && value <= 60; // breaths/min
-      
-      case MetricType.WATER_INTAKE:
-        return value >= 0 && value <= 10000; // mL
-      
-      case MetricType.CALORIES_BURNED:
-      case MetricType.CALORIES_CONSUMED:
-        return value >= 0 && value <= 10000; // kcal
-      
-      default:
-        return true;
-    }
-  }
-  
-  defaultMessage(args: ValidationArguments) {
-    const object = args.object as any;
-    const metricType = object.metricType;
-    
-    switch (metricType) {
-      case MetricType.HEART_RATE:
-        return 'Heart rate must be between 30 and 250 bpm';
-      
-      case MetricType.BLOOD_GLUCOSE:
-        return 'Blood glucose must be between 20 and 600 mg/dL';
-      
-      case MetricType.WEIGHT:
-        return 'Weight must be between 1 and 500 kg';
-      
-      case MetricType.STEPS:
-        return 'Steps must be between 0 and 100,000';
-      
-      case MetricType.SLEEP:
-        return 'Sleep duration must be between 0 and 24 hours';
-      
-      case MetricType.OXYGEN_SATURATION:
-        return 'Oxygen saturation must be between 50% and 100%';
-      
-      case MetricType.TEMPERATURE:
-        const unit = object.unit;
-        if (unit === MetricUnit.CELSIUS) {
-          return 'Temperature must be between 30°C and 45°C';
-        } else if (unit === MetricUnit.FAHRENHEIT) {
-          return 'Temperature must be between 86°F and 113°F';
-        }
-        return 'Temperature is outside physiologically plausible range';
-      
-      case MetricType.RESPIRATORY_RATE:
-        return 'Respiratory rate must be between 4 and 60 breaths/min';
-      
-      case MetricType.WATER_INTAKE:
-        return 'Water intake must be between 0 and 10,000 mL';
-      
-      case MetricType.CALORIES_BURNED:
-      case MetricType.CALORIES_CONSUMED:
-        return 'Calorie value must be between 0 and 10,000 kcal';
-      
-      default:
-        return 'Metric value is outside physiologically plausible range';
-    }
-  }
-}
-
-/**
- * Blood pressure payload class
- * Specialized payload for blood pressure metrics which require systolic and diastolic values
- */
-export class BloodPressurePayload {
+export class BloodPressureReading {
   @IsNumber()
-  @Min(70)
-  @Max(220)
+  @Min(60, { message: 'Systolic pressure must be at least 60 mmHg' })
+  @Max(250, { message: 'Systolic pressure must be less than 250 mmHg' })
   systolic: number;
-  
+
   @IsNumber()
-  @Min(40)
-  @Max(120)
+  @Min(30, { message: 'Diastolic pressure must be at least 30 mmHg' })
+  @Max(150, { message: 'Diastolic pressure must be less than 150 mmHg' })
   diastolic: number;
-  
-  @IsOptional()
-  @IsNumber()
-  @Min(40)
-  @Max(200)
-  pulse?: number;
 }
 
 /**
- * Sleep payload class
- * Specialized payload for sleep metrics which include duration and quality
+ * Base class for health metric event data
  */
-export class SleepPayload {
-  @IsNumber()
-  @Min(0)
-  @Max(24)
-  duration: number;
-  
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  quality?: number;
-  
-  @IsOptional()
-  @IsNumber()
-  deepSleepDuration?: number;
-  
-  @IsOptional()
-  @IsNumber()
-  lightSleepDuration?: number;
-  
-  @IsOptional()
-  @IsNumber()
-  remSleepDuration?: number;
-  
-  @IsOptional()
-  @IsNumber()
-  awakeTime?: number;
-}
-
-/**
- * Health metric event payload DTO
- * Defines the structure and validation rules for health metric event payloads
- */
-export class HealthMetricEventPayload {
-  @IsEnum(MetricType)
+export class HealthMetricEventData {
+  @IsEnum(MetricType, { message: 'Invalid metric type' })
+  @IsNotEmpty({ message: 'Metric type is required' })
   metricType: MetricType;
-  
-  @IsNumber()
-  @Validate(IsPhysiologicallyPlausibleConstraint)
-  value: number;
-  
-  @IsString()
-  @Matches(/^[a-zA-Z%\/°\s]+$/)
-  unit: string;
-  
-  @IsISO8601()
-  timestamp: string;
-  
-  @IsEnum(MetricSource)
+
+  @IsEnum(MetricUnit, { message: 'Invalid unit' })
+  @IsNotEmpty({ message: 'Unit is required' })
+  unit: MetricUnit;
+
+  @IsEnum(MetricSource, { message: 'Invalid source' })
+  @IsNotEmpty({ message: 'Source is required' })
   source: MetricSource;
-  
-  @IsOptional()
-  @IsString()
-  deviceId?: string;
-  
-  @IsOptional()
-  @IsNumber()
-  previousValue?: number;
-  
-  @IsOptional()
-  @IsNumber()
-  @Min(-100)
-  @Max(100)
-  changePercentage?: number;
-  
+
+  @IsDate()
+  @IsNotEmpty({ message: 'Timestamp is required' })
+  timestamp: Date;
+
   @IsOptional()
   @IsString()
   notes?: string;
-  
+
   @IsOptional()
-  @IsBoolean()
-  isAbnormal?: boolean;
-  
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => BloodPressurePayload)
-  bloodPressure?: BloodPressurePayload;
-  
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => SleepPayload)
-  sleep?: SleepPayload;
+  @IsString()
+  @IsUUID()
+  deviceId?: string;
 }
 
 /**
- * Health metric event DTO
- * Defines the structure and validation rules for health metric events
+ * DTO for health metric events with numeric values (heart rate, weight, etc.)
+ */
+export class NumericHealthMetricEventData extends HealthMetricEventData {
+  @IsNumber()
+  @IsNotEmpty({ message: 'Metric value is required' })
+  value: number;
+}
+
+/**
+ * DTO for blood pressure metric events
+ */
+export class BloodPressureMetricEventData extends HealthMetricEventData {
+  @ValidateNested()
+  @Type(() => BloodPressureReading)
+  @IsNotEmpty({ message: 'Blood pressure reading is required' })
+  value: BloodPressureReading;
+}
+
+/**
+ * DTO for health metric events
+ * Specializes in validating and structuring health metric events (weight, heart rate, blood pressure, steps, etc.)
+ * from the Health journey.
  */
 export class HealthMetricEventDto {
-  @IsUUID(4)
-  eventId: string;
-  
-  @IsISO8601()
-  timestamp: string;
-  
+  @IsUUID()
+  @IsOptional()
+  id?: string;
+
   @IsString()
-  version: string = '1.0.0';
-  
+  @IsNotEmpty({ message: 'Event type is required' })
+  type: string;
+
   @IsString()
-  source: string = 'health-service';
-  
-  @IsEnum(HealthEventType)
-  type: HealthEventType = HealthEventType.METRIC_RECORDED;
-  
-  @IsEnum(JourneyType)
-  journeyType: JourneyType = JourneyType.HEALTH;
-  
-  @IsUUID(4)
+  @IsNotEmpty({ message: 'User ID is required' })
   userId: string;
-  
-  @ValidateNested()
-  @Type(() => HealthMetricEventPayload)
-  payload: HealthMetricEventPayload;
-  
-  @IsOptional()
+
   @IsString()
-  correlationId?: string;
-  
+  @IsNotEmpty({ message: 'Timestamp is required' })
+  timestamp: string;
+
+  @IsEnum(JourneyType)
+  @IsNotEmpty({ message: 'Journey is required' })
+  journey: JourneyType;
+
+  @IsString()
   @IsOptional()
-  metadata?: Record<string, unknown>;
+  source?: string;
+
+  @IsString()
+  @IsOptional()
+  version?: string;
+
+  @ValidateNested()
+  @Type(() => HealthMetricEventData, {
+    discriminator: {
+      property: 'metricType',
+      subTypes: [
+        { value: NumericHealthMetricEventData, name: MetricType.HEART_RATE },
+        { value: NumericHealthMetricEventData, name: MetricType.STEPS },
+        { value: NumericHealthMetricEventData, name: MetricType.WEIGHT },
+        { value: NumericHealthMetricEventData, name: MetricType.SLEEP },
+        { value: NumericHealthMetricEventData, name: MetricType.WATER },
+        { value: NumericHealthMetricEventData, name: MetricType.EXERCISE },
+        { value: NumericHealthMetricEventData, name: MetricType.OXYGEN_SATURATION },
+        { value: NumericHealthMetricEventData, name: MetricType.TEMPERATURE },
+        { value: NumericHealthMetricEventData, name: MetricType.BLOOD_GLUCOSE },
+        { value: BloodPressureMetricEventData, name: MetricType.BLOOD_PRESSURE },
+        { value: NumericHealthMetricEventData, name: MetricType.CUSTOM },
+      ],
+    },
+  })
+  @IsNotEmpty({ message: 'Event data is required' })
+  data: HealthMetricEventData;
+
+  /**
+   * Validates the metric value based on the metric type to ensure physiologically plausible ranges
+   * @param metricType The type of health metric
+   * @param value The metric value to validate
+   * @param unit The unit of measurement
+   * @returns True if the value is within a plausible range, false otherwise
+   */
+  static validateMetricValue(metricType: MetricType, value: number | BloodPressureReading, unit: MetricUnit): boolean {
+    switch (metricType) {
+      case MetricType.HEART_RATE:
+        return typeof value === 'number' && value >= 30 && value <= 220;
+
+      case MetricType.WEIGHT:
+        if (typeof value !== 'number') return false;
+        return unit === MetricUnit.KILOGRAMS ? (value >= 1 && value <= 500) : (value >= 2.2 && value <= 1100);
+
+      case MetricType.BLOOD_GLUCOSE:
+        if (typeof value !== 'number') return false;
+        return unit === MetricUnit.MILLIGRAMS_PER_DECILITER ? (value >= 20 && value <= 600) : (value >= 1.1 && value <= 33.3);
+
+      case MetricType.STEPS:
+        return typeof value === 'number' && value >= 0 && value <= 100000;
+
+      case MetricType.SLEEP:
+        if (typeof value !== 'number') return false;
+        return unit === MetricUnit.HOURS ? (value >= 0 && value <= 24) : (value >= 0 && value <= 1440);
+
+      case MetricType.OXYGEN_SATURATION:
+        return typeof value === 'number' && value >= 70 && value <= 100;
+
+      case MetricType.TEMPERATURE:
+        if (typeof value !== 'number') return false;
+        return unit === MetricUnit.CELSIUS ? (value >= 30 && value <= 45) : (value >= 86 && value <= 113);
+
+      case MetricType.BLOOD_PRESSURE:
+        if (typeof value !== 'object' || !('systolic' in value) || !('diastolic' in value)) return false;
+        return (
+          value.systolic >= 60 && value.systolic <= 250 &&
+          value.diastolic >= 30 && value.diastolic <= 150 &&
+          value.systolic > value.diastolic
+        );
+
+      case MetricType.WATER:
+        if (typeof value !== 'number') return false;
+        switch (unit) {
+          case MetricUnit.MILLILITERS:
+            return value >= 0 && value <= 10000;
+          case MetricUnit.LITERS:
+            return value >= 0 && value <= 10;
+          case MetricUnit.FLUID_OUNCES:
+            return value >= 0 && value <= 338;
+          default:
+            return false;
+        }
+
+      case MetricType.EXERCISE:
+        if (typeof value !== 'number') return false;
+        return unit === MetricUnit.CALORIES ? (value >= 0 && value <= 10000) : (value >= 0 && value <= 1440);
+
+      default:
+        return true; // For custom metrics, we don't enforce specific ranges
+    }
+  }
 }
