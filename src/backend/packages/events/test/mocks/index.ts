@@ -1,216 +1,178 @@
 /**
- * @file index.ts
- * @description Centralized exports for all mock implementations in the events/test/mocks directory.
+ * @file Centralized exports for all mock implementations in the events/test/mocks directory.
+ * 
  * This barrel file provides a clean and organized API for importing mocks into tests,
- * simplifying test setup and improving readability and maintainability.
- *
+ * simplifying test setup by exposing all mock classes, interfaces, and utility functions
+ * through a single import statement.
+ * 
  * @example
  * // Import all mocks from a single entry point
- * import { MockEventBroker, MockEventProcessor, createMockHealthJourneyService } from '@austa/events/test/mocks';
- *
- * // Use factory functions for common test scenarios
- * const mockBroker = createMockEventBroker({ simulateErrors: true });
+ * import { MockEventBroker, createMockHealthEvent } from '@austa/events/test/mocks';
+ * 
+ * // Use in tests
+ * const broker = new MockEventBroker();
+ * const healthEvent = createMockHealthEvent({ userId: '123' });
  */
 
+// ===================================================================
+// Event Infrastructure Mocks
+// ===================================================================
+
+/**
+ * Mock implementation of an event broker for testing event publishing and subscription
+ * without requiring an actual Kafka instance.
+ */
+export { MockEventBroker } from './mock-event-broker';
+
+/**
+ * Mock implementation of an event processor for testing the full event processing pipeline
+ * from reception to handling.
+ */
+export { MockEventProcessor } from './mock-event-processor';
+
+/**
+ * Factory function to create a pre-configured MockEventBroker instance with common test settings.
+ * 
+ * @param options - Configuration options for the mock broker
+ * @returns A configured MockEventBroker instance
+ */
+export { createMockEventBroker } from './mock-event-broker';
+
+/**
+ * Factory function to create a pre-configured MockEventProcessor instance with common test settings.
+ * 
+ * @param options - Configuration options for the mock processor
+ * @returns A configured MockEventProcessor instance
+ */
+export { createMockEventProcessor } from './mock-event-processor';
+
+// ===================================================================
 // Journey Service Mocks
-import {
+// ===================================================================
+
+/**
+ * Mock implementations for journey-specific services (Health, Care, Plan) that produce
+ * and consume events for testing cross-journey event flows.
+ */
+export { 
   MockHealthJourneyService,
   MockCareJourneyService,
   MockPlanJourneyService,
-  createMockHealthJourneyService,
-  createMockCareJourneyService,
-  createMockPlanJourneyService,
-  JourneyServiceMockOptions,
-  HealthJourneyEventPayload,
-  CareJourneyEventPayload,
-  PlanJourneyEventPayload,
 } from './mock-journey-services';
 
-// Event Processing Mocks
-import {
-  MockEventProcessor,
-  createMockEventProcessor,
-  EventProcessorMockOptions,
-  EventProcessingResult,
-  EventProcessingMetrics,
-} from './mock-event-processor';
-
-// Event Broker Mocks
-import {
-  MockEventBroker,
-  createMockEventBroker,
-  EventBrokerMockOptions,
-  TopicSubscription,
-  MessageDeliveryStatus,
-} from './mock-event-broker';
-
-// Event Store Mocks
-import {
-  MockEventStore,
-  createMockEventStore,
-  EventStoreMockOptions,
-  EventQuery,
-  EventAggregation,
-} from './mock-event-store';
-
-// Event Validation Mocks
-import {
-  MockEventValidator,
-  createMockEventValidator,
-  EventValidatorMockOptions,
-  ValidationResult,
-  SchemaVersion,
-} from './mock-event-validator';
-
-// Error Handling Mocks
-import {
-  MockErrorHandler,
-  createMockErrorHandler,
-  ErrorHandlerMockOptions,
-  RetryPolicy,
-  ErrorCategory,
-  DeadLetterQueueEntry,
-} from './mock-error-handler';
-
 /**
- * Journey Service Mocks
- * @description Mock implementations for journey-specific services (Health, Care, Plan)
- * that produce and consume events. These mocks allow testing of cross-journey event
- * flows and gamification integration without requiring the actual microservices.
+ * Factory functions to create pre-configured journey service mocks with common test scenarios.
  */
 export {
-  // Classes
-  MockHealthJourneyService,
-  MockCareJourneyService,
-  MockPlanJourneyService,
-  
-  // Factory Functions
   createMockHealthJourneyService,
   createMockCareJourneyService,
   createMockPlanJourneyService,
-  
-  // Types
-  JourneyServiceMockOptions,
-  HealthJourneyEventPayload,
-  CareJourneyEventPayload,
-  PlanJourneyEventPayload,
-};
+} from './mock-journey-services';
+
+// ===================================================================
+// Validation & Error Handling Mocks
+// ===================================================================
 
 /**
- * Event Processing Mocks
- * @description Mock implementation of the event processing pipeline for testing.
- * Simulates the full event processing flow from reception to handling, allowing
- * tests to verify event transformations, validation, and routing.
+ * Mock implementation of an event validator for testing event payload compliance with schemas.
+ */
+export { MockEventValidator } from './mock-event-validator';
+
+/**
+ * Mock implementation of an error handler for testing error scenarios in event processing.
+ */
+export { MockErrorHandler } from './mock-error-handler';
+
+/**
+ * Factory function to create a pre-configured MockEventValidator instance with common validation rules.
+ * 
+ * @param options - Configuration options for the mock validator
+ * @returns A configured MockEventValidator instance
+ */
+export { createMockEventValidator } from './mock-event-validator';
+
+/**
+ * Factory function to create a pre-configured MockErrorHandler instance with common error scenarios.
+ * 
+ * @param options - Configuration options for the mock error handler
+ * @returns A configured MockErrorHandler instance
+ */
+export { createMockErrorHandler } from './mock-error-handler';
+
+// ===================================================================
+// Storage & Persistence Mocks
+// ===================================================================
+
+/**
+ * Mock implementation of an event store for testing event persistence and retrieval.
+ */
+export { MockEventStore } from './mock-event-store';
+
+/**
+ * Factory function to create a pre-configured MockEventStore instance with pre-populated events.
+ * 
+ * @param options - Configuration options for the mock event store
+ * @returns A configured MockEventStore instance
+ */
+export { createMockEventStore } from './mock-event-store';
+
+// ===================================================================
+// Event Factory Functions
+// ===================================================================
+
+/**
+ * Factory functions to create mock events for different journeys with customizable properties.
+ * These functions make it easy to create valid test events with minimal configuration.
  */
 export {
-  // Classes
-  MockEventProcessor,
+  // Health Journey Events
+  createMockHealthMetricEvent,
+  createMockHealthGoalEvent,
+  createMockDeviceConnectionEvent,
   
-  // Factory Functions
-  createMockEventProcessor,
+  // Care Journey Events
+  createMockAppointmentEvent,
+  createMockMedicationEvent,
+  createMockTelemedicineEvent,
+  createMockTreatmentPlanEvent,
   
-  // Types
-  EventProcessorMockOptions,
-  EventProcessingResult,
-  EventProcessingMetrics,
-};
+  // Plan Journey Events
+  createMockClaimEvent,
+  createMockBenefitEvent,
+  createMockPlanSelectionEvent,
+  
+  // Base Event
+  createMockBaseEvent,
+} from './mock-event-factory';
+
+// ===================================================================
+// Interfaces
+// ===================================================================
 
 /**
- * Event Broker Mocks
- * @description In-memory event broker that simulates the publish/subscribe pattern
- * for testing event-driven communication between services. Supports topics,
- * subscriptions, and message routing without requiring an actual Kafka instance.
+ * Interfaces for configuring mock objects and factory functions.
  */
 export {
-  // Classes
-  MockEventBroker,
-  
-  // Factory Functions
-  createMockEventBroker,
-  
-  // Types
-  EventBrokerMockOptions,
-  TopicSubscription,
-  MessageDeliveryStatus,
-};
+  MockEventBrokerOptions,
+  MockEventProcessorOptions,
+  MockEventValidatorOptions,
+  MockErrorHandlerOptions,
+  MockEventStoreOptions,
+  MockJourneyServiceOptions,
+  MockEventFactoryOptions,
+} from './mock-interfaces';
+
+// ===================================================================
+// Utilities
+// ===================================================================
 
 /**
- * Event Store Mocks
- * @description In-memory event storage mechanism for testing event persistence
- * and retrieval. Simulates database operations for storing, querying, and
- * retrieving events without requiring an actual database connection.
+ * Utility functions for working with mock events in tests.
  */
 export {
-  // Classes
-  MockEventStore,
-  
-  // Factory Functions
-  createMockEventStore,
-  
-  // Types
-  EventStoreMockOptions,
-  EventQuery,
-  EventAggregation,
-};
-
-/**
- * Event Validation Mocks
- * @description Validation framework for testing event payload compliance with schemas.
- * Allows tests to verify that events conform to the expected structure for each
- * journey and event type without requiring the full validation pipeline.
- */
-export {
-  // Classes
-  MockEventValidator,
-  
-  // Factory Functions
-  createMockEventValidator,
-  
-  // Types
-  EventValidatorMockOptions,
-  ValidationResult,
-  SchemaVersion,
-};
-
-/**
- * Error Handling Mocks
- * @description Configurable error handling framework for testing error scenarios
- * in event processing. Allows tests to simulate various error conditions, retry
- * policies, and recovery mechanisms without triggering actual failures.
- */
-export {
-  // Classes
-  MockErrorHandler,
-  
-  // Factory Functions
-  createMockErrorHandler,
-  
-  // Types
-  ErrorHandlerMockOptions,
-  RetryPolicy,
-  ErrorCategory,
-  DeadLetterQueueEntry,
-};
-
-/**
- * Convenience function to create a complete mock environment for event testing.
- * @param options Configuration options for the mock environment
- * @returns An object containing all necessary mock instances for comprehensive event testing
- */
-export function createMockEventTestEnvironment(options: {
-  simulateErrors?: boolean;
-  validateEvents?: boolean;
-  trackMetrics?: boolean;
-  persistEvents?: boolean;
-}) {
-  return {
-    broker: createMockEventBroker({ simulateErrors: options.simulateErrors }),
-    processor: createMockEventProcessor({ trackMetrics: options.trackMetrics }),
-    validator: createMockEventValidator({ active: options.validateEvents }),
-    errorHandler: createMockErrorHandler(),
-    eventStore: createMockEventStore({ active: options.persistEvents }),
-    healthJourney: createMockHealthJourneyService(),
-    careJourney: createMockCareJourneyService(),
-    planJourney: createMockPlanJourneyService(),
-  };
-}
+  mockEventToKafkaMessage,
+  kafkaMessageToMockEvent,
+  createMockEventMetadata,
+  createMockEventResponse,
+  createMockValidationResult,
+} from './mock-utils';
