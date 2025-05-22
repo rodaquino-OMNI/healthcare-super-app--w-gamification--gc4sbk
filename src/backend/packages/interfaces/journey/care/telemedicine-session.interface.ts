@@ -1,11 +1,14 @@
 /**
  * @file Telemedicine Session Interface
- * @description Defines the interface for telemedicine sessions in the Care Journey.
+ * @description Defines the interface for telemedicine video consultation sessions in the Care Journey.
  */
+
+import { IAppointment } from './appointment.interface';
+import { User } from '../../../auth/user.interface';
 
 /**
  * Interface for telemedicine session data in the Care Journey.
- * Represents virtual healthcare appointments between patients and providers.
+ * Represents video consultation sessions between patients and healthcare providers.
  */
 export interface ITelemedicineSession {
   /**
@@ -19,9 +22,19 @@ export interface ITelemedicineSession {
   appointmentId: string;
 
   /**
+   * The appointment associated with the telemedicine session.
+   */
+  appointment: IAppointment;
+
+  /**
    * ID of the patient participating in the telemedicine session.
    */
   patientId: string;
+
+  /**
+   * The patient participating in the telemedicine session.
+   */
+  patient: User;
 
   /**
    * ID of the healthcare provider conducting the telemedicine session.
@@ -29,12 +42,17 @@ export interface ITelemedicineSession {
   providerId: string;
 
   /**
+   * The healthcare provider conducting the telemedicine session.
+   */
+  provider: User;
+
+  /**
    * Start time of the telemedicine session.
    */
   startTime: Date;
 
   /**
-   * End time of the telemedicine session (nullable if the session is ongoing).
+   * End time of the telemedicine session (optional if the session is ongoing).
    */
   endTime?: Date;
 
