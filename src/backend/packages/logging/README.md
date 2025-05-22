@@ -1,23 +1,22 @@
 # @austa/logging
 
-A comprehensive, journey-aware logging package for the AUSTA SuperApp ecosystem that provides structured logging with context enrichment, distributed tracing correlation, and configurable transports.
+A comprehensive, enterprise-grade logging package for the AUSTA SuperApp ecosystem that provides structured, context-aware logging with journey-specific integration, distributed tracing correlation, and configurable transports.
 
 ## Overview
 
-The `@austa/logging` package is a core component of the AUSTA SuperApp's observability stack, designed to support the journey-centered architecture with context-rich structured logging. It provides a consistent logging interface across all microservices while enabling journey-specific context that enhances log analysis and troubleshooting.
+The `@austa/logging` package is a critical component of the AUSTA SuperApp's observability infrastructure, providing standardized logging capabilities across all microservices. It extends NestJS's built-in logging system with journey-specific context, structured JSON formatting, and integration with distributed tracing to enable comprehensive monitoring and troubleshooting in a complex microservices environment.
 
-This package replaces and enhances the previous logging implementation from `@austa/shared/logging`, offering improved integration with distributed tracing, better performance, and more flexible configuration options.
+## Features
 
-## Key Features
-
-- **Journey-Aware Logging**: Automatically enriches logs with journey context (Health, Care, Plan)
-- **Structured JSON Format**: Consistent, machine-readable logs for better analysis
-- **Distributed Tracing Integration**: Correlates logs with traces via correlation IDs
-- **Multiple Transport Support**: Console, File, and CloudWatch transports with easy configuration
-- **Context Enrichment**: Automatically includes request, user, and journey context
-- **Configurable Log Levels**: Granular control over logging verbosity
-- **Sanitization**: Automatic PII and sensitive data redaction
-- **NestJS Integration**: Implements NestJS LoggerService interface for seamless integration
+- **Journey-Specific Context**: Automatically enriches logs with journey context (Health, Care, Plan) for better filtering and analysis
+- **Structured JSON Logging**: Standardized JSON format for all logs, optimized for CloudWatch Logs and other aggregation systems
+- **Distributed Tracing Integration**: Correlates logs with trace IDs for end-to-end request tracking
+- **Multiple Transport Support**: Configurable transports for console, file, and CloudWatch outputs
+- **Customizable Formatters**: Text formatter for development and JSON formatter for production
+- **Context Enrichment**: Automatically includes request ID, user ID, and other contextual information
+- **Sanitization**: Automatically redacts sensitive information from logs
+- **Environment-Aware Configuration**: Different defaults for development and production environments
+- **NestJS Integration**: Seamlessly integrates with NestJS's dependency injection system
 
 ## Installation
 
@@ -32,9 +31,11 @@ yarn add @austa/logging
 pnpm add @austa/logging
 ```
 
-## Configuration
+## Basic Usage
 
-The `LoggerModule` can be configured using the `forRoot()` method:
+### Module Registration
+
+Import and register the LoggerModule in your NestJS application:
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -43,60 +44,23 @@ import { LoggerModule } from '@austa/logging';
 @Module({
   imports: [
     LoggerModule.forRoot({
-      // Required: Specify the journey this service belongs to
-      journey: 'health', // 'health', 'care', or 'plan'
-      
-      // Optional: Set the log level (defaults to 'info' in production, 'debug' in development)
+      journey: 'health',
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      
-      // Optional: Configure transports (defaults to console in development, console+cloudwatch in production)
-      transports: {
-        console: true,
-        file: process.env.NODE_ENV !== 'production' ? {
-          path: './logs',
-          maxFiles: 5,
-          maxSize: '10m'
-        } : false,
-        cloudwatch: process.env.NODE_ENV === 'production' ? {
-          logGroupName: '/austa/health-service',
-          region: 'us-east-1',
-          logStreamName: `${process.env.POD_NAME || 'local'}`
-        } : false
-      },
-      
-      // Optional: Configure formatters
-      formatters: {
-        // Use text formatter for console in development, JSON in production
-        console: process.env.NODE_ENV === 'production' ? 'json' : 'text',
-        file: 'json',
-        cloudwatch: 'cloudwatch' // CloudWatch-optimized JSON format
-      },
-      
-      // Optional: Default context to include in all logs
-      defaultContext: {
-        service: 'health-service',
-        version: process.env.APP_VERSION || '1.0.0'
-      }
-    })
+    }),
   ],
-  // ...
 })
 export class AppModule {}
 ```
 
-## Basic Usage
-
-### Service Injection
-
-Inject the `LoggerService` into your NestJS services:
+### Using the Logger
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { LoggerService } from '@austa/logging';
+import { Logger } from '@austa/logging';
 
 @Injectable()
 export class HealthMetricsService {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(private readonly logger: Logger) {}
 
   async recordMetric(userId: string, metric: HealthMetric): Promise<void> {
     this.logger.info('Recording health metric', { 
@@ -114,344 +78,472 @@ export class HealthMetricsService {
 }
 ```
 
-### Available Log Methods
+## Configuration Options
 
-The `LoggerService` provides methods for all standard log levels:
+The `LoggerModule.forRoot()` method accepts a configuration object with the following options:
 
 ```typescript
-// Basic logging
-logger.debug('Debug message');
-logger.info('Info message');
-logger.warn('Warning message');
-logger.error('Error message');
-logger.fatal('Fatal message');
-
-// With metadata
-logger.info('User registered', { userId: '123', email: 'user@example.com' });
-
-// With error object
-logger.error('Operation failed', new Error('Database connection error'), { operation: 'saveUser' });
+interface LoggerConfig {
+  // The journey this service belongs to (health, care, plan)
+  journey?: 'health' | 'care' | 'plan';
+  
+  // Minimum log level to output (debug, info, warn, error, fatal)
+  level?: string;
+  
+  // Format of the logs (json, text, cloudwatch)
+  format?: string;
+  
+  // Transport configuration
+  transports?: {
+    console?: boolean | ConsoleTransportOptions;
+    file?: boolean | FileTransportOptions;
+    cloudwatch?: boolean | CloudWatchTransportOptions;
+  };
+  
+  // Default context to include in all logs
+  defaultContext?: Partial<LoggingContext>;
+  
+  // Whether to sanitize sensitive data
+  sanitize?: boolean;
+  
+  // Service name for identification
+  serviceName?: string;
+}
 ```
 
-## Journey-Specific Logging
+### Environment-Specific Configuration
 
-The `LoggerService` provides methods for journey-specific context logging:
+#### Development Environment
+
+```typescript
+LoggerModule.forRoot({
+  journey: 'health',
+  level: 'debug',
+  format: 'text',
+  transports: {
+    console: true,
+    file: {
+      filename: 'logs/app.log',
+      maxFiles: 5,
+      maxSize: '10m',
+    },
+  },
+  sanitize: false,
+})
+```
+
+#### Production Environment
+
+```typescript
+LoggerModule.forRoot({
+  journey: 'health',
+  level: 'info',
+  format: 'json',
+  transports: {
+    console: false,
+    cloudwatch: {
+      logGroupName: '/austa/health-service',
+      logStreamName: `${process.env.NODE_ENV}-${process.env.POD_NAME}`,
+      region: process.env.AWS_REGION,
+    },
+  },
+  sanitize: true,
+  serviceName: 'health-service',
+})
+```
+
+## Advanced Usage
+
+### Journey-Specific Logging
+
+The logging package is designed to work with the journey-centered architecture of the AUSTA SuperApp. You can provide journey-specific context to your logs:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { LoggerService, JourneyType } from '@austa/logging';
+import { Logger, JourneyType } from '@austa/logging';
 
 @Injectable()
 export class CrossJourneyService {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(private readonly logger: Logger) {}
 
   async processHealthData(userId: string, data: any): Promise<void> {
-    // Use journey-specific context for Health journey
-    this.logger.withJourneyContext(JourneyType.HEALTH, { userId }).info(
-      'Processing health data',
-      { dataSize: data.length }
-    );
+    // Create a journey-specific logger
+    const healthLogger = this.logger.withJourneyContext({
+      journeyType: JourneyType.HEALTH,
+      journeyId: 'health-journey-123',
+    });
     
-    // Process health data...
+    healthLogger.info('Processing health data', { userId });
+    
+    // Implementation
   }
-
+  
   async processCareAppointment(userId: string, appointmentId: string): Promise<void> {
-    // Use journey-specific context for Care journey
-    this.logger.withJourneyContext(JourneyType.CARE, { userId }).info(
-      'Processing care appointment',
-      { appointmentId }
-    );
+    // Create a journey-specific logger
+    const careLogger = this.logger.withJourneyContext({
+      journeyType: JourneyType.CARE,
+      journeyId: 'care-journey-456',
+    });
     
-    // Process care appointment...
-  }
-
-  async processPlanClaim(userId: string, claimId: string): Promise<void> {
-    // Use journey-specific context for Plan journey
-    this.logger.withJourneyContext(JourneyType.PLAN, { userId }).info(
-      'Processing plan claim',
-      { claimId }
-    );
+    careLogger.info('Processing care appointment', { userId, appointmentId });
     
-    // Process plan claim...
+    // Implementation
   }
 }
 ```
 
-## Request Context Integration
+### Request Context Logging
 
-Integrate with HTTP requests to automatically include request context:
+You can automatically include request context in your logs by using the RequestContextMiddleware:
 
 ```typescript
-import { Controller, Get, Req } from '@nestjs/common';
-import { LoggerService } from '@austa/logging';
-import { Request } from 'express';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { LoggerModule, RequestContextMiddleware } from '@austa/logging';
+
+@Module({
+  imports: [LoggerModule.forRoot()],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}
+```
+
+Then in your controllers and services:
+
+```typescript
+import { Controller, Get } from '@nestjs/common';
+import { Logger } from '@austa/logging';
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(private readonly logger: Logger) {}
 
   @Get('metrics')
-  async getMetrics(@Req() request: Request) {
-    // Create a logger with request context
-    const requestLogger = this.logger.withRequestContext(request);
+  getMetrics() {
+    // Request context is automatically included
+    this.logger.info('Retrieving health metrics');
     
-    requestLogger.info('Retrieving health metrics');
-    
-    // Implementation...
-    
-    requestLogger.info('Health metrics retrieved successfully');
-    return { /* metrics data */ };
+    // Implementation
   }
 }
 ```
 
-## User Context Integration
+### User Context Logging
 
-Enrich logs with user context:
+You can include user context in your logs:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { LoggerService } from '@austa/logging';
+import { Logger } from '@austa/logging';
 
 @Injectable()
 export class UserService {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(private readonly logger: Logger) {}
 
-  async getUserProfile(userId: string, roles: string[]): Promise<UserProfile> {
-    // Create a logger with user context
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    // Create a user-specific logger
     const userLogger = this.logger.withUserContext({
       userId,
-      roles,
-      isAuthenticated: true
+      isAuthenticated: true,
+      roles: ['user', 'premium'],
     });
     
     userLogger.info('Retrieving user profile');
     
-    // Implementation...
-    
-    userLogger.info('User profile retrieved successfully');
-    return userProfile;
+    // Implementation
   }
 }
 ```
 
-## Tracing Integration
+### Tracing Integration
 
-Integrate with the distributed tracing system:
+The logging package integrates with the `@austa/tracing` package to correlate logs with distributed traces:
+
+```typescript
+import { Module } from '@nestjs/common';
+import { LoggerModule } from '@austa/logging';
+import { TracingModule } from '@austa/tracing';
+
+@Module({
+  imports: [
+    TracingModule.forRoot({
+      serviceName: 'health-service',
+    }),
+    LoggerModule.forRoot({
+      journey: 'health',
+      level: 'info',
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+Then in your services:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { LoggerService } from '@austa/logging';
+import { Logger } from '@austa/logging';
 import { TraceService, Span } from '@austa/tracing';
 
 @Injectable()
 export class HealthMetricsService {
   constructor(
-    private readonly logger: LoggerService,
-    private readonly traceService: TraceService
+    private readonly logger: Logger,
+    private readonly traceService: TraceService,
   ) {}
 
   @Span('recordHealthMetric')
   async recordMetric(userId: string, metric: HealthMetric): Promise<void> {
-    // Get the current active span
-    const span = this.traceService.getActiveSpan();
-    
-    // Add attributes to the span
-    span?.setAttribute('userId', userId);
-    span?.setAttribute('metricType', metric.type);
-    
-    // Create a logger with trace context from the current span
-    const tracedLogger = this.logger.withTraceContext(span);
-    
-    tracedLogger.info('Recording health metric', { 
+    // Logs will automatically include the trace ID from the active span
+    this.logger.info('Recording health metric', { 
       userId, 
       metricType: metric.type 
     });
     
-    try {
-      // Implementation
-    } catch (error) {
-      // Log with the same trace context
-      tracedLogger.error('Failed to record health metric', error, { userId });
-      throw error;
-    }
+    // Implementation
   }
 }
 ```
 
 ## Available Transports
 
-The package includes several transport options:
-
 ### Console Transport
 
-Outputs logs to the console, with optional colorization:
+Outputs logs to the console, with optional colorization for development environments.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
   transports: {
     console: {
-      colorize: true, // Enable colorization (default: true in development)
-      level: 'debug' // Override the global log level for console
-    }
+      colorize: true,
+      // Only show logs at or above this level
+      level: 'debug',
+    },
   },
-  formatters: {
-    console: 'text' // Use text formatter for better readability in development
-  }
 })
 ```
 
 ### File Transport
 
-Writes logs to local files with rotation support:
+Writes logs to local files with rotation support.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
   transports: {
     file: {
-      path: './logs', // Directory to store log files
-      filename: 'health-service-%DATE%.log', // Filename pattern
-      datePattern: 'YYYY-MM-DD', // Date pattern for rotation
-      maxFiles: '14d', // Keep logs for 14 days
-      maxSize: '100m', // Rotate when file reaches 100MB
-      zippedArchive: true // Compress rotated logs
-    }
+      filename: 'logs/app.log',
+      // Maximum number of log files to keep
+      maxFiles: 10,
+      // Maximum size of each log file
+      maxSize: '20m',
+      // Whether to compress rotated logs
+      compress: true,
+      // Only show logs at or above this level
+      level: 'info',
+    },
   },
-  formatters: {
-    file: 'json' // Use JSON formatter for machine readability
-  }
 })
 ```
 
 ### CloudWatch Transport
 
-Sends logs to AWS CloudWatch Logs:
+Sends logs to AWS CloudWatch Logs for centralized aggregation and analysis.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
   transports: {
     cloudwatch: {
+      // CloudWatch log group name
       logGroupName: '/austa/health-service',
-      region: 'us-east-1',
-      logStreamName: `${process.env.POD_NAME || 'local'}`,
-      createLogGroup: true,
-      createLogStream: true,
-      batchSize: 20, // Number of logs to batch before sending
-      awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID, // Optional: use AWS SDK default credentials provider chain if not specified
-      awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      retentionInDays: 30 // Set log retention policy
-    }
+      // CloudWatch log stream name
+      logStreamName: `${process.env.NODE_ENV}-${process.env.POD_NAME}`,
+      // AWS region
+      region: process.env.AWS_REGION,
+      // AWS credentials (optional, defaults to environment variables)
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      },
+      // Only show logs at or above this level
+      level: 'info',
+      // Number of logs to batch before sending to CloudWatch
+      batchSize: 20,
+      // Maximum time to wait before sending a batch (in milliseconds)
+      batchTimeout: 5000,
+    },
   },
-  formatters: {
-    cloudwatch: 'cloudwatch' // Use CloudWatch-optimized formatter
-  }
 })
 ```
 
 ## Available Formatters
 
-The package includes several formatters for different use cases:
-
 ### Text Formatter
 
-Human-readable format with optional colorization, ideal for development:
+Human-readable text format with optional colorization, ideal for development environments.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
-  formatters: {
-    console: 'text'
-  }
+  format: 'text',
 })
 ```
 
 Example output:
+
 ```
-2023-04-15T14:32:45.123Z [INFO] [health-service] Recording health metric
+2023-04-15T14:30:45.123Z [INFO] [health-service] Recording health metric
   journey: health
-  userId: 123456
-  metricType: heart_rate
-  requestId: req-abc-123
-  traceId: trace-xyz-789
+  userId: user-123
+  metricType: heart-rate
+  requestId: req-456
 ```
 
 ### JSON Formatter
 
-Structured JSON format for machine processing, ideal for log aggregation:
+Structured JSON format for machine processing, ideal for production environments and log aggregation systems.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
-  formatters: {
-    console: 'json',
-    file: 'json'
-  }
+  format: 'json',
 })
 ```
 
 Example output:
+
 ```json
 {
-  "timestamp": "2023-04-15T14:32:45.123Z",
+  "timestamp": "2023-04-15T14:30:45.123Z",
   "level": "info",
   "message": "Recording health metric",
   "service": "health-service",
   "journey": "health",
   "context": {
-    "userId": "123456",
-    "metricType": "heart_rate"
+    "userId": "user-123",
+    "metricType": "heart-rate",
+    "requestId": "req-456"
   },
-  "requestId": "req-abc-123",
-  "traceId": "trace-xyz-789"
+  "traceId": "trace-789"
 }
 ```
 
 ### CloudWatch Formatter
 
-Optimized JSON format for AWS CloudWatch Logs with additional AWS-specific fields:
+Extends the JSON formatter with CloudWatch-specific optimizations for better querying and analysis in CloudWatch Logs Insights.
 
 ```typescript
 LoggerModule.forRoot({
-  journey: 'health',
-  formatters: {
-    cloudwatch: 'cloudwatch'
-  }
+  format: 'cloudwatch',
 })
 ```
 
 ## Migration Guide
 
-### Migrating from @austa/shared/logging
+### Migrating from Basic NestJS Logger
 
-If you're migrating from the previous `@austa/shared/logging` package, follow these steps:
+If you're currently using the basic NestJS logger, follow these steps to migrate to `@austa/logging`:
 
-1. **Update Dependencies**
+1. Install the package:
 
 ```bash
-# Remove old dependency
-npm uninstall @austa/shared
-
-# Install new packages
-npm install @austa/logging @austa/tracing
+npm install @austa/logging
 ```
 
-2. **Update Imports**
+2. Update your module imports:
 
 ```typescript
 // Before
-import { JourneyLogger } from '@austa/shared/logging';
+import { Logger, Module } from '@nestjs/common';
+
+@Module({
+  providers: [Logger],
+  exports: [Logger],
+})
+export class AppModule {}
 
 // After
-import { LoggerService } from '@austa/logging';
+import { Module } from '@nestjs/common';
+import { LoggerModule } from '@austa/logging';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      journey: 'health',
+      level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+    }),
+  ],
+})
+export class AppModule {}
 ```
 
-3. **Update Module Registration**
+3. Update your service implementations:
 
 ```typescript
 // Before
+import { Injectable, Logger } from '@nestjs/common';
+
+@Injectable()
+export class HealthMetricsService {
+  constructor(private readonly logger: Logger) {}
+
+  async recordMetric(userId: string, metric: any): Promise<void> {
+    this.logger.log(`Recording health metric for user ${userId}`);
+    
+    try {
+      // Implementation
+    } catch (error) {
+      this.logger.error(`Failed to record health metric: ${error.message}`);
+      throw error;
+    }
+  }
+}
+
+// After
+import { Injectable } from '@nestjs/common';
+import { Logger } from '@austa/logging';
+
+@Injectable()
+export class HealthMetricsService {
+  constructor(private readonly logger: Logger) {}
+
+  async recordMetric(userId: string, metric: any): Promise<void> {
+    this.logger.info('Recording health metric', { userId, metricType: metric.type });
+    
+    try {
+      // Implementation
+    } catch (error) {
+      this.logger.error('Failed to record health metric', error, { userId });
+      throw error;
+    }
+  }
+}
+```
+
+### Migrating from @austa/shared/logging
+
+If you're currently using the logging module from `@austa/shared`, follow these steps to migrate to the standalone `@austa/logging` package:
+
+1. Install the package:
+
+```bash
+npm install @austa/logging
+```
+
+2. Update your imports:
+
+```typescript
+// Before
+import { LoggerModule, JourneyLogger } from '@austa/shared/logging';
+
+// After
+import { LoggerModule, Logger } from '@austa/logging';
+```
+
+3. Update your module registration:
+
+```typescript
+// Before
+import { Module } from '@nestjs/common';
 import { LoggerModule } from '@austa/shared/logging';
 
 @Module({
@@ -465,203 +557,106 @@ import { LoggerModule } from '@austa/shared/logging';
 export class AppModule {}
 
 // After
+import { Module } from '@nestjs/common';
 import { LoggerModule } from '@austa/logging';
 
 @Module({
   imports: [
     LoggerModule.forRoot({ 
       journey: 'health', 
-      level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      transports: {
-        console: true,
-        cloudwatch: process.env.NODE_ENV === 'production' ? {
-          logGroupName: '/austa/health-service',
-          region: 'us-east-1',
-          logStreamName: `${process.env.POD_NAME || 'local'}`
-        } : false
-      }
+      level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' 
     }),
   ],
 })
 export class AppModule {}
 ```
 
-4. **Update Method Calls**
+4. Update your service implementations:
 
 ```typescript
 // Before
-this.logger.info('Message', { context: 'value' });
-
-// After - similar API, but with enhanced context support
-this.logger.info('Message', { context: 'value' });
-
-// Before - adding user context
-this.logger.setContext({ userId: '123' });
-this.logger.info('User action');
-
-// After - using context builders
-this.logger.withUserContext({ userId: '123' }).info('User action');
-```
-
-5. **Update Tracing Integration**
-
-```typescript
-// Before
-import { TraceService } from '@austa/shared/tracing';
+import { Injectable } from '@nestjs/common';
+import { JourneyLogger } from '@austa/shared/logging';
 
 @Injectable()
-export class Service {
-  constructor(
-    private readonly logger: JourneyLogger,
-    private readonly traceService: TraceService
-  ) {}
+export class HealthMetricsService {
+  constructor(private readonly logger: JourneyLogger) {}
 
-  @Span('operation')
-  async method() {
-    const span = this.traceService.getActiveSpan();
-    this.logger.setTraceId(span.context().traceId);
-    this.logger.info('Operation started');
+  async recordMetric(userId: string, metric: any): Promise<void> {
+    this.logger.info('Recording health metric', { 
+      userId, 
+      metricType: metric.type 
+    });
+    
+    try {
+      // Implementation
+    } catch (error) {
+      this.logger.error('Failed to record health metric', error, { userId });
+      throw error;
+    }
   }
 }
 
 // After
-import { TraceService, Span } from '@austa/tracing';
+import { Injectable } from '@nestjs/common';
+import { Logger } from '@austa/logging';
 
 @Injectable()
-export class Service {
-  constructor(
-    private readonly logger: LoggerService,
-    private readonly traceService: TraceService
-  ) {}
+export class HealthMetricsService {
+  constructor(private readonly logger: Logger) {}
 
-  @Span('operation')
-  async method() {
-    const span = this.traceService.getActiveSpan();
-    const tracedLogger = this.logger.withTraceContext(span);
-    tracedLogger.info('Operation started');
+  async recordMetric(userId: string, metric: any): Promise<void> {
+    this.logger.info('Recording health metric', { 
+      userId, 
+      metricType: metric.type 
+    });
+    
+    try {
+      // Implementation
+    } catch (error) {
+      this.logger.error('Failed to record health metric', error, { userId });
+      throw error;
+    }
   }
 }
 ```
 
-## Best Practices
-
-### Log Levels
-
-Use appropriate log levels for different types of information:
-
-- **DEBUG**: Detailed information for debugging purposes
-- **INFO**: General information about application progress
-- **WARN**: Potential issues that don't prevent the application from working
-- **ERROR**: Errors that prevent a function from working
-- **FATAL**: Critical errors that prevent the application from working
-
-### Structured Metadata
-
-Always include relevant metadata as a structured object:
-
-```typescript
-// Good - structured metadata
-logger.info('User registered', { userId: '123', email: 'user@example.com', plan: 'premium' });
-
-// Avoid - unstructured string concatenation
-logger.info(`User registered: ${userId}, email: ${email}, plan: ${plan}`);
-```
-
-### Context Enrichment
-
-Use context builders to enrich logs with relevant context:
-
-```typescript
-// Create a logger with request and user context
-const contextLogger = this.logger
-  .withRequestContext(request)
-  .withUserContext({ userId, roles });
-
-// All logs will include both request and user context
-contextLogger.info('Processing request');
-```
-
-### Error Logging
-
-Always include the error object when logging errors:
-
-```typescript
-try {
-  // Implementation
-} catch (error) {
-  // Pass the error object as the second parameter
-  this.logger.error('Operation failed', error, { operationId: '123' });
-  throw error;
-}
-```
-
-### Sensitive Data
-
-Avoid logging sensitive information. The logger automatically redacts common sensitive fields, but be careful with custom data:
-
-```typescript
-// Avoid - contains sensitive data
-logger.info('User authenticated', { 
-  userId: '123', 
-  password: 'secret', // Will be redacted, but better to exclude entirely
-  creditCard: '1234-5678-9012-3456' // Will be redacted, but better to exclude entirely
-});
-
-// Better - exclude sensitive data
-logger.info('User authenticated', { userId: '123' });
-```
-
 ## API Reference
-
-### LoggerService
-
-The main service for logging throughout the application.
-
-#### Basic Logging Methods
-
-- `debug(message: string, metadata?: Record<string, any>): void`
-- `info(message: string, metadata?: Record<string, any>): void`
-- `warn(message: string, metadata?: Record<string, any>): void`
-- `error(message: string, error?: Error, metadata?: Record<string, any>): void`
-- `fatal(message: string, error?: Error, metadata?: Record<string, any>): void`
-
-#### Context Builders
-
-- `withRequestContext(request: Request): LoggerService`
-- `withUserContext(userContext: UserContext): LoggerService`
-- `withJourneyContext(journeyType: JourneyType, context?: Record<string, any>): LoggerService`
-- `withTraceContext(span: Span): LoggerService`
-- `withContext(context: Record<string, any>): LoggerService`
 
 ### LoggerModule
 
-The NestJS module for configuring and providing the LoggerService.
+- `LoggerModule.forRoot(config: LoggerConfig)`: Registers the logger module with the provided configuration
+- `LoggerModule.forRootAsync(options: LoggerModuleAsyncOptions)`: Registers the logger module with asynchronous configuration
 
-- `forRoot(config: LoggerConfig): DynamicModule`
-- `forRootAsync(options: LoggerModuleAsyncOptions): DynamicModule`
+### Logger
 
-### LoggerConfig
+- `debug(message: string, context?: any)`: Logs a debug message
+- `info(message: string, context?: any)`: Logs an info message
+- `warn(message: string, context?: any)`: Logs a warning message
+- `error(message: string, error?: Error, context?: any)`: Logs an error message
+- `fatal(message: string, error?: Error, context?: any)`: Logs a fatal message
+- `withContext(context: Partial<LoggingContext>)`: Creates a new logger with the provided context
+- `withJourneyContext(context: Partial<JourneyContext>)`: Creates a new logger with the provided journey context
+- `withUserContext(context: Partial<UserContext>)`: Creates a new logger with the provided user context
+- `withRequestContext(context: Partial<RequestContext>)`: Creates a new logger with the provided request context
 
-Configuration options for the LoggerModule.
+## Technologies
 
-```typescript
-interface LoggerConfig {
-  journey: 'health' | 'care' | 'plan';
-  level?: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
-  transports?: {
-    console?: boolean | ConsoleTransportConfig;
-    file?: boolean | FileTransportConfig;
-    cloudwatch?: boolean | CloudWatchTransportConfig;
-  };
-  formatters?: {
-    console?: 'json' | 'text';
-    file?: 'json' | 'text';
-    cloudwatch?: 'json' | 'cloudwatch';
-  };
-  defaultContext?: Record<string, any>;
-}
-```
+- TypeScript 5.3+
+- NestJS 10.0+
+- Winston 3.0+ (internal implementation)
+- AWS SDK for JavaScript 3.0+ (for CloudWatch transport)
+
+## Contributing
+
+When extending the logging package:
+
+1. Maintain backward compatibility
+2. Include comprehensive tests
+3. Follow journey-centered design principles
+4. Document all public APIs and interfaces
+5. Ensure proper error handling and fallbacks
 
 ## License
 
-This package is part of the AUSTA SuperApp ecosystem and is covered by the company's proprietary license.
+This package is part of the AUSTA SuperApp ecosystem and is subject to the same licensing terms as the main project.
