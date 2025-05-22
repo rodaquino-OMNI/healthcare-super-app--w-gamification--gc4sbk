@@ -1,286 +1,293 @@
-import { Test } from '@nestjs/testing';
+import { Test, TestingModule } from '@nestjs/testing';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from '@austa/logging';
-import { ErrorsModule } from '../../../src/nest/module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+import { ErrorsModule, ErrorsModuleOptions } from '../../../src/nest/module';
 import { GlobalExceptionFilter } from '../../../src/nest/filters';
-import { RetryInterceptor, CircuitBreakerInterceptor, FallbackInterceptor, TimeoutInterceptor } from '../../../src/nest/interceptors';
+import {
+  CircuitBreakerInterceptor,
+  FallbackInterceptor,
+  RetryInterceptor,
+  TimeoutInterceptor
+} from '../../../src/nest/interceptors';
+
+// Mock implementation of LoggerModule
+jest.mock('@austa/logging', () => ({
+  LoggerModule: {
+    forRoot: jest.fn().mockReturnValue({
+      module: class MockLoggerModule {},
+      providers: [],
+      exports: [],
+    }),
+  },
+}));
+
+// Mock implementation of the interceptors
+jest.mock('../../../src/nest/interceptors', () => ({
+  RetryInterceptor: jest.fn().mockImplementation(() => ({
+    intercept: jest.fn(),
+  })),
+  CircuitBreakerInterceptor: jest.fn().mockImplementation(() => ({
+    intercept: jest.fn(),
+  })),
+  FallbackInterceptor: jest.fn().mockImplementation(() => ({
+    intercept: jest.fn(),
+  })),
+  TimeoutInterceptor: jest.fn().mockImplementation(() => ({
+    intercept: jest.fn(),
+  })),
+}));
+
+// Mock implementation of the filter
+jest.mock('../../../src/nest/filters', () => ({
+  GlobalExceptionFilter: jest.fn().mockImplementation(() => ({
+    catch: jest.fn(),
+  })),
+}));
+
+// Helper class for testing async options
+class TestErrorsOptionsFactory {
+  createErrorsOptions(): ErrorsModuleOptions {
+    return {
+      enableDetailedErrors: true,
+      enableGlobalRetry: true,
+      defaultRetryOptions: {
+        maxAttempts: 5,
+      },
+    };
+  }
+}
 
 describe('ErrorsModule', () => {
-  describe('register', () => {
-    it('should register the module with default options', async () => {
-      const module = await Test.createTestingModule({
-        imports: [ErrorsModule.register()],
-      }).compile();
+  // Store original environment
+  const originalEnv = process.env.NODE_ENV;
 
-      expect(module).toBeDefined();
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
-    });
-
-    it('should import the LoggerModule', async () => {
-      const module = await Test.createTestingModule({
-        imports: [ErrorsModule.register()],
-      }).compile();
-
-      try {
-        // This should not throw if LoggerModule is properly imported
-        module.get(LoggerModule);
-        expect(true).toBeTruthy(); // Just to have an assertion
-      } catch (error) {
-        fail('LoggerModule should be imported by ErrorsModule');
-      }
-    });
-
-    it('should register the GlobalExceptionFilter as a global filter', async () => {
-      const module = await Test.createTestingModule({
-        imports: [ErrorsModule.register()],
-      }).compile();
-
-      const providers = module.get('PROVIDERS');
-      const filterProvider = providers.find(
-        (provider) => provider.provide === APP_FILTER && provider.useClass === GlobalExceptionFilter
-      );
-
-      expect(filterProvider).toBeDefined();
-    });
-  });
-
-  describe('register with options', () => {
-    it('should register with development mode options', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.register({
-            isProduction: false,
-            includeStacktrace: true,
-            detailedErrors: true,
-          }),
-        ],
-      }).compile();
-
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
-      // We would test the filter's configuration here, but since we're mocking,
-      // we'll just check that it was instantiated
-    });
-
-    it('should register with production mode options', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.register({
-            isProduction: true,
-            includeStacktrace: false,
-            detailedErrors: false,
-          }),
-        ],
-      }).compile();
-
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
-      // We would test the filter's configuration here, but since we're mocking,
-      // we'll just check that it was instantiated
-    });
-
-    it('should register with custom error interceptors', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.register({
-            enableRetry: true,
-            enableCircuitBreaker: true,
-            enableFallback: true,
-            enableTimeout: true,
-          }),
-        ],
-      }).compile();
-
-      const providers = module.get('PROVIDERS');
-      
-      // Check that all interceptors are registered
-      const retryInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === RetryInterceptor
-      );
-      const circuitBreakerInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === CircuitBreakerInterceptor
-      );
-      const fallbackInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === FallbackInterceptor
-      );
-      const timeoutInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === TimeoutInterceptor
-      );
-
-      expect(retryInterceptor).toBeDefined();
-      expect(circuitBreakerInterceptor).toBeDefined();
-      expect(fallbackInterceptor).toBeDefined();
-      expect(timeoutInterceptor).toBeDefined();
-    });
-
-    it('should register with selective error interceptors', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.register({
-            enableRetry: true,
-            enableCircuitBreaker: false,
-            enableFallback: true,
-            enableTimeout: false,
-          }),
-        ],
-      }).compile();
-
-      const providers = module.get('PROVIDERS');
-      
-      // Check that only selected interceptors are registered
-      const retryInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === RetryInterceptor
-      );
-      const circuitBreakerInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === CircuitBreakerInterceptor
-      );
-      const fallbackInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === FallbackInterceptor
-      );
-      const timeoutInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === TimeoutInterceptor
-      );
-
-      expect(retryInterceptor).toBeDefined();
-      expect(circuitBreakerInterceptor).toBeUndefined();
-      expect(fallbackInterceptor).toBeDefined();
-      expect(timeoutInterceptor).toBeUndefined();
-    });
+  // Reset mocks and environment after each test
+  afterEach(() => {
+    jest.clearAllMocks();
+    process.env.NODE_ENV = originalEnv;
   });
 
   describe('forRoot', () => {
-    it('should register the module with default options using forRoot', async () => {
-      const module = await Test.createTestingModule({
+    it('should register the module with default options', async () => {
+      const module: TestingModule = await Test.createTestingModule({
         imports: [ErrorsModule.forRoot()],
       }).compile();
 
+      // Verify the module was created
       expect(module).toBeDefined();
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
+
+      // Verify the GlobalExceptionFilter was registered
+      const appFilter = module.get<any>(APP_FILTER);
+      expect(appFilter).toBeDefined();
+      expect(GlobalExceptionFilter).toHaveBeenCalled();
+
+      // Verify no interceptors were registered by default
+      expect(() => module.get(APP_INTERCEPTOR)).toThrow();
     });
 
-    it('should register with custom options using forRoot', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.forRoot({
-            isProduction: true,
-            includeStacktrace: false,
-            detailedErrors: false,
-            enableRetry: true,
-            enableCircuitBreaker: true,
-            enableFallback: true,
-            enableTimeout: true,
-          }),
-        ],
+    it('should register the module with custom options', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [ErrorsModule.forRoot({
+          enableDetailedErrors: true,
+          enableGlobalRetry: true,
+          enableGlobalCircuitBreaker: true,
+          enableGlobalFallback: true,
+          enableGlobalTimeout: true,
+          defaultTimeoutMs: 5000,
+          defaultRetryOptions: {
+            maxAttempts: 5,
+            baseDelayMs: 500,
+          },
+          defaultCircuitBreakerOptions: {
+            failureThresholdPercentage: 30,
+            requestVolumeThreshold: 10,
+          },
+        })],
       }).compile();
 
+      // Verify the module was created
       expect(module).toBeDefined();
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
 
-      const providers = module.get('PROVIDERS');
+      // Verify the GlobalExceptionFilter was registered
+      const appFilter = module.get<any>(APP_FILTER);
+      expect(appFilter).toBeDefined();
+      expect(GlobalExceptionFilter).toHaveBeenCalled();
+
+      // Verify all interceptors were registered
+      const interceptors = module.get<any[]>(APP_INTERCEPTOR, { isNotFoundError: false });
+      expect(interceptors).toHaveLength(4); // All 4 interceptors should be registered
+
+      // Verify each interceptor was called with the correct options
+      expect(RetryInterceptor).toHaveBeenCalledWith(expect.objectContaining({
+        maxAttempts: 5,
+        baseDelayMs: 500,
+      }));
+
+      expect(CircuitBreakerInterceptor).toHaveBeenCalledWith(expect.objectContaining({
+        failureThresholdPercentage: 30,
+        requestVolumeThreshold: 10,
+      }));
+
+      expect(FallbackInterceptor).toHaveBeenCalled();
+      expect(TimeoutInterceptor).toHaveBeenCalledWith(5000);
+    });
+
+    it('should disable the global filter when enableGlobalFilter is false', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [ErrorsModule.forRoot({
+          enableGlobalFilter: false,
+        })],
+      }).compile();
+
+      // Verify the module was created
+      expect(module).toBeDefined();
+
+      // Verify the GlobalExceptionFilter was not registered
+      expect(() => module.get(APP_FILTER)).toThrow();
+    });
+
+    it('should use development settings in non-production environment', async () => {
+      // Set environment to development
+      process.env.NODE_ENV = 'development';
+
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [ErrorsModule.forRoot()],
+      }).compile();
+
+      // Get the options provider
+      const optionsProvider = module.get('ERRORS_MODULE_OPTIONS');
       
-      // Check that all interceptors are registered
-      const retryInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === RetryInterceptor
-      );
-      const circuitBreakerInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === CircuitBreakerInterceptor
-      );
-      const fallbackInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === FallbackInterceptor
-      );
-      const timeoutInterceptor = providers.find(
-        (provider) => provider.provide === APP_INTERCEPTOR && provider.useClass === TimeoutInterceptor
-      );
-
-      expect(retryInterceptor).toBeDefined();
-      expect(circuitBreakerInterceptor).toBeDefined();
-      expect(fallbackInterceptor).toBeDefined();
-      expect(timeoutInterceptor).toBeDefined();
+      // Verify detailed errors are enabled in development
+      expect(optionsProvider.enableDetailedErrors).toBe(true);
     });
-  });
 
-  describe('forFeature', () => {
-    it('should register the module with feature-specific options', async () => {
-      const module = await Test.createTestingModule({
-        imports: [
-          ErrorsModule.forFeature({
-            featureName: 'TestFeature',
-            enableRetry: true,
-            retryOptions: {
-              maxRetries: 3,
-              backoffFactor: 2,
-              initialDelay: 100,
-            },
-          }),
-        ],
+    it('should use production settings in production environment', async () => {
+      // Set environment to production
+      process.env.NODE_ENV = 'production';
+
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [ErrorsModule.forRoot()],
       }).compile();
 
-      expect(module).toBeDefined();
+      // Get the options provider
+      const optionsProvider = module.get('ERRORS_MODULE_OPTIONS');
       
-      // In a real test, we would check for feature-specific providers
-      // but for this mock, we'll just check the module is defined
+      // Verify detailed errors are disabled in production
+      expect(optionsProvider.enableDetailedErrors).toBe(false);
     });
   });
 
-  describe('integration with logging', () => {
-    it('should integrate with the logging package', async () => {
-      // Mock the LoggerModule
-      const mockLoggerModule = {
-        forRoot: jest.fn().mockReturnValue({
-          module: class MockLoggerModule {},
-          providers: [],
-        }),
-      };
-
-      // Create a mock implementation of the module with the mocked LoggerModule
-      const moduleRef = await Test.createTestingModule({
-        imports: [ErrorsModule.register()],
-      })
-        .overrideProvider(LoggerModule)
-        .useValue(mockLoggerModule)
-        .compile();
-
-      expect(moduleRef).toBeDefined();
-      // In a real test, we would verify the logger is used by the filter
-      // but for this mock, we'll just check the module is defined
-    });
-  });
-
-  describe('error handling configuration', () => {
-    it('should configure journey-specific error handling', async () => {
-      const module = await Test.createTestingModule({
+  describe('forRootAsync', () => {
+    it('should register the module with useFactory', async () => {
+      const module: TestingModule = await Test.createTestingModule({
         imports: [
-          ErrorsModule.register({
-            journeyContext: 'health',
-            journeySpecificErrors: true,
+          ConfigModule.forRoot(),
+          ErrorsModule.forRootAsync({
+            imports: [ConfigModule],
+            useFactory: (configService: ConfigService) => ({
+              enableDetailedErrors: true,
+              enableGlobalRetry: true,
+            }),
+            inject: [ConfigService],
           }),
         ],
       }).compile();
 
+      // Verify the module was created
       expect(module).toBeDefined();
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
-      // In a real test, we would check the journey-specific configuration
-      // but for this mock, we'll just check the filter is instantiated
+
+      // Get the options provider
+      const optionsProvider = module.get('ERRORS_MODULE_OPTIONS');
+      
+      // Verify options were set correctly
+      expect(optionsProvider.enableDetailedErrors).toBe(true);
+      expect(optionsProvider.enableGlobalRetry).toBe(true);
     });
 
-    it('should configure error handling with tracing integration', async () => {
-      const module = await Test.createTestingModule({
+    it('should register the module with useClass', async () => {
+      const module: TestingModule = await Test.createTestingModule({
         imports: [
-          ErrorsModule.register({
-            enableTracing: true,
+          ErrorsModule.forRootAsync({
+            useClass: TestErrorsOptionsFactory,
           }),
         ],
       }).compile();
 
+      // Verify the module was created
       expect(module).toBeDefined();
-      const filter = module.get(GlobalExceptionFilter);
-      expect(filter).toBeInstanceOf(GlobalExceptionFilter);
-      // In a real test, we would check the tracing integration
-      // but for this mock, we'll just check the filter is instantiated
+
+      // Get the options provider
+      const optionsProvider = module.get('ERRORS_MODULE_OPTIONS');
+      
+      // Verify options were set correctly
+      expect(optionsProvider.enableDetailedErrors).toBe(true);
+      expect(optionsProvider.enableGlobalRetry).toBe(true);
+      expect(optionsProvider.defaultRetryOptions.maxAttempts).toBe(5);
+    });
+
+    it('should register the module with useExisting', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [TestErrorsOptionsFactory],
+        imports: [
+          ErrorsModule.forRootAsync({
+            useExisting: TestErrorsOptionsFactory,
+          }),
+        ],
+      }).compile();
+
+      // Verify the module was created
+      expect(module).toBeDefined();
+
+      // Get the options provider
+      const optionsProvider = module.get('ERRORS_MODULE_OPTIONS');
+      
+      // Verify options were set correctly
+      expect(optionsProvider.enableDetailedErrors).toBe(true);
+      expect(optionsProvider.enableGlobalRetry).toBe(true);
+      expect(optionsProvider.defaultRetryOptions.maxAttempts).toBe(5);
+    });
+
+    it('should register conditional providers based on options', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [
+          ErrorsModule.forRootAsync({
+            useFactory: () => ({
+              enableGlobalFilter: true,
+              enableGlobalRetry: true,
+              enableGlobalCircuitBreaker: false,
+              enableGlobalFallback: true,
+              enableGlobalTimeout: false,
+            }),
+          }),
+        ],
+      }).compile();
+
+      // Verify the module was created
+      expect(module).toBeDefined();
+
+      // Get all APP_INTERCEPTOR providers
+      const interceptors = module.get<any[]>(APP_INTERCEPTOR, { isNotFoundError: false });
+      
+      // Should have 3 interceptors (no-op ones for circuit breaker and timeout, and real one for retry)
+      expect(interceptors).toHaveLength(3);
+
+      // Verify the filter was registered
+      const filter = module.get<any>(APP_FILTER);
+      expect(filter).toBeDefined();
+    });
+  });
+
+  describe('Integration with LoggerModule', () => {
+    it('should import LoggerModule', async () => {
+      // Create the module
+      await Test.createTestingModule({
+        imports: [ErrorsModule.forRoot()],
+      }).compile();
+
+      // Verify LoggerModule.forRoot was called
+      expect(LoggerModule.forRoot).toHaveBeenCalled();
     });
   });
 });
