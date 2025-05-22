@@ -1,672 +1,761 @@
 /**
- * @file kafka.producer.ts
+ * @file Kafka Producer Implementation
  * @description Implements a reliable Kafka producer with guaranteed message delivery, retry policies,
  * circuit breaker patterns, and observability. This service handles the production of messages to
  * Kafka topics with standardized serialization, headers for distributed tracing, and comprehensive
  * error handling.
  */
 
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { Producer, RecordMetadata, Kafka, Transaction, CompressionTypes } from 'kafkajs';
+import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
+import { Producer, Kafka, Message, ProducerRecord, RecordMetadata, CompressionTypes } from 'kafkajs';
 import { v4 as uuidv4 } from 'uuid';
-import { Observable, firstValueFrom } from 'rxjs';
+import { Observable, from, throwError } from 'rxjs';
+import { retry, catchError, map } from 'rxjs/operators';
+import { TracingService } from '@austa/tracing';
+import { LoggingService } from '@austa/logging';
 
-import { IKafkaProducer } from './kafka.interfaces';
-import { KafkaHeaders, KafkaProducerConfig, KafkaTypedPayload, EventJourney } from './kafka.types';
-import {
-  CircuitBreaker,
-  CircuitBreakerOptions,
-  KafkaError,
-  KafkaProducerError,
-  KafkaConnectionError,
-  KafkaSerializationError,
-  KafkaRetryPolicy,
-  RetryPolicyOptions,
-  createKafkaError,
-} from './kafka.errors';
-import {
-  DEFAULT_PRODUCER_CONFIG,
-  DEFAULT_KAFKA_RETRY_CONFIG,
-  DEFAULT_TRANSACTION_CONFIG,
-  KAFKA_METRICS,
-  KAFKA_PROVIDERS,
-} from './kafka.constants';
-import { validateKafkaConfig } from './kafka.config';
+import { IBaseEvent } from '../interfaces/base-event.interface';
+import { IKafkaProducer, IKafkaMessage, IKafkaHeaders, IKafkaProducerRecord, IKafkaProducerBatchRecord, IKafkaTransaction } from './kafka.interfaces';
+import { KafkaError, KafkaProducerError, KafkaMessageSerializationError, KafkaCircuitBreaker, isRetryableKafkaError, getKafkaErrorRetryDelay, createKafkaError } from './kafka.errors';
+import { KAFKA_HEADERS, RETRY_CONFIG, CIRCUIT_BREAKER_CONFIG } from './kafka.constants';
 
 /**
- * Options for the Kafka producer
- */
-export interface KafkaProducerOptions {
-  /**
-   * The Kafka client instance
-   */
-  client: Kafka;
-
-  /**
-   * Producer configuration
-   */
-  config?: KafkaProducerConfig;
-
-  /**
-   * Service name for logging and metrics
-   */
-  serviceName?: string;
-
-  /**
-   * Circuit breaker options
-   */
-  circuitBreaker?: CircuitBreakerOptions;
-
-  /**
-   * Retry policy options
-   */
-  retryPolicy?: RetryPolicyOptions;
-
-  /**
-   * Whether to enable metrics
-   */
-  enableMetrics?: boolean;
-
-  /**
-   * Whether to enable tracing
-   */
-  enableTracing?: boolean;
-}
-
-/**
- * Implementation of a reliable Kafka producer with retry, circuit breaker, and observability
+ * Implementation of the Kafka producer for reliable event delivery
  */
 @Injectable()
 export class KafkaProducer implements IKafkaProducer, OnModuleInit, OnModuleDestroy {
+  private producer: Producer;
   private readonly logger = new Logger(KafkaProducer.name);
-  private readonly producer: Producer;
-  private readonly circuitBreaker: CircuitBreaker;
-  private readonly retryPolicy: KafkaRetryPolicy;
-  private readonly serviceName: string;
-  private readonly enableMetrics: boolean;
-  private readonly enableTracing: boolean;
-  private readonly config: KafkaProducerConfig;
   private connected = false;
-  private connecting = false;
+  private readonly circuitBreaker: KafkaCircuitBreaker;
 
   constructor(
-    @Inject(KAFKA_PROVIDERS.CLIENT) private readonly client: Kafka,
-    @Optional() @Inject(KAFKA_PROVIDERS.OPTIONS) private readonly options?: KafkaProducerOptions,
+    private readonly kafka: Kafka,
+    private readonly tracingService: TracingService,
+    private readonly loggingService: LoggingService,
   ) {
-    this.serviceName = options?.serviceName || 'unknown-service';
-    this.enableMetrics = options?.enableMetrics ?? true;
-    this.enableTracing = options?.enableTracing ?? true;
-    this.config = options?.config || DEFAULT_PRODUCER_CONFIG;
-
-    // Create the producer instance
-    this.producer = this.client.producer({
-      allowAutoTopicCreation: this.config.allowAutoTopicCreation ?? DEFAULT_PRODUCER_CONFIG.allowAutoTopicCreation,
-      idempotent: this.config.idempotent ?? DEFAULT_PRODUCER_CONFIG.idempotent,
-      transactionalId: this.config.transactionalId,
-      maxInFlightRequests: this.config.maxInFlightRequests ?? DEFAULT_PRODUCER_CONFIG.maxInFlightRequests,
-      metadataMaxAge: this.config.metadataMaxAge,
+    this.producer = this.kafka.producer({
+      allowAutoTopicCreation: false,
+      idempotent: true, // Ensures exactly-once delivery semantics
+      maxInFlightRequests: 5,
       retry: {
-        maxRetryTime: DEFAULT_KAFKA_RETRY_CONFIG.maxRetryTimeMs,
-        initialRetryTime: DEFAULT_KAFKA_RETRY_CONFIG.initialRetryTimeMs,
-        factor: DEFAULT_KAFKA_RETRY_CONFIG.factor,
-        retries: DEFAULT_KAFKA_RETRY_CONFIG.retries,
-      },
-      acks: this.config.acks ?? DEFAULT_PRODUCER_CONFIG.acks,
-      compression: this.getCompressionType(this.config.compression),
-    });
-
-    // Initialize circuit breaker
-    this.circuitBreaker = new CircuitBreaker({
-      failureThreshold: 3,
-      successThreshold: 2,
-      resetTimeout: 10000, // 10 seconds
-      ...options?.circuitBreaker,
-      onStateChange: (from, to) => {
-        this.logger.warn(`Kafka producer circuit breaker state changed from ${from} to ${to}`);
-        if (options?.circuitBreaker?.onStateChange) {
-          options.circuitBreaker.onStateChange(from, to);
-        }
+        initialRetryTime: RETRY_CONFIG.INITIAL_RETRY_DELAY_MS,
+        maxRetryTime: RETRY_CONFIG.MAX_RETRY_DELAY_MS,
+        retries: RETRY_CONFIG.MAX_RETRIES,
+        factor: RETRY_CONFIG.RETRY_FACTOR,
       },
     });
 
-    // Initialize retry policy
-    this.retryPolicy = new KafkaRetryPolicy({
-      maxRetries: DEFAULT_KAFKA_RETRY_CONFIG.retries,
-      initialDelay: DEFAULT_KAFKA_RETRY_CONFIG.initialRetryTimeMs,
-      maxDelay: DEFAULT_KAFKA_RETRY_CONFIG.maxRetryTimeMs,
-      backoffFactor: DEFAULT_KAFKA_RETRY_CONFIG.factor,
-      ...options?.retryPolicy,
+    this.circuitBreaker = new KafkaCircuitBreaker({
+      failureThreshold: CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD,
+      resetTimeout: CIRCUIT_BREAKER_CONFIG.RESET_TIMEOUT_MS,
+      successThreshold: CIRCUIT_BREAKER_CONFIG.SUCCESS_THRESHOLD,
     });
-
-    this.logger.log(`Kafka producer initialized for service: ${this.serviceName}`);
   }
 
   /**
-   * Lifecycle hook that is called once the module has been initialized
+   * Initialize the producer when the module is initialized
    */
   async onModuleInit(): Promise<void> {
-    try {
-      await this.connect();
-    } catch (error) {
-      this.logger.error('Failed to connect Kafka producer during module initialization', error);
-      // Don't throw here to allow the application to start even if Kafka is not available
-      // The circuit breaker will handle reconnection attempts
-    }
+    await this.connect();
   }
 
   /**
-   * Lifecycle hook that is called once the module is being destroyed
+   * Disconnect the producer when the module is destroyed
    */
   async onModuleDestroy(): Promise<void> {
-    try {
-      await this.disconnect();
-    } catch (error) {
-      this.logger.error('Error disconnecting Kafka producer during module destruction', error);
-    }
+    await this.disconnect();
   }
 
   /**
-   * Connects the producer to the Kafka broker
+   * Connect to the Kafka broker
    */
   async connect(): Promise<void> {
-    if (this.connected) {
-      return;
-    }
-
-    if (this.connecting) {
-      this.logger.debug('Kafka producer is already connecting');
-      return;
-    }
-
-    this.connecting = true;
-
     try {
-      this.logger.log('Connecting Kafka producer...');
-      await this.circuitBreaker.execute(async () => {
+      if (!this.connected) {
+        this.logger.log('Connecting Kafka producer...');
         await this.producer.connect();
-      });
-
-      this.connected = true;
-      this.connecting = false;
-      this.logger.log('Kafka producer connected successfully');
-
-      if (this.enableMetrics) {
-        this.recordMetric(KAFKA_METRICS.CONNECTION_STATUS, 1);
+        this.connected = true;
+        this.logger.log('Kafka producer connected successfully');
       }
     } catch (error) {
-      this.connecting = false;
       this.connected = false;
-
-      const kafkaError = createKafkaError(error as Error, {
-        correlationId: uuidv4(),
-      });
-
-      if (this.enableMetrics) {
-        this.recordMetric(KAFKA_METRICS.CONNECTION_STATUS, 0);
-      }
-
+      const kafkaError = createKafkaError(error, { clientId: 'kafka-producer' });
       this.logger.error(`Failed to connect Kafka producer: ${kafkaError.message}`, kafkaError.stack);
-      throw new KafkaConnectionError('Failed to connect Kafka producer', {
-        correlationId: kafkaError.details.correlationId,
-      }, error as Error);
+      throw kafkaError;
     }
   }
 
   /**
-   * Disconnects the producer from the Kafka broker
+   * Disconnect from the Kafka broker
    */
   async disconnect(): Promise<void> {
-    if (!this.connected) {
-      return;
-    }
-
     try {
-      this.logger.log('Disconnecting Kafka producer...');
-      await this.producer.disconnect();
-      this.connected = false;
-      this.logger.log('Kafka producer disconnected successfully');
-
-      if (this.enableMetrics) {
-        this.recordMetric(KAFKA_METRICS.CONNECTION_STATUS, 0);
+      if (this.connected) {
+        this.logger.log('Disconnecting Kafka producer...');
+        await this.producer.disconnect();
+        this.connected = false;
+        this.logger.log('Kafka producer disconnected successfully');
       }
     } catch (error) {
-      const kafkaError = createKafkaError(error as Error, {
-        correlationId: uuidv4(),
-      });
-
+      const kafkaError = createKafkaError(error, { clientId: 'kafka-producer' });
       this.logger.error(`Failed to disconnect Kafka producer: ${kafkaError.message}`, kafkaError.stack);
-      throw new KafkaConnectionError('Failed to disconnect Kafka producer', {
-        correlationId: kafkaError.details.correlationId,
-      }, error as Error);
-    }
-  }
-
-  /**
-   * Sends a message or batch of messages to a Kafka topic
-   * @param topic The topic to send to
-   * @param messages The message(s) to send
-   * @param key Optional message key for partitioning
-   * @param headers Optional message headers
-   * @returns Promise resolving to the record metadata
-   */
-  async send<T>(
-    topic: string,
-    messages: T | T[],
-    key?: string,
-    headers?: Record<string, string>,
-  ): Promise<RecordMetadata[]> {
-    // Ensure producer is connected
-    if (!this.connected) {
-      await this.connect();
-    }
-
-    const correlationId = headers?.['correlation-id'] || uuidv4();
-    const messageArray = Array.isArray(messages) ? messages : [messages];
-    const startTime = Date.now();
-
-    try {
-      // Use circuit breaker and retry policy for reliable delivery
-      return await this.circuitBreaker.execute(() => {
-        return this.retryPolicy.execute(async (attempt) => {
-          try {
-            // Prepare the messages with headers
-            const kafkaMessages = messageArray.map((message) => ({
-              value: this.serializeMessage(message),
-              key: key ? Buffer.from(key) : null,
-              headers: this.prepareHeaders(headers, correlationId),
-            }));
-
-            // Send the messages
-            const result = await this.producer.send({
-              topic,
-              messages: kafkaMessages,
-              acks: this.config.acks ?? DEFAULT_PRODUCER_CONFIG.acks,
-              timeout: this.config.timeout ?? DEFAULT_PRODUCER_CONFIG.timeout,
-              compression: this.getCompressionType(this.config.compression),
-            });
-
-            // Record metrics
-            if (this.enableMetrics) {
-              this.recordMetric(KAFKA_METRICS.MESSAGES_PRODUCED, messageArray.length, {
-                topic,
-                service: this.serviceName,
-              });
-              this.recordMetric(KAFKA_METRICS.PRODUCTION_LATENCY, Date.now() - startTime, {
-                topic,
-                service: this.serviceName,
-              });
-              this.recordMetric(KAFKA_METRICS.BATCH_SIZE, messageArray.length, {
-                topic,
-                service: this.serviceName,
-              });
-            }
-
-            this.logger.debug(
-              `Successfully sent ${messageArray.length} message(s) to topic ${topic}`,
-              { correlationId, messageCount: messageArray.length },
-            );
-
-            return result;
-          } catch (error) {
-            // Handle errors with proper categorization
-            const kafkaError = createKafkaError(error as Error, {
-              topic,
-              correlationId,
-              retryCount: attempt,
-            });
-
-            // Log the error with appropriate level based on retry attempt
-            if (attempt < this.retryPolicy.getMaxRetries()) {
-              this.logger.warn(
-                `Failed to send message(s) to topic ${topic}, retrying (${attempt + 1}/${this.retryPolicy.getMaxRetries()})`,
-                { correlationId, error: kafkaError.message, attempt, maxRetries: this.retryPolicy.getMaxRetries() },
-              );
-            } else {
-              this.logger.error(
-                `Failed to send message(s) to topic ${topic} after ${attempt} attempts`,
-                { correlationId, error: kafkaError.message, attempt },
-              );
-
-              // Record error metrics
-              if (this.enableMetrics) {
-                this.recordMetric(KAFKA_METRICS.PRODUCTION_ERRORS, 1, {
-                  topic,
-                  service: this.serviceName,
-                  errorType: kafkaError.kafkaErrorType,
-                });
-              }
-            }
-
-            // Rethrow the error for the retry policy to handle
-            throw kafkaError;
-          }
-        });
-      });
-    } catch (error) {
-      // Final error handling after all retries have failed
-      const kafkaError = error instanceof KafkaError
-        ? error
-        : new KafkaProducerError(
-            `Failed to send message(s) to topic ${topic}`,
-            { topic, correlationId },
-            error as Error,
-          );
-
-      this.logger.error(
-        `Failed to send message(s) to topic ${topic}: ${kafkaError.message}`,
-        { correlationId, errorType: kafkaError.kafkaErrorType, details: kafkaError.details },
-      );
-
       throw kafkaError;
     }
   }
 
   /**
-   * Sends a message to a Kafka topic within a transaction
-   * @param topic The topic to send to
-   * @param messages The message(s) to send
-   * @param transactionId The transaction ID
-   * @param key Optional message key for partitioning
-   * @param headers Optional message headers
-   * @returns Promise resolving to the record metadata
-   */
-  async sendWithTransaction<T>(
-    topic: string,
-    messages: T | T[],
-    transactionId: string,
-    key?: string,
-    headers?: Record<string, string>,
-  ): Promise<RecordMetadata[]> {
-    // Ensure producer is connected
-    if (!this.connected) {
-      await this.connect();
-    }
-
-    // Validate that the producer is configured for transactions
-    if (!this.config.transactionalId) {
-      throw new Error('Producer is not configured for transactions. Set transactionalId in producer config.');
-    }
-
-    const correlationId = headers?.['correlation-id'] || uuidv4();
-    const messageArray = Array.isArray(messages) ? messages : [messages];
-    const startTime = Date.now();
-    let transaction: Transaction | null = null;
-
-    try {
-      // Use circuit breaker and retry policy for reliable delivery
-      return await this.circuitBreaker.execute(() => {
-        return this.retryPolicy.execute(async (attempt) => {
-          try {
-            // Initialize transaction
-            transaction = await this.producer.transaction();
-
-            // Prepare the messages with headers
-            const kafkaMessages = messageArray.map((message) => ({
-              value: this.serializeMessage(message),
-              key: key ? Buffer.from(key) : null,
-              headers: this.prepareHeaders(headers, correlationId, transactionId),
-            }));
-
-            // Send the messages within the transaction
-            const result = await this.producer.send({
-              topic,
-              messages: kafkaMessages,
-              acks: this.config.acks ?? DEFAULT_PRODUCER_CONFIG.acks,
-              timeout: this.config.timeout ?? DEFAULT_PRODUCER_CONFIG.timeout,
-              compression: this.getCompressionType(this.config.compression),
-            });
-
-            // Commit the transaction
-            await transaction.commit();
-            transaction = null;
-
-            // Record metrics
-            if (this.enableMetrics) {
-              this.recordMetric(KAFKA_METRICS.MESSAGES_PRODUCED, messageArray.length, {
-                topic,
-                service: this.serviceName,
-                transactional: 'true',
-              });
-              this.recordMetric(KAFKA_METRICS.PRODUCTION_LATENCY, Date.now() - startTime, {
-                topic,
-                service: this.serviceName,
-                transactional: 'true',
-              });
-            }
-
-            this.logger.debug(
-              `Successfully sent ${messageArray.length} message(s) to topic ${topic} in transaction ${transactionId}`,
-              { correlationId, transactionId, messageCount: messageArray.length },
-            );
-
-            return result;
-          } catch (error) {
-            // Abort the transaction if it exists
-            if (transaction) {
-              try {
-                await transaction.abort();
-              } catch (abortError) {
-                this.logger.error(
-                  `Failed to abort transaction ${transactionId}: ${(abortError as Error).message}`,
-                  { correlationId, transactionId },
-                );
-              }
-              transaction = null;
-            }
-
-            // Handle errors with proper categorization
-            const kafkaError = createKafkaError(error as Error, {
-              topic,
-              correlationId,
-              retryCount: attempt,
-            });
-
-            // Log the error with appropriate level based on retry attempt
-            if (attempt < this.retryPolicy.getMaxRetries()) {
-              this.logger.warn(
-                `Failed to send message(s) to topic ${topic} in transaction ${transactionId}, retrying (${attempt + 1}/${this.retryPolicy.getMaxRetries()})`,
-                { correlationId, transactionId, error: kafkaError.message, attempt, maxRetries: this.retryPolicy.getMaxRetries() },
-              );
-            } else {
-              this.logger.error(
-                `Failed to send message(s) to topic ${topic} in transaction ${transactionId} after ${attempt} attempts`,
-                { correlationId, transactionId, error: kafkaError.message, attempt },
-              );
-
-              // Record error metrics
-              if (this.enableMetrics) {
-                this.recordMetric(KAFKA_METRICS.PRODUCTION_ERRORS, 1, {
-                  topic,
-                  service: this.serviceName,
-                  transactional: 'true',
-                  errorType: kafkaError.kafkaErrorType,
-                });
-              }
-            }
-
-            // Rethrow the error for the retry policy to handle
-            throw kafkaError;
-          }
-        });
-      });
-    } catch (error) {
-      // Final error handling after all retries have failed
-      const kafkaError = error instanceof KafkaError
-        ? error
-        : new KafkaProducerError(
-            `Failed to send message(s) to topic ${topic} in transaction ${transactionId}`,
-            { topic, correlationId, transactionId },
-            error as Error,
-          );
-
-      this.logger.error(
-        `Failed to send message(s) to topic ${topic} in transaction ${transactionId}: ${kafkaError.message}`,
-        { correlationId, transactionId, errorType: kafkaError.kafkaErrorType, details: kafkaError.details },
-      );
-
-      throw kafkaError;
-    }
-  }
-
-  /**
-   * Sends a typed message to a journey-specific topic
-   * @param journey The journey to send to
-   * @param payload The typed payload to send
-   * @returns Promise resolving to the record metadata
-   */
-  async sendToJourney<T>(journey: EventJourney, payload: KafkaTypedPayload<T>): Promise<RecordMetadata[]> {
-    const { topic, key, value, headers } = payload;
-    const journeyTopic = this.getJourneyTopic(journey, topic);
-    
-    return this.send(journeyTopic, value, key as string, headers);
-  }
-
-  /**
-   * Checks if the producer is connected to the Kafka broker
-   * @returns True if connected, false otherwise
+   * Check if the producer is connected
    */
   isConnected(): boolean {
     return this.connected;
   }
 
   /**
-   * Serializes a message to a Buffer for sending to Kafka
-   * @param message The message to serialize
-   * @returns The serialized message as a Buffer
-   * @throws KafkaSerializationError if serialization fails
+   * Send a message to a Kafka topic
+   * @param message The message to send
+   * @returns Promise that resolves with the message metadata
    */
-  private serializeMessage<T>(message: T): Buffer {
+  async send<T = any>(message: IKafkaMessage<T>): Promise<IKafkaProducerRecord> {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    const { topic, partition, key, value, headers } = message;
+
     try {
-      if (message === null || message === undefined) {
-        return Buffer.from('');
-      }
+      // Use circuit breaker to protect against broker failures
+      return await this.circuitBreaker.execute(async () => {
+        const serializedValue = this.serializeValue(value);
 
-      if (Buffer.isBuffer(message)) {
-        return message;
-      }
+        const kafkaMessage: Message = {
+          key: key ? Buffer.from(key) : null,
+          value: serializedValue,
+          headers: headers ? this.serializeHeaders(headers) : {},
+        };
 
-      if (typeof message === 'string') {
-        return Buffer.from(message);
-      }
+        const record: ProducerRecord = {
+          topic,
+          messages: [kafkaMessage],
+          ...(partition !== undefined ? { partition } : {}),
+        };
 
-      return Buffer.from(JSON.stringify(message));
+        const metadata = await this.producer.send(record);
+        const result = this.processMetadata(metadata, topic);
+
+        this.logger.debug(`Message sent to topic ${topic}`, {
+          topic,
+          partition: result.partition,
+          offset: result.offset,
+        });
+
+        return result;
+      });
     } catch (error) {
-      const correlationId = uuidv4();
-      this.logger.error(`Failed to serialize message: ${(error as Error).message}`, {
-        correlationId,
-        messageType: typeof message,
-      });
+      const context = {
+        topic,
+        partition,
+        clientId: 'kafka-producer',
+      };
 
-      throw new KafkaSerializationError('Failed to serialize message', {
-        correlationId,
-        messageType: typeof message,
-      }, error as Error);
+      let kafkaError: KafkaError;
+
+      if (error instanceof KafkaError) {
+        kafkaError = error;
+      } else if (error instanceof Error && error.message.includes('Serialization')) {
+        kafkaError = new KafkaMessageSerializationError(
+          `Failed to serialize message for topic ${topic}: ${error.message}`,
+          context,
+          error
+        );
+      } else {
+        kafkaError = new KafkaProducerError(
+          `Failed to send message to topic ${topic}: ${error.message}`,
+          context,
+          error instanceof Error ? error : undefined
+        );
+      }
+
+      this.logger.error(
+        `Kafka producer error: ${kafkaError.message}`,
+        kafkaError.stack,
+        { topic, partition, error: kafkaError }
+      );
+
+      throw kafkaError;
     }
   }
 
   /**
-   * Prepares headers for a Kafka message
-   * @param customHeaders Custom headers to include
-   * @param correlationId Correlation ID for tracing
-   * @param transactionId Optional transaction ID
-   * @returns Prepared headers as a Record<string, Buffer>
+   * Send a batch of messages to Kafka topics
+   * @param messages Array of messages to send
+   * @returns Promise that resolves with the batch metadata
    */
-  private prepareHeaders(
-    customHeaders?: Record<string, string>,
-    correlationId?: string,
-    transactionId?: string,
-  ): Record<string, Buffer> {
-    const headers: Record<string, Buffer> = {};
-
-    // Add standard headers
-    headers['content-type'] = Buffer.from('application/json');
-    headers['timestamp'] = Buffer.from(new Date().toISOString());
-    headers['source-service'] = Buffer.from(this.serviceName);
-
-    // Add correlation ID for tracing
-    if (correlationId) {
-      headers['correlation-id'] = Buffer.from(correlationId);
+  async sendBatch<T = any>(messages: IKafkaMessage<T>[]): Promise<IKafkaProducerBatchRecord> {
+    if (!this.connected) {
+      await this.connect();
     }
 
-    // Add transaction ID if provided
-    if (transactionId) {
-      headers['transaction-id'] = Buffer.from(transactionId);
+    if (!messages || messages.length === 0) {
+      return { records: [] };
     }
 
-    // Add custom headers
-    if (customHeaders) {
-      Object.entries(customHeaders).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          headers[key] = Buffer.from(value);
+    try {
+      // Group messages by topic
+      const messagesByTopic = this.groupMessagesByTopic(messages);
+
+      // Use circuit breaker to protect against broker failures
+      return await this.circuitBreaker.execute(async () => {
+        const topicRecords: ProducerRecord[] = Object.entries(messagesByTopic).map(
+          ([topic, topicMessages]) => ({
+            topic,
+            messages: topicMessages.map((msg) => ({
+              key: msg.key ? Buffer.from(msg.key) : null,
+              value: this.serializeValue(msg.value),
+              headers: msg.headers ? this.serializeHeaders(msg.headers) : {},
+              ...(msg.partition !== undefined ? { partition: msg.partition } : {}),
+            })),
+          })
+        );
+
+        const results: IKafkaProducerRecord[] = [];
+
+        // Send each topic's messages in a batch
+        for (const record of topicRecords) {
+          const metadata = await this.producer.send(record);
+          const topicResults = metadata.map((meta) => ({
+            topic: meta.topicName,
+            partition: meta.partition,
+            offset: meta.baseOffset,
+            timestamp: meta.timestamp?.toString(),
+          }));
+
+          results.push(...topicResults);
+
+          this.logger.debug(`Batch sent to topic ${record.topic}`, {
+            topic: record.topic,
+            messageCount: record.messages.length,
+          });
         }
+
+        return { records: results };
       });
+    } catch (error) {
+      const context = {
+        messageCount: messages.length,
+        topics: [...new Set(messages.map((msg) => msg.topic))],
+        clientId: 'kafka-producer',
+      };
+
+      let kafkaError: KafkaError;
+
+      if (error instanceof KafkaError) {
+        kafkaError = error;
+      } else if (error instanceof Error && error.message.includes('Serialization')) {
+        kafkaError = new KafkaMessageSerializationError(
+          `Failed to serialize messages in batch: ${error.message}`,
+          context,
+          error
+        );
+      } else {
+        kafkaError = new KafkaProducerError(
+          `Failed to send message batch: ${error.message}`,
+          context,
+          error instanceof Error ? error : undefined
+        );
+      }
+
+      this.logger.error(
+        `Kafka producer batch error: ${kafkaError.message}`,
+        kafkaError.stack,
+        { context, error: kafkaError }
+      );
+
+      throw kafkaError;
+    }
+  }
+
+  /**
+   * Send an event to a Kafka topic
+   * @param topic The topic to send to
+   * @param event The event to send
+   * @param key Optional message key
+   * @param headers Optional message headers
+   * @returns Promise that resolves with the message metadata
+   */
+  async sendEvent(
+    topic: string,
+    event: IBaseEvent,
+    key?: string,
+    headers?: IKafkaHeaders
+  ): Promise<IKafkaProducerRecord> {
+    // Create a correlation ID for tracing if not provided
+    const correlationId = headers?.[KAFKA_HEADERS.CORRELATION_ID] || this.tracingService.getCorrelationId() || uuidv4();
+
+    // Enhance the event with metadata if not already present
+    const enhancedEvent = this.enhanceEventWithMetadata(event, correlationId);
+
+    // Create standard headers with tracing information
+    const enhancedHeaders: IKafkaHeaders = {
+      ...headers,
+      [KAFKA_HEADERS.CORRELATION_ID]: correlationId,
+      [KAFKA_HEADERS.EVENT_TYPE]: event.type,
+      [KAFKA_HEADERS.EVENT_VERSION]: event.version || '1.0.0',
+      [KAFKA_HEADERS.TIMESTAMP]: new Date().toISOString(),
+      [KAFKA_HEADERS.SOURCE_SERVICE]: process.env.SERVICE_NAME || 'unknown-service',
+    };
+
+    // Add user ID and journey if available in the event
+    if (event.userId) {
+      enhancedHeaders[KAFKA_HEADERS.USER_ID] = event.userId;
     }
 
-    return headers;
+    if (event.journey) {
+      enhancedHeaders[KAFKA_HEADERS.JOURNEY] = event.journey;
+    }
+
+    // Create a span for tracing the event production
+    return this.tracingService.traceAsync(
+      'kafka.producer.sendEvent',
+      async (span) => {
+        // Add relevant attributes to the span
+        span.setAttribute('kafka.topic', topic);
+        span.setAttribute('kafka.event.type', event.type);
+        span.setAttribute('kafka.event.version', event.version || '1.0.0');
+        span.setAttribute('kafka.correlation_id', correlationId);
+
+        if (event.userId) {
+          span.setAttribute('user.id', event.userId);
+        }
+
+        if (event.journey) {
+          span.setAttribute('journey', event.journey);
+        }
+
+        // Send the event with enhanced headers
+        const result = await this.send({
+          topic,
+          key: key || event.userId || event.id || uuidv4(),
+          value: enhancedEvent,
+          headers: enhancedHeaders,
+        });
+
+        // Add result information to the span
+        span.setAttribute('kafka.partition', result.partition);
+        if (result.offset) {
+          span.setAttribute('kafka.offset', result.offset);
+        }
+
+        return result;
+      },
+      { correlationId }
+    );
   }
 
   /**
-   * Gets the compression type for KafkaJS from the configuration
-   * @param compression The compression type from configuration
-   * @returns The CompressionTypes value for KafkaJS
+   * Begin a transaction
+   * @returns Promise that resolves with a transaction object
    */
-  private getCompressionType(compression?: string): CompressionTypes {
-    switch (compression) {
-      case 'gzip':
-        return CompressionTypes.GZIP;
-      case 'snappy':
-        return CompressionTypes.Snappy;
-      case 'lz4':
-        return CompressionTypes.LZ4;
-      default:
-        return CompressionTypes.None;
+  async transaction(): Promise<IKafkaTransaction> {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    try {
+      const transaction = await this.producer.transaction();
+
+      return {
+        send: async <T>(message: IKafkaMessage<T>): Promise<IKafkaProducerRecord> => {
+          const { topic, partition, key, value, headers } = message;
+
+          try {
+            const serializedValue = this.serializeValue(value);
+
+            const kafkaMessage: Message = {
+              key: key ? Buffer.from(key) : null,
+              value: serializedValue,
+              headers: headers ? this.serializeHeaders(headers) : {},
+            };
+
+            const record: ProducerRecord = {
+              topic,
+              messages: [kafkaMessage],
+              ...(partition !== undefined ? { partition } : {}),
+            };
+
+            const metadata = await transaction.send(record);
+            return this.processMetadata(metadata, topic);
+          } catch (error) {
+            const kafkaError = createKafkaError(error, {
+              topic,
+              partition,
+              clientId: 'kafka-producer-transaction',
+            });
+
+            this.logger.error(
+              `Transaction send error: ${kafkaError.message}`,
+              kafkaError.stack,
+              { topic, partition, error: kafkaError }
+            );
+
+            throw kafkaError;
+          }
+        },
+
+        sendBatch: async <T>(messages: IKafkaMessage<T>[]): Promise<IKafkaProducerBatchRecord> => {
+          if (!messages || messages.length === 0) {
+            return { records: [] };
+          }
+
+          try {
+            // Group messages by topic
+            const messagesByTopic = this.groupMessagesByTopic(messages);
+            const results: IKafkaProducerRecord[] = [];
+
+            // Send each topic's messages in a batch
+            for (const [topic, topicMessages] of Object.entries(messagesByTopic)) {
+              const record: ProducerRecord = {
+                topic,
+                messages: topicMessages.map((msg) => ({
+                  key: msg.key ? Buffer.from(msg.key) : null,
+                  value: this.serializeValue(msg.value),
+                  headers: msg.headers ? this.serializeHeaders(msg.headers) : {},
+                  ...(msg.partition !== undefined ? { partition: msg.partition } : {}),
+                })),
+              };
+
+              const metadata = await transaction.send(record);
+              const topicResults = metadata.map((meta) => ({
+                topic: meta.topicName,
+                partition: meta.partition,
+                offset: meta.baseOffset,
+                timestamp: meta.timestamp?.toString(),
+              }));
+
+              results.push(...topicResults);
+            }
+
+            return { records: results };
+          } catch (error) {
+            const kafkaError = createKafkaError(error, {
+              messageCount: messages.length,
+              topics: [...new Set(messages.map((msg) => msg.topic))],
+              clientId: 'kafka-producer-transaction',
+            });
+
+            this.logger.error(
+              `Transaction sendBatch error: ${kafkaError.message}`,
+              kafkaError.stack,
+              { error: kafkaError }
+            );
+
+            throw kafkaError;
+          }
+        },
+
+        commit: async (): Promise<void> => {
+          try {
+            await transaction.commit();
+            this.logger.debug('Transaction committed successfully');
+          } catch (error) {
+            const kafkaError = createKafkaError(error, {
+              clientId: 'kafka-producer-transaction',
+            });
+
+            this.logger.error(
+              `Transaction commit error: ${kafkaError.message}`,
+              kafkaError.stack,
+              { error: kafkaError }
+            );
+
+            throw kafkaError;
+          }
+        },
+
+        abort: async (): Promise<void> => {
+          try {
+            await transaction.abort();
+            this.logger.debug('Transaction aborted successfully');
+          } catch (error) {
+            const kafkaError = createKafkaError(error, {
+              clientId: 'kafka-producer-transaction',
+            });
+
+            this.logger.error(
+              `Transaction abort error: ${kafkaError.message}`,
+              kafkaError.stack,
+              { error: kafkaError }
+            );
+
+            throw kafkaError;
+          }
+        },
+      };
+    } catch (error) {
+      const kafkaError = createKafkaError(error, {
+        clientId: 'kafka-producer',
+      });
+
+      this.logger.error(
+        `Failed to create transaction: ${kafkaError.message}`,
+        kafkaError.stack,
+        { error: kafkaError }
+      );
+
+      throw kafkaError;
     }
   }
 
   /**
-   * Gets the journey-specific topic name
-   * @param journey The journey
-   * @param eventType The event type
-   * @returns The journey-specific topic name
+   * Send a message with retry logic using RxJS
+   * @param message The message to send
+   * @returns Observable that emits the message metadata
    */
-  private getJourneyTopic(journey: EventJourney, eventType: string): string {
-    return `austa.${journey.toLowerCase()}.${eventType}`;
+  sendWithRetry<T = any>(message: IKafkaMessage<T>): Observable<IKafkaProducerRecord> {
+    return from(this.send(message)).pipe(
+      retry({
+        count: RETRY_CONFIG.MAX_RETRIES,
+        delay: (error, retryCount) => {
+          if (!isRetryableKafkaError(error)) {
+            return throwError(() => error);
+          }
+
+          const delay = getKafkaErrorRetryDelay(error, retryCount);
+          this.logger.warn(
+            `Retrying Kafka message send (attempt ${retryCount}/${RETRY_CONFIG.MAX_RETRIES}) after ${delay}ms`,
+            { topic: message.topic, error: error.message, retryCount, delay }
+          );
+
+          return from(new Promise((resolve) => setTimeout(resolve, delay)));
+        },
+      }),
+      catchError((error) => {
+        this.logger.error(
+          `Failed to send message after ${RETRY_CONFIG.MAX_RETRIES} retries`,
+          error.stack,
+          { topic: message.topic, error: error.message }
+        );
+        return throwError(() => error);
+      })
+    );
   }
 
   /**
-   * Records a metric for observability
-   * @param name The metric name
-   * @param value The metric value
-   * @param tags Optional tags for the metric
+   * Send a batch of messages with retry logic using RxJS
+   * @param messages Array of messages to send
+   * @returns Observable that emits the batch metadata
    */
-  private recordMetric(name: string, value: number, tags?: Record<string, string>): void {
-    // This is a placeholder for actual metric recording
-    // In a real implementation, this would use a metrics library like Prometheus
-    this.logger.debug(`METRIC: ${name} = ${value}`, { tags });
-    
-    // Here you would typically call a metrics service or library
-    // For example with Prometheus:
-    // this.metricsService.recordMetric(name, value, tags);
+  sendBatchWithRetry<T = any>(messages: IKafkaMessage<T>[]): Observable<IKafkaProducerBatchRecord> {
+    return from(this.sendBatch(messages)).pipe(
+      retry({
+        count: RETRY_CONFIG.MAX_RETRIES,
+        delay: (error, retryCount) => {
+          if (!isRetryableKafkaError(error)) {
+            return throwError(() => error);
+          }
+
+          const delay = getKafkaErrorRetryDelay(error, retryCount);
+          const topics = [...new Set(messages.map((msg) => msg.topic))];
+
+          this.logger.warn(
+            `Retrying Kafka batch send (attempt ${retryCount}/${RETRY_CONFIG.MAX_RETRIES}) after ${delay}ms`,
+            { topics, messageCount: messages.length, error: error.message, retryCount, delay }
+          );
+
+          return from(new Promise((resolve) => setTimeout(resolve, delay)));
+        },
+      }),
+      catchError((error) => {
+        const topics = [...new Set(messages.map((msg) => msg.topic))];
+
+        this.logger.error(
+          `Failed to send batch after ${RETRY_CONFIG.MAX_RETRIES} retries`,
+          error.stack,
+          { topics, messageCount: messages.length, error: error.message }
+        );
+
+        return throwError(() => error);
+      })
+    );
   }
 
   /**
-   * Creates a tracing span for distributed tracing
-   * @param name The span name
-   * @param context The span context
-   * @returns An Observable that completes when the span is finished
+   * Send an event with retry logic using RxJS
+   * @param topic The topic to send to
+   * @param event The event to send
+   * @param key Optional message key
+   * @param headers Optional message headers
+   * @returns Observable that emits the message metadata
    */
-  private createSpan(name: string, context?: Record<string, any>): Observable<any> {
-    // This is a placeholder for actual span creation
-    // In a real implementation, this would use a tracing library like OpenTelemetry
-    this.logger.debug(`SPAN: ${name}`, { context });
-    
-    // Here you would typically call a tracing service or library
-    // For example with OpenTelemetry:
-    // return this.tracingService.createSpan(name, context);
-    
-    // Return a dummy observable that completes immediately
-    return new Observable((subscriber) => {
-      subscriber.complete();
-    });
+  sendEventWithRetry(
+    topic: string,
+    event: IBaseEvent,
+    key?: string,
+    headers?: IKafkaHeaders
+  ): Observable<IKafkaProducerRecord> {
+    return from(this.sendEvent(topic, event, key, headers)).pipe(
+      retry({
+        count: RETRY_CONFIG.MAX_RETRIES,
+        delay: (error, retryCount) => {
+          if (!isRetryableKafkaError(error)) {
+            return throwError(() => error);
+          }
+
+          const delay = getKafkaErrorRetryDelay(error, retryCount);
+
+          this.logger.warn(
+            `Retrying Kafka event send (attempt ${retryCount}/${RETRY_CONFIG.MAX_RETRIES}) after ${delay}ms`,
+            { topic, eventType: event.type, error: error.message, retryCount, delay }
+          );
+
+          return from(new Promise((resolve) => setTimeout(resolve, delay)));
+        },
+      }),
+      catchError((error) => {
+        this.logger.error(
+          `Failed to send event after ${RETRY_CONFIG.MAX_RETRIES} retries`,
+          error.stack,
+          { topic, eventType: event.type, error: error.message }
+        );
+
+        return throwError(() => error);
+      })
+    );
+  }
+
+  /**
+   * Process metadata from Kafka producer send operation
+   * @param metadata The metadata from Kafka
+   * @param topic The topic the message was sent to
+   * @returns Standardized producer record
+   */
+  private processMetadata(metadata: RecordMetadata[], topic: string): IKafkaProducerRecord {
+    if (!metadata || metadata.length === 0) {
+      throw new KafkaProducerError(`No metadata returned for topic ${topic}`, { topic });
+    }
+
+    const meta = metadata[0];
+    return {
+      topic: meta.topicName,
+      partition: meta.partition,
+      offset: meta.baseOffset,
+      timestamp: meta.timestamp?.toString(),
+    };
+  }
+
+  /**
+   * Serialize message value to Buffer
+   * @param value The value to serialize
+   * @returns Serialized value as Buffer
+   */
+  private serializeValue(value: any): Buffer {
+    try {
+      if (value === null || value === undefined) {
+        return null;
+      }
+
+      if (Buffer.isBuffer(value)) {
+        return value;
+      }
+
+      if (typeof value === 'string') {
+        return Buffer.from(value);
+      }
+
+      return Buffer.from(JSON.stringify(value));
+    } catch (error) {
+      throw new KafkaMessageSerializationError(
+        `Failed to serialize message value: ${error.message}`,
+        {},
+        error
+      );
+    }
+  }
+
+  /**
+   * Serialize message headers to Kafka format
+   * @param headers The headers to serialize
+   * @returns Serialized headers
+   */
+  private serializeHeaders(headers: IKafkaHeaders): Record<string, Buffer> {
+    const result: Record<string, Buffer> = {};
+
+    try {
+      for (const [key, value] of Object.entries(headers)) {
+        if (value === null || value === undefined) {
+          continue;
+        }
+
+        if (Buffer.isBuffer(value)) {
+          result[key] = value;
+        } else if (typeof value === 'string') {
+          result[key] = Buffer.from(value);
+        } else {
+          result[key] = Buffer.from(JSON.stringify(value));
+        }
+      }
+
+      return result;
+    } catch (error) {
+      throw new KafkaMessageSerializationError(
+        `Failed to serialize message headers: ${error.message}`,
+        {},
+        error
+      );
+    }
+  }
+
+  /**
+   * Group messages by topic for batch sending
+   * @param messages Array of messages to group
+   * @returns Messages grouped by topic
+   */
+  private groupMessagesByTopic<T>(messages: IKafkaMessage<T>[]): Record<string, IKafkaMessage<T>[]> {
+    return messages.reduce((acc, message) => {
+      const { topic } = message;
+      if (!acc[topic]) {
+        acc[topic] = [];
+      }
+      acc[topic].push(message);
+      return acc;
+    }, {} as Record<string, IKafkaMessage<T>[]>);
+  }
+
+  /**
+   * Enhance an event with metadata if not already present
+   * @param event The event to enhance
+   * @param correlationId The correlation ID for tracing
+   * @returns Enhanced event
+   */
+  private enhanceEventWithMetadata(event: IBaseEvent, correlationId: string): IBaseEvent {
+    // Create a copy of the event to avoid modifying the original
+    const enhancedEvent = { ...event };
+
+    // Add ID if not present
+    if (!enhancedEvent.id) {
+      enhancedEvent.id = uuidv4();
+    }
+
+    // Add timestamp if not present
+    if (!enhancedEvent.timestamp) {
+      enhancedEvent.timestamp = new Date().toISOString();
+    }
+
+    // Add metadata if not present
+    if (!enhancedEvent.metadata) {
+      enhancedEvent.metadata = {};
+    }
+
+    // Add correlation ID to metadata if not present
+    if (!enhancedEvent.metadata.correlationId) {
+      enhancedEvent.metadata.correlationId = correlationId;
+    }
+
+    // Add source service to metadata if not present
+    if (!enhancedEvent.metadata.sourceService) {
+      enhancedEvent.metadata.sourceService = process.env.SERVICE_NAME || 'unknown-service';
+    }
+
+    return enhancedEvent;
   }
 }
