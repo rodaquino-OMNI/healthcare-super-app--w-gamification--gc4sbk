@@ -1,428 +1,552 @@
-import { Test } from '@nestjs/testing';
 import { jest } from '@jest/globals';
-
-// Import the decorators to test
-import { Resilient } from '../../../src/decorators/resilient.decorator';
-import { AppException, ErrorType } from '../../../src/categories/app.exception';
+import { Resilient, ResilientConfig } from '../../../src/decorators/resilient.decorator';
+import { ErrorType } from '../../../src/categories/error-types';
+import { CircuitState } from '../../../src/decorators/types';
+import { AppException } from '../../../src/base/app-exception';
 
 /**
- * Mock service with methods that use the Resilient decorator
- * for comprehensive resilience testing
+ * Custom error types for testing error filtering
  */
-class MockService {
-  // Track method calls for verification
-  public callCount = 0;
-  public callTimestamps: number[] = [];
-  public fallbackCalled = false;
-  public circuitOpenRejections = 0;
-
-  // Reset tracking data
-  public reset(): void {
-    this.callCount = 0;
-    this.callTimestamps = [];
-    this.fallbackCalled = false;
-    this.circuitOpenRejections = 0;
-  }
-
-  /**
-   * Method with full resilience configuration using fluent API
-   * - Retries 3 times with exponential backoff
-   * - Circuit breaker opens after 5 failures
-   * - Falls back to a default value when all else fails
-   */
-  @Resilient()
-    .withRetry({ attempts: 3, baseDelay: 50, maxDelay: 500 })
-    .withCircuitBreaker({ failureThreshold: 5, resetTimeout: 1000 })
-    .withFallback(() => 'fallback-value')
-    .configure()
-  public async resilientMethod(shouldFail: boolean, errorType: ErrorType = ErrorType.TECHNICAL): Promise<string> {
-    this.callCount++;
-    this.callTimestamps.push(Date.now());
-
-    if (shouldFail) {
-      throw new AppException(
-        `Simulated failure ${this.callCount}`,
-        errorType,
-        'TEST_ERROR',
-        { attempt: this.callCount }
-      );
-    }
-
-    return 'success';
-  }
-
-  /**
-   * Method with custom fallback that receives the error and context
-   */
-  @Resilient()
-    .withRetry({ attempts: 2 })
-    .withFallback((error, context) => {
-      this.fallbackCalled = true;
-      return `fallback-with-context: ${context.args[0]}, error: ${error.message}`;
-    })
-    .configure()
-  public async methodWithContextAwareFallback(param: string): Promise<string> {
-    this.callCount++;
-    throw new AppException(
-      `Failed with param ${param}`,
-      ErrorType.TECHNICAL,
-      'TEST_ERROR'
-    );
-  }
-
-  /**
-   * Method with circuit breaker only
-   */
-  @Resilient()
-    .withCircuitBreaker({ 
-      failureThreshold: 3, 
-      resetTimeout: 500,
-      onCircuitOpen: () => {
-        this.circuitOpenRejections++;
-      }
-    })
-    .configure()
-  public async circuitBreakerOnlyMethod(shouldFail: boolean): Promise<string> {
-    this.callCount++;
-    
-    if (shouldFail) {
-      throw new AppException(
-        'Circuit breaker test failure',
-        ErrorType.EXTERNAL,
-        'TEST_ERROR'
-      );
-    }
-    
-    return 'circuit success';
-  }
-
-  /**
-   * Method with retry and error filter
-   */
-  @Resilient()
-    .withRetry({ 
-      attempts: 3,
-      errorFilter: (error) => error instanceof AppException && error.type === ErrorType.EXTERNAL
-    })
-    .configure()
-  public async retryWithFilterMethod(errorType: ErrorType): Promise<string> {
-    this.callCount++;
-    
-    throw new AppException(
-      `Error with type ${errorType}`,
-      errorType,
-      'TEST_ERROR'
-    );
-  }
-
-  /**
-   * Method with all resilience patterns and specific ordering
-   */
-  @Resilient()
-    .withCircuitBreaker({ failureThreshold: 3, resetTimeout: 200 })
-    .withRetry({ attempts: 2, baseDelay: 50 })
-    .withFallback(() => {
-      this.fallbackCalled = true;
-      return 'comprehensive-fallback';
-    })
-    .configure()
-  public async comprehensiveResilienceMethod(shouldFail: boolean): Promise<string> {
-    this.callCount++;
-    this.callTimestamps.push(Date.now());
-    
-    if (shouldFail) {
-      throw new AppException(
-        'Comprehensive test failure',
-        ErrorType.TECHNICAL,
-        'TEST_ERROR'
-      );
-    }
-    
-    return 'comprehensive success';
+class TransientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TransientError';
+    Object.setPrototypeOf(this, TransientError.prototype);
   }
 }
 
+class PermanentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentError';
+    Object.setPrototypeOf(this, PermanentError.prototype);
+  }
+}
+
+/**
+ * Mock service with resilient-decorated methods for testing
+ */
+class MockService {
+  public attempts = 0;
+  public fallbackCalls = 0;
+  public lastError: Error | null = null;
+  public circuitState: CircuitState = CircuitState.CLOSED;
+  
+  /**
+   * Basic resilient method with default settings
+   */
+  @Resilient()
+  async basicOperation(failCount: number): Promise<string> {
+    this.attempts++;
+    
+    if (this.attempts <= failCount) {
+      const error = new Error(`Attempt ${this.attempts} failed`);
+      this.lastError = error;
+      throw error;
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with retry configuration using fluent API
+   */
+  @Resilient()
+    .withRetry({ maxAttempts: 3, delay: 100 })
+  async retryOperation(failCount: number): Promise<string> {
+    this.attempts++;
+    
+    if (this.attempts <= failCount) {
+      const error = new Error(`Attempt ${this.attempts} failed`);
+      this.lastError = error;
+      throw error;
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with circuit breaker configuration using fluent API
+   */
+  @Resilient()
+    .withCircuitBreaker({
+      failureThreshold: 2,
+      resetTimeout: 1000,
+      onStateChange: (oldState, newState) => {
+        mockService.circuitState = newState;
+      }
+    })
+  async circuitBreakerOperation(shouldFail: boolean): Promise<string> {
+    this.attempts++;
+    
+    if (shouldFail) {
+      const error = new Error(`Circuit breaker test failure`);
+      this.lastError = error;
+      throw error;
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with fallback configuration using fluent API
+   */
+  @Resilient()
+    .withFallback((error, shouldFail: boolean) => {
+      mockService.fallbackCalls++;
+      return `fallback-${shouldFail}`;
+    })
+  async fallbackOperation(shouldFail: boolean): Promise<string> {
+    this.attempts++;
+    
+    if (shouldFail) {
+      const error = new Error(`Fallback test failure`);
+      this.lastError = error;
+      throw error;
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with combined retry and fallback
+   */
+  @Resilient()
+    .withRetry({ maxAttempts: 3, delay: 100 })
+    .withFallback((error, failCount: number) => {
+      mockService.fallbackCalls++;
+      return `retry-fallback-${failCount}`;
+    })
+  async retryWithFallbackOperation(failCount: number): Promise<string> {
+    this.attempts++;
+    
+    if (this.attempts <= failCount) {
+      const error = new Error(`Attempt ${this.attempts} failed`);
+      this.lastError = error;
+      throw error;
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with combined retry and circuit breaker
+   */
+  @Resilient()
+    .withRetry({
+      maxAttempts: 3,
+      delay: 100,
+      retryCondition: (error) => error instanceof TransientError
+    })
+    .withCircuitBreaker({
+      failureThreshold: 2,
+      resetTimeout: 1000,
+      onStateChange: (oldState, newState) => {
+        mockService.circuitState = newState;
+      }
+    })
+  async retryWithCircuitBreakerOperation(errorType: 'transient' | 'permanent' | 'none'): Promise<string> {
+    this.attempts++;
+    
+    if (errorType === 'transient') {
+      throw new TransientError(`Transient error on attempt ${this.attempts}`);
+    } else if (errorType === 'permanent') {
+      throw new PermanentError(`Permanent error on attempt ${this.attempts}`);
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with all resilience patterns combined
+   */
+  @Resilient()
+    .withRetry({
+      maxAttempts: 3,
+      delay: 100,
+      retryCondition: (error) => error instanceof TransientError
+    })
+    .withCircuitBreaker({
+      failureThreshold: 2,
+      resetTimeout: 1000,
+      onStateChange: (oldState, newState) => {
+        mockService.circuitState = newState;
+      }
+    })
+    .withFallback((error, errorType: 'transient' | 'permanent' | 'none') => {
+      mockService.fallbackCalls++;
+      return `complete-fallback-${errorType}`;
+    })
+  async completeResilientOperation(errorType: 'transient' | 'permanent' | 'none'): Promise<string> {
+    this.attempts++;
+    
+    if (errorType === 'transient') {
+      throw new TransientError(`Transient error on attempt ${this.attempts}`);
+    } else if (errorType === 'permanent') {
+      throw new PermanentError(`Permanent error on attempt ${this.attempts}`);
+    }
+    
+    return 'success';
+  }
+  
+  /**
+   * Method with custom error type and code
+   */
+  @Resilient({
+    errorType: ErrorType.EXTERNAL,
+    errorCode: 'TEST_001',
+    message: 'Custom error message'
+  })
+    .withRetry({ maxAttempts: 3, delay: 100 })
+  async customErrorOperation(): Promise<string> {
+    this.attempts++;
+    throw new Error(`Always failing`);
+  }
+  
+  /**
+   * Reset the service state for the next test
+   */
+  reset(): void {
+    this.attempts = 0;
+    this.fallbackCalls = 0;
+    this.lastError = null;
+    this.circuitState = CircuitState.CLOSED;
+  }
+}
+
+// Create a mock service instance for testing
+const mockService = new MockService();
+
 describe('Resilient Decorator', () => {
-  let mockService: MockService;
-
-  beforeEach(async () => {
-    // Create a NestJS testing module with our mock service
-    const moduleRef = await Test.createTestingModule({
-      providers: [MockService],
-    }).compile();
-
-    mockService = moduleRef.get<MockService>(MockService);
+  // Mock timers for testing delays without waiting
+  beforeEach(() => {
+    jest.useFakeTimers();
     mockService.reset();
-
-    // Mock Date.now to control timing in tests
-    jest.spyOn(Date, 'now').mockImplementation(() => 1000);
+    
+    // Reset circuit breaker state between tests
+    // This is a bit of a hack to access the private static property
+    // @ts-ignore - Accessing private property for testing
+    ResilientConfig.circuitStates = new Map();
   });
-
+  
   afterEach(() => {
-    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
-
+  
   describe('Basic Functionality', () => {
-    it('should return successful result when method succeeds', async () => {
-      const result = await mockService.resilientMethod(false);
+    it('should work with default settings', async () => {
+      // Operation will fail once, then succeed
+      const promise = mockService.basicOperation(1);
       
+      // Fast-forward through any delays
+      jest.runAllTimers();
+      
+      // Verify the result
+      const result = await promise;
       expect(result).toBe('success');
-      expect(mockService.callCount).toBe(1); // Only called once, no retries
-      expect(mockService.fallbackCalled).toBe(false); // Fallback not used
+      expect(mockService.attempts).toBe(2);
     });
-
-    it('should retry and eventually return success', async () => {
-      // Mock implementation to fail twice then succeed
-      let attemptCount = 0;
-      jest.spyOn(mockService, 'resilientMethod').mockImplementation(async () => {
-        mockService.callCount++;
-        mockService.callTimestamps.push(Date.now());
-        
-        attemptCount++;
-        if (attemptCount <= 2) {
-          throw new AppException(
-            `Simulated failure ${attemptCount}`,
-            ErrorType.TECHNICAL,
-            'TEST_ERROR'
-          );
-        }
-        
-        return 'success after retry';
-      });
-
-      const result = await mockService.resilientMethod(true);
+    
+    it('should throw an exception when operation keeps failing', async () => {
+      // Operation will always fail
+      const promise = mockService.basicOperation(10);
       
-      expect(result).toBe('success after retry');
-      expect(mockService.callCount).toBe(3); // Initial + 2 retries
-    });
-
-    it('should use fallback when retries are exhausted', async () => {
-      // Always fail to trigger fallback
-      const result = await mockService.resilientMethod(true);
+      // Fast-forward through any delays
+      jest.runAllTimers();
       
-      expect(result).toBe('fallback-value');
-      expect(mockService.callCount).toBe(4); // Initial + 3 retries
+      // Verify the error
+      await expect(promise).rejects.toThrow();
     });
   });
-
-  describe('Circuit Breaker Integration', () => {
-    it('should open circuit after threshold failures', async () => {
-      // Mock Date.now for timestamp control
-      let currentTime = 1000;
-      jest.spyOn(Date, 'now').mockImplementation(() => currentTime);
-
-      // Fail 5 times to trigger circuit breaker
-      for (let i = 0; i < 5; i++) {
-        await expect(mockService.circuitBreakerOnlyMethod(true)).rejects.toThrow();
-      }
+  
+  describe('Retry Configuration', () => {
+    it('should retry failed operations up to maxAttempts', async () => {
+      // Operation will fail 3 times, which is exactly maxAttempts
+      const promise = mockService.retryOperation(3);
       
-      expect(mockService.callCount).toBe(5); // All calls executed
+      // Fast-forward through the retry delays
+      jest.runAllTimers();
       
-      // Next call should be rejected by circuit breaker without executing method
-      await expect(mockService.circuitBreakerOnlyMethod(false)).rejects.toThrow(/circuit.*open/i);
-      expect(mockService.callCount).toBe(5); // Count unchanged
-      expect(mockService.circuitOpenRejections).toBe(1);
-      
-      // Advance time past reset timeout
-      currentTime += 1000;
-      
-      // Circuit should be half-open, allowing one test call
-      const result = await mockService.circuitBreakerOnlyMethod(false);
-      expect(result).toBe('circuit success');
-      expect(mockService.callCount).toBe(6);
+      // Verify the error
+      await expect(promise).rejects.toThrow();
+      expect(mockService.attempts).toBe(3); // Should stop at maxAttempts
     });
-
-    it('should track failures across retries for circuit breaker threshold', async () => {
-      // Mock Date.now for timestamp control
-      let currentTime = 1000;
-      jest.spyOn(Date, 'now').mockImplementation(() => {
-        const time = currentTime;
-        currentTime += 100; // Increment by 100ms each call
-        return time;
-      });
-
-      // Fail 2 times with 2 retries each = 6 total failures (2 original + 4 retries)
-      // This should trigger the circuit breaker which has threshold of 5
-      await expect(mockService.comprehensiveResilienceMethod(true)).rejects.toThrow();
-      await expect(mockService.comprehensiveResilienceMethod(true)).rejects.toThrow();
+    
+    it('should succeed after retries if operation eventually succeeds', async () => {
+      // Operation will fail twice, then succeed on the third attempt
+      const promise = mockService.retryOperation(2);
       
-      // Verify circuit is now open
-      await expect(mockService.comprehensiveResilienceMethod(false)).rejects.toThrow(/circuit.*open/i);
+      // Fast-forward through the retry delays
+      jest.runAllTimers();
       
-      // Verify method body wasn't called on the last attempt
-      expect(mockService.callCount).toBe(6); // 2 calls with 2 retries each = 6 total
+      // Verify the result
+      const result = await promise;
+      expect(result).toBe('success');
+      expect(mockService.attempts).toBe(3);
     });
   });
-
-  describe('Fallback Functionality', () => {
-    it('should provide error and context to fallback function', async () => {
-      const result = await mockService.methodWithContextAwareFallback('test-param');
+  
+  describe('Circuit Breaker Configuration', () => {
+    it('should open circuit after failureThreshold is reached', async () => {
+      // First call - first failure
+      const promise1 = mockService.circuitBreakerOperation(true);
+      await expect(promise1).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.CLOSED);
       
-      expect(result).toContain('fallback-with-context: test-param');
-      expect(result).toContain('Failed with param test-param');
-      expect(mockService.fallbackCalled).toBe(true);
-      expect(mockService.callCount).toBe(3); // Initial + 2 retries
+      // Second call - second failure, should open circuit
+      const promise2 = mockService.circuitBreakerOperation(true);
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
+      
+      // Third call - circuit is open, should fail fast
+      mockService.reset(); // Reset attempts counter but keep circuit state
+      const promise3 = mockService.circuitBreakerOperation(false);
+      await expect(promise3).rejects.toThrow('Circuit is OPEN');
+      expect(mockService.attempts).toBe(0); // Should not even attempt the operation
     });
-
-    it('should use fallback when circuit is open', async () => {
-      // Mock implementation with circuit breaker and fallback
-      class CircuitWithFallbackService {
-        public callCount = 0;
-        public fallbackCalled = false;
-        
-        @Resilient()
-          .withCircuitBreaker({ failureThreshold: 3, resetTimeout: 1000 })
-          .withFallback(() => {
-            this.fallbackCalled = true;
-            return 'circuit-open-fallback';
-          })
-          .configure()
-        public async methodWithCircuitAndFallback(shouldFail: boolean): Promise<string> {
-          this.callCount++;
-          
-          if (shouldFail) {
-            throw new AppException(
-              'Circuit test failure',
-              ErrorType.TECHNICAL,
-              'TEST_ERROR'
-            );
-          }
-          
-          return 'normal result';
-        }
-      }
+    
+    it('should transition to half-open after resetTimeout', async () => {
+      // First call - first failure
+      const promise1 = mockService.circuitBreakerOperation(true);
+      await expect(promise1).rejects.toThrow();
       
-      const service = new CircuitWithFallbackService();
+      // Second call - second failure, should open circuit
+      const promise2 = mockService.circuitBreakerOperation(true);
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
       
-      // Fail 3 times to open circuit
-      for (let i = 0; i < 3; i++) {
-        await expect(service.methodWithCircuitAndFallback(true)).rejects.toThrow();
-      }
+      // Advance time past resetTimeout
+      jest.advanceTimersByTime(1100); // resetTimeout is 1000ms
       
-      // Next call should use fallback because circuit is open
-      const result = await service.methodWithCircuitAndFallback(false);
+      // Next call should transition to half-open and attempt the operation
+      mockService.reset(); // Reset attempts counter but keep circuit state
+      const promise3 = mockService.circuitBreakerOperation(false); // This one will succeed
       
-      expect(result).toBe('circuit-open-fallback');
-      expect(service.fallbackCalled).toBe(true);
-      expect(service.callCount).toBe(3); // Circuit prevented the 4th call
+      // Verify the result
+      const result = await promise3;
+      expect(result).toBe('success');
+      expect(mockService.circuitState).toBe(CircuitState.HALF_OPEN);
+      expect(mockService.attempts).toBe(1);
     });
-  });
-
-  describe('Error Filtering', () => {
-    it('should only retry on errors that match the filter', async () => {
-      // Should retry because EXTERNAL errors match the filter
-      await expect(mockService.retryWithFilterMethod(ErrorType.EXTERNAL)).rejects.toThrow();
-      expect(mockService.callCount).toBe(4); // Initial + 3 retries
+    
+    it('should close circuit after success in half-open state', async () => {
+      // First call - first failure
+      const promise1 = mockService.circuitBreakerOperation(true);
+      await expect(promise1).rejects.toThrow();
       
-      // Reset for next test
+      // Second call - second failure, should open circuit
+      const promise2 = mockService.circuitBreakerOperation(true);
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
+      
+      // Advance time past resetTimeout
+      jest.advanceTimersByTime(1100); // resetTimeout is 1000ms
+      
+      // First success in half-open state
       mockService.reset();
+      const promise3 = mockService.circuitBreakerOperation(false);
+      const result1 = await promise3;
+      expect(result1).toBe('success');
+      expect(mockService.circuitState).toBe(CircuitState.HALF_OPEN);
       
-      // Should not retry because VALIDATION errors don't match the filter
-      await expect(mockService.retryWithFilterMethod(ErrorType.VALIDATION)).rejects.toThrow();
-      expect(mockService.callCount).toBe(1); // Only initial call, no retries
+      // Second success in half-open state should close the circuit
+      // (successThreshold default is 2)
+      mockService.reset();
+      const promise4 = mockService.circuitBreakerOperation(false);
+      const result2 = await promise4;
+      expect(result2).toBe('success');
+      expect(mockService.circuitState).toBe(CircuitState.CLOSED);
+    });
+    
+    it('should reopen circuit on failure in half-open state', async () => {
+      // First call - first failure
+      const promise1 = mockService.circuitBreakerOperation(true);
+      await expect(promise1).rejects.toThrow();
+      
+      // Second call - second failure, should open circuit
+      const promise2 = mockService.circuitBreakerOperation(true);
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
+      
+      // Advance time past resetTimeout
+      jest.advanceTimersByTime(1100); // resetTimeout is 1000ms
+      
+      // Failure in half-open state should reopen the circuit
+      mockService.reset();
+      const promise3 = mockService.circuitBreakerOperation(true);
+      await expect(promise3).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
     });
   });
-
-  describe('Configuration API', () => {
-    it('should allow fluent configuration with different ordering', async () => {
-      // Define a test class with different decorator ordering
-      class ConfigTestService {
-        public callCount = 0;
-        public fallbackCalled = false;
-        
-        // Order: fallback -> retry -> circuit breaker
-        @Resilient()
-          .withFallback(() => {
-            this.fallbackCalled = true;
-            return 'config-test-fallback';
-          })
-          .withRetry({ attempts: 2 })
-          .withCircuitBreaker({ failureThreshold: 3 })
-          .configure()
-        public async testMethod(): Promise<string> {
-          this.callCount++;
-          throw new Error('Configuration test error');
-        }
-      }
+  
+  describe('Fallback Configuration', () => {
+    it('should use fallback when operation fails', async () => {
+      // Operation will fail
+      const promise = mockService.fallbackOperation(true);
       
-      const service = new ConfigTestService();
-      const result = await service.testMethod();
-      
-      expect(result).toBe('config-test-fallback');
-      expect(service.callCount).toBe(3); // Initial + 2 retries
-      expect(service.fallbackCalled).toBe(true);
+      // Verify fallback is used
+      const result = await promise;
+      expect(result).toBe('fallback-true');
+      expect(mockService.fallbackCalls).toBe(1);
     });
-
-    it('should support direct configuration without fluent API', async () => {
-      // Define a test class with direct configuration
-      class DirectConfigService {
-        public callCount = 0;
-        
-        // Direct configuration object
-        @Resilient({
-          retry: { attempts: 2 },
-          circuitBreaker: { failureThreshold: 3 },
-          fallback: () => 'direct-config-fallback'
-        })
-        public async directConfigMethod(): Promise<string> {
-          this.callCount++;
-          throw new Error('Direct configuration test error');
-        }
-      }
+    
+    it('should not use fallback when operation succeeds', async () => {
+      // Operation will succeed
+      const promise = mockService.fallbackOperation(false);
       
-      const service = new DirectConfigService();
-      const result = await service.directConfigMethod();
-      
-      expect(result).toBe('direct-config-fallback');
-      expect(service.callCount).toBe(3); // Initial + 2 retries
+      // Verify normal result
+      const result = await promise;
+      expect(result).toBe('success');
+      expect(mockService.fallbackCalls).toBe(0);
     });
   });
-
-  describe('Edge Cases and Error Handling', () => {
-    it('should handle errors in fallback function', async () => {
-      // Define a test class with a failing fallback
-      class FailingFallbackService {
-        public callCount = 0;
-        
-        @Resilient()
-          .withRetry({ attempts: 2 })
-          .withFallback(() => {
-            throw new Error('Fallback function error');
-          })
-          .configure()
-        public async methodWithFailingFallback(): Promise<string> {
-          this.callCount++;
-          throw new Error('Original error');
-        }
-      }
+  
+  describe('Combined Patterns', () => {
+    it('should use fallback after retry exhaustion', async () => {
+      // Operation will fail more times than maxAttempts
+      const promise = mockService.retryWithFallbackOperation(5);
       
-      const service = new FailingFallbackService();
+      // Fast-forward through the retry delays
+      jest.runAllTimers();
       
-      // Should propagate the fallback error
-      await expect(service.methodWithFailingFallback()).rejects.toThrow('Fallback function error');
-      expect(service.callCount).toBe(3); // Initial + 2 retries
+      // Verify fallback is used after retries
+      const result = await promise;
+      expect(result).toBe('retry-fallback-5');
+      expect(mockService.attempts).toBe(3); // Should stop at maxAttempts
+      expect(mockService.fallbackCalls).toBe(1);
     });
-
-    it('should handle non-AppException errors', async () => {
-      // Define a test class that throws standard Error
-      class StandardErrorService {
-        public callCount = 0;
-        
+    
+    it('should not retry permanent errors but still open circuit', async () => {
+      // First call with permanent error - should not retry but count as failure
+      const promise1 = mockService.retryWithCircuitBreakerOperation('permanent');
+      await expect(promise1).rejects.toThrow();
+      expect(mockService.attempts).toBe(1); // No retries for permanent errors
+      expect(mockService.circuitState).toBe(CircuitState.CLOSED); // First failure
+      
+      // Second call with permanent error - should open circuit
+      mockService.reset();
+      const promise2 = mockService.retryWithCircuitBreakerOperation('permanent');
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.attempts).toBe(1); // No retries
+      expect(mockService.circuitState).toBe(CircuitState.OPEN); // Circuit opens
+      
+      // Third call - circuit is open, should fail fast
+      mockService.reset();
+      const promise3 = mockService.retryWithCircuitBreakerOperation('none');
+      await expect(promise3).rejects.toThrow('Circuit is OPEN');
+      expect(mockService.attempts).toBe(0); // Should not even attempt the operation
+    });
+    
+    it('should retry transient errors and count failures for circuit breaker', async () => {
+      // First call with transient error - should retry 3 times
+      const promise1 = mockService.retryWithCircuitBreakerOperation('transient');
+      jest.runAllTimers();
+      await expect(promise1).rejects.toThrow();
+      expect(mockService.attempts).toBe(3); // Full retry attempts
+      expect(mockService.circuitState).toBe(CircuitState.CLOSED); // First failure
+      
+      // Second call with transient error - should retry and then open circuit
+      mockService.reset();
+      const promise2 = mockService.retryWithCircuitBreakerOperation('transient');
+      jest.runAllTimers();
+      await expect(promise2).rejects.toThrow();
+      expect(mockService.attempts).toBe(3); // Full retry attempts
+      expect(mockService.circuitState).toBe(CircuitState.OPEN); // Circuit opens
+    });
+    
+    it('should use fallback when circuit is open', async () => {
+      // First two calls to open the circuit
+      await expect(mockService.completeResilientOperation('permanent')).rejects.toThrow();
+      mockService.reset();
+      await expect(mockService.completeResilientOperation('permanent')).rejects.toThrow();
+      expect(mockService.circuitState).toBe(CircuitState.OPEN);
+      
+      // Third call - circuit is open, should use fallback
+      mockService.reset();
+      const result = await mockService.completeResilientOperation('none');
+      expect(result).toBe('complete-fallback-none');
+      expect(mockService.attempts).toBe(0); // Should not attempt the operation
+      expect(mockService.fallbackCalls).toBe(1);
+    });
+    
+    it('should use fallback after retry exhaustion with transient errors', async () => {
+      // Operation will fail with transient errors (retryable)
+      const promise = mockService.completeResilientOperation('transient');
+      
+      // Fast-forward through the retry delays
+      jest.runAllTimers();
+      
+      // Verify fallback is used after retries
+      const result = await promise;
+      expect(result).toBe('complete-fallback-transient');
+      expect(mockService.attempts).toBe(3); // Should stop at maxAttempts
+      expect(mockService.fallbackCalls).toBe(1);
+    });
+    
+    it('should use fallback immediately with permanent errors', async () => {
+      // Operation will fail with permanent error (not retryable)
+      const promise = mockService.completeResilientOperation('permanent');
+      
+      // Verify fallback is used immediately
+      const result = await promise;
+      expect(result).toBe('complete-fallback-permanent');
+      expect(mockService.attempts).toBe(1); // Only one attempt
+      expect(mockService.fallbackCalls).toBe(1);
+    });
+  });
+  
+  describe('Error Handling', () => {
+    it('should throw AppException with custom error type and code', async () => {
+      // Operation will always fail
+      const promise = mockService.customErrorOperation();
+      
+      // Fast-forward through the retry delays
+      jest.runAllTimers();
+      
+      // Verify custom error
+      try {
+        await promise;
+        fail('Should have thrown an error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppException);
+        expect(error.type).toBe(ErrorType.EXTERNAL);
+        expect(error.code).toBe('TEST_001');
+        expect(error.message).toBe('Custom error message');
+      }
+    });
+  });
+  
+  describe('Edge Cases', () => {
+    it('should handle immediate success without resilience mechanisms', async () => {
+      // Operation will succeed on first attempt
+      const promise = mockService.completeResilientOperation('none');
+      
+      // Verify the result
+      const result = await promise;
+      expect(result).toBe('success');
+      expect(mockService.attempts).toBe(1); // Only one attempt
+      expect(mockService.fallbackCalls).toBe(0); // No fallback used
+    });
+    
+    it('should handle non-Error exceptions', async () => {
+      class StringExceptionService {
         @Resilient()
-          .withRetry({ attempts: 2 })
-          .withFallback(() => 'standard-error-fallback')
-          .configure()
-        public async methodWithStandardError(): Promise<string> {
-          this.callCount++;
-          throw new Error('Standard JS error');
+          .withRetry({ maxAttempts: 3 })
+          .withFallback(() => 'fallback')
+        async operation(): Promise<string> {
+          // Throw a string instead of an Error
+          throw 'String exception';
         }
       }
       
-      const service = new StandardErrorService();
-      const result = await service.methodWithStandardError();
+      const service = new StringExceptionService();
+      const promise = service.operation();
       
-      expect(result).toBe('standard-error-fallback');
-      expect(service.callCount).toBe(3); // Initial + 2 retries
+      jest.runAllTimers();
+      
+      // Should handle non-Error exceptions and use fallback
+      const result = await promise;
+      expect(result).toBe('fallback');
     });
   });
 });
