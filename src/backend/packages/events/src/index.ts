@@ -60,6 +60,7 @@ export * from './utils/retry-utils';
 export * from './utils/schema-utils';
 export * from './utils/secure-event';
 export * from './utils/type-converters';
+export * from './utils/type-guards';
 
 /**
  * Usage Examples:
