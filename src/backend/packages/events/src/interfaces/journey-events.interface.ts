@@ -1,973 +1,1464 @@
 /**
- * @file journey-events.interface.ts
+ * @file Journey Events Interface
  * @description Defines type-safe interfaces for journey-specific events that flow through the system.
  * These interfaces ensure that events from different journeys maintain consistent structures
- * while accommodating journey-specific data requirements.
+ * while accommodating journey-specific data requirements. They provide the foundation for
+ * cross-journey gamification and achievement tracking.
  */
 
-import { IBaseEvent } from './base-event.interface';
-import { IVersionedEvent } from './event-versioning.interface';
-
-// Import journey-specific interfaces
-import {
-  IHealthMetric,
-  IHealthGoal,
-  IDeviceConnection,
-  IMedicalEvent,
-  MetricType,
+// Import shared journey interfaces from @austa/interfaces
+import { 
+  IHealthMetric, 
+  IHealthGoal, 
+  MetricType, 
   GoalType,
-  DeviceType,
+  GoalStatus,
+  IDeviceConnection,
+  IMedicalEvent
 } from '@austa/interfaces/journey/health';
 
 import {
   IAppointment,
   IMedication,
+  IProvider,
   ITelemedicineSession,
   ITreatmentPlan,
   AppointmentStatus,
+  AppointmentType
 } from '@austa/interfaces/journey/care';
 
 import {
-  IPlan,
   IClaim,
   IBenefit,
-  ClaimStatus,
+  IPlan,
+  IDocument,
+  ICoverage,
+  ClaimStatus
 } from '@austa/interfaces/journey/plan';
 
 /**
- * Enum defining all possible journey types in the system
+ * Enum defining the available journey types in the system
  */
 export enum JourneyType {
   HEALTH = 'health',
   CARE = 'care',
-  PLAN = 'plan',
+  PLAN = 'plan'
 }
 
 /**
  * Base interface for all journey events
  */
-export interface IJourneyEvent extends IBaseEvent, IVersionedEvent {
+export interface IJourneyEvent {
   /**
-   * The specific journey this event belongs to
+   * Unique identifier for the event
+   * @example "550e8400-e29b-41d4-a716-446655440000"
    */
-  journeyType: JourneyType;
-  
+  id?: string;
+
   /**
-   * User ID associated with this event
+   * The type of event that occurred
+   * @example "HEALTH_METRIC_RECORDED", "CARE_APPOINTMENT_BOOKED", "PLAN_CLAIM_SUBMITTED"
+   */
+  type: string;
+
+  /**
+   * The user ID associated with this event
+   * @example "user_123456"
    */
   userId: string;
-  
+
+  /**
+   * ISO timestamp when the event occurred
+   * @example "2023-04-15T14:32:17.000Z"
+   */
+  timestamp: string | Date;
+
+  /**
+   * The journey context where the event originated
+   * @example "health", "care", "plan"
+   */
+  journey: JourneyType;
+
+  /**
+   * The source service that generated this event
+   * @example "health-service", "care-service", "plan-service"
+   */
+  source?: string;
+
+  /**
+   * Version of the event schema, used for backward compatibility
+   * @example "1.0", "2.3"
+   */
+  version?: string;
+
+  /**
+   * Event-specific payload data
+   */
+  data: Record<string, any>;
+
   /**
    * Optional correlation ID for tracking related events across journeys
+   * @example "corr_550e8400-e29b-41d4-a716-446655440000"
    */
   correlationId?: string;
-  
+
   /**
-   * Optional session ID for grouping events from the same user session
+   * Optional metadata for additional context
    */
-  sessionId?: string;
-  
-  /**
-   * Optional device information for tracking event source
-   */
-  deviceInfo?: {
-    type: 'mobile' | 'web' | 'wearable';
-    id?: string;
-    model?: string;
-    os?: string;
-    appVersion?: string;
-  };
+  metadata?: Record<string, any>;
 }
 
 // ===== HEALTH JOURNEY EVENTS =====
 
 /**
- * Enum defining all possible health journey event types
+ * Health journey event interface
+ */
+export interface IHealthEvent extends IJourneyEvent {
+  journey: JourneyType.HEALTH;
+  type: HealthEventType;
+  data: IHealthEventPayload;
+}
+
+/**
+ * Enum of all health journey event types
  */
 export enum HealthEventType {
-  METRIC_RECORDED = 'health.metric.recorded',
-  GOAL_CREATED = 'health.goal.created',
-  GOAL_UPDATED = 'health.goal.updated',
-  GOAL_ACHIEVED = 'health.goal.achieved',
-  INSIGHT_GENERATED = 'health.insight.generated',
-  DEVICE_CONNECTED = 'health.device.connected',
-  DEVICE_SYNCED = 'health.device.synced',
-  DEVICE_DISCONNECTED = 'health.device.disconnected',
-  MEDICAL_EVENT_ADDED = 'health.medical.added',
+  METRIC_RECORDED = 'HEALTH_METRIC_RECORDED',
+  GOAL_CREATED = 'HEALTH_GOAL_CREATED',
+  GOAL_UPDATED = 'HEALTH_GOAL_UPDATED',
+  GOAL_ACHIEVED = 'HEALTH_GOAL_ACHIEVED',
+  DEVICE_CONNECTED = 'HEALTH_DEVICE_CONNECTED',
+  DEVICE_SYNCED = 'HEALTH_DEVICE_SYNCED',
+  MEDICAL_RECORD_ADDED = 'HEALTH_MEDICAL_RECORD_ADDED',
+  HEALTH_CHECK_COMPLETED = 'HEALTH_CHECK_COMPLETED',
+  INSIGHT_GENERATED = 'HEALTH_INSIGHT_GENERATED'
 }
 
 /**
- * Interface for health metric recording events
+ * Union type for all health event payloads
  */
-export interface IHealthMetricRecordedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.METRIC_RECORDED;
-  payload: {
-    metric: IHealthMetric;
-    metricType: MetricType;
-    value: number;
-    unit: string;
-    timestamp: string;
-    source: 'manual' | 'device' | 'integration';
-    deviceId?: string;
-    previousValue?: number;
-    changePercentage?: number;
-  };
+export type IHealthEventPayload = 
+  | IHealthMetricRecordedPayload
+  | IHealthGoalCreatedPayload
+  | IHealthGoalUpdatedPayload
+  | IHealthGoalAchievedPayload
+  | IHealthDeviceConnectedPayload
+  | IHealthDeviceSyncedPayload
+  | IHealthMedicalRecordAddedPayload
+  | IHealthCheckCompletedPayload
+  | IHealthInsightGeneratedPayload;
+
+/**
+ * Payload for HEALTH_METRIC_RECORDED event
+ */
+export interface IHealthMetricRecordedPayload {
+  /**
+   * The health metric that was recorded
+   */
+  metric: IHealthMetric;
+
+  /**
+   * Type of health metric
+   */
+  metricType: MetricType;
+
+  /**
+   * Value of the recorded metric
+   */
+  value: number;
+
+  /**
+   * Unit of measurement
+   */
+  unit: string;
+
+  /**
+   * When the metric was recorded
+   */
+  timestamp: Date | string;
+
+  /**
+   * Source of the metric (device, manual entry, etc.)
+   */
+  source?: string;
+
+  /**
+   * Previous value for comparison
+   */
+  previousValue?: number;
+
+  /**
+   * Change from previous value
+   */
+  change?: number;
+
+  /**
+   * Whether the change represents an improvement
+   */
+  isImprovement?: boolean;
 }
 
 /**
- * Interface for health goal creation events
+ * Payload for HEALTH_GOAL_CREATED event
  */
-export interface IHealthGoalCreatedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.GOAL_CREATED;
-  payload: {
-    goal: IHealthGoal;
-    goalType: GoalType;
-    targetValue: number;
-    unit: string;
-    startDate: string;
-    endDate?: string;
-    recurrence?: 'daily' | 'weekly' | 'monthly';
-  };
+export interface IHealthGoalCreatedPayload {
+  /**
+   * The health goal that was created
+   */
+  goal: IHealthGoal;
+
+  /**
+   * Type of health goal
+   */
+  goalType: GoalType;
+
+  /**
+   * Target value to achieve
+   */
+  targetValue: number;
+
+  /**
+   * Unit of measurement
+   */
+  unit: string;
+
+  /**
+   * When the goal starts
+   */
+  startDate: Date | string;
+
+  /**
+   * When the goal ends (if applicable)
+   */
+  endDate?: Date | string;
 }
 
 /**
- * Interface for health goal update events
+ * Payload for HEALTH_GOAL_UPDATED event
  */
-export interface IHealthGoalUpdatedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.GOAL_UPDATED;
-  payload: {
-    goal: IHealthGoal;
-    previousTargetValue?: number;
-    newTargetValue: number;
-    progressPercentage: number;
-    isOnTrack: boolean;
-  };
+export interface IHealthGoalUpdatedPayload {
+  /**
+   * The health goal that was updated
+   */
+  goal: IHealthGoal;
+
+  /**
+   * Previous goal status
+   */
+  previousStatus?: GoalStatus;
+
+  /**
+   * New goal status
+   */
+  newStatus: GoalStatus;
+
+  /**
+   * Current progress percentage (0-100)
+   */
+  progress: number;
+
+  /**
+   * Current value
+   */
+  currentValue: number;
+
+  /**
+   * Target value
+   */
+  targetValue: number;
 }
 
 /**
- * Interface for health goal achievement events
+ * Payload for HEALTH_GOAL_ACHIEVED event
  */
-export interface IHealthGoalAchievedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.GOAL_ACHIEVED;
-  payload: {
-    goal: IHealthGoal;
-    achievedValue: number;
-    targetValue: number;
-    achievedDate: string;
-    daysToAchieve: number;
-    streakCount?: number;
-  };
+export interface IHealthGoalAchievedPayload {
+  /**
+   * The health goal that was achieved
+   */
+  goal: IHealthGoal;
+
+  /**
+   * Type of health goal
+   */
+  goalType: GoalType;
+
+  /**
+   * Value at achievement
+   */
+  achievedValue: number;
+
+  /**
+   * Target value that was set
+   */
+  targetValue: number;
+
+  /**
+   * Number of days it took to achieve the goal
+   */
+  daysToAchieve: number;
+
+  /**
+   * Whether the goal was completed before the end date
+   */
+  isEarlyCompletion?: boolean;
 }
 
 /**
- * Interface for health insight generation events
+ * Payload for HEALTH_DEVICE_CONNECTED event
  */
-export interface IHealthInsightGeneratedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.INSIGHT_GENERATED;
-  payload: {
-    insightId: string;
-    insightType: 'trend' | 'anomaly' | 'recommendation' | 'milestone';
-    metricType?: MetricType;
-    description: string;
-    severity?: 'info' | 'warning' | 'critical';
-    relatedMetrics?: IHealthMetric[];
-    generatedDate: string;
-  };
+export interface IHealthDeviceConnectedPayload {
+  /**
+   * The device connection
+   */
+  deviceConnection: IDeviceConnection;
+
+  /**
+   * Device identifier
+   */
+  deviceId: string;
+
+  /**
+   * Type of device
+   */
+  deviceType: string;
+
+  /**
+   * When the device was connected
+   */
+  connectionDate: Date | string;
+
+  /**
+   * Whether this is the first time connecting this device
+   */
+  isFirstConnection: boolean;
 }
 
 /**
- * Interface for device connection events
+ * Payload for HEALTH_DEVICE_SYNCED event
  */
-export interface IDeviceConnectedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.DEVICE_CONNECTED;
-  payload: {
-    device: IDeviceConnection;
-    deviceType: DeviceType;
-    connectionDate: string;
-    isFirstConnection: boolean;
-    permissions: string[];
-  };
+export interface IHealthDeviceSyncedPayload {
+  /**
+   * The device connection
+   */
+  deviceConnection: IDeviceConnection;
+
+  /**
+   * Device identifier
+   */
+  deviceId: string;
+
+  /**
+   * Type of device
+   */
+  deviceType: string;
+
+  /**
+   * When the device was synced
+   */
+  syncDate: Date | string;
+
+  /**
+   * Number of metrics synced
+   */
+  metricsCount: number;
+
+  /**
+   * Types of metrics synced
+   */
+  metricTypes: MetricType[];
+
+  /**
+   * Whether the sync was successful
+   */
+  syncSuccessful: boolean;
+
+  /**
+   * Any error message if sync failed
+   */
+  errorMessage?: string;
 }
 
 /**
- * Interface for device synchronization events
+ * Payload for HEALTH_MEDICAL_RECORD_ADDED event
  */
-export interface IDeviceSyncedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.DEVICE_SYNCED;
-  payload: {
-    device: IDeviceConnection;
-    deviceType: DeviceType;
-    syncDate: string;
-    metricsCount: number;
-    syncDuration: number; // in milliseconds
-    lastSyncDate?: string;
-    newMetricTypes: MetricType[];
-  };
+export interface IHealthMedicalRecordAddedPayload {
+  /**
+   * The medical record that was added
+   */
+  medicalRecord: IMedicalEvent;
+
+  /**
+   * Record identifier
+   */
+  recordId: string;
+
+  /**
+   * Type of medical record
+   */
+  recordType: string;
+
+  /**
+   * Date of the record
+   */
+  recordDate: Date | string;
+
+  /**
+   * Healthcare provider associated with the record
+   */
+  provider?: string;
 }
 
 /**
- * Interface for device disconnection events
+ * Payload for HEALTH_CHECK_COMPLETED event
  */
-export interface IDeviceDisconnectedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.DEVICE_DISCONNECTED;
-  payload: {
-    device: IDeviceConnection;
-    deviceType: DeviceType;
-    disconnectionDate: string;
-    disconnectionReason?: 'user_initiated' | 'token_expired' | 'error' | 'permission_revoked';
-    totalDaysConnected: number;
-  };
+export interface IHealthCheckCompletedPayload {
+  /**
+   * Health check identifier
+   */
+  checkId: string;
+
+  /**
+   * When the health check was completed
+   */
+  completionDate: Date | string;
+
+  /**
+   * Health score (if applicable)
+   */
+  score?: number;
+
+  /**
+   * Health recommendations
+   */
+  recommendations?: string[];
 }
 
 /**
- * Interface for medical event addition events
+ * Payload for HEALTH_INSIGHT_GENERATED event
  */
-export interface IMedicalEventAddedEvent extends IJourneyEvent {
-  journeyType: JourneyType.HEALTH;
-  type: HealthEventType.MEDICAL_EVENT_ADDED;
-  payload: {
-    medicalEvent: IMedicalEvent;
-    eventDate: string;
-    provider?: string;
-    hasDocuments: boolean;
-    isImported: boolean;
-  };
-}
+export interface IHealthInsightGeneratedPayload {
+  /**
+   * Insight identifier
+   */
+  insightId: string;
 
-/**
- * Union type of all health journey events
- */
-export type HealthJourneyEvent =
-  | IHealthMetricRecordedEvent
-  | IHealthGoalCreatedEvent
-  | IHealthGoalUpdatedEvent
-  | IHealthGoalAchievedEvent
-  | IHealthInsightGeneratedEvent
-  | IDeviceConnectedEvent
-  | IDeviceSyncedEvent
-  | IDeviceDisconnectedEvent
-  | IMedicalEventAddedEvent;
+  /**
+   * Type of insight
+   */
+  insightType: string;
+
+  /**
+   * When the insight was generated
+   */
+  generationDate: Date | string;
+
+  /**
+   * Metrics used to generate the insight
+   */
+  relatedMetrics?: MetricType[];
+
+  /**
+   * Severity or importance level
+   */
+  severity?: 'low' | 'medium' | 'high';
+
+  /**
+   * Brief description of the insight
+   */
+  description: string;
+
+  /**
+   * Detailed explanation
+   */
+  explanation?: string;
+
+  /**
+   * Recommended actions
+   */
+  recommendations?: string[];
+}
 
 // ===== CARE JOURNEY EVENTS =====
 
 /**
- * Enum defining all possible care journey event types
+ * Care journey event interface
+ */
+export interface ICareEvent extends IJourneyEvent {
+  journey: JourneyType.CARE;
+  type: CareEventType;
+  data: ICareEventPayload;
+}
+
+/**
+ * Enum of all care journey event types
  */
 export enum CareEventType {
-  APPOINTMENT_BOOKED = 'care.appointment.booked',
-  APPOINTMENT_COMPLETED = 'care.appointment.completed',
-  APPOINTMENT_CANCELLED = 'care.appointment.cancelled',
-  APPOINTMENT_RESCHEDULED = 'care.appointment.rescheduled',
-  MEDICATION_ADDED = 'care.medication.added',
-  MEDICATION_TAKEN = 'care.medication.taken',
-  MEDICATION_MISSED = 'care.medication.missed',
-  MEDICATION_REFILLED = 'care.medication.refilled',
-  TELEMEDICINE_STARTED = 'care.telemedicine.started',
-  TELEMEDICINE_COMPLETED = 'care.telemedicine.completed',
-  TREATMENT_PLAN_CREATED = 'care.treatment.created',
-  TREATMENT_PLAN_UPDATED = 'care.treatment.updated',
-  TREATMENT_PLAN_COMPLETED = 'care.treatment.completed',
+  APPOINTMENT_BOOKED = 'CARE_APPOINTMENT_BOOKED',
+  APPOINTMENT_COMPLETED = 'CARE_APPOINTMENT_COMPLETED',
+  APPOINTMENT_CANCELED = 'CARE_APPOINTMENT_CANCELED',
+  MEDICATION_ADDED = 'CARE_MEDICATION_ADDED',
+  MEDICATION_TAKEN = 'CARE_MEDICATION_TAKEN',
+  MEDICATION_ADHERENCE_STREAK = 'CARE_MEDICATION_ADHERENCE_STREAK',
+  TELEMEDICINE_SESSION_STARTED = 'CARE_TELEMEDICINE_SESSION_STARTED',
+  TELEMEDICINE_SESSION_COMPLETED = 'CARE_TELEMEDICINE_SESSION_COMPLETED',
+  PROVIDER_RATED = 'CARE_PROVIDER_RATED',
+  SYMPTOM_CHECK_COMPLETED = 'CARE_SYMPTOM_CHECK_COMPLETED',
+  CARE_PLAN_CREATED = 'CARE_PLAN_CREATED',
+  CARE_PLAN_UPDATED = 'CARE_PLAN_UPDATED',
+  CARE_PLAN_COMPLETED = 'CARE_PLAN_COMPLETED'
 }
 
 /**
- * Interface for appointment booking events
+ * Union type for all care event payloads
  */
-export interface IAppointmentBookedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.APPOINTMENT_BOOKED;
-  payload: {
-    appointment: IAppointment;
-    provider: string;
-    appointmentDate: string;
-    appointmentType: string;
-    isFirstAppointment: boolean;
-    isUrgent: boolean;
-  };
+export type ICareEventPayload =
+  | ICareAppointmentBookedPayload
+  | ICareAppointmentCompletedPayload
+  | ICareAppointmentCanceledPayload
+  | ICareMedicationAddedPayload
+  | ICareMedicationTakenPayload
+  | ICareMedicationAdherenceStreakPayload
+  | ICareTelemedicineSessionStartedPayload
+  | ICareTelemedicineSessionCompletedPayload
+  | ICareProviderRatedPayload
+  | ICareSymptomCheckCompletedPayload
+  | ICarePlanCreatedPayload
+  | ICarePlanUpdatedPayload
+  | ICarePlanCompletedPayload;
+
+/**
+ * Payload for CARE_APPOINTMENT_BOOKED event
+ */
+export interface ICareAppointmentBookedPayload {
+  /**
+   * The appointment that was booked
+   */
+  appointment: IAppointment;
+
+  /**
+   * Type of appointment
+   */
+  appointmentType: AppointmentType;
+
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * When the appointment is scheduled
+   */
+  scheduledDate: Date | string;
+
+  /**
+   * Whether this is the user's first appointment
+   */
+  isFirstAppointment?: boolean;
+
+  /**
+   * Whether the appointment is marked as urgent
+   */
+  isUrgent?: boolean;
 }
 
 /**
- * Interface for appointment completion events
+ * Payload for CARE_APPOINTMENT_COMPLETED event
  */
-export interface IAppointmentCompletedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.APPOINTMENT_COMPLETED;
-  payload: {
-    appointment: IAppointment;
-    provider: string;
-    completionDate: string;
-    duration: number; // in minutes
-    followUpRequired: boolean;
-    followUpDate?: string;
-    hasTreatmentPlan: boolean;
-  };
+export interface ICareAppointmentCompletedPayload {
+  /**
+   * The appointment that was completed
+   */
+  appointment: IAppointment;
+
+  /**
+   * Type of appointment
+   */
+  appointmentType: AppointmentType;
+
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * When the appointment was completed
+   */
+  completionDate: Date | string;
+
+  /**
+   * Duration in minutes
+   */
+  duration: number;
+
+  /**
+   * Whether a follow-up appointment was scheduled
+   */
+  followUpScheduled?: boolean;
 }
 
 /**
- * Interface for appointment cancellation events
+ * Payload for CARE_APPOINTMENT_CANCELED event
  */
-export interface IAppointmentCancelledEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.APPOINTMENT_CANCELLED;
-  payload: {
-    appointment: IAppointment;
-    provider: string;
-    cancellationDate: string;
-    cancellationReason?: string;
-    rescheduled: boolean;
-    newAppointmentId?: string;
-  };
+export interface ICareAppointmentCanceledPayload {
+  /**
+   * Appointment identifier
+   */
+  appointmentId: string;
+
+  /**
+   * Type of appointment
+   */
+  appointmentType: AppointmentType;
+
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * When the appointment was canceled
+   */
+  cancellationDate: Date | string;
+
+  /**
+   * Whether the appointment was rescheduled
+   */
+  rescheduled: boolean;
+
+  /**
+   * Reason for cancellation
+   */
+  reason?: string;
 }
 
 /**
- * Interface for appointment rescheduling events
+ * Payload for CARE_MEDICATION_ADDED event
  */
-export interface IAppointmentRescheduledEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.APPOINTMENT_RESCHEDULED;
-  payload: {
-    appointment: IAppointment;
-    provider: string;
-    originalDate: string;
-    newDate: string;
-    rescheduledBy: 'patient' | 'provider' | 'system';
-    reschedulingReason?: string;
-  };
+export interface ICareMedicationAddedPayload {
+  /**
+   * The medication that was added
+   */
+  medication: IMedication;
+
+  /**
+   * When to start taking the medication
+   */
+  startDate: Date | string;
+
+  /**
+   * When to stop taking the medication (if applicable)
+   */
+  endDate?: Date | string;
+
+  /**
+   * Dosage information
+   */
+  dosage: string;
+
+  /**
+   * How often to take the medication
+   */
+  frequency: string;
+
+  /**
+   * Whether this is a long-term medication
+   */
+  isChronicMedication?: boolean;
 }
 
 /**
- * Interface for medication addition events
+ * Payload for CARE_MEDICATION_TAKEN event
  */
-export interface IMedicationAddedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.MEDICATION_ADDED;
-  payload: {
-    medication: IMedication;
-    prescriptionDate: string;
-    dosage: string;
-    frequency: string;
-    duration: number; // in days
-    startDate: string;
-    endDate?: string;
-    remindersEnabled: boolean;
-  };
+export interface ICareMedicationTakenPayload {
+  /**
+   * Medication identifier
+   */
+  medicationId: string;
+
+  /**
+   * Name of the medication
+   */
+  medicationName: string;
+
+  /**
+   * When the medication was taken
+   */
+  takenDate: Date | string;
+
+  /**
+   * Whether the medication was taken on schedule
+   */
+  takenOnTime: boolean;
+
+  /**
+   * Dosage information
+   */
+  dosage: string;
 }
 
 /**
- * Interface for medication taken events
+ * Payload for CARE_MEDICATION_ADHERENCE_STREAK event
  */
-export interface IMedicationTakenEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.MEDICATION_TAKEN;
-  payload: {
-    medication: IMedication;
-    takenDate: string;
-    scheduledTime: string;
-    takenOnTime: boolean;
-    delayMinutes?: number;
-    dosageTaken: string;
-    notes?: string;
-  };
+export interface ICareMedicationAdherenceStreakPayload {
+  /**
+   * Medication identifier
+   */
+  medicationId: string;
+
+  /**
+   * Name of the medication
+   */
+  medicationName: string;
+
+  /**
+   * Number of consecutive days medication was taken
+   */
+  streakDays: number;
+
+  /**
+   * Percentage of doses taken on time (0-100)
+   */
+  adherencePercentage: number;
+
+  /**
+   * When the streak started
+   */
+  startDate: Date | string;
+
+  /**
+   * When the streak ended
+   */
+  endDate: Date | string;
 }
 
 /**
- * Interface for medication missed events
+ * Payload for CARE_TELEMEDICINE_SESSION_STARTED event
  */
-export interface IMedicationMissedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.MEDICATION_MISSED;
-  payload: {
-    medication: IMedication;
-    missedDate: string;
-    scheduledTime: string;
-    reason?: string;
-    remindersSent: number;
-    isCritical: boolean;
-  };
+export interface ICareTelemedicineSessionStartedPayload {
+  /**
+   * The telemedicine session
+   */
+  session: ITelemedicineSession;
+
+  /**
+   * Session identifier
+   */
+  sessionId: string;
+
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * When the session started
+   */
+  startTime: Date | string;
+
+  /**
+   * Related appointment identifier (if applicable)
+   */
+  appointmentId?: string;
 }
 
 /**
- * Interface for medication refill events
+ * Payload for CARE_TELEMEDICINE_SESSION_COMPLETED event
  */
-export interface IMedicationRefilledEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.MEDICATION_REFILLED;
-  payload: {
-    medication: IMedication;
-    refillDate: string;
-    quantity: number;
-    daysSupply: number;
-    pharmacy?: string;
-    isAutoRefill: boolean;
-    remainingRefills: number;
-  };
+export interface ICareTelemedicineSessionCompletedPayload {
+  /**
+   * The telemedicine session
+   */
+  session: ITelemedicineSession;
+
+  /**
+   * Session identifier
+   */
+  sessionId: string;
+
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * When the session started
+   */
+  startTime: Date | string;
+
+  /**
+   * When the session ended
+   */
+  endTime: Date | string;
+
+  /**
+   * Duration in minutes
+   */
+  duration: number;
+
+  /**
+   * Related appointment identifier (if applicable)
+   */
+  appointmentId?: string;
+
+  /**
+   * Whether there were technical issues during the session
+   */
+  technicalIssues?: boolean;
 }
 
 /**
- * Interface for telemedicine session start events
+ * Payload for CARE_PROVIDER_RATED event
  */
-export interface ITelemedicineStartedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.TELEMEDICINE_STARTED;
-  payload: {
-    session: ITelemedicineSession;
-    provider: string;
-    startDate: string;
-    appointmentId?: string;
-    isScheduled: boolean;
-    connectionQuality?: 'poor' | 'fair' | 'good' | 'excellent';
-  };
+export interface ICareProviderRatedPayload {
+  /**
+   * Provider identifier
+   */
+  providerId: string;
+
+  /**
+   * Related appointment identifier (if applicable)
+   */
+  appointmentId?: string;
+
+  /**
+   * Rating value (1-5)
+   */
+  rating: number;
+
+  /**
+   * Feedback comments
+   */
+  feedback?: string;
+
+  /**
+   * Whether the user would recommend this provider
+   */
+  wouldRecommend: boolean;
 }
 
 /**
- * Interface for telemedicine session completion events
+ * Payload for CARE_SYMPTOM_CHECK_COMPLETED event
  */
-export interface ITelemedicineCompletedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.TELEMEDICINE_COMPLETED;
-  payload: {
-    session: ITelemedicineSession;
-    provider: string;
-    endDate: string;
-    duration: number; // in minutes
-    connectionIssues: boolean;
-    followUpRequired: boolean;
-    prescriptionIssued: boolean;
-    patientRating?: number; // 1-5 scale
-  };
+export interface ICareSymptomCheckCompletedPayload {
+  /**
+   * Symptom check identifier
+   */
+  checkId: string;
+
+  /**
+   * When the symptom check was completed
+   */
+  completionDate: Date | string;
+
+  /**
+   * Number of symptoms reported
+   */
+  symptomCount: number;
+
+  /**
+   * Assessed urgency level
+   */
+  urgencyLevel: 'low' | 'medium' | 'high';
+
+  /**
+   * Recommended action based on symptoms
+   */
+  recommendedAction?: string;
 }
 
 /**
- * Interface for treatment plan creation events
+ * Payload for CARE_PLAN_CREATED event
  */
-export interface ITreatmentPlanCreatedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.TREATMENT_PLAN_CREATED;
-  payload: {
-    treatmentPlan: ITreatmentPlan;
-    provider: string;
-    creationDate: string;
-    condition: string;
-    expectedDuration: number; // in days
-    activityCount: number;
-    hasMedications: boolean;
-    hasAppointments: boolean;
-  };
+export interface ICarePlanCreatedPayload {
+  /**
+   * The treatment plan that was created
+   */
+  treatmentPlan: ITreatmentPlan;
+
+  /**
+   * Plan identifier
+   */
+  planId: string;
+
+  /**
+   * Type of care plan
+   */
+  planType: string;
+
+  /**
+   * When the plan starts
+   */
+  startDate: Date | string;
+
+  /**
+   * When the plan ends (if applicable)
+   */
+  endDate?: Date | string;
+
+  /**
+   * Provider who created the plan
+   */
+  providerId?: string;
+
+  /**
+   * Number of activities in the plan
+   */
+  activitiesCount: number;
 }
 
 /**
- * Interface for treatment plan update events
+ * Payload for CARE_PLAN_UPDATED event
  */
-export interface ITreatmentPlanUpdatedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.TREATMENT_PLAN_UPDATED;
-  payload: {
-    treatmentPlan: ITreatmentPlan;
-    provider: string;
-    updateDate: string;
-    progressPercentage: number;
-    activitiesCompleted: number;
-    activitiesRemaining: number;
-    nextActivityDate?: string;
-    isOnTrack: boolean;
-  };
+export interface ICarePlanUpdatedPayload {
+  /**
+   * The treatment plan that was updated
+   */
+  treatmentPlan: ITreatmentPlan;
+
+  /**
+   * Plan identifier
+   */
+  planId: string;
+
+  /**
+   * Current progress percentage (0-100)
+   */
+  progress: number;
+
+  /**
+   * Number of completed activities
+   */
+  completedActivities: number;
+
+  /**
+   * Total number of activities
+   */
+  totalActivities: number;
+
+  /**
+   * Whether the plan is on schedule
+   */
+  isOnSchedule: boolean;
 }
 
 /**
- * Interface for treatment plan completion events
+ * Payload for CARE_PLAN_COMPLETED event
  */
-export interface ITreatmentPlanCompletedEvent extends IJourneyEvent {
-  journeyType: JourneyType.CARE;
-  type: CareEventType.TREATMENT_PLAN_COMPLETED;
-  payload: {
-    treatmentPlan: ITreatmentPlan;
-    provider: string;
-    completionDate: string;
-    actualDuration: number; // in days
-    expectedDuration: number; // in days
-    outcomeNotes?: string;
-    followUpRequired: boolean;
-    patientFeedback?: string;
-  };
-}
+export interface ICarePlanCompletedPayload {
+  /**
+   * The treatment plan that was completed
+   */
+  treatmentPlan: ITreatmentPlan;
 
-/**
- * Union type of all care journey events
- */
-export type CareJourneyEvent =
-  | IAppointmentBookedEvent
-  | IAppointmentCompletedEvent
-  | IAppointmentCancelledEvent
-  | IAppointmentRescheduledEvent
-  | IMedicationAddedEvent
-  | IMedicationTakenEvent
-  | IMedicationMissedEvent
-  | IMedicationRefilledEvent
-  | ITelemedicineStartedEvent
-  | ITelemedicineCompletedEvent
-  | ITreatmentPlanCreatedEvent
-  | ITreatmentPlanUpdatedEvent
-  | ITreatmentPlanCompletedEvent;
+  /**
+   * Plan identifier
+   */
+  planId: string;
+
+  /**
+   * Type of care plan
+   */
+  planType: string;
+
+  /**
+   * When the plan was completed
+   */
+  completionDate: Date | string;
+
+  /**
+   * Whether all activities were completed
+   */
+  fullyCompleted: boolean;
+
+  /**
+   * Percentage of activities completed (0-100)
+   */
+  completionPercentage: number;
+
+  /**
+   * Number of days the plan was active
+   */
+  daysActive: number;
+}
 
 // ===== PLAN JOURNEY EVENTS =====
 
 /**
- * Enum defining all possible plan journey event types
+ * Plan journey event interface
+ */
+export interface IPlanEvent extends IJourneyEvent {
+  journey: JourneyType.PLAN;
+  type: PlanEventType;
+  data: IPlanEventPayload;
+}
+
+/**
+ * Enum of all plan journey event types
  */
 export enum PlanEventType {
-  CLAIM_SUBMITTED = 'plan.claim.submitted',
-  CLAIM_UPDATED = 'plan.claim.updated',
-  CLAIM_APPROVED = 'plan.claim.approved',
-  CLAIM_DENIED = 'plan.claim.denied',
-  BENEFIT_USED = 'plan.benefit.used',
-  BENEFIT_LIMIT_REACHED = 'plan.benefit.limit_reached',
-  PLAN_SELECTED = 'plan.plan.selected',
-  PLAN_CHANGED = 'plan.plan.changed',
-  PLAN_RENEWED = 'plan.plan.renewed',
-  PLAN_COMPARED = 'plan.plan.compared',
-  REWARD_REDEEMED = 'plan.reward.redeemed',
+  CLAIM_SUBMITTED = 'PLAN_CLAIM_SUBMITTED',
+  CLAIM_APPROVED = 'PLAN_CLAIM_APPROVED',
+  CLAIM_REJECTED = 'PLAN_CLAIM_REJECTED',
+  BENEFIT_UTILIZED = 'PLAN_BENEFIT_UTILIZED',
+  PLAN_SELECTED = 'PLAN_PLAN_SELECTED',
+  PLAN_RENEWED = 'PLAN_PLAN_RENEWED',
+  PLAN_COMPARED = 'PLAN_PLAN_COMPARED',
+  DOCUMENT_UPLOADED = 'PLAN_DOCUMENT_UPLOADED',
+  COVERAGE_VERIFIED = 'PLAN_COVERAGE_VERIFIED',
+  REWARD_REDEEMED = 'PLAN_REWARD_REDEEMED'
 }
 
 /**
- * Interface for claim submission events
+ * Union type for all plan event payloads
  */
-export interface IClaimSubmittedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.CLAIM_SUBMITTED;
-  payload: {
-    claim: IClaim;
-    submissionDate: string;
-    amount: number;
-    serviceDate: string;
-    provider: string;
-    hasDocuments: boolean;
-    documentCount: number;
-    isFirstClaim: boolean;
-  };
-}
+export type IPlanEventPayload =
+  | IPlanClaimSubmittedPayload
+  | IPlanClaimApprovedPayload
+  | IPlanClaimRejectedPayload
+  | IPlanBenefitUtilizedPayload
+  | IPlanPlanSelectedPayload
+  | IPlanPlanRenewedPayload
+  | IPlanPlanComparedPayload
+  | IPlanDocumentUploadedPayload
+  | IPlanCoverageVerifiedPayload
+  | IPlanRewardRedeemedPayload;
 
 /**
- * Interface for claim update events
+ * Payload for PLAN_CLAIM_SUBMITTED event
  */
-export interface IClaimUpdatedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.CLAIM_UPDATED;
-  payload: {
-    claim: IClaim;
-    updateDate: string;
-    previousStatus: ClaimStatus;
-    newStatus: ClaimStatus;
-    updatedFields: string[];
-    documentsAdded: boolean;
-    documentCount: number;
-  };
-}
-
-/**
- * Interface for claim approval events
- */
-export interface IClaimApprovedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.CLAIM_APPROVED;
-  payload: {
-    claim: IClaim;
-    approvalDate: string;
-    submittedAmount: number;
-    approvedAmount: number;
-    coveragePercentage: number;
-    processingDays: number;
-    paymentDate?: string;
-    paymentMethod?: string;
-  };
-}
-
-/**
- * Interface for claim denial events
- */
-export interface IClaimDeniedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.CLAIM_DENIED;
-  payload: {
-    claim: IClaim;
-    denialDate: string;
-    denialReason: string;
-    submittedAmount: number;
-    processingDays: number;
-    appealEligible: boolean;
-    appealDeadline?: string;
-    additionalInfoRequired?: string[];
-  };
-}
-
-/**
- * Interface for benefit usage events
- */
-export interface IBenefitUsedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.BENEFIT_USED;
-  payload: {
-    benefit: IBenefit;
-    usageDate: string;
-    provider?: string;
-    serviceDescription: string;
-    amountUsed: number;
-    remainingAmount: number;
-    remainingPercentage: number;
-    isFirstUse: boolean;
-  };
-}
-
-/**
- * Interface for benefit limit reached events
- */
-export interface IBenefitLimitReachedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.BENEFIT_LIMIT_REACHED;
-  payload: {
-    benefit: IBenefit;
-    reachedDate: string;
-    limitType: 'amount' | 'visits' | 'days' | 'items';
-    limitValue: number;
-    renewalDate?: string;
-    alternativeBenefits?: IBenefit[];
-  };
-}
-
-/**
- * Interface for plan selection events
- */
-export interface IPlanSelectedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.PLAN_SELECTED;
-  payload: {
-    plan: IPlan;
-    selectionDate: string;
-    effectiveDate: string;
-    premium: number;
-    paymentFrequency: 'monthly' | 'quarterly' | 'annually';
-    isFirstPlan: boolean;
-    comparedPlansCount?: number;
-  };
-}
-
-/**
- * Interface for plan change events
- */
-export interface IPlanChangedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.PLAN_CHANGED;
-  payload: {
-    oldPlan: IPlan;
-    newPlan: IPlan;
-    changeDate: string;
-    effectiveDate: string;
-    premiumDifference: number;
-    changeReason?: string;
-    benefitChanges: {
-      added: string[];
-      removed: string[];
-      improved: string[];
-      reduced: string[];
-    };
-  };
-}
-
-/**
- * Interface for plan renewal events
- */
-export interface IPlanRenewedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.PLAN_RENEWED;
-  payload: {
-    plan: IPlan;
-    renewalDate: string;
-    previousEndDate: string;
-    newEndDate: string;
-    premiumChange: number;
-    premiumChangePercentage: number;
-    benefitChanges: boolean;
-    yearsWithPlan: number;
-  };
-}
-
-/**
- * Interface for plan comparison events
- */
-export interface IPlanComparedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.PLAN_COMPARED;
-  payload: {
-    plansCompared: IPlan[];
-    comparisonDate: string;
-    comparisonCriteria: string[];
-    selectedPlanId?: string;
-    comparisonDuration: number; // in seconds
-    userPreferences?: Record<string, any>;
-  };
-}
-
-/**
- * Interface for reward redemption events
- */
-export interface IRewardRedeemedEvent extends IJourneyEvent {
-  journeyType: JourneyType.PLAN;
-  type: PlanEventType.REWARD_REDEEMED;
-  payload: {
-    rewardId: string;
-    rewardName: string;
-    rewardType: 'discount' | 'cashback' | 'gift' | 'service';
-    redemptionDate: string;
-    pointsUsed: number;
-    monetaryValue: number;
-    expirationDate?: string;
-    isFirstRedemption: boolean;
-  };
-}
-
-/**
- * Union type of all plan journey events
- */
-export type PlanJourneyEvent =
-  | IClaimSubmittedEvent
-  | IClaimUpdatedEvent
-  | IClaimApprovedEvent
-  | IClaimDeniedEvent
-  | IBenefitUsedEvent
-  | IBenefitLimitReachedEvent
-  | IPlanSelectedEvent
-  | IPlanChangedEvent
-  | IPlanRenewedEvent
-  | IPlanComparedEvent
-  | IRewardRedeemedEvent;
-
-/**
- * Union type of all journey events
- */
-export type JourneyEvent = HealthJourneyEvent | CareJourneyEvent | PlanJourneyEvent;
-
-/**
- * Type guard to check if an event is a Health Journey event
- * @param event The event to check
- * @returns True if the event is a Health Journey event
- */
-export function isHealthJourneyEvent(event: JourneyEvent): event is HealthJourneyEvent {
-  return event.journeyType === JourneyType.HEALTH;
-}
-
-/**
- * Type guard to check if an event is a Care Journey event
- * @param event The event to check
- * @returns True if the event is a Care Journey event
- */
-export function isCareJourneyEvent(event: JourneyEvent): event is CareJourneyEvent {
-  return event.journeyType === JourneyType.CARE;
-}
-
-/**
- * Type guard to check if an event is a Plan Journey event
- * @param event The event to check
- * @returns True if the event is a Plan Journey event
- */
-export function isPlanJourneyEvent(event: JourneyEvent): event is PlanJourneyEvent {
-  return event.journeyType === JourneyType.PLAN;
-}
-
-// ===== CROSS-JOURNEY EVENT UTILITIES =====
-
-/**
- * Interface for cross-journey event correlation
- * Used to track related events across different journeys
- */
-export interface ICrossJourneyCorrelation {
+export interface IPlanClaimSubmittedPayload {
   /**
-   * Primary correlation ID linking related events
+   * The claim that was submitted
    */
-  correlationId: string;
-  
+  claim: IClaim;
+
   /**
-   * User ID associated with the correlated events
+   * When the claim was submitted
    */
-  userId: string;
-  
+  submissionDate: Date | string;
+
   /**
-   * Map of journey types to event IDs
+   * Claim amount
    */
-  journeyEvents: {
-    [JourneyType.HEALTH]?: string[];
-    [JourneyType.CARE]?: string[];
-    [JourneyType.PLAN]?: string[];
-  };
-  
+  amount: number;
+
   /**
-   * Timestamp when the correlation was created
+   * Type of claim
    */
-  createdAt: string;
-  
+  claimType: string;
+
   /**
-   * Timestamp when the correlation was last updated
+   * Whether the claim includes supporting documents
    */
-  updatedAt: string;
-  
+  hasDocuments: boolean;
+
   /**
-   * Optional metadata for the correlation
+   * Whether the claim submission is complete
    */
-  metadata?: Record<string, any>;
+  isComplete: boolean;
 }
 
 /**
- * Interface for cross-journey achievement tracking
- * Used to track achievements that span multiple journeys
+ * Payload for PLAN_CLAIM_APPROVED event
  */
-export interface ICrossJourneyAchievementContext {
+export interface IPlanClaimApprovedPayload {
   /**
-   * Achievement ID
+   * Claim identifier
    */
-  achievementId: string;
-  
+  claimId: string;
+
   /**
-   * User ID associated with the achievement
+   * When the claim was approved
    */
-  userId: string;
-  
+  approvalDate: Date | string;
+
   /**
-   * Required events from each journey to unlock the achievement
+   * Original claim amount
    */
-  requiredEvents: {
-    [JourneyType.HEALTH]?: HealthEventType[];
-    [JourneyType.CARE]?: CareEventType[];
-    [JourneyType.PLAN]?: PlanEventType[];
-  };
-  
+  amount: number;
+
   /**
-   * Completed events from each journey
+   * Approved amount (may differ from original)
    */
-  completedEvents: {
-    [JourneyType.HEALTH]?: {
-      eventType: HealthEventType;
-      eventId: string;
-      timestamp: string;
-    }[];
-    [JourneyType.CARE]?: {
-      eventType: CareEventType;
-      eventId: string;
-      timestamp: string;
-    }[];
-    [JourneyType.PLAN]?: {
-      eventType: PlanEventType;
-      eventId: string;
-      timestamp: string;
-    }[];
-  };
-  
+  approvedAmount: number;
+
   /**
-   * Progress percentage towards achievement completion
+   * Number of days to process the claim
    */
-  progressPercentage: number;
-  
+  processingDays: number;
+
   /**
-   * Whether the achievement has been unlocked
+   * How the payment will be made
    */
-  isUnlocked: boolean;
-  
+  paymentMethod?: string;
+
   /**
-   * Timestamp when the achievement was unlocked
+   * When the payment will be made
    */
-  unlockedAt?: string;
+  paymentDate?: Date | string;
 }
 
 /**
- * Utility function to create a cross-journey correlation
- * @param userId User ID associated with the correlation
- * @param initialEvent Initial event to include in the correlation
- * @param metadata Optional metadata for the correlation
- * @returns A new cross-journey correlation object
+ * Payload for PLAN_CLAIM_REJECTED event
  */
-export function createCrossJourneyCorrelation(
-  userId: string,
-  initialEvent: JourneyEvent,
-  metadata?: Record<string, any>
-): ICrossJourneyCorrelation {
-  const now = new Date().toISOString();
-  const journeyEvents: ICrossJourneyCorrelation['journeyEvents'] = {};
-  
-  // Add the initial event to the appropriate journey
-  journeyEvents[initialEvent.journeyType] = [initialEvent.eventId];
-  
-  return {
-    correlationId: initialEvent.correlationId || `corr-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    userId,
-    journeyEvents,
-    createdAt: now,
-    updatedAt: now,
-    metadata
-  };
+export interface IPlanClaimRejectedPayload {
+  /**
+   * Claim identifier
+   */
+  claimId: string;
+
+  /**
+   * When the claim was rejected
+   */
+  rejectionDate: Date | string;
+
+  /**
+   * Reason for rejection
+   */
+  reason: string;
+
+  /**
+   * Whether the claim can be resubmitted
+   */
+  canResubmit: boolean;
+
+  /**
+   * Documents needed for resubmission
+   */
+  missingDocuments?: string[];
 }
 
 /**
- * Utility function to add an event to an existing cross-journey correlation
- * @param correlation Existing correlation object
- * @param event Event to add to the correlation
- * @returns Updated correlation object
+ * Payload for PLAN_BENEFIT_UTILIZED event
  */
-export function addEventToCorrelation(
-  correlation: ICrossJourneyCorrelation,
-  event: JourneyEvent
-): ICrossJourneyCorrelation {
-  // Create a deep copy of the correlation to avoid mutations
-  const updatedCorrelation = JSON.parse(JSON.stringify(correlation)) as ICrossJourneyCorrelation;
-  
-  // Initialize the journey events array if it doesn't exist
-  if (!updatedCorrelation.journeyEvents[event.journeyType]) {
-    updatedCorrelation.journeyEvents[event.journeyType] = [];
-  }
-  
-  // Add the event ID to the appropriate journey if it's not already there
-  if (!updatedCorrelation.journeyEvents[event.journeyType]?.includes(event.eventId)) {
-    updatedCorrelation.journeyEvents[event.journeyType]?.push(event.eventId);
-  }
-  
-  // Update the correlation timestamp
-  updatedCorrelation.updatedAt = new Date().toISOString();
-  
-  return updatedCorrelation;
+export interface IPlanBenefitUtilizedPayload {
+  /**
+   * The benefit that was utilized
+   */
+  benefit: IBenefit;
+
+  /**
+   * When the benefit was utilized
+   */
+  utilizationDate: Date | string;
+
+  /**
+   * Provider of the service
+   */
+  serviceProvider?: string;
+
+  /**
+   * Cost of the service
+   */
+  amount?: number;
+
+  /**
+   * Remaining coverage for this benefit
+   */
+  remainingCoverage?: number;
+
+  /**
+   * Whether this is the first time using this benefit
+   */
+  isFirstUtilization: boolean;
 }
 
 /**
- * Utility function to check if a cross-journey achievement is complete
- * @param context Achievement context to check
- * @returns True if the achievement is complete
+ * Payload for PLAN_PLAN_SELECTED event
  */
-export function isCrossJourneyAchievementComplete(context: ICrossJourneyAchievementContext): boolean {
-  // If already unlocked, return true
-  if (context.isUnlocked) {
-    return true;
-  }
+export interface IPlanPlanSelectedPayload {
+  /**
+   * The plan that was selected
+   */
+  plan: IPlan;
+
+  /**
+   * Plan identifier
+   */
+  planId: string;
+
+  /**
+   * Plan name
+   */
+  planName: string;
+
+  /**
+   * When the plan was selected
+   */
+  selectionDate: Date | string;
+
+  /**
+   * When the plan coverage starts
+   */
+  startDate: Date | string;
+
+  /**
+   * When the plan coverage ends
+   */
+  endDate?: Date | string;
+
+  /**
+   * Monthly premium amount
+   */
+  premium: number;
+
+  /**
+   * Whether this is an upgrade from a previous plan
+   */
+  isUpgrade?: boolean;
+}
+
+/**
+ * Payload for PLAN_PLAN_RENEWED event
+ */
+export interface IPlanPlanRenewedPayload {
+  /**
+   * The plan that was renewed
+   */
+  plan: IPlan;
+
+  /**
+   * Plan identifier
+   */
+  planId: string;
+
+  /**
+   * Plan name
+   */
+  planName: string;
+
+  /**
+   * When the plan was renewed
+   */
+  renewalDate: Date | string;
+
+  /**
+   * When the previous coverage ended
+   */
+  previousEndDate: Date | string;
+
+  /**
+   * When the new coverage ends
+   */
+  newEndDate: Date | string;
+
+  /**
+   * Monthly premium amount
+   */
+  premium: number;
+
+  /**
+   * Change in premium from previous period
+   */
+  premiumChange?: number;
+
+  /**
+   * Number of consecutive years with this plan
+   */
+  consecutiveYears: number;
+}
+
+/**
+ * Payload for PLAN_PLAN_COMPARED event
+ */
+export interface IPlanPlanComparedPayload {
+  /**
+   * Plans that were compared
+   */
+  comparedPlans: IPlan[];
+
+  /**
+   * Plan identifiers
+   */
+  planIds: string[];
+
+  /**
+   * When the comparison was made
+   */
+  comparisonDate: Date | string;
+
+  /**
+   * Criteria used for comparison
+   */
+  comparisonCriteria: string[];
+
+  /**
+   * Whether a plan was selected after comparison
+   */
+  selectionMade: boolean;
+
+  /**
+   * Identifier of the selected plan (if any)
+   */
+  selectedPlanId?: string;
+}
+
+/**
+ * Payload for PLAN_DOCUMENT_UPLOADED event
+ */
+export interface IPlanDocumentUploadedPayload {
+  /**
+   * The document that was uploaded
+   */
+  document: IDocument;
+
+  /**
+   * Document identifier
+   */
+  documentId: string;
+
+  /**
+   * Type of document
+   */
+  documentType: string;
+
+  /**
+   * When the document was uploaded
+   */
+  uploadDate: Date | string;
+
+  /**
+   * Size of the file in bytes
+   */
+  fileSize: number;
+
+  /**
+   * Name of the file
+   */
+  fileName: string;
+
+  /**
+   * Related claim identifier (if applicable)
+   */
+  claimId?: string;
+}
+
+/**
+ * Payload for PLAN_COVERAGE_VERIFIED event
+ */
+export interface IPlanCoverageVerifiedPayload {
+  /**
+   * The coverage that was verified
+   */
+  coverage: ICoverage;
+
+  /**
+   * Verification identifier
+   */
+  verificationId: string;
+
+  /**
+   * When the verification was performed
+   */
+  verificationDate: Date | string;
+
+  /**
+   * Type of service being verified
+   */
+  serviceType: string;
+
+  /**
+   * Provider identifier
+   */
+  providerId?: string;
+
+  /**
+   * Whether the service is covered
+   */
+  isCovered: boolean;
+
+  /**
+   * Estimated coverage amount
+   */
+  estimatedCoverage?: number;
+
+  /**
+   * Estimated out-of-pocket cost
+   */
+  outOfPocketEstimate?: number;
+}
+
+/**
+ * Payload for PLAN_REWARD_REDEEMED event
+ */
+export interface IPlanRewardRedeemedPayload {
+  /**
+   * Reward identifier
+   */
+  rewardId: string;
+
+  /**
+   * Name of the reward
+   */
+  rewardName: string;
+
+  /**
+   * When the reward was redeemed
+   */
+  redemptionDate: Date | string;
+
+  /**
+   * Point value of the reward
+   */
+  pointValue: number;
+
+  /**
+   * Monetary value of the reward (if applicable)
+   */
+  monetaryValue?: number;
+
+  /**
+   * Type of reward
+   */
+  rewardType: string;
+
+  /**
+   * Whether this is a premium reward
+   */
+  isPremiumReward: boolean;
+}
+
+// ===== CROSS-JOURNEY EVENTS =====
+
+/**
+ * Union type for all journey events
+ */
+export type JourneyEvent = IHealthEvent | ICareEvent | IPlanEvent;
+
+/**
+ * Union type for all journey event types
+ */
+export type JourneyEventType = HealthEventType | CareEventType | PlanEventType;
+
+/**
+ * Type guard to check if an event is a health event
+ */
+export function isHealthEvent(event: IJourneyEvent): event is IHealthEvent {
+  return event.journey === JourneyType.HEALTH;
+}
+
+/**
+ * Type guard to check if an event is a care event
+ */
+export function isCareEvent(event: IJourneyEvent): event is ICareEvent {
+  return event.journey === JourneyType.CARE;
+}
+
+/**
+ * Type guard to check if an event is a plan event
+ */
+export function isPlanEvent(event: IJourneyEvent): event is IPlanEvent {
+  return event.journey === JourneyType.PLAN;
+}
+
+/**
+ * Helper function to create a correlation between events across journeys
+ */
+export function correlateEvents(events: IJourneyEvent[], correlationId?: string): IJourneyEvent[] {
+  const actualCorrelationId = correlationId || `corr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   
-  // Check if all required events from each journey have been completed
-  const journeyTypes = Object.keys(context.requiredEvents) as JourneyType[];
-  
-  for (const journeyType of journeyTypes) {
-    const requiredEvents = context.requiredEvents[journeyType] || [];
-    const completedEventTypes = (context.completedEvents[journeyType] || []).map(e => e.eventType);
-    
-    // Check if all required events for this journey have been completed
-    const allCompleted = requiredEvents.every(eventType => 
-      completedEventTypes.includes(eventType)
-    );
-    
-    // If any journey's requirements are not met, the achievement is not complete
-    if (!allCompleted) {
-      return false;
-    }
-  }
-  
-  // All required events from all journeys have been completed
-  return true;
+  return events.map(event => ({
+    ...event,
+    correlationId: actualCorrelationId
+  }));
 }
