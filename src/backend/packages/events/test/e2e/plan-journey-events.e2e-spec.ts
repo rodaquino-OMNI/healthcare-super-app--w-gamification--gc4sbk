@@ -1,613 +1,760 @@
-import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { TOPICS } from '../../src/constants/topics.constants';
+/**
+ * @file plan-journey-events.e2e-spec.ts
+ * @description End-to-end tests for Plan Journey events, validating the complete flow
+ * of plan-related events from production to consumption. This file tests event publishing,
+ * validation, and processing for claim submission, benefit utilization, plan selection,
+ * and reward redemption events.
+ */
+
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { KafkaService } from '../../src/kafka/kafka.service';
-import { EventSchemaRegistry } from '../../src/schema/schema-registry.service';
+import { KafkaProducer } from '../../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { EventsModule } from '../../src/events.module';
+import { PrismaService } from '@austa/database';
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
+import { KafkaEvent } from '../../src/interfaces/kafka-event.interface';
+import { ClaimStatus, IClaimEvent } from '@austa/interfaces/journey/plan';
 import {
+  createTestEnvironment,
+  createTestConsumer,
+  publishTestEvent,
+  waitForEvent,
+  waitForEvents,
+  createJourneyEventFactories,
+  assertEventsEqual,
   TestEnvironment,
-  createTestUser,
-  createTestClaim,
-  createTestEvent,
-  assertEvent,
-  retry,
-  waitForCondition,
-  seedTestDatabase
 } from './test-helpers';
 
-/**
- * Journey type enum for test usage
- */
-enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  USER = 'user',
-  GAMIFICATION = 'gamification'
-}
+// Constants for test configuration
+const PLAN_EVENTS_TOPIC = 'plan-events';
+const GAMIFICATION_EVENTS_TOPIC = 'gamification-events';
+const NOTIFICATION_EVENTS_TOPIC = 'notification-events';
 
-/**
- * End-to-end tests for Plan Journey events
- * 
- * These tests validate the complete flow of plan-related events from production to consumption,
- * ensuring proper event schema validation and processing through the event pipeline.
- */
-describe('Plan Journey Events (e2e)', () => {
-  let app: INestApplication;
+// Test timeout (increased for e2e tests)
+jest.setTimeout(30000);
+
+describe('Plan Journey Events (E2E)', () => {
   let testEnv: TestEnvironment;
-  let prisma: PrismaClient;
-  let kafkaService: KafkaService;
-  let schemaRegistry: EventSchemaRegistry;
-  let userId: string;
-  let claimId: string;
-  
-  // Setup test environment before all tests
+  let kafkaProducer: KafkaProducer;
+  let planEventsConsumer: KafkaConsumer;
+  let gamificationEventsConsumer: KafkaConsumer;
+  let notificationEventsConsumer: KafkaConsumer;
+  let eventFactories: ReturnType<typeof createJourneyEventFactories>;
+
   beforeAll(async () => {
-    // Create test environment with plan-specific topics
-    testEnv = new TestEnvironment({
-      topics: [
-        TOPICS.PLAN.EVENTS,
-        TOPICS.PLAN.CLAIMS,
-        TOPICS.PLAN.BENEFITS,
-        TOPICS.PLAN.SELECTION,
-        TOPICS.GAMIFICATION.EVENTS,
-      ],
+    // Create test environment with Kafka and database
+    testEnv = await createTestEnvironment({
+      useRealKafka: true,
+      seedDatabase: true,
     });
-    
-    await testEnv.setup();
-    
-    // Get NestJS app and services
-    app = testEnv.getApp();
-    prisma = testEnv.getPrisma();
-    
-    // Get Kafka service from the app
-    const moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot()],
-      providers: [KafkaService, ConfigService, EventSchemaRegistry],
-    }).compile();
-    
-    kafkaService = moduleRef.get<KafkaService>(KafkaService);
-    schemaRegistry = moduleRef.get<EventSchemaRegistry>(EventSchemaRegistry);
-    
-    // Seed test database
-    await seedTestDatabase(prisma);
-    
-    // Create test user
-    const user = await createTestUser(prisma);
-    userId = user.id;
-    
-    // Create test claim
-    const claim = await createTestClaim(prisma, userId);
-    claimId = claim.id;
+
+    kafkaProducer = testEnv.kafkaProducer;
+
+    // Create consumers for different event topics
+    planEventsConsumer = await createTestConsumer(
+      testEnv.kafkaService,
+      PLAN_EVENTS_TOPIC,
+      'plan-events-test-consumer'
+    );
+
+    gamificationEventsConsumer = await createTestConsumer(
+      testEnv.kafkaService,
+      GAMIFICATION_EVENTS_TOPIC,
+      'gamification-events-test-consumer'
+    );
+
+    notificationEventsConsumer = await createTestConsumer(
+      testEnv.kafkaService,
+      NOTIFICATION_EVENTS_TOPIC,
+      'notification-events-test-consumer'
+    );
+
+    // Create event factories for test data generation
+    eventFactories = createJourneyEventFactories();
   });
-  
-  // Clean up after all tests
+
   afterAll(async () => {
-    await testEnv.teardown();
+    // Disconnect consumers
+    await planEventsConsumer.disconnect();
+    await gamificationEventsConsumer.disconnect();
+    await notificationEventsConsumer.disconnect();
+
+    // Clean up test environment
+    await testEnv.cleanup();
   });
-  
-  // Clear consumed messages before each test
-  beforeEach(() => {
-    testEnv.clearConsumedMessages();
-  });
-  
-  /**
-   * Test for PLAN_CLAIM_SUBMITTED event
-   */
+
   describe('Claim Submission Events', () => {
-    it('should process PLAN_CLAIM_SUBMITTED event', async () => {
-      // Create claim submission event data
-      const claimData = {
-        claimId,
-        claimType: 'medical',
-        providerId: uuidv4(),
-        serviceDate: new Date().toISOString(),
-        amount: 150.75,
-        submittedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_CLAIM_SUBMITTED,
-        JourneyType.PLAN,
-        userId,
-        claimData
-      );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.CLAIMS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_CLAIM_SUBMITTED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_CLAIM_SUBMITTED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(claimData);
-      
-      // Verify gamification points event is triggered
-      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data.sourceType).toBe('plan');
-      expect(pointsEvent?.data.sourceId).toBe(claimId);
-    });
-    
-    it('should reject invalid PLAN_CLAIM_SUBMITTED event', async () => {
-      // Create invalid claim submission event (missing required fields)
-      const invalidClaimData = {
-        // Missing claimId and other required fields
-        amount: 150.75,
-        submittedAt: new Date().toISOString()
-      };
-      
-      // Create and publish invalid test event
-      const event = createTestEvent(
-        EventType.PLAN_CLAIM_SUBMITTED,
-        JourneyType.PLAN,
-        userId,
-        invalidClaimData
-      );
-      
-      // Expect error when publishing invalid event
-      await expect(kafkaService.produce(
-        TOPICS.PLAN.CLAIMS,
-        event,
-        userId
-      )).rejects.toThrow();
-    });
-    
-    it('should process PLAN_CLAIM_PROCESSED event', async () => {
-      // Create claim processed event data
-      const claimProcessedData = {
-        claimId,
-        status: 'approved',
-        amount: 150.75,
-        coveredAmount: 120.60,
-        processedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_CLAIM_PROCESSED,
-        JourneyType.PLAN,
-        userId,
-        claimProcessedData
-      );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.CLAIMS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_CLAIM_PROCESSED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_CLAIM_PROCESSED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(claimProcessedData);
-      
-      // Verify claim status is updated in database
-      await retry(async () => {
-        const updatedClaim = await prisma.insuranceClaim.findUnique({
-          where: { id: claimId },
-        });
-        
-        expect(updatedClaim?.status).toBe('APPROVED');
-        return true;
+    it('should publish and consume claim submission events', async () => {
+      // Create a claim submission event
+      const claimEvent = eventFactories.plan.claimSubmitted({
+        payload: {
+          userId: randomUUID(),
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        },
       });
+
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, claimEvent);
+
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<BaseEvent>(
+        planEventsConsumer,
+        (event) => event.type === 'plan.claim.submitted',
+        5000
+      );
+
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      assertEventsEqual(consumedEvent, claimEvent, ['eventId', 'timestamp']);
+
+      // Wait for gamification event triggered by claim submission
+      const gamificationEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.progress.updated' && 
+          event.payload.sourceEventId === claimEvent.eventId,
+        5000
+      );
+
+      // Assert that the gamification event was triggered
+      expect(gamificationEvent).not.toBeNull();
+      expect(gamificationEvent.payload.achievementType).toBe('claim-master');
+      expect(gamificationEvent.payload.userId).toBe(claimEvent.payload.userId);
+    });
+
+    it('should validate claim submission event schema', async () => {
+      // Create an invalid claim submission event (missing required fields)
+      const invalidClaimEvent = eventFactories.plan.claimSubmitted({
+        payload: {
+          // Missing userId
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        } as any,
+      });
+
+      // Publish the invalid event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, invalidClaimEvent);
+
+      // Wait for error event in the notification topic
+      const errorEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.validation.failed' && 
+          event.payload.originalEventId === invalidClaimEvent.eventId,
+        5000
+      );
+
+      // Assert that validation error was detected
+      expect(errorEvent).not.toBeNull();
+      expect(errorEvent.payload.errors).toContainEqual(
+        expect.objectContaining({
+          field: 'userId',
+          message: expect.stringContaining('required'),
+        })
+      );
+    });
+
+    it('should process claim status updates', async () => {
+      // Create a claim ID to track through the process
+      const claimId = randomUUID();
+      const userId = randomUUID();
+
+      // Create a claim submission event
+      const submissionEvent = eventFactories.plan.claimSubmitted({
+        payload: {
+          userId,
+          claimId,
+          claimTypeId: randomUUID(),
+          amount: 200.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        },
+      });
+
+      // Publish the submission event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, submissionEvent);
+
+      // Create a claim approval event for the same claim
+      const approvalEvent = eventFactories.plan.claimSubmitted({
+        type: 'plan.claim.approved',
+        payload: {
+          userId,
+          claimId,
+          claimTypeId: submissionEvent.payload.claimTypeId,
+          amount: submissionEvent.payload.amount,
+          currency: submissionEvent.payload.currency,
+          approvedAt: new Date().toISOString(),
+          status: ClaimStatus.APPROVED,
+        },
+      });
+
+      // Publish the approval event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, approvalEvent);
+
+      // Wait for notification event triggered by claim approval
+      const notificationEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'notification.send' && 
+          event.payload.templateId === 'claim-approved' &&
+          event.payload.userId === userId,
+        5000
+      );
+
+      // Assert that the notification was triggered
+      expect(notificationEvent).not.toBeNull();
+      expect(notificationEvent.payload.data).toEqual(
+        expect.objectContaining({
+          claimId,
+          amount: approvalEvent.payload.amount,
+          currency: approvalEvent.payload.currency,
+        })
+      );
     });
   });
-  
-  /**
-   * Test for PLAN_BENEFIT_UTILIZED event
-   */
+
   describe('Benefit Utilization Events', () => {
-    it('should process PLAN_BENEFIT_UTILIZED event', async () => {
-      // Create benefit ID for test
-      const benefitId = uuidv4();
-      
-      // Create benefit utilization event data
-      const benefitData = {
-        benefitId,
-        benefitType: 'wellness',
-        providerId: uuidv4(),
-        utilizationDate: new Date().toISOString(),
-        savingsAmount: 50.00
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_BENEFIT_UTILIZED,
-        JourneyType.PLAN,
-        userId,
-        benefitData
+    it('should publish and consume benefit utilization events', async () => {
+      // Create a benefit utilization event
+      const benefitEvent = eventFactories.plan.benefitUtilized({
+        payload: {
+          userId: randomUUID(),
+          benefitId: randomUUID(),
+          utilizedAt: new Date().toISOString(),
+          value: 50.0,
+          currency: 'BRL',
+        },
+      });
+
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, benefitEvent);
+
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<BaseEvent>(
+        planEventsConsumer,
+        (event) => event.type === 'plan.benefit.utilized',
+        5000
       );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.BENEFITS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_BENEFIT_UTILIZED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_BENEFIT_UTILIZED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(benefitData);
-      
-      // Verify gamification points event is triggered
-      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data.sourceType).toBe('plan');
-      expect(pointsEvent?.data.sourceId).toBe(benefitId);
+
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      assertEventsEqual(consumedEvent, benefitEvent, ['eventId', 'timestamp']);
+
+      // Wait for gamification event triggered by benefit utilization
+      const gamificationEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.progress.updated' && 
+          event.payload.sourceEventId === benefitEvent.eventId,
+        5000
+      );
+
+      // Assert that the gamification event was triggered
+      expect(gamificationEvent).not.toBeNull();
+      expect(gamificationEvent.payload.userId).toBe(benefitEvent.payload.userId);
     });
-    
-    it('should handle benefit utilization with missing optional fields', async () => {
-      // Create benefit ID for test
-      const benefitId = uuidv4();
-      
-      // Create benefit utilization event data with missing optional fields
-      const benefitData = {
-        benefitId,
-        benefitType: 'preventive',
-        utilizationDate: new Date().toISOString(),
-        // Missing providerId and savingsAmount (optional fields)
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_BENEFIT_UTILIZED,
-        JourneyType.PLAN,
-        userId,
-        benefitData
+
+    it('should validate benefit utilization event schema', async () => {
+      // Create an invalid benefit utilization event (invalid value type)
+      const invalidBenefitEvent = eventFactories.plan.benefitUtilized({
+        payload: {
+          userId: randomUUID(),
+          benefitId: randomUUID(),
+          utilizedAt: new Date().toISOString(),
+          value: 'not-a-number' as any, // Invalid value type
+          currency: 'BRL',
+        },
+      });
+
+      // Publish the invalid event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, invalidBenefitEvent);
+
+      // Wait for error event in the notification topic
+      const errorEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.validation.failed' && 
+          event.payload.originalEventId === invalidBenefitEvent.eventId,
+        5000
       );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.BENEFITS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_BENEFIT_UTILIZED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_BENEFIT_UTILIZED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(benefitData);
+
+      // Assert that validation error was detected
+      expect(errorEvent).not.toBeNull();
+      expect(errorEvent.payload.errors).toContainEqual(
+        expect.objectContaining({
+          field: 'payload.value',
+          message: expect.stringContaining('number'),
+        })
+      );
     });
   });
-  
-  /**
-   * Test for PLAN_SELECTED event
-   */
+
   describe('Plan Selection Events', () => {
-    it('should process PLAN_SELECTED event', async () => {
-      // Create plan ID for test
-      const planId = uuidv4();
-      
-      // Create plan selection event data
-      const planData = {
-        planId,
-        planType: 'health',
-        coverageLevel: 'family',
-        premium: 350.00,
-        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        selectedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_SELECTED,
-        JourneyType.PLAN,
-        userId,
-        planData
+    it('should publish and consume plan selection events', async () => {
+      // Create a plan selection event
+      const planEvent = eventFactories.plan.planSelected({
+        payload: {
+          userId: randomUUID(),
+          planId: randomUUID(),
+          planTypeId: randomUUID(),
+          selectedAt: new Date().toISOString(),
+          startDate: new Date(Date.now() + 2592000000).toISOString(), // 30 days from now
+        },
+      });
+
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, planEvent);
+
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<BaseEvent>(
+        planEventsConsumer,
+        (event) => event.type === 'plan.plan.selected',
+        5000
       );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.SELECTION);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_SELECTED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_SELECTED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(planData);
-      
-      // Verify gamification points event is triggered for plan selection
-      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data.sourceType).toBe('plan');
-      expect(pointsEvent?.data.reason).toContain('plan selection');
+
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      assertEventsEqual(consumedEvent, planEvent, ['eventId', 'timestamp']);
+
+      // Wait for notification event triggered by plan selection
+      const notificationEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'notification.send' && 
+          event.payload.templateId === 'plan-selected' &&
+          event.payload.userId === planEvent.payload.userId,
+        5000
+      );
+
+      // Assert that the notification was triggered
+      expect(notificationEvent).not.toBeNull();
+      expect(notificationEvent.payload.data).toEqual(
+        expect.objectContaining({
+          planId: planEvent.payload.planId,
+          startDate: planEvent.payload.startDate,
+        })
+      );
     });
-    
-    it('should reject PLAN_SELECTED event with invalid date format', async () => {
-      // Create plan ID for test
-      const planId = uuidv4();
-      
-      // Create plan selection event data with invalid date format
-      const planData = {
-        planId,
-        planType: 'health',
-        coverageLevel: 'individual',
-        premium: 150.00,
-        startDate: '2023-13-45', // Invalid date format
-        selectedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_SELECTED,
-        JourneyType.PLAN,
-        userId,
-        planData
+
+    it('should handle plan comparison events', async () => {
+      // Create a plan comparison event
+      const comparisonEvent = eventFactories.plan.planSelected({
+        type: 'plan.plan.compared',
+        payload: {
+          userId: randomUUID(),
+          planIds: [randomUUID(), randomUUID()],
+          comparedAt: new Date().toISOString(),
+        },
+      });
+
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, comparisonEvent);
+
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<BaseEvent>(
+        planEventsConsumer,
+        (event) => event.type === 'plan.plan.compared',
+        5000
       );
-      
-      // Expect error when publishing invalid event
-      await expect(kafkaService.produce(
-        TOPICS.PLAN.SELECTION,
-        event,
-        userId
-      )).rejects.toThrow();
+
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      assertEventsEqual(consumedEvent, comparisonEvent, ['eventId', 'timestamp']);
+
+      // Wait for gamification event triggered by plan comparison
+      const gamificationEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.progress.updated' && 
+          event.payload.sourceEventId === comparisonEvent.eventId,
+        5000
+      );
+
+      // Assert that the gamification event was triggered
+      expect(gamificationEvent).not.toBeNull();
+      expect(gamificationEvent.payload.userId).toBe(comparisonEvent.payload.userId);
+      expect(gamificationEvent.payload.achievementType).toBe('plan-explorer');
     });
   });
-  
-  /**
-   * Test for PLAN_REWARD_REDEEMED event
-   */
+
   describe('Reward Redemption Events', () => {
-    it('should process PLAN_REWARD_REDEEMED event', async () => {
-      // Create reward ID for test
-      const rewardId = uuidv4();
-      
-      // Create reward redemption event data
-      const rewardData = {
-        rewardId,
-        rewardType: 'gift_card',
-        pointsRedeemed: 500,
-        value: 25.00,
-        redeemedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_REWARD_REDEEMED,
-        JourneyType.PLAN,
-        userId,
-        rewardData
+    it('should publish and consume reward redemption events', async () => {
+      // Create a reward redemption event
+      const redemptionEvent = eventFactories.plan.planSelected({
+        type: 'plan.reward.redeemed',
+        payload: {
+          userId: randomUUID(),
+          rewardId: randomUUID(),
+          redeemedAt: new Date().toISOString(),
+          value: 100.0,
+          currency: 'BRL',
+          description: 'Premium plan discount',
+        },
+      });
+
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, redemptionEvent);
+
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<BaseEvent>(
+        planEventsConsumer,
+        (event) => event.type === 'plan.reward.redeemed',
+        5000
       );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_REWARD_REDEEMED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_REWARD_REDEEMED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(rewardData);
-      
-      // Verify points are deducted in gamification system
-      // This would typically update a user's points balance in the database
-      // For this test, we'll just verify the event was processed
-      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data.points).toBeLessThan(0); // Points should be negative for redemption
-      expect(Math.abs(pointsEvent?.data.points)).toBe(rewardData.pointsRedeemed);
+
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      assertEventsEqual(consumedEvent, redemptionEvent, ['eventId', 'timestamp']);
+
+      // Wait for notification event triggered by reward redemption
+      const notificationEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'notification.send' && 
+          event.payload.templateId === 'reward-redeemed' &&
+          event.payload.userId === redemptionEvent.payload.userId,
+        5000
+      );
+
+      // Assert that the notification was triggered
+      expect(notificationEvent).not.toBeNull();
+      expect(notificationEvent.payload.data).toEqual(
+        expect.objectContaining({
+          rewardId: redemptionEvent.payload.rewardId,
+          value: redemptionEvent.payload.value,
+          currency: redemptionEvent.payload.currency,
+          description: redemptionEvent.payload.description,
+        })
+      );
+
+      // Wait for gamification event triggered by reward redemption
+      const gamificationEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.reward.redeemed' && 
+          event.payload.sourceEventId === redemptionEvent.eventId,
+        5000
+      );
+
+      // Assert that the gamification event was triggered
+      expect(gamificationEvent).not.toBeNull();
+      expect(gamificationEvent.payload.userId).toBe(redemptionEvent.payload.userId);
+      expect(gamificationEvent.payload.rewardId).toBe(redemptionEvent.payload.rewardId);
     });
-    
-    it('should reject PLAN_REWARD_REDEEMED event with insufficient points', async () => {
-      // Create reward ID for test
-      const rewardId = uuidv4();
-      
-      // Create reward redemption event data with excessive points
-      const rewardData = {
-        rewardId,
-        rewardType: 'premium_discount',
-        pointsRedeemed: 1000000, // Unreasonably high point value
-        value: 500.00,
-        redeemedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_REWARD_REDEEMED,
-        JourneyType.PLAN,
-        userId,
-        rewardData
+
+    it('should validate reward redemption event schema', async () => {
+      // Create an invalid reward redemption event (missing required fields)
+      const invalidRedemptionEvent = eventFactories.plan.planSelected({
+        type: 'plan.reward.redeemed',
+        payload: {
+          userId: randomUUID(),
+          // Missing rewardId
+          redeemedAt: new Date().toISOString(),
+          value: 100.0,
+          currency: 'BRL',
+        } as any,
+      });
+
+      // Publish the invalid event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, invalidRedemptionEvent);
+
+      // Wait for error event in the notification topic
+      const errorEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.validation.failed' && 
+          event.payload.originalEventId === invalidRedemptionEvent.eventId,
+        5000
       );
+
+      // Assert that validation error was detected
+      expect(errorEvent).not.toBeNull();
+      expect(errorEvent.payload.errors).toContainEqual(
+        expect.objectContaining({
+          field: 'payload.rewardId',
+          message: expect.stringContaining('required'),
+        })
+      );
+    });
+  });
+
+  describe('Cross-Journey Integration', () => {
+    it('should trigger gamification achievements from plan events', async () => {
+      const userId = randomUUID();
       
-      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
+      // Create multiple claim submission events for the same user
+      const claimEvents = [];
       
-      // Wait for event to be processed
-      // In this case, we expect the event to be processed but rejected by business logic
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_REWARD_REDEEMED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_REWARD_REDEEMED, JourneyType.PLAN, userId);
-      
-      // We should not see a points deduction event since the redemption should be rejected
-      const pointsDeductionReceived = await waitForCondition(async () => {
-        const messages = testEnv.getConsumedMessages();
-        return messages.some(msg => {
-          try {
-            const event = JSON.parse(msg.value.toString());
-            return event.type === EventType.GAMIFICATION_POINTS_EARNED && 
-                   event.userId === userId && 
-                   event.data.points < 0;
-          } catch (e) {
-            return false;
-          }
+      for (let i = 0; i < 3; i++) {
+        const claimEvent = eventFactories.plan.claimSubmitted({
+          payload: {
+            userId,
+            claimId: randomUUID(),
+            claimTypeId: randomUUID(),
+            amount: 150.0 + i * 50,
+            currency: 'BRL',
+            submittedAt: new Date().toISOString(),
+            status: ClaimStatus.SUBMITTED,
+          },
         });
-      }, 5000);
-      
-      expect(pointsDeductionReceived).toBe(false);
-    });
-  });
-  
-  /**
-   * Test for PLAN_DOCUMENT_COMPLETED event
-   */
-  describe('Document Completion Events', () => {
-    it('should process PLAN_DOCUMENT_COMPLETED event', async () => {
-      // Create document ID for test
-      const documentId = uuidv4();
-      
-      // Create document completion event data
-      const documentData = {
-        documentId,
-        documentType: 'enrollment',
-        completedAt: new Date().toISOString()
-      };
-      
-      // Create and publish test event
-      const event = createTestEvent(
-        EventType.PLAN_DOCUMENT_COMPLETED,
-        JourneyType.PLAN,
-        userId,
-        documentData
-      );
-      
-      await testEnv.publishEvent(event, TOPICS.PLAN.EVENTS);
-      
-      // Wait for event to be processed
-      const receivedEvent = await testEnv.waitForEvent(EventType.PLAN_DOCUMENT_COMPLETED, userId);
-      
-      // Assert event properties
-      assertEvent(receivedEvent, EventType.PLAN_DOCUMENT_COMPLETED, JourneyType.PLAN, userId);
-      expect(receivedEvent?.data).toMatchObject(documentData);
-      
-      // Verify gamification points event is triggered
-      const pointsEvent = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data.sourceType).toBe('plan');
-      expect(pointsEvent?.data.sourceId).toBe(documentId);
-    });
-  });
-  
-  /**
-   * Test for cross-journey interactions with Plan events
-   */
-  describe('Cross-Journey Interactions', () => {
-    it('should trigger achievement when multiple plan events occur', async () => {
-      // Create multiple plan events to trigger an achievement
-      
-      // 1. Create claim submission event
-      const claimData = {
-        claimId: uuidv4(),
-        claimType: 'medical',
-        providerId: uuidv4(),
-        serviceDate: new Date().toISOString(),
-        amount: 200.50,
-        submittedAt: new Date().toISOString()
-      };
-      
-      const claimEvent = createTestEvent(
-        EventType.PLAN_CLAIM_SUBMITTED,
-        JourneyType.PLAN,
-        userId,
-        claimData
-      );
-      
-      // 2. Create benefit utilization event
-      const benefitData = {
-        benefitId: uuidv4(),
-        benefitType: 'wellness',
-        utilizationDate: new Date().toISOString()
-      };
-      
-      const benefitEvent = createTestEvent(
-        EventType.PLAN_BENEFIT_UTILIZED,
-        JourneyType.PLAN,
-        userId,
-        benefitData
-      );
-      
-      // 3. Create document completion event
-      const documentData = {
-        documentId: uuidv4(),
-        documentType: 'consent',
-        completedAt: new Date().toISOString()
-      };
-      
-      const documentEvent = createTestEvent(
-        EventType.PLAN_DOCUMENT_COMPLETED,
-        JourneyType.PLAN,
-        userId,
-        documentData
-      );
-      
-      // Publish all events
-      await testEnv.publishEvent(claimEvent, TOPICS.PLAN.CLAIMS);
-      await testEnv.publishEvent(benefitEvent, TOPICS.PLAN.BENEFITS);
-      await testEnv.publishEvent(documentEvent, TOPICS.PLAN.EVENTS);
-      
-      // Wait for achievement unlocked event
-      // This tests that the gamification engine correctly processes multiple plan events
-      // and triggers achievements based on cross-event criteria
-      const achievementEvent = await retry(async () => {
-        const event = await testEnv.waitForEvent(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED, userId);
-        if (!event) {
-          throw new Error('Achievement event not received');
-        }
-        return event;
-      }, 3, 2000);
-      
-      expect(achievementEvent).not.toBeNull();
-      expect(achievementEvent?.data.achievementType).toBe('claim-master');
-      expect(achievementEvent?.journey).toBe(JourneyType.GAMIFICATION);
-    });
-  });
-  
-  /**
-   * Test for health check system with Plan events
-   */
-  describe('Health Check System', () => {
-    it('should verify Plan event processing pipeline is healthy', async () => {
-      // Create a simple health check event
-      const healthCheckData = {
-        checkId: uuidv4(),
-        timestamp: new Date().toISOString(),
-        service: 'plan-journey-events-test'
-      };
-      
-      // Create and publish test event to each Plan topic
-      const topics = [
-        TOPICS.PLAN.EVENTS,
-        TOPICS.PLAN.CLAIMS,
-        TOPICS.PLAN.BENEFITS,
-        TOPICS.PLAN.SELECTION
-      ];
-      
-      // Track successful topics
-      const successfulTopics = [];
-      
-      // Test each topic
-      for (const topic of topics) {
-        // Clear messages before each topic test
-        testEnv.clearConsumedMessages();
         
-        // Create a unique event for this topic
-        const event = createTestEvent(
-          EventType.USER_FEEDBACK_SUBMITTED, // Using a neutral event type for health check
-          JourneyType.USER,
-          'health-check-user',
-          { ...healthCheckData, topic }
-        );
+        claimEvents.push(claimEvent);
         
-        // Publish to the topic
-        await testEnv.publishEvent(event, topic);
-        
-        // Wait for event to be consumed
-        const received = await waitForCondition(async () => {
-          const messages = testEnv.getConsumedMessages();
-          return messages.some(msg => {
-            try {
-              const parsedEvent = JSON.parse(msg.value.toString());
-              return parsedEvent.data?.checkId === healthCheckData.checkId &&
-                     parsedEvent.data?.topic === topic;
-            } catch (e) {
-              return false;
-            }
-          });
-        }, 5000);
-        
-        if (received) {
-          successfulTopics.push(topic);
-        }
+        // Publish the event
+        await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, claimEvent);
       }
       
-      // All topics should be healthy
-      expect(successfulTopics.length).toBe(topics.length);
-      expect(successfulTopics).toEqual(expect.arrayContaining(topics));
+      // Wait for achievement unlocked event
+      const achievementEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.achievement.unlocked' && 
+          event.payload.userId === userId &&
+          event.payload.achievementType === 'claim-master',
+        10000
+      );
+      
+      // Assert that the achievement was unlocked
+      expect(achievementEvent).not.toBeNull();
+      expect(achievementEvent.payload.level).toBe(1);
+      expect(achievementEvent.payload.points).toBeGreaterThan(0);
+      
+      // Wait for notification about the achievement
+      const notificationEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'notification.send' && 
+          event.payload.templateId === 'achievement-unlocked' &&
+          event.payload.userId === userId,
+        5000
+      );
+      
+      // Assert that the notification was triggered
+      expect(notificationEvent).not.toBeNull();
+      expect(notificationEvent.payload.data).toEqual(
+        expect.objectContaining({
+          achievementType: 'claim-master',
+          level: 1,
+          title: expect.any(String),
+        })
+      );
+    });
+    
+    it('should update user profile based on plan journey events', async () => {
+      const userId = randomUUID();
+      
+      // Create a plan selection event
+      const planEvent = eventFactories.plan.planSelected({
+        payload: {
+          userId,
+          planId: randomUUID(),
+          planTypeId: randomUUID(),
+          planName: 'Premium',
+          selectedAt: new Date().toISOString(),
+          startDate: new Date(Date.now() + 2592000000).toISOString(), // 30 days from now
+        },
+      });
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, planEvent);
+      
+      // Create a claim submission event for the same user
+      const claimEvent = eventFactories.plan.claimSubmitted({
+        payload: {
+          userId,
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 300.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        },
+      });
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, claimEvent);
+      
+      // Wait for profile updated event
+      const profileEvent = await waitForEvent<BaseEvent>(
+        gamificationEventsConsumer,
+        (event) => 
+          event.type === 'gamification.profile.updated' && 
+          event.payload.userId === userId,
+        10000
+      );
+      
+      // Assert that the profile was updated
+      expect(profileEvent).not.toBeNull();
+      expect(profileEvent.payload.profile).toEqual(
+        expect.objectContaining({
+          planName: 'Premium',
+          claimsSubmitted: 1,
+          totalClaimAmount: 300.0,
+        })
+      );
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle malformed events gracefully', async () => {
+      // Create a malformed event (missing required type field)
+      const malformedEvent = {
+        eventId: randomUUID(),
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        // Missing type field
+        journey: 'plan',
+        payload: {
+          userId: randomUUID(),
+          planId: randomUUID(),
+        },
+      } as any;
+
+      // Publish the malformed event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, malformedEvent);
+
+      // Wait for error event in the notification topic
+      const errorEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.validation.failed' && 
+          event.payload.originalEventId === malformedEvent.eventId,
+        5000
+      );
+
+      // Assert that validation error was detected
+      expect(errorEvent).not.toBeNull();
+      expect(errorEvent.payload.errors).toContainEqual(
+        expect.objectContaining({
+          field: 'type',
+          message: expect.stringContaining('required'),
+        })
+      );
+    });
+
+    it('should handle events with invalid journey type', async () => {
+      // Create an event with invalid journey type
+      const invalidJourneyEvent = eventFactories.plan.claimSubmitted({
+        journey: 'invalid-journey' as any,
+        payload: {
+          userId: randomUUID(),
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        },
+      });
+
+      // Publish the invalid event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, invalidJourneyEvent);
+
+      // Wait for error event in the notification topic
+      const errorEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.validation.failed' && 
+          event.payload.originalEventId === invalidJourneyEvent.eventId,
+        5000
+      );
+
+      // Assert that validation error was detected
+      expect(errorEvent).not.toBeNull();
+      expect(errorEvent.payload.errors).toContainEqual(
+        expect.objectContaining({
+          field: 'journey',
+          message: expect.stringContaining('valid'),
+        })
+      );
+    });
+
+    it('should handle duplicate events', async () => {
+      // Create a claim submission event
+      const claimEvent = eventFactories.plan.claimSubmitted({
+        payload: {
+          userId: randomUUID(),
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: ClaimStatus.SUBMITTED,
+        },
+      });
+
+      // Publish the event twice
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, claimEvent);
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, claimEvent);
+
+      // Wait for duplicate event detection
+      const duplicateEvent = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.event.duplicate' && 
+          event.payload.originalEventId === claimEvent.eventId,
+        5000
+      );
+
+      // Assert that duplicate was detected
+      expect(duplicateEvent).not.toBeNull();
+      expect(duplicateEvent.payload.eventType).toBe(claimEvent.type);
+    });
+  });
+
+  describe('Health Checks', () => {
+    it('should verify event processing pipeline health', async () => {
+      // Create a health check event
+      const healthCheckEvent = {
+        eventId: randomUUID(),
+        type: 'system.health.check',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        journey: 'plan',
+        payload: {
+          component: 'plan-journey-events',
+          checkId: randomUUID(),
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      // Publish the health check event
+      await publishTestEvent(kafkaProducer, PLAN_EVENTS_TOPIC, healthCheckEvent);
+
+      // Wait for health check response
+      const healthResponse = await waitForEvent<BaseEvent>(
+        notificationEventsConsumer,
+        (event) => 
+          event.type === 'system.health.response' && 
+          event.payload.checkId === healthCheckEvent.payload.checkId,
+        5000
+      );
+
+      // Assert that health check response was received
+      expect(healthResponse).not.toBeNull();
+      expect(healthResponse.payload.status).toBe('healthy');
+      expect(healthResponse.payload.component).toBe('plan-journey-events');
+      expect(healthResponse.payload.metrics).toEqual(
+        expect.objectContaining({
+          processingTime: expect.any(Number),
+          queueSize: expect.any(Number),
+        })
+      );
     });
   });
 });
