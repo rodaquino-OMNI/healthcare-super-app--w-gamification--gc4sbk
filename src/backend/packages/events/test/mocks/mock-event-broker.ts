@@ -2,920 +2,1022 @@
  * @file mock-event-broker.ts
  * @description Implements a complete in-memory event broker that simulates the publish/subscribe pattern
  * for testing event-driven communication between services. This mock supports topics, subscriptions,
- * and message routing without requiring an actual Kafka instance, making it ideal for integration testing
- * of event-producing and consuming services.
- *
- * Features:
- * - Topic-based routing with support for partitions
- * - Consumer groups with load balancing
- * - Message headers and metadata handling
- * - Delivery tracking for test verification
- * - Broker downtime simulation
- * - Retry mechanism simulation
- * - Dead-letter queue support
+ * and message routing without requiring an actual Kafka instance, making it ideal for integration
+ * testing of event-producing and consuming services.
  */
 
 import { EventEmitter } from 'events';
-import { v4 as uuidv4 } from 'uuid';
-import { EventMetadataDto } from '../../src/dto/event-metadata.dto';
-import { KafkaMessage } from '../../src/interfaces/kafka-message.interface';
+import { BaseEvent, EventMetadata } from '../../src/interfaces/base-event.interface';
+import { KafkaEvent, KafkaHeaders } from '../../src/interfaces/kafka-event.interface';
+import { IEventHandler } from '../../src/interfaces/event-handler.interface';
+import { IEventResponse } from '../../src/interfaces/event-response.interface';
 
 /**
- * Interface for a message in the mock event broker.
+ * Interface for message delivery tracking
  */
-export interface MockMessage<T = any> {
-  /**
-   * The message value/payload.
-   */
-  value: T;
-
-  /**
-   * Optional message key for partitioning.
-   */
-  key?: string;
-
-  /**
-   * Message headers as key-value pairs.
-   */
-  headers: Record<string, string>;
-
-  /**
-   * Topic the message was published to.
-   */
+export interface DeliveryRecord {
+  /** Unique ID for the delivery record */
+  id: string;
+  /** Topic the message was delivered to */
   topic: string;
-
-  /**
-   * Partition the message was assigned to.
-   */
+  /** Partition the message was delivered to */
   partition: number;
-
-  /**
-   * Offset of the message in the partition.
-   */
-  offset: string;
-
-  /**
-   * Timestamp when the message was published.
-   */
+  /** Message key if provided */
+  key?: string;
+  /** Timestamp when the message was delivered */
   timestamp: string;
-
-  /**
-   * Number of delivery attempts.
-   */
-  deliveryAttempts: number;
-}
-
-/**
- * Options for subscribing to a topic.
- */
-export interface SubscriptionOptions {
-  /**
-   * Consumer group ID for load balancing.
-   */
-  groupId?: string;
-
-  /**
-   * Whether to receive messages from the beginning of the topic.
-   */
-  fromBeginning?: boolean;
-
-  /**
-   * Maximum number of retry attempts for failed message processing.
-   */
-  maxRetries?: number;
-
-  /**
-   * Base delay in milliseconds between retry attempts.
-   */
-  retryDelay?: number;
-
-  /**
-   * Whether to send failed messages to the dead-letter queue.
-   */
-  useDLQ?: boolean;
-
-  /**
-   * Number of partitions to consume from (defaults to all).
-   */
-  partitions?: number[];
-}
-
-/**
- * Options for publishing a message.
- */
-export interface PublishOptions {
-  /**
-   * Compression type (not actually used in mock, for API compatibility).
-   */
-  compression?: string;
-
-  /**
-   * Number of acknowledgments required (not actually used in mock, for API compatibility).
-   */
-  acks?: number;
-
-  /**
-   * Timeout in milliseconds (not actually used in mock, for API compatibility).
-   */
-  timeout?: number;
-
-  /**
-   * Specific partition to publish to (if not provided, one will be selected based on key).
-   */
-  partition?: number;
-}
-
-/**
- * Callback function for processing a message.
- */
-export type MessageHandler<T = any> = (
-  message: T,
-  metadata: KafkaMessage
-) => Promise<void>;
-
-/**
- * Represents a subscription to a topic.
- */
-interface Subscription<T = any> {
-  /**
-   * Topic being subscribed to.
-   */
-  topic: string;
-
-  /**
-   * Consumer group ID.
-   */
-  groupId: string;
-
-  /**
-   * Callback function for processing messages.
-   */
-  handler: MessageHandler<T>;
-
-  /**
-   * Whether to receive messages from the beginning of the topic.
-   */
-  fromBeginning: boolean;
-
-  /**
-   * Maximum number of retry attempts for failed message processing.
-   */
-  maxRetries: number;
-
-  /**
-   * Base delay in milliseconds between retry attempts.
-   */
-  retryDelay: number;
-
-  /**
-   * Whether to send failed messages to the dead-letter queue.
-   */
-  useDLQ: boolean;
-
-  /**
-   * Partitions to consume from.
-   */
-  partitions?: number[];
-
-  /**
-   * Whether the subscription is active.
-   */
-  active: boolean;
-}
-
-/**
- * Represents a topic in the mock event broker.
- */
-interface Topic {
-  /**
-   * Name of the topic.
-   */
-  name: string;
-
-  /**
-   * Number of partitions in the topic.
-   */
-  partitions: number;
-
-  /**
-   * Messages in each partition.
-   */
-  messages: MockMessage[][];
-
-  /**
-   * Current offset for each partition.
-   */
-  offsets: number[];
-
-  /**
-   * Consumer group offsets for each partition.
-   */
-  consumerOffsets: Map<string, number[]>;
-}
-
-/**
- * Represents a delivery record for tracking message delivery in tests.
- */
-export interface DeliveryRecord<T = any> {
-  /**
-   * The message that was delivered.
-   */
-  message: MockMessage<T>;
-
-  /**
-   * Timestamp when the message was delivered.
-   */
-  deliveredAt: Date;
-
-  /**
-   * Consumer group that received the message.
-   */
-  consumerGroup: string;
-
-  /**
-   * Whether the message was successfully processed.
-   */
-  success: boolean;
-
-  /**
-   * Error that occurred during processing, if any.
-   */
-  error?: Error;
-
-  /**
-   * Number of retry attempts made.
-   */
+  /** Whether delivery was successful */
+  successful: boolean;
+  /** Error message if delivery failed */
+  error?: string;
+  /** Consumer group that received the message (if any) */
+  consumerGroup?: string;
+  /** Number of retry attempts if any */
   retryCount: number;
 }
 
 /**
- * Mock implementation of an event broker for testing event-driven communication.
+ * Interface for subscription options
+ */
+export interface SubscriptionOptions {
+  /** Consumer group ID for this subscription */
+  groupId?: string;
+  /** Whether to process messages from the beginning of the topic */
+  fromBeginning?: boolean;
+  /** Maximum number of messages to process in parallel */
+  concurrency?: number;
+  /** Whether to auto-commit offsets */
+  autoCommit?: boolean;
+  /** Specific partitions to subscribe to (if not provided, subscribes to all) */
+  partitions?: number[];
+  /** Retry configuration */
+  retry?: {
+    /** Maximum number of retries */
+    maxRetries: number;
+    /** Initial retry delay in milliseconds */
+    initialRetryTime: number;
+    /** Factor to multiply delay by for each retry */
+    backoffFactor: number;
+  };
+}
+
+/**
+ * Interface for publish options
+ */
+export interface PublishOptions {
+  /** Key for the message (used for partitioning) */
+  key?: string;
+  /** Headers for the message */
+  headers?: KafkaHeaders;
+  /** Specific partition to publish to */
+  partition?: number;
+  /** Whether to wait for acknowledgment */
+  requireAcks?: boolean;
+  /** Timeout for acknowledgment in milliseconds */
+  ackTimeout?: number;
+}
+
+/**
+ * Interface for a message stored in the broker
+ */
+interface StoredMessage {
+  /** The Kafka event */
+  event: KafkaEvent;
+  /** Offset within the partition */
+  offset: number;
+  /** Timestamp when the message was stored */
+  timestamp: string;
+  /** Message key if provided */
+  key?: string;
+  /** Message headers if provided */
+  headers?: KafkaHeaders;
+}
+
+/**
+ * Interface for a topic partition
+ */
+interface Partition {
+  /** Messages stored in this partition */
+  messages: StoredMessage[];
+  /** Next offset to assign */
+  nextOffset: number;
+}
+
+/**
+ * Interface for a topic
+ */
+interface Topic {
+  /** Name of the topic */
+  name: string;
+  /** Partitions in this topic */
+  partitions: Map<number, Partition>;
+  /** Number of partitions */
+  partitionCount: number;
+}
+
+/**
+ * Interface for a consumer group
+ */
+interface ConsumerGroup {
+  /** ID of the consumer group */
+  id: string;
+  /** Map of topic-partition to current offset */
+  offsets: Map<string, Map<number, number>>;
+  /** Consumers in this group */
+  consumers: Set<string>;
+}
+
+/**
+ * Interface for a subscription
+ */
+interface Subscription {
+  /** ID of the subscription */
+  id: string;
+  /** Topic subscribed to */
+  topic: string;
+  /** Handler function */
+  handler: (event: KafkaEvent) => Promise<IEventResponse>;
+  /** Subscription options */
+  options: SubscriptionOptions;
+  /** Consumer ID */
+  consumerId: string;
+  /** Whether the subscription is active */
+  active: boolean;
+}
+
+/**
+ * MockEventBroker simulates a Kafka-like event broker for testing purposes.
+ * It provides an in-memory implementation of topics, partitions, consumer groups,
+ * and message delivery with support for most Kafka features.
  */
 export class MockEventBroker {
-  /**
-   * Map of topic names to topic objects.
-   */
+  /** Map of topic name to topic */
   private topics: Map<string, Topic> = new Map();
-
-  /**
-   * Map of topic names to subscriptions.
-   */
-  private subscriptions: Map<string, Subscription[]> = new Map();
-
-  /**
-   * Event emitter for internal event handling.
-   */
+  /** Map of consumer group ID to consumer group */
+  private consumerGroups: Map<string, ConsumerGroup> = new Map();
+  /** Map of subscription ID to subscription */
+  private subscriptions: Map<string, Subscription> = new Map();
+  /** Event emitter for internal events */
   private eventEmitter: EventEmitter = new EventEmitter();
-
-  /**
-   * Records of all message deliveries for test verification.
-   */
+  /** Delivery records for tracking message delivery */
   private deliveryRecords: DeliveryRecord[] = [];
-
-  /**
-   * Whether the broker is currently available.
-   */
+  /** Whether the broker is available */
   private available: boolean = true;
+  /** Default number of partitions for new topics */
+  private defaultPartitionCount: number = 3;
+  /** Map of pending retry messages */
+  private pendingRetries: Map<string, NodeJS.Timeout> = new Map();
 
   /**
-   * Default dead-letter queue topic name.
-   */
-  private readonly deadLetterTopic: string = 'dead-letter';
-
-  /**
-   * Default number of partitions per topic.
-   */
-  private readonly defaultPartitions: number = 3;
-
-  /**
-   * Creates a new MockEventBroker instance.
-   * 
+   * Creates a new MockEventBroker instance
    * @param options Configuration options
    */
   constructor(options?: {
-    deadLetterTopic?: string;
-    defaultPartitions?: number;
+    /** Default number of partitions for new topics */
+    defaultPartitionCount?: number;
+    /** Initial topics to create */
+    initialTopics?: string[];
+    /** Whether the broker is initially available */
+    initiallyAvailable?: boolean;
   }) {
-    if (options?.deadLetterTopic) {
-      this.deadLetterTopic = options.deadLetterTopic;
+    this.defaultPartitionCount = options?.defaultPartitionCount ?? 3;
+    this.available = options?.initiallyAvailable ?? true;
+
+    // Create initial topics if provided
+    if (options?.initialTopics) {
+      for (const topic of options.initialTopics) {
+        this.createTopic(topic);
+      }
     }
 
-    if (options?.defaultPartitions) {
-      this.defaultPartitions = options.defaultPartitions;
-    }
-
-    // Create the dead-letter queue topic
-    this.createTopic(this.deadLetterTopic, 1);
-
-    // Set maximum event listeners to avoid memory leak warnings
+    // Set maximum listeners to avoid memory leak warnings
     this.eventEmitter.setMaxListeners(100);
   }
 
   /**
-   * Creates a topic if it doesn't exist.
-   * 
+   * Creates a new topic with the specified number of partitions
    * @param topicName Name of the topic to create
-   * @param partitions Number of partitions (defaults to defaultPartitions)
-   * @returns The created or existing topic
+   * @param partitionCount Number of partitions (defaults to defaultPartitionCount)
+   * @returns The created topic
    */
-  public createTopic(topicName: string, partitions: number = this.defaultPartitions): Topic {
-    if (!this.topics.has(topicName)) {
-      const topic: Topic = {
-        name: topicName,
-        partitions,
-        messages: Array(partitions).fill(null).map(() => []),
-        offsets: Array(partitions).fill(0),
-        consumerOffsets: new Map(),
-      };
-      this.topics.set(topicName, topic);
-      return topic;
+  public createTopic(topicName: string, partitionCount?: number): Topic {
+    if (this.topics.has(topicName)) {
+      return this.topics.get(topicName)!;
     }
-    return this.topics.get(topicName)!;
+
+    const partitions = new Map<number, Partition>();
+    const actualPartitionCount = partitionCount ?? this.defaultPartitionCount;
+
+    // Initialize partitions
+    for (let i = 0; i < actualPartitionCount; i++) {
+      partitions.set(i, { messages: [], nextOffset: 0 });
+    }
+
+    const topic: Topic = {
+      name: topicName,
+      partitions,
+      partitionCount: actualPartitionCount,
+    };
+
+    this.topics.set(topicName, topic);
+    return topic;
   }
 
   /**
-   * Publishes a message to a topic.
-   * 
+   * Deletes a topic
+   * @param topicName Name of the topic to delete
+   * @returns True if the topic was deleted, false if it didn't exist
+   */
+  public deleteTopic(topicName: string): boolean {
+    if (!this.topics.has(topicName)) {
+      return false;
+    }
+
+    // Remove all subscriptions to this topic
+    for (const [id, subscription] of this.subscriptions.entries()) {
+      if (subscription.topic === topicName) {
+        this.subscriptions.delete(id);
+      }
+    }
+
+    // Remove topic offsets from consumer groups
+    for (const group of this.consumerGroups.values()) {
+      group.offsets.delete(topicName);
+    }
+
+    this.topics.delete(topicName);
+    return true;
+  }
+
+  /**
+   * Gets a list of all topics
+   * @returns Array of topic names
+   */
+  public getTopics(): string[] {
+    return Array.from(this.topics.keys());
+  }
+
+  /**
+   * Gets information about a specific topic
+   * @param topicName Name of the topic
+   * @returns Topic information or null if the topic doesn't exist
+   */
+  public getTopicInfo(topicName: string): { name: string; partitionCount: number } | null {
+    const topic = this.topics.get(topicName);
+    if (!topic) {
+      return null;
+    }
+
+    return {
+      name: topic.name,
+      partitionCount: topic.partitionCount,
+    };
+  }
+
+  /**
+   * Creates a consumer group if it doesn't exist
+   * @param groupId ID of the consumer group
+   * @returns The consumer group
+   */
+  private ensureConsumerGroup(groupId: string): ConsumerGroup {
+    if (!this.consumerGroups.has(groupId)) {
+      this.consumerGroups.set(groupId, {
+        id: groupId,
+        offsets: new Map(),
+        consumers: new Set(),
+      });
+    }
+
+    return this.consumerGroups.get(groupId)!;
+  }
+
+  /**
+   * Gets the current offset for a topic-partition in a consumer group
+   * @param groupId ID of the consumer group
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @returns Current offset or 0 if not set
+   */
+  private getConsumerGroupOffset(groupId: string, topicName: string, partition: number): number {
+    const group = this.consumerGroups.get(groupId);
+    if (!group) {
+      return 0;
+    }
+
+    const topicOffsets = group.offsets.get(topicName);
+    if (!topicOffsets) {
+      return 0;
+    }
+
+    return topicOffsets.get(partition) ?? 0;
+  }
+
+  /**
+   * Sets the current offset for a topic-partition in a consumer group
+   * @param groupId ID of the consumer group
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @param offset Offset to set
+   */
+  private setConsumerGroupOffset(groupId: string, topicName: string, partition: number, offset: number): void {
+    const group = this.ensureConsumerGroup(groupId);
+
+    if (!group.offsets.has(topicName)) {
+      group.offsets.set(topicName, new Map());
+    }
+
+    const topicOffsets = group.offsets.get(topicName)!;
+    topicOffsets.set(partition, offset);
+  }
+
+  /**
+   * Determines the partition for a message based on key or round-robin
    * @param topic Topic to publish to
-   * @param message Message payload
-   * @param key Optional message key for partitioning
-   * @param headers Optional message headers
-   * @param options Optional publishing options
-   * @returns Promise that resolves when the message is published
+   * @param key Optional key for consistent partitioning
+   * @param specificPartition Optional specific partition to use
+   * @returns Partition number
+   */
+  private determinePartition(topic: Topic, key?: string, specificPartition?: number): number {
+    // If a specific partition is requested and it's valid, use it
+    if (specificPartition !== undefined && specificPartition >= 0 && specificPartition < topic.partitionCount) {
+      return specificPartition;
+    }
+
+    // If a key is provided, use consistent hashing
+    if (key) {
+      // Simple hash function for the key
+      let hash = 0;
+      for (let i = 0; i < key.length; i++) {
+        hash = ((hash << 5) - hash) + key.charCodeAt(i);
+        hash |= 0; // Convert to 32bit integer
+      }
+      return Math.abs(hash) % topic.partitionCount;
+    }
+
+    // Otherwise, use round-robin (random for simplicity)
+    return Math.floor(Math.random() * topic.partitionCount);
+  }
+
+  /**
+   * Publishes an event to a topic
+   * @param topicName Name of the topic to publish to
+   * @param event Event to publish
+   * @param options Publish options
+   * @returns Promise resolving to delivery record
    */
   public async publish<T = any>(
-    topic: string,
-    message: T,
-    key?: string,
-    headers: Record<string, string> = {},
-    options: PublishOptions = {}
-  ): Promise<void> {
+    topicName: string,
+    event: BaseEvent<T>,
+    options?: PublishOptions
+  ): Promise<DeliveryRecord> {
+    // Check if broker is available
     if (!this.available) {
-      throw new Error('Broker is not available');
+      const deliveryRecord: DeliveryRecord = {
+        id: crypto.randomUUID(),
+        topic: topicName,
+        partition: -1,
+        key: options?.key,
+        timestamp: new Date().toISOString(),
+        successful: false,
+        error: 'Broker is unavailable',
+        retryCount: 0,
+      };
+      this.deliveryRecords.push(deliveryRecord);
+      return deliveryRecord;
     }
 
     // Create topic if it doesn't exist
-    const topicObj = this.createTopic(topic);
-
-    // Add metadata if not present
-    let enrichedMessage = message;
-    if (message && typeof message === 'object' && !this.hasMetadata(message)) {
-      enrichedMessage = this.addMetadata(message as any);
+    let topic = this.topics.get(topicName);
+    if (!topic) {
+      topic = this.createTopic(topicName);
     }
 
     // Determine partition
-    let partition: number;
-    if (options.partition !== undefined && options.partition < topicObj.partitions) {
-      partition = options.partition;
-    } else if (key) {
-      // Consistent hashing for keys
-      partition = this.getPartitionForKey(key, topicObj.partitions);
-    } else {
-      // Round-robin for messages without keys
-      partition = Math.floor(Math.random() * topicObj.partitions);
-    }
+    const partition = this.determinePartition(topic, options?.key, options?.partition);
+    const partitionData = topic.partitions.get(partition)!;
 
-    // Create message object
-    const offset = topicObj.offsets[partition]++;
-    const mockMessage: MockMessage<T> = {
-      value: enrichedMessage,
-      key,
-      headers,
-      topic,
+    // Create Kafka event
+    const kafkaEvent: KafkaEvent<T> = {
+      ...event,
+      topic: topicName,
       partition,
-      offset: offset.toString(),
-      timestamp: Date.now().toString(),
-      deliveryAttempts: 0,
+      offset: partitionData.nextOffset.toString(),
+      key: options?.key,
+      headers: options?.headers,
     };
 
-    // Store message in topic partition
-    topicObj.messages[partition].push(mockMessage);
+    // Store message in partition
+    const storedMessage: StoredMessage = {
+      event: kafkaEvent,
+      offset: partitionData.nextOffset,
+      timestamp: new Date().toISOString(),
+      key: options?.key,
+      headers: options?.headers,
+    };
 
-    // Emit message event for subscribers
-    setImmediate(() => {
-      this.eventEmitter.emit(`message:${topic}`, mockMessage);
-    });
+    partitionData.messages.push(storedMessage);
+    partitionData.nextOffset++;
+
+    // Create delivery record
+    const deliveryRecord: DeliveryRecord = {
+      id: crypto.randomUUID(),
+      topic: topicName,
+      partition,
+      key: options?.key,
+      timestamp: storedMessage.timestamp,
+      successful: true,
+      retryCount: 0,
+    };
+    this.deliveryRecords.push(deliveryRecord);
+
+    // Notify subscribers
+    this.notifySubscribers(topicName, partition, kafkaEvent);
+
+    return deliveryRecord;
   }
 
   /**
-   * Publishes multiple messages to a topic in a batch.
-   * 
-   * @param topic Topic to publish to
-   * @param messages Array of messages with optional keys and headers
-   * @param options Optional publishing options
-   * @returns Promise that resolves when all messages are published
+   * Notifies subscribers of a new message
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @param event Kafka event
    */
-  public async publishBatch<T = any>(
-    topic: string,
-    messages: Array<{
-      value: T;
-      key?: string;
-      headers?: Record<string, string>;
-    }>,
-    options: PublishOptions = {}
-  ): Promise<void> {
-    if (!this.available) {
-      throw new Error('Broker is not available');
-    }
+  private notifySubscribers(topicName: string, partition: number, event: KafkaEvent): void {
+    // Find all active subscriptions for this topic
+    const topicSubscriptions = Array.from(this.subscriptions.values()).filter(
+      (sub) => sub.topic === topicName && sub.active
+    );
 
-    // Publish each message individually
-    for (const msg of messages) {
-      await this.publish(
-        topic,
-        msg.value,
-        msg.key,
-        msg.headers || {},
-        options
-      );
-    }
-  }
-
-  /**
-   * Subscribes to a topic and processes messages with the provided handler.
-   * 
-   * @param topic Topic to subscribe to
-   * @param handler Function to process each message
-   * @param options Subscription options
-   * @returns Promise that resolves when the subscription is established
-   */
-  public async subscribe<T = any>(
-    topic: string,
-    handler: MessageHandler<T>,
-    options: SubscriptionOptions = {}
-  ): Promise<void> {
-    if (!this.available) {
-      throw new Error('Broker is not available');
-    }
-
-    // Create topic if it doesn't exist
-    const topicObj = this.createTopic(topic);
-
-    // Set default options
-    const groupId = options.groupId || 'default-group';
-    const fromBeginning = options.fromBeginning || false;
-    const maxRetries = options.maxRetries ?? 3;
-    const retryDelay = options.retryDelay ?? 100;
-    const useDLQ = options.useDLQ ?? true;
-
-    // Create subscription
-    const subscription: Subscription<T> = {
-      topic,
-      groupId,
-      handler,
-      fromBeginning,
-      maxRetries,
-      retryDelay,
-      useDLQ,
-      partitions: options.partitions,
-      active: true,
-    };
-
-    // Add subscription to topic
-    if (!this.subscriptions.has(topic)) {
-      this.subscriptions.set(topic, []);
-    }
-    this.subscriptions.get(topic)!.push(subscription);
-
-    // Initialize consumer offsets for this group if not already done
-    if (!topicObj.consumerOffsets.has(groupId)) {
-      const initialOffsets = Array(topicObj.partitions).fill(fromBeginning ? 0 : topicObj.offsets.slice());
-      topicObj.consumerOffsets.set(groupId, initialOffsets);
-    }
-
-    // Set up message listener
-    this.eventEmitter.on(`message:${topic}`, async (message: MockMessage<T>) => {
-      // Skip if subscription is not active
-      if (!subscription.active) {
-        return;
+    // Group subscriptions by consumer group
+    const subscriptionsByGroup = new Map<string, Subscription[]>();
+    for (const subscription of topicSubscriptions) {
+      const groupId = subscription.options.groupId || 'default';
+      if (!subscriptionsByGroup.has(groupId)) {
+        subscriptionsByGroup.set(groupId, []);
       }
+      subscriptionsByGroup.get(groupId)!.push(subscription);
+    }
 
-      // Skip if message is for a partition we're not subscribed to
-      if (
-        subscription.partitions &&
-        !subscription.partitions.includes(message.partition)
-      ) {
-        return;
-      }
-
-      // Skip if message offset is less than consumer offset
-      const consumerOffsets = topicObj.consumerOffsets.get(groupId)!;
-      if (parseInt(message.offset) < consumerOffsets[message.partition]) {
-        return;
-      }
-
-      // Process message
-      await this.processMessage(message, subscription);
-
-      // Update consumer offset
-      consumerOffsets[message.partition] = parseInt(message.offset) + 1;
-    });
-
-    // Process existing messages if fromBeginning is true
-    if (fromBeginning) {
-      const partitionsToProcess = subscription.partitions || 
-        Array.from({ length: topicObj.partitions }, (_, i) => i);
-
-      for (const partition of partitionsToProcess) {
-        const messages = topicObj.messages[partition];
-        const consumerOffsets = topicObj.consumerOffsets.get(groupId)!;
-        const startOffset = consumerOffsets[partition];
-
-        for (let i = startOffset; i < messages.length; i++) {
-          const message = messages[i];
-          await this.processMessage(message, subscription);
-          consumerOffsets[partition] = i + 1;
+    // For each consumer group, select one subscription to receive the message
+    for (const [groupId, groupSubscriptions] of subscriptionsByGroup.entries()) {
+      // Check if this subscription should receive this partition
+      const eligibleSubscriptions = groupSubscriptions.filter((sub) => {
+        // If partitions are specified, check if this partition is included
+        if (sub.options.partitions && !sub.options.partitions.includes(partition)) {
+          return false;
         }
+        return true;
+      });
+
+      if (eligibleSubscriptions.length === 0) {
+        continue;
+      }
+
+      // Get current offset for this consumer group
+      const currentOffset = this.getConsumerGroupOffset(groupId, topicName, partition);
+      const eventOffset = parseInt(event.offset || '0', 10);
+
+      // Skip if this message has already been processed by this consumer group
+      // unless fromBeginning is true
+      const fromBeginning = eligibleSubscriptions[0].options.fromBeginning;
+      if (!fromBeginning && eventOffset < currentOffset) {
+        continue;
+      }
+
+      // Select one subscription from the group (round-robin for simplicity)
+      const selectedIndex = Math.floor(Math.random() * eligibleSubscriptions.length);
+      const selectedSubscription = eligibleSubscriptions[selectedIndex];
+
+      // Process the message
+      this.processMessage(selectedSubscription, event, groupId);
+    }
+
+    // Also notify subscriptions without a consumer group
+    const individualSubscriptions = topicSubscriptions.filter((sub) => !sub.options.groupId);
+    for (const subscription of individualSubscriptions) {
+      // Check if this subscription should receive this partition
+      if (
+        subscription.options.partitions &&
+        !subscription.options.partitions.includes(partition)
+      ) {
+        continue;
+      }
+
+      // Process the message
+      this.processMessage(subscription, event);
+    }
+  }
+
+  /**
+   * Processes a message for a subscription
+   * @param subscription Subscription to process for
+   * @param event Kafka event
+   * @param groupId Optional consumer group ID
+   */
+  private async processMessage(
+    subscription: Subscription,
+    event: KafkaEvent,
+    groupId?: string
+  ): Promise<void> {
+    try {
+      // Call the handler
+      const response = await subscription.handler(event);
+
+      // Update consumer group offset if auto-commit is enabled
+      if (groupId && subscription.options.autoCommit !== false) {
+        const offset = parseInt(event.offset || '0', 10) + 1;
+        this.setConsumerGroupOffset(groupId, event.topic, event.partition || 0, offset);
+      }
+
+      // Update delivery record
+      const deliveryRecord: DeliveryRecord = {
+        id: crypto.randomUUID(),
+        topic: event.topic,
+        partition: event.partition || 0,
+        key: event.key,
+        timestamp: new Date().toISOString(),
+        successful: response.success,
+        error: response.success ? undefined : response.error?.message,
+        consumerGroup: groupId,
+        retryCount: 0,
+      };
+      this.deliveryRecords.push(deliveryRecord);
+
+      // If processing failed and retry is configured, schedule a retry
+      if (!response.success && subscription.options.retry && subscription.options.retry.maxRetries > 0) {
+        this.scheduleRetry(subscription, event, groupId, 1);
+      }
+    } catch (error) {
+      // Handle unexpected errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Update delivery record
+      const deliveryRecord: DeliveryRecord = {
+        id: crypto.randomUUID(),
+        topic: event.topic,
+        partition: event.partition || 0,
+        key: event.key,
+        timestamp: new Date().toISOString(),
+        successful: false,
+        error: errorMessage,
+        consumerGroup: groupId,
+        retryCount: 0,
+      };
+      this.deliveryRecords.push(deliveryRecord);
+
+      // If retry is configured, schedule a retry
+      if (subscription.options.retry && subscription.options.retry.maxRetries > 0) {
+        this.scheduleRetry(subscription, event, groupId, 1);
       }
     }
   }
 
   /**
-   * Processes a message with the subscription handler and handles retries.
-   * 
-   * @param message Message to process
-   * @param subscription Subscription that should process the message
-   * @private
+   * Schedules a retry for a failed message
+   * @param subscription Subscription that failed
+   * @param event Kafka event
+   * @param groupId Optional consumer group ID
+   * @param retryCount Current retry count
    */
-  private async processMessage<T = any>(
-    message: MockMessage<T>,
-    subscription: Subscription<T>
-  ): Promise<void> {
-    if (!this.available) {
-      return; // Don't process messages when broker is unavailable
-    }
-
-    // Increment delivery attempts
-    message.deliveryAttempts++;
-
-    // Create metadata for handler
-    const metadata: KafkaMessage = {
-      key: message.key,
-      headers: message.headers,
-      topic: message.topic,
-      partition: message.partition,
-      offset: message.offset,
-      timestamp: message.timestamp,
-    };
-
-    try {
-      // Process message with handler
-      await subscription.handler(message.value, metadata);
-
-      // Record successful delivery
-      this.recordDelivery({
-        message,
-        deliveredAt: new Date(),
-        consumerGroup: subscription.groupId,
-        success: true,
-        retryCount: message.deliveryAttempts - 1,
-      });
-    } catch (error) {
-      // Handle processing error
-      const retryCount = parseInt(message.headers['retry-count'] || '0', 10);
-      const nextRetryCount = retryCount + 1;
-
-      // Record failed delivery
-      this.recordDelivery({
-        message,
-        deliveredAt: new Date(),
-        consumerGroup: subscription.groupId,
-        success: false,
-        error: error as Error,
-        retryCount,
-      });
-
-      // Retry if under max retries
-      if (nextRetryCount <= subscription.maxRetries) {
-        // Calculate retry delay with exponential backoff
-        const delay = this.calculateRetryDelay(nextRetryCount, subscription.retryDelay);
-
-        // Update retry count in headers
-        const updatedHeaders = {
-          ...message.headers,
-          'retry-count': nextRetryCount.toString(),
-        };
-
-        // Schedule retry after delay
-        setTimeout(() => {
-          if (subscription.active && this.available) {
-            // Create a new message for retry
-            const retryMessage: MockMessage<T> = {
-              ...message,
-              headers: updatedHeaders,
-              timestamp: Date.now().toString(),
-            };
-
-            // Process the retry
-            this.processMessage(retryMessage, subscription);
-          }
-        }, delay);
-      } else if (subscription.useDLQ) {
-        // Send to dead-letter queue
-        await this.sendToDLQ(
-          message.topic,
-          message.value,
-          message.key,
-          {
-            ...message.headers,
-            'error-type': 'processing-failed',
-            'error-message': (error as Error).message,
-            'retry-count': nextRetryCount.toString(),
-            'max-retries': subscription.maxRetries.toString(),
-            'source-topic': message.topic,
-            'source-partition': message.partition.toString(),
-            'dlq-timestamp': Date.now().toString(),
-          }
-        );
-      }
-    }
-  }
-
-  /**
-   * Sends a message to the dead-letter queue.
-   * 
-   * @param sourceTopic Original topic of the message
-   * @param message Message payload
-   * @param key Optional message key
-   * @param headers Message headers with error context
-   * @private
-   */
-  private async sendToDLQ<T = any>(
-    sourceTopic: string,
-    message: T,
-    key?: string,
-    headers: Record<string, string> = {}
-  ): Promise<void> {
-    try {
-      await this.publish(
-        this.deadLetterTopic,
-        message,
-        key,
-        headers
-      );
-    } catch (error) {
-      // Don't throw from DLQ publishing to prevent cascading failures
-      console.error('Failed to send message to dead-letter queue:', error);
-    }
-  }
-
-  /**
-   * Unsubscribes from a topic.
-   * 
-   * @param topic Topic to unsubscribe from
-   * @param groupId Consumer group ID (if not provided, all groups will be unsubscribed)
-   * @returns Promise that resolves when unsubscribed
-   */
-  public async unsubscribe(topic: string, groupId?: string): Promise<void> {
-    if (!this.subscriptions.has(topic)) {
+  private scheduleRetry(
+    subscription: Subscription,
+    event: KafkaEvent,
+    groupId?: string,
+    retryCount: number = 1
+  ): void {
+    if (!subscription.options.retry || retryCount > subscription.options.retry.maxRetries) {
       return;
     }
 
-    const subscriptions = this.subscriptions.get(topic)!;
-    
-    if (groupId) {
-      // Mark subscriptions for this group as inactive
-      subscriptions.forEach(sub => {
-        if (sub.groupId === groupId) {
-          sub.active = false;
-        }
-      });
+    // Calculate delay with exponential backoff
+    const { initialRetryTime, backoffFactor } = subscription.options.retry;
+    const delay = initialRetryTime * Math.pow(backoffFactor, retryCount - 1);
 
-      // Remove inactive subscriptions
-      this.subscriptions.set(
-        topic,
-        subscriptions.filter(sub => sub.groupId !== groupId || sub.active)
-      );
-    } else {
-      // Mark all subscriptions for this topic as inactive
-      subscriptions.forEach(sub => {
-        sub.active = false;
-      });
+    // Add jitter to prevent thundering herd
+    const jitter = Math.random() * 0.2 * delay;
+    const finalDelay = delay + jitter;
 
-      // Remove all subscriptions for this topic
-      this.subscriptions.delete(topic);
-    }
-  }
+    // Create a unique ID for this retry
+    const retryId = `${subscription.id}-${event.eventId}-${retryCount}`;
 
-  /**
-   * Simulates broker downtime.
-   * 
-   * @param durationMs Duration of downtime in milliseconds
-   * @returns Promise that resolves when downtime is over
-   */
-  public async simulateDowntime(durationMs: number): Promise<void> {
-    this.available = false;
-    return new Promise(resolve => {
-      setTimeout(() => {
-        this.available = true;
-        resolve();
-      }, durationMs);
-    });
-  }
+    // Schedule retry
+    const timeout = setTimeout(() => {
+      // Remove from pending retries
+      this.pendingRetries.delete(retryId);
 
-  /**
-   * Simulates a network partition that affects specific consumer groups.
-   * 
-   * @param groupIds Consumer group IDs affected by the partition
-   * @param durationMs Duration of the partition in milliseconds
-   * @returns Promise that resolves when the partition is healed
-   */
-  public async simulateNetworkPartition(
-    groupIds: string[],
-    durationMs: number
-  ): Promise<void> {
-    // Deactivate subscriptions for affected groups
-    for (const [topic, subscriptions] of this.subscriptions.entries()) {
-      subscriptions.forEach(sub => {
-        if (groupIds.includes(sub.groupId)) {
-          sub.active = false;
-        }
-      });
-    }
+      // Only retry if subscription is still active
+      if (subscription.active) {
+        // Update event metadata for retry
+        const retryEvent: KafkaEvent = {
+          ...event,
+          metadata: {
+            ...event.metadata,
+            isRetry: true,
+            retryCount,
+            originalTimestamp: event.metadata?.originalTimestamp || event.timestamp,
+          },
+        };
 
-    // Reactivate after duration
-    return new Promise(resolve => {
-      setTimeout(() => {
-        for (const [topic, subscriptions] of this.subscriptions.entries()) {
-          subscriptions.forEach(sub => {
-            if (groupIds.includes(sub.groupId)) {
-              sub.active = true;
-            }
-          });
-        }
-        resolve();
-      }, durationMs);
-    });
-  }
-
-  /**
-   * Gets all messages published to a topic.
-   * 
-   * @param topic Topic to get messages from
-   * @param partition Optional specific partition to get messages from
-   * @returns Array of messages
-   */
-  public getMessages<T = any>(topic: string, partition?: number): MockMessage<T>[] {
-    if (!this.topics.has(topic)) {
-      return [];
-    }
-
-    const topicObj = this.topics.get(topic)!;
-    
-    if (partition !== undefined) {
-      if (partition >= 0 && partition < topicObj.partitions) {
-        return [...topicObj.messages[partition]] as MockMessage<T>[];
+        // Process the retry
+        this.processMessage(subscription, retryEvent, groupId);
       }
-      return [];
-    }
+    }, finalDelay);
 
-    // Flatten all partitions
-    return topicObj.messages.flat() as MockMessage<T>[];
+    // Store timeout for cleanup
+    this.pendingRetries.set(retryId, timeout);
   }
 
   /**
-   * Gets all delivery records for test verification.
-   * 
-   * @param filters Optional filters to apply
+   * Subscribes to a topic
+   * @param topicName Name of the topic to subscribe to
+   * @param handler Handler function for messages
+   * @param options Subscription options
+   * @returns Subscription ID
+   */
+  public subscribe(
+    topicName: string,
+    handler: (event: KafkaEvent) => Promise<IEventResponse>,
+    options: SubscriptionOptions = {}
+  ): string {
+    // Create topic if it doesn't exist
+    if (!this.topics.has(topicName)) {
+      this.createTopic(topicName);
+    }
+
+    // Create consumer group if specified
+    if (options.groupId) {
+      this.ensureConsumerGroup(options.groupId);
+    }
+
+    // Create subscription
+    const subscriptionId = crypto.randomUUID();
+    const consumerId = crypto.randomUUID();
+
+    const subscription: Subscription = {
+      id: subscriptionId,
+      topic: topicName,
+      handler,
+      options,
+      consumerId,
+      active: true,
+    };
+
+    this.subscriptions.set(subscriptionId, subscription);
+
+    // Add consumer to group if applicable
+    if (options.groupId) {
+      const group = this.consumerGroups.get(options.groupId)!;
+      group.consumers.add(consumerId);
+    }
+
+    // If fromBeginning is true, process all existing messages
+    if (options.fromBeginning) {
+      this.processExistingMessages(subscription, options.groupId);
+    }
+
+    return subscriptionId;
+  }
+
+  /**
+   * Processes existing messages for a new subscription with fromBeginning=true
+   * @param subscription Subscription to process for
+   * @param groupId Optional consumer group ID
+   */
+  private processExistingMessages(subscription: Subscription, groupId?: string): void {
+    const topic = this.topics.get(subscription.topic);
+    if (!topic) {
+      return;
+    }
+
+    // Determine which partitions to process
+    const partitions = subscription.options.partitions || Array.from(topic.partitions.keys());
+
+    // Process messages from each partition
+    for (const partition of partitions) {
+      const partitionData = topic.partitions.get(partition);
+      if (!partitionData) {
+        continue;
+      }
+
+      // Get starting offset for this consumer group
+      let startOffset = 0;
+      if (groupId) {
+        startOffset = this.getConsumerGroupOffset(groupId, subscription.topic, partition);
+      }
+
+      // Process all messages from the starting offset
+      for (let i = startOffset; i < partitionData.messages.length; i++) {
+        const message = partitionData.messages[i];
+        this.processMessage(subscription, message.event, groupId);
+      }
+    }
+  }
+
+  /**
+   * Unsubscribes from a topic
+   * @param subscriptionId ID of the subscription to unsubscribe
+   * @returns True if the subscription was found and removed, false otherwise
+   */
+  public unsubscribe(subscriptionId: string): boolean {
+    const subscription = this.subscriptions.get(subscriptionId);
+    if (!subscription) {
+      return false;
+    }
+
+    // Remove consumer from group if applicable
+    if (subscription.options.groupId) {
+      const group = this.consumerGroups.get(subscription.options.groupId);
+      if (group) {
+        group.consumers.delete(subscription.consumerId);
+      }
+    }
+
+    // Mark subscription as inactive
+    subscription.active = false;
+
+    // Remove subscription
+    this.subscriptions.delete(subscriptionId);
+
+    // Cancel any pending retries for this subscription
+    for (const [retryId, timeout] of this.pendingRetries.entries()) {
+      if (retryId.startsWith(`${subscriptionId}-`)) {
+        clearTimeout(timeout);
+        this.pendingRetries.delete(retryId);
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Gets all delivery records
    * @returns Array of delivery records
    */
-  public getDeliveryRecords<T = any>(filters?: {
-    topic?: string;
-    consumerGroup?: string;
-    success?: boolean;
-    afterTimestamp?: number;
-  }): DeliveryRecord<T>[] {
-    let records = [...this.deliveryRecords] as DeliveryRecord<T>[];
-
-    if (filters) {
-      if (filters.topic) {
-        records = records.filter(record => record.message.topic === filters.topic);
-      }
-
-      if (filters.consumerGroup) {
-        records = records.filter(record => record.consumerGroup === filters.consumerGroup);
-      }
-
-      if (filters.success !== undefined) {
-        records = records.filter(record => record.success === filters.success);
-      }
-
-      if (filters.afterTimestamp) {
-        records = records.filter(record => record.deliveredAt.getTime() > filters.afterTimestamp!);
-      }
-    }
-
-    return records;
+  public getDeliveryRecords(): DeliveryRecord[] {
+    return [...this.deliveryRecords];
   }
 
   /**
-   * Clears all delivery records.
+   * Gets delivery records for a specific topic
+   * @param topicName Name of the topic
+   * @returns Array of delivery records for the topic
+   */
+  public getDeliveryRecordsForTopic(topicName: string): DeliveryRecord[] {
+    return this.deliveryRecords.filter((record) => record.topic === topicName);
+  }
+
+  /**
+   * Gets delivery records for a specific consumer group
+   * @param groupId ID of the consumer group
+   * @returns Array of delivery records for the consumer group
+   */
+  public getDeliveryRecordsForConsumerGroup(groupId: string): DeliveryRecord[] {
+    return this.deliveryRecords.filter((record) => record.consumerGroup === groupId);
+  }
+
+  /**
+   * Gets successful delivery records
+   * @returns Array of successful delivery records
+   */
+  public getSuccessfulDeliveryRecords(): DeliveryRecord[] {
+    return this.deliveryRecords.filter((record) => record.successful);
+  }
+
+  /**
+   * Gets failed delivery records
+   * @returns Array of failed delivery records
+   */
+  public getFailedDeliveryRecords(): DeliveryRecord[] {
+    return this.deliveryRecords.filter((record) => !record.successful);
+  }
+
+  /**
+   * Clears all delivery records
    */
   public clearDeliveryRecords(): void {
     this.deliveryRecords = [];
   }
 
   /**
-   * Resets the broker to its initial state.
+   * Simulates broker downtime
+   */
+  public simulateDowntime(): void {
+    this.available = false;
+  }
+
+  /**
+   * Simulates broker recovery
+   */
+  public simulateRecovery(): void {
+    this.available = true;
+  }
+
+  /**
+   * Gets the broker availability status
+   * @returns True if the broker is available, false otherwise
+   */
+  public isAvailable(): boolean {
+    return this.available;
+  }
+
+  /**
+   * Gets all messages for a topic
+   * @param topicName Name of the topic
+   * @returns Array of messages for the topic
+   */
+  public getMessages(topicName: string): KafkaEvent[] {
+    const topic = this.topics.get(topicName);
+    if (!topic) {
+      return [];
+    }
+
+    const messages: KafkaEvent[] = [];
+    for (const partition of topic.partitions.values()) {
+      for (const message of partition.messages) {
+        messages.push(message.event);
+      }
+    }
+
+    return messages;
+  }
+
+  /**
+   * Gets messages for a specific partition of a topic
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @returns Array of messages for the partition
+   */
+  public getMessagesForPartition(topicName: string, partition: number): KafkaEvent[] {
+    const topic = this.topics.get(topicName);
+    if (!topic) {
+      return [];
+    }
+
+    const partitionData = topic.partitions.get(partition);
+    if (!partitionData) {
+      return [];
+    }
+
+    return partitionData.messages.map((message) => message.event);
+  }
+
+  /**
+   * Gets the current offset for a consumer group on a topic-partition
+   * @param groupId ID of the consumer group
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @returns Current offset
+   */
+  public getOffset(groupId: string, topicName: string, partition: number): number {
+    return this.getConsumerGroupOffset(groupId, topicName, partition);
+  }
+
+  /**
+   * Manually commits an offset for a consumer group on a topic-partition
+   * @param groupId ID of the consumer group
+   * @param topicName Name of the topic
+   * @param partition Partition number
+   * @param offset Offset to commit
+   */
+  public commitOffset(groupId: string, topicName: string, partition: number, offset: number): void {
+    this.setConsumerGroupOffset(groupId, topicName, partition, offset);
+  }
+
+  /**
+   * Gets all consumer groups
+   * @returns Array of consumer group IDs
+   */
+  public getConsumerGroups(): string[] {
+    return Array.from(this.consumerGroups.keys());
+  }
+
+  /**
+   * Gets information about a specific consumer group
+   * @param groupId ID of the consumer group
+   * @returns Consumer group information or null if the group doesn't exist
+   */
+  public getConsumerGroupInfo(groupId: string): {
+    id: string;
+    consumerCount: number;
+    topics: string[];
+  } | null {
+    const group = this.consumerGroups.get(groupId);
+    if (!group) {
+      return null;
+    }
+
+    return {
+      id: group.id,
+      consumerCount: group.consumers.size,
+      topics: Array.from(group.offsets.keys()),
+    };
+  }
+
+  /**
+   * Gets all subscriptions
+   * @returns Array of subscription IDs
+   */
+  public getSubscriptions(): string[] {
+    return Array.from(this.subscriptions.keys());
+  }
+
+  /**
+   * Gets information about a specific subscription
+   * @param subscriptionId ID of the subscription
+   * @returns Subscription information or null if the subscription doesn't exist
+   */
+  public getSubscriptionInfo(subscriptionId: string): {
+    id: string;
+    topic: string;
+    active: boolean;
+    groupId?: string;
+  } | null {
+    const subscription = this.subscriptions.get(subscriptionId);
+    if (!subscription) {
+      return null;
+    }
+
+    return {
+      id: subscription.id,
+      topic: subscription.topic,
+      active: subscription.active,
+      groupId: subscription.options.groupId,
+    };
+  }
+
+  /**
+   * Resets the broker to its initial state
    */
   public reset(): void {
-    // Clear all topics except dead-letter queue
-    const dlqTopic = this.topics.get(this.deadLetterTopic);
+    // Clear all topics
     this.topics.clear();
-    if (dlqTopic) {
-      this.topics.set(this.deadLetterTopic, {
-        ...dlqTopic,
-        messages: Array(dlqTopic.partitions).fill(null).map(() => []),
-        offsets: Array(dlqTopic.partitions).fill(0),
-        consumerOffsets: new Map(),
-      });
-    } else {
-      this.createTopic(this.deadLetterTopic, 1);
-    }
+
+    // Clear all consumer groups
+    this.consumerGroups.clear();
 
     // Clear all subscriptions
     this.subscriptions.clear();
 
     // Clear all delivery records
-    this.clearDeliveryRecords();
+    this.deliveryRecords = [];
+
+    // Cancel all pending retries
+    for (const [retryId, timeout] of this.pendingRetries.entries()) {
+      clearTimeout(timeout);
+    }
+    this.pendingRetries.clear();
 
     // Reset availability
     this.available = true;
+  }
+
+  /**
+   * Cleans up resources when the broker is no longer needed
+   */
+  public cleanup(): void {
+    // Cancel all pending retries
+    for (const [retryId, timeout] of this.pendingRetries.entries()) {
+      clearTimeout(timeout);
+    }
+    this.pendingRetries.clear();
 
     // Remove all listeners
     this.eventEmitter.removeAllListeners();
   }
+}
 
-  /**
-   * Records a message delivery for test verification.
-   * 
-   * @param record Delivery record to add
-   * @private
-   */
-  private recordDelivery(record: DeliveryRecord): void {
-    this.deliveryRecords.push(record);
-  }
-
-  /**
-   * Calculates retry delay with exponential backoff and jitter.
-   * 
-   * @param attempt Retry attempt number
-   * @param baseDelay Base delay in milliseconds
-   * @returns Calculated delay in milliseconds
-   * @private
-   */
-  private calculateRetryDelay(attempt: number, baseDelay: number): number {
-    const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
-    const maxDelay = Math.min(exponentialDelay, 30000); // Cap at 30 seconds
-    
-    // Add jitter to prevent thundering herd problem
-    return Math.floor(maxDelay * (0.8 + Math.random() * 0.4));
-  }
-
-  /**
-   * Determines the partition for a message key using consistent hashing.
-   * 
-   * @param key Message key
-   * @param numPartitions Number of partitions
-   * @returns Partition number
-   * @private
-   */
-  private getPartitionForKey(key: string, numPartitions: number): number {
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = ((hash << 5) - hash) + key.charCodeAt(i);
-      hash |= 0; // Convert to 32bit integer
-    }
-    return Math.abs(hash) % numPartitions;
-  }
-
-  /**
-   * Checks if a message already has metadata attached.
-   * 
-   * @param message Message to check
-   * @returns Whether the message has metadata
-   * @private
-   */
-  private hasMetadata(message: any): boolean {
-    return message && 
-           typeof message === 'object' && 
-           message.metadata instanceof EventMetadataDto;
-  }
-
-  /**
-   * Adds standard metadata to a message.
-   * 
-   * @param message Message to add metadata to
-   * @returns Message with metadata
-   * @private
-   */
-  private addMetadata<T = any>(message: T): T & { metadata: EventMetadataDto } {
-    const metadata = new EventMetadataDto();
-    metadata.timestamp = new Date();
-    metadata.eventId = uuidv4();
-    
-    return {
-      ...message as any,
-      metadata
-    };
-  }
+/**
+ * Creates a mock event handler for testing
+ * @param eventType Type of event to handle
+ * @param handler Custom handler function
+ * @returns Mock event handler
+ */
+export function createMockEventHandler<T = any, R = any>(
+  eventType: string,
+  handler?: (event: T) => Promise<IEventResponse<R>>
+): IEventHandler<T, R> {
+  return {
+    handle: async (event: T) => {
+      if (handler) {
+        return handler(event);
+      }
+      return {
+        success: true,
+        eventId: (event as any).eventId || 'unknown',
+        eventType,
+        data: undefined,
+        metadata: {
+          processingTimeMs: 0,
+          completedAt: new Date().toISOString(),
+        },
+      };
+    },
+    canHandle: async (event: any) => {
+      return {
+        isValid: event && (event.type === eventType || event.eventType === eventType),
+        errors: [],
+      };
+    },
+    getEventType: () => eventType,
+  };
 }
