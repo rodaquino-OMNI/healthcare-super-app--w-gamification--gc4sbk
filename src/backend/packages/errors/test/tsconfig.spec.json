@@ -1,1 +1,25 @@
-Failed to process file
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "sourceRoot": "/",
+    "outDir": "../dist/test",
+    "baseUrl": "./",
+    "paths": {
+      "@app/errors/*": ["../src/*"],
+      "@app/errors/test/*": ["./"]
+    }
+  },
+  "include": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.d.ts",
+    "helpers/**/*.ts",
+    "fixtures/**/*.ts",
+    "mocks/**/*.ts",
+    "utils/**/*.ts"
+  ]
+}
