@@ -1,11 +1,5 @@
 /**
- * @file Provider Interface
- * @description Defines the interface for healthcare providers in the Care Journey.
- */
-
-/**
- * Interface for healthcare provider data in the Care Journey.
- * Represents medical professionals who can be scheduled for appointments.
+ * Represents a healthcare provider interface for the care journey.
  */
 export interface IProvider {
   /**
