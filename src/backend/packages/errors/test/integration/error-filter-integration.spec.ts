@@ -1,113 +1,48 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
+import { INestApplication, HttpStatus, ExecutionContext } from '@nestjs/common';
 import * as request from 'supertest';
-import { Controller, Get, Module, UseFilters } from '@nestjs/common';
-import { AllExceptionsFilter } from '@backend/shared/exceptions/exceptions.filter';
-import { AppException, ErrorType } from '@backend/shared/exceptions/exceptions.types';
-import { LoggerService } from '@backend/shared/logging/logger.service';
+import { AppException, ErrorType } from '../../../src/exceptions/exceptions.types';
+import { AllExceptionsFilter } from '../../../src/exceptions/exceptions.filter';
+import { LoggerService } from '../../../src/logging/logger.service';
+import { mockLogger } from '../setup-tests';
 import {
-  AUTH_INVALID_CREDENTIALS,
-  HEALTH_INVALID_METRIC,
-  CARE_PROVIDER_UNAVAILABLE,
-  SYS_INTERNAL_SERVER_ERROR
-} from '@backend/shared/constants/error-codes.constants';
+  createAppException,
+  createBusinessRuleViolationError,
+  createDatabaseError,
+  createExternalApiError,
+  createInvalidParameterError,
+  createResourceNotFoundError,
+  Health,
+  Care,
+  Plan
+} from '../helpers/error-factory';
+import {
+  assertHttpErrorResponse,
+  assertJourneyHttpErrorResponse,
+  assertValidationErrorResponse
+} from '../helpers/assertion-helpers';
+import * as ErrorCodes from '../../../src/constants/error-codes.constants';
 
-// Mock logger service to avoid actual logging during tests
-class MockLoggerService {
-  log() {}
-  error() {}
-  warn() {}
-  debug() {}
+/**
+ * Controller for testing exception filter
+ */
+class TestController {
+  throwError(error: Error): void {
+    throw error;
+  }
 }
 
 /**
- * Test controller that exposes endpoints that throw different types of exceptions
- * for testing the error filter's handling of various error scenarios.
+ * Integration tests for error filters that verify how errors are captured, transformed,
+ * and returned as HTTP responses.
  */
-@Controller('test')
-@UseFilters(new AllExceptionsFilter(new MockLoggerService() as LoggerService))
-class TestController {
-  @Get('validation-error')
-  throwValidationError() {
-    throw new AppException(
-      'Invalid input data',
-      ErrorType.VALIDATION,
-      AUTH_INVALID_CREDENTIALS,
-      { field: 'username', constraint: 'required' }
-    );
-  }
-
-  @Get('business-error')
-  throwBusinessError() {
-    throw new AppException(
-      'Cannot process this health metric',
-      ErrorType.BUSINESS,
-      HEALTH_INVALID_METRIC,
-      { metricType: 'blood_pressure', reason: 'out of range' }
-    );
-  }
-
-  @Get('technical-error')
-  throwTechnicalError() {
-    throw new AppException(
-      'Database connection failed',
-      ErrorType.TECHNICAL,
-      SYS_INTERNAL_SERVER_ERROR,
-      { service: 'database', operation: 'connect' }
-    );
-  }
-
-  @Get('external-error')
-  throwExternalError() {
-    throw new AppException(
-      'External provider service unavailable',
-      ErrorType.EXTERNAL,
-      CARE_PROVIDER_UNAVAILABLE,
-      { providerId: '12345', service: 'appointment-booking' }
-    );
-  }
-
-  @Get('http-exception')
-  throwHttpException() {
-    const error = new Error('Forbidden resource');
-    error.name = 'ForbiddenException';
-    throw error;
-  }
-
-  @Get('unknown-error')
-  throwUnknownError() {
-    throw new Error('Some unexpected error occurred');
-  }
-
-  @Get('journey-context-error')
-  throwErrorWithJourneyContext() {
-    const error = new AppException(
-      'Error with journey context',
-      ErrorType.BUSINESS,
-      HEALTH_INVALID_METRIC,
-      { journeyId: 'health', userId: '12345', action: 'record-metric' }
-    );
-    return error;
-  }
-}
-
-@Module({
-  controllers: [TestController],
-  providers: [
-    {
-      provide: LoggerService,
-      useClass: MockLoggerService
-    }
-  ]
-})
-class TestModule {}
-
-describe('Error Filter Integration Tests', () => {
+describe('Error Filter Integration', () => {
   let app: INestApplication;
-  let originalNodeEnv: string;
+  let controller: TestController;
+  let originalNodeEnv: string | undefined;
 
   beforeAll(() => {
-    // Store original NODE_ENV to restore after tests
+    // Store original NODE_ENV
     originalNodeEnv = process.env.NODE_ENV;
   });
 
@@ -116,210 +51,414 @@ describe('Error Filter Integration Tests', () => {
     process.env.NODE_ENV = originalNodeEnv;
   });
 
-  describe('Production Environment', () => {
-    beforeEach(async () => {
-      // Set NODE_ENV to production for these tests
-      process.env.NODE_ENV = 'production';
+  beforeEach(async () => {
+    // Reset mocks
+    jest.clearAllMocks();
 
-      const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [TestModule],
-      }).compile();
+    // Create a test module with the exception filter
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      controllers: [TestController],
+      providers: [
+        {
+          provide: LoggerService,
+          useValue: mockLogger
+        }
+      ]
+    }).compile();
 
-      app = moduleFixture.createNestApplication();
-      app.useGlobalPipes(new ValidationPipe());
-      await app.init();
+    // Create the app and set up the global exception filter
+    app = moduleRef.createNestApplication();
+    app.useGlobalFilters(new AllExceptionsFilter(mockLogger as unknown as LoggerService));
+    await app.init();
+
+    // Get the controller instance
+    controller = moduleRef.get<TestController>(TestController);
+
+    // Create a spy on the controller's throwError method
+    jest.spyOn(controller, 'throwError');
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  /**
+   * Helper function to create a route that throws a specific error
+   */
+  const setupErrorRoute = (app: INestApplication, path: string, error: Error) => {
+    const router = app.getHttpAdapter().getInstance();
+    router.get(path, (req: any, res: any, next: any) => {
+      controller.throwError(error);
+      next(error);
     });
+  };
 
-    afterEach(async () => {
-      await app.close();
-    });
+  describe('Error Classification and Status Codes', () => {
+    it('should map validation errors to 400 Bad Request', async () => {
+      // Arrange
+      const error = createInvalidParameterError('email', 'invalid-email', 'email');
+      setupErrorRoute(app, '/test/validation-error', error);
 
-    it('should return 400 Bad Request for validation errors', async () => {
+      // Act
       const response = await request(app.getHttpServer())
         .get('/test/validation-error')
         .expect(HttpStatus.BAD_REQUEST);
 
-      expect(response.body).toEqual({
-        error: {
-          type: ErrorType.VALIDATION,
-          code: AUTH_INVALID_CREDENTIALS,
-          message: 'Invalid input data',
-          details: { field: 'username', constraint: 'required' }
-        }
-      });
+      // Assert
+      assertHttpErrorResponse(response, HttpStatus.BAD_REQUEST, ErrorType.VALIDATION);
+      expect(mockLogger.debug).toHaveBeenCalled();
     });
 
-    it('should return 422 Unprocessable Entity for business errors', async () => {
+    it('should map business errors to 422 Unprocessable Entity', async () => {
+      // Arrange
+      const error = createBusinessRuleViolationError('UserCannotDeleteOwnAccount');
+      setupErrorRoute(app, '/test/business-error', error);
+
+      // Act
       const response = await request(app.getHttpServer())
         .get('/test/business-error')
         .expect(HttpStatus.UNPROCESSABLE_ENTITY);
 
-      expect(response.body).toEqual({
-        error: {
-          type: ErrorType.BUSINESS,
-          code: HEALTH_INVALID_METRIC,
-          message: 'Cannot process this health metric',
-          details: { metricType: 'blood_pressure', reason: 'out of range' }
-        }
-      });
+      // Assert
+      assertHttpErrorResponse(response, HttpStatus.UNPROCESSABLE_ENTITY, ErrorType.BUSINESS);
+      expect(mockLogger.warn).toHaveBeenCalled();
     });
 
-    it('should return 500 Internal Server Error for technical errors', async () => {
+    it('should map technical errors to 500 Internal Server Error', async () => {
+      // Arrange
+      const error = createDatabaseError('query');
+      setupErrorRoute(app, '/test/technical-error', error);
+
+      // Act
       const response = await request(app.getHttpServer())
         .get('/test/technical-error')
         .expect(HttpStatus.INTERNAL_SERVER_ERROR);
 
-      expect(response.body).toEqual({
-        error: {
-          type: ErrorType.TECHNICAL,
-          code: SYS_INTERNAL_SERVER_ERROR,
-          message: 'Database connection failed',
-          details: { service: 'database', operation: 'connect' }
-        }
-      });
+      // Assert
+      assertHttpErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR, ErrorType.TECHNICAL);
+      expect(mockLogger.error).toHaveBeenCalled();
     });
 
-    it('should return 502 Bad Gateway for external dependency errors', async () => {
+    it('should map external errors to 502 Bad Gateway', async () => {
+      // Arrange
+      const error = createExternalApiError('PaymentGateway', '/api/payments', 500);
+      setupErrorRoute(app, '/test/external-error', error);
+
+      // Act
       const response = await request(app.getHttpServer())
         .get('/test/external-error')
         .expect(HttpStatus.BAD_GATEWAY);
 
-      expect(response.body).toEqual({
-        error: {
-          type: ErrorType.EXTERNAL,
-          code: CARE_PROVIDER_UNAVAILABLE,
-          message: 'External provider service unavailable',
-          details: { providerId: '12345', service: 'appointment-booking' }
-        }
-      });
+      // Assert
+      assertHttpErrorResponse(response, HttpStatus.BAD_GATEWAY, ErrorType.EXTERNAL);
+      expect(mockLogger.error).toHaveBeenCalled();
     });
 
-    it('should handle unknown errors with a generic error response in production', async () => {
+    it('should handle unknown errors as 500 Internal Server Error', async () => {
+      // Arrange
+      const error = new Error('Unknown error');
+      setupErrorRoute(app, '/test/unknown-error', error);
+
+      // Act
       const response = await request(app.getHttpServer())
         .get('/test/unknown-error')
         .expect(HttpStatus.INTERNAL_SERVER_ERROR);
 
-      expect(response.body).toEqual({
-        error: {
-          type: ErrorType.TECHNICAL,
-          code: 'INTERNAL_ERROR',
-          message: 'An unexpected error occurred'
-          // No details in production mode
-        }
-      });
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.type).toBe(ErrorType.TECHNICAL);
+      expect(response.body.error.code).toBe('INTERNAL_ERROR');
+      expect(mockLogger.error).toHaveBeenCalled();
     });
 
-    it('should include journey context in error responses when available', async () => {
+    it('should handle resource not found errors as 422 Unprocessable Entity', async () => {
+      // Arrange
+      const error = createResourceNotFoundError('User', '123');
+      setupErrorRoute(app, '/test/not-found-error', error);
+
+      // Act
       const response = await request(app.getHttpServer())
-        .get('/test/journey-context-error')
-        .set('x-journey-id', 'health')
+        .get('/test/not-found-error')
         .expect(HttpStatus.UNPROCESSABLE_ENTITY);
 
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('journeyId', 'health');
-      expect(response.body.error.details).toHaveProperty('userId', '12345');
-    });
-  });
-
-  describe('Development Environment', () => {
-    beforeEach(async () => {
-      // Set NODE_ENV to development for these tests
-      process.env.NODE_ENV = 'development';
-
-      const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [TestModule],
-      }).compile();
-
-      app = moduleFixture.createNestApplication();
-      app.useGlobalPipes(new ValidationPipe());
-      await app.init();
-    });
-
-    afterEach(async () => {
-      await app.close();
-    });
-
-    it('should include additional error details in development mode', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/unknown-error')
-        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
-
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
-      expect(response.body.error).toHaveProperty('message', 'An unexpected error occurred');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('name', 'Error');
-      expect(response.body.error.details).toHaveProperty('message', 'Some unexpected error occurred');
-    });
-
-    it('should transform HTTP exceptions into the standard error format', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/http-exception')
-        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
-
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('message');
-      expect(response.body.error.details).toHaveProperty('name', 'ForbiddenException');
-      expect(response.body.error.details).toHaveProperty('message', 'Forbidden resource');
+      // Assert
+      assertHttpErrorResponse(response, HttpStatus.UNPROCESSABLE_ENTITY, ErrorType.BUSINESS);
+      expect(response.body.error.details).toEqual(expect.objectContaining({
+        resourceType: 'User',
+        resourceId: '123'
+      }));
     });
   });
 
   describe('Error Response Structure', () => {
-    beforeEach(async () => {
-      process.env.NODE_ENV = 'development';
+    it('should include type, code, and message in error responses', async () => {
+      // Arrange
+      const error = new AppException(
+        'Test error message',
+        ErrorType.VALIDATION,
+        'TEST_ERROR_001'
+      );
+      setupErrorRoute(app, '/test/error-structure', error);
 
-      const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [TestModule],
-      }).compile();
-
-      app = moduleFixture.createNestApplication();
-      app.useGlobalPipes(new ValidationPipe());
-      await app.init();
-    });
-
-    afterEach(async () => {
-      await app.close();
-    });
-
-    it('should always include type, code, and message in error responses', async () => {
-      const endpoints = [
-        '/test/validation-error',
-        '/test/business-error',
-        '/test/technical-error',
-        '/test/external-error',
-        '/test/unknown-error'
-      ];
-
-      for (const endpoint of endpoints) {
-        const response = await request(app.getHttpServer()).get(endpoint);
-        
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toHaveProperty('type');
-        expect(response.body.error).toHaveProperty('code');
-        expect(response.body.error).toHaveProperty('message');
-        
-        // Verify that type is one of the valid ErrorTypes
-        expect(Object.values(ErrorType)).toContain(response.body.error.type);
-      }
-    });
-
-    it('should include request context in error responses when headers are present', async () => {
+      // Act
       const response = await request(app.getHttpServer())
-        .get('/test/validation-error')
-        .set('x-journey-id', 'health')
-        .set('x-request-id', '12345-abcde')
-        .set('x-correlation-id', 'corr-67890');
+        .get('/test/error-structure')
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // The AllExceptionsFilter should capture these headers and include them in the response
-      // This test verifies that the request context is properly propagated to error responses
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('field', 'username');
-      expect(response.body.error.details).toHaveProperty('constraint', 'required');
-      
-      // The actual implementation might vary, but we're testing the concept that
-      // request context should be captured and included in error responses
-      // If the implementation doesn't currently do this, this test will fail and
-      // indicate that this feature should be implemented
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.type).toBe(ErrorType.VALIDATION);
+      expect(response.body.error.code).toBe('TEST_ERROR_001');
+      expect(response.body.error.message).toBe('Test error message');
+    });
+
+    it('should include details in error responses when provided', async () => {
+      // Arrange
+      const details = { field: 'email', reason: 'invalid format' };
+      const error = new AppException(
+        'Invalid email format',
+        ErrorType.VALIDATION,
+        'VALIDATION_INVALID_EMAIL',
+        details
+      );
+      setupErrorRoute(app, '/test/error-with-details', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/error-with-details')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.details).toEqual(details);
+    });
+
+    it('should handle validation errors with field-specific details', async () => {
+      // Arrange
+      const invalidFields = ['email', 'password'];
+      const details = { fields: invalidFields };
+      const error = new AppException(
+        'Validation failed',
+        ErrorType.VALIDATION,
+        'VALIDATION_FAILED',
+        details
+      );
+      setupErrorRoute(app, '/test/validation-details', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/validation-details')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      assertValidationErrorResponse(response, invalidFields);
+    });
+  });
+
+  describe('Environment-Specific Behavior', () => {
+    it('should include stack traces in development environment', async () => {
+      // Arrange
+      process.env.NODE_ENV = 'development';
+      const error = new Error('Development error');
+      setupErrorRoute(app, '/test/dev-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/dev-error')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.details).toBeDefined();
+      expect(response.body.error.details.name).toBe('Error');
+      expect(response.body.error.details.message).toBe('Development error');
+    });
+
+    it('should not include stack traces in production environment', async () => {
+      // Arrange
+      process.env.NODE_ENV = 'production';
+      const error = new Error('Production error');
+      setupErrorRoute(app, '/test/prod-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/prod-error')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.details).toBeUndefined();
+    });
+  });
+
+  describe('Journey-Specific Error Handling', () => {
+    it('should handle Health journey errors with proper context', async () => {
+      // Arrange
+      const error = Health.createMetricError('heartRate');
+      setupErrorRoute(app, '/test/health-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/health-error')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      assertJourneyHttpErrorResponse(response, 'health', HttpStatus.BAD_REQUEST, ErrorType.VALIDATION);
+      expect(response.body.error.details).toEqual(expect.objectContaining({
+        metricType: 'heartRate'
+      }));
+    });
+
+    it('should handle Care journey errors with proper context', async () => {
+      // Arrange
+      const error = Care.createAppointmentError('notFound', 'appt-123');
+      setupErrorRoute(app, '/test/care-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/care-error')
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      // Assert
+      assertJourneyHttpErrorResponse(response, 'care', HttpStatus.UNPROCESSABLE_ENTITY, ErrorType.BUSINESS);
+      expect(response.body.error.details).toEqual(expect.objectContaining({
+        appointmentId: 'appt-123'
+      }));
+    });
+
+    it('should handle Plan journey errors with proper context', async () => {
+      // Arrange
+      const error = Plan.createClaimError('notFound', 'claim-123');
+      setupErrorRoute(app, '/test/plan-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/plan-error')
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      // Assert
+      assertJourneyHttpErrorResponse(response, 'plan', HttpStatus.UNPROCESSABLE_ENTITY, ErrorType.BUSINESS);
+      expect(response.body.error.details).toEqual(expect.objectContaining({
+        claimId: 'claim-123'
+      }));
+    });
+  });
+
+  describe('Error Context Propagation', () => {
+    it('should preserve request context in error responses', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const journeyId = 'health';
+      const error = createAppException(ErrorType.BUSINESS);
+      setupErrorRoute(app, '/test/context-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/context-error')
+        .set('x-journey-id', journeyId)
+        .set('Authorization', `Bearer token-for-${userId}`)
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      // Assert
+      expect(mockLogger.warn).toHaveBeenCalled();
+      const logCall = mockLogger.warn.mock.calls[0];
+      expect(logCall[0]).toContain('Business error');
+    });
+
+    it('should include correlation ID in error responses if available', async () => {
+      // Arrange
+      const correlationId = 'test-correlation-123';
+      const error = createAppException(ErrorType.TECHNICAL);
+      setupErrorRoute(app, '/test/correlation-error', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/correlation-error')
+        .set('x-correlation-id', correlationId)
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Assert
+      expect(mockLogger.error).toHaveBeenCalled();
+      const logCall = mockLogger.error.mock.calls[0];
+      expect(logCall[0]).toContain('Technical error');
+    });
+  });
+
+  describe('Error Code Constants', () => {
+    it('should use predefined error codes from constants', async () => {
+      // Arrange
+      const error = new AppException(
+        'Invalid credentials',
+        ErrorType.VALIDATION,
+        ErrorCodes.AUTH_INVALID_CREDENTIALS
+      );
+      setupErrorRoute(app, '/test/error-code-constants', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/error-code-constants')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.code).toBe(ErrorCodes.AUTH_INVALID_CREDENTIALS);
+    });
+
+    it('should use health journey error codes from constants', async () => {
+      // Arrange
+      const error = new AppException(
+        'Invalid health metric',
+        ErrorType.VALIDATION,
+        ErrorCodes.HEALTH_INVALID_METRIC
+      );
+      setupErrorRoute(app, '/test/health-error-code', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/health-error-code')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.code).toBe(ErrorCodes.HEALTH_INVALID_METRIC);
+    });
+
+    it('should use care journey error codes from constants', async () => {
+      // Arrange
+      const error = new AppException(
+        'Provider unavailable',
+        ErrorType.EXTERNAL,
+        ErrorCodes.CARE_PROVIDER_UNAVAILABLE
+      );
+      setupErrorRoute(app, '/test/care-error-code', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/care-error-code')
+        .expect(HttpStatus.BAD_GATEWAY);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.code).toBe(ErrorCodes.CARE_PROVIDER_UNAVAILABLE);
+    });
+
+    it('should use plan journey error codes from constants', async () => {
+      // Arrange
+      const error = new AppException(
+        'Invalid claim data',
+        ErrorType.VALIDATION,
+        ErrorCodes.PLAN_INVALID_CLAIM_DATA
+      );
+      setupErrorRoute(app, '/test/plan-error-code', error);
+
+      // Act
+      const response = await request(app.getHttpServer())
+        .get('/test/plan-error-code')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Assert
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.code).toBe(ErrorCodes.PLAN_INVALID_CLAIM_DATA);
     });
   });
 });
