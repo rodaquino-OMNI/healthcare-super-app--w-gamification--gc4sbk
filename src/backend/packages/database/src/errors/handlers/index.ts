@@ -1,141 +1,200 @@
 /**
- * @file handlers/index.ts
+ * @file index.ts
  * @description Central barrel export file for database error handlers.
  * 
  * This file provides a unified entry point for accessing all specialized error handlers
  * for different database technologies used in the AUSTA SuperApp. It re-exports the
  * PrismaErrorHandler, TimescaleErrorHandler, RedisErrorHandler, and CommonErrorHandler classes,
  * enabling consistent imports across the application.
+ * 
+ * It also exports utility functions for handler selection based on database technology
+ * and error type, simplifying error handling in database operations.
  */
 
-// Export all error handlers
+// ===================================================================
+// Error Handler Classes
+// ===================================================================
+
+/**
+ * Re-export PrismaErrorHandler from prisma-error.handler.ts
+ * Handles Prisma ORM exceptions in PostgreSQL database operations.
+ */
 export { PrismaErrorHandler } from './prisma-error.handler';
+
+/**
+ * Re-export TimescaleErrorHandler from timescale-error.handler.ts
+ * Handles TimescaleDB-specific errors for health metrics and time-series data storage.
+ */
 export { TimescaleErrorHandler } from './timescale-error.handler';
+
+/**
+ * Re-export RedisErrorHandler from redis-error.handler.ts
+ * Handles Redis-specific errors for cache and session storage operations.
+ */
 export { RedisErrorHandler } from './redis-error.handler';
+
+/**
+ * Re-export CommonErrorHandler from common-error.handler.ts
+ * Provides fallback error handling for generic database errors.
+ */
 export { CommonErrorHandler } from './common-error.handler';
 
-/**
- * Type for database error handler factory function.
- * Used to select the appropriate handler based on error type.
- */
-export type ErrorHandlerFactory = (error: unknown) => ErrorHandler;
+// ===================================================================
+// Handler Selection Utilities
+// ===================================================================
 
 /**
- * Interface for database error handlers.
- * All specialized error handlers implement this interface.
+ * Database technology types supported by the error handlers.
+ * Used for selecting the appropriate handler for a given database operation.
  */
-export interface ErrorHandler {
+export enum DatabaseTechnology {
+  PRISMA = 'prisma',
+  TIMESCALE = 'timescale',
+  REDIS = 'redis',
+  GENERIC = 'generic'
+}
+
+/**
+ * Interface for database error handler factory options.
+ * Allows customization of handler behavior during creation.
+ */
+export interface ErrorHandlerOptions {
   /**
-   * Handles a database error by transforming it into a standardized DatabaseException.
-   * 
-   * @param error The original error thrown by the database operation
-   * @param context Additional context about the operation that caused the error
-   * @returns A standardized DatabaseException with enriched context
+   * Whether to enable detailed error logging
    */
-  handleError(error: unknown, context: Record<string, any>): Error;
+  enableDetailedLogging?: boolean;
   
   /**
-   * Determines if this handler can process the given error.
+   * Journey context for error categorization
+   */
+  journeyContext?: string;
+  
+  /**
+   * Custom error transformation options
+   */
+  transformOptions?: Record<string, unknown>;
+}
+
+/**
+ * Factory function to create an appropriate error handler based on database technology.
+ * 
+ * @param technology The database technology to create a handler for
+ * @param options Optional configuration for the handler
+ * @returns An instance of the appropriate error handler
+ */
+export function createErrorHandler(
+  technology: DatabaseTechnology,
+  options?: ErrorHandlerOptions
+) {
+  switch (technology) {
+    case DatabaseTechnology.PRISMA:
+      return new PrismaErrorHandler(options);
+    case DatabaseTechnology.TIMESCALE:
+      return new TimescaleErrorHandler(options);
+    case DatabaseTechnology.REDIS:
+      return new RedisErrorHandler(options);
+    case DatabaseTechnology.GENERIC:
+    default:
+      return new CommonErrorHandler(options);
+  }
+}
+
+/**
+ * Detects the appropriate database technology from an error.
+ * Useful for automatically selecting the right handler for an unknown error.
+ * 
+ * @param error The error to analyze
+ * @returns The detected database technology or GENERIC if unknown
+ */
+export function detectDatabaseTechnology(error: unknown): DatabaseTechnology {
+  if (error instanceof Error) {
+    const errorMessage = error.message.toLowerCase();
+    const errorStack = error.stack?.toLowerCase() || '';
+    
+    // Check for Prisma-specific error patterns
+    if (
+      errorMessage.includes('prisma') ||
+      errorStack.includes('prisma') ||
+      'code' in error && typeof error.code === 'string' && error.code.startsWith('P')
+    ) {
+      return DatabaseTechnology.PRISMA;
+    }
+    
+    // Check for TimescaleDB-specific error patterns
+    if (
+      errorMessage.includes('timescale') ||
+      errorMessage.includes('hypertable') ||
+      errorMessage.includes('chunk') ||
+      errorStack.includes('timescale')
+    ) {
+      return DatabaseTechnology.TIMESCALE;
+    }
+    
+    // Check for Redis-specific error patterns
+    if (
+      errorMessage.includes('redis') ||
+      errorMessage.includes('cache') ||
+      errorStack.includes('redis') ||
+      errorStack.includes('ioredis')
+    ) {
+      return DatabaseTechnology.REDIS;
+    }
+  }
+  
+  // Default to generic handler if no specific technology is detected
+  return DatabaseTechnology.GENERIC;
+}
+
+/**
+ * Gets the appropriate error handler for a given error.
+ * Automatically detects the database technology and creates the right handler.
+ * 
+ * @param error The error to get a handler for
+ * @param options Optional configuration for the handler
+ * @returns An instance of the appropriate error handler
+ */
+export function getErrorHandlerForError(
+  error: unknown,
+  options?: ErrorHandlerOptions
+) {
+  const technology = detectDatabaseTechnology(error);
+  return createErrorHandler(technology, options);
+}
+
+/**
+ * Type guard to check if an object is a valid error handler.
+ * 
+ * @param handler The object to check
+ * @returns True if the object is a valid error handler
+ */
+export function isErrorHandler(handler: unknown): boolean {
+  return (
+    handler instanceof PrismaErrorHandler ||
+    handler instanceof TimescaleErrorHandler ||
+    handler instanceof RedisErrorHandler ||
+    handler instanceof CommonErrorHandler
+  );
+}
+
+/**
+ * Base interface for all database error handlers.
+ * Defines the common methods that all handlers must implement.
+ */
+export interface DatabaseErrorHandler {
+  /**
+   * Handles a database error, transforming it into a standardized DatabaseException.
+   * 
+   * @param error The error to handle
+   * @param context Optional operation context for error enrichment
+   * @returns A standardized DatabaseException
+   */
+  handleError(error: unknown, context?: Record<string, unknown>): Error;
+  
+  /**
+   * Determines if this handler can process a given error.
    * 
    * @param error The error to check
    * @returns True if this handler can process the error
    */
   canHandle(error: unknown): boolean;
-}
-
-/**
- * Factory function to get the appropriate error handler for a given error.
- * 
- * @param error The error to handle
- * @param prismaHandler The Prisma error handler instance
- * @param redisHandler The Redis error handler instance
- * @param timescaleHandler The TimescaleDB error handler instance
- * @param commonHandler The common error handler instance
- * @returns The appropriate error handler for the given error
- */
-export function getErrorHandler(
-  error: unknown,
-  prismaHandler: PrismaErrorHandler,
-  redisHandler: RedisErrorHandler,
-  timescaleHandler: TimescaleErrorHandler,
-  commonHandler: CommonErrorHandler
-): ErrorHandler {
-  if (prismaHandler.canHandle(error)) {
-    return prismaHandler;
-  }
-  
-  if (redisHandler.canHandle(error)) {
-    return redisHandler;
-  }
-  
-  if (timescaleHandler.canHandle(error)) {
-    return timescaleHandler;
-  }
-  
-  // Default to common handler for all other errors
-  return commonHandler;
-}
-
-/**
- * Utility function to determine if an error is from Prisma ORM.
- * 
- * @param error The error to check
- * @returns True if the error is from Prisma
- */
-export function isPrismaError(error: unknown): boolean {
-  return (
-    // Check for Prisma error classes
-    (typeof error === 'object' &&
-     error !== null &&
-     error.constructor?.name?.includes('Prisma')) ||
-    // Check for Prisma error code pattern
-    (typeof error === 'object' &&
-     error !== null &&
-     'code' in error &&
-     typeof (error as any).code === 'string' &&
-     /^P\d{4}$/.test((error as any).code))
-  );
-}
-
-/**
- * Utility function to determine if an error is from Redis.
- * 
- * @param error The error to check
- * @returns True if the error is from Redis
- */
-export function isRedisError(error: unknown): boolean {
-  return (
-    // Check for Redis error classes
-    (typeof error === 'object' &&
-     error !== null &&
-     (error.constructor?.name?.includes('Redis') ||
-      (error as any)?.name?.includes('Redis'))) ||
-    // Check for Redis error message patterns
-    (error instanceof Error &&
-     (error.message.includes('ECONNREFUSED') ||
-      error.message.includes('Redis connection') ||
-      error.message.includes('Redis command')))
-  );
-}
-
-/**
- * Utility function to determine if an error is from TimescaleDB.
- * 
- * @param error The error to check
- * @returns True if the error is from TimescaleDB
- */
-export function isTimescaleError(error: unknown): boolean {
-  return (
-    // Check for TimescaleDB error message patterns
-    (error instanceof Error &&
-     (error.message.includes('timescale') ||
-      error.message.includes('hypertable') ||
-      error.message.includes('chunk'))) ||
-    // Check for TimescaleDB error code pattern
-    (typeof error === 'object' &&
-     error !== null &&
-     'code' in error &&
-     typeof (error as any).code === 'string' &&
-     /^TS\d{3}$/.test((error as any).code))
-  );
 }
