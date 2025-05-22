@@ -1,10 +1,10 @@
 /**
- * Types for event versioning system that complement the interfaces defined in the interfaces folder.
- * Provides utility types for version manipulation, migration path definitions, transformation options,
- * and version comparison to ensure strong typing throughout the versioning module.
+ * @file types.ts
+ * @description TypeScript types for event versioning that complement the interfaces defined in the interfaces folder.
+ * Includes utility types for version manipulation, migration path definitions, transformation options, and version comparison.
  */
 
-import { IVersionedEvent, EventVersion, EventVersioningStrategy } from '../interfaces/event-versioning.interface';
+import { IVersionedEvent } from '../interfaces';
 
 /**
  * Represents a parsed semantic version with major, minor, and patch components.
@@ -16,161 +16,202 @@ export type ParsedVersion = {
 };
 
 /**
- * Defines a range of versions from minimum to maximum (inclusive).
+ * Defines a version range with minimum and maximum versions.
  */
 export type VersionRange = {
-  min: EventVersion;
-  max: EventVersion;
+  min: string;
+  max: string;
 };
 
 /**
- * Represents the result of a version comparison operation.
+ * Represents a version compatibility result.
  */
-export type VersionComparisonResult = {
+export type VersionCompatibilityResult = {
   compatible: boolean;
   reason?: string;
-  details?: {
-    isNewer: boolean;
-    isSameMajor: boolean;
-    breakingChange: boolean;
-  };
+  breakingChanges?: string[];
 };
+
+/**
+ * Defines the direction of version transformation.
+ */
+export enum TransformDirection {
+  UPGRADE = 'upgrade',   // Transform from older to newer version
+  DOWNGRADE = 'downgrade' // Transform from newer to older version
+}
+
+/**
+ * Options for event transformation between versions.
+ */
+export type TransformOptions = {
+  direction: TransformDirection;
+  validateResult?: boolean;
+  strict?: boolean;
+};
+
+/**
+ * Function signature for event transformers that convert events between versions.
+ */
+export type EventTransformer<T extends IVersionedEvent = IVersionedEvent> = (
+  event: T,
+  options?: TransformOptions
+) => T;
 
 /**
  * Defines a migration path between two specific versions.
  */
 export type MigrationPath = {
-  sourceVersion: EventVersion;
-  targetVersion: EventVersion;
-  migrationFn: MigrationFunction;
+  sourceVersion: string;
+  targetVersion: string;
+  transformer: EventTransformer;
 };
 
 /**
- * Function signature for migrating an event from one version to another.
+ * Configuration for the migration registry.
  */
-export type MigrationFunction = <T extends IVersionedEvent>(event: T) => T;
-
-/**
- * Options for event transformation operations.
- */
-export type TransformationOptions = {
-  /** Whether to validate the transformed event against the target schema */
-  validate?: boolean;
-  /** Whether to throw an error if validation fails (otherwise returns null) */
-  throwOnError?: boolean;
-  /** Custom transformation context data */
-  context?: Record<string, unknown>;
-  /** Whether to preserve the original event's metadata */
-  preserveMetadata?: boolean;
+export type MigrationRegistryConfig = {
+  strict?: boolean;
+  validateResults?: boolean;
+  allowDowngrade?: boolean;
 };
 
 /**
- * Result of a transformation operation.
+ * Result of a migration operation.
  */
-export type TransformationResult<T extends IVersionedEvent> = {
+export type MigrationResult<T extends IVersionedEvent = IVersionedEvent> = {
   success: boolean;
-  transformed?: T;
+  event?: T;
   error?: Error;
-  warnings?: string[];
+  migrationPath?: string[];
 };
 
 /**
- * Discriminated union for different version detection strategies.
+ * Base interface for version detection strategies.
  */
-export type VersionDetectionStrategy =
-  | {
-      type: 'explicit';
-      field: string;
-    }
-  | {
-      type: 'header';
-      headerName: string;
-    }
-  | {
-      type: 'structure';
-      versionMap: Record<string, EventVersion>;
-      structureChecks: Array<(payload: unknown) => boolean>;
-    }
-  | {
-      type: 'fallback';
-      defaultVersion: EventVersion;
-    };
+export interface VersionDetectionStrategy {
+  type: string;
+  detect(event: unknown): string | null;
+}
 
 /**
- * Configuration options for version detection.
+ * Strategy for detecting version from an explicit version field.
  */
-export type VersionDetectionOptions = {
-  strategies: VersionDetectionStrategy[];
-  throwOnFailure?: boolean;
-  defaultVersion?: EventVersion;
+export interface ExplicitVersionStrategy extends VersionDetectionStrategy {
+  type: 'explicit';
+  field: string;
+}
+
+/**
+ * Strategy for detecting version from event structure.
+ */
+export interface StructureBasedStrategy extends VersionDetectionStrategy {
+  type: 'structure';
+  versionMap: Record<string, (event: unknown) => boolean>;
+}
+
+/**
+ * Strategy for detecting version from headers or metadata.
+ */
+export interface HeaderBasedStrategy extends VersionDetectionStrategy {
+  type: 'header';
+  headerField: string;
+}
+
+/**
+ * Strategy for detecting version using a custom function.
+ */
+export interface CustomStrategy extends VersionDetectionStrategy {
+  type: 'custom';
+  detector: (event: unknown) => string | null;
+}
+
+/**
+ * Union type of all version detection strategies.
+ */
+export type VersionDetectionStrategyType =
+  | ExplicitVersionStrategy
+  | StructureBasedStrategy
+  | HeaderBasedStrategy
+  | CustomStrategy;
+
+/**
+ * Configuration for the version detector.
+ */
+export type VersionDetectorConfig = {
+  strategies: VersionDetectionStrategyType[];
+  defaultVersion?: string;
+  throwOnUndetected?: boolean;
 };
 
 /**
  * Result of a version detection operation.
  */
 export type VersionDetectionResult = {
-  success: boolean;
-  version?: EventVersion;
+  detected: boolean;
+  version: string | null;
   strategy?: string;
-  error?: Error;
+  confidence?: number;
 };
 
 /**
- * Defines a schema version mapping for a specific event type.
+ * Configuration for the compatibility checker.
  */
-export type EventSchemaVersionMap = {
-  eventType: string;
-  versions: Record<EventVersion, unknown>;
-  latestVersion: EventVersion;
+export type CompatibilityCheckerConfig = {
+  strict?: boolean;
+  allowMajorUpgrade?: boolean;
+  allowDowngrade?: boolean;
 };
 
 /**
- * Options for schema-based migration.
+ * Represents a schema difference between two versions.
  */
-export type SchemaMigrationOptions = {
-  /** Whether to validate against the target schema after migration */
-  validateResult?: boolean;
-  /** Whether to use automatic field mapping for compatible fields */
-  useAutoMapping?: boolean;
-  /** Custom field mappings for specific version transitions */
-  fieldMappings?: Record<string, string>;
-  /** Fields to exclude from automatic mapping */
-  excludeFields?: string[];
+export type SchemaDifference = {
+  path: string;
+  type: 'added' | 'removed' | 'modified' | 'type_changed';
+  sourceType?: string;
+  targetType?: string;
+  breaking: boolean;
+};
+
+/**
+ * Result of a schema comparison operation.
+ */
+export type SchemaComparisonResult = {
+  compatible: boolean;
+  differences: SchemaDifference[];
+  breakingChanges: SchemaDifference[];
 };
 
 /**
  * Type guard to check if an object is a versioned event.
  */
 export function isVersionedEvent(obj: unknown): obj is IVersionedEvent {
-  if (!obj || typeof obj !== 'object') return false;
-  
-  const event = obj as Partial<IVersionedEvent>;
   return (
-    typeof event.version === 'string' &&
-    typeof event.eventId === 'string' &&
-    typeof event.type === 'string' &&
-    event.payload !== undefined
+    typeof obj === 'object' &&
+    obj !== null &&
+    'version' in obj &&
+    typeof (obj as IVersionedEvent).version === 'string'
   );
 }
 
 /**
- * Type guard to check if a string is a valid semantic version.
+ * Type for a function that validates an event against a schema.
  */
-export function isValidVersion(version: string): version is EventVersion {
-  // Simple semver validation regex (major.minor.patch)
-  const semverRegex = /^(\d+)\.(\d+)\.(\d+)$/;
-  return semverRegex.test(version);
-}
+export type SchemaValidator = (event: unknown, version: string) => boolean;
 
 /**
- * Type for a function that determines if two versions are compatible.
+ * Configuration for schema validation.
  */
-export type VersionCompatibilityChecker = (
-  sourceVersion: EventVersion,
-  targetVersion: EventVersion
-) => VersionComparisonResult;
+export type SchemaValidationConfig = {
+  strict?: boolean;
+  throwOnInvalid?: boolean;
+};
 
 /**
- * Type for a function that parses a version string into its components.
+ * Result of a schema validation operation.
  */
-export type VersionParser = (version: EventVersion) => ParsedVersion;
+export type SchemaValidationResult = {
+  valid: boolean;
+  errors?: string[];
+  version: string;
+};
