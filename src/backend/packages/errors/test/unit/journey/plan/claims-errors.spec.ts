@@ -1,4 +1,5 @@
-import { BaseError } from '../../../../src/base';
+import { HttpStatus } from '@nestjs/common';
+import { BaseError, ErrorType } from '../../../../src/base';
 import {
   ClaimNotFoundError,
   DuplicateClaimError,
@@ -6,338 +7,643 @@ import {
   ClaimDeniedError,
   ClaimPersistenceError,
   ClaimProcessingApiError,
-  ClaimDocumentError
+  ClaimDocumentError,
+  InvalidClaimStatusTransitionError,
+  ClaimAdditionalInfoRequiredError
 } from '../../../../src/journey/plan/claims-errors';
-import { ErrorType } from '../../../../src/types';
 
 describe('Plan Journey Claim Errors', () => {
   describe('ClaimNotFoundError', () => {
+    const claimId = 'claim-123';
+    const details = { userId: 'user-456' };
+    const cause = new Error('Original error');
+    let error: ClaimNotFoundError;
+
+    beforeEach(() => {
+      error = new ClaimNotFoundError(claimId, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new ClaimNotFoundError('CLAIM123');
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new ClaimNotFoundError('CLAIM123');
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include claim ID in error message', () => {
-      const claimId = 'CLAIM123';
-      const error = new ClaimNotFoundError(claimId);
-      expect(error.message).toContain(claimId);
+    it('should have the correct error code', () => {
+      expect(error.code).toBe('PLAN_CLAIMS_001');
     });
 
-    it('should map to 404 HTTP status code', () => {
-      const error = new ClaimNotFoundError('CLAIM123');
-      expect(error.statusCode).toBe(404);
+    it('should format the error message correctly', () => {
+      expect(error.message).toBe(`Claim with ID ${claimId} not found`);
     });
 
-    it('should serialize with claim context', () => {
-      const claimId = 'CLAIM123';
-      const error = new ClaimNotFoundError(claimId);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('message');
-      expect(serialized).toHaveProperty('code');
-      expect(serialized).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
+    it('should store the claimId', () => {
+      expect(error.claimId).toBe(claimId);
+    });
+
+    it('should store the details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should store the cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_001',
+          message: `Claim with ID ${claimId} not found`,
+          details: details,
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('DuplicateClaimError', () => {
+    const claimId = 'claim-123';
+    const originalClaimId = 'claim-456';
+    const details = { userId: 'user-789' };
+    const cause = new Error('Original error');
+    
     it('should extend BaseError', () => {
-      const error = new DuplicateClaimError('CLAIM123', 'CLAIM456');
+      const error = new DuplicateClaimError(claimId);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new DuplicateClaimError('CLAIM123', 'CLAIM456');
+    it('should have the correct error type', () => {
+      const error = new DuplicateClaimError(claimId);
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include both claim IDs in error message', () => {
-      const newClaimId = 'CLAIM123';
-      const existingClaimId = 'CLAIM456';
-      const error = new DuplicateClaimError(newClaimId, existingClaimId);
-      expect(error.message).toContain(newClaimId);
-      expect(error.message).toContain(existingClaimId);
+    it('should have the correct error code', () => {
+      const error = new DuplicateClaimError(claimId);
+      expect(error.code).toBe('PLAN_CLAIMS_002');
     });
 
-    it('should map to 409 HTTP status code', () => {
-      const error = new DuplicateClaimError('CLAIM123', 'CLAIM456');
-      expect(error.statusCode).toBe(409);
+    it('should format the error message correctly without originalClaimId', () => {
+      const error = new DuplicateClaimError(claimId);
+      expect(error.message).toBe(`Duplicate claim detected for claim ${claimId}`);
     });
 
-    it('should serialize with both claim IDs in context', () => {
-      const newClaimId = 'CLAIM123';
-      const existingClaimId = 'CLAIM456';
-      const error = new DuplicateClaimError(newClaimId, existingClaimId);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('newClaimId', newClaimId);
-      expect(serialized.context).toHaveProperty('existingClaimId', existingClaimId);
+    it('should format the error message correctly with originalClaimId', () => {
+      const error = new DuplicateClaimError(claimId, originalClaimId);
+      expect(error.message).toBe(
+        `Duplicate claim detected. Claim ${claimId} is a duplicate of existing claim ${originalClaimId}`
+      );
+    });
+
+    it('should store the claimId and originalClaimId', () => {
+      const error = new DuplicateClaimError(claimId, originalClaimId, details, cause);
+      expect(error.claimId).toBe(claimId);
+      expect(error.originalClaimId).toBe(originalClaimId);
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const error = new DuplicateClaimError(claimId);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const error = new DuplicateClaimError(claimId, originalClaimId, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_002',
+          message: `Duplicate claim detected. Claim ${claimId} is a duplicate of existing claim ${originalClaimId}`,
+          details: details,
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ClaimValidationError', () => {
+    const message = 'Invalid claim data';
+    const validationErrors = {
+      serviceDate: 'Service date is required',
+      providerId: 'Provider ID is invalid'
+    };
+    const details = { submissionId: 'sub-123' };
+    const cause = new Error('Original error');
+    let error: ClaimValidationError;
+
+    beforeEach(() => {
+      error = new ClaimValidationError(message, validationErrors, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new ClaimValidationError('CLAIM123', { field: 'serviceDate', message: 'Invalid date format' });
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have VALIDATION error type', () => {
-      const error = new ClaimValidationError('CLAIM123', { field: 'serviceDate', message: 'Invalid date format' });
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.VALIDATION);
     });
 
-    it('should include validation details in error message', () => {
-      const claimId = 'CLAIM123';
-      const validationErrors = { field: 'serviceDate', message: 'Invalid date format' };
-      const error = new ClaimValidationError(claimId, validationErrors);
-      expect(error.message).toContain(claimId);
-      expect(error.message).toContain('validation');
+    it('should have the correct error code', () => {
+      expect(error.code).toBe('PLAN_CLAIMS_003');
     });
 
-    it('should map to 400 HTTP status code', () => {
-      const error = new ClaimValidationError('CLAIM123', { field: 'serviceDate', message: 'Invalid date format' });
-      expect(error.statusCode).toBe(400);
+    it('should use the provided message', () => {
+      expect(error.message).toBe(message);
     });
 
-    it('should serialize with validation errors in context', () => {
-      const claimId = 'CLAIM123';
-      const validationErrors = { field: 'serviceDate', message: 'Invalid date format' };
-      const error = new ClaimValidationError(claimId, validationErrors);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
-      expect(serialized.context).toHaveProperty('validationErrors', validationErrors);
+    it('should store the validation errors', () => {
+      expect(error.validationErrors).toEqual(validationErrors);
     });
 
-    it('should handle multiple validation errors', () => {
-      const claimId = 'CLAIM123';
-      const validationErrors = [
-        { field: 'serviceDate', message: 'Invalid date format' },
-        { field: 'amount', message: 'Amount must be positive' }
-      ];
-      const error = new ClaimValidationError(claimId, validationErrors);
-      const serialized = error.serialize();
-      
-      expect(serialized.context.validationErrors).toHaveLength(2);
-      expect(serialized.context.validationErrors[0]).toHaveProperty('field', 'serviceDate');
-      expect(serialized.context.validationErrors[1]).toHaveProperty('field', 'amount');
+    it('should include validation errors in details', () => {
+      expect(error.details).toEqual({
+        validationErrors,
+        ...details
+      });
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.VALIDATION,
+          code: 'PLAN_CLAIMS_003',
+          message: message,
+          details: {
+            validationErrors,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ClaimDeniedError', () => {
+    const claimId = 'claim-123';
+    const reason = 'Service not covered by plan';
+    const denialCode = 'INS-456';
+    const details = { planId: 'plan-789' };
+    const cause = new Error('Original error');
+    
     it('should extend BaseError', () => {
-      const error = new ClaimDeniedError('CLAIM123', 'Service not covered');
+      const error = new ClaimDeniedError(claimId, reason);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new ClaimDeniedError('CLAIM123', 'Service not covered');
+    it('should have the correct error type', () => {
+      const error = new ClaimDeniedError(claimId, reason);
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include denial reason in error message', () => {
-      const claimId = 'CLAIM123';
-      const reason = 'Service not covered';
+    it('should have the correct error code', () => {
       const error = new ClaimDeniedError(claimId, reason);
-      expect(error.message).toContain(claimId);
-      expect(error.message).toContain(reason);
+      expect(error.code).toBe('PLAN_CLAIMS_004');
     });
 
-    it('should map to 422 HTTP status code', () => {
-      const error = new ClaimDeniedError('CLAIM123', 'Service not covered');
-      expect(error.statusCode).toBe(422);
-    });
-
-    it('should serialize with denial reason in context', () => {
-      const claimId = 'CLAIM123';
-      const reason = 'Service not covered';
+    it('should format the error message correctly without denialCode', () => {
       const error = new ClaimDeniedError(claimId, reason);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
-      expect(serialized.context).toHaveProperty('denialReason', reason);
+      expect(error.message).toBe(`Claim ${claimId} was denied: ${reason}`);
     });
 
-    it('should handle additional denial details', () => {
-      const claimId = 'CLAIM123';
-      const reason = 'Service not covered';
-      const details = { policyReference: 'POL-123', appealDeadline: '2023-12-31' };
-      const error = new ClaimDeniedError(claimId, reason, details);
-      const serialized = error.serialize();
-      
-      expect(serialized.context).toHaveProperty('denialDetails');
-      expect(serialized.context.denialDetails).toHaveProperty('policyReference', 'POL-123');
-      expect(serialized.context.denialDetails).toHaveProperty('appealDeadline', '2023-12-31');
+    it('should format the error message correctly with denialCode', () => {
+      const error = new ClaimDeniedError(claimId, reason, denialCode);
+      expect(error.message).toBe(`Claim ${claimId} was denied: ${reason} (Code: ${denialCode})`);
+    });
+
+    it('should store all properties', () => {
+      const error = new ClaimDeniedError(claimId, reason, denialCode, details, cause);
+      expect(error.claimId).toBe(claimId);
+      expect(error.reason).toBe(reason);
+      expect(error.denialCode).toBe(denialCode);
+      expect(error.details).toEqual({
+        reason,
+        denialCode,
+        ...details
+      });
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const error = new ClaimDeniedError(claimId, reason);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const error = new ClaimDeniedError(claimId, reason, denialCode, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_004',
+          message: `Claim ${claimId} was denied: ${reason} (Code: ${denialCode})`,
+          details: {
+            reason,
+            denialCode,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ClaimPersistenceError', () => {
+    const message = 'Failed to save claim';
+    const operation = 'create';
+    const details = { claimId: 'claim-123' };
+    const cause = new Error('Database error');
+    let error: ClaimPersistenceError;
+
+    beforeEach(() => {
+      error = new ClaimPersistenceError(message, operation, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new ClaimPersistenceError('CLAIM123', 'Database connection failed');
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have TECHNICAL error type', () => {
-      const error = new ClaimPersistenceError('CLAIM123', 'Database connection failed');
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
     });
 
-    it('should include technical error details in message', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'Database connection failed';
-      const error = new ClaimPersistenceError(claimId, errorMessage);
-      expect(error.message).toContain(claimId);
-      expect(error.message).toContain(errorMessage);
+    it('should have the correct error code', () => {
+      expect(error.code).toBe('PLAN_CLAIMS_005');
     });
 
-    it('should map to 500 HTTP status code', () => {
-      const error = new ClaimPersistenceError('CLAIM123', 'Database connection failed');
-      expect(error.statusCode).toBe(500);
+    it('should use the provided message', () => {
+      expect(error.message).toBe(message);
     });
 
-    it('should serialize with technical error details in context', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'Database connection failed';
-      const error = new ClaimPersistenceError(claimId, errorMessage);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
-      expect(serialized.context).toHaveProperty('technicalError', errorMessage);
+    it('should store the operation', () => {
+      expect(error.operation).toBe(operation);
     });
 
-    it('should include original error when provided', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'Database connection failed';
-      const originalError = new Error('Connection timeout');
-      const error = new ClaimPersistenceError(claimId, errorMessage, originalError);
-      
-      expect(error.cause).toBe(originalError);
-      
-      const serialized = error.serialize();
-      expect(serialized.context).toHaveProperty('originalError');
-      expect(serialized.context.originalError).toContain('Connection timeout');
+    it('should include operation in details', () => {
+      expect(error.details).toEqual({
+        operation,
+        ...details
+      });
+    });
+
+    it('should store the cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.TECHNICAL,
+          code: 'PLAN_CLAIMS_005',
+          message: message,
+          details: {
+            operation,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ClaimProcessingApiError', () => {
+    const message = 'Failed to submit claim to insurance provider';
+    const apiName = 'InsuranceAPI';
+    const statusCode = 503;
+    const isRetryable = true;
+    const details = { claimId: 'claim-123' };
+    const cause = new Error('API error');
+    
     it('should extend BaseError', () => {
-      const error = new ClaimProcessingApiError('CLAIM123', 'External API failure');
+      const error = new ClaimProcessingApiError(message, apiName);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have EXTERNAL error type', () => {
-      const error = new ClaimProcessingApiError('CLAIM123', 'External API failure');
+    it('should have the correct error type', () => {
+      const error = new ClaimProcessingApiError(message, apiName);
       expect(error.type).toBe(ErrorType.EXTERNAL);
     });
 
-    it('should include API error details in message', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'External API failure';
-      const error = new ClaimProcessingApiError(claimId, errorMessage);
-      expect(error.message).toContain(claimId);
-      expect(error.message).toContain(errorMessage);
+    it('should have the correct error code', () => {
+      const error = new ClaimProcessingApiError(message, apiName);
+      expect(error.code).toBe('PLAN_CLAIMS_006');
     });
 
-    it('should map to 502 HTTP status code', () => {
-      const error = new ClaimProcessingApiError('CLAIM123', 'External API failure');
-      expect(error.statusCode).toBe(502);
+    it('should format the error message correctly without statusCode', () => {
+      const error = new ClaimProcessingApiError(message, apiName);
+      expect(error.message).toBe(`External claims processing API error (${apiName}): ${message}`);
     });
 
-    it('should serialize with API error details in context', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'External API failure';
-      const error = new ClaimProcessingApiError(claimId, errorMessage);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
-      expect(serialized.context).toHaveProperty('apiError', errorMessage);
+    it('should format the error message correctly with statusCode', () => {
+      const error = new ClaimProcessingApiError(message, apiName, statusCode);
+      expect(error.message).toBe(
+        `External claims processing API error (${apiName}): ${message} (Status: ${statusCode})`
+      );
     });
 
-    it('should include API response details when provided', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'External API failure';
-      const apiResponse = { status: 429, data: { error: 'Rate limit exceeded' } };
-      const error = new ClaimProcessingApiError(claimId, errorMessage, apiResponse);
-      const serialized = error.serialize();
-      
-      expect(serialized.context).toHaveProperty('apiResponse');
-      expect(serialized.context.apiResponse).toHaveProperty('status', 429);
-      expect(serialized.context.apiResponse.data).toHaveProperty('error', 'Rate limit exceeded');
+    it('should store all properties', () => {
+      const error = new ClaimProcessingApiError(message, apiName, statusCode, isRetryable, details, cause);
+      expect(error.apiName).toBe(apiName);
+      expect(error.statusCode).toBe(statusCode);
+      expect(error.isRetryable).toBe(isRetryable);
+      expect(error.details).toEqual({
+        apiName,
+        statusCode,
+        isRetryable,
+        ...details
+      });
+      expect(error.cause).toBe(cause);
     });
 
-    it('should support retry information', () => {
-      const claimId = 'CLAIM123';
-      const errorMessage = 'External API failure';
-      const apiResponse = { status: 429, headers: { 'retry-after': '60' } };
-      const error = new ClaimProcessingApiError(claimId, errorMessage, apiResponse);
-      const serialized = error.serialize();
-      
-      expect(serialized.context).toHaveProperty('retryAfter', 60);
+    it('should default isRetryable to false', () => {
+      const error = new ClaimProcessingApiError(message, apiName);
+      expect(error.isRetryable).toBe(false);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const error = new ClaimProcessingApiError(message, apiName);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const error = new ClaimProcessingApiError(message, apiName, statusCode, isRetryable, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.EXTERNAL,
+          code: 'PLAN_CLAIMS_006',
+          message: `External claims processing API error (${apiName}): ${message} (Status: ${statusCode})`,
+          details: {
+            apiName,
+            statusCode,
+            isRetryable,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ClaimDocumentError', () => {
+    const message = 'Invalid document format';
+    const documentType = 'receipt';
+    const details = { fileType: 'image/bmp' };
+    const cause = new Error('Format error');
+    
     it('should extend BaseError', () => {
-      const error = new ClaimDocumentError('CLAIM123', 'DOC456', 'Invalid document format');
+      const error = new ClaimDocumentError(message, documentType);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have VALIDATION error type', () => {
-      const error = new ClaimDocumentError('CLAIM123', 'DOC456', 'Invalid document format');
+    it('should default to VALIDATION error type', () => {
+      const error = new ClaimDocumentError(message, documentType);
       expect(error.type).toBe(ErrorType.VALIDATION);
+      expect(error.code).toBe('PLAN_CLAIMS_007');
     });
 
-    it('should include document error details in message', () => {
-      const claimId = 'CLAIM123';
-      const documentId = 'DOC456';
-      const errorMessage = 'Invalid document format';
-      const error = new ClaimDocumentError(claimId, documentId, errorMessage);
-      expect(error.message).toContain(claimId);
-      expect(error.message).toContain(documentId);
-      expect(error.message).toContain(errorMessage);
+    it('should support TECHNICAL error type', () => {
+      const error = new ClaimDocumentError(message, documentType, ErrorType.TECHNICAL);
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('PLAN_CLAIMS_008');
     });
 
-    it('should map to 400 HTTP status code', () => {
-      const error = new ClaimDocumentError('CLAIM123', 'DOC456', 'Invalid document format');
-      expect(error.statusCode).toBe(400);
+    it('should format the error message correctly', () => {
+      const error = new ClaimDocumentError(message, documentType);
+      expect(error.message).toBe(`Claim document error (${documentType}): ${message}`);
     });
 
-    it('should serialize with document error details in context', () => {
-      const claimId = 'CLAIM123';
-      const documentId = 'DOC456';
-      const errorMessage = 'Invalid document format';
-      const error = new ClaimDocumentError(claimId, documentId, errorMessage);
-      const serialized = error.serialize();
-      
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('claimId', claimId);
-      expect(serialized.context).toHaveProperty('documentId', documentId);
-      expect(serialized.context).toHaveProperty('documentError', errorMessage);
+    it('should store all properties', () => {
+      const error = new ClaimDocumentError(message, documentType, ErrorType.VALIDATION, details, cause);
+      expect(error.documentType).toBe(documentType);
+      expect(error.errorType).toBe(ErrorType.VALIDATION);
+      expect(error.details).toEqual({
+        documentType,
+        ...details
+      });
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include document requirements when provided', () => {
-      const claimId = 'CLAIM123';
-      const documentId = 'DOC456';
-      const errorMessage = 'Invalid document format';
-      const requirements = { allowedFormats: ['PDF', 'JPG'], maxSizeKb: 5000 };
-      const error = new ClaimDocumentError(claimId, documentId, errorMessage, requirements);
-      const serialized = error.serialize();
-      
-      expect(serialized.context).toHaveProperty('documentRequirements');
-      expect(serialized.context.documentRequirements).toHaveProperty('allowedFormats');
-      expect(serialized.context.documentRequirements.allowedFormats).toContain('PDF');
-      expect(serialized.context.documentRequirements).toHaveProperty('maxSizeKb', 5000);
+    it('should return the correct HTTP status code for VALIDATION type', () => {
+      const error = new ClaimDocumentError(message, documentType, ErrorType.VALIDATION);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    });
+
+    it('should return the correct HTTP status code for TECHNICAL type', () => {
+      const error = new ClaimDocumentError(message, documentType, ErrorType.TECHNICAL);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const error = new ClaimDocumentError(message, documentType, ErrorType.VALIDATION, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.VALIDATION,
+          code: 'PLAN_CLAIMS_007',
+          message: `Claim document error (${documentType}): ${message}`,
+          details: {
+            documentType,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+  });
+
+  describe('InvalidClaimStatusTransitionError', () => {
+    const claimId = 'claim-123';
+    const currentStatus = 'SUBMITTED';
+    const attemptedStatus = 'PAID';
+    const details = { allowedTransitions: ['PROCESSING', 'DENIED'] };
+    const cause = new Error('Workflow error');
+    let error: InvalidClaimStatusTransitionError;
+
+    beforeEach(() => {
+      error = new InvalidClaimStatusTransitionError(claimId, currentStatus, attemptedStatus, details, cause);
+    });
+
+    it('should extend BaseError', () => {
+      expect(error).toBeInstanceOf(BaseError);
+    });
+
+    it('should have the correct error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+
+    it('should have the correct error code', () => {
+      expect(error.code).toBe('PLAN_CLAIMS_009');
+    });
+
+    it('should format the error message correctly', () => {
+      expect(error.message).toBe(
+        `Invalid claim status transition for claim ${claimId}: Cannot change from '${currentStatus}' to '${attemptedStatus}'`
+      );
+    });
+
+    it('should store all properties', () => {
+      expect(error.claimId).toBe(claimId);
+      expect(error.currentStatus).toBe(currentStatus);
+      expect(error.attemptedStatus).toBe(attemptedStatus);
+      expect(error.details).toEqual({
+        currentStatus,
+        attemptedStatus,
+        ...details
+      });
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_009',
+          message: `Invalid claim status transition for claim ${claimId}: Cannot change from '${currentStatus}' to '${attemptedStatus}'`,
+          details: {
+            currentStatus,
+            attemptedStatus,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+  });
+
+  describe('ClaimAdditionalInfoRequiredError', () => {
+    const claimId = 'claim-123';
+    const requiredFields = ['diagnosis', 'treatmentNotes'];
+    const customMessage = 'Please provide additional medical information';
+    const details = { urgency: 'high' };
+    const cause = new Error('Validation error');
+    
+    it('should extend BaseError', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields);
+      expect(error).toBeInstanceOf(BaseError);
+    });
+
+    it('should have the correct error type', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields);
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+
+    it('should have the correct error code', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields);
+      expect(error.code).toBe('PLAN_CLAIMS_010');
+    });
+
+    it('should generate a default error message if none provided', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields);
+      expect(error.message).toBe(`Claim ${claimId} requires additional information: ${requiredFields.join(', ')}`);
+    });
+
+    it('should use the custom message if provided', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields, customMessage);
+      expect(error.message).toBe(customMessage);
+    });
+
+    it('should store all properties', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields, customMessage, details, cause);
+      expect(error.claimId).toBe(claimId);
+      expect(error.requiredFields).toEqual(requiredFields);
+      expect(error.details).toEqual({
+        requiredFields,
+        ...details
+      });
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should return the correct HTTP status code', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields);
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should serialize to JSON correctly with default message', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields, undefined, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_010',
+          message: `Claim ${claimId} requires additional information: ${requiredFields.join(', ')}`,
+          details: {
+            requiredFields,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should serialize to JSON correctly with custom message', () => {
+      const error = new ClaimAdditionalInfoRequiredError(claimId, requiredFields, customMessage, details);
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: 'PLAN_CLAIMS_010',
+          message: customMessage,
+          details: {
+            requiredFields,
+            ...details
+          },
+          journey: undefined,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
     });
   });
 });
