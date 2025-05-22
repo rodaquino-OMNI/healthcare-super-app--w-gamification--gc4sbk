@@ -1,883 +1,1304 @@
-import { ERROR_CODES, ERROR_MESSAGES } from '../../src/constants/errors.constants';
+/**
+ * @file mock-error-handler.ts
+ * @description Implements a configurable error handling framework for testing error scenarios in event processing.
+ * This mock allows tests to simulate various error conditions, retry policies, and recovery mechanisms
+ * without triggering actual failures. It provides fine-grained control over error types, frequencies,
+ * and behaviors, making it ideal for testing resilience and recovery logic.
+ */
+
+import { EventErrorCategory, EventException, EventProcessingStage } from '../../src/errors/event-errors';
+import { IEventHandler, EventHandlerContext, EventHandlerOptions } from '../../src/interfaces/event-handler.interface';
+import { IEventResponse, createSuccessResponse, createErrorResponse } from '../../src/interfaces/event-response.interface';
+import { ValidationResult } from '../../src/interfaces/event-validation.interface';
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
 
 /**
- * Error severity levels for categorizing errors in testing scenarios.
+ * Error simulation mode for the mock error handler
  */
-export enum ErrorSeverity {
-  LOW = 'low',       // Non-critical errors that shouldn't affect processing
-  MEDIUM = 'medium', // Errors that may require retry but should eventually succeed
-  HIGH = 'high',     // Critical errors that should trigger immediate failure
-  FATAL = 'fatal',   // Catastrophic errors that should bypass retry and go to DLQ
+export enum ErrorSimulationMode {
+  /**
+   * Never produce errors, always succeed
+   */
+  NEVER = 'never',
+  
+  /**
+   * Always produce errors, always fail
+   */
+  ALWAYS = 'always',
+  
+  /**
+   * Produce errors based on a percentage chance
+   */
+  PERCENTAGE = 'percentage',
+  
+  /**
+   * Produce errors on specific event IDs or types
+   */
+  SELECTIVE = 'selective',
+  
+  /**
+   * Produce errors on specific retry attempts
+   */
+  RETRY_COUNT = 'retry_count',
+  
+  /**
+   * Produce errors based on a pattern (e.g., every Nth event)
+   */
+  PATTERN = 'pattern',
+  
+  /**
+   * Transition between success and failure states
+   */
+  TRANSITION = 'transition'
 }
 
 /**
- * Error sources for categorizing where errors originate in the event processing pipeline.
+ * Retry strategy types for the mock error handler
  */
-export enum ErrorSource {
-  PRODUCER = 'producer',       // Errors from the event producer
-  CONSUMER = 'consumer',       // Errors from the event consumer
-  SERIALIZATION = 'serialization', // Errors during message serialization/deserialization
-  VALIDATION = 'validation',   // Errors during schema validation
-  PROCESSING = 'processing',   // Errors during event processing logic
-  EXTERNAL = 'external',       // Errors from external dependencies
-  NETWORK = 'network',         // Network-related errors
-  DATABASE = 'database',       // Database-related errors
+export enum RetryStrategyType {
+  /**
+   * Fixed delay between retry attempts
+   */
+  FIXED = 'fixed',
+  
+  /**
+   * Exponential backoff with optional jitter
+   */
+  EXPONENTIAL = 'exponential',
+  
+  /**
+   * Linear backoff (increases by a fixed amount each retry)
+   */
+  LINEAR = 'linear',
+  
+  /**
+   * Custom retry strategy defined by a function
+   */
+  CUSTOM = 'custom'
 }
 
 /**
- * Retry policy types for configuring how errors are retried in tests.
+ * Configuration for the retry strategy
  */
-export enum RetryPolicyType {
-  NONE = 'none',               // No retries
-  CONSTANT = 'constant',       // Constant interval between retries
-  EXPONENTIAL = 'exponential', // Exponential backoff between retries
-  LINEAR = 'linear',           // Linear increase in delay between retries
-  CUSTOM = 'custom',           // Custom retry logic
+export interface RetryStrategyConfig {
+  /**
+   * Type of retry strategy to use
+   */
+  type: RetryStrategyType;
+  
+  /**
+   * Base delay in milliseconds
+   */
+  baseDelayMs: number;
+  
+  /**
+   * Maximum delay in milliseconds
+   */
+  maxDelayMs: number;
+  
+  /**
+   * Maximum number of retry attempts
+   */
+  maxRetries: number;
+  
+  /**
+   * Whether to add jitter to the delay
+   */
+  withJitter?: boolean;
+  
+  /**
+   * Multiplier for exponential backoff
+   */
+  multiplier?: number;
+  
+  /**
+   * Increment for linear backoff
+   */
+  increment?: number;
+  
+  /**
+   * Custom function for calculating retry delay
+   */
+  customDelayFn?: (retryCount: number, baseDelay: number) => number;
 }
 
 /**
- * Interface for configuring retry policies in tests.
+ * Configuration for the dead letter queue simulation
  */
-export interface RetryPolicyConfig {
-  type: RetryPolicyType;       // Type of retry policy
-  maxRetries: number;          // Maximum number of retry attempts
-  initialDelay?: number;       // Initial delay in milliseconds
-  maxDelay?: number;           // Maximum delay in milliseconds
-  factor?: number;             // Multiplier for exponential backoff
-  jitter?: boolean;            // Whether to add random jitter to delays
-  customLogic?: (attempt: number, error: Error, context: any) => number; // Custom delay calculation
+export interface DLQConfig {
+  /**
+   * Whether to enable DLQ simulation
+   */
+  enabled: boolean;
+  
+  /**
+   * Maximum number of retries before sending to DLQ
+   */
+  maxRetries: number;
+  
+  /**
+   * Whether to track DLQ events
+   */
+  trackEvents: boolean;
+  
+  /**
+   * Whether to allow reprocessing from DLQ
+   */
+  allowReprocessing: boolean;
+  
+  /**
+   * Callback function when an event is sent to DLQ
+   */
+  onSendToDLQ?: (event: any, error: Error, retryCount: number) => void;
 }
 
 /**
- * Interface for error state persistence in tests.
+ * Configuration for error transitions
  */
-export interface ErrorState {
-  errorCode: string;           // Error code from ERROR_CODES
-  message: string;             // Error message
-  severity: ErrorSeverity;     // Error severity level
-  source: ErrorSource;         // Error source
-  timestamp: Date;             // When the error occurred
-  retryCount: number;          // Current retry count
-  maxRetries: number;          // Maximum retry attempts
-  lastRetryTimestamp?: Date;   // When the last retry occurred
-  nextRetryTimestamp?: Date;   // When the next retry is scheduled
-  context: any;                // Additional context for the error
-  resolved: boolean;           // Whether the error has been resolved
-  sentToDlq: boolean;          // Whether the error was sent to DLQ
+export interface ErrorTransitionConfig {
+  /**
+   * Initial state (success or failure)
+   */
+  initialState: 'success' | 'failure';
+  
+  /**
+   * Number of operations before transitioning to the opposite state
+   */
+  transitionAfter: number;
+  
+  /**
+   * Whether to cycle between states
+   */
+  cycle: boolean;
+  
+  /**
+   * Custom transition function
+   */
+  transitionFn?: (currentState: 'success' | 'failure', operationCount: number) => 'success' | 'failure';
 }
 
 /**
- * Interface for configuring error behavior in tests.
+ * Configuration for selective error simulation
  */
-export interface ErrorBehaviorConfig {
-  errorCode: string;           // Error code from ERROR_CODES
-  message?: string;            // Custom error message (defaults to ERROR_MESSAGES)
-  severity: ErrorSeverity;     // Error severity level
-  source: ErrorSource;         // Error source
-  retryPolicy: RetryPolicyConfig; // Retry policy configuration
-  failureRate?: number;        // Probability of failure (0-1)
-  failureCount?: number;       // Number of consecutive failures before success
-  resolveAfter?: number;       // Automatically resolve after N attempts
-  sendToDlq?: boolean;         // Whether to send to DLQ on max retries
-  transitionStates?: Array<{ // State transitions for testing recovery paths
-    afterAttempts: number;     // After how many attempts to transition
-    to: {
-      errorCode?: string;      // New error code
-      severity?: ErrorSeverity; // New severity
-      failureRate?: number;    // New failure rate
-      resolved?: boolean;      // Whether to resolve the error
-    };
-  }>;
+export interface SelectiveErrorConfig {
+  /**
+   * Event IDs that should fail
+   */
+  eventIds?: string[];
+  
+  /**
+   * Event types that should fail
+   */
+  eventTypes?: string[];
+  
+  /**
+   * User IDs that should fail
+   */
+  userIds?: string[];
+  
+  /**
+   * Custom predicate function for determining failure
+   */
+  predicate?: (event: any) => boolean;
 }
 
 /**
- * Interface for DLQ message in tests.
+ * Configuration for pattern-based error simulation
  */
-export interface DlqMessage {
-  originalMessage: any;         // Original event message
-  errorState: ErrorState;       // Error state that caused the DLQ
-  metadata: {
-    topic: string;             // Original topic
-    partition: number;          // Original partition
-    offset: number;             // Original offset
-    timestamp: Date;            // When sent to DLQ
-    retryCount: number;         // How many retries were attempted
-    processingTime: number;     // Total processing time in ms
+export interface PatternErrorConfig {
+  /**
+   * Fail every Nth event
+   */
+  failEveryN?: number;
+  
+  /**
+   * Fail events at specific indices
+   */
+  failAtIndices?: number[];
+  
+  /**
+   * Custom pattern function
+   */
+  patternFn?: (index: number) => boolean;
+}
+
+/**
+ * Configuration for the mock error handler
+ */
+export interface MockErrorHandlerConfig<T = any> {
+  /**
+   * Event type this handler processes
+   */
+  eventType: string;
+  
+  /**
+   * Error simulation mode
+   */
+  errorMode: ErrorSimulationMode;
+  
+  /**
+   * Percentage chance of error (0-100) when using PERCENTAGE mode
+   */
+  errorPercentage?: number;
+  
+  /**
+   * Configuration for selective error simulation
+   */
+  selectiveErrors?: SelectiveErrorConfig;
+  
+  /**
+   * Configuration for pattern-based error simulation
+   */
+  patternErrors?: PatternErrorConfig;
+  
+  /**
+   * Configuration for retry-count-based error simulation
+   */
+  retryCountErrors?: {
+    /**
+     * Retry counts that should fail
+     */
+    failOnRetries: number[];
   };
+  
+  /**
+   * Configuration for error transitions
+   */
+  transitionConfig?: ErrorTransitionConfig;
+  
+  /**
+   * Retry strategy configuration
+   */
+  retryStrategy: RetryStrategyConfig;
+  
+  /**
+   * Dead letter queue configuration
+   */
+  dlqConfig: DLQConfig;
+  
+  /**
+   * Error category to simulate
+   */
+  errorCategory: EventErrorCategory;
+  
+  /**
+   * Error code to use in simulated errors
+   */
+  errorCode: string;
+  
+  /**
+   * Error message template to use in simulated errors
+   */
+  errorMessage: string;
+  
+  /**
+   * Processing stage where the error occurs
+   */
+  processingStage: EventProcessingStage;
+  
+  /**
+   * Whether to persist error states between calls
+   */
+  persistErrorStates: boolean;
+  
+  /**
+   * Whether to track and log operations
+   */
+  enableAudit: boolean;
+  
+  /**
+   * Custom success handler function
+   */
+  onSuccess?: (event: T, context?: EventHandlerContext) => any;
+  
+  /**
+   * Custom error handler function
+   */
+  onError?: (event: T, error: Error, context?: EventHandlerContext) => void;
+  
+  /**
+   * Handler priority
+   */
+  priority?: number;
 }
 
 /**
- * Mock error handler for testing error scenarios in event processing.
- * 
- * This class provides a configurable framework for simulating various error conditions,
- * retry policies, and recovery mechanisms without triggering actual failures.
+ * Entry in the dead letter queue
  */
-export class MockErrorHandler {
-  private errorBehaviors: Map<string, ErrorBehaviorConfig> = new Map();
-  private errorStates: Map<string, ErrorState> = new Map();
-  private dlqMessages: DlqMessage[] = [];
-  private defaultRetryPolicy: RetryPolicyConfig = {
-    type: RetryPolicyType.EXPONENTIAL,
-    maxRetries: 3,
-    initialDelay: 100,
-    maxDelay: 5000,
-    factor: 2,
-    jitter: true,
-  };
-  private eventIdCounter = 0;
+export interface DLQEntry<T = any> {
+  /**
+   * The event that was sent to the DLQ
+   */
+  event: T;
+  
+  /**
+   * The error that caused the event to be sent to the DLQ
+   */
+  error: Error;
+  
+  /**
+   * Number of retry attempts before sending to DLQ
+   */
+  retryCount: number;
+  
+  /**
+   * Timestamp when the event was sent to the DLQ
+   */
+  timestamp: string;
+  
+  /**
+   * Whether the event has been reprocessed from the DLQ
+   */
+  reprocessed: boolean;
+  
+  /**
+   * Result of reprocessing, if applicable
+   */
+  reprocessingResult?: IEventResponse;
+}
 
+/**
+ * Audit log entry for the mock error handler
+ */
+export interface AuditLogEntry<T = any> {
+  /**
+   * Operation ID
+   */
+  operationId: string;
+  
+  /**
+   * Event ID
+   */
+  eventId: string;
+  
+  /**
+   * Event type
+   */
+  eventType: string;
+  
+  /**
+   * Operation type
+   */
+  operation: 'handle' | 'canHandle' | 'retry' | 'dlq' | 'reprocess';
+  
+  /**
+   * Operation result
+   */
+  result: 'success' | 'failure';
+  
+  /**
+   * Error if operation failed
+   */
+  error?: Error;
+  
+  /**
+   * Retry count if applicable
+   */
+  retryCount?: number;
+  
+  /**
+   * Timestamp of the operation
+   */
+  timestamp: string;
+  
+  /**
+   * Duration of the operation in milliseconds
+   */
+  durationMs: number;
+  
+  /**
+   * Additional context
+   */
+  context?: Record<string, any>;
+}
+
+/**
+ * Statistics for the mock error handler
+ */
+export interface ErrorHandlerStats {
+  /**
+   * Total number of events processed
+   */
+  totalEvents: number;
+  
+  /**
+   * Number of successful events
+   */
+  successfulEvents: number;
+  
+  /**
+   * Number of failed events
+   */
+  failedEvents: number;
+  
+  /**
+   * Number of retry attempts
+   */
+  retryAttempts: number;
+  
+  /**
+   * Number of events sent to DLQ
+   */
+  eventsInDLQ: number;
+  
+  /**
+   * Number of events reprocessed from DLQ
+   */
+  reprocessedEvents: number;
+  
+  /**
+   * Average processing time in milliseconds
+   */
+  avgProcessingTimeMs: number;
+  
+  /**
+   * Error categories encountered
+   */
+  errorCategories: Record<EventErrorCategory, number>;
+  
+  /**
+   * Processing stages where errors occurred
+   */
+  errorStages: Record<EventProcessingStage, number>;
+}
+
+/**
+ * Mock implementation of an event handler for testing error scenarios.
+ * Provides configurable error simulation, retry policies, and DLQ handling.
+ */
+export class MockErrorHandler<T = any, R = any> implements IEventHandler<T, R> {
+  private config: MockErrorHandlerConfig<T>;
+  private operationCount: number = 0;
+  private currentState: 'success' | 'failure';
+  private dlqEntries: Map<string, DLQEntry<T>> = new Map();
+  private auditLog: AuditLogEntry<T>[] = [];
+  private stats: ErrorHandlerStats;
+  private eventIndex: number = 0;
+  private errorStates: Map<string, boolean> = new Map();
+  
   /**
    * Creates a new MockErrorHandler instance.
    * 
-   * @param defaultBehaviors - Optional default error behaviors to configure
+   * @param config - Configuration for the mock error handler
    */
-  constructor(defaultBehaviors?: ErrorBehaviorConfig[]) {
-    if (defaultBehaviors) {
-      defaultBehaviors.forEach(behavior => this.addErrorBehavior(behavior));
-    }
-  }
-
-  /**
-   * Adds a new error behavior configuration for testing.
-   * 
-   * @param behavior - The error behavior configuration
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public addErrorBehavior(behavior: ErrorBehaviorConfig): MockErrorHandler {
-    const fullBehavior = {
-      ...behavior,
-      message: behavior.message || ERROR_MESSAGES[behavior.errorCode] || 'Unknown error',
-      failureRate: behavior.failureRate ?? 1, // Default to always fail
-      sendToDlq: behavior.sendToDlq ?? true,  // Default to sending to DLQ
+  constructor(config: Partial<MockErrorHandlerConfig<T>>) {
+    // Set default configuration
+    this.config = {
+      eventType: 'TEST_EVENT',
+      errorMode: ErrorSimulationMode.NEVER,
+      errorPercentage: 50,
+      retryStrategy: {
+        type: RetryStrategyType.EXPONENTIAL,
+        baseDelayMs: 100,
+        maxDelayMs: 10000,
+        maxRetries: 3,
+        withJitter: true,
+        multiplier: 2
+      },
+      dlqConfig: {
+        enabled: true,
+        maxRetries: 3,
+        trackEvents: true,
+        allowReprocessing: true
+      },
+      errorCategory: EventErrorCategory.TRANSIENT,
+      errorCode: 'TEST_ERROR',
+      errorMessage: 'Simulated error for testing',
+      processingStage: EventProcessingStage.PROCESSING,
+      persistErrorStates: false,
+      enableAudit: true,
+      ...config
     };
-    this.errorBehaviors.set(behavior.errorCode, fullBehavior);
-    return this;
-  }
-
-  /**
-   * Removes an error behavior configuration.
-   * 
-   * @param errorCode - The error code to remove
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public removeErrorBehavior(errorCode: string): MockErrorHandler {
-    this.errorBehaviors.delete(errorCode);
-    return this;
-  }
-
-  /**
-   * Clears all error behaviors.
-   * 
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public clearErrorBehaviors(): MockErrorHandler {
-    this.errorBehaviors.clear();
-    return this;
-  }
-
-  /**
-   * Sets the default retry policy for all errors that don't specify one.
-   * 
-   * @param policy - The retry policy configuration
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public setDefaultRetryPolicy(policy: RetryPolicyConfig): MockErrorHandler {
-    this.defaultRetryPolicy = policy;
-    return this;
-  }
-
-  /**
-   * Simulates processing an event with potential errors based on configured behaviors.
-   * 
-   * @param eventType - The type of event being processed
-   * @param payload - The event payload
-   * @param context - Additional context for error handling
-   * @returns A promise that resolves with the processing result or rejects with an error
-   */
-  public async processEvent<T>(eventType: string, payload: any, context: any = {}): Promise<T> {
-    const eventId = `${eventType}-${this.eventIdCounter++}`;
-    const errorCode = this.selectErrorCode(eventType, context);
     
-    // If no error code selected, process successfully
-    if (!errorCode) {
-      return payload as T;
-    }
+    // Initialize state
+    this.currentState = this.config.transitionConfig?.initialState || 'success';
     
-    const behavior = this.errorBehaviors.get(errorCode);
-    if (!behavior) {
-      return payload as T; // No behavior configured, process successfully
-    }
-    
-    // Get or create error state
-    let errorState = this.errorStates.get(eventId);
-    if (!errorState) {
-      errorState = this.createErrorState(eventId, errorCode, behavior, context);
-      this.errorStates.set(eventId, errorState);
-    }
-    
-    // Check if we should fail based on failure rate
-    if (Math.random() > behavior.failureRate) {
-      this.resolveError(eventId);
-      return payload as T;
-    }
-    
-    // Check if we've reached failureCount (if specified)
-    if (behavior.failureCount !== undefined && errorState.retryCount >= behavior.failureCount) {
-      this.resolveError(eventId);
-      return payload as T;
-    }
-    
-    // Check if we should resolve after specific attempts
-    if (behavior.resolveAfter !== undefined && errorState.retryCount >= behavior.resolveAfter) {
-      this.resolveError(eventId);
-      return payload as T;
-    }
-    
-    // Check for state transitions
-    this.checkStateTransitions(eventId, errorState, behavior);
-    
-    // If resolved, return success
-    if (errorState.resolved) {
-      return payload as T;
-    }
-    
-    // Check if max retries exceeded
-    if (errorState.retryCount >= errorState.maxRetries) {
-      if (behavior.sendToDlq) {
-        this.sendToDlq(eventId, payload, errorState);
+    // Initialize stats
+    this.stats = {
+      totalEvents: 0,
+      successfulEvents: 0,
+      failedEvents: 0,
+      retryAttempts: 0,
+      eventsInDLQ: 0,
+      reprocessedEvents: 0,
+      avgProcessingTimeMs: 0,
+      errorCategories: {
+        [EventErrorCategory.TRANSIENT]: 0,
+        [EventErrorCategory.PERMANENT]: 0,
+        [EventErrorCategory.RETRIABLE]: 0,
+        [EventErrorCategory.MANUAL]: 0
+      },
+      errorStages: {
+        [EventProcessingStage.VALIDATION]: 0,
+        [EventProcessingStage.DESERIALIZATION]: 0,
+        [EventProcessingStage.PROCESSING]: 0,
+        [EventProcessingStage.PUBLISHING]: 0,
+        [EventProcessingStage.PERSISTENCE]: 0
       }
-      throw this.createError(errorState);
+    };
+  }
+  
+  /**
+   * Processes an event and returns a standardized response.
+   * Simulates errors based on the configured error mode.
+   * 
+   * @param event - The event to process
+   * @param context - Additional context information
+   * @param options - Options for controlling the handling behavior
+   * @returns A promise resolving to a standardized event response
+   */
+  async handle(event: T, context?: EventHandlerContext, options?: EventHandlerOptions): Promise<IEventResponse<R>> {
+    const startTime = Date.now();
+    const operationId = crypto.randomUUID();
+    const retryCount = options?.retryCount || 0;
+    const eventId = (event as any).eventId || 'unknown';
+    const eventType = (event as any).type || this.config.eventType;
+    
+    // Update stats
+    this.stats.totalEvents++;
+    if (retryCount > 0) {
+      this.stats.retryAttempts++;
     }
     
-    // Increment retry count and update timestamps
-    errorState.retryCount++;
-    errorState.lastRetryTimestamp = new Date();
+    // Update operation count
+    this.operationCount++;
+    this.eventIndex++;
     
-    // Calculate next retry timestamp
-    const delay = this.calculateRetryDelay(errorState, behavior.retryPolicy);
-    errorState.nextRetryTimestamp = new Date(Date.now() + delay);
+    // Check if we should transition state
+    this.updateTransitionState();
     
-    // Throw error for this attempt
-    throw this.createError(errorState);
-  }
-
-  /**
-   * Resolves an error state, marking it as successful.
-   * 
-   * @param eventId - The event ID to resolve
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public resolveError(eventId: string): MockErrorHandler {
-    const errorState = this.errorStates.get(eventId);
-    if (errorState) {
-      errorState.resolved = true;
-    }
-    return this;
-  }
-
-  /**
-   * Gets the current error state for an event.
-   * 
-   * @param eventId - The event ID to get state for
-   * @returns The error state or undefined if not found
-   */
-  public getErrorState(eventId: string): ErrorState | undefined {
-    return this.errorStates.get(eventId);
-  }
-
-  /**
-   * Gets all error states.
-   * 
-   * @returns A map of event IDs to error states
-   */
-  public getAllErrorStates(): Map<string, ErrorState> {
-    return new Map(this.errorStates);
-  }
-
-  /**
-   * Clears all error states.
-   * 
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public clearErrorStates(): MockErrorHandler {
-    this.errorStates.clear();
-    return this;
-  }
-
-  /**
-   * Gets all messages sent to the dead letter queue.
-   * 
-   * @returns An array of DLQ messages
-   */
-  public getDlqMessages(): DlqMessage[] {
-    return [...this.dlqMessages];
-  }
-
-  /**
-   * Clears all DLQ messages.
-   * 
-   * @returns The MockErrorHandler instance for chaining
-   */
-  public clearDlqMessages(): MockErrorHandler {
-    this.dlqMessages = [];
-    return this;
-  }
-
-  /**
-   * Reprocesses a message from the DLQ.
-   * 
-   * @param index - The index of the DLQ message to reprocess
-   * @returns A promise that resolves with the reprocessing result
-   */
-  public async reprocessDlqMessage<T>(index: number): Promise<T> {
-    if (index < 0 || index >= this.dlqMessages.length) {
-      throw new Error(`DLQ message index ${index} out of bounds`);
+    // Determine if this operation should fail
+    const shouldFail = this.shouldFail(event, retryCount);
+    
+    // If we have persistent error states, check or set the state for this event
+    if (this.config.persistErrorStates) {
+      const persistedState = this.errorStates.get(eventId);
+      if (persistedState !== undefined) {
+        // Use the persisted state
+        const result = await this.createResponse(event, !persistedState, context, startTime, operationId);
+        return result;
+      } else if (shouldFail) {
+        // Set the persisted state
+        this.errorStates.set(eventId, true);
+      }
     }
     
-    const dlqMessage = this.dlqMessages[index];
-    const eventType = dlqMessage.metadata.topic;
-    const payload = dlqMessage.originalMessage;
+    // Create the response based on whether we should fail
+    const result = await this.createResponse(event, !shouldFail, context, startTime, operationId);
     
-    // Reset error state for this event
-    const eventId = `${eventType}-reprocessed-${this.eventIdCounter++}`;
-    this.errorStates.delete(eventId);
+    // Check if we should send to DLQ
+    if (!result.success && this.config.dlqConfig.enabled && retryCount >= this.config.dlqConfig.maxRetries) {
+      await this.sendToDLQ(event, new Error(result.error?.message || 'Unknown error'), retryCount);
+    }
     
-    // Remove from DLQ
-    this.dlqMessages.splice(index, 1);
-    
-    // Try processing again
-    return this.processEvent<T>(eventType, payload, { reprocessed: true });
+    return result;
   }
-
+  
   /**
-   * Creates a monitoring report of error handling statistics.
+   * Determines whether this handler can process the given event.
    * 
-   * @returns An object with error monitoring statistics
+   * @param event - The event to check
+   * @param context - Additional context information
+   * @returns A validation result indicating whether the handler can process the event
    */
-  public createMonitoringReport() {
-    const totalErrors = this.errorStates.size;
-    const resolvedErrors = Array.from(this.errorStates.values()).filter(state => state.resolved).length;
-    const dlqMessages = this.dlqMessages.length;
+  async canHandle(event: any, context?: EventHandlerContext): Promise<ValidationResult> {
+    const startTime = Date.now();
+    const operationId = crypto.randomUUID();
+    const eventType = event.type || 'unknown';
     
-    const errorsByCode = new Map<string, number>();
-    const errorsBySeverity = new Map<ErrorSeverity, number>();
-    const errorsBySource = new Map<ErrorSource, number>();
+    // Always return true for the configured event type
+    const canHandle = eventType === this.config.eventType;
     
-    for (const state of this.errorStates.values()) {
-      // Count by error code
-      const codeCount = errorsByCode.get(state.errorCode) || 0;
-      errorsByCode.set(state.errorCode, codeCount + 1);
-      
-      // Count by severity
-      const severityCount = errorsBySeverity.get(state.severity) || 0;
-      errorsBySeverity.set(state.severity, severityCount + 1);
-      
-      // Count by source
-      const sourceCount = errorsBySource.get(state.source) || 0;
-      errorsBySource.set(state.source, sourceCount + 1);
+    // Log the operation
+    if (this.config.enableAudit) {
+      this.auditLog.push({
+        operationId,
+        eventId: event.eventId || 'unknown',
+        eventType,
+        operation: 'canHandle',
+        result: canHandle ? 'success' : 'failure',
+        timestamp: new Date().toISOString(),
+        durationMs: Date.now() - startTime,
+        context: { canHandle }
+      });
     }
     
     return {
-      totalErrors,
-      resolvedErrors,
-      unresolvedErrors: totalErrors - resolvedErrors,
-      dlqMessages,
-      errorsByCode: Object.fromEntries(errorsByCode),
-      errorsBySeverity: Object.fromEntries(errorsBySeverity),
-      errorsBySource: Object.fromEntries(errorsBySource),
-      retryRate: totalErrors > 0 ? resolvedErrors / totalErrors : 0,
-      dlqRate: totalErrors > 0 ? dlqMessages / totalErrors : 0,
+      isValid: canHandle,
+      errors: canHandle ? [] : [{
+        code: 'INVALID_EVENT_TYPE',
+        message: `Handler can only process ${this.config.eventType} events, received ${eventType}`,
+        path: 'type'
+      }]
     };
   }
-
+  
   /**
-   * Simulates an audit log entry for error handling.
+   * Returns the type of event this handler processes.
    * 
-   * @param eventId - The event ID to create an audit log for
-   * @returns An audit log entry object
+   * @returns The event type string
    */
-  public createAuditLogEntry(eventId: string) {
-    const errorState = this.errorStates.get(eventId);
-    if (!errorState) {
+  getEventType(): string {
+    return this.config.eventType;
+  }
+  
+  /**
+   * Returns the priority of this handler.
+   * 
+   * @returns The handler priority
+   */
+  getPriority(): number {
+    return this.config.priority || 0;
+  }
+  
+  /**
+   * Reprocesses an event from the dead letter queue.
+   * 
+   * @param eventId - ID of the event to reprocess
+   * @returns The result of reprocessing, or null if the event is not in the DLQ
+   */
+  async reprocessFromDLQ(eventId: string): Promise<IEventResponse<R> | null> {
+    if (!this.config.dlqConfig.allowReprocessing) {
+      throw new Error('Reprocessing from DLQ is not allowed');
+    }
+    
+    const dlqEntry = this.dlqEntries.get(eventId);
+    if (!dlqEntry) {
       return null;
     }
     
-    return {
-      eventId,
-      timestamp: new Date(),
-      errorCode: errorState.errorCode,
-      severity: errorState.severity,
-      source: errorState.source,
-      retryCount: errorState.retryCount,
-      maxRetries: errorState.maxRetries,
-      resolved: errorState.resolved,
-      sentToDlq: errorState.sentToDlq,
-      processingTime: errorState.lastRetryTimestamp
-        ? errorState.lastRetryTimestamp.getTime() - errorState.timestamp.getTime()
-        : 0,
-      context: errorState.context,
+    const startTime = Date.now();
+    const operationId = crypto.randomUUID();
+    
+    // Mark as reprocessed
+    dlqEntry.reprocessed = true;
+    
+    // Force success for reprocessing
+    const result = await this.createResponse(dlqEntry.event, true, undefined, startTime, operationId);
+    
+    // Update stats
+    this.stats.reprocessedEvents++;
+    
+    // Store the result
+    dlqEntry.reprocessingResult = result;
+    
+    // Log the operation
+    if (this.config.enableAudit) {
+      this.auditLog.push({
+        operationId,
+        eventId,
+        eventType: (dlqEntry.event as any).type || this.config.eventType,
+        operation: 'reprocess',
+        result: 'success',
+        timestamp: new Date().toISOString(),
+        durationMs: Date.now() - startTime
+      });
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Gets all events in the dead letter queue.
+   * 
+   * @returns Array of DLQ entries
+   */
+  getDLQEntries(): DLQEntry<T>[] {
+    return Array.from(this.dlqEntries.values());
+  }
+  
+  /**
+   * Gets a specific event from the dead letter queue.
+   * 
+   * @param eventId - ID of the event to retrieve
+   * @returns The DLQ entry, or null if not found
+   */
+  getDLQEntry(eventId: string): DLQEntry<T> | null {
+    return this.dlqEntries.get(eventId) || null;
+  }
+  
+  /**
+   * Clears all events from the dead letter queue.
+   */
+  clearDLQ(): void {
+    this.dlqEntries.clear();
+    this.stats.eventsInDLQ = 0;
+  }
+  
+  /**
+   * Gets the audit log for this handler.
+   * 
+   * @returns Array of audit log entries
+   */
+  getAuditLog(): AuditLogEntry<T>[] {
+    return this.auditLog;
+  }
+  
+  /**
+   * Clears the audit log.
+   */
+  clearAuditLog(): void {
+    this.auditLog = [];
+  }
+  
+  /**
+   * Gets statistics for this handler.
+   * 
+   * @returns Handler statistics
+   */
+  getStats(): ErrorHandlerStats {
+    return { ...this.stats };
+  }
+  
+  /**
+   * Resets all statistics.
+   */
+  resetStats(): void {
+    this.stats = {
+      totalEvents: 0,
+      successfulEvents: 0,
+      failedEvents: 0,
+      retryAttempts: 0,
+      eventsInDLQ: 0,
+      reprocessedEvents: 0,
+      avgProcessingTimeMs: 0,
+      errorCategories: {
+        [EventErrorCategory.TRANSIENT]: 0,
+        [EventErrorCategory.PERMANENT]: 0,
+        [EventErrorCategory.RETRIABLE]: 0,
+        [EventErrorCategory.MANUAL]: 0
+      },
+      errorStages: {
+        [EventProcessingStage.VALIDATION]: 0,
+        [EventProcessingStage.DESERIALIZATION]: 0,
+        [EventProcessingStage.PROCESSING]: 0,
+        [EventProcessingStage.PUBLISHING]: 0,
+        [EventProcessingStage.PERSISTENCE]: 0
+      }
     };
   }
-
+  
   /**
-   * Creates all audit log entries for error handling.
-   * 
-   * @returns An array of audit log entries
+   * Resets the handler to its initial state.
    */
-  public createAllAuditLogEntries() {
-    return Array.from(this.errorStates.keys())
-      .map(eventId => this.createAuditLogEntry(eventId))
-      .filter(entry => entry !== null);
+  reset(): void {
+    this.operationCount = 0;
+    this.eventIndex = 0;
+    this.currentState = this.config.transitionConfig?.initialState || 'success';
+    this.dlqEntries.clear();
+    this.auditLog = [];
+    this.errorStates.clear();
+    this.resetStats();
   }
-
-  // Private helper methods
-
+  
   /**
-   * Selects an error code based on event type and context.
+   * Updates the configuration of this handler.
    * 
-   * @param eventType - The type of event being processed
-   * @param context - Additional context for error selection
-   * @returns An error code or undefined if no error should occur
+   * @param config - New configuration options
    */
-  private selectErrorCode(eventType: string, context: any): string | undefined {
-    // If context specifies an error code, use that
-    if (context.errorCode && this.errorBehaviors.has(context.errorCode)) {
-      return context.errorCode;
-    }
-    
-    // If context specifies an error source, find a matching error
-    if (context.errorSource) {
-      for (const [code, behavior] of this.errorBehaviors.entries()) {
-        if (behavior.source === context.errorSource) {
-          return code;
-        }
-      }
-    }
-    
-    // If context specifies a journey, find a relevant error
-    if (context.journey) {
-      // This is a simplified example - in a real implementation,
-      // you would have more sophisticated mapping of journeys to error types
-      const journeyErrorMap: Record<string, string> = {
-        health: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-        care: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        plan: ERROR_CODES.PRODUCER_SEND_FAILED,
-      };
-      
-      const errorCode = journeyErrorMap[context.journey];
-      if (errorCode && this.errorBehaviors.has(errorCode)) {
-        return errorCode;
-      }
-    }
-    
-    // If context specifies forceError=true, pick a random error
-    if (context.forceError) {
-      const errorCodes = Array.from(this.errorBehaviors.keys());
-      if (errorCodes.length > 0) {
-        return errorCodes[Math.floor(Math.random() * errorCodes.length)];
-      }
-    }
-    
-    // Default: no error
-    return undefined;
-  }
-
-  /**
-   * Creates a new error state for an event.
-   * 
-   * @param eventId - The event ID
-   * @param errorCode - The error code
-   * @param behavior - The error behavior configuration
-   * @param context - Additional context for the error
-   * @returns A new error state object
-   */
-  private createErrorState(
-    eventId: string,
-    errorCode: string,
-    behavior: ErrorBehaviorConfig,
-    context: any
-  ): ErrorState {
-    return {
-      errorCode,
-      message: behavior.message || ERROR_MESSAGES[errorCode] || 'Unknown error',
-      severity: behavior.severity,
-      source: behavior.source,
-      timestamp: new Date(),
-      retryCount: 0,
-      maxRetries: behavior.retryPolicy.maxRetries,
-      context: { ...context, eventId },
-      resolved: false,
-      sentToDlq: false,
+  updateConfig(config: Partial<MockErrorHandlerConfig<T>>): void {
+    this.config = {
+      ...this.config,
+      ...config
     };
   }
-
+  
   /**
-   * Creates an Error object from an error state.
+   * Calculates the retry delay based on the configured retry strategy.
    * 
-   * @param errorState - The error state
-   * @returns An Error object
+   * @param retryCount - Number of retry attempts so far
+   * @returns Delay in milliseconds before the next retry
    */
-  private createError(errorState: ErrorState): Error {
-    const error = new Error(errorState.message);
-    (error as any).code = errorState.errorCode;
-    (error as any).severity = errorState.severity;
-    (error as any).source = errorState.source;
-    (error as any).retryCount = errorState.retryCount;
-    (error as any).maxRetries = errorState.maxRetries;
-    (error as any).context = errorState.context;
-    return error;
-  }
-
-  /**
-   * Calculates the delay before the next retry attempt.
-   * 
-   * @param errorState - The current error state
-   * @param retryPolicy - The retry policy configuration
-   * @returns The delay in milliseconds
-   */
-  private calculateRetryDelay(errorState: ErrorState, retryPolicy: RetryPolicyConfig): number {
-    const policy = retryPolicy || this.defaultRetryPolicy;
-    const attempt = errorState.retryCount;
+  getRetryDelayMs(retryCount: number): number {
+    const { retryStrategy } = this.config;
+    let delay: number;
     
-    switch (policy.type) {
-      case RetryPolicyType.NONE:
-        return 0;
+    switch (retryStrategy.type) {
+      case RetryStrategyType.FIXED:
+        delay = retryStrategy.baseDelayMs;
+        break;
         
-      case RetryPolicyType.CONSTANT:
-        return policy.initialDelay || 1000;
+      case RetryStrategyType.LINEAR:
+        delay = retryStrategy.baseDelayMs + (retryCount * (retryStrategy.increment || 1000));
+        break;
         
-      case RetryPolicyType.LINEAR:
-        const linearDelay = (policy.initialDelay || 1000) * (attempt + 1);
-        return Math.min(linearDelay, policy.maxDelay || Infinity);
+      case RetryStrategyType.EXPONENTIAL:
+        delay = retryStrategy.baseDelayMs * Math.pow(retryStrategy.multiplier || 2, retryCount);
+        break;
         
-      case RetryPolicyType.EXPONENTIAL:
-        const factor = policy.factor || 2;
-        const initialDelay = policy.initialDelay || 100;
-        let exponentialDelay = initialDelay * Math.pow(factor, attempt);
-        
-        // Add jitter if configured
-        if (policy.jitter) {
-          const jitterFactor = 0.5 + Math.random();
-          exponentialDelay *= jitterFactor;
+      case RetryStrategyType.CUSTOM:
+        if (retryStrategy.customDelayFn) {
+          delay = retryStrategy.customDelayFn(retryCount, retryStrategy.baseDelayMs);
+        } else {
+          delay = retryStrategy.baseDelayMs;
         }
-        
-        return Math.min(exponentialDelay, policy.maxDelay || Infinity);
-        
-      case RetryPolicyType.CUSTOM:
-        if (policy.customLogic) {
-          return policy.customLogic(attempt, this.createError(errorState), errorState.context);
-        }
-        return policy.initialDelay || 1000;
+        break;
         
       default:
-        return 1000; // Default fallback
+        delay = retryStrategy.baseDelayMs;
     }
+    
+    // Apply jitter if configured
+    if (retryStrategy.withJitter) {
+      // Add random jitter between -25% and +25%
+      const jitterFactor = 0.25;
+      const jitter = delay * jitterFactor * (Math.random() * 2 - 1);
+      delay = Math.max(1, delay + jitter);
+    }
+    
+    // Ensure delay doesn't exceed max
+    return Math.min(delay, retryStrategy.maxDelayMs);
   }
-
+  
   /**
-   * Checks for and applies state transitions based on retry count.
+   * Determines if an event should be retried based on the error category.
    * 
-   * @param eventId - The event ID
-   * @param errorState - The current error state
-   * @param behavior - The error behavior configuration
+   * @param event - The failed event
+   * @param error - The error that occurred
+   * @param retryCount - Number of retry attempts so far
+   * @returns True if the event should be retried, false otherwise
    */
-  private checkStateTransitions(
-    eventId: string,
-    errorState: ErrorState,
-    behavior: ErrorBehaviorConfig
-  ): void {
-    if (!behavior.transitionStates || behavior.transitionStates.length === 0) {
+  shouldRetry(event: T, error: Error, retryCount: number): boolean {
+    // Check if we've exceeded max retries
+    if (retryCount >= this.config.retryStrategy.maxRetries) {
+      return false;
+    }
+    
+    // Check if the error is retriable based on category
+    if (error instanceof EventException) {
+      return error.isRetriable();
+    }
+    
+    // Default behavior based on configured error category
+    return this.config.errorCategory === EventErrorCategory.TRANSIENT || 
+           this.config.errorCategory === EventErrorCategory.RETRIABLE;
+  }
+  
+  /**
+   * Sends an event to the dead letter queue.
+   * 
+   * @param event - The event to send to the DLQ
+   * @param error - The error that caused the event to be sent to the DLQ
+   * @param retryCount - Number of retry attempts before sending to DLQ
+   */
+  private async sendToDLQ(event: T, error: Error, retryCount: number): Promise<void> {
+    if (!this.config.dlqConfig.enabled) {
       return;
     }
     
-    for (const transition of behavior.transitionStates) {
-      if (errorState.retryCount === transition.afterAttempts) {
-        // Apply transitions
-        if (transition.to.errorCode) {
-          errorState.errorCode = transition.to.errorCode;
-          errorState.message = ERROR_MESSAGES[transition.to.errorCode] || errorState.message;
+    const eventId = (event as any).eventId || 'unknown';
+    
+    // Create DLQ entry
+    const dlqEntry: DLQEntry<T> = {
+      event,
+      error,
+      retryCount,
+      timestamp: new Date().toISOString(),
+      reprocessed: false
+    };
+    
+    // Store in DLQ
+    this.dlqEntries.set(eventId, dlqEntry);
+    
+    // Update stats
+    this.stats.eventsInDLQ++;
+    
+    // Call the onSendToDLQ callback if configured
+    if (this.config.dlqConfig.onSendToDLQ) {
+      this.config.dlqConfig.onSendToDLQ(event, error, retryCount);
+    }
+    
+    // Log the operation
+    if (this.config.enableAudit) {
+      this.auditLog.push({
+        operationId: crypto.randomUUID(),
+        eventId,
+        eventType: (event as any).type || this.config.eventType,
+        operation: 'dlq',
+        result: 'success',
+        error,
+        retryCount,
+        timestamp: new Date().toISOString(),
+        durationMs: 0
+      });
+    }
+  }
+  
+  /**
+   * Creates a response for an event based on success or failure.
+   * 
+   * @param event - The event being processed
+   * @param success - Whether the operation should succeed
+   * @param context - Additional context information
+   * @param startTime - Start time of the operation in milliseconds
+   * @param operationId - Unique ID for this operation
+   * @returns A standardized event response
+   */
+  private async createResponse(
+    event: T, 
+    success: boolean, 
+    context?: EventHandlerContext,
+    startTime?: number,
+    operationId?: string
+  ): Promise<IEventResponse<R>> {
+    const eventId = (event as any).eventId || 'unknown';
+    const eventType = (event as any).type || this.config.eventType;
+    const endTime = Date.now();
+    const duration = startTime ? endTime - startTime : 0;
+    
+    // Update stats
+    if (success) {
+      this.stats.successfulEvents++;
+    } else {
+      this.stats.failedEvents++;
+      this.stats.errorCategories[this.config.errorCategory]++;
+      this.stats.errorStages[this.config.processingStage]++;
+    }
+    
+    // Update average processing time
+    const totalProcessed = this.stats.successfulEvents + this.stats.failedEvents;
+    this.stats.avgProcessingTimeMs = (
+      (this.stats.avgProcessingTimeMs * (totalProcessed - 1)) + duration
+    ) / totalProcessed;
+    
+    let result: IEventResponse<R>;
+    
+    if (success) {
+      // Create success response
+      let data: R | undefined;
+      
+      // Call onSuccess callback if configured
+      if (this.config.onSuccess) {
+        data = await this.config.onSuccess(event, context) as R;
+      }
+      
+      result = createSuccessResponse<R>(
+        eventId,
+        eventType,
+        data,
+        {
+          processingTimeMs: duration,
+          correlationId: context?.correlationId,
+          serviceId: context?.serviceId || 'mock-error-handler',
+          completedAt: new Date().toISOString(),
+          retryCount: context?.retryCount || 0
         }
-        
-        if (transition.to.severity) {
-          errorState.severity = transition.to.severity;
+      );
+    } else {
+      // Create error response
+      const error = {
+        code: this.config.errorCode,
+        message: this.config.errorMessage.replace('{eventId}', eventId),
+        details: {
+          category: this.config.errorCategory,
+          stage: this.config.processingStage
+        },
+        retryable: this.config.errorCategory === EventErrorCategory.TRANSIENT || 
+                  this.config.errorCategory === EventErrorCategory.RETRIABLE,
+        retryDelayMs: this.getRetryDelayMs(context?.retryCount || 0)
+      };
+      
+      result = createErrorResponse<R>(
+        eventId,
+        eventType,
+        error,
+        {
+          processingTimeMs: duration,
+          correlationId: context?.correlationId,
+          serviceId: context?.serviceId || 'mock-error-handler',
+          completedAt: new Date().toISOString(),
+          retryCount: context?.retryCount || 0
         }
-        
-        if (transition.to.resolved !== undefined) {
-          errorState.resolved = transition.to.resolved;
+      );
+      
+      // Call onError callback if configured
+      if (this.config.onError) {
+        const errorObj = new Error(error.message);
+        this.config.onError(event, errorObj, context);
+      }
+    }
+    
+    // Log the operation
+    if (this.config.enableAudit && operationId) {
+      this.auditLog.push({
+        operationId,
+        eventId,
+        eventType,
+        operation: 'handle',
+        result: success ? 'success' : 'failure',
+        error: success ? undefined : new Error(result.error?.message || 'Unknown error'),
+        retryCount: context?.retryCount,
+        timestamp: new Date().toISOString(),
+        durationMs: duration,
+        context: {
+          success,
+          ...context
         }
-        
-        // If behavior has a new failure rate, update the behavior
-        if (transition.to.failureRate !== undefined) {
-          const updatedBehavior = { ...behavior, failureRate: transition.to.failureRate };
-          this.errorBehaviors.set(errorState.errorCode, updatedBehavior);
-        }
-        
-        break; // Only apply the first matching transition
+      });
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Updates the transition state if transition mode is enabled.
+   */
+  private updateTransitionState(): void {
+    const { transitionConfig } = this.config;
+    
+    if (this.config.errorMode !== ErrorSimulationMode.TRANSITION || !transitionConfig) {
+      return;
+    }
+    
+    // Check if we should transition
+    if (transitionConfig.transitionFn) {
+      // Use custom transition function
+      this.currentState = transitionConfig.transitionFn(this.currentState, this.operationCount);
+    } else if (this.operationCount % transitionConfig.transitionAfter === 0) {
+      // Toggle state
+      if (transitionConfig.cycle) {
+        this.currentState = this.currentState === 'success' ? 'failure' : 'success';
+      } else if (this.currentState === transitionConfig.initialState) {
+        // Only transition once from initial state to opposite state
+        this.currentState = this.currentState === 'success' ? 'failure' : 'success';
       }
     }
   }
-
+  
   /**
-   * Sends a failed event to the dead letter queue.
+   * Determines if an operation should fail based on the configured error mode.
    * 
-   * @param eventId - The event ID
-   * @param payload - The original event payload
-   * @param errorState - The current error state
+   * @param event - The event being processed
+   * @param retryCount - Number of retry attempts so far
+   * @returns True if the operation should fail, false otherwise
    */
-  private sendToDlq(eventId: string, payload: any, errorState: ErrorState): void {
-    errorState.sentToDlq = true;
+  private shouldFail(event: T, retryCount: number): boolean {
+    const eventId = (event as any).eventId || 'unknown';
+    const eventType = (event as any).type || this.config.eventType;
+    const userId = (event as any).userId;
     
-    const dlqMessage: DlqMessage = {
-      originalMessage: payload,
-      errorState: { ...errorState },
-      metadata: {
-        topic: eventId.split('-')[0], // Extract topic from eventId
-        partition: Math.floor(Math.random() * 10), // Mock partition
-        offset: Math.floor(Math.random() * 10000), // Mock offset
-        timestamp: new Date(),
-        retryCount: errorState.retryCount,
-        processingTime: errorState.lastRetryTimestamp
-          ? errorState.lastRetryTimestamp.getTime() - errorState.timestamp.getTime()
-          : 0,
-      },
-    };
-    
-    this.dlqMessages.push(dlqMessage);
+    switch (this.config.errorMode) {
+      case ErrorSimulationMode.ALWAYS:
+        return true;
+        
+      case ErrorSimulationMode.NEVER:
+        return false;
+        
+      case ErrorSimulationMode.PERCENTAGE:
+        return Math.random() * 100 < (this.config.errorPercentage || 50);
+        
+      case ErrorSimulationMode.SELECTIVE:
+        if (!this.config.selectiveErrors) {
+          return false;
+        }
+        
+        // Check if event ID is in the list
+        if (this.config.selectiveErrors.eventIds?.includes(eventId)) {
+          return true;
+        }
+        
+        // Check if event type is in the list
+        if (this.config.selectiveErrors.eventTypes?.includes(eventType)) {
+          return true;
+        }
+        
+        // Check if user ID is in the list
+        if (userId && this.config.selectiveErrors.userIds?.includes(userId)) {
+          return true;
+        }
+        
+        // Check custom predicate
+        if (this.config.selectiveErrors.predicate && this.config.selectiveErrors.predicate(event)) {
+          return true;
+        }
+        
+        return false;
+        
+      case ErrorSimulationMode.RETRY_COUNT:
+        if (!this.config.retryCountErrors) {
+          return false;
+        }
+        
+        // Check if retry count is in the list
+        return this.config.retryCountErrors.failOnRetries.includes(retryCount);
+        
+      case ErrorSimulationMode.PATTERN:
+        if (!this.config.patternErrors) {
+          return false;
+        }
+        
+        // Check if event index matches the pattern
+        if (this.config.patternErrors.failEveryN && this.eventIndex % this.config.patternErrors.failEveryN === 0) {
+          return true;
+        }
+        
+        // Check if event index is in the list
+        if (this.config.patternErrors.failAtIndices?.includes(this.eventIndex)) {
+          return true;
+        }
+        
+        // Check custom pattern function
+        if (this.config.patternErrors.patternFn && this.config.patternErrors.patternFn(this.eventIndex)) {
+          return true;
+        }
+        
+        return false;
+        
+      case ErrorSimulationMode.TRANSITION:
+        // Return true if current state is failure
+        return this.currentState === 'failure';
+        
+      default:
+        return false;
+    }
   }
 }
 
 /**
- * Creates a pre-configured MockErrorHandler with common error scenarios.
+ * Creates a mock error handler with default configuration.
  * 
- * @returns A configured MockErrorHandler instance
+ * @param config - Partial configuration for the mock error handler
+ * @returns A new MockErrorHandler instance
  */
-export function createDefaultMockErrorHandler(): MockErrorHandler {
-  return new MockErrorHandler([
-    // Validation error with exponential backoff
-    {
-      errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-      severity: ErrorSeverity.MEDIUM,
-      source: ErrorSource.VALIDATION,
-      retryPolicy: {
-        type: RetryPolicyType.EXPONENTIAL,
-        maxRetries: 3,
-        initialDelay: 100,
-        maxDelay: 5000,
-        factor: 2,
-        jitter: true,
-      },
-      failureRate: 1,
-      resolveAfter: 2, // Resolve after 2 retries
-    },
-    
-    // Network error with linear backoff
-    {
-      errorCode: ERROR_CODES.PRODUCER_CONNECTION_FAILED,
-      severity: ErrorSeverity.HIGH,
-      source: ErrorSource.NETWORK,
-      retryPolicy: {
-        type: RetryPolicyType.LINEAR,
-        maxRetries: 5,
-        initialDelay: 500,
-        maxDelay: 10000,
-      },
-      // Transition to success after 3 attempts
-      transitionStates: [
-        {
-          afterAttempts: 3,
-          to: {
-            failureRate: 0, // Stop failing
-            resolved: true,
-          },
-        },
-      ],
-    },
-    
-    // Processing error that always fails and goes to DLQ
-    {
-      errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-      severity: ErrorSeverity.FATAL,
-      source: ErrorSource.PROCESSING,
-      retryPolicy: {
-        type: RetryPolicyType.CONSTANT,
-        maxRetries: 2,
-        initialDelay: 1000,
-      },
-      sendToDlq: true,
-    },
-    
-    // Transient error that changes type after retries
-    {
-      errorCode: ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED,
-      severity: ErrorSeverity.MEDIUM,
-      source: ErrorSource.SERIALIZATION,
-      retryPolicy: {
-        type: RetryPolicyType.EXPONENTIAL,
-        maxRetries: 4,
-        initialDelay: 200,
-        factor: 1.5,
-      },
-      transitionStates: [
-        {
-          afterAttempts: 2,
-          to: {
-            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            severity: ErrorSeverity.LOW,
-          },
-        },
-      ],
-    },
-  ]);
+export function createMockErrorHandler<T = any, R = any>(
+  config: Partial<MockErrorHandlerConfig<T>> = {}
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>(config);
 }
 
 /**
- * Creates a mock error handler configured for testing dead letter queue functionality.
+ * Creates a mock error handler that always succeeds.
  * 
- * @returns A configured MockErrorHandler instance
+ * @param eventType - The event type this handler processes
+ * @returns A new MockErrorHandler instance that always succeeds
  */
-export function createDlqTestErrorHandler(): MockErrorHandler {
-  return new MockErrorHandler([
-    // Error that always goes to DLQ after max retries
-    {
-      errorCode: ERROR_CODES.RETRY_EXHAUSTED,
-      severity: ErrorSeverity.HIGH,
-      source: ErrorSource.PROCESSING,
-      retryPolicy: {
-        type: RetryPolicyType.EXPONENTIAL,
-        maxRetries: 3,
-        initialDelay: 100,
-        factor: 2,
-      },
-      sendToDlq: true,
-    },
-    
-    // Error that immediately goes to DLQ without retries
-    {
-      errorCode: ERROR_CODES.DLQ_SEND_FAILED,
-      severity: ErrorSeverity.FATAL,
-      source: ErrorSource.EXTERNAL,
-      retryPolicy: {
-        type: RetryPolicyType.NONE,
-        maxRetries: 0,
-      },
-      sendToDlq: true,
-    },
-  ]);
+export function createSuccessHandler<T = any, R = any>(eventType: string): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode: ErrorSimulationMode.NEVER
+  });
 }
 
 /**
- * Creates a mock error handler configured for testing retry policies.
+ * Creates a mock error handler that always fails.
  * 
- * @returns A configured MockErrorHandler instance
+ * @param eventType - The event type this handler processes
+ * @param errorCategory - The error category to simulate
+ * @param errorMessage - The error message to use
+ * @returns A new MockErrorHandler instance that always fails
  */
-export function createRetryTestErrorHandler(): MockErrorHandler {
-  return new MockErrorHandler([
-    // Exponential backoff
-    {
-      errorCode: ERROR_CODES.PRODUCER_SEND_FAILED,
-      severity: ErrorSeverity.MEDIUM,
-      source: ErrorSource.PRODUCER,
-      retryPolicy: {
-        type: RetryPolicyType.EXPONENTIAL,
-        maxRetries: 5,
-        initialDelay: 100,
-        maxDelay: 10000,
-        factor: 2,
-        jitter: true,
-      },
-      resolveAfter: 4, // Resolve after 4 retries
-    },
-    
-    // Linear backoff
-    {
-      errorCode: ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED,
-      severity: ErrorSeverity.MEDIUM,
-      source: ErrorSource.CONSUMER,
-      retryPolicy: {
-        type: RetryPolicyType.LINEAR,
-        maxRetries: 5,
-        initialDelay: 200,
-        maxDelay: 5000,
-      },
-      resolveAfter: 3, // Resolve after 3 retries
-    },
-    
-    // Constant backoff
-    {
-      errorCode: ERROR_CODES.SCHEMA_NOT_FOUND,
-      severity: ErrorSeverity.LOW,
-      source: ErrorSource.VALIDATION,
-      retryPolicy: {
-        type: RetryPolicyType.CONSTANT,
-        maxRetries: 3,
-        initialDelay: 500,
-      },
-      resolveAfter: 2, // Resolve after 2 retries
-    },
-    
-    // Custom backoff
-    {
-      errorCode: ERROR_CODES.MESSAGE_SERIALIZATION_FAILED,
-      severity: ErrorSeverity.MEDIUM,
-      source: ErrorSource.SERIALIZATION,
-      retryPolicy: {
-        type: RetryPolicyType.CUSTOM,
-        maxRetries: 4,
-        customLogic: (attempt, error, context) => {
-          // Example: Fibonacci sequence for delays
-          const fibonacci = (n: number): number => {
-            if (n <= 1) return n;
-            return fibonacci(n - 1) + fibonacci(n - 2);
-          };
-          return fibonacci(attempt + 2) * 100; // 100, 200, 300, 500, 800, 1300, ...
-        },
-      },
-      resolveAfter: 3, // Resolve after 3 retries
-    },
-  ]);
+export function createFailureHandler<T = any, R = any>(
+  eventType: string,
+  errorCategory: EventErrorCategory = EventErrorCategory.TRANSIENT,
+  errorMessage: string = 'Simulated failure for testing'
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode: ErrorSimulationMode.ALWAYS,
+    errorCategory,
+    errorMessage
+  });
 }
 
 /**
- * Creates a mock error handler configured for testing state transitions.
+ * Creates a mock error handler with a percentage-based failure rate.
  * 
- * @returns A configured MockErrorHandler instance
+ * @param eventType - The event type this handler processes
+ * @param errorPercentage - Percentage chance of failure (0-100)
+ * @returns A new MockErrorHandler instance with percentage-based failures
  */
-export function createTransitionTestErrorHandler(): MockErrorHandler {
-  return new MockErrorHandler([
-    // Error that transitions through multiple states
-    {
-      errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-      severity: ErrorSeverity.HIGH,
-      source: ErrorSource.PROCESSING,
-      retryPolicy: {
-        type: RetryPolicyType.EXPONENTIAL,
-        maxRetries: 6,
-        initialDelay: 100,
-        factor: 2,
-      },
-      transitionStates: [
-        {
-          afterAttempts: 1,
-          to: {
-            severity: ErrorSeverity.MEDIUM,
-            failureRate: 0.8, // 80% chance of failure
-          },
-        },
-        {
-          afterAttempts: 3,
-          to: {
-            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            severity: ErrorSeverity.LOW,
-            failureRate: 0.5, // 50% chance of failure
-          },
-        },
-        {
-          afterAttempts: 5,
-          to: {
-            resolved: true, // Force resolution
-          },
-        },
-      ],
+export function createPercentageFailureHandler<T = any, R = any>(
+  eventType: string,
+  errorPercentage: number = 50
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode: ErrorSimulationMode.PERCENTAGE,
+    errorPercentage
+  });
+}
+
+/**
+ * Creates a mock error handler that transitions between success and failure states.
+ * 
+ * @param eventType - The event type this handler processes
+ * @param transitionAfter - Number of operations before transitioning
+ * @param initialState - Initial state (success or failure)
+ * @param cycle - Whether to cycle between states
+ * @returns A new MockErrorHandler instance with state transitions
+ */
+export function createTransitioningHandler<T = any, R = any>(
+  eventType: string,
+  transitionAfter: number = 5,
+  initialState: 'success' | 'failure' = 'success',
+  cycle: boolean = true
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode: ErrorSimulationMode.TRANSITION,
+    transitionConfig: {
+      initialState,
+      transitionAfter,
+      cycle
+    }
+  });
+}
+
+/**
+ * Creates a mock error handler that simulates retry failures.
+ * 
+ * @param eventType - The event type this handler processes
+ * @param failOnRetries - Retry counts that should fail
+ * @param maxRetries - Maximum number of retries
+ * @returns A new MockErrorHandler instance that fails on specific retry attempts
+ */
+export function createRetryFailureHandler<T = any, R = any>(
+  eventType: string,
+  failOnRetries: number[] = [0, 1],
+  maxRetries: number = 3
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode: ErrorSimulationMode.RETRY_COUNT,
+    retryCountErrors: {
+      failOnRetries
     },
-  ]);
+    retryStrategy: {
+      type: RetryStrategyType.EXPONENTIAL,
+      baseDelayMs: 100,
+      maxDelayMs: 10000,
+      maxRetries
+    }
+  });
+}
+
+/**
+ * Creates a mock error handler with a dead letter queue.
+ * 
+ * @param eventType - The event type this handler processes
+ * @param errorMode - Error simulation mode
+ * @param maxRetries - Maximum number of retries before sending to DLQ
+ * @returns A new MockErrorHandler instance with DLQ support
+ */
+export function createDLQHandler<T = any, R = any>(
+  eventType: string,
+  errorMode: ErrorSimulationMode = ErrorSimulationMode.PERCENTAGE,
+  maxRetries: number = 3
+): MockErrorHandler<T, R> {
+  return new MockErrorHandler<T, R>({
+    eventType,
+    errorMode,
+    retryStrategy: {
+      type: RetryStrategyType.EXPONENTIAL,
+      baseDelayMs: 100,
+      maxDelayMs: 10000,
+      maxRetries
+    },
+    dlqConfig: {
+      enabled: true,
+      maxRetries,
+      trackEvents: true,
+      allowReprocessing: true
+    }
+  });
 }
