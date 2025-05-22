@@ -1,6 +1,6 @@
 /**
- * @file Device connection interfaces for health journey
- * @description Defines TypeScript interfaces and enums for device connections in the AUSTA SuperApp
+ * @file Device connection interfaces for the Health journey
+ * @description Defines interfaces and enums for wearable device connections
  */
 
 /**
@@ -27,9 +27,8 @@ export enum DeviceType {
 }
 
 /**
- * Interface representing a connection between a user's health record and a wearable device.
- * This interface defines the data structure for device connections, including connection status
- * and synchronization details.
+ * Represents a connection between a user's health record and a wearable device.
+ * This interface stores information about the device, its connection status, and synchronization details.
  */
 export interface IDeviceConnection {
   /**
