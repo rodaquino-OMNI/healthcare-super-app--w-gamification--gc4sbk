@@ -1,5 +1,5 @@
 /**
- * Test Events Producer
+ * @file Test Events Producer
  * 
  * Utility for generating test events for all supported event types across journey services.
  * This file provides factory methods for creating standardized, valid test events with
@@ -7,533 +7,926 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { EventType } from '../src/dto/event-types.enum';
-import { BaseEventDto } from '../src/dto/base-event.dto';
-import { HealthMetricEventDto } from '../src/dto/health-metric-event.dto';
-import { HealthGoalEventDto } from '../src/dto/health-goal-event.dto';
-import { AppointmentEventDto } from '../src/dto/appointment-event.dto';
-import { MedicationEventDto } from '../src/dto/medication-event.dto';
-import { ClaimEventDto } from '../src/dto/claim-event.dto';
-import { BenefitEventDto } from '../src/dto/benefit-event.dto';
-import { PlanEventDto } from '../src/dto/plan-event.dto';
-import { CareEventDto } from '../src/dto/care-event.dto';
-import { HealthEventDto } from '../src/dto/health-event.dto';
+import {
+  EventType,
+  EventJourney,
+  GamificationEvent,
+  EventVersion,
+  EventPayload,
+  ProcessGamificationEventDto,
+  // Health Journey Event Payloads
+  HealthMetricRecordedPayload,
+  HealthGoalPayload,
+  HealthGoalAchievedPayload,
+  HealthGoalStreakPayload,
+  DeviceEventPayload,
+  // Care Journey Event Payloads
+  AppointmentEventPayload,
+  MedicationEventPayload,
+  TelemedicineEventPayload,
+  TreatmentPlanEventPayload,
+  // Plan Journey Event Payloads
+  ClaimEventPayload,
+  BenefitUtilizedPayload,
+  PlanEventPayload,
+  // Cross-Journey Event Payloads
+  AchievementUnlockedPayload,
+  QuestCompletedPayload,
+  XpEarnedPayload,
+  LevelUpPayload
+} from '@austa/interfaces/gamification';
+
+// Import journey-specific interfaces for type checking
+import {
+  MetricType,
+  GoalType,
+  GoalPeriod,
+  DeviceType
+} from '@austa/interfaces/journey/health';
+
+import {
+  AppointmentType
+} from '@austa/interfaces/journey/care';
+
+import {
+  ClaimStatus
+} from '@austa/interfaces/journey/plan';
 
 /**
- * Interface for common event options that apply to all event types
+ * Default event version for test events
+ */
+const DEFAULT_EVENT_VERSION: EventVersion = {
+  major: 1,
+  minor: 0,
+  patch: 0
+};
+
+/**
+ * Options for customizing generated test events
  */
 export interface TestEventOptions {
+  /** Custom user ID (defaults to a random UUID) */
   userId?: string;
-  timestamp?: string;
+  /** Custom event ID (defaults to a random UUID) */
   eventId?: string;
-  version?: string;
-  metadata?: Record<string, any>;
+  /** Custom timestamp (defaults to current time) */
+  timestamp?: string;
+  /** Custom event version (defaults to 1.0.0) */
+  version?: EventVersion;
+  /** Custom source system (defaults to 'test') */
+  source?: string;
+  /** Custom correlation ID (defaults to a random UUID) */
+  correlationId?: string;
+  /** Custom payload data to merge with defaults */
+  payload?: Partial<EventPayload>;
 }
 
 /**
- * Base class for test event generation
+ * Utility class for generating test events for all supported event types
+ * across journey services. Provides factory methods for creating standardized,
+ * valid test events with customizable payloads.
  */
 export class TestEventsProducer {
   /**
-   * Creates a base event with common properties
+   * Creates a base gamification event with default values
    * 
    * @param type - The event type
-   * @param options - Common event options
-   * @returns A base event object with common properties
+   * @param journey - The journey associated with the event
+   * @param options - Optional customization options
+   * @returns A base gamification event
    */
-  static createBaseEvent(type: EventType, options: TestEventOptions = {}): BaseEventDto {
+  private static createBaseEvent(
+    type: EventType,
+    journey: EventJourney,
+    options: TestEventOptions = {}
+  ): Omit<GamificationEvent, 'payload'> {
+    const now = new Date();
+    
     return {
       eventId: options.eventId || uuidv4(),
-      userId: options.userId || '12345678-1234-1234-1234-123456789012',
-      timestamp: options.timestamp || new Date().toISOString(),
       type,
-      version: options.version || '1.0.0',
-      metadata: options.metadata || {
-        source: 'test-events-producer',
-        correlationId: uuidv4(),
-      },
-      data: {}
+      userId: options.userId || uuidv4(),
+      journey,
+      version: options.version || DEFAULT_EVENT_VERSION,
+      createdAt: options.timestamp || now.toISOString(),
+      source: options.source || 'test',
+      correlationId: options.correlationId || uuidv4()
     };
   }
 
   /**
-   * Health Journey Event Factories
-   */
-  static health = {
-    /**
-     * Creates a health metric recording event
-     * 
-     * @param metricType - Type of health metric (HEART_RATE, BLOOD_PRESSURE, etc.)
-     * @param value - Metric value
-     * @param options - Common event options
-     * @returns A valid health metric event
-     */
-    createMetricRecordedEvent: (
-      metricType: string = 'HEART_RATE',
-      value: number | string = 75,
-      options: TestEventOptions = {}
-    ): HealthMetricEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.HEALTH_METRIC_RECORDED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          metricType,
-          value: typeof value === 'number' ? value : parseFloat(value),
-          unit: metricType === 'HEART_RATE' ? 'bpm' : 
-                metricType === 'BLOOD_PRESSURE' ? 'mmHg' :
-                metricType === 'BLOOD_GLUCOSE' ? 'mg/dL' :
-                metricType === 'WEIGHT' ? 'kg' :
-                metricType === 'STEPS' ? 'steps' :
-                metricType === 'SLEEP' ? 'hours' : 'unknown',
-          recordedAt: new Date().toISOString(),
-          source: 'manual',
-          deviceId: null,
-        }
-      };
-    },
-
-    /**
-     * Creates a health goal achieved event
-     * 
-     * @param goalType - Type of health goal (STEPS, WEIGHT, etc.)
-     * @param options - Common event options
-     * @returns A valid health goal achieved event
-     */
-    createGoalAchievedEvent: (
-      goalType: string = 'STEPS',
-      options: TestEventOptions = {}
-    ): HealthGoalEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.HEALTH_GOAL_ACHIEVED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          goalId: uuidv4(),
-          goalType,
-          targetValue: goalType === 'STEPS' ? 10000 :
-                      goalType === 'WEIGHT' ? 70 :
-                      goalType === 'SLEEP' ? 8 : 100,
-          achievedValue: goalType === 'STEPS' ? 10050 :
-                        goalType === 'WEIGHT' ? 70 :
-                        goalType === 'SLEEP' ? 8.2 : 100,
-          achievedAt: new Date().toISOString(),
-          streakCount: 3,
-        }
-      };
-    },
-
-    /**
-     * Creates a device connected event
-     * 
-     * @param deviceType - Type of device (Smartwatch, Blood Pressure Monitor, etc.)
-     * @param options - Common event options
-     * @returns A valid device connected event
-     */
-    createDeviceConnectedEvent: (
-      deviceType: string = 'Smartwatch',
-      options: TestEventOptions = {}
-    ): HealthEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.HEALTH_DEVICE_CONNECTED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          deviceId: uuidv4(),
-          deviceType,
-          manufacturer: 'Test Manufacturer',
-          model: 'Test Model',
-          connectedAt: new Date().toISOString(),
-          capabilities: deviceType === 'Smartwatch' ? ['HEART_RATE', 'STEPS', 'SLEEP'] :
-                        deviceType === 'Blood Pressure Monitor' ? ['BLOOD_PRESSURE'] :
-                        deviceType === 'Glucose Monitor' ? ['BLOOD_GLUCOSE'] :
-                        deviceType === 'Smart Scale' ? ['WEIGHT'] : [],
-        }
-      };
-    },
-
-    /**
-     * Creates a health insight generated event
-     * 
-     * @param insightType - Type of health insight
-     * @param options - Common event options
-     * @returns A valid health insight event
-     */
-    createInsightGeneratedEvent: (
-      insightType: string = 'ACTIVITY_TREND',
-      options: TestEventOptions = {}
-    ): HealthEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.HEALTH_INSIGHT_GENERATED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          insightId: uuidv4(),
-          insightType,
-          title: `Your ${insightType.toLowerCase().replace('_', ' ')} analysis`,
-          description: `This is a test insight about your ${insightType.toLowerCase().replace('_', ' ')}.`,
-          generatedAt: new Date().toISOString(),
-          relatedMetrics: insightType === 'ACTIVITY_TREND' ? ['STEPS'] :
-                          insightType === 'SLEEP_QUALITY' ? ['SLEEP'] :
-                          insightType === 'HEART_HEALTH' ? ['HEART_RATE', 'BLOOD_PRESSURE'] : [],
-          severity: 'INFORMATIONAL',
-        }
-      };
-    },
-  };
-
-  /**
-   * Care Journey Event Factories
-   */
-  static care = {
-    /**
-     * Creates an appointment booked event
-     * 
-     * @param specialtyName - Medical specialty for the appointment
-     * @param options - Common event options
-     * @returns A valid appointment booked event
-     */
-    createAppointmentBookedEvent: (
-      specialtyName: string = 'Cardiologia',
-      options: TestEventOptions = {}
-    ): AppointmentEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.CARE_APPOINTMENT_BOOKED,
-        options
-      );
-      
-      // Set appointment date to 7 days in the future
-      const appointmentDate = new Date();
-      appointmentDate.setDate(appointmentDate.getDate() + 7);
-      
-      return {
-        ...baseEvent,
-        data: {
-          appointmentId: uuidv4(),
-          providerId: uuidv4(),
-          providerName: `Dr. Test ${specialtyName}`,
-          specialtyName,
-          appointmentDate: appointmentDate.toISOString(),
-          appointmentType: 'IN_PERSON',
-          location: 'Test Clinic',
-          status: 'CONFIRMED',
-          bookedAt: new Date().toISOString(),
-        }
-      };
-    },
-
-    /**
-     * Creates an appointment completed event
-     * 
-     * @param appointmentId - ID of the appointment (optional, will generate if not provided)
-     * @param options - Common event options
-     * @returns A valid appointment completed event
-     */
-    createAppointmentCompletedEvent: (
-      appointmentId: string = uuidv4(),
-      options: TestEventOptions = {}
-    ): AppointmentEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.CARE_APPOINTMENT_COMPLETED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          appointmentId,
-          completedAt: new Date().toISOString(),
-          duration: 30, // minutes
-          followUpRecommended: Math.random() > 0.5,
-          notes: 'Test appointment completion notes',
-        }
-      };
-    },
-
-    /**
-     * Creates a medication taken event
-     * 
-     * @param medicationName - Name of the medication
-     * @param options - Common event options
-     * @returns A valid medication taken event
-     */
-    createMedicationTakenEvent: (
-      medicationName: string = 'Test Medication',
-      options: TestEventOptions = {}
-    ): MedicationEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.CARE_MEDICATION_TAKEN,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          medicationId: uuidv4(),
-          medicationName,
-          dosage: '10mg',
-          takenAt: new Date().toISOString(),
-          scheduledFor: new Date().toISOString(),
-          adherence: 'ON_TIME',
-        }
-      };
-    },
-
-    /**
-     * Creates a telemedicine session event
-     * 
-     * @param sessionStatus - Status of the telemedicine session
-     * @param options - Common event options
-     * @returns A valid telemedicine session event
-     */
-    createTelemedicineSessionEvent: (
-      sessionStatus: 'STARTED' | 'COMPLETED' | 'CANCELLED' = 'COMPLETED',
-      options: TestEventOptions = {}
-    ): CareEventDto => {
-      const eventType = sessionStatus === 'STARTED' ? EventType.CARE_TELEMEDICINE_STARTED :
-                        sessionStatus === 'COMPLETED' ? EventType.CARE_TELEMEDICINE_COMPLETED :
-                        EventType.CARE_TELEMEDICINE_CANCELLED;
-      
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        eventType,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          sessionId: uuidv4(),
-          providerId: uuidv4(),
-          providerName: 'Dr. Test Telemedicine',
-          specialtyName: 'Clínico Geral',
-          startedAt: sessionStatus !== 'CANCELLED' ? new Date().toISOString() : null,
-          endedAt: sessionStatus === 'COMPLETED' ? new Date().toISOString() : null,
-          duration: sessionStatus === 'COMPLETED' ? 15 : null, // minutes
-          status: sessionStatus,
-          reason: sessionStatus === 'CANCELLED' ? 'Test cancellation reason' : null,
-        }
-      };
-    },
-  };
-
-  /**
-   * Plan Journey Event Factories
-   */
-  static plan = {
-    /**
-     * Creates a claim submitted event
-     * 
-     * @param claimType - Type of claim
-     * @param amount - Claim amount
-     * @param options - Common event options
-     * @returns A valid claim submitted event
-     */
-    createClaimSubmittedEvent: (
-      claimType: string = 'Consulta Médica',
-      amount: number = 150.0,
-      options: TestEventOptions = {}
-    ): ClaimEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.PLAN_CLAIM_SUBMITTED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          claimId: uuidv4(),
-          claimType,
-          amount,
-          currency: 'BRL',
-          serviceDate: new Date().toISOString(),
-          providerName: 'Test Provider',
-          submittedAt: new Date().toISOString(),
-          status: 'SUBMITTED',
-          documentCount: 2,
-        }
-      };
-    },
-
-    /**
-     * Creates a claim status updated event
-     * 
-     * @param claimId - ID of the claim (optional, will generate if not provided)
-     * @param newStatus - New status of the claim
-     * @param options - Common event options
-     * @returns A valid claim status updated event
-     */
-    createClaimStatusUpdatedEvent: (
-      claimId: string = uuidv4(),
-      newStatus: 'APPROVED' | 'REJECTED' | 'PENDING_INFORMATION' = 'APPROVED',
-      options: TestEventOptions = {}
-    ): ClaimEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.PLAN_CLAIM_STATUS_UPDATED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          claimId,
-          previousStatus: 'SUBMITTED',
-          newStatus,
-          updatedAt: new Date().toISOString(),
-          approvedAmount: newStatus === 'APPROVED' ? 150.0 : null,
-          rejectionReason: newStatus === 'REJECTED' ? 'Test rejection reason' : null,
-          requiredInformation: newStatus === 'PENDING_INFORMATION' ? ['Additional receipt', 'Medical report'] : null,
-        }
-      };
-    },
-
-    /**
-     * Creates a benefit used event
-     * 
-     * @param benefitType - Type of benefit
-     * @param options - Common event options
-     * @returns A valid benefit used event
-     */
-    createBenefitUsedEvent: (
-      benefitType: string = 'Gym Membership',
-      options: TestEventOptions = {}
-    ): BenefitEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.PLAN_BENEFIT_USED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          benefitId: uuidv4(),
-          benefitType,
-          usedAt: new Date().toISOString(),
-          location: 'Test Location',
-          value: benefitType === 'Gym Membership' ? 100.0 :
-                 benefitType === 'Nutrition Consultation' ? 80.0 :
-                 benefitType === 'Mental Health Support' ? 120.0 : 50.0,
-          remainingUses: 5,
-        }
-      };
-    },
-
-    /**
-     * Creates a plan selected event
-     * 
-     * @param planType - Type of insurance plan
-     * @param options - Common event options
-     * @returns A valid plan selected event
-     */
-    createPlanSelectedEvent: (
-      planType: string = 'Standard',
-      options: TestEventOptions = {}
-    ): PlanEventDto => {
-      const baseEvent = TestEventsProducer.createBaseEvent(
-        EventType.PLAN_SELECTED,
-        options
-      );
-      
-      return {
-        ...baseEvent,
-        data: {
-          planId: uuidv4(),
-          planType,
-          planName: `AUSTA ${planType}`,
-          coverageStartDate: new Date().toISOString(),
-          monthlyPremium: planType === 'Básico' ? 200.0 :
-                          planType === 'Standard' ? 350.0 :
-                          planType === 'Premium' ? 500.0 : 300.0,
-          currency: 'BRL',
-          selectedAt: new Date().toISOString(),
-          previousPlanId: null,
-        }
-      };
-    },
-  };
-
-  /**
-   * Creates a random event of any type for testing
+   * Creates a complete gamification event with the specified payload
    * 
-   * @param options - Common event options
-   * @returns A random valid event of any type
+   * @param type - The event type
+   * @param journey - The journey associated with the event
+   * @param payload - The event payload
+   * @param options - Optional customization options
+   * @returns A complete gamification event
    */
-  static createRandomEvent(options: TestEventOptions = {}): any {
-    const journeys = ['health', 'care', 'plan'];
-    const journey = journeys[Math.floor(Math.random() * journeys.length)];
+  public static createEvent<T extends EventPayload>(
+    type: EventType,
+    journey: EventJourney,
+    payload: T,
+    options: TestEventOptions = {}
+  ): GamificationEvent {
+    const baseEvent = this.createBaseEvent(type, journey, options);
+    const mergedPayload = { ...payload, ...options.payload };
     
-    switch (journey) {
-      case 'health':
-        const healthEvents = [
-          this.health.createMetricRecordedEvent,
-          this.health.createGoalAchievedEvent,
-          this.health.createDeviceConnectedEvent,
-          this.health.createInsightGeneratedEvent,
-        ];
-        return healthEvents[Math.floor(Math.random() * healthEvents.length)](undefined, options);
-      
-      case 'care':
-        const careEvents = [
-          this.care.createAppointmentBookedEvent,
-          this.care.createAppointmentCompletedEvent,
-          this.care.createMedicationTakenEvent,
-          this.care.createTelemedicineSessionEvent,
-        ];
-        return careEvents[Math.floor(Math.random() * careEvents.length)](undefined, options);
-      
-      case 'plan':
-        const planEvents = [
-          this.plan.createClaimSubmittedEvent,
-          this.plan.createClaimStatusUpdatedEvent,
-          this.plan.createBenefitUsedEvent,
-          this.plan.createPlanSelectedEvent,
-        ];
-        return planEvents[Math.floor(Math.random() * planEvents.length)](undefined, options);
-      
-      default:
-        return this.health.createMetricRecordedEvent(undefined, undefined, options);
+    // Add timestamp to payload if not present
+    if (!('timestamp' in mergedPayload)) {
+      (mergedPayload as any).timestamp = baseEvent.createdAt;
     }
+    
+    return {
+      ...baseEvent,
+      payload: mergedPayload as EventPayload
+    };
+  }
+
+  /**
+   * Creates a ProcessGamificationEventDto from a GamificationEvent
+   * for testing event processing
+   * 
+   * @param event - The gamification event
+   * @returns A ProcessGamificationEventDto
+   */
+  public static createProcessEventDto(event: GamificationEvent): ProcessGamificationEventDto {
+    return {
+      type: event.type,
+      userId: event.userId,
+      data: event.payload,
+      journey: event.journey,
+      version: event.version,
+      source: event.source,
+      correlationId: event.correlationId
+    };
   }
 
   /**
    * Creates a batch of random events for testing
    * 
-   * @param count - Number of events to create
-   * @param options - Common event options to apply to all events
-   * @returns An array of random valid events
+   * @param count - Number of events to generate
+   * @param options - Optional customization options
+   * @returns An array of gamification events
    */
-  static createRandomEventBatch(count: number = 10, options: TestEventOptions = {}): any[] {
-    const events = [];
+  public static createRandomEvents(count: number, options: TestEventOptions = {}): GamificationEvent[] {
+    const events: GamificationEvent[] = [];
+    const eventTypes = Object.values(EventType);
+    const journeys = Object.values(EventJourney);
+    
     for (let i = 0; i < count; i++) {
-      events.push(this.createRandomEvent(options));
+      const type = eventTypes[Math.floor(Math.random() * eventTypes.length)] as EventType;
+      const journey = this.getJourneyForEventType(type);
+      const payload = this.createPayloadForEventType(type, options);
+      
+      events.push(this.createEvent(type, journey, payload, options));
     }
+    
     return events;
   }
 
   /**
-   * Creates a batch of events of the same type for testing
+   * Determines the appropriate journey for an event type
    * 
-   * @param eventFactory - Factory function to create events
-   * @param count - Number of events to create
-   * @param options - Common event options to apply to all events
-   * @returns An array of events of the same type
+   * @param type - The event type
+   * @returns The appropriate journey for the event type
    */
-  static createEventBatch<T>(eventFactory: (options: TestEventOptions) => T, count: number = 10, options: TestEventOptions = {}): T[] {
-    const events = [];
-    for (let i = 0; i < count; i++) {
-      events.push(eventFactory({ ...options, eventId: uuidv4() }));
+  private static getJourneyForEventType(type: EventType): EventJourney {
+    if (type.startsWith('HEALTH_') || type === 'DEVICE_CONNECTED' || type === 'DEVICE_SYNCED' || type === 'MEDICAL_EVENT_RECORDED') {
+      return EventJourney.HEALTH;
+    } else if (type.startsWith('APPOINTMENT_') || type.startsWith('MEDICATION_') || 
+               type.startsWith('TELEMEDICINE_') || type.startsWith('TREATMENT_') || 
+               type === 'SYMPTOM_CHECKER_USED' || type === 'PROVIDER_RATED') {
+      return EventJourney.CARE;
+    } else if (type.startsWith('CLAIM_') || type.startsWith('BENEFIT_') || 
+               type.startsWith('PLAN_') || type === 'COVERAGE_REVIEWED' || 
+               type === 'REWARD_REDEEMED') {
+      return EventJourney.PLAN;
+    } else {
+      return EventJourney.CROSS_JOURNEY;
     }
-    return events;
+  }
+
+  /**
+   * Creates an appropriate payload for the given event type
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns An appropriate payload for the event type
+   */
+  private static createPayloadForEventType(type: EventType, options: TestEventOptions = {}): EventPayload {
+    const timestamp = options.timestamp || new Date().toISOString();
+    
+    switch (type) {
+      // Health Journey Events
+      case EventType.HEALTH_METRIC_RECORDED:
+        return this.createHealthMetricRecordedPayload(options);
+      case EventType.HEALTH_GOAL_CREATED:
+      case EventType.HEALTH_GOAL_UPDATED:
+        return this.createHealthGoalPayload(options);
+      case EventType.HEALTH_GOAL_ACHIEVED:
+        return this.createHealthGoalAchievedPayload(options);
+      case EventType.HEALTH_GOAL_STREAK_MAINTAINED:
+        return this.createHealthGoalStreakPayload(options);
+      case EventType.DEVICE_CONNECTED:
+      case EventType.DEVICE_SYNCED:
+        return this.createDeviceEventPayload(type, options);
+      
+      // Care Journey Events
+      case EventType.APPOINTMENT_BOOKED:
+      case EventType.APPOINTMENT_ATTENDED:
+      case EventType.APPOINTMENT_CANCELLED:
+        return this.createAppointmentEventPayload(type, options);
+      case EventType.MEDICATION_ADDED:
+      case EventType.MEDICATION_TAKEN:
+      case EventType.MEDICATION_ADHERENCE_STREAK:
+        return this.createMedicationEventPayload(type, options);
+      case EventType.TELEMEDICINE_SESSION_STARTED:
+      case EventType.TELEMEDICINE_SESSION_COMPLETED:
+        return this.createTelemedicineEventPayload(type, options);
+      case EventType.TREATMENT_PLAN_CREATED:
+      case EventType.TREATMENT_PLAN_PROGRESS:
+      case EventType.TREATMENT_PLAN_COMPLETED:
+        return this.createTreatmentPlanEventPayload(type, options);
+      
+      // Plan Journey Events
+      case EventType.CLAIM_SUBMITTED:
+      case EventType.CLAIM_APPROVED:
+      case EventType.CLAIM_DOCUMENT_UPLOADED:
+        return this.createClaimEventPayload(type, options);
+      case EventType.BENEFIT_UTILIZED:
+        return this.createBenefitUtilizedPayload(options);
+      case EventType.PLAN_SELECTED:
+      case EventType.PLAN_COMPARED:
+      case EventType.PLAN_RENEWED:
+        return this.createPlanEventPayload(type, options);
+      
+      // Cross-Journey Events
+      case EventType.ACHIEVEMENT_UNLOCKED:
+        return this.createAchievementUnlockedPayload(options);
+      case EventType.QUEST_COMPLETED:
+        return this.createQuestCompletedPayload(options);
+      case EventType.XP_EARNED:
+        return this.createXpEarnedPayload(options);
+      case EventType.LEVEL_UP:
+        return this.createLevelUpPayload(options);
+      
+      // Default case for other event types
+      default:
+        return {
+          timestamp,
+          metadata: {
+            eventType: type,
+            testEvent: true
+          }
+        };
+    }
+  }
+
+  // Health Journey Event Payload Generators
+
+  /**
+   * Creates a payload for HEALTH_METRIC_RECORDED events
+   * 
+   * @param options - Optional customization options
+   * @returns A HealthMetricRecordedPayload
+   */
+  public static createHealthMetricRecordedPayload(options: TestEventOptions = {}): HealthMetricRecordedPayload {
+    const metricTypes = ['HEART_RATE', 'BLOOD_PRESSURE', 'BLOOD_GLUCOSE', 'STEPS', 'WEIGHT', 'SLEEP'];
+    const metricType = options.payload?.metricType as string || metricTypes[Math.floor(Math.random() * metricTypes.length)];
+    
+    let value: number;
+    let unit: string;
+    let isWithinHealthyRange: boolean;
+    
+    // Set appropriate values based on metric type
+    switch (metricType) {
+      case 'HEART_RATE':
+        value = options.payload?.value as number || Math.floor(Math.random() * 50) + 60; // 60-110 bpm
+        unit = 'bpm';
+        isWithinHealthyRange = value >= 60 && value <= 100;
+        break;
+      case 'BLOOD_PRESSURE':
+        value = options.payload?.value as number || Math.floor(Math.random() * 40) + 110; // Systolic 110-150
+        unit = 'mmHg';
+        isWithinHealthyRange = value >= 90 && value <= 120;
+        break;
+      case 'BLOOD_GLUCOSE':
+        value = options.payload?.value as number || Math.floor(Math.random() * 50) + 70; // 70-120 mg/dL
+        unit = 'mg/dL';
+        isWithinHealthyRange = value >= 70 && value <= 100;
+        break;
+      case 'STEPS':
+        value = options.payload?.value as number || Math.floor(Math.random() * 10000) + 2000; // 2000-12000 steps
+        unit = 'steps';
+        isWithinHealthyRange = value >= 5000;
+        break;
+      case 'WEIGHT':
+        value = options.payload?.value as number || Math.floor(Math.random() * 50) + 50; // 50-100 kg
+        unit = 'kg';
+        isWithinHealthyRange = true; // No specific range for weight
+        break;
+      case 'SLEEP':
+        value = options.payload?.value as number || Math.floor(Math.random() * 4) + 5; // 5-9 hours
+        unit = 'hours';
+        isWithinHealthyRange = value >= 7 && value <= 9;
+        break;
+      default:
+        value = options.payload?.value as number || Math.floor(Math.random() * 100);
+        unit = options.payload?.unit as string || 'units';
+        isWithinHealthyRange = true;
+    }
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      metricType,
+      value,
+      unit,
+      source: options.payload?.source as string || 'manual',
+      isWithinHealthyRange,
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for HEALTH_GOAL_CREATED and HEALTH_GOAL_UPDATED events
+   * 
+   * @param options - Optional customization options
+   * @returns A HealthGoalPayload
+   */
+  public static createHealthGoalPayload(options: TestEventOptions = {}): HealthGoalPayload {
+    const goalTypes = ['STEPS', 'WEIGHT', 'SLEEP', 'HEART_RATE', 'BLOOD_PRESSURE', 'BLOOD_GLUCOSE'];
+    const periods = ['DAILY', 'WEEKLY', 'MONTHLY'];
+    
+    const goalType = options.payload?.goalType as string || goalTypes[Math.floor(Math.random() * goalTypes.length)];
+    let targetValue: number;
+    let unit: string;
+    
+    // Set appropriate values based on goal type
+    switch (goalType) {
+      case 'STEPS':
+        targetValue = options.payload?.targetValue as number || 10000;
+        unit = 'steps';
+        break;
+      case 'WEIGHT':
+        targetValue = options.payload?.targetValue as number || 70;
+        unit = 'kg';
+        break;
+      case 'SLEEP':
+        targetValue = options.payload?.targetValue as number || 8;
+        unit = 'hours';
+        break;
+      case 'HEART_RATE':
+        targetValue = options.payload?.targetValue as number || 70;
+        unit = 'bpm';
+        break;
+      case 'BLOOD_PRESSURE':
+        targetValue = options.payload?.targetValue as number || 120;
+        unit = 'mmHg';
+        break;
+      case 'BLOOD_GLUCOSE':
+        targetValue = options.payload?.targetValue as number || 90;
+        unit = 'mg/dL';
+        break;
+      default:
+        targetValue = options.payload?.targetValue as number || 100;
+        unit = options.payload?.unit as string || 'units';
+    }
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      goalId: options.payload?.goalId as string || uuidv4(),
+      goalType,
+      targetValue,
+      unit,
+      period: options.payload?.period as string || periods[Math.floor(Math.random() * periods.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for HEALTH_GOAL_ACHIEVED events
+   * 
+   * @param options - Optional customization options
+   * @returns A HealthGoalAchievedPayload
+   */
+  public static createHealthGoalAchievedPayload(options: TestEventOptions = {}): HealthGoalAchievedPayload {
+    const baseGoal = this.createHealthGoalPayload(options);
+    
+    return {
+      ...baseGoal,
+      completionPercentage: options.payload?.completionPercentage as number || 100,
+      isFirstTimeAchievement: options.payload?.isFirstTimeAchievement as boolean || Math.random() > 0.7 // 30% chance of first time
+    };
+  }
+
+  /**
+   * Creates a payload for HEALTH_GOAL_STREAK_MAINTAINED events
+   * 
+   * @param options - Optional customization options
+   * @returns A HealthGoalStreakPayload
+   */
+  public static createHealthGoalStreakPayload(options: TestEventOptions = {}): HealthGoalStreakPayload {
+    const goalTypes = ['STEPS', 'SLEEP', 'HEART_RATE', 'BLOOD_PRESSURE', 'BLOOD_GLUCOSE'];
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      goalId: options.payload?.goalId as string || uuidv4(),
+      streakCount: options.payload?.streakCount as number || Math.floor(Math.random() * 30) + 1, // 1-30 day streak
+      goalType: options.payload?.goalType as string || goalTypes[Math.floor(Math.random() * goalTypes.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for DEVICE_CONNECTED and DEVICE_SYNCED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A DeviceEventPayload
+   */
+  public static createDeviceEventPayload(type: EventType, options: TestEventOptions = {}): DeviceEventPayload {
+    const deviceTypes = ['Smartwatch', 'Blood Pressure Monitor', 'Glucose Monitor', 'Smart Scale'];
+    const manufacturers = ['Apple', 'Samsung', 'Fitbit', 'Garmin', 'Omron', 'Withings'];
+    
+    const payload: DeviceEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      deviceId: options.payload?.deviceId as string || uuidv4(),
+      deviceType: options.payload?.deviceType as string || deviceTypes[Math.floor(Math.random() * deviceTypes.length)],
+      manufacturer: options.payload?.manufacturer as string || manufacturers[Math.floor(Math.random() * manufacturers.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add metricCount for DEVICE_SYNCED events
+    if (type === EventType.DEVICE_SYNCED) {
+      payload.metricCount = options.payload?.metricCount as number || Math.floor(Math.random() * 20) + 1; // 1-20 metrics
+    }
+    
+    return payload;
+  }
+
+  // Care Journey Event Payload Generators
+
+  /**
+   * Creates a payload for APPOINTMENT_BOOKED, APPOINTMENT_ATTENDED, and APPOINTMENT_CANCELLED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns An AppointmentEventPayload
+   */
+  public static createAppointmentEventPayload(type: EventType, options: TestEventOptions = {}): AppointmentEventPayload {
+    const appointmentTypes = ['CONSULTATION', 'FOLLOW_UP', 'EXAMINATION', 'PROCEDURE', 'THERAPY'];
+    
+    const payload: AppointmentEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      appointmentId: options.payload?.appointmentId as string || uuidv4(),
+      appointmentType: options.payload?.appointmentType as string || appointmentTypes[Math.floor(Math.random() * appointmentTypes.length)],
+      providerId: options.payload?.providerId as string || uuidv4(),
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add isFirstAppointment for APPOINTMENT_BOOKED and APPOINTMENT_ATTENDED events
+    if (type === EventType.APPOINTMENT_BOOKED || type === EventType.APPOINTMENT_ATTENDED) {
+      payload.isFirstAppointment = options.payload?.isFirstAppointment as boolean || Math.random() > 0.7; // 30% chance of first appointment
+    }
+    
+    // Add cancellationReason for APPOINTMENT_CANCELLED events
+    if (type === EventType.APPOINTMENT_CANCELLED) {
+      const cancellationReasons = ['RESCHEDULED', 'PATIENT_REQUEST', 'PROVIDER_UNAVAILABLE', 'EMERGENCY', 'OTHER'];
+      payload.cancellationReason = options.payload?.cancellationReason as string || 
+                                  cancellationReasons[Math.floor(Math.random() * cancellationReasons.length)];
+    }
+    
+    return payload;
+  }
+
+  /**
+   * Creates a payload for MEDICATION_ADDED, MEDICATION_TAKEN, and MEDICATION_ADHERENCE_STREAK events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A MedicationEventPayload
+   */
+  public static createMedicationEventPayload(type: EventType, options: TestEventOptions = {}): MedicationEventPayload {
+    const medicationNames = ['Atorvastatin', 'Lisinopril', 'Levothyroxine', 'Metformin', 'Amlodipine', 'Metoprolol', 'Omeprazole'];
+    
+    const payload: MedicationEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      medicationId: options.payload?.medicationId as string || uuidv4(),
+      medicationName: options.payload?.medicationName as string || medicationNames[Math.floor(Math.random() * medicationNames.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add streakCount for MEDICATION_ADHERENCE_STREAK events
+    if (type === EventType.MEDICATION_ADHERENCE_STREAK) {
+      payload.streakCount = options.payload?.streakCount as number || Math.floor(Math.random() * 30) + 1; // 1-30 day streak
+    }
+    
+    // Add takenOnTime for MEDICATION_TAKEN events
+    if (type === EventType.MEDICATION_TAKEN) {
+      payload.takenOnTime = options.payload?.takenOnTime as boolean || Math.random() > 0.2; // 80% chance of taking on time
+    }
+    
+    return payload;
+  }
+
+  /**
+   * Creates a payload for TELEMEDICINE_SESSION_STARTED and TELEMEDICINE_SESSION_COMPLETED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A TelemedicineEventPayload
+   */
+  public static createTelemedicineEventPayload(type: EventType, options: TestEventOptions = {}): TelemedicineEventPayload {
+    const payload: TelemedicineEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      sessionId: options.payload?.sessionId as string || uuidv4(),
+      providerId: options.payload?.providerId as string || uuidv4(),
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add isFirstSession for both event types
+    payload.isFirstSession = options.payload?.isFirstSession as boolean || Math.random() > 0.7; // 30% chance of first session
+    
+    // Add durationMinutes for TELEMEDICINE_SESSION_COMPLETED events
+    if (type === EventType.TELEMEDICINE_SESSION_COMPLETED) {
+      payload.durationMinutes = options.payload?.durationMinutes as number || Math.floor(Math.random() * 30) + 10; // 10-40 minutes
+    }
+    
+    return payload;
+  }
+
+  /**
+   * Creates a payload for TREATMENT_PLAN_CREATED, TREATMENT_PLAN_PROGRESS, and TREATMENT_PLAN_COMPLETED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A TreatmentPlanEventPayload
+   */
+  public static createTreatmentPlanEventPayload(type: EventType, options: TestEventOptions = {}): TreatmentPlanEventPayload {
+    const planTypes = ['MEDICATION', 'PHYSICAL_THERAPY', 'DIET', 'EXERCISE', 'MENTAL_HEALTH'];
+    
+    const payload: TreatmentPlanEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      planId: options.payload?.planId as string || uuidv4(),
+      planType: options.payload?.planType as string || planTypes[Math.floor(Math.random() * planTypes.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add progressPercentage for TREATMENT_PLAN_PROGRESS events
+    if (type === EventType.TREATMENT_PLAN_PROGRESS) {
+      payload.progressPercentage = options.payload?.progressPercentage as number || Math.floor(Math.random() * 100) + 1; // 1-100%
+    }
+    
+    // Add completedOnSchedule for TREATMENT_PLAN_COMPLETED events
+    if (type === EventType.TREATMENT_PLAN_COMPLETED) {
+      payload.completedOnSchedule = options.payload?.completedOnSchedule as boolean || Math.random() > 0.3; // 70% chance of completing on schedule
+    }
+    
+    return payload;
+  }
+
+  // Plan Journey Event Payload Generators
+
+  /**
+   * Creates a payload for CLAIM_SUBMITTED, CLAIM_APPROVED, and CLAIM_DOCUMENT_UPLOADED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A ClaimEventPayload
+   */
+  public static createClaimEventPayload(type: EventType, options: TestEventOptions = {}): ClaimEventPayload {
+    const claimTypes = ['CONSULTATION', 'EXAMINATION', 'PROCEDURE', 'MEDICATION', 'THERAPY', 'HOSPITALIZATION'];
+    
+    const payload: ClaimEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      claimId: options.payload?.claimId as string || uuidv4(),
+      claimType: options.payload?.claimType as string || claimTypes[Math.floor(Math.random() * claimTypes.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add amount for CLAIM_SUBMITTED and CLAIM_APPROVED events
+    if (type === EventType.CLAIM_SUBMITTED || type === EventType.CLAIM_APPROVED) {
+      payload.amount = options.payload?.amount as number || Math.floor(Math.random() * 1000) + 100; // R$100-1100
+    }
+    
+    // Add documentCount for CLAIM_DOCUMENT_UPLOADED events
+    if (type === EventType.CLAIM_DOCUMENT_UPLOADED) {
+      payload.documentCount = options.payload?.documentCount as number || Math.floor(Math.random() * 5) + 1; // 1-5 documents
+    }
+    
+    return payload;
+  }
+
+  /**
+   * Creates a payload for BENEFIT_UTILIZED events
+   * 
+   * @param options - Optional customization options
+   * @returns A BenefitUtilizedPayload
+   */
+  public static createBenefitUtilizedPayload(options: TestEventOptions = {}): BenefitUtilizedPayload {
+    const benefitTypes = ['CONSULTATION', 'EXAMINATION', 'PROCEDURE', 'MEDICATION', 'THERAPY', 'WELLNESS', 'PREVENTION'];
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      benefitId: options.payload?.benefitId as string || uuidv4(),
+      benefitType: options.payload?.benefitType as string || benefitTypes[Math.floor(Math.random() * benefitTypes.length)],
+      value: options.payload?.value as number || Math.floor(Math.random() * 500) + 50, // R$50-550
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for PLAN_SELECTED, PLAN_COMPARED, and PLAN_RENEWED events
+   * 
+   * @param type - The event type
+   * @param options - Optional customization options
+   * @returns A PlanEventPayload
+   */
+  public static createPlanEventPayload(type: EventType, options: TestEventOptions = {}): PlanEventPayload {
+    const planTypes = ['BASIC', 'STANDARD', 'PREMIUM', 'FAMILY', 'SENIOR'];
+    
+    const payload: PlanEventPayload = {
+      timestamp: options.timestamp || new Date().toISOString(),
+      planId: options.payload?.planId as string || uuidv4(),
+      planType: options.payload?.planType as string || planTypes[Math.floor(Math.random() * planTypes.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+    
+    // Add isUpgrade for PLAN_SELECTED and PLAN_RENEWED events
+    if (type === EventType.PLAN_SELECTED || type === EventType.PLAN_RENEWED) {
+      payload.isUpgrade = options.payload?.isUpgrade as boolean || Math.random() > 0.5; // 50% chance of upgrade
+    }
+    
+    // Add comparedPlanIds for PLAN_COMPARED events
+    if (type === EventType.PLAN_COMPARED) {
+      payload.comparedPlanIds = options.payload?.comparedPlanIds as string[] || [
+        uuidv4(),
+        uuidv4(),
+        uuidv4().slice(0, 8) // Shorter ID for variety
+      ];
+    }
+    
+    return payload;
+  }
+
+  // Cross-Journey Event Payload Generators
+
+  /**
+   * Creates a payload for ACHIEVEMENT_UNLOCKED events
+   * 
+   * @param options - Optional customization options
+   * @returns An AchievementUnlockedPayload
+   */
+  public static createAchievementUnlockedPayload(options: TestEventOptions = {}): AchievementUnlockedPayload {
+    const achievements = [
+      { title: 'Monitor de Saúde', description: 'Registre suas métricas de saúde por 7 dias consecutivos', journey: EventJourney.HEALTH },
+      { title: 'Caminhante Dedicado', description: 'Atinja sua meta diária de passos por 5 dias', journey: EventJourney.HEALTH },
+      { title: 'Compromisso com a Saúde', description: 'Compareça a 3 consultas agendadas', journey: EventJourney.CARE },
+      { title: 'Aderência ao Tratamento', description: 'Tome seus medicamentos conforme prescrito por 14 dias', journey: EventJourney.CARE },
+      { title: 'Mestre em Reembolsos', description: 'Submeta 5 solicitações de reembolso completas', journey: EventJourney.PLAN },
+      { title: 'Explorador de Benefícios', description: 'Utilize 3 benefícios diferentes do seu plano', journey: EventJourney.PLAN },
+      { title: 'Usuário Engajado', description: 'Use o aplicativo por 30 dias consecutivos', journey: EventJourney.CROSS_JOURNEY }
+    ];
+    
+    const achievement = options.payload?.achievementTitle ? 
+      { 
+        title: options.payload.achievementTitle as string,
+        description: options.payload.achievementDescription as string || 'Achievement description',
+        journey: options.payload.relatedJourney as EventJourney || EventJourney.CROSS_JOURNEY
+      } : 
+      achievements[Math.floor(Math.random() * achievements.length)];
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      achievementId: options.payload?.achievementId as string || uuidv4(),
+      achievementTitle: achievement.title,
+      achievementDescription: achievement.description,
+      xpEarned: options.payload?.xpEarned as number || Math.floor(Math.random() * 100) + 50, // 50-150 XP
+      relatedJourney: achievement.journey,
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for QUEST_COMPLETED events
+   * 
+   * @param options - Optional customization options
+   * @returns A QuestCompletedPayload
+   */
+  public static createQuestCompletedPayload(options: TestEventOptions = {}): QuestCompletedPayload {
+    const quests = [
+      'Semana da Hidratação',
+      'Desafio do Sono',
+      'Maratona de Passos',
+      'Controle de Medicamentos',
+      'Desafio de Consultas Preventivas',
+      'Explorador de Benefícios',
+      'Desafio Multijornada'
+    ];
+    
+    const questTitle = options.payload?.questTitle as string || quests[Math.floor(Math.random() * quests.length)];
+    const xpEarned = options.payload?.xpEarned as number || Math.floor(Math.random() * 200) + 100; // 100-300 XP
+    
+    const defaultRewards = [
+      {
+        rewardId: uuidv4(),
+        rewardType: 'XP_BOOST',
+        rewardValue: 10 // 10% XP boost
+      },
+      {
+        rewardId: uuidv4(),
+        rewardType: 'DISCOUNT',
+        rewardValue: 15 // 15% discount
+      }
+    ];
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      questId: options.payload?.questId as string || uuidv4(),
+      questTitle,
+      xpEarned,
+      rewards: options.payload?.rewards as Array<{ rewardId: string; rewardType: string; rewardValue: number }> || defaultRewards,
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for XP_EARNED events
+   * 
+   * @param options - Optional customization options
+   * @returns An XpEarnedPayload
+   */
+  public static createXpEarnedPayload(options: TestEventOptions = {}): XpEarnedPayload {
+    const sources = ['DAILY_LOGIN', 'ACHIEVEMENT', 'QUEST', 'ACTIVITY', 'REFERRAL'];
+    const journeys = [EventJourney.HEALTH, EventJourney.CARE, EventJourney.PLAN, EventJourney.CROSS_JOURNEY];
+    
+    const source = options.payload?.source as string || sources[Math.floor(Math.random() * sources.length)];
+    let description: string;
+    
+    switch (source) {
+      case 'DAILY_LOGIN':
+        description = 'Login diário no aplicativo';
+        break;
+      case 'ACHIEVEMENT':
+        description = 'Conquista desbloqueada';
+        break;
+      case 'QUEST':
+        description = 'Desafio completado';
+        break;
+      case 'ACTIVITY':
+        description = 'Atividade concluída';
+        break;
+      case 'REFERRAL':
+        description = 'Indicação de amigo';
+        break;
+      default:
+        description = 'XP ganho por atividade';
+    }
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      amount: options.payload?.amount as number || Math.floor(Math.random() * 50) + 10, // 10-60 XP
+      source,
+      description: options.payload?.description as string || description,
+      relatedJourney: options.payload?.relatedJourney as EventJourney || journeys[Math.floor(Math.random() * journeys.length)],
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  /**
+   * Creates a payload for LEVEL_UP events
+   * 
+   * @param options - Optional customization options
+   * @returns A LevelUpPayload
+   */
+  public static createLevelUpPayload(options: TestEventOptions = {}): LevelUpPayload {
+    const newLevel = options.payload?.newLevel as number || Math.floor(Math.random() * 10) + 2; // Level 2-11
+    const previousLevel = options.payload?.previousLevel as number || newLevel - 1;
+    
+    const defaultUnlockedRewards = [
+      {
+        rewardId: uuidv4(),
+        rewardType: 'BADGE',
+        rewardDescription: `Distintivo de Nível ${newLevel}`
+      },
+      {
+        rewardId: uuidv4(),
+        rewardType: 'DISCOUNT',
+        rewardDescription: `Desconto de ${newLevel * 2}% em consultas`
+      }
+    ];
+    
+    return {
+      timestamp: options.timestamp || new Date().toISOString(),
+      newLevel,
+      previousLevel,
+      totalXp: options.payload?.totalXp as number || newLevel * 100 + Math.floor(Math.random() * 50),
+      unlockedRewards: options.payload?.unlockedRewards as Array<{ rewardId: string; rewardType: string; rewardDescription: string }> || defaultUnlockedRewards,
+      metadata: options.payload?.metadata as Record<string, any> || {}
+    };
+  }
+
+  // Journey-specific event generators
+
+  /**
+   * Creates a health journey event
+   * 
+   * @param type - The health journey event type
+   * @param options - Optional customization options
+   * @returns A gamification event for the health journey
+   */
+  public static createHealthEvent(type: EventType, options: TestEventOptions = {}): GamificationEvent {
+    const payload = this.createPayloadForEventType(type, options);
+    return this.createEvent(type, EventJourney.HEALTH, payload, options);
+  }
+
+  /**
+   * Creates a care journey event
+   * 
+   * @param type - The care journey event type
+   * @param options - Optional customization options
+   * @returns A gamification event for the care journey
+   */
+  public static createCareEvent(type: EventType, options: TestEventOptions = {}): GamificationEvent {
+    const payload = this.createPayloadForEventType(type, options);
+    return this.createEvent(type, EventJourney.CARE, payload, options);
+  }
+
+  /**
+   * Creates a plan journey event
+   * 
+   * @param type - The plan journey event type
+   * @param options - Optional customization options
+   * @returns A gamification event for the plan journey
+   */
+  public static createPlanEvent(type: EventType, options: TestEventOptions = {}): GamificationEvent {
+    const payload = this.createPayloadForEventType(type, options);
+    return this.createEvent(type, EventJourney.PLAN, payload, options);
+  }
+
+  /**
+   * Creates a cross-journey event
+   * 
+   * @param type - The cross-journey event type
+   * @param options - Optional customization options
+   * @returns A gamification event for cross-journey functionality
+   */
+  public static createCrossJourneyEvent(type: EventType, options: TestEventOptions = {}): GamificationEvent {
+    const payload = this.createPayloadForEventType(type, options);
+    return this.createEvent(type, EventJourney.CROSS_JOURNEY, payload, options);
+  }
+
+  /**
+   * Validates that a generated event matches the expected schema
+   * 
+   * @param event - The event to validate
+   * @returns True if the event is valid, false otherwise
+   */
+  public static validateEvent(event: GamificationEvent): boolean {
+    // Basic validation
+    if (!event.eventId || !event.type || !event.userId || !event.journey || !event.payload) {
+      return false;
+    }
+    
+    // Validate version
+    if (!event.version || typeof event.version.major !== 'number' || 
+        typeof event.version.minor !== 'number' || typeof event.version.patch !== 'number') {
+      return false;
+    }
+    
+    // Validate timestamp
+    if (!event.createdAt || isNaN(Date.parse(event.createdAt))) {
+      return false;
+    }
+    
+    // Validate payload has timestamp
+    if (!event.payload.timestamp || isNaN(Date.parse(event.payload.timestamp))) {
+      return false;
+    }
+    
+    // Event type-specific validation
+    switch (event.type) {
+      case EventType.HEALTH_METRIC_RECORDED:
+        const metricPayload = event.payload as HealthMetricRecordedPayload;
+        return !!metricPayload.metricType && typeof metricPayload.value === 'number' && !!metricPayload.unit;
+      
+      case EventType.HEALTH_GOAL_CREATED:
+      case EventType.HEALTH_GOAL_UPDATED:
+        const goalPayload = event.payload as HealthGoalPayload;
+        return !!goalPayload.goalId && !!goalPayload.goalType && typeof goalPayload.targetValue === 'number';
+      
+      case EventType.HEALTH_GOAL_ACHIEVED:
+        const achievedPayload = event.payload as HealthGoalAchievedPayload;
+        return !!achievedPayload.goalId && typeof achievedPayload.completionPercentage === 'number';
+      
+      // Add more validations for other event types as needed
+      
+      default:
+        // Basic validation passed for other event types
+        return true;
+    }
   }
 }
+
+export default TestEventsProducer;
