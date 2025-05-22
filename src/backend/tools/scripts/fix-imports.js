@@ -3,24 +3,25 @@
 /**
  * ⚠️ DEPRECATED - DO NOT USE ⚠️
  * 
- * This script was causing TypeScript errors in the project and has been superseded.
- * It has been replaced with rollback-tsconfig.js that restores the original configuration.
+ * This script was causing TypeScript errors in the project and has been
+ * completely deprecated. It has been replaced with rollback-tsconfig.js
+ * that restores the original configuration.
  * 
  * This file is kept for historical reference only and should not be executed.
  * Compatible with Node.js ≥18.0.0 and TypeScript 5.3.3.
  */
 
 /**
- * This script fixes import paths across all TypeScript files in the monorepo
- * to use the proper path aliases set up in the tsconfig.json files.
- * It documents the previous manual import-fix workflow and path alias standardization approach.
+ * This script was originally used to fix import paths across all TypeScript files
+ * in the monorepo to use the proper path aliases set up in the tsconfig.json files.
+ * It is now superseded by more robust configuration in the refactored architecture.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-console.log('🔧 Starting import path fixes...');
+console.log('\u{1F527} Starting import path fixes...');
 
 // Base directory for the backend
 const baseDir = path.resolve(__dirname, '../../');
@@ -34,27 +35,26 @@ const services = [
   'plan-service',
   'gamification-engine',
   'notification-service',
-  'shared'
+  'shared',
+  'packages' // Added to support the refactored monorepo structure
 ];
 
 // Map of correct import paths
 const pathAliasMap = {
-  // Service path aliases
+  // Updated paths to match the refactored monorepo structure
   'src/backend/shared/': '@shared/',
-  'src/backend/api-gateway/': '@api/',
-  'src/backend/auth-service/': '@auth/',
-  'src/backend/health-service/': '@health/',
-  'src/backend/care-service/': '@care/',
-  'src/backend/plan-service/': '@plan/',
-  'src/backend/gamification-engine/': '@gamification/',
-  'src/backend/notification-service/': '@notification/',
-  
-  // Relative path aliases
+  'src/backend/api-gateway/': '@app/api/',
+  'src/backend/auth-service/': '@app/auth/',
+  'src/backend/health-service/': '@app/health/',
+  'src/backend/care-service/': '@app/care/',
+  'src/backend/plan-service/': '@app/plan/',
+  'src/backend/gamification-engine/': '@app/gamification/',
+  'src/backend/notification-service/': '@app/notification/',
+  'src/backend/packages/': '@austa/',
   '../../../shared/': '@shared/',
   '../../shared/': '@shared/',
   '../shared/': '@shared/',
-  
-  // New package path aliases for the refactored monorepo structure
+  // New package paths
   'src/web/design-system/': '@austa/design-system/',
   'src/web/primitives/': '@design-system/primitives/',
   'src/web/interfaces/': '@austa/interfaces/',
@@ -105,14 +105,14 @@ function fixImportsInFile(filePath) {
     // Write back to file if modified
     if (modified) {
       fs.writeFileSync(filePath, content);
-      console.log(`✅ Fixed imports in ${filePath}`);
+      console.log(`\u2705 Fixed imports in ${filePath}`);
       return true;
     } else {
-      console.log(`ℹ️ No imports to fix in ${filePath}`);
+      console.log(`\u2139\ufe0f No imports to fix in ${filePath}`);
       return false;
     }
   } catch (error) {
-    console.error(`❌ Error fixing imports in ${filePath}:`, error.message);
+    console.error(`\u274c Error fixing imports in ${filePath}:`, error.message);
     return false;
   }
 }
@@ -122,7 +122,7 @@ function processService(serviceName) {
   const servicePath = path.join(baseDir, serviceName);
   
   if (!fs.existsSync(servicePath)) {
-    console.error(`❌ Service directory not found: ${servicePath}`);
+    console.error(`\u274c Service directory not found: ${servicePath}`);
     return false;
   }
   
@@ -137,7 +137,7 @@ function processService(serviceName) {
     }
   });
   
-  console.log(`✅ Fixed imports in ${fixedFiles} files for ${serviceName}`);
+  console.log(`\u2705 Fixed imports in ${fixedFiles} files for ${serviceName}`);
   return true;
 }
 
@@ -152,26 +152,26 @@ try {
   });
   
   // Run TypeScript build after all imports are fixed
-  console.log('\n🔍 Running TypeScript build to check for remaining errors...');
+  console.log('\n\u{1F50D} Running TypeScript 5.3.3 build to check for remaining errors...');
   
   try {
-    // Use --noEmit to just check for errors without generating output
+    // Use --dry to just check for errors without generating output
     execSync('npx tsc -b --noEmit', { cwd: baseDir, stdio: 'inherit' });
-    console.log('✅ TypeScript 5.3.3 build successful!');
+    console.log('\u2705 TypeScript build successful!');
   } catch (buildError) {
-    console.log('⚠️ TypeScript build has errors. This might require manual fixing for specific issues.');
+    console.log('\u26a0\ufe0f TypeScript build has errors. This might require manual fixing for specific issues.');
     success = false;
   }
   
   if (success) {
-    console.log('\n🎉 Import path fixes completed successfully!');
-    console.log('⚠️ You may need to restart your TypeScript server for changes to take effect.');
+    console.log('\n\u{1F389} Import path fixes completed successfully!');
+    console.log('\u26a0\ufe0f You may need to restart your TypeScript server for changes to take effect.');
   } else {
-    console.error('\n⚠️ There were issues fixing some import paths.');
+    console.error('\n\u26a0\ufe0f There were issues fixing some import paths.');
     console.log('Try running the TypeScript build manually to check for specific errors:');
     console.log('  npx tsc -b');
   }
 } catch (error) {
-  console.error('\n❌ An unexpected error occurred:', error.message);
+  console.error('\n\u274c An unexpected error occurred:', error.message);
   process.exit(1);
 }
