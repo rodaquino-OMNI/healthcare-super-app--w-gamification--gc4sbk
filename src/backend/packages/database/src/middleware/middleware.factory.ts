@@ -1,81 +1,172 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '@austa/logging';
-import { TracingService } from '@austa/tracing';
+import { Prisma } from '@prisma/client';
+import { MetricsService } from '@austa/tracing';
 
 import {
   DatabaseMiddleware,
-  LoggingMiddleware,
-  PerformanceMiddleware,
-  TransformationMiddleware,
-  CircuitBreakerMiddleware,
+  MiddlewareChain,
   MiddlewareContext,
+  MiddlewareFactory as IMiddlewareFactory,
 } from './middleware.interface';
-import { LoggingMiddleware as LoggingMiddlewareImpl } from './logging.middleware';
-import { PerformanceMiddleware as PerformanceMiddlewareImpl } from './performance.middleware';
-import { QueryTransformationMiddleware } from './transformation.middleware';
-import { CircuitBreakerMiddleware as CircuitBreakerMiddlewareImpl } from './circuit-breaker.middleware';
-import { MiddlewareRegistry, JourneyContext } from './middleware.registry';
-import { OperationType } from '../types/circuit-breaker.types';
-
-/**
- * Enum representing the different journey types in the application
- */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  GLOBAL = 'global',
-}
+import { MiddlewareRegistry } from './middleware.registry';
+import { JourneyType } from '../types/journey.types';
+import { CircuitBreakerMiddleware } from './circuit-breaker.middleware';
+import { LoggingMiddleware } from './logging.middleware';
+import { PerformanceMiddleware } from './performance.middleware';
+import { TransformationMiddleware } from './transformation.middleware';
 
 /**
  * Configuration options for middleware chains
  */
 export interface MiddlewareChainOptions {
   /**
-   * Whether to include logging middleware
-   * @default true
-   */
-  enableLogging?: boolean;
-
-  /**
-   * Whether to include performance monitoring middleware
-   * @default true
-   */
-  enablePerformance?: boolean;
-
-  /**
-   * Whether to include query transformation middleware
-   * @default true
-   */
-  enableTransformation?: boolean;
-
-  /**
-   * Whether to include circuit breaker middleware
-   * @default true
+   * Whether to enable circuit breaker middleware
    */
   enableCircuitBreaker?: boolean;
 
   /**
-   * Journey context for journey-specific middleware configuration
+   * Whether to enable logging middleware
    */
-  journeyContext?: JourneyType;
+  enableLogging?: boolean;
 
   /**
-   * Operation type for operation-specific middleware configuration
+   * Whether to enable performance monitoring middleware
    */
-  operationType?: OperationType;
+  enablePerformanceMonitoring?: boolean;
 
   /**
-   * Whether to optimize the middleware chain for performance
-   * @default true
+   * Whether to enable query transformation middleware
    */
-  optimizeForPerformance?: boolean;
+  enableTransformation?: boolean;
+
+  /**
+   * Whether to skip middleware for simple operations
+   */
+  skipForSimpleOperations?: boolean;
 
   /**
    * Custom middleware to include in the chain
    */
   customMiddleware?: DatabaseMiddleware[];
+
+  /**
+   * Execution order for middleware (middleware will be executed in this order)
+   */
+  executionOrder?: string[];
+}
+
+/**
+ * Default middleware chain options
+ */
+const DEFAULT_OPTIONS: MiddlewareChainOptions = {
+  enableCircuitBreaker: true,
+  enableLogging: true,
+  enablePerformanceMonitoring: true,
+  enableTransformation: true,
+  skipForSimpleOperations: true,
+  customMiddleware: [],
+  executionOrder: [
+    CircuitBreakerMiddleware.name,
+    LoggingMiddleware.name,
+    PerformanceMiddleware.name,
+    TransformationMiddleware.name,
+  ],
+};
+
+/**
+ * Implementation of the middleware chain that executes multiple middleware components
+ */
+class DatabaseMiddlewareChain implements MiddlewareChain {
+  private readonly logger = new Logger(DatabaseMiddlewareChain.name);
+  private readonly middlewares: DatabaseMiddleware[];
+  private readonly context: MiddlewareContext;
+
+  /**
+   * Creates a new middleware chain
+   * @param middlewares Array of middleware components to execute
+   * @param context Context for the operation
+   */
+  constructor(middlewares: DatabaseMiddleware[], context: MiddlewareContext) {
+    this.middlewares = middlewares;
+    this.context = context;
+  }
+
+  /**
+   * Executes all beforeExecute hooks in the chain
+   * @param params Parameters for the middleware
+   * @returns Modified parameters after all middleware execution
+   */
+  async executeBeforeHooks(params: {
+    args: any;
+    dataPath: string[];
+    runInTransaction: boolean;
+  }): Promise<any> {
+    let modifiedParams = { ...params, context: this.context };
+
+    // Execute each middleware's beforeExecute hook in sequence
+    for (const middleware of this.middlewares) {
+      try {
+        modifiedParams = await middleware.beforeExecute(modifiedParams);
+      } catch (error) {
+        this.logger.error(
+          `Error in ${middleware.constructor.name}.beforeExecute: ${error.message}`,
+          error.stack,
+        );
+        throw error;
+      }
+    }
+
+    return modifiedParams;
+  }
+
+  /**
+   * Executes all afterExecute hooks in the chain
+   * @param params Parameters for the middleware including the operation result
+   * @returns Modified result after all middleware execution
+   */
+  async executeAfterHooks(params: {
+    args: any;
+    dataPath: string[];
+    runInTransaction: boolean;
+    result: any;
+    error?: Error | null;
+  }): Promise<any> {
+    let modifiedParams = { ...params, context: this.context };
+
+    // Execute each middleware's afterExecute hook in reverse sequence
+    // This ensures that the middleware that executed first gets to process the result last
+    for (let i = this.middlewares.length - 1; i >= 0; i--) {
+      const middleware = this.middlewares[i];
+      try {
+        modifiedParams = await middleware.afterExecute(modifiedParams);
+      } catch (error) {
+        this.logger.error(
+          `Error in ${middleware.constructor.name}.afterExecute: ${error.message}`,
+          error.stack,
+        );
+        // Continue executing other middleware even if one fails
+      }
+    }
+
+    return modifiedParams.result;
+  }
+
+  /**
+   * Gets the middleware context
+   * @returns The middleware context
+   */
+  getContext(): MiddlewareContext {
+    return this.context;
+  }
+
+  /**
+   * Gets the middleware components in this chain
+   * @returns Array of middleware components
+   */
+  getMiddlewares(): DatabaseMiddleware[] {
+    return [...this.middlewares];
+  }
 }
 
 /**
@@ -85,753 +176,493 @@ export interface MiddlewareChainOptions {
  * different journey services and operation types. It implements smart middleware selection
  * based on operation context and configuration, allowing for performance optimizations
  * like skipping middleware for certain operations.
- *
- * Features:
- * - Journey-specific middleware configuration
- * - Operation-type-specific middleware optimization
- * - Conditional middleware application based on context
- * - Middleware chain composition with proper execution order
- * - Performance optimization for high-throughput operations
- *
- * @example
- * // Create a middleware chain for the health journey
- * const healthMiddleware = middlewareFactory.createJourneyMiddlewareChain(JourneyType.HEALTH);
- *
- * // Create an optimized middleware chain for read operations
- * const readMiddleware = middlewareFactory.createOperationTypeMiddlewareChain(OperationType.READ);
- *
- * // Create a custom middleware chain with specific options
- * const customMiddleware = middlewareFactory.createMiddlewareChain({
- *   enableLogging: true,
- *   enablePerformance: true,
- *   enableTransformation: false,
- *   journeyContext: JourneyType.CARE,
- *   operationType: OperationType.WRITE,
- * });
  */
 @Injectable()
-export class MiddlewareFactory {
+export class MiddlewareFactory implements IMiddlewareFactory {
   private readonly logger = new Logger(MiddlewareFactory.name);
-  private readonly loggingMiddleware: LoggingMiddleware;
-  private readonly performanceMiddleware: PerformanceMiddleware;
-  private readonly transformationMiddleware: TransformationMiddleware;
-  private readonly circuitBreakerMiddleware: CircuitBreakerMiddleware;
+  private readonly defaultOptions: MiddlewareChainOptions;
+  private readonly journeyOptions = new Map<JourneyType, MiddlewareChainOptions>();
+  private readonly operationTypeOptions = new Map<Prisma.PrismaAction, MiddlewareChainOptions>();
 
   /**
-   * Creates a new middleware factory
-   * 
-   * @param loggerService Logger service for structured logging
-   * @param tracingService Tracing service for distributed tracing
-   * @param configService Configuration service for environment settings
-   * @param middlewareRegistry Registry for middleware management
+   * Creates a new instance of MiddlewareFactory
+   * @param middlewareRegistry Registry for retrieving middleware components
+   * @param configService Configuration service for loading middleware settings
+   * @param metricsService Optional metrics service for monitoring middleware usage
    */
   constructor(
-    private readonly loggerService: LoggerService,
-    private readonly tracingService: TracingService,
-    private readonly configService: ConfigService,
     private readonly middlewareRegistry: MiddlewareRegistry,
+    private readonly configService: ConfigService,
+    private readonly metricsService?: MetricsService,
   ) {
-    // Create default middleware instances
-    this.loggingMiddleware = this.createLoggingMiddleware();
-    this.performanceMiddleware = this.createPerformanceMiddleware();
-    this.transformationMiddleware = this.createTransformationMiddleware();
-    this.circuitBreakerMiddleware = this.createCircuitBreakerMiddleware();
-
-    // Register middleware with the registry
-    this.registerDefaultMiddleware();
-
+    this.defaultOptions = this.loadDefaultOptions();
+    this.loadJourneyOptions();
+    this.loadOperationTypeOptions();
     this.logger.log('Middleware factory initialized');
   }
 
   /**
-   * Creates a middleware chain with the specified options
-   * 
-   * @param options Configuration options for the middleware chain
-   * @returns Array of middleware instances in the correct execution order
+   * Loads default middleware options from configuration
+   * @returns Default middleware options
    */
-  createMiddlewareChain(options: MiddlewareChainOptions = {}): DatabaseMiddleware[] {
-    const {
-      enableLogging = true,
-      enablePerformance = true,
-      enableTransformation = true,
-      enableCircuitBreaker = true,
-      journeyContext,
-      operationType,
-      optimizeForPerformance = true,
-      customMiddleware = [],
-    } = options;
+  private loadDefaultOptions(): MiddlewareChainOptions {
+    const configOptions = this.configService.get<Partial<MiddlewareChainOptions>>(
+      'database.middleware.defaultOptions',
+      {},
+    );
+    return { ...DEFAULT_OPTIONS, ...configOptions };
+  }
 
-    const middlewareChain: DatabaseMiddleware[] = [];
+  /**
+   * Loads journey-specific middleware options from configuration
+   */
+  private loadJourneyOptions(): void {
+    const journeyOptions = this.configService.get<Record<string, Partial<MiddlewareChainOptions>>>(
+      'database.middleware.journeyOptions',
+      {},
+    );
 
-    // Add circuit breaker first (if enabled) to prevent unnecessary operations when circuit is open
-    if (enableCircuitBreaker) {
-      middlewareChain.push(this.circuitBreakerMiddleware);
+    // Load options for each journey type
+    Object.entries(journeyOptions).forEach(([journeyType, options]) => {
+      if (Object.values(JourneyType).includes(journeyType as JourneyType)) {
+        this.journeyOptions.set(
+          journeyType as JourneyType,
+          { ...this.defaultOptions, ...options },
+        );
+        this.logger.debug(`Loaded middleware options for journey: ${journeyType}`);
+      }
+    });
+  }
+
+  /**
+   * Loads operation-specific middleware options from configuration
+   */
+  private loadOperationTypeOptions(): void {
+    const operationOptions = this.configService.get<Record<string, Partial<MiddlewareChainOptions>>>(
+      'database.middleware.operationOptions',
+      {},
+    );
+
+    // Load options for each operation type
+    Object.entries(operationOptions).forEach(([operationType, options]) => {
+      if (Object.values(Prisma.PrismaAction).includes(operationType as Prisma.PrismaAction)) {
+        this.operationTypeOptions.set(
+          operationType as Prisma.PrismaAction,
+          { ...this.defaultOptions, ...options },
+        );
+        this.logger.debug(`Loaded middleware options for operation: ${operationType}`);
+      }
+    });
+  }
+
+  /**
+   * Creates a middleware chain for a specific operation context
+   * @param context Context for the operation
+   * @returns Middleware chain for the operation
+   */
+  createMiddlewareChain(context: Partial<MiddlewareContext>): MiddlewareChain {
+    // Create a complete context with defaults
+    const fullContext: MiddlewareContext = {
+      timestamp: Date.now(),
+      operation: context.operation || Prisma.PrismaAction.findFirst,
+      model: context.model || 'unknown',
+      ...context,
+    };
+
+    // Get middleware options for this operation
+    const options = this.getOptionsForContext(fullContext);
+
+    // Select middleware components based on options
+    const middlewares = this.selectMiddleware(fullContext, options);
+
+    // Create and return the middleware chain
+    const chain = new DatabaseMiddlewareChain(middlewares, fullContext);
+
+    // Track middleware chain creation in metrics if available
+    if (this.metricsService) {
+      this.metricsService.incrementCounter('database_middleware_chain_created', 1, {
+        journey: fullContext.journeyType || 'unknown',
+        operation: fullContext.operation,
+        model: fullContext.model,
+        middleware_count: middlewares.length.toString(),
+      });
     }
 
-    // Add transformation middleware next to modify parameters before other middleware
-    if (enableTransformation) {
-      middlewareChain.push(this.transformationMiddleware);
-    }
-
-    // Add performance middleware before logging to capture accurate timings
-    if (enablePerformance) {
-      middlewareChain.push(this.performanceMiddleware);
-    }
-
-    // Add logging middleware last in the "before" chain to capture all modifications
-    if (enableLogging) {
-      middlewareChain.push(this.loggingMiddleware);
-    }
-
-    // Add custom middleware at the end
-    middlewareChain.push(...customMiddleware);
-
-    // Apply journey-specific optimizations if a journey context is provided
-    if (journeyContext) {
-      this.applyJourneySpecificOptimizations(middlewareChain, journeyContext);
-    }
-
-    // Apply operation-type-specific optimizations if an operation type is provided
-    if (operationType) {
-      this.applyOperationTypeOptimizations(middlewareChain, operationType, optimizeForPerformance);
-    }
-
-    return middlewareChain;
+    return chain;
   }
 
   /**
    * Creates a middleware chain optimized for a specific journey
-   * 
-   * @param journeyType The journey type to optimize for
-   * @param options Additional configuration options
-   * @returns Array of middleware instances optimized for the journey
+   * @param journeyType Type of journey
+   * @param context Additional context for the operation
+   * @returns Middleware chain optimized for the journey
    */
   createJourneyMiddlewareChain(
     journeyType: JourneyType,
-    options: Omit<MiddlewareChainOptions, 'journeyContext'> = {},
-  ): DatabaseMiddleware[] {
+    context: Partial<MiddlewareContext> = {},
+  ): MiddlewareChain {
     return this.createMiddlewareChain({
-      ...options,
-      journeyContext: journeyType,
+      ...context,
+      journeyType,
     });
   }
 
   /**
-   * Creates a middleware chain optimized for a specific operation type
-   * 
-   * @param operationType The operation type to optimize for
-   * @param options Additional configuration options
-   * @returns Array of middleware instances optimized for the operation type
+   * Creates a middleware chain for a read operation
+   * @param context Context for the operation
+   * @returns Middleware chain optimized for read operations
    */
-  createOperationTypeMiddlewareChain(
-    operationType: OperationType,
-    options: Omit<MiddlewareChainOptions, 'operationType'> = {},
-  ): DatabaseMiddleware[] {
+  createReadMiddlewareChain(context: Partial<MiddlewareContext> = {}): MiddlewareChain {
+    // Read operations typically need less middleware
+    const readOptions: Partial<MiddlewareChainOptions> = {
+      enableCircuitBreaker: true,
+      enableLogging: true,
+      enablePerformanceMonitoring: true,
+      enableTransformation: true,
+      skipForSimpleOperations: true,
+    };
+
     return this.createMiddlewareChain({
-      ...options,
-      operationType,
+      ...context,
+      operation: context.operation || Prisma.PrismaAction.findFirst,
+      customOptions: readOptions,
     });
   }
 
   /**
-   * Creates a middleware chain optimized for high-throughput operations
-   * This chain minimizes overhead by including only essential middleware
-   * 
-   * @param journeyType Optional journey type for journey-specific optimizations
-   * @returns Array of middleware instances optimized for high throughput
+   * Creates a middleware chain for a write operation
+   * @param context Context for the operation
+   * @returns Middleware chain optimized for write operations
    */
-  createHighThroughputMiddlewareChain(journeyType?: JourneyType): DatabaseMiddleware[] {
+  createWriteMiddlewareChain(context: Partial<MiddlewareContext> = {}): MiddlewareChain {
+    // Write operations typically need more middleware
+    const writeOptions: Partial<MiddlewareChainOptions> = {
+      enableCircuitBreaker: true,
+      enableLogging: true,
+      enablePerformanceMonitoring: true,
+      enableTransformation: true,
+      skipForSimpleOperations: false, // Don't skip for write operations
+    };
+
     return this.createMiddlewareChain({
-      enableLogging: false, // Disable logging for performance
-      enablePerformance: true, // Keep performance monitoring
-      enableTransformation: true, // Keep transformations for data integrity
-      enableCircuitBreaker: true, // Keep circuit breaker for system protection
-      journeyContext: journeyType,
-      optimizeForPerformance: true,
+      ...context,
+      operation: context.operation || Prisma.PrismaAction.create,
+      customOptions: writeOptions,
     });
   }
 
   /**
-   * Creates a middleware chain for read-only operations
-   * 
-   * @param journeyType Optional journey type for journey-specific optimizations
-   * @returns Array of middleware instances optimized for read operations
+   * Creates a middleware chain for a transaction
+   * @param context Context for the operation
+   * @returns Middleware chain optimized for transactions
    */
-  createReadOperationMiddlewareChain(journeyType?: JourneyType): DatabaseMiddleware[] {
-    return this.createOperationTypeMiddlewareChain(OperationType.READ, {
-      journeyContext: journeyType,
-    });
-  }
+  createTransactionMiddlewareChain(context: Partial<MiddlewareContext> = {}): MiddlewareChain {
+    // Transactions need comprehensive middleware
+    const transactionOptions: Partial<MiddlewareChainOptions> = {
+      enableCircuitBreaker: true,
+      enableLogging: true,
+      enablePerformanceMonitoring: true,
+      enableTransformation: true,
+      skipForSimpleOperations: false, // Don't skip for transactions
+    };
 
-  /**
-   * Creates a middleware chain for write operations
-   * 
-   * @param journeyType Optional journey type for journey-specific optimizations
-   * @returns Array of middleware instances optimized for write operations
-   */
-  createWriteOperationMiddlewareChain(journeyType?: JourneyType): DatabaseMiddleware[] {
-    return this.createOperationTypeMiddlewareChain(OperationType.WRITE, {
-      journeyContext: journeyType,
-    });
-  }
-
-  /**
-   * Creates a middleware chain for transaction operations
-   * 
-   * @param journeyType Optional journey type for journey-specific optimizations
-   * @returns Array of middleware instances optimized for transaction operations
-   */
-  createTransactionMiddlewareChain(journeyType?: JourneyType): DatabaseMiddleware[] {
-    return this.createOperationTypeMiddlewareChain(OperationType.TRANSACTION, {
-      journeyContext: journeyType,
-    });
-  }
-
-  /**
-   * Creates a middleware chain for migration operations
-   * 
-   * @returns Array of middleware instances optimized for migration operations
-   */
-  createMigrationMiddlewareChain(): DatabaseMiddleware[] {
-    return this.createOperationTypeMiddlewareChain(OperationType.MIGRATION, {
-      // Migrations need special handling
-      enableTransformation: false, // Disable transformations for migrations
-      optimizeForPerformance: false, // Prioritize reliability over performance
+    return this.createMiddlewareChain({
+      ...context,
+      operation: Prisma.PrismaAction.executeRaw, // Use executeRaw as a proxy for transactions
+      customOptions: transactionOptions,
     });
   }
 
   /**
    * Creates a minimal middleware chain with only essential middleware
-   * 
-   * @returns Array of middleware instances with minimal overhead
+   * @param context Context for the operation
+   * @returns Minimal middleware chain
    */
-  createMinimalMiddlewareChain(): DatabaseMiddleware[] {
+  createMinimalMiddlewareChain(context: Partial<MiddlewareContext> = {}): MiddlewareChain {
+    // Minimal middleware for performance-critical operations
+    const minimalOptions: Partial<MiddlewareChainOptions> = {
+      enableCircuitBreaker: true, // Keep circuit breaker for safety
+      enableLogging: false,       // Disable logging for performance
+      enablePerformanceMonitoring: false, // Disable performance monitoring
+      enableTransformation: false, // Disable transformation
+      skipForSimpleOperations: true,
+    };
+
     return this.createMiddlewareChain({
-      enableLogging: false,
-      enablePerformance: false,
-      enableTransformation: true, // Keep transformations for data integrity
-      enableCircuitBreaker: true, // Keep circuit breaker for system protection
-      optimizeForPerformance: true,
+      ...context,
+      customOptions: minimalOptions,
     });
   }
 
   /**
-   * Executes a database operation with the specified middleware chain
-   * 
-   * @param params Operation parameters
-   * @param context Operation context
-   * @param operation Function to execute the database operation
-   * @param middlewareChain Middleware chain to use
-   * @returns Result of the operation after middleware processing
+   * Gets middleware options for a specific context
+   * @param context Context for the operation
+   * @returns Middleware options for the context
    */
-  async executeWithMiddleware<T, R>(
-    params: T,
+  private getOptionsForContext(context: MiddlewareContext): MiddlewareChainOptions {
+    // Start with default options
+    let options = { ...this.defaultOptions };
+
+    // Apply journey-specific options if available
+    if (context.journeyType && this.journeyOptions.has(context.journeyType)) {
+      options = { ...options, ...this.journeyOptions.get(context.journeyType) };
+    }
+
+    // Apply operation-specific options if available
+    if (this.operationTypeOptions.has(context.operation)) {
+      options = { ...options, ...this.operationTypeOptions.get(context.operation) };
+    }
+
+    // Apply custom options if provided in the context
+    if (context.customOptions) {
+      options = { ...options, ...context.customOptions };
+    }
+
+    return options;
+  }
+
+  /**
+   * Selects middleware components based on context and options
+   * @param context Context for the operation
+   * @param options Middleware options
+   * @returns Array of middleware components
+   */
+  private selectMiddleware(
     context: MiddlewareContext,
-    operation: (params: T) => Promise<R>,
-    middlewareChain: DatabaseMiddleware[],
-  ): Promise<R> {
-    // Apply beforeExecute hooks in order
-    let modifiedParams = params;
-    for (const middleware of middlewareChain) {
-      if (middleware.beforeExecute) {
-        try {
-          modifiedParams = await Promise.resolve(middleware.beforeExecute(modifiedParams, context));
-        } catch (error) {
-          this.logger.error(
-            `Error in beforeExecute hook of middleware: ${error.message}`,
-            error.stack,
+    options: MiddlewareChainOptions,
+  ): DatabaseMiddleware[] {
+    const selectedMiddleware: DatabaseMiddleware[] = [];
+    const middlewareMap = new Map<string, DatabaseMiddleware>();
+
+    // Get journey-specific middleware if available
+    let availableMiddleware: DatabaseMiddleware[] = [];
+    if (context.journeyType) {
+      availableMiddleware = this.middlewareRegistry.getForJourney(context.journeyType);
+    } else {
+      availableMiddleware = this.middlewareRegistry.getAll();
+    }
+
+    // Create a map of middleware by name for easier lookup
+    availableMiddleware.forEach(middleware => {
+      middlewareMap.set(middleware.constructor.name, middleware);
+    });
+
+    // Check if we should skip middleware for simple operations
+    if (options.skipForSimpleOperations && this.isSimpleOperation(context)) {
+      // For simple operations, only include essential middleware
+      if (options.enableCircuitBreaker) {
+        const circuitBreaker = middlewareMap.get(CircuitBreakerMiddleware.name);
+        if (circuitBreaker) {
+          selectedMiddleware.push(circuitBreaker);
+        }
+      }
+
+      // Add custom middleware if specified
+      if (options.customMiddleware && options.customMiddleware.length > 0) {
+        selectedMiddleware.push(...options.customMiddleware);
+      }
+
+      return this.orderMiddleware(selectedMiddleware, options.executionOrder);
+    }
+
+    // Add middleware based on options
+    if (options.enableCircuitBreaker) {
+      const circuitBreaker = middlewareMap.get(CircuitBreakerMiddleware.name);
+      if (circuitBreaker) {
+        selectedMiddleware.push(circuitBreaker);
+      }
+    }
+
+    if (options.enableLogging) {
+      const logging = middlewareMap.get(LoggingMiddleware.name);
+      if (logging) {
+        selectedMiddleware.push(logging);
+      }
+    }
+
+    if (options.enablePerformanceMonitoring) {
+      const performance = middlewareMap.get(PerformanceMiddleware.name);
+      if (performance) {
+        selectedMiddleware.push(performance);
+      }
+    }
+
+    if (options.enableTransformation) {
+      const transformation = middlewareMap.get(TransformationMiddleware.name);
+      if (transformation) {
+        selectedMiddleware.push(transformation);
+      }
+    }
+
+    // Add custom middleware if specified
+    if (options.customMiddleware && options.customMiddleware.length > 0) {
+      selectedMiddleware.push(...options.customMiddleware);
+    }
+
+    // Order middleware based on execution order
+    return this.orderMiddleware(selectedMiddleware, options.executionOrder);
+  }
+
+  /**
+   * Orders middleware components based on execution order
+   * @param middleware Array of middleware components
+   * @param executionOrder Execution order for middleware
+   * @returns Ordered array of middleware components
+   */
+  private orderMiddleware(
+    middleware: DatabaseMiddleware[],
+    executionOrder: string[] = [],
+  ): DatabaseMiddleware[] {
+    if (!executionOrder || executionOrder.length === 0) {
+      return middleware;
+    }
+
+    // Create a map of middleware by name for easier lookup
+    const middlewareMap = new Map<string, DatabaseMiddleware>();
+    middleware.forEach(m => {
+      middlewareMap.set(m.constructor.name, m);
+    });
+
+    // Create ordered array based on execution order
+    const orderedMiddleware: DatabaseMiddleware[] = [];
+
+    // First add middleware in the specified order
+    executionOrder.forEach(name => {
+      const m = middlewareMap.get(name);
+      if (m) {
+        orderedMiddleware.push(m);
+        middlewareMap.delete(name);
+      }
+    });
+
+    // Then add any remaining middleware not specified in the execution order
+    middlewareMap.forEach(m => {
+      orderedMiddleware.push(m);
+    });
+
+    return orderedMiddleware;
+  }
+
+  /**
+   * Checks if an operation is considered "simple"
+   * Simple operations are typically read operations on a single record
+   * that don't require extensive middleware processing
+   * @param context Context for the operation
+   * @returns True if the operation is simple, false otherwise
+   */
+  private isSimpleOperation(context: MiddlewareContext): boolean {
+    // Read operations on a single record are considered simple
+    const simpleOperations = [
+      Prisma.PrismaAction.findUnique,
+      Prisma.PrismaAction.findFirst,
+    ];
+
+    // Check if the operation is in the list of simple operations
+    if (!simpleOperations.includes(context.operation)) {
+      return false;
+    }
+
+    // Check if the operation has any complex arguments
+    // This is a simplified check and could be expanded based on your needs
+    if (context.args) {
+      // Check for complex query features
+      const hasComplexFeatures = [
+        'include',
+        'select',
+        'orderBy',
+        'groupBy',
+        'having',
+      ].some(feature => feature in context.args);
+
+      if (hasComplexFeatures) {
+        return false;
+      }
+
+      // Check for complex where conditions
+      if (context.args.where) {
+        // If where has more than 3 conditions, consider it complex
+        const whereKeys = Object.keys(context.args.where);
+        if (whereKeys.length > 3) {
+          return false;
+        }
+
+        // Check for nested conditions or OR/AND operators
+        const hasNestedConditions = whereKeys.some(key => {
+          const value = context.args.where[key];
+          return (
+            key === 'OR' ||
+            key === 'AND' ||
+            key === 'NOT' ||
+            (typeof value === 'object' && value !== null && !('equals' in value))
           );
-          throw error;
+        });
+
+        if (hasNestedConditions) {
+          return false;
         }
       }
     }
 
-    // Execute the operation
-    let result: R;
-    try {
-      result = await operation(modifiedParams);
-    } catch (error) {
-      // Apply onError hooks in reverse order
-      let modifiedError = error;
-      for (const middleware of [...middlewareChain].reverse()) {
-        if (middleware.onError) {
-          try {
-            modifiedError = await Promise.resolve(middleware.onError(modifiedError, context));
-          } catch (hookError) {
-            this.logger.error(
-              `Error in onError hook of middleware: ${hookError.message}`,
-              hookError.stack,
-            );
-          }
-        }
-      }
-      throw modifiedError;
-    }
-
-    // Apply afterExecute hooks in reverse order
-    let modifiedResult = result;
-    for (const middleware of [...middlewareChain].reverse()) {
-      if (middleware.afterExecute) {
-        try {
-          modifiedResult = await Promise.resolve(middleware.afterExecute(modifiedResult, context));
-        } catch (error) {
-          this.logger.error(
-            `Error in afterExecute hook of middleware: ${error.message}`,
-            error.stack,
-          );
-          throw error;
-        }
-      }
-    }
-
-    return modifiedResult;
+    return true;
   }
 
   /**
-   * Executes a database operation with middleware optimized for the specified journey
-   * 
-   * @param params Operation parameters
-   * @param context Operation context
-   * @param operation Function to execute the database operation
-   * @param journeyType Journey type for journey-specific optimizations
-   * @returns Result of the operation after middleware processing
+   * Updates journey-specific middleware options
+   * @param journeyType Type of journey
+   * @param options Middleware options for the journey
    */
-  async executeWithJourneyMiddleware<T, R>(
-    params: T,
-    context: MiddlewareContext,
-    operation: (params: T) => Promise<R>,
-    journeyType: JourneyType,
-  ): Promise<R> {
-    const middlewareChain = this.createJourneyMiddlewareChain(journeyType);
-    return this.executeWithMiddleware(params, context, operation, middlewareChain);
+  updateJourneyOptions(journeyType: JourneyType, options: Partial<MiddlewareChainOptions>): void {
+    const currentOptions = this.journeyOptions.get(journeyType) || { ...this.defaultOptions };
+    this.journeyOptions.set(journeyType, { ...currentOptions, ...options });
+    this.logger.log(`Updated middleware options for journey: ${journeyType}`);
   }
 
   /**
-   * Executes a database operation with middleware optimized for the specified operation type
-   * 
-   * @param params Operation parameters
-   * @param context Operation context
-   * @param operation Function to execute the database operation
-   * @param operationType Operation type for operation-specific optimizations
-   * @returns Result of the operation after middleware processing
+   * Updates operation-specific middleware options
+   * @param operationType Type of operation
+   * @param options Middleware options for the operation
    */
-  async executeWithOperationTypeMiddleware<T, R>(
-    params: T,
-    context: MiddlewareContext,
-    operation: (params: T) => Promise<R>,
-    operationType: OperationType,
-  ): Promise<R> {
-    const middlewareChain = this.createOperationTypeMiddlewareChain(operationType);
-    return this.executeWithMiddleware(params, context, operation, middlewareChain);
-  }
-
-  /**
-   * Creates a new logging middleware instance with default configuration
-   * 
-   * @returns Configured logging middleware instance
-   */
-  private createLoggingMiddleware(): LoggingMiddleware {
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    
-    return new LoggingMiddlewareImpl(this.loggerService, this.tracingService, {
-      logLevel: isProduction ? 'info' : 'debug',
-      logParameters: true,
-      logResults: !isProduction,
-      maxLogSize: 2000,
-      includeStackTrace: !isProduction,
-      journeyLogLevels: {
-        [JourneyType.HEALTH]: 'debug',
-        [JourneyType.CARE]: 'debug',
-        [JourneyType.PLAN]: 'debug',
-      },
-      enableTracing: true,
-      highlightSlowQueries: true,
-      slowQueryThreshold: isProduction ? 1000 : 500,
-    });
-  }
-
-  /**
-   * Creates a new performance middleware instance with default configuration
-   * 
-   * @returns Configured performance middleware instance
-   */
-  private createPerformanceMiddleware(): PerformanceMiddleware {
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    
-    return new PerformanceMiddlewareImpl({
-      slowQueryThreshold: isProduction ? 1000 : 500,
-      enableMetrics: true,
-      trackStackTrace: !isProduction,
-      maxSlowQueries: 100,
-      suggestOptimizations: true,
-      degradationDetectionInterval: 60000, // 1 minute
-      logSlowQueries: true,
-      emitMetrics: true,
-    });
-  }
-
-  /**
-   * Creates a new transformation middleware instance with default configuration
-   * 
-   * @returns Configured transformation middleware instance
-   */
-  private createTransformationMiddleware(): TransformationMiddleware {
-    return new QueryTransformationMiddleware();
-  }
-
-  /**
-   * Creates a new circuit breaker middleware instance with default configuration
-   * 
-   * @returns Configured circuit breaker middleware instance
-   */
-  private createCircuitBreakerMiddleware(): CircuitBreakerMiddleware {
-    return new CircuitBreakerMiddlewareImpl(this.loggerService, {
-      failureThreshold: {
-        [OperationType.READ]: 5,
-        [OperationType.WRITE]: 3,
-        [OperationType.TRANSACTION]: 2,
-        [OperationType.MIGRATION]: 1,
-      },
-      resetTimeout: 30000, // 30 seconds
-      halfOpenMaxOperations: 3,
-      monitoringEnabled: true,
-      journeySpecificThresholds: {
-        [JourneyType.HEALTH]: {
-          [OperationType.READ]: 8, // Health journey can tolerate more read failures
-          [OperationType.WRITE]: 4,
-        },
-        [JourneyType.CARE]: {
-          [OperationType.READ]: 6,
-          [OperationType.WRITE]: 3,
-        },
-        [JourneyType.PLAN]: {
-          [OperationType.READ]: 7,
-          [OperationType.WRITE]: 3,
-        },
-      },
-    });
-  }
-
-  /**
-   * Registers default middleware instances with the middleware registry
-   */
-  private registerDefaultMiddleware(): void {
-    // Register logging middleware
-    this.middlewareRegistry.registerLoggingMiddleware(this.loggingMiddleware, {
-      id: 'default-logging',
-      enabled: true,
-      priority: 80,
-      journeyContexts: ['global', 'health', 'care', 'plan'],
-      environmentProfiles: ['development', 'test', 'production'],
-    });
-
-    // Register performance middleware
-    this.middlewareRegistry.registerPerformanceMiddleware(this.performanceMiddleware, {
-      id: 'default-performance',
-      enabled: true,
-      priority: 90,
-      journeyContexts: ['global', 'health', 'care', 'plan'],
-      environmentProfiles: ['development', 'test', 'production'],
-    });
-
-    // Register transformation middleware
-    this.middlewareRegistry.registerTransformationMiddleware(this.transformationMiddleware, {
-      id: 'default-transformation',
-      enabled: true,
-      priority: 100,
-      journeyContexts: ['global', 'health', 'care', 'plan'],
-      environmentProfiles: ['development', 'test', 'production'],
-    });
-
-    // Register circuit breaker middleware
-    this.middlewareRegistry.registerCircuitBreakerMiddleware(this.circuitBreakerMiddleware, {
-      id: 'default-circuit-breaker',
-      enabled: true,
-      priority: 110,
-      journeyContexts: ['global', 'health', 'care', 'plan'],
-      environmentProfiles: ['development', 'test', 'production'],
-    });
-
-    this.logger.log('Default middleware registered with registry');
-  }
-
-  /**
-   * Applies journey-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   * @param journeyType Journey type to optimize for
-   */
-  private applyJourneySpecificOptimizations(
-    middlewareChain: DatabaseMiddleware[],
-    journeyType: JourneyType,
+  updateOperationOptions(
+    operationType: Prisma.PrismaAction,
+    options: Partial<MiddlewareChainOptions>,
   ): void {
-    // Apply journey-specific optimizations based on journey type
-    switch (journeyType) {
-      case JourneyType.HEALTH:
-        this.applyHealthJourneyOptimizations(middlewareChain);
-        break;
-      case JourneyType.CARE:
-        this.applyCareJourneyOptimizations(middlewareChain);
-        break;
-      case JourneyType.PLAN:
-        this.applyPlanJourneyOptimizations(middlewareChain);
-        break;
-      default:
-        // No specific optimizations for global context
-        break;
-    }
+    const currentOptions = this.operationTypeOptions.get(operationType) || { ...this.defaultOptions };
+    this.operationTypeOptions.set(operationType, { ...currentOptions, ...options });
+    this.logger.log(`Updated middleware options for operation: ${operationType}`);
   }
 
   /**
-   * Applies Health journey-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
+   * Updates default middleware options
+   * @param options Default middleware options
    */
-  private applyHealthJourneyOptimizations(middlewareChain: DatabaseMiddleware[]): void {
-    // Find the performance middleware in the chain
-    const performanceMiddleware = middlewareChain.find(
-      middleware => middleware instanceof PerformanceMiddlewareImpl,
-    ) as PerformanceMiddlewareImpl | undefined;
-
-    // Configure performance middleware for health journey
-    if (performanceMiddleware) {
-      performanceMiddleware.setSlowQueryThreshold(800); // Health metrics can be more intensive
-    }
-
-    // Find the logging middleware in the chain
-    const loggingMiddleware = middlewareChain.find(
-      middleware => middleware instanceof LoggingMiddlewareImpl,
-    ) as LoggingMiddlewareImpl | undefined;
-
-    // Configure logging middleware for health journey
-    if (loggingMiddleware) {
-      // Health journey may have sensitive health data, so configure accordingly
-      loggingMiddleware.setSensitiveFields([
-        'password',
-        'token',
-        'secret',
-        'key',
-        'credential',
-        'ssn',
-        'creditCard',
-        'healthMetric', // Health-specific sensitive field
-        'medicalRecord', // Health-specific sensitive field
-        'diagnosis', // Health-specific sensitive field
-      ]);
-    }
+  updateDefaultOptions(options: Partial<MiddlewareChainOptions>): void {
+    this.defaultOptions = { ...this.defaultOptions, ...options };
+    this.logger.log('Updated default middleware options');
   }
 
   /**
-   * Applies Care journey-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
+   * Gets the current default middleware options
+   * @returns Default middleware options
    */
-  private applyCareJourneyOptimizations(middlewareChain: DatabaseMiddleware[]): void {
-    // Find the performance middleware in the chain
-    const performanceMiddleware = middlewareChain.find(
-      middleware => middleware instanceof PerformanceMiddlewareImpl,
-    ) as PerformanceMiddlewareImpl | undefined;
-
-    // Configure performance middleware for care journey
-    if (performanceMiddleware) {
-      performanceMiddleware.setSlowQueryThreshold(600); // Care operations need to be responsive
-    }
-
-    // Find the logging middleware in the chain
-    const loggingMiddleware = middlewareChain.find(
-      middleware => middleware instanceof LoggingMiddlewareImpl,
-    ) as LoggingMiddlewareImpl | undefined;
-
-    // Configure logging middleware for care journey
-    if (loggingMiddleware) {
-      // Care journey may have sensitive medical data, so configure accordingly
-      loggingMiddleware.setSensitiveFields([
-        'password',
-        'token',
-        'secret',
-        'key',
-        'credential',
-        'ssn',
-        'creditCard',
-        'medicalNotes', // Care-specific sensitive field
-        'prescription', // Care-specific sensitive field
-        'treatmentPlan', // Care-specific sensitive field
-      ]);
-    }
+  getDefaultOptions(): MiddlewareChainOptions {
+    return { ...this.defaultOptions };
   }
 
   /**
-   * Applies Plan journey-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
+   * Gets journey-specific middleware options
+   * @param journeyType Type of journey
+   * @returns Middleware options for the journey
    */
-  private applyPlanJourneyOptimizations(middlewareChain: DatabaseMiddleware[]): void {
-    // Find the performance middleware in the chain
-    const performanceMiddleware = middlewareChain.find(
-      middleware => middleware instanceof PerformanceMiddlewareImpl,
-    ) as PerformanceMiddlewareImpl | undefined;
-
-    // Configure performance middleware for plan journey
-    if (performanceMiddleware) {
-      performanceMiddleware.setSlowQueryThreshold(700); // Plan operations have moderate performance requirements
-    }
-
-    // Find the logging middleware in the chain
-    const loggingMiddleware = middlewareChain.find(
-      middleware => middleware instanceof LoggingMiddlewareImpl,
-    ) as LoggingMiddlewareImpl | undefined;
-
-    // Configure logging middleware for plan journey
-    if (loggingMiddleware) {
-      // Plan journey may have sensitive financial data, so configure accordingly
-      loggingMiddleware.setSensitiveFields([
-        'password',
-        'token',
-        'secret',
-        'key',
-        'credential',
-        'ssn',
-        'creditCard',
-        'policyNumber', // Plan-specific sensitive field
-        'claimAmount', // Plan-specific sensitive field
-        'benefitDetails', // Plan-specific sensitive field
-      ]);
-    }
+  getJourneyOptions(journeyType: JourneyType): MiddlewareChainOptions | undefined {
+    return this.journeyOptions.get(journeyType);
   }
 
   /**
-   * Applies operation-type-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   * @param operationType Operation type to optimize for
-   * @param optimizeForPerformance Whether to optimize for performance
+   * Gets operation-specific middleware options
+   * @param operationType Type of operation
+   * @returns Middleware options for the operation
    */
-  private applyOperationTypeOptimizations(
-    middlewareChain: DatabaseMiddleware[],
-    operationType: OperationType,
-    optimizeForPerformance: boolean,
-  ): void {
-    // Apply operation-type-specific optimizations based on operation type
-    switch (operationType) {
-      case OperationType.READ:
-        this.applyReadOperationOptimizations(middlewareChain, optimizeForPerformance);
-        break;
-      case OperationType.WRITE:
-        this.applyWriteOperationOptimizations(middlewareChain, optimizeForPerformance);
-        break;
-      case OperationType.TRANSACTION:
-        this.applyTransactionOperationOptimizations(middlewareChain, optimizeForPerformance);
-        break;
-      case OperationType.MIGRATION:
-        this.applyMigrationOperationOptimizations(middlewareChain);
-        break;
-      default:
-        // No specific optimizations for unknown operation types
-        break;
-    }
-  }
-
-  /**
-   * Applies read operation-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   * @param optimizeForPerformance Whether to optimize for performance
-   */
-  private applyReadOperationOptimizations(
-    middlewareChain: DatabaseMiddleware[],
-    optimizeForPerformance: boolean,
-  ): void {
-    if (optimizeForPerformance) {
-      // For high-throughput read operations, we can potentially skip some middleware
-      // Find the logging middleware in the chain
-      const loggingIndex = middlewareChain.findIndex(
-        middleware => middleware instanceof LoggingMiddlewareImpl,
-      );
-
-      // If logging middleware exists and we're optimizing for performance, configure it for minimal logging
-      if (loggingIndex !== -1) {
-        const loggingMiddleware = middlewareChain[loggingIndex] as LoggingMiddlewareImpl;
-        loggingMiddleware.setLogLevel('info'); // Use higher log level for read operations
-        loggingMiddleware.setLogResults(false); // Don't log results for read operations
-      }
-    }
-  }
-
-  /**
-   * Applies write operation-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   * @param optimizeForPerformance Whether to optimize for performance
-   */
-  private applyWriteOperationOptimizations(
-    middlewareChain: DatabaseMiddleware[],
-    optimizeForPerformance: boolean,
-  ): void {
-    // Write operations need more careful handling
-    // Find the logging middleware in the chain
-    const loggingIndex = middlewareChain.findIndex(
-      middleware => middleware instanceof LoggingMiddlewareImpl,
-    );
-
-    // For write operations, ensure we log parameters but not results
-    if (loggingIndex !== -1) {
-      const loggingMiddleware = middlewareChain[loggingIndex] as LoggingMiddlewareImpl;
-      loggingMiddleware.setLogLevel('debug'); // Use detailed logging for write operations
-      loggingMiddleware.setLogResults(false); // Don't log results for write operations
-    }
-  }
-
-  /**
-   * Applies transaction operation-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   * @param optimizeForPerformance Whether to optimize for performance
-   */
-  private applyTransactionOperationOptimizations(
-    middlewareChain: DatabaseMiddleware[],
-    optimizeForPerformance: boolean,
-  ): void {
-    // Transactions need special handling
-    // Find the circuit breaker middleware in the chain
-    const circuitBreakerIndex = middlewareChain.findIndex(
-      middleware => middleware instanceof CircuitBreakerMiddlewareImpl,
-    );
-
-    // Ensure circuit breaker is configured properly for transactions
-    if (circuitBreakerIndex !== -1) {
-      // We can't modify the circuit breaker configuration directly,
-      // but we can ensure it's present for transaction operations
-      // The circuit breaker is already configured with appropriate thresholds in createCircuitBreakerMiddleware
-    }
-  }
-
-  /**
-   * Applies migration operation-specific optimizations to a middleware chain
-   * 
-   * @param middlewareChain Middleware chain to optimize
-   */
-  private applyMigrationOperationOptimizations(middlewareChain: DatabaseMiddleware[]): void {
-    // Migrations need special handling
-    // Find the transformation middleware in the chain and remove it
-    const transformationIndex = middlewareChain.findIndex(
-      middleware => middleware instanceof QueryTransformationMiddleware,
-    );
-
-    if (transformationIndex !== -1) {
-      // Remove transformation middleware for migrations to prevent interference
-      middlewareChain.splice(transformationIndex, 1);
-    }
-
-    // Find the logging middleware in the chain
-    const loggingIndex = middlewareChain.findIndex(
-      middleware => middleware instanceof LoggingMiddlewareImpl,
-    );
-
-    // For migrations, ensure detailed logging
-    if (loggingIndex !== -1) {
-      const loggingMiddleware = middlewareChain[loggingIndex] as LoggingMiddlewareImpl;
-      loggingMiddleware.setLogLevel('debug'); // Use detailed logging for migrations
-      loggingMiddleware.setLogResults(true); // Log results for migrations
-    }
+  getOperationOptions(operationType: Prisma.PrismaAction): MiddlewareChainOptions | undefined {
+    return this.operationTypeOptions.get(operationType);
   }
 }

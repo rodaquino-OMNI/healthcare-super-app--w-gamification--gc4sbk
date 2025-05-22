@@ -1,6 +1,6 @@
 /**
  * @file Barrel file that exports all interfaces and enums from the retry/interfaces directory.
- * This file simplifies imports and provides a single point of access for retry-related interfaces.
+ * This file simplifies imports and provides a single point of access to retry interfaces.
  * It improves developer experience by reducing import statements and enforcing consistent
  * interface usage across the notification service's retry functionality.
  */
@@ -8,18 +8,25 @@
 // Export retry status enum
 export { RetryStatus } from './retry-status.enum';
 
-// Export retry operation interfaces
+// Export retryable operation interface
 export { IRetryableOperation } from './retryable-operation.interface';
 
-// Export dead-letter queue interfaces
+// Export dead-letter queue entry interface
 export { IDlqEntry } from './dlq-entry.interface';
 
 // Export retry options interfaces
-export {
+export { 
   IRetryOptions,
   IFixedDelayOptions,
   IExponentialBackoffOptions,
+  ILinearBackoffOptions,
+  RetryOptions,
+  IJitterOptions,
+  JitterType,
+  IRetryPhaseOptions,
+  IMultiPhaseRetryOptions,
+  IChannelRetryOptions
 } from './retry-options.interface';
 
-// Export retry policy interfaces
+// Export retry policy interface
 export { IRetryPolicy } from './retry-policy.interface';

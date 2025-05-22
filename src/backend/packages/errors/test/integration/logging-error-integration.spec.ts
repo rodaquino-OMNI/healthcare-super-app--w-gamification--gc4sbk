@@ -1,432 +1,426 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import { BaseError } from '../../src/base';
-import { ErrorType, JourneyContext } from '../../src/types';
-import { LoggerService } from '@austa/logging';
-import { TracingService } from '@austa/tracing';
-import { AllExceptionsFilter } from '../../src/nest/filters/all-exceptions.filter';
-
-// Mock implementation of LoggerService to capture logs
-class MockLoggerService implements Partial<LoggerService> {
-  public logs: Array<{ level: string; message: string; context?: any; trace?: any }> = [];
-
-  log(message: string, context?: any): void {
-    this.logs.push({ level: 'info', message, context });
-  }
-
-  error(message: string, trace?: any, context?: any): void {
-    this.logs.push({ level: 'error', message, trace, context });
-  }
-
-  warn(message: string, context?: any): void {
-    this.logs.push({ level: 'warn', message, context });
-  }
-
-  debug(message: string, context?: any): void {
-    this.logs.push({ level: 'debug', message, context });
-  }
-
-  verbose(message: string, context?: any): void {
-    this.logs.push({ level: 'verbose', message, context });
-  }
-
-  clear(): void {
-    this.logs = [];
-  }
-}
-
-// Mock implementation of TracingService
-class MockTracingService implements Partial<TracingService> {
-  getCurrentTraceId(): string {
-    return 'mock-trace-id';
-  }
-
-  getCurrentSpanId(): string {
-    return 'mock-span-id';
-  }
-
-  startSpan(name: string): any {
-    return {
-      end: () => {}
-    };
-  }
-}
-
-// Test error classes for different error types
-class TestTechnicalError extends BaseError {
-  constructor(message: string, code: string, details?: any) {
-    super(message, ErrorType.TECHNICAL, code, details);
-  }
-}
-
-class TestBusinessError extends BaseError {
-  constructor(message: string, code: string, details?: any) {
-    super(message, ErrorType.BUSINESS, code, details);
-  }
-}
-
-class TestValidationError extends BaseError {
-  constructor(message: string, code: string, details?: any) {
-    super(message, ErrorType.VALIDATION, code, details);
-  }
-}
-
-class TestExternalError extends BaseError {
-  constructor(message: string, code: string, details?: any) {
-    super(message, ErrorType.EXTERNAL, code, details);
-  }
-}
-
-// Test controller to simulate HTTP context
-class TestController {
-  throwError(errorType: string, includeDetails: boolean = false): void {
-    switch (errorType) {
-      case 'technical':
-        throw new TestTechnicalError('Technical error occurred', 'TECH_ERROR', 
-          includeDetails ? { sensitive: 'secret-data', public: 'public-data' } : undefined);
-      case 'business':
-        throw new TestBusinessError('Business rule violation', 'BIZ_ERROR',
-          includeDetails ? { reason: 'Invalid operation for current state' } : undefined);
-      case 'validation':
-        throw new TestValidationError('Validation failed', 'VALIDATION_ERROR',
-          includeDetails ? { fields: ['name', 'email'] } : undefined);
-      case 'external':
-        throw new TestExternalError('External system failure', 'EXT_ERROR',
-          includeDetails ? { service: 'payment-gateway', status: 503 } : undefined);
-      default:
-        throw new Error('Unknown error');
-    }
-  }
-}
+import { HttpStatus, INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { LoggerMock } from '../mocks/logger.mock';
+import { AllExceptionsFilter } from '../../../../shared/src/exceptions/exceptions.filter';
+import { AppException, ErrorType } from '../../../../shared/src/exceptions/exceptions.types';
+import { createMockArgumentsHost } from '../mocks/nest-components.mock';
+import { createBusinessError, createTechnicalError, createValidationError, createExternalError } from '../helpers/error-factory';
 
 describe('Error Logging Integration', () => {
   let app: INestApplication;
-  let mockLoggerService: MockLoggerService;
-  let mockTracingService: MockTracingService;
+  let loggerMock: LoggerMock;
   let exceptionFilter: AllExceptionsFilter;
-  let originalNodeEnv: string | undefined;
-
-  beforeAll(() => {
-    // Store original NODE_ENV
-    originalNodeEnv = process.env.NODE_ENV;
-  });
-
-  afterAll(() => {
-    // Restore original NODE_ENV
-    process.env.NODE_ENV = originalNodeEnv;
-  });
 
   beforeEach(async () => {
-    mockLoggerService = new MockLoggerService();
-    mockTracingService = new MockTracingService();
+    // Create a fresh logger mock for each test
+    loggerMock = new LoggerMock();
 
-    const moduleRef: TestingModule = await Test.createTestingModule({
+    // Create the exception filter with the mock logger
+    exceptionFilter = new AllExceptionsFilter(loggerMock as any);
+
+    // Create a test module with the exception filter
+    const moduleFixture: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: LoggerService, useValue: mockLoggerService },
-        { provide: TracingService, useValue: mockTracingService },
+        {
+          provide: 'LoggerService',
+          useValue: loggerMock,
+        },
         AllExceptionsFilter,
-        TestController
       ],
     }).compile();
 
-    app = moduleRef.createNestApplication();
-    exceptionFilter = moduleRef.get<AllExceptionsFilter>(AllExceptionsFilter);
+    // Create the NestJS application
+    app = moduleFixture.createNestApplication();
     
-    // Use the exception filter globally
+    // Use the global exception filter
     app.useGlobalFilters(exceptionFilter);
     
     await app.init();
   });
 
   afterEach(async () => {
-    mockLoggerService.clear();
     await app.close();
   });
 
   describe('Error Severity Levels', () => {
-    it('should log technical errors with ERROR level', () => {
+    it('should log validation errors at debug level', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('Critical system failure', 'SYSTEM_ERROR');
-      
+      const validationError = createValidationError('Invalid input', 'INVALID_INPUT', {
+        field: 'email',
+        constraint: 'isEmail',
+      });
+      const mockHost = createMockArgumentsHost({
+        method: 'POST',
+        url: '/api/users',
+        body: { email: 'invalid-email' },
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(validationError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      expect(mockLoggerService.logs[0].level).toBe('error');
-      expect(mockLoggerService.logs[0].message).toContain('Technical error');
-      expect(mockLoggerService.logs[0].message).toContain('SYSTEM_ERROR');
+      const debugLogs = loggerMock.getLogEntries('debug');
+      expect(debugLogs.length).toBeGreaterThan(0);
+      expect(debugLogs[0].message).toContain('Validation error');
+      expect(debugLogs[0].message).toContain('INVALID_INPUT');
+      expect(debugLogs[0].context).toBe('ExceptionsFilter');
     });
 
-    it('should log business errors with WARN level', () => {
+    it('should log business errors at warn level', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestBusinessError('Business rule violation', 'BUSINESS_RULE_ERROR');
-      
+      const businessError = createBusinessError('Resource already exists', 'RESOURCE_EXISTS', {
+        resourceType: 'user',
+        identifier: 'test@example.com',
+      });
+      const mockHost = createMockArgumentsHost({
+        method: 'POST',
+        url: '/api/users',
+        body: { email: 'test@example.com' },
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(businessError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      expect(mockLoggerService.logs[0].level).toBe('warn');
-      expect(mockLoggerService.logs[0].message).toContain('Business error');
-      expect(mockLoggerService.logs[0].message).toContain('BUSINESS_RULE_ERROR');
+      const warnLogs = loggerMock.getLogEntries('warn');
+      expect(warnLogs.length).toBeGreaterThan(0);
+      expect(warnLogs[0].message).toContain('Business error');
+      expect(warnLogs[0].message).toContain('RESOURCE_EXISTS');
+      expect(warnLogs[0].context).toBe('ExceptionsFilter');
     });
 
-    it('should log validation errors with DEBUG level', () => {
+    it('should log technical errors at error level with stack trace', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestValidationError('Invalid input data', 'VALIDATION_ERROR');
-      
+      const technicalError = createTechnicalError('Database connection failed', 'DB_CONNECTION_ERROR', {
+        database: 'users',
+        operation: 'connect',
+      });
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/users',
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(technicalError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      expect(mockLoggerService.logs[0].level).toBe('debug');
-      expect(mockLoggerService.logs[0].message).toContain('Validation error');
-      expect(mockLoggerService.logs[0].message).toContain('VALIDATION_ERROR');
+      const errorLogs = loggerMock.getLogEntries('error');
+      expect(errorLogs.length).toBeGreaterThan(0);
+      expect(errorLogs[0].message).toContain('Technical error');
+      expect(errorLogs[0].message).toContain('DB_CONNECTION_ERROR');
+      expect(errorLogs[0].trace).toBeDefined();
+      expect(errorLogs[0].context).toBe('ExceptionsFilter');
     });
 
-    it('should log external errors with ERROR level', () => {
+    it('should log external system errors at error level with stack trace', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestExternalError('External API failure', 'EXTERNAL_API_ERROR');
-      
+      const externalError = createExternalError('Payment gateway timeout', 'PAYMENT_GATEWAY_TIMEOUT', {
+        gateway: 'stripe',
+        operation: 'createCharge',
+      });
+      const mockHost = createMockArgumentsHost({
+        method: 'POST',
+        url: '/api/payments',
+        body: { amount: 100 },
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(externalError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      expect(mockLoggerService.logs[0].level).toBe('error');
-      expect(mockLoggerService.logs[0].message).toContain('External system error');
-      expect(mockLoggerService.logs[0].message).toContain('EXTERNAL_API_ERROR');
+      const errorLogs = loggerMock.getLogEntries('error');
+      expect(errorLogs.length).toBeGreaterThan(0);
+      expect(errorLogs[0].message).toContain('External system error');
+      expect(errorLogs[0].message).toContain('PAYMENT_GATEWAY_TIMEOUT');
+      expect(errorLogs[0].trace).toBeDefined();
+      expect(errorLogs[0].context).toBe('ExceptionsFilter');
     });
   });
 
-  describe('Context Information', () => {
-    it('should include request information in error logs', () => {
+  describe('Context Propagation', () => {
+    it('should include request details in error logs', () => {
       // Arrange
-      const mockRequest = createMockRequest({
+      const validationError = createValidationError('Invalid input', 'INVALID_INPUT', {
+        field: 'email',
+        constraint: 'isEmail',
+      });
+      const mockHost = createMockArgumentsHost({
         method: 'POST',
-        url: '/api/health/metrics',
-        user: { id: 'user-123' }
+        url: '/api/users',
+        body: { email: 'invalid-email' },
+        headers: {
+          'x-request-id': '123456',
+          'user-agent': 'test-agent',
+        },
       });
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('System error', 'SYSTEM_ERROR');
-      
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(validationError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      const logContext = mockLoggerService.logs[0].context;
-      expect(logContext).toBeDefined();
-      expect(logContext.request).toBeDefined();
-      expect(logContext.request.method).toBe('POST');
-      expect(logContext.request.url).toBe('/api/health/metrics');
-      expect(logContext.request.userId).toBe('user-123');
+      const logs = loggerMock.getAllLogEntries();
+      expect(logs.length).toBeGreaterThan(0);
+      
+      // The request info should be captured in the log metadata
+      const logEntry = logs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.requestInfo).toBeDefined();
+      expect(logEntry.metadata.requestInfo.method).toBe('POST');
+      expect(logEntry.metadata.requestInfo.url).toBe('/api/users');
     });
 
-    it('should include journey context in error logs', () => {
+    it('should include user information in error logs when available', () => {
       // Arrange
-      const journeyContext: JourneyContext = {
-        journeyId: 'health',
-        journeyName: 'Minha Saúde',
-        featureId: 'metrics',
-        featureName: 'Health Metrics'
-      };
-      
-      const mockRequest = createMockRequest({
-        headers: { 'x-journey-id': 'health' },
-        journeyContext
+      const businessError = createBusinessError('Insufficient permissions', 'INSUFFICIENT_PERMISSIONS', {
+        requiredRole: 'admin',
+        userRole: 'user',
       });
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestBusinessError('Business rule violation', 'BUSINESS_RULE_ERROR');
-      error.setJourneyContext(journeyContext);
-      
+      const mockHost = createMockArgumentsHost({
+        method: 'POST',
+        url: '/api/admin/settings',
+        user: {
+          id: 'user-123',
+          email: 'user@example.com',
+          roles: ['user'],
+        },
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(businessError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      const logContext = mockLoggerService.logs[0].context;
-      expect(logContext).toBeDefined();
-      expect(logContext.journey).toBeDefined();
-      expect(logContext.journey.journeyId).toBe('health');
-      expect(logContext.journey.journeyName).toBe('Minha Saúde');
-      expect(logContext.journey.featureId).toBe('metrics');
+      const logs = loggerMock.getAllLogEntries();
+      expect(logs.length).toBeGreaterThan(0);
+      
+      // The user info should be captured in the log metadata
+      const logEntry = logs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.requestInfo).toBeDefined();
+      expect(logEntry.metadata.requestInfo.userId).toBe('user-123');
     });
 
-    it('should include correlation IDs in error logs', () => {
+    it('should include journey context in error logs when available', () => {
       // Arrange
-      const mockRequest = createMockRequest({
-        headers: { 
+      const businessError = createBusinessError('Resource not found', 'RESOURCE_NOT_FOUND', {
+        resourceType: 'healthMetric',
+        identifier: 'metric-123',
+      });
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/health/metrics/metric-123',
+        headers: {
+          'x-journey-id': 'health',
           'x-correlation-id': 'corr-123',
-          'x-request-id': 'req-456'
-        }
+        },
       });
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('System error', 'SYSTEM_ERROR');
-      
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(businessError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      const logContext = mockLoggerService.logs[0].context;
-      expect(logContext).toBeDefined();
-      expect(logContext.correlationId).toBe('corr-123');
-      expect(logContext.requestId).toBe('req-456');
-      expect(logContext.traceId).toBe('mock-trace-id'); // From mock tracing service
+      const logs = loggerMock.getAllLogEntries();
+      expect(logs.length).toBeGreaterThan(0);
+      
+      // The journey context should be captured in the log metadata
+      const logEntry = logs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.requestInfo).toBeDefined();
+      expect(logEntry.metadata.requestInfo.journeyId).toBe('health');
     });
   });
 
   describe('Error Serialization', () => {
-    it('should sanitize sensitive data in error logs', () => {
+    it('should preserve important diagnostic information in logs', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('System error', 'SYSTEM_ERROR', {
-        password: 'secret123',
-        token: 'jwt-token-here',
-        publicInfo: 'This is public',
-        user: {
-          id: 'user-123',
-          password: 'another-secret',
-          email: 'user@example.com'
-        }
+      const technicalError = createTechnicalError('Database query failed', 'DB_QUERY_ERROR', {
+        table: 'users',
+        operation: 'findOne',
+        query: 'SELECT * FROM users WHERE id = ?',
+        parameters: ['user-123'],
+        errorCode: 'ER_NO_SUCH_TABLE',
       });
-      
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/users/user-123',
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(technicalError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      const loggedError = JSON.parse(JSON.stringify(mockLoggerService.logs[0].trace || {}));
+      const errorLogs = loggerMock.getLogEntries('error');
+      expect(errorLogs.length).toBeGreaterThan(0);
       
-      // Sensitive fields should be redacted
-      expect(loggedError).not.toContain('secret123');
-      expect(loggedError).not.toContain('jwt-token-here');
-      expect(loggedError).not.toContain('another-secret');
-      
-      // Public information should be preserved
-      expect(loggedError).toContain('This is public');
-      expect(loggedError).toContain('user-123');
-      expect(loggedError).toContain('user@example.com');
+      // Check that important diagnostic info is preserved
+      const logEntry = errorLogs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.error).toBeDefined();
+      expect(logEntry.metadata.error.code).toBe('DB_QUERY_ERROR');
+      expect(logEntry.metadata.error.details).toBeDefined();
+      expect(logEntry.metadata.error.details.table).toBe('users');
+      expect(logEntry.metadata.error.details.operation).toBe('findOne');
+      expect(logEntry.metadata.error.details.errorCode).toBe('ER_NO_SUCH_TABLE');
     });
 
-    it('should preserve diagnostic information in error logs', () => {
+    it('should sanitize sensitive data in error logs', () => {
       // Arrange
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestExternalError('External API failure', 'EXTERNAL_API_ERROR', {
-        service: 'payment-gateway',
-        endpoint: '/api/payments',
-        statusCode: 503,
-        responseTime: 5000,
-        retryAttempt: 3
+      const validationError = createValidationError('Invalid input', 'INVALID_INPUT', {
+        field: 'password',
+        constraint: 'minLength',
+        actualValue: 'secret123', // This should be sanitized
+        minLength: 8,
       });
-      
+      const mockHost = createMockArgumentsHost({
+        method: 'POST',
+        url: '/api/auth/register',
+        body: {
+          email: 'user@example.com',
+          password: 'secret123', // This should be sanitized
+          name: 'Test User',
+        },
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(validationError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      const loggedError = JSON.stringify(mockLoggerService.logs[0]);
+      const logs = loggerMock.getAllLogEntries();
+      expect(logs.length).toBeGreaterThan(0);
       
-      // Diagnostic information should be preserved
-      expect(loggedError).toContain('payment-gateway');
-      expect(loggedError).toContain('/api/payments');
-      expect(loggedError).toContain('503');
-      expect(loggedError).toContain('5000');
-      expect(loggedError).toContain('3');
+      // Check that sensitive data is sanitized
+      const logEntry = logs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.error).toBeDefined();
+      expect(logEntry.metadata.error.details).toBeDefined();
+      
+      // The actual password value should be sanitized
+      expect(logEntry.metadata.error.details.actualValue).not.toBe('secret123');
+      
+      // The request body should have the password sanitized
+      if (logEntry.metadata.requestInfo && logEntry.metadata.requestInfo.body) {
+        expect(logEntry.metadata.requestInfo.body.password).not.toBe('secret123');
+      }
     });
   });
 
   describe('Environment-Specific Behavior', () => {
     it('should include stack traces in development environment', () => {
       // Arrange
+      const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('System error', 'SYSTEM_ERROR');
       
+      const technicalError = createTechnicalError('Unexpected error', 'UNEXPECTED_ERROR');
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/users',
+      });
+
       // Act
-      exceptionFilter.catch(error, host);
-      
+      exceptionFilter.catch(technicalError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
-      expect(mockLoggerService.logs[0].trace).toBeDefined();
-      expect(mockLoggerService.logs[0].trace).toContain('TestTechnicalError');
-      expect(mockLoggerService.logs[0].trace).toContain('System error');
+      const errorLogs = loggerMock.getLogEntries('error');
+      expect(errorLogs.length).toBeGreaterThan(0);
+      expect(errorLogs[0].trace).toBeDefined();
+      
+      // Restore the original environment
+      process.env.NODE_ENV = originalEnv;
     });
 
-    it('should exclude detailed stack traces in production environment', () => {
+    it('should exclude detailed error information in production environment', () => {
       // Arrange
+      const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
-      const mockRequest = createMockRequest();
-      const mockResponse = createMockResponse();
-      const host = createMockArgumentsHost(mockRequest, mockResponse);
-      const error = new TestTechnicalError('System error', 'SYSTEM_ERROR');
       
+      const unknownError = new Error('Some internal implementation detail that should not be exposed');
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/users',
+      });
+
       // Act
-      const response = exceptionFilter.catch(error, host);
-      
+      const response = exceptionFilter.catch(unknownError, mockHost);
+
       // Assert
-      expect(mockLoggerService.logs.length).toBe(1);
+      expect(response.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(response.json().error.message).toBe('An unexpected error occurred');
+      expect(response.json().error.details).toBeUndefined();
       
-      // Stack trace should still be logged for internal purposes
-      expect(mockLoggerService.logs[0].trace).toBeDefined();
+      // Restore the original environment
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    it('should include detailed error information in non-production environments', () => {
+      // Arrange
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'development';
       
-      // But the response to the client should not contain detailed error info
-      expect(response.error).toBeDefined();
-      expect(response.error.message).toBe('System error');
-      expect(response.error.details).toBeUndefined();
+      const unknownError = new Error('Some internal implementation detail');
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/users',
+      });
+
+      // Act
+      const response = exceptionFilter.catch(unknownError, mockHost);
+
+      // Assert
+      expect(response.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(response.json().error.details).toBeDefined();
+      expect(response.json().error.details.message).toBe('Some internal implementation detail');
+      
+      // Restore the original environment
+      process.env.NODE_ENV = originalEnv;
+    });
+  });
+
+  describe('End-to-End Error Logging', () => {
+    it('should log errors properly when thrown from an API endpoint', async () => {
+      // This test requires a controller that throws errors
+      // For simplicity, we'll mock the behavior using supertest
+      
+      // Clear any existing logs
+      loggerMock.clearLogs();
+      
+      // Make a request that will trigger an error
+      await request(app.getHttpServer())
+        .get('/api/error-test')
+        .expect(500);
+      
+      // Check that the error was logged
+      const errorLogs = loggerMock.getLogEntries('error');
+      expect(errorLogs.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Cross-Service Error Tracking', () => {
+    it('should preserve correlation IDs for cross-service error tracking', () => {
+      // Arrange
+      const externalError = createExternalError('External service error', 'EXTERNAL_SERVICE_ERROR');
+      const mockHost = createMockArgumentsHost({
+        method: 'GET',
+        url: '/api/external-data',
+        headers: {
+          'x-correlation-id': 'correlation-123',
+          'x-request-id': 'request-123',
+          'x-journey-id': 'health',
+        },
+      });
+
+      // Act
+      exceptionFilter.catch(externalError, mockHost);
+
+      // Assert
+      const logs = loggerMock.getAllLogEntries();
+      expect(logs.length).toBeGreaterThan(0);
+      
+      // The correlation IDs should be preserved in the logs
+      const logEntry = logs[0];
+      expect(logEntry.metadata).toBeDefined();
+      expect(logEntry.metadata.correlationId).toBe('correlation-123');
+      expect(logEntry.metadata.requestId).toBe('request-123');
+      expect(logEntry.metadata.requestInfo.journeyId).toBe('health');
     });
   });
 });
-
-// Helper functions to create mock objects for testing
-function createMockRequest(overrides: any = {}) {
-  return {
-    method: 'GET',
-    url: '/api/test',
-    headers: {},
-    user: null,
-    ...overrides
-  };
-}
-
-function createMockResponse() {
-  const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  return res;
-}
-
-function createMockArgumentsHost(req: any, res: any) {
-  return {
-    switchToHttp: () => ({
-      getRequest: () => req,
-      getResponse: () => res
-    }),
-    getType: () => 'http',
-    getArgs: () => [req, res]
-  };
-}

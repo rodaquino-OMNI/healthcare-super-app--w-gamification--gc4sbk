@@ -1,216 +1,199 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaService } from '@backend/shared/src/database/prisma.service';
-import { Logger } from '@backend/packages/logging/src/logger';
-import { ConfigService } from '@nestjs/config';
-import { DatabaseError, SeedingError } from '@backend/packages/errors/src/categories';
-import { JourneyContext } from '@backend/packages/database/src/contexts/journey.context';
+import { PrismaService } from '@austa/database';
+import { BaseJourneyContext } from '@austa/database/contexts';
+import { HealthContext } from '@austa/database/contexts/health.context';
+import { CareContext } from '@austa/database/contexts/care.context';
+import { PlanContext } from '@austa/database/contexts/plan.context';
+import { TransactionService } from '@austa/database/transactions';
+import { TransactionIsolationLevel } from '@austa/database/transactions/transaction.interface';
+import { DatabaseException, TransactionException } from '@austa/database/errors';
+import { 
+  BusinessRuleViolationError, 
+  ResourceExistsError, 
+  ResourceNotFoundError 
+} from '@austa/errors/categories';
+import { Health, Care, Plan } from '@austa/errors/journey';
+import { 
+  getEnv, 
+  getOptionalEnv, 
+  parseBoolean 
+} from '@austa/utils/env';
+import { Logger } from '@austa/logging';
 import * as bcrypt from 'bcrypt';
-
-// Import journey-specific seeders
-import { seedHealthJourney } from './seeders/health.seeder';
-import { seedCareJourney } from './seeders/care.seeder';
-import { seedPlanJourney } from './seeders/plan.seeder';
-import { seedGamificationJourney } from './seeders/gamification.seeder';
 
 // Create a logger instance for the seeding process
 const logger = new Logger('DatabaseSeeder');
 
-// Load environment configuration
-const config = new ConfigService();
-
 /**
- * Configuration for the seeding process based on environment
+ * Environment configuration for database seeding
  */
 interface SeedConfig {
+  // Whether to clean the database before seeding
   cleanDatabase: boolean;
-  seedUsers: boolean;
-  seedPermissions: boolean;
-  seedRoles: boolean;
-  seedJourneys: {
-    health: boolean;
-    care: boolean;
-    plan: boolean;
-    gamification: boolean;
-  };
-  retryAttempts: number;
-  retryDelay: number; // in milliseconds
+  // Which journeys to seed (all if empty)
+  journeys: string[];
+  // Whether to seed in development mode (more data)
+  developmentMode: boolean;
+  // Number of retry attempts for failed operations
+  maxRetries: number;
+  // Whether to continue on non-critical errors
+  continueOnError: boolean;
 }
 
 /**
- * Get environment-specific seeding configuration
+ * Get seeding configuration from environment variables
  */
 function getSeedConfig(): SeedConfig {
-  const environment = config.get('NODE_ENV', 'development');
-  
-  // Default configuration
-  const defaultConfig: SeedConfig = {
-    cleanDatabase: false,
-    seedUsers: true,
-    seedPermissions: true,
-    seedRoles: true,
-    seedJourneys: {
-      health: true,
-      care: true,
-      plan: true,
-      gamification: true,
-    },
-    retryAttempts: 3,
-    retryDelay: 1000,
+  return {
+    cleanDatabase: parseBoolean(getOptionalEnv('SEED_CLEAN_DATABASE', 'true')),
+    journeys: getOptionalEnv('SEED_JOURNEYS', '')?.split(',').filter(Boolean) || [],
+    developmentMode: parseBoolean(getOptionalEnv('SEED_DEVELOPMENT_MODE', 'false')),
+    maxRetries: parseInt(getOptionalEnv('SEED_MAX_RETRIES', '3'), 10),
+    continueOnError: parseBoolean(getOptionalEnv('SEED_CONTINUE_ON_ERROR', 'false')),
   };
-  
-  // Environment-specific overrides
-  switch (environment) {
-    case 'development':
-      return {
-        ...defaultConfig,
-        cleanDatabase: true,
-      };
-    case 'test':
-      return {
-        ...defaultConfig,
-        cleanDatabase: true,
-      };
-    case 'production':
-      return {
-        ...defaultConfig,
-        cleanDatabase: false,
-        // In production, we might want to be more selective about what we seed
-        seedUsers: false, // Don't seed test users in production
-        seedJourneys: {
-          health: false,
-          care: false,
-          plan: false,
-          gamification: true, // Only seed gamification data in production
-        },
-      };
-    default:
-      return defaultConfig;
-  }
 }
 
 /**
- * Seeds the database with initial data using transactions for atomicity.
- * Implements retry logic for transient errors and proper error classification.
+ * Seeds the database with initial data.
  * 
  * @returns A promise that resolves when the database is seeded.
  */
 async function seed(): Promise<void> {
-  logger.info('Starting database seeding process', { environment: config.get('NODE_ENV') });
+  logger.log('Starting database seeding process...');
+  const startTime = Date.now();
   
-  // Get environment-specific configuration
-  const seedConfig = getSeedConfig();
-  logger.debug('Loaded seed configuration', { config: seedConfig });
+  // Get seeding configuration from environment
+  const config = getSeedConfig();
+  logger.log(`Seeding configuration: ${JSON.stringify(config)}`);
   
-  // Create an instance of PrismaService for database operations
+  // Create database services
   const prismaService = new PrismaService();
-  // Create a standard PrismaClient for data operations
-  const prisma = new PrismaClient({
-    log: [
-      { level: 'warn', emit: 'event' },
-      { level: 'error', emit: 'event' },
-    ],
-  });
+  const prisma = new PrismaClient();
+  const transactionService = new TransactionService(prisma);
   
-  // Set up error listeners for Prisma client
-  prisma.$on('error', (e) => {
-    logger.error('Prisma client error', { error: e.message, target: e.target });
-  });
-  
-  prisma.$on('warn', (e) => {
-    logger.warn('Prisma client warning', { message: e.message, target: e.target });
-  });
+  // Create journey-specific database contexts
+  const healthContext = new HealthContext(prisma);
+  const careContext = new CareContext(prisma);
+  const planContext = new PlanContext(prisma);
   
   try {
     // Clean the database if configured to do so
-    if (seedConfig.cleanDatabase) {
-      logger.info('Cleaning database before seeding');
+    if (config.cleanDatabase) {
+      logger.log('Cleaning database before seeding...');
       await prismaService.cleanDatabase();
     }
     
-    // Use a transaction for the entire seeding process to ensure atomicity
-    await prisma.$transaction(async (tx) => {
-      logger.info('Starting database transaction for seeding');
-      
-      // Create permissions if configured
-      if (seedConfig.seedPermissions) {
-        logger.info('Seeding permissions');
-        await seedPermissions(tx);
+    // Start a transaction for the entire seeding process
+    await transactionService.withTransaction(
+      async (tx) => {
+        // Seed core data (always required)
+        await seedCoreData(tx, config);
+        
+        // Seed journey-specific data based on configuration
+        const journeys = config.journeys.length > 0 ? config.journeys : ['health', 'care', 'plan', 'gamification'];
+        
+        for (const journey of journeys) {
+          try {
+            const journeyStartTime = Date.now();
+            logger.log(`Seeding ${journey} journey data...`);
+            
+            switch (journey) {
+              case 'health':
+                await seedHealthJourney(healthContext, config);
+                break;
+              case 'care':
+                await seedCareJourney(careContext, config);
+                break;
+              case 'plan':
+                await seedPlanJourney(planContext, config);
+                break;
+              case 'gamification':
+                await seedGamificationData(tx, config);
+                break;
+              default:
+                logger.warn(`Unknown journey: ${journey}, skipping...`);
+            }
+            
+            const journeyDuration = Date.now() - journeyStartTime;
+            logger.log(`Completed seeding ${journey} journey data in ${journeyDuration}ms`);
+          } catch (error) {
+            if (config.continueOnError) {
+              logger.error(`Error seeding ${journey} journey data: ${error.message}`, error.stack);
+              logger.warn(`Continuing with next journey due to continueOnError=true`);
+            } else {
+              throw error;
+            }
+          }
+        }
+      },
+      {
+        isolationLevel: TransactionIsolationLevel.SERIALIZABLE,
+        maxRetries: config.maxRetries,
       }
-      
-      // Create roles if configured
-      if (seedConfig.seedRoles) {
-        logger.info('Seeding roles');
-        await seedRoles(tx);
-      }
-      
-      // Create users if configured
-      if (seedConfig.seedUsers) {
-        logger.info('Seeding users');
-        await seedUsers(tx);
-      }
-      
-      // Create journey-specific data if configured
-      await seedJourneyData(tx, seedConfig.seedJourneys);
-      
-      logger.info('Database transaction completed successfully');
-    }, {
-      // Transaction options
-      maxWait: 5000, // Maximum time to wait for a transaction slot
-      timeout: 30000, // Maximum time for the transaction to complete
-      isolationLevel: 'Serializable', // Highest isolation level for data consistency
-    });
+    );
     
-    logger.info('Database seeding completed successfully');
+    const duration = Date.now() - startTime;
+    logger.log(`Database seeding completed successfully in ${duration}ms!`);
   } catch (error) {
-    // Classify and handle the error appropriately
-    if (error.code && error.code.startsWith('P')) {
-      // Prisma-specific error
-      const dbError = new DatabaseError(
-        'Database error during seeding',
-        {
-          originalError: error,
-          code: error.code,
-          meta: error.meta,
-        }
+    const duration = Date.now() - startTime;
+    if (error instanceof DatabaseException || error instanceof TransactionException) {
+      logger.error(
+        `Database error during seeding (${duration}ms): ${error.message}`,
+        { error: error.toJSON(), stack: error.stack }
       );
-      logger.error('Database error during seeding', {
-        error: dbError,
-        code: error.code,
-        meta: error.meta,
-        stack: error.stack,
-      });
-      throw dbError;
+    } else if (error instanceof BusinessRuleViolationError) {
+      logger.error(
+        `Business rule violation during seeding (${duration}ms): ${error.message}`,
+        { error: error.toJSON(), stack: error.stack }
+      );
     } else {
-      // General seeding error
-      const seedError = new SeedingError(
-        'Error during database seeding',
-        {
-          originalError: error,
-          phase: error.phase || 'unknown',
-        }
+      logger.error(
+        `Unexpected error during seeding (${duration}ms): ${error.message}`,
+        { stack: error.stack }
       );
-      logger.error('Seeding process failed', {
-        error: seedError,
-        message: error.message,
-        stack: error.stack,
-      });
-      throw seedError;
     }
+    throw error;
   } finally {
-    // Close the database connection
+    // Close database connections
     await prisma.$disconnect();
-    logger.info('Database connection closed');
   }
 }
 
 /**
- * Seeds permissions for all journeys with retry logic for transient errors.
+ * Seeds core data required by all journeys (permissions, roles, users).
  * 
- * @param prisma - The Prisma client instance (transaction context)
+ * @param tx - The transaction client
+ * @param config - Seeding configuration
  */
-async function seedPermissions(prisma: PrismaClient): Promise<void> {
-  const seedConfig = getSeedConfig();
-  
+async function seedCoreData(
+  tx: PrismaClient,
+  config: SeedConfig
+): Promise<void> {
+  try {
+    logger.log('Seeding core permissions...');
+    await seedPermissions(tx);
+    
+    logger.log('Seeding core roles...');
+    await seedRoles(tx);
+    
+    logger.log('Seeding core users...');
+    await seedUsers(tx, config.developmentMode);
+  } catch (error) {
+    if (error instanceof ResourceExistsError) {
+      logger.warn(`Resource already exists: ${error.message}`);
+    } else {
+      logger.error(`Error seeding core data: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Seeds permissions for all journeys.
+ * 
+ * @param tx - The transaction client
+ */
+async function seedPermissions(tx: PrismaClient): Promise<void> {
   // Health journey permissions
   const healthPermissions = [
     { name: 'health:metrics:read', description: 'View health metrics' },
@@ -263,66 +246,42 @@ async function seedPermissions(prisma: PrismaClient): Promise<void> {
     ...gamificationPermissions,
   ];
   
-  // Create all permissions in the database with retry logic
-  logger.info(`Creating ${allPermissions.length} permissions`);
+  // Create all permissions in the database
+  logger.log(`Creating ${allPermissions.length} permissions...`);
   
   for (const permission of allPermissions) {
-    let attempts = 0;
-    let success = false;
-    
-    while (!success && attempts < seedConfig.retryAttempts) {
-      try {
-        attempts++;
-        // Try to create the permission, ignore if it already exists
-        await prisma.permission.upsert({
-          where: { name: permission.name },
-          update: {},
-          create: permission,
-        });
-        success = true;
-        logger.debug(`Created permission: ${permission.name}`);
-      } catch (error) {
-        // If creation fails due to unique constraint, just log and continue
-        if (error.code === 'P2002') {
-          logger.debug(`Permission ${permission.name} already exists, skipping`);
-          success = true; // Consider this a success and move on
-        } else if (attempts < seedConfig.retryAttempts) {
-          // For transient errors, retry after delay
-          logger.warn(`Error creating permission ${permission.name}, retrying (${attempts}/${seedConfig.retryAttempts})`, {
-            error: error.message,
-            code: error.code,
-          });
-          await new Promise(resolve => setTimeout(resolve, seedConfig.retryDelay));
-        } else {
-          // Max retries reached, throw a classified error
-          const dbError = new DatabaseError(
-            `Failed to create permission ${permission.name} after ${seedConfig.retryAttempts} attempts`,
-            {
-              originalError: error,
-              code: error.code,
-              meta: error.meta,
-              entity: 'Permission',
-              operation: 'upsert',
-            }
-          );
-          logger.error('Permission creation failed', { error: dbError });
-          throw dbError;
-        }
+    try {
+      // Try to create the permission, ignore if it already exists
+      await tx.permission.upsert({
+        where: { name: permission.name },
+        update: {},
+        create: permission,
+      });
+    } catch (error) {
+      // Handle Prisma unique constraint violation
+      if (error.code === 'P2002') {
+        logger.debug(`Permission ${permission.name} already exists, skipping...`);
+      } else {
+        // Transform database error to domain error
+        throw new DatabaseException(
+          `Failed to create permission ${permission.name}`,
+          { cause: error, context: { permission } }
+        );
       }
     }
   }
   
-  logger.info(`Successfully created ${allPermissions.length} permissions`);
+  logger.log(`Successfully created permissions`);
 }
 
 /**
  * Seeds roles and assigns permissions to them.
  * 
- * @param prisma - The Prisma client instance (transaction context)
+ * @param tx - The transaction client
  */
-async function seedRoles(prisma: PrismaClient): Promise<void> {
+async function seedRoles(tx: PrismaClient): Promise<void> {
   // Get all permissions
-  const permissions = await prisma.permission.findMany();
+  const permissions = await tx.permission.findMany();
   const permissionsByName = new Map();
   
   // Create a map of permission names to IDs
@@ -418,14 +377,14 @@ async function seedRoles(prisma: PrismaClient): Promise<void> {
   ];
   
   // Create roles and assign permissions
-  logger.info(`Creating ${roles.length} roles`);
+  logger.log(`Creating ${roles.length} roles...`);
   
   for (const role of roles) {
     try {
       const { permissions: permissionNames, ...roleData } = role;
       
       // Create the role
-      const createdRole = await prisma.role.upsert({
+      const createdRole = await tx.role.upsert({
         where: { name: roleData.name },
         update: roleData,
         create: roleData,
@@ -433,18 +392,26 @@ async function seedRoles(prisma: PrismaClient): Promise<void> {
       
       // Get valid permissions to connect
       const permissionConnections = [];
+      const missingPermissions = [];
+      
       for (const name of permissionNames) {
         const permission = permissionsByName.get(name);
         if (permission) {
           permissionConnections.push({ id: permission.id });
         } else {
-          logger.warn(`Permission not found: ${name}`, { role: roleData.name });
+          missingPermissions.push(name);
         }
+      }
+      
+      if (missingPermissions.length > 0) {
+        logger.warn(
+          `Some permissions were not found for role ${roleData.name}: ${missingPermissions.join(', ')}`
+        );
       }
       
       // Connect permissions to the role
       if (permissionConnections.length > 0) {
-        await prisma.role.update({
+        await tx.role.update({
           where: { id: createdRole.id },
           data: {
             permissions: {
@@ -454,36 +421,34 @@ async function seedRoles(prisma: PrismaClient): Promise<void> {
         });
       }
       
-      logger.info(`Created role: ${roleData.name} with ${permissionConnections.length} permissions`);
+      logger.log(`Created role: ${roleData.name} with ${permissionConnections.length} permissions`);
     } catch (error) {
-      // Classify and handle the error
-      const dbError = new DatabaseError(
-        `Error creating role: ${role.name}`,
-        {
-          originalError: error,
-          entity: 'Role',
-          operation: 'upsert',
-          data: { roleName: role.name },
-        }
-      );
-      logger.error('Role creation failed', { error: dbError, stack: error.stack });
-      throw dbError;
+      if (error.code === 'P2002') {
+        logger.debug(`Role ${role.name} already exists, updating permissions...`);
+      } else {
+        throw new DatabaseException(
+          `Failed to create role ${role.name}`,
+          { cause: error, context: { role } }
+        );
+      }
     }
   }
 }
 
 /**
- * Seeds default users with proper error handling.
+ * Seeds default users.
  * 
- * @param prisma - The Prisma client instance (transaction context)
+ * @param tx - The transaction client
+ * @param developmentMode - Whether to seed additional development data
  */
-async function seedUsers(prisma: PrismaClient): Promise<void> {
+async function seedUsers(
+  tx: PrismaClient,
+  developmentMode: boolean
+): Promise<void> {
   try {
-    logger.info('Creating default users');
-    
     // Create admin user
     const adminPassword = await bcrypt.hash('Password123!', 10);
-    const adminUser = await prisma.user.upsert({
+    const adminUser = await tx.user.upsert({
       where: { email: 'admin@austa.com.br' },
       update: {},
       create: {
@@ -496,28 +461,32 @@ async function seedUsers(prisma: PrismaClient): Promise<void> {
     });
     
     // Get the admin role
-    const adminRole = await prisma.role.findUnique({
+    const adminRole = await tx.role.findUnique({
       where: { name: 'Administrator' },
     });
     
-    if (adminRole) {
-      // Assign admin role to admin user
-      await prisma.user.update({
-        where: { id: adminUser.id },
-        data: {
-          roles: {
-            connect: { id: adminRole.id },
-          },
-        },
-      });
-      logger.info(`Created admin user: ${adminUser.email} with Administrator role`);
-    } else {
-      logger.warn('Administrator role not found, admin user created without role');
+    if (!adminRole) {
+      throw new ResourceNotFoundError(
+        'Administrator role not found',
+        { context: { user: adminUser.email } }
+      );
     }
+    
+    // Assign admin role to admin user
+    await tx.user.update({
+      where: { id: adminUser.id },
+      data: {
+        roles: {
+          connect: { id: adminRole.id },
+        },
+      },
+    });
+    
+    logger.log(`Created/updated admin user: ${adminUser.email} with Administrator role`);
     
     // Create regular test user
     const userPassword = await bcrypt.hash('Password123!', 10);
-    const testUser = await prisma.user.upsert({
+    const testUser = await tx.user.upsert({
       where: { email: 'user@austa.com.br' },
       update: {},
       create: {
@@ -530,264 +499,536 @@ async function seedUsers(prisma: PrismaClient): Promise<void> {
     });
     
     // Get the default user role
-    const userRole = await prisma.role.findFirst({
+    const userRole = await tx.role.findFirst({
       where: { isDefault: true },
     });
     
-    if (userRole) {
-      // Assign user role to test user
-      await prisma.user.update({
-        where: { id: testUser.id },
-        data: {
-          roles: {
-            connect: { id: userRole.id },
-          },
+    if (!userRole) {
+      throw new ResourceNotFoundError(
+        'Default user role not found',
+        { context: { user: testUser.email } }
+      );
+    }
+    
+    // Assign user role to test user
+    await tx.user.update({
+      where: { id: testUser.id },
+      data: {
+        roles: {
+          connect: { id: userRole.id },
+        },
+      },
+    });
+    
+    logger.log(`Created/updated test user: ${testUser.email} with ${userRole.name} role`);
+    
+    // Create additional development users if in development mode
+    if (developmentMode) {
+      logger.log('Creating additional development users...');
+      
+      // Create a caregiver user
+      const caregiverPassword = await bcrypt.hash('Password123!', 10);
+      const caregiverUser = await tx.user.upsert({
+        where: { email: 'caregiver@austa.com.br' },
+        update: {},
+        create: {
+          name: 'Caregiver User',
+          email: 'caregiver@austa.com.br',
+          password: caregiverPassword,
+          phone: '+5511777777777',
+          cpf: '45678912345',
         },
       });
-      logger.info(`Created test user: ${testUser.email} with ${userRole.name} role`);
+      
+      // Get the caregiver role
+      const caregiverRole = await tx.role.findUnique({
+        where: { name: 'Caregiver' },
+      });
+      
+      if (caregiverRole) {
+        // Assign caregiver role
+        await tx.user.update({
+          where: { id: caregiverUser.id },
+          data: {
+            roles: {
+              connect: { id: caregiverRole.id },
+            },
+          },
+        });
+        
+        logger.log(`Created/updated caregiver user: ${caregiverUser.email} with Caregiver role`);
+      }
+      
+      // Create a provider user
+      const providerPassword = await bcrypt.hash('Password123!', 10);
+      const providerUser = await tx.user.upsert({
+        where: { email: 'provider@austa.com.br' },
+        update: {},
+        create: {
+          name: 'Provider User',
+          email: 'provider@austa.com.br',
+          password: providerPassword,
+          phone: '+5511666666666',
+          cpf: '78912345678',
+        },
+      });
+      
+      // Get the provider role
+      const providerRole = await tx.role.findUnique({
+        where: { name: 'Provider' },
+      });
+      
+      if (providerRole) {
+        // Assign provider role
+        await tx.user.update({
+          where: { id: providerUser.id },
+          data: {
+            roles: {
+              connect: { id: providerRole.id },
+            },
+          },
+        });
+        
+        logger.log(`Created/updated provider user: ${providerUser.email} with Provider role`);
+      }
+    }
+  } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      throw error; // Re-throw domain errors
+    } else if (error.code === 'P2002') {
+      logger.debug(`User already exists, skipping...`);
     } else {
-      logger.warn('Default user role not found, test user created without role');
+      throw new DatabaseException(
+        `Failed to create users`,
+        { cause: error, context: { developmentMode } }
+      );
     }
-  } catch (error) {
-    // Classify and handle the error
-    const dbError = new DatabaseError(
-      'Error creating users',
-      {
-        originalError: error,
-        entity: 'User',
-        operation: 'create',
-      }
-    );
-    logger.error('User creation failed', { error: dbError, stack: error.stack });
-    throw dbError;
   }
 }
 
 /**
- * Seeds journey-specific data using journey contexts for better separation.
+ * Seeds Health journey-specific data.
  * 
- * @param prisma - The Prisma client instance (transaction context)
- * @param journeyConfig - Configuration specifying which journeys to seed
+ * @param healthContext - The Health journey database context
+ * @param config - Seeding configuration
  */
-async function seedJourneyData(
-  prisma: PrismaClient,
-  journeyConfig: { health: boolean; care: boolean; plan: boolean; gamification: boolean }
+async function seedHealthJourney(
+  healthContext: HealthContext,
+  config: SeedConfig
 ): Promise<void> {
-  logger.info('Seeding journey-specific data', { journeys: journeyConfig });
-  
-  // Create journey contexts for better separation and organization
-  const healthContext = new JourneyContext(prisma, 'health');
-  const careContext = new JourneyContext(prisma, 'care');
-  const planContext = new JourneyContext(prisma, 'plan');
-  const gamificationContext = new JourneyContext(prisma, 'gamification');
-  
   try {
-    // Health Journey sample data
-    if (journeyConfig.health) {
-      logger.info('Seeding Health journey data');
-      await seedHealthJourney(healthContext);
-    }
-    
-    // Care Journey sample data
-    if (journeyConfig.care) {
-      logger.info('Seeding Care journey data');
-      await seedCareJourney(careContext);
-    }
-    
-    // Plan Journey sample data
-    if (journeyConfig.plan) {
-      logger.info('Seeding Plan journey data');
-      await seedPlanJourney(planContext);
-    }
-    
-    // Gamification sample data
-    if (journeyConfig.gamification) {
-      logger.info('Seeding Gamification journey data');
-      await seedGamificationJourney(gamificationContext);
-    }
-    
-    logger.info('Successfully seeded all journey data');
-  } catch (error) {
-    // Classify the error based on which journey failed
-    let journey = 'unknown';
-    if (error.context && error.context.journey) {
-      journey = error.context.journey;
-    } else if (error.message && error.message.toLowerCase().includes('health')) {
-      journey = 'health';
-    } else if (error.message && error.message.toLowerCase().includes('care')) {
-      journey = 'care';
-    } else if (error.message && error.message.toLowerCase().includes('plan')) {
-      journey = 'plan';
-    } else if (error.message && error.message.toLowerCase().includes('gamification')) {
-      journey = 'gamification';
-    }
-    
-    const seedError = new SeedingError(
-      `Error seeding ${journey} journey data`,
-      {
-        originalError: error,
-        journey,
-        phase: 'journey-seeding',
+    // Use the Health context to seed data with proper error handling
+    await healthContext.withTransaction(async (tx) => {
+      // Sample health metrics types
+      const metricTypes = [
+        { name: 'HEART_RATE', unit: 'bpm', normalRangeMin: 60, normalRangeMax: 100 },
+        { name: 'BLOOD_PRESSURE', unit: 'mmHg', normalRangeMin: null, normalRangeMax: null },
+        { name: 'BLOOD_GLUCOSE', unit: 'mg/dL', normalRangeMin: 70, normalRangeMax: 100 },
+        { name: 'STEPS', unit: 'steps', normalRangeMin: 5000, normalRangeMax: null },
+        { name: 'WEIGHT', unit: 'kg', normalRangeMin: null, normalRangeMax: null },
+        { name: 'SLEEP', unit: 'hours', normalRangeMin: 7, normalRangeMax: 9 },
+      ];
+
+      logger.log(`Creating ${metricTypes.length} health metric types...`);
+      for (const metricType of metricTypes) {
+        try {
+          await tx.healthMetricType.upsert({
+            where: { name: metricType.name },
+            update: {},
+            create: metricType,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Health metric type ${metricType.name} already exists, skipping...`);
+          } else {
+            throw new Health.Metrics.MetricTypeCreationError(
+              `Failed to create health metric type ${metricType.name}`,
+              { cause: error, context: { metricType } }
+            );
+          }
+        }
       }
-    );
-    
-    logger.error(`Failed to seed ${journey} journey data`, {
-      error: seedError,
-      stack: error.stack,
+      
+      // Sample device types
+      const deviceTypes = [
+        { name: 'Smartwatch', description: 'Wearable smartwatch device', manufacturer: 'Various' },
+        { name: 'Blood Pressure Monitor', description: 'Blood pressure monitoring device', manufacturer: 'Various' },
+        { name: 'Glucose Monitor', description: 'Blood glucose monitoring device', manufacturer: 'Various' },
+        { name: 'Smart Scale', description: 'Weight and body composition scale', manufacturer: 'Various' },
+      ];
+      
+      logger.log(`Creating ${deviceTypes.length} device types...`);
+      for (const deviceType of deviceTypes) {
+        try {
+          await tx.deviceType.upsert({
+            where: { name: deviceType.name },
+            update: {},
+            create: deviceType,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Device type ${deviceType.name} already exists, skipping...`);
+          } else {
+            throw new Health.Devices.DeviceTypeCreationError(
+              `Failed to create device type ${deviceType.name}`,
+              { cause: error, context: { deviceType } }
+            );
+          }
+        }
+      }
+      
+      // Add additional development data if in development mode
+      if (config.developmentMode) {
+        logger.log('Creating additional health development data...');
+        
+        // Sample health goals
+        const healthGoals = [
+          { 
+            name: 'Daily Steps', 
+            description: 'Walk 10,000 steps daily', 
+            metricType: 'STEPS',
+            targetValue: 10000,
+            frequency: 'DAILY',
+          },
+          { 
+            name: 'Sleep Duration', 
+            description: 'Sleep 8 hours per night', 
+            metricType: 'SLEEP',
+            targetValue: 8,
+            frequency: 'DAILY',
+          },
+          { 
+            name: 'Weight Management', 
+            description: 'Maintain weight within healthy range', 
+            metricType: 'WEIGHT',
+            targetValue: null, // Target depends on the user
+            frequency: 'WEEKLY',
+          },
+        ];
+        
+        // Create sample goal templates
+        logger.log(`Creating ${healthGoals.length} health goal templates...`);
+        for (const goal of healthGoals) {
+          try {
+            // Find the metric type
+            const metricType = await tx.healthMetricType.findUnique({
+              where: { name: goal.metricType },
+            });
+            
+            if (!metricType) {
+              throw new ResourceNotFoundError(
+                `Metric type ${goal.metricType} not found`,
+                { context: { goal } }
+              );
+            }
+            
+            // Create the goal template
+            await tx.healthGoalTemplate.upsert({
+              where: { name: goal.name },
+              update: {},
+              create: {
+                name: goal.name,
+                description: goal.description,
+                metricTypeId: metricType.id,
+                targetValue: goal.targetValue,
+                frequency: goal.frequency,
+              },
+            });
+          } catch (error) {
+            if (error instanceof ResourceNotFoundError) {
+              throw error; // Re-throw domain errors
+            } else if (error.code === 'P2002') {
+              logger.debug(`Health goal template ${goal.name} already exists, skipping...`);
+            } else {
+              throw new Health.Goals.GoalCreationError(
+                `Failed to create health goal template ${goal.name}`,
+                { cause: error, context: { goal } }
+              );
+            }
+          }
+        }
+      }
+    }, {
+      isolationLevel: TransactionIsolationLevel.READ_COMMITTED,
+      maxRetries: config.maxRetries,
     });
     
-    throw seedError;
-  }
-}
-
-/**
- * Fallback implementation for health journey seeding if the module is not available.
- * This will be replaced by the actual implementation in health.seeder.ts
- */
-async function seedHealthJourney(context: JourneyContext): Promise<void> {
-  const prisma = context.getPrismaClient();
-  
-  try {
-    // Sample health metrics types
-    const metricTypes = [
-      { name: 'HEART_RATE', unit: 'bpm', normalRangeMin: 60, normalRangeMax: 100 },
-      { name: 'BLOOD_PRESSURE', unit: 'mmHg', normalRangeMin: null, normalRangeMax: null },
-      { name: 'BLOOD_GLUCOSE', unit: 'mg/dL', normalRangeMin: 70, normalRangeMax: 100 },
-      { name: 'STEPS', unit: 'steps', normalRangeMin: 5000, normalRangeMax: null },
-      { name: 'WEIGHT', unit: 'kg', normalRangeMin: null, normalRangeMax: null },
-      { name: 'SLEEP', unit: 'hours', normalRangeMin: 7, normalRangeMax: 9 },
-    ];
-
-    for (const metricType of metricTypes) {
-      await prisma.healthMetricType.upsert({
-        where: { name: metricType.name },
-        update: {},
-        create: metricType,
-      });
-    }
-    
-    logger.info(`Created ${metricTypes.length} health metric types`);
-    
-    // Sample device types
-    const deviceTypes = [
-      { name: 'Smartwatch', description: 'Wearable smartwatch device', manufacturer: 'Various' },
-      { name: 'Blood Pressure Monitor', description: 'Blood pressure monitoring device', manufacturer: 'Various' },
-      { name: 'Glucose Monitor', description: 'Blood glucose monitoring device', manufacturer: 'Various' },
-      { name: 'Smart Scale', description: 'Weight and body composition scale', manufacturer: 'Various' },
-    ];
-    
-    for (const deviceType of deviceTypes) {
-      await prisma.deviceType.upsert({
-        where: { name: deviceType.name },
-        update: {},
-        create: deviceType,
-      });
-    }
-    
-    logger.info(`Created ${deviceTypes.length} device types`);
+    logger.log('Health journey data seeded successfully');
   } catch (error) {
-    throw new SeedingError('Error seeding health journey data', {
-      originalError: error,
-      journey: 'health',
-      phase: 'health-seeding',
-    });
+    logger.error(`Error seeding Health journey data: ${error.message}`, error.stack);
+    throw error;
   }
 }
 
 /**
- * Fallback implementation for care journey seeding if the module is not available.
- * This will be replaced by the actual implementation in care.seeder.ts
+ * Seeds Care journey-specific data.
+ * 
+ * @param careContext - The Care journey database context
+ * @param config - Seeding configuration
  */
-async function seedCareJourney(context: JourneyContext): Promise<void> {
-  const prisma = context.getPrismaClient();
-  
+async function seedCareJourney(
+  careContext: CareContext,
+  config: SeedConfig
+): Promise<void> {
   try {
-    // Sample provider specialties
-    const specialties = [
-      { name: 'Cardiologia', description: 'Especialista em coração e sistema cardiovascular' },
-      { name: 'Dermatologia', description: 'Especialista em pele, cabelo e unhas' },
-      { name: 'Ortopedia', description: 'Especialista em sistema músculo-esquelético' },
-      { name: 'Pediatria', description: 'Especialista em saúde infantil' },
-      { name: 'Psiquiatria', description: 'Especialista em saúde mental' },
-    ];
-    
-    for (const specialty of specialties) {
-      await prisma.providerSpecialty.upsert({
-        where: { name: specialty.name },
-        update: {},
-        create: specialty,
-      });
-    }
-    
-    logger.info(`Created ${specialties.length} provider specialties`);
-  } catch (error) {
-    throw new SeedingError('Error seeding care journey data', {
-      originalError: error,
-      journey: 'care',
-      phase: 'care-seeding',
+    // Use the Care context to seed data with proper error handling
+    await careContext.withTransaction(async (tx) => {
+      // Sample provider specialties
+      const specialties = [
+        { name: 'Cardiologia', description: 'Especialista em coração e sistema cardiovascular' },
+        { name: 'Dermatologia', description: 'Especialista em pele, cabelo e unhas' },
+        { name: 'Ortopedia', description: 'Especialista em sistema músculo-esquelético' },
+        { name: 'Pediatria', description: 'Especialista em saúde infantil' },
+        { name: 'Psiquiatria', description: 'Especialista em saúde mental' },
+      ];
+      
+      logger.log(`Creating ${specialties.length} provider specialties...`);
+      for (const specialty of specialties) {
+        try {
+          await tx.providerSpecialty.upsert({
+            where: { name: specialty.name },
+            update: {},
+            create: specialty,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Provider specialty ${specialty.name} already exists, skipping...`);
+          } else {
+            throw new Care.Providers.SpecialtyCreationError(
+              `Failed to create provider specialty ${specialty.name}`,
+              { cause: error, context: { specialty } }
+            );
+          }
+        }
+      }
+      
+      // Add additional development data if in development mode
+      if (config.developmentMode) {
+        logger.log('Creating additional care development data...');
+        
+        // Sample medication categories
+        const medicationCategories = [
+          { name: 'Analgésico', description: 'Medicamentos para alívio da dor' },
+          { name: 'Anti-inflamatório', description: 'Medicamentos para redução de inflamação' },
+          { name: 'Antibiótico', description: 'Medicamentos para combate a infecções bacterianas' },
+          { name: 'Anti-hipertensivo', description: 'Medicamentos para controle da pressão arterial' },
+          { name: 'Antidepressivo', description: 'Medicamentos para tratamento de depressão' },
+        ];
+        
+        logger.log(`Creating ${medicationCategories.length} medication categories...`);
+        for (const category of medicationCategories) {
+          try {
+            await tx.medicationCategory.upsert({
+              where: { name: category.name },
+              update: {},
+              create: category,
+            });
+          } catch (error) {
+            if (error.code === 'P2002') {
+              logger.debug(`Medication category ${category.name} already exists, skipping...`);
+            } else {
+              throw new Care.Medications.CategoryCreationError(
+                `Failed to create medication category ${category.name}`,
+                { cause: error, context: { category } }
+              );
+            }
+          }
+        }
+        
+        // Sample appointment types
+        const appointmentTypes = [
+          { name: 'Consulta Inicial', description: 'Primeira consulta com o médico', durationMinutes: 60 },
+          { name: 'Retorno', description: 'Consulta de acompanhamento', durationMinutes: 30 },
+          { name: 'Emergência', description: 'Atendimento de emergência', durationMinutes: 45 },
+          { name: 'Telemedicina', description: 'Consulta remota por vídeo', durationMinutes: 30 },
+          { name: 'Exame', description: 'Realização de exames médicos', durationMinutes: 45 },
+        ];
+        
+        logger.log(`Creating ${appointmentTypes.length} appointment types...`);
+        for (const appointmentType of appointmentTypes) {
+          try {
+            await tx.appointmentType.upsert({
+              where: { name: appointmentType.name },
+              update: {},
+              create: appointmentType,
+            });
+          } catch (error) {
+            if (error.code === 'P2002') {
+              logger.debug(`Appointment type ${appointmentType.name} already exists, skipping...`);
+            } else {
+              throw new Care.Appointments.TypeCreationError(
+                `Failed to create appointment type ${appointmentType.name}`,
+                { cause: error, context: { appointmentType } }
+              );
+            }
+          }
+        }
+      }
+    }, {
+      isolationLevel: TransactionIsolationLevel.READ_COMMITTED,
+      maxRetries: config.maxRetries,
     });
+    
+    logger.log('Care journey data seeded successfully');
+  } catch (error) {
+    logger.error(`Error seeding Care journey data: ${error.message}`, error.stack);
+    throw error;
   }
 }
 
 /**
- * Fallback implementation for plan journey seeding if the module is not available.
- * This will be replaced by the actual implementation in plan.seeder.ts
+ * Seeds Plan journey-specific data.
+ * 
+ * @param planContext - The Plan journey database context
+ * @param config - Seeding configuration
  */
-async function seedPlanJourney(context: JourneyContext): Promise<void> {
-  const prisma = context.getPrismaClient();
-  
+async function seedPlanJourney(
+  planContext: PlanContext,
+  config: SeedConfig
+): Promise<void> {
   try {
-    // Sample plan types
-    const planTypes = [
-      { name: 'Básico', description: 'Plano com cobertura básica' },
-      { name: 'Standard', description: 'Plano com cobertura intermediária' },
-      { name: 'Premium', description: 'Plano com cobertura ampla' },
-    ];
-    
-    for (const planType of planTypes) {
-      await prisma.insurancePlanType.upsert({
-        where: { name: planType.name },
-        update: {},
-        create: planType,
-      });
-    }
-    
-    logger.info(`Created ${planTypes.length} insurance plan types`);
-    
-    // Sample claim types
-    const claimTypes = [
-      { name: 'Consulta Médica', description: 'Reembolso para consulta médica' },
-      { name: 'Exame', description: 'Reembolso para exames médicos' },
-      { name: 'Terapia', description: 'Reembolso para sessões terapêuticas' },
-      { name: 'Internação', description: 'Reembolso para internação hospitalar' },
-      { name: 'Medicamento', description: 'Reembolso para medicamentos prescritos' },
-    ];
-    
-    for (const claimType of claimTypes) {
-      await prisma.claimType.upsert({
-        where: { name: claimType.name },
-        update: {},
-        create: claimType,
-      });
-    }
-    
-    logger.info(`Created ${claimTypes.length} claim types`);
-  } catch (error) {
-    throw new SeedingError('Error seeding plan journey data', {
-      originalError: error,
-      journey: 'plan',
-      phase: 'plan-seeding',
+    // Use the Plan context to seed data with proper error handling
+    await planContext.withTransaction(async (tx) => {
+      // Sample plan types
+      const planTypes = [
+        { name: 'Básico', description: 'Plano com cobertura básica' },
+        { name: 'Standard', description: 'Plano com cobertura intermediária' },
+        { name: 'Premium', description: 'Plano com cobertura ampla' },
+      ];
+      
+      logger.log(`Creating ${planTypes.length} insurance plan types...`);
+      for (const planType of planTypes) {
+        try {
+          await tx.insurancePlanType.upsert({
+            where: { name: planType.name },
+            update: {},
+            create: planType,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Insurance plan type ${planType.name} already exists, skipping...`);
+          } else {
+            throw new Plan.Coverage.PlanTypeCreationError(
+              `Failed to create insurance plan type ${planType.name}`,
+              { cause: error, context: { planType } }
+            );
+          }
+        }
+      }
+      
+      // Sample claim types
+      const claimTypes = [
+        { name: 'Consulta Médica', description: 'Reembolso para consulta médica' },
+        { name: 'Exame', description: 'Reembolso para exames médicos' },
+        { name: 'Terapia', description: 'Reembolso para sessões terapêuticas' },
+        { name: 'Internação', description: 'Reembolso para internação hospitalar' },
+        { name: 'Medicamento', description: 'Reembolso para medicamentos prescritos' },
+      ];
+      
+      logger.log(`Creating ${claimTypes.length} claim types...`);
+      for (const claimType of claimTypes) {
+        try {
+          await tx.claimType.upsert({
+            where: { name: claimType.name },
+            update: {},
+            create: claimType,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Claim type ${claimType.name} already exists, skipping...`);
+          } else {
+            throw new Plan.Claims.ClaimTypeCreationError(
+              `Failed to create claim type ${claimType.name}`,
+              { cause: error, context: { claimType } }
+            );
+          }
+        }
+      }
+      
+      // Add additional development data if in development mode
+      if (config.developmentMode) {
+        logger.log('Creating additional plan development data...');
+        
+        // Sample document types
+        const documentTypes = [
+          { name: 'Receita Médica', description: 'Prescrição médica para medicamentos', requiredForClaim: true },
+          { name: 'Nota Fiscal', description: 'Comprovante de pagamento', requiredForClaim: true },
+          { name: 'Laudo Médico', description: 'Relatório detalhado do médico', requiredForClaim: false },
+          { name: 'Pedido de Exame', description: 'Solicitação de exames médicos', requiredForClaim: true },
+          { name: 'Resultado de Exame', description: 'Resultado de exames realizados', requiredForClaim: false },
+        ];
+        
+        logger.log(`Creating ${documentTypes.length} document types...`);
+        for (const documentType of documentTypes) {
+          try {
+            await tx.documentType.upsert({
+              where: { name: documentType.name },
+              update: {},
+              create: documentType,
+            });
+          } catch (error) {
+            if (error.code === 'P2002') {
+              logger.debug(`Document type ${documentType.name} already exists, skipping...`);
+            } else {
+              throw new Plan.Documents.DocumentTypeCreationError(
+                `Failed to create document type ${documentType.name}`,
+                { cause: error, context: { documentType } }
+              );
+            }
+          }
+        }
+        
+        // Sample benefit categories
+        const benefitCategories = [
+          { name: 'Consultas', description: 'Benefícios relacionados a consultas médicas' },
+          { name: 'Exames', description: 'Benefícios relacionados a exames diagnósticos' },
+          { name: 'Terapias', description: 'Benefícios relacionados a tratamentos terapêuticos' },
+          { name: 'Internação', description: 'Benefícios relacionados a internação hospitalar' },
+          { name: 'Medicamentos', description: 'Benefícios relacionados a medicamentos' },
+        ];
+        
+        logger.log(`Creating ${benefitCategories.length} benefit categories...`);
+        for (const category of benefitCategories) {
+          try {
+            await tx.benefitCategory.upsert({
+              where: { name: category.name },
+              update: {},
+              create: category,
+            });
+          } catch (error) {
+            if (error.code === 'P2002') {
+              logger.debug(`Benefit category ${category.name} already exists, skipping...`);
+            } else {
+              throw new Plan.Benefits.CategoryCreationError(
+                `Failed to create benefit category ${category.name}`,
+                { cause: error, context: { category } }
+              );
+            }
+          }
+        }
+      }
+    }, {
+      isolationLevel: TransactionIsolationLevel.READ_COMMITTED,
+      maxRetries: config.maxRetries,
     });
+    
+    logger.log('Plan journey data seeded successfully');
+  } catch (error) {
+    logger.error(`Error seeding Plan journey data: ${error.message}`, error.stack);
+    throw error;
   }
 }
 
 /**
- * Fallback implementation for gamification journey seeding if the module is not available.
- * This will be replaced by the actual implementation in gamification.seeder.ts
+ * Seeds Gamification data.
+ * 
+ * @param tx - The transaction client
+ * @param config - Seeding configuration
  */
-async function seedGamificationJourney(context: JourneyContext): Promise<void> {
-  const prisma = context.getPrismaClient();
-  
+async function seedGamificationData(
+  tx: PrismaClient,
+  config: SeedConfig
+): Promise<void> {
   try {
     // Sample achievement types
     const achievementTypes = [
@@ -833,41 +1074,156 @@ async function seedGamificationJourney(context: JourneyContext): Promise<void> {
       },
     ];
     
+    logger.log(`Creating ${achievementTypes.length} achievement types...`);
     for (const achievement of achievementTypes) {
-      await prisma.achievementType.upsert({
-        where: { name: achievement.name },
-        update: {},
-        create: achievement,
-      });
+      try {
+        await tx.achievementType.upsert({
+          where: { name: achievement.name },
+          update: {},
+          create: achievement,
+        });
+      } catch (error) {
+        if (error.code === 'P2002') {
+          logger.debug(`Achievement type ${achievement.name} already exists, skipping...`);
+        } else {
+          throw new BusinessRuleViolationError(
+            `Failed to create achievement type ${achievement.name}`,
+            { cause: error, context: { achievement } }
+          );
+        }
+      }
     }
     
-    logger.info(`Created ${achievementTypes.length} achievement types`);
+    // Add additional development data if in development mode
+    if (config.developmentMode) {
+      logger.log('Creating additional gamification development data...');
+      
+      // Sample reward types
+      const rewardTypes = [
+        { 
+          name: 'discount-consultation', 
+          title: 'Desconto em Consulta', 
+          description: 'Desconto de 10% em consultas médicas',
+          pointsCost: 100,
+          journey: 'care',
+          icon: 'stethoscope',
+        },
+        { 
+          name: 'free-delivery', 
+          title: 'Entrega Grátis de Medicamentos', 
+          description: 'Entrega gratuita de medicamentos',
+          pointsCost: 50,
+          journey: 'care',
+          icon: 'truck',
+        },
+        { 
+          name: 'premium-content', 
+          title: 'Conteúdo Premium', 
+          description: 'Acesso a conteúdo exclusivo sobre saúde',
+          pointsCost: 30,
+          journey: 'health',
+          icon: 'book-open',
+        },
+        { 
+          name: 'priority-scheduling', 
+          title: 'Agendamento Prioritário', 
+          description: 'Prioridade no agendamento de consultas',
+          pointsCost: 150,
+          journey: 'care',
+          icon: 'calendar-star',
+        },
+        { 
+          name: 'claim-fast-track', 
+          title: 'Reembolso Expresso', 
+          description: 'Processamento prioritário de reembolsos',
+          pointsCost: 200,
+          journey: 'plan',
+          icon: 'bolt',
+        },
+      ];
+      
+      logger.log(`Creating ${rewardTypes.length} reward types...`);
+      for (const reward of rewardTypes) {
+        try {
+          await tx.rewardType.upsert({
+            where: { name: reward.name },
+            update: {},
+            create: reward,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Reward type ${reward.name} already exists, skipping...`);
+          } else {
+            throw new BusinessRuleViolationError(
+              `Failed to create reward type ${reward.name}`,
+              { cause: error, context: { reward } }
+            );
+          }
+        }
+      }
+      
+      // Sample quest types
+      const questTypes = [
+        { 
+          name: 'health-check-week', 
+          title: 'Semana da Saúde', 
+          description: 'Registre suas métricas de saúde todos os dias por uma semana',
+          pointsReward: 50,
+          journey: 'health',
+          icon: 'calendar-heart',
+          durationDays: 7,
+        },
+        { 
+          name: 'medication-month', 
+          title: 'Mês da Medicação', 
+          description: 'Registre a tomada de medicamentos por 30 dias consecutivos',
+          pointsReward: 100,
+          journey: 'care',
+          icon: 'calendar-pill',
+          durationDays: 30,
+        },
+        { 
+          name: 'complete-profile', 
+          title: 'Perfil Completo', 
+          description: 'Complete todas as informações do seu perfil de saúde',
+          pointsReward: 30,
+          journey: 'health',
+          icon: 'user-check',
+          durationDays: null,
+        },
+      ];
+      
+      logger.log(`Creating ${questTypes.length} quest types...`);
+      for (const quest of questTypes) {
+        try {
+          await tx.questType.upsert({
+            where: { name: quest.name },
+            update: {},
+            create: quest,
+          });
+        } catch (error) {
+          if (error.code === 'P2002') {
+            logger.debug(`Quest type ${quest.name} already exists, skipping...`);
+          } else {
+            throw new BusinessRuleViolationError(
+              `Failed to create quest type ${quest.name}`,
+              { cause: error, context: { quest } }
+            );
+          }
+        }
+      }
+    }
+    
+    logger.log('Gamification data seeded successfully');
   } catch (error) {
-    throw new SeedingError('Error seeding gamification data', {
-      originalError: error,
-      journey: 'gamification',
-      phase: 'gamification-seeding',
-    });
+    logger.error(`Error seeding Gamification data: ${error.message}`, error.stack);
+    throw error;
   }
 }
 
-/**
- * Main execution function with proper error handling
- */
-function main() {
-  seed()
-    .then(() => {
-      logger.info('Database seeding completed successfully');
-      process.exit(0);
-    })
-    .catch(error => {
-      logger.error('Database seeding failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      process.exit(1);
-    });
-}
-
-// Run the main function
-main();
+// Run the seed function
+seed()
+  .catch(e => {
+    console.error(e);
+    process.exit(1);
+  });

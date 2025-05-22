@@ -1,15 +1,14 @@
 /**
- * @file sort.dto.ts
- * @description Defines standardized sorting parameters for repository queries
+ * SortDto - Defines standardized sorting parameters for repository queries
  * across all journey services in the AUSTA SuperApp.
  *
- * This DTO provides a consistent way to sort query results while maintaining
- * journey-specific context and validation. It supports both simple single-field
- * sorting and complex multi-field sorting with priority ordering.
+ * This DTO provides a consistent way to specify sorting criteria for query results
+ * while maintaining journey-specific context and supporting multi-field sorting
+ * with priority ordering.
  */
 
 /**
- * Enum for sort directions
+ * Enum for sort direction
  * Provides strongly typed options for ascending or descending sort order
  */
 export enum SortDirection {
@@ -18,215 +17,152 @@ export enum SortDirection {
 }
 
 /**
- * Interface for a single sort field specification
- * @example { field: 'createdAt', direction: SortDirection.DESC }
+ * Interface for a single sort field with direction and priority
+ * @property field - The field name to sort by
+ * @property direction - The sort direction (ascending or descending)
+ * @property priority - Optional priority value for multi-field sorting (lower values have higher priority)
  */
 export interface SortField {
-  /** The field name to sort by */
   field: string;
-  /** The direction to sort (ascending or descending) */
   direction: SortDirection;
+  priority?: number;
 }
 
 /**
- * Interface for multi-field sorting with priority
- * @example { fields: [{ field: 'priority', direction: SortDirection.DESC }, { field: 'createdAt', direction: SortDirection.ASC }] }
+ * Type definition for simple sort clause using field-direction pairs
+ * @example { createdAt: SortDirection.DESC, name: SortDirection.ASC }
  */
-export interface MultiFieldSort {
-  /** Array of sort fields in priority order (first field has highest priority) */
-  fields: SortField[];
-}
+export type SimpleSortClause = Record<string, SortDirection>;
 
 /**
- * Type definition for legacy OrderByClause from FilterDto
- * Maintained for backward compatibility
- * @example { createdAt: 'desc', name: 'asc' }
- * @deprecated Use SortField or MultiFieldSort instead
- */
-export type OrderByClause = Record<string, SortDirection>;
-
-/**
- * Main SortDto interface that provides standardized sorting options
+ * Main sort DTO interface that provides standardized sorting options
  * for repository queries across all journey services.
+ * 
+ * Supports both simple field-direction pairs and advanced multi-field sorting with priority.
  */
-export interface SortDto {
+export interface SortDto<JourneyType extends string = 'health' | 'care' | 'plan'> {
   /**
-   * Single field sorting specification
-   * Use this for simple sorting by a single field
-   * @example { field: 'createdAt', direction: SortDirection.DESC }
+   * Simple sorting criteria using field-direction pairs
+   * Use this for basic sorting needs when priority is not required
+   * @example { createdAt: SortDirection.DESC }
    */
-  sort?: SortField;
-
+  simple?: SimpleSortClause;
+  
   /**
-   * Multi-field sorting specification with priority ordering
-   * Use this for complex sorting by multiple fields
-   * @example { fields: [{ field: 'status', direction: SortDirection.ASC }, { field: 'createdAt', direction: SortDirection.DESC }] }
+   * Advanced sorting criteria with explicit field, direction, and priority
+   * Use this for complex sorting with multiple fields and specific priority ordering
+   * @example [{ field: 'createdAt', direction: SortDirection.DESC, priority: 1 }, { field: 'name', direction: SortDirection.ASC, priority: 2 }]
    */
-  multiSort?: MultiFieldSort;
-
+  advanced?: SortField[];
+  
   /**
-   * Legacy sorting format from FilterDto
-   * Maintained for backward compatibility
-   * @example { createdAt: 'desc', name: 'asc' }
-   * @deprecated Use sort or multiSort instead
-   */
-  orderBy?: OrderByClause;
-
-  /**
-   * Journey context for the sort (health, care, plan)
+   * Journey context for the sort operation (health, care, plan)
    * Allows for journey-specific validation of sort fields
    */
-  journey?: string;
+  journey?: JourneyType;
 }
 
 /**
- * Utility function to convert legacy OrderByClause to MultiFieldSort
- * @param orderBy - Legacy OrderByClause object
- * @returns MultiFieldSort object
+ * Utility function to convert a SimpleSortClause to SortField[]
+ * This allows internal standardization on the advanced format
+ * @param simpleSort - The simple sort clause to convert
+ * @returns Array of SortField objects with auto-assigned priorities
  * @example
- * // Input: { createdAt: 'desc', name: 'asc' }
- * // Output: { fields: [{ field: 'createdAt', direction: SortDirection.DESC }, { field: 'name', direction: SortDirection.ASC }] }
+ * // Input: { createdAt: SortDirection.DESC, name: SortDirection.ASC }
+ * // Output: [{ field: 'createdAt', direction: SortDirection.DESC, priority: 1 }, { field: 'name', direction: SortDirection.ASC, priority: 2 }]
  */
-export function convertOrderByToMultiSort(orderBy: OrderByClause): MultiFieldSort {
-  return {
-    fields: Object.entries(orderBy).map(([field, direction]) => ({
-      field,
-      direction: direction as SortDirection
-    }))
-  };
+export function convertSimpleToAdvanced(simpleSort: SimpleSortClause): SortField[] {
+  return Object.entries(simpleSort).map(([field, direction], index) => ({
+    field,
+    direction,
+    priority: index + 1
+  }));
 }
 
 /**
- * Utility function to normalize different sorting formats into MultiFieldSort
- * @param sortDto - SortDto object that may contain sort, multiSort, or orderBy
- * @returns MultiFieldSort object or undefined if no sorting specified
- * @example
- * // Input with sort: { sort: { field: 'createdAt', direction: SortDirection.DESC } }
- * // Output: { fields: [{ field: 'createdAt', direction: SortDirection.DESC }] }
- * 
- * // Input with multiSort: { multiSort: { fields: [{ field: 'status', direction: SortDirection.ASC }, { field: 'createdAt', direction: SortDirection.DESC }] } }
- * // Output: { fields: [{ field: 'status', direction: SortDirection.ASC }, { field: 'createdAt', direction: SortDirection.DESC }] }
- * 
- * // Input with orderBy: { orderBy: { createdAt: 'desc', name: 'asc' } }
- * // Output: { fields: [{ field: 'createdAt', direction: SortDirection.DESC }, { field: 'name', direction: SortDirection.ASC }] }
+ * Utility function to normalize a SortDto to a consistent SortField[] format
+ * This simplifies processing by converting all sorting options to the advanced format
+ * @param sortDto - The sort DTO to normalize
+ * @returns Array of SortField objects sorted by priority
  */
-export function normalizeSortDto(sortDto?: SortDto): MultiFieldSort | undefined {
-  if (!sortDto) return undefined;
-
-  if (sortDto.multiSort) {
-    return sortDto.multiSort;
+export function normalizeSortDto(sortDto: SortDto): SortField[] {
+  const result: SortField[] = [];
+  
+  // Process simple sort if provided
+  if (sortDto.simple && Object.keys(sortDto.simple).length > 0) {
+    result.push(...convertSimpleToAdvanced(sortDto.simple));
   }
-
-  if (sortDto.sort) {
-    return {
-      fields: [sortDto.sort]
-    };
+  
+  // Process advanced sort if provided
+  if (sortDto.advanced && sortDto.advanced.length > 0) {
+    result.push(...sortDto.advanced);
   }
-
-  if (sortDto.orderBy) {
-    return convertOrderByToMultiSort(sortDto.orderBy);
-  }
-
-  return undefined;
+  
+  // Sort by priority (if specified)
+  return result.sort((a, b) => {
+    const priorityA = a.priority ?? Number.MAX_SAFE_INTEGER;
+    const priorityB = b.priority ?? Number.MAX_SAFE_INTEGER;
+    return priorityA - priorityB;
+  });
 }
 
 /**
- * Utility function to validate sort fields against a list of allowed fields
- * @param sortDto - SortDto object to validate
- * @param allowedFields - Array of field names that are allowed for sorting
- * @returns boolean indicating if all sort fields are valid
- * @throws Error if any sort field is not in the allowed fields list
- * @example
- * // Valid: validateSortFields({ sort: { field: 'createdAt', direction: SortDirection.DESC } }, ['createdAt', 'name'])
- * // Invalid: validateSortFields({ sort: { field: 'invalidField', direction: SortDirection.ASC } }, ['createdAt', 'name'])
+ * Type definition for journey-specific sort field validation
+ * Maps journey types to arrays of valid sort field names
  */
-export function validateSortFields(sortDto: SortDto, allowedFields: string[]): boolean {
-  const normalizedSort = normalizeSortDto(sortDto);
-  if (!normalizedSort) return true;
-
-  for (const { field } of normalizedSort.fields) {
-    if (!allowedFields.includes(field)) {
-      throw new Error(`Invalid sort field: ${field}. Allowed fields are: ${allowedFields.join(', ')}`);
-    }
-  }
-
-  return true;
-}
-
-/**
- * Journey-specific allowed sort fields
- * These maps define which fields can be sorted for each journey
- */
-export const JOURNEY_SORT_FIELDS = {
-  health: [
-    'id',
-    'userId',
-    'createdAt',
-    'updatedAt',
-    'metricType',
-    'metricValue',
-    'recordedAt',
-    'goalProgress',
-    'deviceId'
-  ],
-  care: [
-    'id',
-    'userId',
-    'createdAt',
-    'updatedAt',
-    'appointmentDate',
-    'status',
-    'providerId',
-    'specialtyType',
-    'priority'
-  ],
-  plan: [
-    'id',
-    'userId',
-    'createdAt',
-    'updatedAt',
-    'planType',
-    'coverageStart',
-    'coverageEnd',
-    'premium',
-    'status',
-    'claimAmount',
-    'submissionDate',
-    'benefitType'
-  ]
+export type JourneyValidSortFields = {
+  health: string[];
+  care: string[];
+  plan: string[];
 };
 
 /**
- * Utility function to validate sort fields based on journey context
- * @param sortDto - SortDto object to validate
- * @returns boolean indicating if all sort fields are valid for the specified journey
- * @throws Error if any sort field is not valid for the journey
- * @example
- * // Valid: validateJourneySortFields({ sort: { field: 'metricValue', direction: SortDirection.DESC }, journey: 'health' })
- * // Invalid: validateJourneySortFields({ sort: { field: 'appointmentDate', direction: SortDirection.ASC }, journey: 'health' })
+ * Default valid sort fields for each journey
+ * These are common fields that can be sorted across all journeys
  */
-export function validateJourneySortFields(sortDto: SortDto): boolean {
+export const DEFAULT_VALID_SORT_FIELDS: JourneyValidSortFields = {
+  health: ['id', 'createdAt', 'updatedAt', 'userId'],
+  care: ['id', 'createdAt', 'updatedAt', 'userId'],
+  plan: ['id', 'createdAt', 'updatedAt', 'userId']
+};
+
+/**
+ * Utility function to validate sort fields against journey-specific valid fields
+ * @param sortDto - The sort DTO to validate
+ * @param validFields - Optional mapping of journey types to valid field names (defaults to DEFAULT_VALID_SORT_FIELDS)
+ * @returns Boolean indicating whether all sort fields are valid for the specified journey
+ */
+export function validateSortFields(
+  sortDto: SortDto,
+  validFields: JourneyValidSortFields = DEFAULT_VALID_SORT_FIELDS
+): boolean {
+  // If no journey specified, validation passes
   if (!sortDto.journey) return true;
   
-  const journeyFields = JOURNEY_SORT_FIELDS[sortDto.journey as keyof typeof JOURNEY_SORT_FIELDS];
-  if (!journeyFields) {
-    throw new Error(`Invalid journey: ${sortDto.journey}. Allowed journeys are: ${Object.keys(JOURNEY_SORT_FIELDS).join(', ')}`);
-  }
-
-  return validateSortFields(sortDto, journeyFields);
+  // Get valid fields for the specified journey
+  const journeyFields = validFields[sortDto.journey as keyof JourneyValidSortFields];
+  if (!journeyFields) return false;
+  
+  // Normalize the sort DTO to get all fields
+  const normalizedFields = normalizeSortDto(sortDto);
+  
+  // Check if all fields are valid for the journey
+  return normalizedFields.every(field => journeyFields.includes(field.field));
 }
 
 /**
- * Utility function to convert MultiFieldSort to Prisma orderBy format
- * @param multiSort - MultiFieldSort object
- * @returns Prisma-compatible orderBy object
+ * Utility function to convert a SortDto to a Prisma-compatible OrderByClause
+ * This is useful when using the SortDto with Prisma ORM
+ * @param sortDto - The sort DTO to convert
+ * @returns Prisma-compatible order by clause
  * @example
- * // Input: { fields: [{ field: 'createdAt', direction: SortDirection.DESC }, { field: 'name', direction: SortDirection.ASC }] }
- * // Output: { createdAt: 'desc', name: 'asc' }
+ * // Input: { simple: { createdAt: SortDirection.DESC } }
+ * // Output: { createdAt: 'desc' }
  */
-export function toPrismaOrderBy(multiSort: MultiFieldSort): Record<string, string> {
-  return multiSort.fields.reduce((orderBy, { field, direction }) => {
-    orderBy[field] = direction;
-    return orderBy;
-  }, {} as Record<string, string>);
+export function toPrismaOrderBy(sortDto: SortDto): Record<string, 'asc' | 'desc'> {
+  const normalizedFields = normalizeSortDto(sortDto);
+  return normalizedFields.reduce((result, { field, direction }) => {
+    result[field] = direction;
+    return result;
+  }, {} as Record<string, 'asc' | 'desc'>);
 }

@@ -1,445 +1,555 @@
 /**
- * Base Error Test Fixtures
+ * @file base-errors.ts
+ * @description Test fixtures for base error functionality
  * 
- * This file provides standard sample error instances for testing the base error functionality.
- * Contains pre-configured BaseError, ValidationError, BusinessError, TechnicalError, 
- * ExternalSystemError, and NotFoundError instances with consistent test properties to ensure 
- * predictable test scenarios.
+ * This file provides standard sample error instances for testing the base error
+ * functionality. It contains pre-configured BaseError, ValidationError, BusinessError,
+ * TechnicalError, ExternalSystemError, and NotFoundError instances with consistent
+ * test properties to ensure predictable test scenarios.
  */
 
 import { HttpStatus } from '@nestjs/common';
-import { ErrorType } from '../../../../../shared/src/exceptions/exceptions.types';
-import { BaseError } from '../../src/base';
-import { ValidationError } from '../../src/categories/validation.errors';
-import { BusinessError } from '../../src/categories/business.errors';
-import { TechnicalError } from '../../src/categories/technical.errors';
-import { ExternalError } from '../../src/categories/external.errors';
-import { NotFoundError } from '../../src/categories/not-found.errors';
+import { 
+  BaseError, 
+  ErrorType, 
+  JourneyType,
+  ErrorContext 
+} from '../../src/base';
+import { 
+  ValidationError, 
+  MissingParameterError, 
+  InvalidParameterError,
+  SchemaValidationError,
+  FieldValidationError
+} from '../../src/categories/validation.errors';
+import { 
+  BusinessError, 
+  ResourceNotFoundError, 
+  BusinessRuleViolationError,
+  ResourceExistsError,
+  ConflictError,
+  InvalidStateError
+} from '../../src/categories/business.errors';
+import { 
+  TechnicalError, 
+  DatabaseError, 
+  ConfigurationError,
+  TimeoutError,
+  DataProcessingError,
+  ServiceUnavailableError
+} from '../../src/categories/technical.errors';
+import { 
+  ExternalError, 
+  ExternalApiError, 
+  IntegrationError,
+  ExternalDependencyUnavailableError,
+  ExternalAuthenticationError,
+  ExternalResponseFormatError,
+  ExternalRateLimitError
+} from '../../src/categories/external.errors';
+import { COMMON_ERROR_CODES } from '../../src/constants';
 
-// Import error codes from constants
-import {
-  VALIDATION_ERROR,
-  BUSINESS_LOGIC_ERROR,
-  TECHNICAL_ERROR,
-  EXTERNAL_SYSTEM_ERROR,
-  RESOURCE_NOT_FOUND,
-  SYSTEM_ERROR,
-} from '../../../shared/src/constants/error-codes.constants';
+// Standard test context for consistent testing
+const TEST_CONTEXT: Partial<ErrorContext> = {
+  requestId: 'test-request-123',
+  userId: 'test-user-456',
+  component: 'test-component',
+  operation: 'test-operation',
+  metadata: {
+    testKey: 'testValue',
+    environment: 'test'
+  }
+};
+
+// Standard test details for consistent testing
+const TEST_DETAILS = {
+  additionalInfo: 'Test additional information',
+  testProperty: true,
+  testCount: 42
+};
+
+// Standard test cause for consistent testing
+const TEST_CAUSE = new Error('Original test error cause');
 
 /**
- * Standard context for test errors
+ * Base Error Test Fixtures
  */
-const standardErrorContext = {
-  requestId: 'test-request-123',
-  timestamp: '2023-04-15T10:30:45Z',
-  userId: 'test-user-456',
-  sessionId: 'test-session-789',
-  correlationId: 'test-correlation-abc',
+export const baseErrorFixtures = {
+  // Basic BaseError with minimal properties
+  basic: new BaseError(
+    'Basic test error',
+    ErrorType.TECHNICAL,
+    'TEST_ERROR_001'
+  ),
+
+  // Complete BaseError with all properties
+  complete: new BaseError(
+    'Complete test error with all properties',
+    ErrorType.TECHNICAL,
+    'TEST_ERROR_002',
+    TEST_CONTEXT,
+    TEST_DETAILS,
+    TEST_CAUSE
+  ),
+
+  // Journey-specific BaseError
+  journeySpecific: new BaseError(
+    'Journey-specific test error',
+    ErrorType.BUSINESS,
+    'TEST_ERROR_003',
+    {
+      ...TEST_CONTEXT,
+      journey: JourneyType.HEALTH
+    }
+  ),
+
+  // Transient BaseError for retry testing
+  transient: new BaseError(
+    'Transient test error that can be retried',
+    ErrorType.TECHNICAL,
+    'TEST_ERROR_004',
+    {
+      ...TEST_CONTEXT,
+      isTransient: true,
+      retryStrategy: {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+        useExponentialBackoff: true
+      }
+    }
+  ),
+
+  // BaseError with different error types for HTTP status code testing
+  validationType: new BaseError(
+    'Validation test error',
+    ErrorType.VALIDATION,
+    'TEST_ERROR_005'
+  ),
+  businessType: new BaseError(
+    'Business test error',
+    ErrorType.BUSINESS,
+    'TEST_ERROR_006'
+  ),
+  externalType: new BaseError(
+    'External test error',
+    ErrorType.EXTERNAL,
+    'TEST_ERROR_007'
+  ),
+  notFoundType: new BaseError(
+    'Not found test error',
+    ErrorType.NOT_FOUND,
+    'TEST_ERROR_008'
+  ),
+  authType: new BaseError(
+    'Authentication test error',
+    ErrorType.AUTHENTICATION,
+    'TEST_ERROR_009'
+  ),
+
+  // Factory methods
+  createWithContext: (context: Partial<ErrorContext>): BaseError => {
+    return new BaseError(
+      'Test error with custom context',
+      ErrorType.TECHNICAL,
+      'TEST_ERROR_010',
+      context
+    );
+  },
+
+  createWithType: (type: ErrorType): BaseError => {
+    return new BaseError(
+      `Test error with ${type} type`,
+      type,
+      `TEST_${type.toUpperCase()}_ERROR`
+    );
+  }
 };
 
 /**
- * Base Error instance for testing the core error functionality
+ * Validation Error Test Fixtures
  */
-export const baseError = new BaseError({
-  message: 'Generic base error for testing',
-  code: SYSTEM_ERROR,
-  context: standardErrorContext,
-});
+export const validationErrorFixtures = {
+  // Basic validation error
+  basic: new ValidationError(
+    'Basic validation test error',
+    'VALIDATION_TEST_001',
+    TEST_DETAILS
+  ),
 
-/**
- * Validation Error instance for testing validation error handling
- */
-export const validationError = new ValidationError({
-  message: 'Invalid input data provided',
-  code: VALIDATION_ERROR,
-  context: {
-    ...standardErrorContext,
-    validationErrors: [
-      { field: 'email', message: 'Must be a valid email address' },
-      { field: 'password', message: 'Must be at least 8 characters long' },
-    ],
-    requestBody: {
-      email: 'invalid-email',
-      password: '123',
-    },
-  },
-});
+  // Missing parameter error
+  missingParameter: new MissingParameterError(
+    'testParam',
+    JourneyType.HEALTH
+  ),
 
-/**
- * Business Error instance for testing business logic error handling
- */
-export const businessError = new BusinessError({
-  message: 'Operation cannot be completed due to business rules',
-  code: BUSINESS_LOGIC_ERROR,
-  context: {
-    ...standardErrorContext,
-    operation: 'createSubscription',
-    reason: 'User already has an active subscription',
-    subscriptionId: 'sub-123',
-    subscriptionStatus: 'active',
-  },
-});
+  // Invalid parameter error
+  invalidParameter: new InvalidParameterError(
+    'testParam',
+    'Value must be a positive number',
+    JourneyType.CARE
+  ),
 
-/**
- * Technical Error instance for testing system error handling
- */
-export const technicalError = new TechnicalError({
-  message: 'An unexpected system error occurred',
-  code: TECHNICAL_ERROR,
-  context: {
-    ...standardErrorContext,
-    component: 'DatabaseService',
-    operation: 'executeQuery',
-    errorCode: 'DB_CONNECTION_FAILED',
-  },
-  cause: new Error('Connection refused to database host'),
-});
-
-/**
- * External System Error instance for testing external dependency error handling
- */
-export const externalSystemError = new ExternalError({
-  message: 'Failed to communicate with external service',
-  code: EXTERNAL_SYSTEM_ERROR,
-  context: {
-    ...standardErrorContext,
-    externalSystem: 'PaymentGateway',
-    operation: 'processPayment',
-    statusCode: 503,
-    responseBody: { error: 'Service temporarily unavailable' },
-  },
-});
-
-/**
- * Not Found Error instance for testing resource not found error handling
- */
-export const notFoundError = new NotFoundError({
-  message: 'The requested resource was not found',
-  code: RESOURCE_NOT_FOUND,
-  context: {
-    ...standardErrorContext,
-    resourceType: 'User',
-    resourceId: 'missing-user-123',
-    operation: 'getUserProfile',
-  },
-});
-
-/**
- * Serialized versions of errors for testing response formatting
- */
-export const serializedErrors = {
-  /**
-   * Serialized validation error
-   */
-  validation: {
-    statusCode: HttpStatus.BAD_REQUEST,
-    error: {
-      type: ErrorType.VALIDATION,
-      code: VALIDATION_ERROR,
-      message: 'Invalid input data provided',
-      details: {
-        validationErrors: [
-          { field: 'email', message: 'Must be a valid email address' },
-          { field: 'password', message: 'Must be at least 8 characters long' },
-        ],
+  // Schema validation error with field errors
+  schemaValidation: new SchemaValidationError(
+    [
+      {
+        field: 'email',
+        message: 'Invalid email format',
+        constraint: 'isEmail',
+        expected: 'valid email address',
+        received: 'invalid-email'
       },
-      context: {
-        requestId: 'test-request-123',
-        timestamp: '2023-04-15T10:30:45Z',
-      },
-    },
+      {
+        field: 'age',
+        message: 'Age must be a positive number',
+        constraint: 'min',
+        expected: 1,
+        received: -5
+      }
+    ] as FieldValidationError[],
+    'UserSchema',
+    JourneyType.PLAN
+  ),
+
+  // Factory methods
+  createMissingParameter: (paramName: string, journey?: JourneyType): MissingParameterError => {
+    return new MissingParameterError(paramName, journey);
   },
 
-  /**
-   * Serialized business error
-   */
-  business: {
-    statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-    error: {
-      type: ErrorType.BUSINESS,
-      code: BUSINESS_LOGIC_ERROR,
-      message: 'Operation cannot be completed due to business rules',
-      details: {
-        reason: 'User already has an active subscription',
-      },
-      context: {
-        requestId: 'test-request-123',
-        timestamp: '2023-04-15T10:30:45Z',
-      },
-    },
+  createInvalidParameter: (paramName: string, reason: string, journey?: JourneyType): InvalidParameterError => {
+    return new InvalidParameterError(paramName, reason, journey);
   },
 
-  /**
-   * Serialized technical error
-   */
-  technical: {
-    statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+  createSchemaValidation: (fieldErrors: FieldValidationError[], schemaName?: string, journey?: JourneyType): SchemaValidationError => {
+    return new SchemaValidationError(fieldErrors, schemaName, journey);
+  }
+};
+
+/**
+ * Business Error Test Fixtures
+ */
+export const businessErrorFixtures = {
+  // Basic business error
+  basic: new BusinessError(
+    'Basic business test error',
+    'BUSINESS_TEST_001',
+    TEST_DETAILS
+  ),
+
+  // Resource not found error
+  resourceNotFound: new ResourceNotFoundError(
+    'User',
+    '12345',
+    'auth'
+  ),
+
+  // Business rule violation error
+  businessRuleViolation: new BusinessRuleViolationError(
+    'MaxAppointmentsPerDay',
+    'User cannot book more than 3 appointments per day',
+    'care'
+  ),
+
+  // Resource exists error
+  resourceExists: new ResourceExistsError(
+    'HealthGoal',
+    'type',
+    'daily-steps',
+    'health'
+  ),
+
+  // Conflict error
+  conflict: new ConflictError(
+    'Appointment',
+    'time_overlap',
+    'The requested appointment time overlaps with an existing appointment',
+    'care'
+  ),
+
+  // Invalid state error
+  invalidState: new InvalidStateError(
+    'Claim',
+    'submitted',
+    'cancel',
+    ['draft', 'pending'],
+    'plan'
+  ),
+
+  // Factory methods
+  createResourceNotFound: (resourceType: string, resourceId: string | number, journey?: string): ResourceNotFoundError => {
+    return new ResourceNotFoundError(resourceType, resourceId, journey);
+  },
+
+  createBusinessRuleViolation: (ruleName: string, message: string, journey?: string): BusinessRuleViolationError => {
+    return new BusinessRuleViolationError(ruleName, message, journey);
+  }
+};
+
+/**
+ * Technical Error Test Fixtures
+ */
+export const technicalErrorFixtures = {
+  // Basic technical error
+  basic: new TechnicalError(
+    'Basic technical test error',
+    'TECHNICAL_TEST_001',
+    TEST_DETAILS
+  ),
+
+  // Database error
+  database: new DatabaseError(
+    'Test database error',
+    'DATABASE_TEST_001',
+    'query',
+    { query: 'SELECT * FROM users' }
+  ),
+
+  // Configuration error
+  configuration: new ConfigurationError(
+    'Missing required configuration',
+    'CONFIG_TEST_001',
+    'DATABASE_URL'
+  ),
+
+  // Timeout error
+  timeout: new TimeoutError(
+    'Operation timed out',
+    'TIMEOUT_TEST_001',
+    'database_query',
+    5000,
+    3000
+  ),
+
+  // Data processing error
+  dataProcessing: new DataProcessingError(
+    'Failed to process data',
+    'DATA_PROCESSING_TEST_001',
+    'transformation'
+  ),
+
+  // Service unavailable error
+  serviceUnavailable: new ServiceUnavailableError(
+    'Service is currently unavailable',
+    'SERVICE_UNAVAILABLE_TEST_001',
+    'health-service'
+  ),
+
+  // Factory methods
+  createDatabaseError: (message: string, operation: string): DatabaseError => {
+    return new DatabaseError(message, 'DATABASE_TEST_002', operation);
+  },
+
+  createTimeoutError: (operation: string, durationMs: number, thresholdMs: number): TimeoutError => {
+    return new TimeoutError(
+      `Operation '${operation}' timed out after ${durationMs}ms (threshold: ${thresholdMs}ms)`,
+      'TIMEOUT_TEST_002',
+      operation,
+      durationMs,
+      thresholdMs
+    );
+  }
+};
+
+/**
+ * External Error Test Fixtures
+ */
+export const externalErrorFixtures = {
+  // Basic external error
+  basic: new ExternalApiError(
+    'Basic external API test error',
+    'EXTERNAL_TEST_001'
+  ),
+
+  // External API error with status code
+  apiError: new ExternalApiError(
+    'External API request failed',
+    'EXTERNAL_API_TEST_001',
+    TEST_CONTEXT,
+    { endpoint: '/api/v1/users' },
+    new Error('Network error'),
+    HttpStatus.BAD_GATEWAY
+  ),
+
+  // Integration error
+  integration: new IntegrationError(
+    'Failed to integrate with external system',
+    'INTEGRATION_TEST_001',
+    'payment-gateway'
+  ),
+
+  // External dependency unavailable error
+  dependencyUnavailable: new ExternalDependencyUnavailableError(
+    'fhir-service',
+    'FHIR service is currently unavailable'
+  ),
+
+  // External authentication error
+  authentication: new ExternalAuthenticationError(
+    'oauth-provider',
+    'Failed to authenticate with OAuth provider'
+  ),
+
+  // External response format error
+  responseFormat: new ExternalResponseFormatError(
+    'Invalid response format from external API',
+    { status: 'error' },
+    'Expected { data: any, status: string }'
+  ),
+
+  // External rate limit error
+  rateLimit: new ExternalRateLimitError(
+    'Rate limit exceeded for external API',
+    60000 // retry after 60 seconds
+  ),
+
+  // Factory methods
+  createApiError: (message: string, statusCode: number): ExternalApiError => {
+    return new ExternalApiError(
+      message,
+      'EXTERNAL_API_TEST_002',
+      undefined,
+      undefined,
+      undefined,
+      statusCode
+    );
+  },
+
+  createFromResponse: (response: { status: number; statusText?: string; data?: any }): ExternalApiError => {
+    return ExternalApiError.fromResponse(response);
+  }
+};
+
+/**
+ * Serialized Error Test Fixtures
+ * These represent the JSON structure of errors after serialization
+ */
+export const serializedErrorFixtures = {
+  // Basic serialized error
+  basic: {
     error: {
       type: ErrorType.TECHNICAL,
-      code: TECHNICAL_ERROR,
-      message: 'An unexpected system error occurred',
-      context: {
-        requestId: 'test-request-123',
-        timestamp: '2023-04-15T10:30:45Z',
-      },
-    },
+      code: 'TEST_ERROR_001',
+      message: 'Basic test error'
+    }
   },
 
-  /**
-   * Serialized external system error
-   */
+  // Complete serialized error with all properties
+  complete: {
+    error: {
+      type: ErrorType.TECHNICAL,
+      code: 'TEST_ERROR_002',
+      message: 'Complete test error with all properties',
+      details: TEST_DETAILS,
+      requestId: 'test-request-123',
+      timestamp: expect.any(String)
+    }
+  },
+
+  // Validation error serialized
+  validation: {
+    error: {
+      type: ErrorType.VALIDATION,
+      code: 'VALIDATION_TEST_001',
+      message: 'Basic validation test error',
+      details: TEST_DETAILS
+    }
+  },
+
+  // Business error serialized
+  business: {
+    error: {
+      type: ErrorType.BUSINESS,
+      code: 'BUSINESS_TEST_001',
+      message: 'Basic business test error',
+      details: TEST_DETAILS
+    }
+  },
+
+  // Technical error serialized
+  technical: {
+    error: {
+      type: ErrorType.TECHNICAL,
+      code: 'TECHNICAL_TEST_001',
+      message: 'Basic technical test error',
+      details: TEST_DETAILS
+    }
+  },
+
+  // External error serialized
   external: {
-    statusCode: HttpStatus.BAD_GATEWAY,
     error: {
       type: ErrorType.EXTERNAL,
-      code: EXTERNAL_SYSTEM_ERROR,
-      message: 'Failed to communicate with external service',
-      details: {
-        externalSystem: 'PaymentGateway',
-        statusCode: 503,
-      },
-      context: {
-        requestId: 'test-request-123',
-        timestamp: '2023-04-15T10:30:45Z',
-      },
-    },
+      code: 'EXTERNAL_TEST_001',
+      message: 'Basic external API test error'
+    }
+  }
+};
+
+/**
+ * HTTP Exception Test Fixtures
+ * These represent the expected HTTP exceptions created from errors
+ */
+export const httpExceptionFixtures = {
+  // Validation error HTTP exception
+  validation: {
+    status: HttpStatus.BAD_REQUEST,
+    response: serializedErrorFixtures.validation
   },
 
-  /**
-   * Serialized not found error
-   */
+  // Business error HTTP exception
+  business: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    response: serializedErrorFixtures.business
+  },
+
+  // Technical error HTTP exception
+  technical: {
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    response: serializedErrorFixtures.technical
+  },
+
+  // External error HTTP exception
+  external: {
+    status: HttpStatus.BAD_GATEWAY,
+    response: serializedErrorFixtures.external
+  },
+
+  // Not found error HTTP exception
   notFound: {
-    statusCode: HttpStatus.NOT_FOUND,
-    error: {
-      type: 'not_found',
-      code: RESOURCE_NOT_FOUND,
-      message: 'The requested resource was not found',
-      details: {
-        resourceType: 'User',
-        resourceId: 'missing-user-123',
-      },
-      context: {
-        requestId: 'test-request-123',
-        timestamp: '2023-04-15T10:30:45Z',
-      },
-    },
+    status: HttpStatus.NOT_FOUND,
+    response: {
+      error: {
+        type: ErrorType.NOT_FOUND,
+        code: 'TEST_ERROR_008',
+        message: 'Not found test error'
+      }
+    }
   },
+
+  // Authentication error HTTP exception
+  authentication: {
+    status: HttpStatus.UNAUTHORIZED,
+    response: {
+      error: {
+        type: ErrorType.AUTHENTICATION,
+        code: 'TEST_ERROR_009',
+        message: 'Authentication test error'
+      }
+    }
+  }
 };
 
 /**
- * Error factory functions for creating customized test errors
+ * Combined export of all error fixtures
  */
-
-/**
- * Creates a validation error with custom field errors
- * 
- * @param fieldErrors - Array of field validation errors
- * @param requestBody - The request body that failed validation
- * @returns A ValidationError instance with the specified errors
- */
-export function createValidationError(
-  fieldErrors: Array<{ field: string; message: string }>,
-  requestBody: Record<string, any> = {}
-): ValidationError {
-  return new ValidationError({
-    message: 'Validation failed for the provided input',
-    code: VALIDATION_ERROR,
-    context: {
-      ...standardErrorContext,
-      validationErrors: fieldErrors,
-      requestBody,
-    },
-  });
-}
-
-/**
- * Creates a business error with custom reason and operation
- * 
- * @param reason - The business reason for the error
- * @param operation - The operation that failed
- * @param additionalContext - Any additional context to include
- * @returns A BusinessError instance with the specified details
- */
-export function createBusinessError(
-  reason: string,
-  operation: string,
-  additionalContext: Record<string, any> = {}
-): BusinessError {
-  return new BusinessError({
-    message: `Operation ${operation} failed: ${reason}`,
-    code: BUSINESS_LOGIC_ERROR,
-    context: {
-      ...standardErrorContext,
-      operation,
-      reason,
-      ...additionalContext,
-    },
-  });
-}
-
-/**
- * Creates a technical error with custom component and operation
- * 
- * @param component - The system component that failed
- * @param operation - The operation that failed
- * @param cause - The underlying cause of the error
- * @returns A TechnicalError instance with the specified details
- */
-export function createTechnicalError(
-  component: string,
-  operation: string,
-  cause?: Error
-): TechnicalError {
-  return new TechnicalError({
-    message: `A technical error occurred in ${component} during ${operation}`,
-    code: TECHNICAL_ERROR,
-    context: {
-      ...standardErrorContext,
-      component,
-      operation,
-    },
-    cause,
-  });
-}
-
-/**
- * Creates an external system error with custom external system details
- * 
- * @param externalSystem - The external system that failed
- * @param operation - The operation that failed
- * @param statusCode - The HTTP status code returned by the external system
- * @param responseBody - The response body from the external system
- * @returns An ExternalError instance with the specified details
- */
-export function createExternalSystemError(
-  externalSystem: string,
-  operation: string,
-  statusCode: number,
-  responseBody: Record<string, any> = {}
-): ExternalError {
-  return new ExternalError({
-    message: `Failed to communicate with ${externalSystem} during ${operation}`,
-    code: EXTERNAL_SYSTEM_ERROR,
-    context: {
-      ...standardErrorContext,
-      externalSystem,
-      operation,
-      statusCode,
-      responseBody,
-    },
-  });
-}
-
-/**
- * Creates a not found error with custom resource details
- * 
- * @param resourceType - The type of resource that was not found
- * @param resourceId - The ID of the resource that was not found
- * @param operation - The operation that failed
- * @returns A NotFoundError instance with the specified details
- */
-export function createNotFoundError(
-  resourceType: string,
-  resourceId: string,
-  operation: string
-): NotFoundError {
-  return new NotFoundError({
-    message: `The requested ${resourceType} with ID ${resourceId} was not found`,
-    code: RESOURCE_NOT_FOUND,
-    context: {
-      ...standardErrorContext,
-      resourceType,
-      resourceId,
-      operation,
-    },
-  });
-}
-
-/**
- * Error instances with different levels of context for testing context propagation
- */
-export const errorContextLevels = {
-  /**
-   * Error with minimal context
-   */
-  minimal: new BaseError({
-    message: 'Error with minimal context',
-    code: SYSTEM_ERROR,
-    context: {
-      requestId: 'test-request-123',
-    },
-  }),
-
-  /**
-   * Error with request context only
-   */
-  request: new BaseError({
-    message: 'Error with request context',
-    code: SYSTEM_ERROR,
-    context: {
-      requestId: 'test-request-123',
-      timestamp: '2023-04-15T10:30:45Z',
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      path: '/api/test',
-      method: 'GET',
-    },
-  }),
-
-  /**
-   * Error with request and user context
-   */
-  user: new BaseError({
-    message: 'Error with user context',
-    code: SYSTEM_ERROR,
-    context: {
-      requestId: 'test-request-123',
-      timestamp: '2023-04-15T10:30:45Z',
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      path: '/api/test',
-      method: 'GET',
-      userId: 'test-user-456',
-      email: 'test@example.com',
-      roles: ['user'],
-    },
-  }),
-
-  /**
-   * Error with full context including journey information
-   */
-  full: new BaseError({
-    message: 'Error with full context',
-    code: SYSTEM_ERROR,
-    context: {
-      requestId: 'test-request-123',
-      timestamp: '2023-04-15T10:30:45Z',
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      path: '/api/test',
-      method: 'GET',
-      userId: 'test-user-456',
-      email: 'test@example.com',
-      roles: ['user'],
-      journey: 'health',
-      feature: 'metrics',
-      operation: 'recordMetric',
-      correlationId: 'test-correlation-abc',
-      traceId: 'test-trace-xyz',
-    },
-  }),
+export const errorFixtures = {
+  base: baseErrorFixtures,
+  validation: validationErrorFixtures,
+  business: businessErrorFixtures,
+  technical: technicalErrorFixtures,
+  external: externalErrorFixtures,
+  serialized: serializedErrorFixtures,
+  httpException: httpExceptionFixtures
 };
 
-/**
- * Combined export of all base errors
- */
-export const baseErrors = {
-  baseError,
-  validationError,
-  businessError,
-  technicalError,
-  externalSystemError,
-  notFoundError,
-};
-
-export default baseErrors;
+export default errorFixtures;

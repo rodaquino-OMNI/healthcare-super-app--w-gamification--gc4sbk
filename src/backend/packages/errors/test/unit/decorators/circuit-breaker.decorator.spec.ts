@@ -1,18 +1,50 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { CircuitBreaker, CircuitBreakerOptions } from '../../../src/decorators/circuit-breaker.decorator';
-import { CircuitBreakerState } from '../../../src/decorators/types';
-import { MetricsService } from '@austa/metrics';
-import { ErrorType, AppException } from '../../../src/categories/app.exception';
+import { Test } from '@nestjs/testing';
+import { CircuitBreaker, CircuitState, getCircuitBreakerState, resetCircuitBreaker } from '../../../src/decorators/circuit-breaker.decorator';
+import { ErrorType } from '../../../src/categories/error-types';
+import { BaseError } from '../../../src/base';
 
-// Mock MetricsService for testing metrics integration
-class MockMetricsService {
-  recordCircuitBreakerState = jest.fn();
-  incrementCounter = jest.fn();
-  recordMethodDuration = jest.fn();
-}
+// Mock for the OpenTelemetry API
+jest.mock('@opentelemetry/api', () => {
+  const mockSpan = {
+    setAttribute: jest.fn(),
+    setStatus: jest.fn(),
+    recordException: jest.fn(),
+    end: jest.fn(),
+  };
+  
+  const mockTracer = {
+    startSpan: jest.fn().mockReturnValue(mockSpan),
+  };
+  
+  return {
+    context: {
+      active: jest.fn(),
+    },
+    trace: {
+      getSpan: jest.fn(),
+      getTracer: jest.fn().mockReturnValue(mockTracer),
+    },
+    SpanStatusCode: {
+      OK: 'OK',
+      ERROR: 'ERROR',
+    },
+  };
+});
 
-// Test class with circuit breaker decorated methods
-class TestService {
+// Constants for testing
+const CIRCUIT_BREAKER_CONFIG = {
+  DEFAULT: {
+    REQUEST_VOLUME_THRESHOLD: 5,
+    ROLLING_WINDOW_MS: 60000,
+    RESET_TIMEOUT_MS: 30000,
+  },
+};
+
+/**
+ * Mock service class with methods decorated with CircuitBreaker
+ * for testing different circuit breaker scenarios
+ */
+class MockService {
   public callCount = 0;
   public shouldFail = false;
   public failureType: 'error' | 'exception' = 'error';
@@ -21,437 +53,382 @@ class TestService {
   @CircuitBreaker()
   async defaultMethod(): Promise<string> {
     this.callCount++;
+    
     if (this.shouldFail) {
       if (this.failureType === 'exception') {
-        throw new AppException('Service failed', ErrorType.EXTERNAL, 'TEST_001');
+        throw new BaseError(
+          'Test exception',
+          ErrorType.EXTERNAL,
+          'TEST_001',
+          { test: true }
+        );
       } else {
-        throw new Error('Service failed');
+        throw new Error('Test error');
       }
     }
+    
     return 'success';
   }
   
-  // Method with custom circuit breaker settings
+  // Method with custom failure threshold
   @CircuitBreaker({
-    failureThreshold: 2,
-    resetTimeout: 1000,
-    halfOpenMaxCalls: 1,
-    monitorWindow: 60000,
+    failureThreshold: 3,
+    resetTimeout: 500, // Short timeout for testing
   })
-  async customMethod(): Promise<string> {
+  async customThresholdMethod(): Promise<string> {
     this.callCount++;
+    
     if (this.shouldFail) {
-      if (this.failureType === 'exception') {
-        throw new AppException('Service failed', ErrorType.EXTERNAL, 'TEST_001');
-      } else {
-        throw new Error('Service failed');
-      }
+      throw new Error('Test error');
     }
+    
     return 'success';
   }
   
-  // Method with circuit breaker that only trips on specific errors
+  // Method with custom failure detection
   @CircuitBreaker({
-    failureThreshold: 2,
-    failureFilter: (error) => error instanceof AppException && error.type === ErrorType.EXTERNAL
+    isFailure: (error) => error instanceof BaseError,
   })
-  async filteredMethod(): Promise<string> {
+  async customFailureDetectionMethod(): Promise<string> {
     this.callCount++;
+    
     if (this.shouldFail) {
       if (this.failureType === 'exception') {
-        throw new AppException('Service failed', ErrorType.EXTERNAL, 'TEST_001');
+        throw new BaseError(
+          'Test exception',
+          ErrorType.EXTERNAL,
+          'TEST_001',
+          { test: true }
+        );
       } else {
-        throw new Error('Service failed');
+        throw new Error('Test error');
       }
     }
+    
     return 'success';
   }
   
-  // Reset the call counter for testing
+  // Method with fallback
+  @CircuitBreaker({
+    fallback: (error, ...args) => 'fallback result',
+  })
+  async withFallbackMethod(): Promise<string> {
+    this.callCount++;
+    
+    if (this.shouldFail) {
+      throw new Error('Test error');
+    }
+    
+    return 'success';
+  }
+  
+  // Method with state change notification
+  @CircuitBreaker({
+    onStateChange: jest.fn(),
+  })
+  async withStateChangeMethod(): Promise<string> {
+    this.callCount++;
+    
+    if (this.shouldFail) {
+      throw new Error('Test error');
+    }
+    
+    return 'success';
+  }
+  
+  // Reset call count for testing
   resetCallCount(): void {
     this.callCount = 0;
   }
 }
 
 describe('CircuitBreaker Decorator', () => {
-  let service: TestService;
-  let metricsService: MockMetricsService;
+  let service: MockService;
   
   beforeEach(async () => {
-    // Reset the circuit breaker state between tests
-    // This is a workaround since we can't directly access the circuit breaker state
-    jest.useFakeTimers();
-    
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        TestService,
-        { provide: MetricsService, useClass: MockMetricsService }
-      ],
+    const moduleRef = await Test.createTestingModule({
+      providers: [MockService],
     }).compile();
     
-    service = module.get<TestService>(TestService);
-    metricsService = module.get<MetricsService>(MetricsService) as unknown as MockMetricsService;
-    
-    // Reset service state before each test
-    service.shouldFail = false;
+    service = moduleRef.get<MockService>(MockService);
     service.resetCallCount();
-    service.failureType = 'error';
+    service.shouldFail = false;
     
-    // Clear mock metrics calls
+    // Reset all circuit breakers before each test
+    resetCircuitBreaker(MockService.prototype, 'defaultMethod');
+    resetCircuitBreaker(MockService.prototype, 'customThresholdMethod');
+    resetCircuitBreaker(MockService.prototype, 'customFailureDetectionMethod');
+    resetCircuitBreaker(MockService.prototype, 'withFallbackMethod');
+    resetCircuitBreaker(MockService.prototype, 'withStateChangeMethod');
+    
+    // Clear all mocks
     jest.clearAllMocks();
   });
   
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-  
-  describe('Closed State (Normal Operation)', () => {
-    it('should execute the method normally when circuit is closed', async () => {
+  describe('Basic Functionality', () => {
+    it('should allow successful method calls', async () => {
       const result = await service.defaultMethod();
       
       expect(result).toBe('success');
       expect(service.callCount).toBe(1);
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        CircuitBreakerState.CLOSED
-      );
     });
     
-    it('should track failures but keep circuit closed when under threshold', async () => {
-      // First call fails but not enough to trip circuit
+    it('should propagate errors when circuit is closed', async () => {
       service.shouldFail = true;
       
-      await expect(service.customMethod()).rejects.toThrow('Service failed');
-      
+      await expect(service.defaultMethod()).rejects.toThrow('Test error');
       expect(service.callCount).toBe(1);
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.customMethod',
-        CircuitBreakerState.CLOSED
-      );
+    });
+    
+    it('should track circuit state', async () => {
+      const state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
       
-      // Circuit should still be closed, allowing next call
-      service.shouldFail = false;
-      service.resetCallCount();
-      
-      const result = await service.customMethod();
-      
-      expect(result).toBe('success');
-      expect(service.callCount).toBe(1);
+      expect(state).not.toBeNull();
+      expect(state?.state).toBe(CircuitState.CLOSED);
+      expect(state?.metrics.failureCount).toBe(0);
+      expect(state?.metrics.totalRequests).toBe(0);
     });
   });
   
-  describe('Open State (Circuit Tripped)', () => {
-    it('should open circuit after reaching failure threshold', async () => {
-      // Configure service to fail
+  describe('State Transitions', () => {
+    it('should transition from CLOSED to OPEN when failure threshold is reached', async () => {
       service.shouldFail = true;
       
-      // First failure
-      await expect(service.customMethod()).rejects.toThrow('Service failed');
-      expect(service.callCount).toBe(1);
+      // Call the method multiple times to reach the failure threshold
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.defaultMethod()).rejects.toThrow();
+      }
       
-      // Second failure - should trip the circuit
-      await expect(service.customMethod()).rejects.toThrow('Service failed');
-      expect(service.callCount).toBe(2);
-      
-      // Circuit should now be open
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.customMethod',
-        CircuitBreakerState.OPEN
-      );
-      
-      // Reset call count to verify circuit is open
-      service.resetCallCount();
-      service.shouldFail = false; // Even if service works now, circuit is open
-      
-      // This call should fail fast without executing the method
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is open');
-      expect(service.callCount).toBe(0); // Method was not called
-    });
-    
-    it('should reject calls immediately when circuit is open', async () => {
-      // Trip the circuit
-      service.shouldFail = true;
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
-      
-      // Reset for next test
-      service.resetCallCount();
-      service.shouldFail = false;
-      
-      // Verify fast rejection
-      const startTime = Date.now();
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is open');
-      const endTime = Date.now();
-      
-      // Should reject very quickly (less than 10ms)
-      expect(endTime - startTime).toBeLessThan(10);
-      expect(service.callCount).toBe(0);
-    });
-    
-    it('should only count specific errors towards failure threshold when filter is provided', async () => {
-      // Configure service to fail with regular Error (not AppException)
-      service.shouldFail = true;
-      service.failureType = 'error';
-      
-      // These failures should not count towards threshold because they don't match filter
-      await expect(service.filteredMethod()).rejects.toThrow('Service failed');
-      await expect(service.filteredMethod()).rejects.toThrow('Service failed');
-      await expect(service.filteredMethod()).rejects.toThrow('Service failed');
-      
-      // Reset and switch to AppException (which should count)
-      service.resetCallCount();
-      service.failureType = 'exception';
-      
-      // First filtered failure
-      await expect(service.filteredMethod()).rejects.toThrow('Service failed');
-      expect(service.callCount).toBe(1);
-      
-      // Second filtered failure - should trip the circuit
-      await expect(service.filteredMethod()).rejects.toThrow('Service failed');
-      expect(service.callCount).toBe(2);
-      
-      // Circuit should now be open
-      service.resetCallCount();
-      service.shouldFail = false;
-      
-      // This call should fail fast without executing the method
-      await expect(service.filteredMethod()).rejects.toThrow('Circuit breaker is open');
-      expect(service.callCount).toBe(0);
-    });
-  });
-  
-  describe('Half-Open State (Testing Recovery)', () => {
-    it('should transition to half-open state after reset timeout', async () => {
-      // Trip the circuit
-      service.shouldFail = true;
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
-      
-      // Circuit is now open
-      service.resetCallCount();
-      
-      // Advance time to trigger reset timeout
-      jest.advanceTimersByTime(1100); // Just past the 1000ms reset timeout
-      
-      // Circuit should now be half-open
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.customMethod',
-        CircuitBreakerState.HALF_OPEN
-      );
-      
-      // Allow service to succeed
-      service.shouldFail = false;
-      
-      // Test call should go through in half-open state
-      const result = await service.customMethod();
-      expect(result).toBe('success');
-      expect(service.callCount).toBe(1);
-      
-      // Circuit should transition back to closed
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.customMethod',
-        CircuitBreakerState.CLOSED
-      );
-    });
-    
-    it('should reopen circuit if test call fails in half-open state', async () => {
-      // Trip the circuit
-      service.shouldFail = true;
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
-      
-      // Circuit is now open
-      service.resetCallCount();
-      
-      // Advance time to trigger reset timeout
-      jest.advanceTimersByTime(1100);
-      
-      // Keep service failing for test call
-      service.shouldFail = true;
-      
-      // Test call should go through but fail
-      await expect(service.customMethod()).rejects.toThrow('Service failed');
-      expect(service.callCount).toBe(1);
-      
-      // Circuit should transition back to open
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.customMethod',
-        CircuitBreakerState.OPEN
-      );
-      
-      // Reset call count to verify circuit is open again
-      service.resetCallCount();
-      
-      // This call should fail fast without executing the method
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is open');
-      expect(service.callCount).toBe(0);
-    });
-    
-    it('should limit concurrent calls in half-open state', async () => {
-      // Trip the circuit
-      service.shouldFail = true;
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
-      
-      // Circuit is now open
-      service.resetCallCount();
-      
-      // Advance time to trigger reset timeout
-      jest.advanceTimersByTime(1100);
-      
-      // Allow service to succeed
-      service.shouldFail = false;
-      
-      // First call in half-open state should go through
-      const firstCallPromise = service.customMethod();
-      
-      // Second call should be rejected because we're still in half-open with max 1 call
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is half-open');
-      
-      // Wait for first call to complete
-      await firstCallPromise;
-      
-      // Verify only one call went through
-      expect(service.callCount).toBe(1);
-    });
-  });
-  
-  describe('Metrics Integration', () => {
-    it('should record state transitions in metrics service', async () => {
-      // Initial state is closed
-      await service.defaultMethod();
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        CircuitBreakerState.CLOSED
-      );
-      
-      // Trip the circuit
-      service.shouldFail = true;
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      
-      // Should record transition to open
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        CircuitBreakerState.OPEN
-      );
-      
-      // Advance time to trigger reset timeout (default is 30000ms)
-      jest.advanceTimersByTime(30100);
-      
-      // Should record transition to half-open
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        CircuitBreakerState.HALF_OPEN
-      );
-      
-      // Allow service to succeed
-      service.shouldFail = false;
-      await service.defaultMethod();
-      
-      // Should record transition back to closed
-      expect(metricsService.recordCircuitBreakerState).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        CircuitBreakerState.CLOSED
-      );
-    });
-    
-    it('should increment failure counter when method fails', async () => {
-      service.shouldFail = true;
-      
-      await expect(service.defaultMethod()).rejects.toThrow();
-      
-      expect(metricsService.incrementCounter).toHaveBeenCalledWith(
-        'circuit_breaker_failure',
-        { method: 'TestService.defaultMethod' }
-      );
-    });
-    
-    it('should record method duration for successful calls', async () => {
-      await service.defaultMethod();
-      
-      expect(metricsService.recordMethodDuration).toHaveBeenCalledWith(
-        'TestService.defaultMethod',
-        expect.any(Number)
-      );
-    });
-  });
-  
-  describe('Configuration Options', () => {
-    it('should use default options when none provided', async () => {
-      // Default threshold is typically higher, need multiple failures
-      service.shouldFail = true;
-      
-      // Should take more failures to trip with default settings
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      
-      // Circuit should still be closed after just 3 failures (default threshold is typically 5)
-      service.resetCallCount();
-      service.shouldFail = false;
-      
-      // Should still work
-      const result = await service.defaultMethod();
-      expect(result).toBe('success');
-      
-      // Now trip the circuit with more failures
-      service.shouldFail = true;
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      await expect(service.defaultMethod()).rejects.toThrow();
-      
-      // Now circuit should be open
-      service.resetCallCount();
-      service.shouldFail = false;
-      
-      await expect(service.defaultMethod()).rejects.toThrow('Circuit breaker is open');
-      expect(service.callCount).toBe(0);
+      const state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
     });
     
     it('should respect custom failure threshold', async () => {
-      // Custom method has threshold of 2
       service.shouldFail = true;
       
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
+      // Call the method multiple times to reach the custom failure threshold (3)
+      for (let i = 0; i < 3; i++) {
+        await expect(service.customThresholdMethod()).rejects.toThrow();
+      }
       
-      // Circuit should be open after just 2 failures
-      service.resetCallCount();
+      const state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
+    });
+    
+    it('should transition from OPEN to HALF_OPEN after reset timeout', async () => {
+      service.shouldFail = true;
+      
+      // Reach failure threshold to open the circuit
+      for (let i = 0; i < 3; i++) {
+        await expect(service.customThresholdMethod()).rejects.toThrow();
+      }
+      
+      // Verify circuit is open
+      let state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
+      
+      // Wait for reset timeout
+      await new Promise(resolve => setTimeout(resolve, 600));
+      
+      // Next call should transition to HALF_OPEN
+      service.shouldFail = false; // Make the call succeed
+      await service.customThresholdMethod();
+      
+      state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.HALF_OPEN);
+    });
+    
+    it('should transition from HALF_OPEN to CLOSED after success threshold', async () => {
+      service.shouldFail = true;
+      
+      // Reach failure threshold to open the circuit
+      for (let i = 0; i < 3; i++) {
+        await expect(service.customThresholdMethod()).rejects.toThrow();
+      }
+      
+      // Wait for reset timeout
+      await new Promise(resolve => setTimeout(resolve, 600));
+      
+      // Make calls succeed to close the circuit
       service.shouldFail = false;
       
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is open');
+      // First successful call transitions to HALF_OPEN
+      await service.customThresholdMethod();
+      let state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.HALF_OPEN);
+      
+      // Second successful call should close the circuit (default successThreshold is 2)
+      await service.customThresholdMethod();
+      state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.CLOSED);
+    });
+    
+    it('should transition from HALF_OPEN back to OPEN on failure', async () => {
+      service.shouldFail = true;
+      
+      // Reach failure threshold to open the circuit
+      for (let i = 0; i < 3; i++) {
+        await expect(service.customThresholdMethod()).rejects.toThrow();
+      }
+      
+      // Wait for reset timeout
+      await new Promise(resolve => setTimeout(resolve, 600));
+      
+      // First call transitions to HALF_OPEN but fails
+      await expect(service.customThresholdMethod()).rejects.toThrow();
+      
+      const state = getCircuitBreakerState(MockService.prototype, 'customThresholdMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
+    });
+  });
+  
+  describe('Call Prevention', () => {
+    it('should prevent method execution when circuit is open', async () => {
+      service.shouldFail = true;
+      
+      // Open the circuit
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.defaultMethod()).rejects.toThrow();
+      }
+      
+      // Reset call count to verify method is not called
+      service.resetCallCount();
+      
+      // Attempt to call method when circuit is open
+      await expect(service.defaultMethod()).rejects.toThrow('Circuit breaker is open');
+      
+      // Verify method was not executed
       expect(service.callCount).toBe(0);
     });
     
-    it('should respect custom reset timeout', async () => {
-      // Trip the circuit
+    it('should return fallback result when circuit is open and fallback is provided', async () => {
       service.shouldFail = true;
-      await expect(service.customMethod()).rejects.toThrow();
-      await expect(service.customMethod()).rejects.toThrow();
       
-      // Circuit is now open
+      // Open the circuit
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.withFallbackMethod()).rejects.toThrow();
+      }
+      
+      // Reset call count to verify method is not called
       service.resetCallCount();
-      service.shouldFail = false;
       
-      // Advance time but not enough to reset (custom timeout is 1000ms)
-      jest.advanceTimersByTime(900);
+      // Attempt to call method when circuit is open
+      const result = await service.withFallbackMethod();
       
-      // Circuit should still be open
-      await expect(service.customMethod()).rejects.toThrow('Circuit breaker is open');
+      // Verify fallback was used
+      expect(result).toBe('fallback result');
       expect(service.callCount).toBe(0);
+    });
+  });
+  
+  describe('Custom Failure Detection', () => {
+    it('should only count specific errors as failures based on isFailure function', async () => {
+      service.shouldFail = true;
+      service.failureType = 'error'; // Regular Error, not BaseError
       
-      // Advance time past reset timeout
-      jest.advanceTimersByTime(200); // Total 1100ms
+      // Call method multiple times with regular Error (should not count as failures)
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.customFailureDetectionMethod()).rejects.toThrow();
+      }
       
-      // Circuit should now be half-open
-      const result = await service.customMethod();
-      expect(result).toBe('success');
-      expect(service.callCount).toBe(1);
+      // Circuit should still be closed because regular errors don't count as failures
+      let state = getCircuitBreakerState(MockService.prototype, 'customFailureDetectionMethod');
+      expect(state?.state).toBe(CircuitState.CLOSED);
+      
+      // Switch to BaseError (should count as failures)
+      service.failureType = 'exception';
+      
+      // Call method multiple times with BaseError
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.customFailureDetectionMethod()).rejects.toThrow();
+      }
+      
+      // Circuit should now be open
+      state = getCircuitBreakerState(MockService.prototype, 'customFailureDetectionMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
+    });
+  });
+  
+  describe('State Change Notification', () => {
+    it('should call onStateChange when circuit state changes', async () => {
+      // Get the mock function from the decorator config
+      const mockOnStateChange = (service.withStateChangeMethod as any).__proto__.constructor.prototype.withStateChangeMethod.onStateChange;
+      
+      service.shouldFail = true;
+      
+      // Call the method multiple times to reach the failure threshold
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.withStateChangeMethod()).rejects.toThrow();
+      }
+      
+      // Verify onStateChange was called with correct states
+      expect(mockOnStateChange).toHaveBeenCalledWith(CircuitState.CLOSED, CircuitState.OPEN);
+    });
+  });
+  
+  describe('Metrics and Monitoring', () => {
+    it('should track total requests and failures', async () => {
+      // Make some successful calls
+      await service.defaultMethod();
+      await service.defaultMethod();
+      
+      // Make some failed calls
+      service.shouldFail = true;
+      await expect(service.defaultMethod()).rejects.toThrow();
+      await expect(service.defaultMethod()).rejects.toThrow();
+      
+      // Check metrics
+      const state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.metrics.totalRequests).toBe(4);
+      expect(state?.metrics.totalFailures).toBe(2);
+    });
+    
+    it('should reset failure count on successful calls in closed state', async () => {
+      // Make some failed calls, but not enough to open the circuit
+      service.shouldFail = true;
+      await expect(service.defaultMethod()).rejects.toThrow();
+      await expect(service.defaultMethod()).rejects.toThrow();
+      
+      let state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.metrics.failureCount).toBe(2);
+      
+      // Make a successful call
+      service.shouldFail = false;
+      await service.defaultMethod();
+      
+      // Check that failure count was reset
+      state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.metrics.failureCount).toBe(0);
+    });
+  });
+  
+  describe('Circuit Breaker Reset', () => {
+    it('should reset circuit breaker state', async () => {
+      service.shouldFail = true;
+      
+      // Open the circuit
+      for (let i = 0; i < CIRCUIT_BREAKER_CONFIG.DEFAULT.REQUEST_VOLUME_THRESHOLD; i++) {
+        await expect(service.defaultMethod()).rejects.toThrow();
+      }
+      
+      // Verify circuit is open
+      let state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.state).toBe(CircuitState.OPEN);
+      
+      // Reset the circuit breaker
+      const result = resetCircuitBreaker(MockService.prototype, 'defaultMethod');
+      expect(result).toBe(true);
+      
+      // Verify circuit is closed
+      state = getCircuitBreakerState(MockService.prototype, 'defaultMethod');
+      expect(state?.state).toBe(CircuitState.CLOSED);
+      expect(state?.metrics.failureCount).toBe(0);
+      expect(state?.metrics.totalRequests).toBe(0);
+    });
+    
+    it('should return false when resetting non-existent circuit breaker', () => {
+      const result = resetCircuitBreaker(MockService.prototype, 'nonExistentMethod');
+      expect(result).toBe(false);
     });
   });
 });

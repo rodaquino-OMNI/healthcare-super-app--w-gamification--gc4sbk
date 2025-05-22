@@ -1,232 +1,217 @@
-import { INestApplication, Controller, Get, Query, Module, HttpStatus } from '@nestjs/common';
-import * as request from 'supertest';
 import { Test } from '@nestjs/testing';
-import { ErrorsModule } from '../../src/nest/module';
-import { ErrorType } from '../../src/types';
-import { BaseError } from '../../src/base';
-import { WithErrorContext } from '../../src/decorators/error-context.decorator';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { Controller, Get, Module, Param } from '@nestjs/common';
+import { ErrorsModule } from '../../src';
+import { AppException, ErrorType } from '../../../shared/src/exceptions/exceptions.types';
 
 // Import journey-specific errors
 import * as Health from '../../src/journey/health';
 import * as Care from '../../src/journey/care';
 import * as Plan from '../../src/journey/plan';
 
-/**
- * Controller that throws Health journey-specific errors
- */
+// Health Journey Test Controller
 @Controller('health')
-class HealthErrorsController {
-  @Get('metrics')
-  @WithErrorContext({ journey: 'Health', feature: 'Metrics' })
-  getMetricsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'validation':
-        throw new Health.Metrics.InvalidMetricValueError('heart_rate', '300', 'Value exceeds maximum (220)');
-      case 'business':
-        throw new Health.Metrics.MetricThresholdExceededError('blood_pressure', '180/120', 'Hypertensive crisis');
-      case 'technical':
-        throw new Health.Metrics.MetricStorageError('Failed to store health metric', 'DATABASE_ERROR');
-      case 'external':
-        throw new Health.Devices.DeviceConnectionFailureError('Fitbit', 'Authentication failed with external service');
-      default:
-        return { success: true, journey: 'Health' };
+class HealthTestController {
+  @Get('metrics/:id')
+  getMetric(@Param('id') id: string) {
+    if (id === 'invalid') {
+      throw new Health.Metrics.InvalidMetricValueError(
+        'Blood pressure value is outside acceptable range',
+        { value: '300/200', acceptableRange: '90-140/60-90' }
+      );
     }
+    if (id === 'not-found') {
+      throw new Health.Metrics.MetricNotFoundError(
+        'Requested health metric not found',
+        { metricId: id, metricType: 'blood_pressure' }
+      );
+    }
+    if (id === 'device-error') {
+      throw new Health.Devices.DeviceConnectionFailureError(
+        'Failed to connect to blood pressure monitor',
+        { deviceId: 'BP-Monitor-123', connectionAttempts: 3 }
+      );
+    }
+    return { id, value: '120/80', unit: 'mmHg' };
   }
 
-  @Get('goals')
-  @WithErrorContext({ journey: 'Health', feature: 'Goals' })
-  getGoalsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'validation':
-        throw new Health.Goals.InvalidGoalParametersError('steps', '100000', 'Daily goal is unrealistically high');
-      case 'business':
-        throw new Health.Goals.ConflictingGoalsError('Current goal conflicts with existing active goal');
-      default:
-        return { success: true, journey: 'Health', feature: 'Goals' };
+  @Get('goals/:id')
+  getGoal(@Param('id') id: string) {
+    if (id === 'invalid') {
+      throw new Health.Goals.InvalidGoalParametersError(
+        'Goal parameters are invalid',
+        { targetValue: -10, metricType: 'steps' }
+      );
     }
+    if (id === 'conflict') {
+      throw new Health.Goals.ConflictingGoalsError(
+        'Goal conflicts with existing goals',
+        { goalId: id, conflictingGoalIds: ['goal-123', 'goal-456'] }
+      );
+    }
+    return { id, type: 'steps', target: 10000, progress: 5000 };
   }
 
-  @Get('fhir')
-  @WithErrorContext({ journey: 'Health', feature: 'FHIR' })
-  getFhirError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'external':
-        throw new Health.FHIR.FhirConnectionFailureError('https://fhir.example.org/Patient/123', 'Failed to connect to FHIR server');
-      case 'validation':
-        throw new Health.FHIR.InvalidResourceError('Patient', 'Missing required fields: name, birthDate');
-      default:
-        return { success: true, journey: 'Health', feature: 'FHIR' };
+  @Get('insights/:id')
+  getInsight(@Param('id') id: string) {
+    if (id === 'insufficient-data') {
+      throw new Health.Insights.InsufficientDataError(
+        'Not enough data to generate insight',
+        { metricType: 'heart_rate', requiredDays: 7, availableDays: 2 }
+      );
     }
+    return { id, type: 'trend', description: 'Your heart rate is improving' };
   }
 }
 
-/**
- * Controller that throws Care journey-specific errors
- */
+// Care Journey Test Controller
 @Controller('care')
-class CareErrorsController {
-  @Get('appointments')
-  @WithErrorContext({ journey: 'Care', feature: 'Appointments' })
-  getAppointmentsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'validation':
-        throw new Care.AppointmentDateInPastError(new Date('2023-01-01'));
-      case 'business':
-        throw new Care.AppointmentOverlapError('You already have an appointment scheduled at this time');
-      case 'technical':
-        throw new Care.AppointmentPersistenceError('Failed to save appointment', 'DATABASE_ERROR');
-      case 'external':
-        throw new Care.AppointmentCalendarSyncError('Failed to sync with provider calendar', 'EXTERNAL_API_ERROR');
-      default:
-        return { success: true, journey: 'Care', feature: 'Appointments' };
+class CareTestController {
+  @Get('appointments/:id')
+  getAppointment(@Param('id') id: string) {
+    if (id === 'not-found') {
+      throw new Care.AppointmentNotFoundError(
+        'Appointment not found',
+        { appointmentId: id }
+      );
     }
+    if (id === 'past-date') {
+      throw new Care.AppointmentDateInPastError(
+        'Cannot book appointment in the past',
+        { requestedDate: '2023-01-01T10:00:00Z', currentDate: new Date().toISOString() }
+      );
+    }
+    if (id === 'provider-unavailable') {
+      throw new Care.AppointmentProviderUnavailableError(
+        'Provider is not available at the requested time',
+        { providerId: 'provider-123', requestedTime: '2023-12-01T14:00:00Z' }
+      );
+    }
+    return { id, provider: 'Dr. Smith', date: '2023-12-01T14:00:00Z' };
   }
 
-  @Get('telemedicine')
-  @WithErrorContext({ journey: 'Care', feature: 'Telemedicine' })
-  getTelemedicineError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'technical':
-        throw new Care.TelemedicineConnectionError('WebRTC connection failed', 'ICE_NEGOTIATION_FAILED');
-      case 'external':
-        throw new Care.TelemedicineServiceError('Video provider service unavailable', 'SERVICE_UNAVAILABLE');
-      default:
-        return { success: true, journey: 'Care', feature: 'Telemedicine' };
+  @Get('medications/:id')
+  getMedication(@Param('id') id: string) {
+    if (id === 'not-found') {
+      throw new Care.MedicationNotFoundError(
+        'Medication not found',
+        { medicationId: id }
+      );
     }
+    if (id === 'interaction') {
+      throw new Care.MedicationInteractionError(
+        'Potential drug interaction detected',
+        { 
+          medicationId: id, 
+          interactingMedicationIds: ['med-123', 'med-456'],
+          severityLevel: 'high'
+        }
+      );
+    }
+    return { id, name: 'Aspirin', dosage: '100mg', frequency: 'daily' };
   }
 
-  @Get('medications')
-  @WithErrorContext({ journey: 'Care', feature: 'Medications' })
-  getMedicationsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'business':
-        throw new Care.MedicationInteractionError('Potential interaction detected with current medications', [
-          { name: 'Warfarin', interactionSeverity: 'high' },
-          { name: 'Aspirin', interactionSeverity: 'high' }
-        ]);
-      case 'validation':
-        throw new Care.MedicationDosageError('Invalid dosage: 500mg exceeds maximum recommended dose of 250mg');
-      default:
-        return { success: true, journey: 'Care', feature: 'Medications' };
+  @Get('telemedicine/:id')
+  getTelemedicineSession(@Param('id') id: string) {
+    if (id === 'connection-error') {
+      throw new Care.TelemedicineConnectionError(
+        'Failed to establish telemedicine connection',
+        { sessionId: id, errorCode: 'WEBRTC_ICE_FAILED' }
+      );
     }
+    return { id, status: 'scheduled', provider: 'Dr. Johnson' };
   }
 }
 
-/**
- * Controller that throws Plan journey-specific errors
- */
+// Plan Journey Test Controller
 @Controller('plan')
-class PlanErrorsController {
-  @Get('claims')
-  @WithErrorContext({ journey: 'Plan', feature: 'Claims' })
-  getClaimsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'validation':
-        throw new Plan.Claims.ClaimValidationError('Missing required documentation for claim');
-      case 'business':
-        throw new Plan.Claims.DuplicateClaimError('A claim for this service on this date already exists');
-      case 'technical':
-        throw new Plan.Claims.ClaimPersistenceError('Failed to save claim', 'DATABASE_ERROR');
-      case 'external':
-        throw new Plan.Claims.ClaimProcessingApiError('Insurance provider API unavailable', 'EXTERNAL_API_ERROR');
-      default:
-        return { success: true, journey: 'Plan', feature: 'Claims' };
+class PlanTestController {
+  @Get('plans/:id')
+  getPlan(@Param('id') id: string) {
+    if (id === 'not-found') {
+      throw new Plan.Plans.PlanNotFoundError(
+        'Insurance plan not found',
+        { planId: id }
+      );
     }
+    if (id === 'region-unavailable') {
+      throw new Plan.Plans.PlanNotAvailableInRegionError(
+        'Plan is not available in your region',
+        { planId: id, userRegion: 'Northeast', availableRegions: ['West', 'South'] }
+      );
+    }
+    return { id, name: 'Premium Health Plan', coverage: 'comprehensive' };
   }
 
-  @Get('benefits')
-  @WithErrorContext({ journey: 'Plan', feature: 'Benefits' })
-  getBenefitsError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'business':
-        throw new Plan.Benefits.BenefitNotCoveredError('This service is not covered by your current plan');
-      case 'validation':
-        throw new Plan.Benefits.BenefitEligibilityError('You are not eligible for this benefit until 2024-01-01');
-      default:
-        return { success: true, journey: 'Plan', feature: 'Benefits' };
+  @Get('claims/:id')
+  getClaim(@Param('id') id: string) {
+    if (id === 'not-found') {
+      throw new Plan.Claims.ClaimNotFoundError(
+        'Claim not found',
+        { claimId: id }
+      );
     }
+    if (id === 'duplicate') {
+      throw new Plan.Claims.DuplicateClaimError(
+        'Duplicate claim detected',
+        { claimId: id, originalClaimId: 'claim-123', serviceDate: '2023-10-15' }
+      );
+    }
+    if (id === 'denied') {
+      throw new Plan.Claims.ClaimDeniedError(
+        'Claim was denied',
+        { 
+          claimId: id, 
+          denialReason: 'Service not covered under current plan',
+          denialCode: 'NOT_COVERED'
+        }
+      );
+    }
+    return { id, status: 'approved', amount: 500.00 };
   }
 
-  @Get('coverage')
-  @WithErrorContext({ journey: 'Plan', feature: 'Coverage' })
-  getCoverageError(@Query('type') errorType: string) {
-    switch (errorType) {
-      case 'business':
-        throw new Plan.Coverage.ServiceNotCoveredError('Physical therapy is not covered by your current plan');
-      case 'external':
-        throw new Plan.Coverage.CoverageApiIntegrationError('Failed to verify coverage with insurance provider', 'API_TIMEOUT');
-      default:
-        return { success: true, journey: 'Plan', feature: 'Coverage' };
+  @Get('benefits/:id')
+  getBenefit(@Param('id') id: string) {
+    if (id === 'not-found') {
+      throw new Plan.Benefits.BenefitNotFoundError(
+        'Benefit not found',
+        { benefitId: id }
+      );
     }
+    if (id === 'not-covered') {
+      throw new Plan.Benefits.BenefitNotCoveredError(
+        'Benefit not covered by current plan',
+        { benefitId: id, planId: 'plan-123' }
+      );
+    }
+    if (id === 'limit-exceeded') {
+      throw new Plan.Benefits.BenefitLimitExceededError(
+        'Benefit usage limit exceeded',
+        { 
+          benefitId: id, 
+          limit: 10, 
+          used: 10,
+          renewalDate: '2024-01-01'
+        }
+      );
+    }
+    return { id, name: 'Physical Therapy', limit: 20, used: 5 };
   }
 }
 
-/**
- * Custom error for testing generic journey error handling
- */
-class GenericJourneyError extends BaseError {
-  constructor(journey: string, feature: string, message: string, type: ErrorType) {
-    super({
-      message,
-      type,
-      code: `${journey.toUpperCase()}_${feature.toUpperCase()}_ERROR`,
-      statusCode: type === ErrorType.VALIDATION ? HttpStatus.BAD_REQUEST : 
-                 type === ErrorType.BUSINESS ? HttpStatus.UNPROCESSABLE_ENTITY :
-                 type === ErrorType.EXTERNAL ? HttpStatus.BAD_GATEWAY :
-                 HttpStatus.INTERNAL_SERVER_ERROR,
-      context: {
-        journey,
-        feature
-      }
-    });
-  }
-}
-
-/**
- * Controller for testing generic journey error handling
- */
-@Controller('generic')
-class GenericJourneyErrorsController {
-  @Get('error')
-  getGenericJourneyError(
-    @Query('journey') journey: string = 'unknown',
-    @Query('feature') feature: string = 'unknown',
-    @Query('type') errorType: string = 'business'
-  ) {
-    const type = errorType === 'validation' ? ErrorType.VALIDATION :
-                errorType === 'business' ? ErrorType.BUSINESS :
-                errorType === 'external' ? ErrorType.EXTERNAL :
-                ErrorType.TECHNICAL;
-                
-    throw new GenericJourneyError(
-      journey, 
-      feature, 
-      `Error in ${journey} journey, ${feature} feature`, 
-      type
-    );
-  }
-}
-
-/**
- * Test module with controllers for journey-specific errors
- */
 @Module({
   imports: [ErrorsModule.forRoot()],
-  controllers: [
-    HealthErrorsController,
-    CareErrorsController,
-    PlanErrorsController,
-    GenericJourneyErrorsController
-  ]
+  controllers: [HealthTestController, CareTestController, PlanTestController],
 })
-class JourneyErrorsTestModule {}
+class TestModule {}
 
 describe('Journey Error Handling (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [JourneyErrorsTestModule],
+      imports: [TestModule],
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -237,297 +222,398 @@ describe('Journey Error Handling (e2e)', () => {
     await app.close();
   });
 
-  describe('Health Journey Errors', () => {
-    it('should handle Health Metrics validation errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health/metrics?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('validation');
-      expect(response.body.error.code).toMatch(/^HEALTH_METRICS_/);
-      expect(response.body.error.message).toContain('heart_rate');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Health');
-      expect(response.body.error.context.feature).toBe('Metrics');
+  describe('Health Journey Error Handling', () => {
+    it('should return properly formatted error for invalid metric value', () => {
+      return request(app.getHttpServer())
+        .get('/health/metrics/invalid')
+        .expect(400)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.VALIDATION);
+          expect(res.body.error.code).toMatch(/^HEALTH_METRICS_/);
+          expect(res.body.error.message).toBe('Blood pressure value is outside acceptable range');
+          expect(res.body.error.details).toEqual({
+            value: '300/200',
+            acceptableRange: '90-140/60-90'
+          });
+        });
     });
 
-    it('should handle Health Metrics business errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health/metrics?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toMatch(/^HEALTH_METRICS_/);
-      expect(response.body.error.message).toContain('blood_pressure');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Health');
-      expect(response.body.error.context.feature).toBe('Metrics');
+    it('should return properly formatted error for metric not found', () => {
+      return request(app.getHttpServer())
+        .get('/health/metrics/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^HEALTH_METRICS_/);
+          expect(res.body.error.message).toBe('Requested health metric not found');
+          expect(res.body.error.details).toEqual({
+            metricId: 'not-found',
+            metricType: 'blood_pressure'
+          });
+        });
     });
 
-    it('should handle Health Goals errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health/goals?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('validation');
-      expect(response.body.error.code).toMatch(/^HEALTH_GOALS_/);
-      expect(response.body.error.message).toContain('steps');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Health');
-      expect(response.body.error.context.feature).toBe('Goals');
+    it('should return properly formatted error for device connection failure', () => {
+      return request(app.getHttpServer())
+        .get('/health/metrics/device-error')
+        .expect(502)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.EXTERNAL);
+          expect(res.body.error.code).toMatch(/^HEALTH_DEVICES_/);
+          expect(res.body.error.message).toBe('Failed to connect to blood pressure monitor');
+          expect(res.body.error.details).toEqual({
+            deviceId: 'BP-Monitor-123',
+            connectionAttempts: 3
+          });
+        });
     });
 
-    it('should handle Health FHIR external errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health/fhir?type=external')
-        .expect(HttpStatus.BAD_GATEWAY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('external');
-      expect(response.body.error.code).toMatch(/^HEALTH_FHIR_/);
-      expect(response.body.error.message).toContain('FHIR server');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Health');
-      expect(response.body.error.context.feature).toBe('FHIR');
-    });
-  });
-
-  describe('Care Journey Errors', () => {
-    it('should handle Care Appointments validation errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/care/appointments?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('validation');
-      expect(response.body.error.code).toMatch(/^CARE_APPOINTMENT_/);
-      expect(response.body.error.message).toContain('past');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Care');
-      expect(response.body.error.context.feature).toBe('Appointments');
+    it('should return properly formatted error for invalid goal parameters', () => {
+      return request(app.getHttpServer())
+        .get('/health/goals/invalid')
+        .expect(400)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.VALIDATION);
+          expect(res.body.error.code).toMatch(/^HEALTH_GOALS_/);
+          expect(res.body.error.message).toBe('Goal parameters are invalid');
+          expect(res.body.error.details).toEqual({
+            targetValue: -10,
+            metricType: 'steps'
+          });
+        });
     });
 
-    it('should handle Care Appointments business errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/care/appointments?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toMatch(/^CARE_APPOINTMENT_/);
-      expect(response.body.error.message).toContain('overlap');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Care');
-      expect(response.body.error.context.feature).toBe('Appointments');
+    it('should return properly formatted error for conflicting goals', () => {
+      return request(app.getHttpServer())
+        .get('/health/goals/conflict')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^HEALTH_GOALS_/);
+          expect(res.body.error.message).toBe('Goal conflicts with existing goals');
+          expect(res.body.error.details).toEqual({
+            goalId: 'conflict',
+            conflictingGoalIds: ['goal-123', 'goal-456']
+          });
+        });
     });
 
-    it('should handle Care Telemedicine technical errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/care/telemedicine?type=technical')
-        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('technical');
-      expect(response.body.error.code).toMatch(/^CARE_TELEMEDICINE_/);
-      expect(response.body.error.message).toContain('WebRTC');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Care');
-      expect(response.body.error.context.feature).toBe('Telemedicine');
-    });
-
-    it('should handle Care Medications business errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/care/medications?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toMatch(/^CARE_MEDICATION_/);
-      expect(response.body.error.message).toContain('interaction');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Care');
-      expect(response.body.error.context.feature).toBe('Medications');
-      expect(response.body.error.details).toBeDefined();
-      expect(response.body.error.details).toContainEqual(expect.objectContaining({
-        name: 'Warfarin',
-        interactionSeverity: 'high'
-      }));
+    it('should return properly formatted error for insufficient data for insights', () => {
+      return request(app.getHttpServer())
+        .get('/health/insights/insufficient-data')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^HEALTH_INSIGHTS_/);
+          expect(res.body.error.message).toBe('Not enough data to generate insight');
+          expect(res.body.error.details).toEqual({
+            metricType: 'heart_rate',
+            requiredDays: 7,
+            availableDays: 2
+          });
+        });
     });
   });
 
-  describe('Plan Journey Errors', () => {
-    it('should handle Plan Claims validation errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/plan/claims?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('validation');
-      expect(response.body.error.code).toMatch(/^PLAN_CLAIMS_/);
-      expect(response.body.error.message).toContain('documentation');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Plan');
-      expect(response.body.error.context.feature).toBe('Claims');
+  describe('Care Journey Error Handling', () => {
+    it('should return properly formatted error for appointment not found', () => {
+      return request(app.getHttpServer())
+        .get('/care/appointments/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^CARE_APPOINTMENT_/);
+          expect(res.body.error.message).toBe('Appointment not found');
+          expect(res.body.error.details).toEqual({
+            appointmentId: 'not-found'
+          });
+        });
     });
 
-    it('should handle Plan Claims business errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/plan/claims?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toMatch(/^PLAN_CLAIMS_/);
-      expect(response.body.error.message).toContain('duplicate');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Plan');
-      expect(response.body.error.context.feature).toBe('Claims');
+    it('should return properly formatted error for appointment date in past', () => {
+      return request(app.getHttpServer())
+        .get('/care/appointments/past-date')
+        .expect(400)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.VALIDATION);
+          expect(res.body.error.code).toMatch(/^CARE_APPOINTMENT_/);
+          expect(res.body.error.message).toBe('Cannot book appointment in the past');
+          expect(res.body.error.details.requestedDate).toBe('2023-01-01T10:00:00Z');
+          expect(res.body.error.details.currentDate).toBeDefined();
+        });
     });
 
-    it('should handle Plan Benefits business errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/plan/benefits?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toMatch(/^PLAN_BENEFITS_/);
-      expect(response.body.error.message).toContain('not covered');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Plan');
-      expect(response.body.error.context.feature).toBe('Benefits');
+    it('should return properly formatted error for provider unavailable', () => {
+      return request(app.getHttpServer())
+        .get('/care/appointments/provider-unavailable')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^CARE_APPOINTMENT_/);
+          expect(res.body.error.message).toBe('Provider is not available at the requested time');
+          expect(res.body.error.details).toEqual({
+            providerId: 'provider-123',
+            requestedTime: '2023-12-01T14:00:00Z'
+          });
+        });
     });
 
-    it('should handle Plan Coverage external errors with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/plan/coverage?type=external')
-        .expect(HttpStatus.BAD_GATEWAY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('external');
-      expect(response.body.error.code).toMatch(/^PLAN_COVERAGE_/);
-      expect(response.body.error.message).toContain('insurance provider');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Plan');
-      expect(response.body.error.context.feature).toBe('Coverage');
-    });
-  });
-
-  describe('Generic Journey Error Handling', () => {
-    it('should handle errors from any journey with proper context', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/generic/error?journey=Nutrition&feature=Recipes&type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error.type).toBe('business');
-      expect(response.body.error.code).toBe('NUTRITION_RECIPES_ERROR');
-      expect(response.body.error.message).toContain('Nutrition journey');
-      expect(response.body.error.context).toBeDefined();
-      expect(response.body.error.context.journey).toBe('Nutrition');
-      expect(response.body.error.context.feature).toBe('Recipes');
+    it('should return properly formatted error for medication not found', () => {
+      return request(app.getHttpServer())
+        .get('/care/medications/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^CARE_MEDICATION_/);
+          expect(res.body.error.message).toBe('Medication not found');
+          expect(res.body.error.details).toEqual({
+            medicationId: 'not-found'
+          });
+        });
     });
 
-    it('should map error types to appropriate HTTP status codes', async () => {
-      // Validation error -> 400 Bad Request
-      await request(app.getHttpServer())
-        .get('/generic/error?journey=Test&feature=Validation&type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      // Business error -> 422 Unprocessable Entity
-      await request(app.getHttpServer())
-        .get('/generic/error?journey=Test&feature=Business&type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      // Technical error -> 500 Internal Server Error
-      await request(app.getHttpServer())
-        .get('/generic/error?journey=Test&feature=Technical&type=technical')
-        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
-
-      // External error -> 502 Bad Gateway
-      await request(app.getHttpServer())
-        .get('/generic/error?journey=Test&feature=External&type=external')
-        .expect(HttpStatus.BAD_GATEWAY);
-    });
-  });
-
-  describe('Error Code Conventions', () => {
-    it('should use HEALTH_ prefix for Health journey error codes', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health/metrics?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error.code).toMatch(/^HEALTH_/);
+    it('should return properly formatted error for medication interaction', () => {
+      return request(app.getHttpServer())
+        .get('/care/medications/interaction')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^CARE_MEDICATION_/);
+          expect(res.body.error.message).toBe('Potential drug interaction detected');
+          expect(res.body.error.details).toEqual({
+            medicationId: 'interaction',
+            interactingMedicationIds: ['med-123', 'med-456'],
+            severityLevel: 'high'
+          });
+        });
     });
 
-    it('should use CARE_ prefix for Care journey error codes', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/care/appointments?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error.code).toMatch(/^CARE_/);
-    });
-
-    it('should use PLAN_ prefix for Plan journey error codes', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/plan/claims?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      expect(response.body.error.code).toMatch(/^PLAN_/);
+    it('should return properly formatted error for telemedicine connection error', () => {
+      return request(app.getHttpServer())
+        .get('/care/telemedicine/connection-error')
+        .expect(502)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.EXTERNAL);
+          expect(res.body.error.code).toMatch(/^CARE_TELEMEDICINE_/);
+          expect(res.body.error.message).toBe('Failed to establish telemedicine connection');
+          expect(res.body.error.details).toEqual({
+            sessionId: 'connection-error',
+            errorCode: 'WEBRTC_ICE_FAILED'
+          });
+        });
     });
   });
 
-  describe('Error Context and Client-Friendly Messaging', () => {
-    it('should include journey context in all error responses', async () => {
-      // Health journey
-      const healthResponse = await request(app.getHttpServer())
-        .get('/health/metrics?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-      
-      expect(healthResponse.body.error.context.journey).toBe('Health');
-      
-      // Care journey
-      const careResponse = await request(app.getHttpServer())
-        .get('/care/appointments?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-      
-      expect(careResponse.body.error.context.journey).toBe('Care');
-      
-      // Plan journey
-      const planResponse = await request(app.getHttpServer())
-        .get('/plan/claims?type=validation')
-        .expect(HttpStatus.BAD_REQUEST);
-      
-      expect(planResponse.body.error.context.journey).toBe('Plan');
+  describe('Plan Journey Error Handling', () => {
+    it('should return properly formatted error for plan not found', () => {
+      return request(app.getHttpServer())
+        .get('/plan/plans/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_PLANS_/);
+          expect(res.body.error.message).toBe('Insurance plan not found');
+          expect(res.body.error.details).toEqual({
+            planId: 'not-found'
+          });
+        });
     });
 
-    it('should provide user-friendly error messages with context', async () => {
-      // Health journey - business error with context
-      const healthResponse = await request(app.getHttpServer())
-        .get('/health/metrics?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+    it('should return properly formatted error for plan not available in region', () => {
+      return request(app.getHttpServer())
+        .get('/plan/plans/region-unavailable')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_PLANS_/);
+          expect(res.body.error.message).toBe('Plan is not available in your region');
+          expect(res.body.error.details).toEqual({
+            planId: 'region-unavailable',
+            userRegion: 'Northeast',
+            availableRegions: ['West', 'South']
+          });
+        });
+    });
+
+    it('should return properly formatted error for claim not found', () => {
+      return request(app.getHttpServer())
+        .get('/plan/claims/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_CLAIMS_/);
+          expect(res.body.error.message).toBe('Claim not found');
+          expect(res.body.error.details).toEqual({
+            claimId: 'not-found'
+          });
+        });
+    });
+
+    it('should return properly formatted error for duplicate claim', () => {
+      return request(app.getHttpServer())
+        .get('/plan/claims/duplicate')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_CLAIMS_/);
+          expect(res.body.error.message).toBe('Duplicate claim detected');
+          expect(res.body.error.details).toEqual({
+            claimId: 'duplicate',
+            originalClaimId: 'claim-123',
+            serviceDate: '2023-10-15'
+          });
+        });
+    });
+
+    it('should return properly formatted error for denied claim', () => {
+      return request(app.getHttpServer())
+        .get('/plan/claims/denied')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_CLAIMS_/);
+          expect(res.body.error.message).toBe('Claim was denied');
+          expect(res.body.error.details).toEqual({
+            claimId: 'denied',
+            denialReason: 'Service not covered under current plan',
+            denialCode: 'NOT_COVERED'
+          });
+        });
+    });
+
+    it('should return properly formatted error for benefit not found', () => {
+      return request(app.getHttpServer())
+        .get('/plan/benefits/not-found')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_BENEFITS_/);
+          expect(res.body.error.message).toBe('Benefit not found');
+          expect(res.body.error.details).toEqual({
+            benefitId: 'not-found'
+          });
+        });
+    });
+
+    it('should return properly formatted error for benefit not covered', () => {
+      return request(app.getHttpServer())
+        .get('/plan/benefits/not-covered')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_BENEFITS_/);
+          expect(res.body.error.message).toBe('Benefit not covered by current plan');
+          expect(res.body.error.details).toEqual({
+            benefitId: 'not-covered',
+            planId: 'plan-123'
+          });
+        });
+    });
+
+    it('should return properly formatted error for benefit limit exceeded', () => {
+      return request(app.getHttpServer())
+        .get('/plan/benefits/limit-exceeded')
+        .expect(422)
+        .expect(res => {
+          expect(res.body.error).toBeDefined();
+          expect(res.body.error.type).toBe(ErrorType.BUSINESS);
+          expect(res.body.error.code).toMatch(/^PLAN_BENEFITS_/);
+          expect(res.body.error.message).toBe('Benefit usage limit exceeded');
+          expect(res.body.error.details).toEqual({
+            benefitId: 'limit-exceeded',
+            limit: 10,
+            used: 10,
+            renewalDate: '2024-01-01'
+          });
+        });
+    });
+  });
+
+  describe('Cross-Journey Error Handling', () => {
+    it('should maintain consistent error structure across all journeys', async () => {
+      // Get error responses from each journey
+      const healthResponse = await request(app.getHttpServer()).get('/health/metrics/not-found').expect(422);
+      const careResponse = await request(app.getHttpServer()).get('/care/appointments/not-found').expect(422);
+      const planResponse = await request(app.getHttpServer()).get('/plan/claims/not-found').expect(422);
       
-      expect(healthResponse.body.error.message).toContain('blood_pressure');
-      expect(healthResponse.body.error.message).toContain('Hypertensive crisis');
+      // Verify consistent error structure
+      const errorStructureKeys = ['type', 'code', 'message', 'details'];
       
-      // Care journey - business error with context
-      const careResponse = await request(app.getHttpServer())
-        .get('/care/medications?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+      errorStructureKeys.forEach(key => {
+        expect(healthResponse.body.error).toHaveProperty(key);
+        expect(careResponse.body.error).toHaveProperty(key);
+        expect(planResponse.body.error).toHaveProperty(key);
+      });
+    });
+
+    it('should use journey-specific error code prefixes', async () => {
+      // Get error responses from each journey
+      const healthResponse = await request(app.getHttpServer()).get('/health/metrics/not-found').expect(422);
+      const careResponse = await request(app.getHttpServer()).get('/care/appointments/not-found').expect(422);
+      const planResponse = await request(app.getHttpServer()).get('/plan/claims/not-found').expect(422);
       
-      expect(careResponse.body.error.message).toContain('interaction');
-      expect(careResponse.body.error.details).toBeDefined();
+      // Verify journey-specific error code prefixes
+      expect(healthResponse.body.error.code).toMatch(/^HEALTH_/);
+      expect(careResponse.body.error.code).toMatch(/^CARE_/);
+      expect(planResponse.body.error.code).toMatch(/^PLAN_/);
+    });
+
+    it('should include journey-specific context in error details', async () => {
+      // Get error responses with rich context from each journey
+      const healthResponse = await request(app.getHttpServer()).get('/health/goals/conflict').expect(422);
+      const careResponse = await request(app.getHttpServer()).get('/care/medications/interaction').expect(422);
+      const planResponse = await request(app.getHttpServer()).get('/plan/claims/denied').expect(422);
       
-      // Plan journey - business error with context
-      const planResponse = await request(app.getHttpServer())
-        .get('/plan/benefits?type=business')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+      // Verify journey-specific context in error details
+      expect(healthResponse.body.error.details).toHaveProperty('conflictingGoalIds');
+      expect(careResponse.body.error.details).toHaveProperty('interactingMedicationIds');
+      expect(careResponse.body.error.details).toHaveProperty('severityLevel');
+      expect(planResponse.body.error.details).toHaveProperty('denialReason');
+      expect(planResponse.body.error.details).toHaveProperty('denialCode');
+    });
+
+    it('should map error types to appropriate HTTP status codes across all journeys', async () => {
+      // Validation errors (400 Bad Request)
+      const healthValidationResponse = await request(app.getHttpServer()).get('/health/metrics/invalid');
+      const careValidationResponse = await request(app.getHttpServer()).get('/care/appointments/past-date');
       
-      expect(planResponse.body.error.message).toContain('not covered');
-      expect(planResponse.body.error.message).toContain('current plan');
+      expect(healthValidationResponse.status).toBe(400);
+      expect(careValidationResponse.status).toBe(400);
+      
+      // Business errors (422 Unprocessable Entity)
+      const healthBusinessResponse = await request(app.getHttpServer()).get('/health/metrics/not-found');
+      const careBusinessResponse = await request(app.getHttpServer()).get('/care/appointments/not-found');
+      const planBusinessResponse = await request(app.getHttpServer()).get('/plan/claims/not-found');
+      
+      expect(healthBusinessResponse.status).toBe(422);
+      expect(careBusinessResponse.status).toBe(422);
+      expect(planBusinessResponse.status).toBe(422);
+      
+      // External errors (502 Bad Gateway)
+      const healthExternalResponse = await request(app.getHttpServer()).get('/health/metrics/device-error');
+      const careExternalResponse = await request(app.getHttpServer()).get('/care/telemedicine/connection-error');
+      
+      expect(healthExternalResponse.status).toBe(502);
+      expect(careExternalResponse.status).toBe(502);
     });
   });
 });

@@ -1,11 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
 import { HttpStatus } from '@nestjs/common';
-
-// Import the BaseError class and related types
-import { BaseError, ErrorType } from '../../../../src/base';
-import { HTTP_STATUS_MAPPINGS } from '../../../../src/constants';
-
-// Import the document-specific error classes
 import {
   DocumentNotFoundError,
   DocumentFormatError,
@@ -15,375 +8,453 @@ import {
   DocumentVerificationError,
   DocumentProcessingError
 } from '../../../../src/journey/plan/documents-errors';
+import { ErrorType } from '@austa/interfaces/common/exceptions';
+import { PlanErrorDomain } from '../../../../src/journey/plan/types';
 
-/**
- * Test suite for Plan journey's document-specific error classes
- * Verifies error inheritance, classification, HTTP status code mapping, and context handling
- */
 describe('Plan Journey Document Errors', () => {
-  // Common test data
-  const documentId = 'doc-123';
-  const userId = 'user-456';
-  const planId = 'plan-789';
-  const claimId = 'claim-101';
-  
   describe('DocumentNotFoundError', () => {
-    it('should extend BaseError', () => {
-      const error = new DocumentNotFoundError(documentId);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have BUSINESS error type', () => {
-      const error = new DocumentNotFoundError(documentId);
+    it('should create an error with the correct properties', () => {
+      const documentId = 'doc-123';
+      const details = { userId: 'user-456', claimId: 'claim-789' };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentNotFoundError(documentId, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Document with ID ${documentId} not found`);
       expect(error.type).toBe(ErrorType.BUSINESS);
+      expect(error.code).toBe('PLAN_DOC_001');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include document ID in error details', () => {
-      const error = new DocumentNotFoundError(documentId);
-      expect(error.details).toBeDefined();
-      expect(error.details.documentId).toBe(documentId);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentNotFoundError(documentId);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentNotFoundError('doc-123');
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentNotFoundError(documentId, {
-        userId,
-        planId
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.documentId).toBe(documentId);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
+    it('should serialize to JSON with correct structure', () => {
+      const documentId = 'doc-123';
+      const details = { userId: 'user-456' };
+      
+      const error = new DocumentNotFoundError(documentId, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_001');
+      expect(jsonResult.error).toHaveProperty('message', `Document with ID ${documentId} not found`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentFormatError', () => {
-    const format = 'PDF';
-    const supportedFormats = ['PDF', 'JPG', 'PNG'];
-    const providedFormat = 'TIFF';
-
-    it('should extend BaseError', () => {
-      const error = new DocumentFormatError(providedFormat, supportedFormats);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have VALIDATION error type', () => {
-      const error = new DocumentFormatError(providedFormat, supportedFormats);
+    it('should create an error with the correct properties', () => {
+      const format = 'txt';
+      const supportedFormats = ['pdf', 'jpg', 'png'];
+      const details = { documentId: 'doc-123', size: 1024 };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentFormatError(format, supportedFormats, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Invalid document format: ${format}. Supported formats: ${supportedFormats.join(', ')}`);
       expect(error.type).toBe(ErrorType.VALIDATION);
+      expect(error.code).toBe('PLAN_DOC_002');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include format details in error details', () => {
-      const error = new DocumentFormatError(providedFormat, supportedFormats);
-      expect(error.details).toBeDefined();
-      expect(error.details.providedFormat).toBe(providedFormat);
-      expect(error.details.supportedFormats).toEqual(supportedFormats);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentFormatError(providedFormat, supportedFormats);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentFormatError('txt', ['pdf', 'jpg', 'png']);
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.VALIDATION);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentFormatError(providedFormat, supportedFormats, {
-        userId,
-        documentId
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.providedFormat).toBe(providedFormat);
-      expect(json.error.details.supportedFormats).toEqual(supportedFormats);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.documentId).toBe(documentId);
+    it('should serialize to JSON with correct structure', () => {
+      const format = 'txt';
+      const supportedFormats = ['pdf', 'jpg', 'png'];
+      const details = { documentId: 'doc-123' };
+      
+      const error = new DocumentFormatError(format, supportedFormats, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.VALIDATION);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_002');
+      expect(jsonResult.error).toHaveProperty('message', `Invalid document format: ${format}. Supported formats: ${supportedFormats.join(', ')}`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentSizeExceededError', () => {
-    const providedSize = 15000000; // 15MB
-    const maxSize = 10000000; // 10MB
-
-    it('should extend BaseError', () => {
-      const error = new DocumentSizeExceededError(providedSize, maxSize);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have VALIDATION error type', () => {
-      const error = new DocumentSizeExceededError(providedSize, maxSize);
+    it('should create an error with the correct properties', () => {
+      const size = 15000000; // 15MB
+      const maxSize = 10000000; // 10MB
+      const details = { documentId: 'doc-123', format: 'pdf' };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentSizeExceededError(size, maxSize, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Document size of ${size} bytes exceeds the maximum allowed size of ${maxSize} bytes`);
       expect(error.type).toBe(ErrorType.VALIDATION);
+      expect(error.code).toBe('PLAN_DOC_003');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include size details in error details', () => {
-      const error = new DocumentSizeExceededError(providedSize, maxSize);
-      expect(error.details).toBeDefined();
-      expect(error.details.providedSize).toBe(providedSize);
-      expect(error.details.maxSize).toBe(maxSize);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentSizeExceededError(providedSize, maxSize);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentSizeExceededError(15000000, 10000000);
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.VALIDATION);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentSizeExceededError(providedSize, maxSize, {
-        userId,
-        documentId,
-        fileName: 'large-document.pdf'
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.providedSize).toBe(providedSize);
-      expect(json.error.details.maxSize).toBe(maxSize);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.documentId).toBe(documentId);
-      expect(json.error.context.fileName).toBe('large-document.pdf');
+    it('should serialize to JSON with correct structure', () => {
+      const size = 15000000; // 15MB
+      const maxSize = 10000000; // 10MB
+      const details = { documentId: 'doc-123', format: 'pdf' };
+      
+      const error = new DocumentSizeExceededError(size, maxSize, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.VALIDATION);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_003');
+      expect(jsonResult.error).toHaveProperty('message', `Document size of ${size} bytes exceeds the maximum allowed size of ${maxSize} bytes`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentExpirationError', () => {
-    const expirationDate = new Date('2023-01-01');
-    const currentDate = new Date('2023-02-15');
-
-    it('should extend BaseError', () => {
-      const error = new DocumentExpirationError(documentId, expirationDate, currentDate);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have BUSINESS error type', () => {
-      const error = new DocumentExpirationError(documentId, expirationDate, currentDate);
+    it('should create an error with the correct properties', () => {
+      const documentId = 'doc-123';
+      const expirationDate = new Date('2023-01-01');
+      const details = { documentType: 'insurance-card', userId: 'user-456' };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentExpirationError(documentId, expirationDate, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Document with ID ${documentId} has expired on ${expirationDate.toISOString().split('T')[0]}`);
       expect(error.type).toBe(ErrorType.BUSINESS);
+      expect(error.code).toBe('PLAN_DOC_004');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include expiration details in error details', () => {
-      const error = new DocumentExpirationError(documentId, expirationDate, currentDate);
-      expect(error.details).toBeDefined();
-      expect(error.details.documentId).toBe(documentId);
-      expect(error.details.expirationDate).toEqual(expirationDate);
-      expect(error.details.currentDate).toEqual(currentDate);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentExpirationError(documentId, expirationDate, currentDate);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentExpirationError('doc-123', new Date('2023-01-01'));
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentExpirationError(documentId, expirationDate, currentDate, {
-        userId,
-        documentType: 'insurance-card'
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.documentId).toBe(documentId);
-      expect(new Date(json.error.details.expirationDate)).toEqual(expirationDate);
-      expect(new Date(json.error.details.currentDate)).toEqual(currentDate);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.documentType).toBe('insurance-card');
+    it('should serialize to JSON with correct structure', () => {
+      const documentId = 'doc-123';
+      const expirationDate = new Date('2023-01-01');
+      const details = { documentType: 'insurance-card' };
+      
+      const error = new DocumentExpirationError(documentId, expirationDate, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_004');
+      expect(jsonResult.error).toHaveProperty('message', `Document with ID ${documentId} has expired on ${expirationDate.toISOString().split('T')[0]}`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentStorageError', () => {
-    const originalError = new Error('Storage service unavailable');
-
-    it('should extend BaseError', () => {
-      const error = new DocumentStorageError(documentId, originalError);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have TECHNICAL error type', () => {
-      const error = new DocumentStorageError(documentId, originalError);
+    it('should create an error with the correct properties', () => {
+      const operation = 'upload';
+      const documentId = 'doc-123';
+      const details = { storageProvider: 's3', bucket: 'documents-bucket' };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentStorageError(operation, documentId, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Failed to ${operation} document with ID ${documentId}`);
       expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('PLAN_DOC_005');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include document ID in error details', () => {
-      const error = new DocumentStorageError(documentId, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.documentId).toBe(documentId);
+    it('should handle missing documentId', () => {
+      const operation = 'upload';
+      const details = { storageProvider: 's3', bucket: 'documents-bucket' };
+      
+      const error = new DocumentStorageError(operation, undefined, details);
+      
+      expect(error.message).toBe(`Failed to ${operation} document`);
     });
 
-    it('should preserve original error as cause', () => {
-      const error = new DocumentStorageError(documentId, originalError);
-      expect(error.cause).toBe(originalError);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentStorageError(documentId, originalError);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentStorageError('upload', 'doc-123');
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentStorageError(documentId, originalError, {
-        userId,
-        operation: 'upload',
-        storageProvider: 's3'
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.documentId).toBe(documentId);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.operation).toBe('upload');
-      expect(json.error.context.storageProvider).toBe('s3');
+    it('should serialize to JSON with correct structure', () => {
+      const operation = 'upload';
+      const documentId = 'doc-123';
+      const details = { storageProvider: 's3', bucket: 'documents-bucket' };
+      
+      const error = new DocumentStorageError(operation, documentId, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_005');
+      expect(jsonResult.error).toHaveProperty('message', `Failed to ${operation} document with ID ${documentId}`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentVerificationError', () => {
-    const verificationService = 'external-verification-api';
-    const originalError = new Error('Verification service unavailable');
-
-    it('should extend BaseError', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have EXTERNAL error type', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError);
+    it('should create an error with the correct properties', () => {
+      const documentId = 'doc-123';
+      const verificationService = 'digital-signature-verifier';
+      const details = { reason: 'invalid signature', userId: 'user-456' };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentVerificationError(documentId, verificationService, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Verification failed for document with ID ${documentId} using service ${verificationService}`);
       expect(error.type).toBe(ErrorType.EXTERNAL);
+      expect(error.code).toBe('PLAN_DOC_006');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include verification details in error details', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.documentId).toBe(documentId);
-      expect(error.details.verificationService).toBe(verificationService);
-    });
-
-    it('should preserve original error as cause', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError);
-      expect(error.cause).toBe(originalError);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentVerificationError('doc-123', 'digital-signature-verifier');
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentVerificationError(documentId, verificationService, originalError, {
-        userId,
-        documentType: 'insurance-card',
-        verificationAttempt: 2
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.documentId).toBe(documentId);
-      expect(json.error.details.verificationService).toBe(verificationService);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.documentType).toBe('insurance-card');
-      expect(json.error.context.verificationAttempt).toBe(2);
+    it('should serialize to JSON with correct structure', () => {
+      const documentId = 'doc-123';
+      const verificationService = 'digital-signature-verifier';
+      const details = { reason: 'invalid signature' };
+      
+      const error = new DocumentVerificationError(documentId, verificationService, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.EXTERNAL);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_006');
+      expect(jsonResult.error).toHaveProperty('message', `Verification failed for document with ID ${documentId} using service ${verificationService}`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
   describe('DocumentProcessingError', () => {
-    const processingStage = 'text-extraction';
-    const originalError = new Error('OCR service failed');
-
-    it('should extend BaseError', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError);
-      expect(error).toBeInstanceOf(BaseError);
-    });
-
-    it('should have TECHNICAL error type', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError);
+    it('should create an error with the correct properties', () => {
+      const documentId = 'doc-123';
+      const operation = 'OCR';
+      const details = { format: 'pdf', pages: 5 };
+      const cause = new Error('Original error');
+      
+      const error = new DocumentProcessingError(documentId, operation, details, cause);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(`Failed to process document with ID ${documentId} during ${operation}`);
       expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('PLAN_DOC_007');
+      expect(error.details).toEqual(details);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should include processing details in error details', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.documentId).toBe(documentId);
-      expect(error.details.processingStage).toBe(processingStage);
-    });
-
-    it('should preserve original error as cause', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError);
-      expect(error.cause).toBe(originalError);
-    });
-
-    it('should map to correct HTTP status code', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError);
+    it('should map to the correct HTTP status code', () => {
+      const error = new DocumentProcessingError('doc-123', 'OCR');
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new DocumentProcessingError(documentId, processingStage, originalError, {
-        userId,
-        claimId,
-        documentType: 'medical-receipt',
-        processingService: 'ocr-service'
-      });
-
-      const json = error.toJSON();
-      expect(json.error.details.documentId).toBe(documentId);
-      expect(json.error.details.processingStage).toBe(processingStage);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.claimId).toBe(claimId);
-      expect(json.error.context.documentType).toBe('medical-receipt');
-      expect(json.error.context.processingService).toBe('ocr-service');
+    it('should serialize to JSON with correct structure', () => {
+      const documentId = 'doc-123';
+      const operation = 'OCR';
+      const details = { format: 'pdf', pages: 5 };
+      
+      const error = new DocumentProcessingError(documentId, operation, details);
+      const jsonResult = error.toJSON();
+      
+      expect(jsonResult).toHaveProperty('error');
+      expect(jsonResult.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(jsonResult.error).toHaveProperty('code', 'PLAN_DOC_007');
+      expect(jsonResult.error).toHaveProperty('message', `Failed to process document with ID ${documentId} during ${operation}`);
+      expect(jsonResult.error).toHaveProperty('details', details);
     });
   });
 
-  describe('Error Integration', () => {
-    it('should support error chaining for document processing workflow', () => {
-      // Simulate a chain of errors in document processing
-      const storageError = new Error('Failed to retrieve from storage');
-      const documentStorageError = new DocumentStorageError('doc-123', storageError, {
-        operation: 'download',
-        storageProvider: 's3'
-      });
+  describe('Error Domain Classification', () => {
+    it('should classify DocumentNotFoundError as a Plan Document domain error', () => {
+      const error = new DocumentNotFoundError('doc-123');
+      const detailedJson = error.toDetailedJSON();
       
-      const processingError = new DocumentProcessingError(
-        'doc-123',
-        'text-extraction',
-        documentStorageError,
-        { processingService: 'ocr-service' }
-      );
-
-      // Verify error chain
-      expect(processingError.cause).toBe(documentStorageError);
-      expect(documentStorageError.cause).toBe(storageError);
-      
-      // Verify root cause extraction
-      expect(processingError.getRootCause()).toBe(storageError);
-      
-      // Verify error chain formatting
-      const chainString = processingError.formatErrorChain();
-      expect(chainString).toContain('text-extraction');
-      expect(chainString).toContain('Failed to retrieve from storage');
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
     });
 
-    it('should support context propagation through error chain', () => {
-      // Create a chain of errors with context
-      const verificationError = new DocumentVerificationError(
-        'doc-123',
-        'external-verification-api',
-        new Error('API timeout'),
-        { requestId: 'req-123', documentType: 'insurance-card' }
-      );
+    it('should classify DocumentFormatError as a Plan Document domain error', () => {
+      const error = new DocumentFormatError('txt', ['pdf', 'jpg']);
+      const detailedJson = error.toDetailedJSON();
       
-      const processingError = new DocumentProcessingError(
-        'doc-123',
-        'verification',
-        verificationError,
-        { userId: 'user-456', claimId: 'claim-789' }
-      );
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
 
-      // Context from both errors should be merged
-      expect(processingError.context.requestId).toBe('req-123');
-      expect(processingError.context.documentType).toBe('insurance-card');
-      expect(processingError.context.userId).toBe('user-456');
-      expect(processingError.context.claimId).toBe('claim-789');
+    it('should classify DocumentSizeExceededError as a Plan Document domain error', () => {
+      const error = new DocumentSizeExceededError(15000000, 10000000);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
+
+    it('should classify DocumentExpirationError as a Plan Document domain error', () => {
+      const error = new DocumentExpirationError('doc-123', new Date('2023-01-01'));
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
+
+    it('should classify DocumentStorageError as a Plan Document domain error', () => {
+      const error = new DocumentStorageError('upload', 'doc-123');
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
+
+    it('should classify DocumentVerificationError as a Plan Document domain error', () => {
+      const error = new DocumentVerificationError('doc-123', 'digital-signature-verifier');
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
+
+    it('should classify DocumentProcessingError as a Plan Document domain error', () => {
+      const error = new DocumentProcessingError('doc-123', 'OCR');
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', 'plan');
+      expect(detailedJson.context).toHaveProperty('domain', PlanErrorDomain.DOCUMENTS);
+    });
+  });
+
+  describe('Error Context Data', () => {
+    it('should include document-specific context in DocumentNotFoundError', () => {
+      const documentId = 'doc-123';
+      const details = { userId: 'user-456', claimId: 'claim-789' };
+      
+      const error = new DocumentNotFoundError(documentId, details);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('documentId', documentId);
+    });
+
+    it('should include format-specific context in DocumentFormatError', () => {
+      const format = 'txt';
+      const supportedFormats = ['pdf', 'jpg', 'png'];
+      
+      const error = new DocumentFormatError(format, supportedFormats);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('format', format);
+      expect(detailedJson.context.metadata).toHaveProperty('supportedFormats', supportedFormats);
+    });
+
+    it('should include size-specific context in DocumentSizeExceededError', () => {
+      const size = 15000000; // 15MB
+      const maxSize = 10000000; // 10MB
+      
+      const error = new DocumentSizeExceededError(size, maxSize);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('size', size);
+      expect(detailedJson.context.metadata).toHaveProperty('maxSize', maxSize);
+      expect(detailedJson.context.metadata).toHaveProperty('sizeExceededBy', size - maxSize);
+    });
+
+    it('should include expiration-specific context in DocumentExpirationError', () => {
+      const documentId = 'doc-123';
+      const expirationDate = new Date('2023-01-01');
+      
+      const error = new DocumentExpirationError(documentId, expirationDate);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('documentId', documentId);
+      expect(detailedJson.context.metadata).toHaveProperty('expirationDate');
+      expect(new Date(detailedJson.context.metadata.expirationDate)).toEqual(expirationDate);
+    });
+
+    it('should include storage-specific context in DocumentStorageError', () => {
+      const operation = 'upload';
+      const documentId = 'doc-123';
+      
+      const error = new DocumentStorageError(operation, documentId);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('operation', operation);
+      expect(detailedJson.context.metadata).toHaveProperty('documentId', documentId);
+    });
+
+    it('should include verification-specific context in DocumentVerificationError', () => {
+      const documentId = 'doc-123';
+      const verificationService = 'digital-signature-verifier';
+      
+      const error = new DocumentVerificationError(documentId, verificationService);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('documentId', documentId);
+      expect(detailedJson.context.metadata).toHaveProperty('verificationService', verificationService);
+    });
+
+    it('should include processing-specific context in DocumentProcessingError', () => {
+      const documentId = 'doc-123';
+      const operation = 'OCR';
+      
+      const error = new DocumentProcessingError(documentId, operation);
+      const detailedJson = error.toDetailedJSON();
+      
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('metadata');
+      expect(detailedJson.context.metadata).toHaveProperty('documentId', documentId);
+      expect(detailedJson.context.metadata).toHaveProperty('operation', operation);
     });
   });
 });

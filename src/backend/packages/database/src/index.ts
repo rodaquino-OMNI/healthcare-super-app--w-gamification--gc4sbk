@@ -2,28 +2,35 @@
  * @austa/database
  * 
  * This package provides a comprehensive database access layer for the AUSTA SuperApp,
- * with journey-specific optimizations, connection pooling, error handling, and transaction management.
- * It serves as the foundation for all database operations across the application's microservices.
+ * with journey-specific optimizations, connection pooling, error handling, and transaction
+ * management across all microservices.
+ *
+ * The package is organized into several modules:
+ * - Core: PrismaService and DatabaseModule for NestJS integration
+ * - Connection: Connection management, pooling, and health monitoring
+ * - Contexts: Journey-specific database contexts for Health, Care, and Plan journeys
+ * - Errors: Error handling, transformation, and retry strategies
+ * - Middleware: Database operation interceptors for logging, performance, etc.
+ * - Transactions: Transaction management with isolation level support
+ * - Types: TypeScript interfaces and types for database operations
+ * - Utils: Utility functions for common database operations
  */
 
 // Core exports
 export { PrismaService } from './prisma.service';
 export { DatabaseModule } from './database.module';
 
-// Connection management
+// Connection management exports
 export {
   ConnectionManager,
   ConnectionPool,
   ConnectionHealth,
   ConnectionRetry,
   ConnectionConfig,
-  // Types
-  ConnectionOptions,
-  ConnectionStatus,
-  ConnectionMetrics,
-  ConnectionPoolOptions,
-  ConnectionRetryOptions,
-  ConnectionHealthOptions,
+  type ConnectionOptions,
+  type ConnectionPoolOptions,
+  type ConnectionRetryOptions,
+  type ConnectionHealthOptions
 } from './connection';
 
 // Journey-specific database contexts
@@ -32,203 +39,124 @@ export {
   HealthContext,
   CareContext,
   PlanContext,
-  // Types
-  JourneyContextOptions,
-  ContextFactory,
+  type JourneyContextOptions
 } from './contexts';
 
-// Error handling
+// Error handling exports
 export {
-  // Exceptions
   DatabaseException,
   ConnectionException,
   QueryException,
   TransactionException,
   IntegrityException,
   ConfigurationException,
-  // Error transformers
   ErrorTransformer,
-  // Retry strategies
   RetryStrategy,
   ExponentialBackoffStrategy,
   CircuitBreakerStrategy,
   RetryStrategyFactory,
-  // Error codes and types
-  DatabaseErrorCodes,
-  DatabaseErrorType,
-  DatabaseErrorSeverity,
-  DatabaseErrorRecoverability,
+  DATABASE_ERROR_CODES,
+  type DatabaseErrorType,
+  type DatabaseErrorSeverity,
+  type DatabaseErrorRecoverability,
+  type DatabaseErrorMetadata
 } from './errors';
 
-// Middleware
+// Middleware exports
 export {
-  // Interfaces
-  DatabaseMiddleware,
-  MiddlewareContext,
-  LoggingMiddleware,
-  PerformanceMiddleware,
-  TransformationMiddleware,
-  CircuitBreakerMiddleware as CircuitBreakerMiddlewareInterface,
-  TransformationRule,
-  // Implementations
+  type DatabaseMiddleware,
+  type MiddlewareContext,
   CircuitBreakerMiddleware,
-  TransformationMiddleware as TransformationMiddlewareImpl,
-  PerformanceMiddleware as PerformanceMiddlewareImpl,
-  LoggingMiddleware as LoggingMiddlewareImpl,
-  // Registry and factory
+  TransformationMiddleware,
+  PerformanceMiddleware,
+  LoggingMiddleware,
   MiddlewareRegistry,
-  MiddlewareFactory,
-  // Types
-  MiddlewareOptions,
-  MiddlewareType,
+  MiddlewareFactory
 } from './middleware';
 
-// Transaction management
+// Transaction management exports
 export {
-  // Service
   TransactionService,
-  // Decorators
   Transactional,
-  ReadOnly,
-  ReadWrite,
-  WriteOnly,
-  CriticalWrite,
-  RequiresNewTransaction,
-  // Utility functions
-  isInTransaction,
-  getCurrentTransactionClient,
-  getCurrentTransactionMetadata,
-  executeWithTransaction,
-  // Transaction execution utilities
   executeInTransaction,
-  executeReadOperation,
-  executeWriteOperation,
-  executeReadWriteOperation,
-  executeCriticalWriteOperation,
-  executeBatchOperations,
-  executeWithTransactionRetry,
-  executeWithTimeout,
-  executeWithPerformanceTracking,
-  executeDatabaseOperation,
-  // Types
-  TransactionalOptions,
-  TransactionOptions,
+  selectIsolationLevel,
+  type TransactionClient,
+  type TransactionOptions,
   TransactionIsolationLevel,
-  TransactionState,
-  TransactionType,
-  TransactionCallback,
-  TransactionMetadata,
-  TransactionTimeoutOptions,
-  TransactionRetryOptions,
-  TransactionLoggingOptions,
-  SavepointOptions,
-  DistributedTransactionOptions,
-  Transaction,
-  TransactionManager,
-  TransactionPerformanceMetrics,
-  TransactionDebugInfo,
-  OperationType,
-  // Errors
   TransactionError,
   TransactionTimeoutError,
   DeadlockError,
-  DistributedTransactionError,
-  TransactionAbortedError,
-  TransactionIsolationError,
-  TransactionRollbackError,
-  TransactionCommitError,
-  ConcurrencyControlError,
-  // Constants
-  DEFAULT_TRANSACTION_OPTIONS,
-  PRISMA_ISOLATION_LEVEL_MAP,
-  // Utility functions
-  getIsolationLevelForOperation,
-  isTransientDatabaseError,
-  shouldRetryTransaction,
-  calculateRetryDelay,
+  DistributedTransactionError
 } from './transactions';
 
-// Types
+// Type exports
 export {
   // Journey types
-  JourneyType,
-  JourneyId,
-  JourneyMetadata,
+  type JourneyType,
+  type JourneyId,
+  type JourneyMetadata,
+  type CrossJourneyRelation,
+  
   // Context types
-  DatabaseContext,
-  ContextOptions,
+  type DatabaseContext,
+  type DatabaseContextOptions,
+  type ContextFactory,
+  
   // Transaction types
-  TransactionConfig,
-  TransactionStatus,
+  type TransactionCallback,
+  type NestedTransaction,
+  type TransactionManager,
+  
   // Query types
-  QueryOptions,
-  FilterOptions,
-  SortOptions,
-  PaginationOptions,
+  type QueryFilter,
+  type QuerySort,
+  type QueryPagination,
+  type QueryProjection,
+  
   // Connection types
-  DatabaseConnectionConfig,
-  SSLConfig,
-  PoolConfig,
-  // Circuit breaker types
-  CircuitState,
-  OperationType,
-  CircuitBreakerOptions,
-  CircuitBreakerStats,
-  JourneyThresholds,
+  type DatabaseConnectionConfig,
+  type PostgresConnectionConfig,
+  type RedisConnectionConfig,
+  type TimescaleConnectionConfig,
+  type S3ConnectionConfig
 } from './types';
 
-// Utilities
+// Utility exports
 export {
-  // Entity mappers
-  createEntityMapper,
-  createModelMapper,
-  mapEntities,
-  createSelectiveMapper,
-  getMapperForEntityType,
-  // Journey-specific entity mappers
-  mapHealthMetricEntity,
-  mapHealthGoalEntity,
-  mapMedicalEventEntity,
-  mapDeviceConnectionEntity,
-  mapAppointmentEntity,
-  mapProviderEntity,
-  mapMedicationEntity,
-  mapTelemedicineSessionEntity,
-  mapTreatmentPlanEntity,
-  mapPlanEntity,
-  mapBenefitEntity,
-  mapCoverageEntity,
-  mapClaimEntity,
-  mapDocumentEntity,
-  // Entity mapper types
-  EntityMapper,
-  ModelMapper,
-  SelectiveMapOptions,
-  ComputedPropertyFn,
-  ComputedProperty,
-  EntityMapOptions,
-  BatchMapOptions,
-  // Validation
-  validateInput,
-  validateOutput,
+  // Entity mapping utilities
+  mapEntityToDomain,
+  mapDomainToEntity,
+  mapPartialEntity,
+  batchMapEntities,
+  
+  // Validation utilities
+  validateDatabaseInput,
   createValidationSchema,
-  // Batch operations
+  formatValidationErrors,
+  
+  // Batch operation utilities
   batchCreate,
   batchUpdate,
   batchDelete,
   batchUpsert,
-  // Query building
+  executeInBatches,
+  
+  // Query building utilities
   createQueryBuilder,
-  buildWhereClause,
-  buildOrderByClause,
-  // Sorting
-  createSortOptions,
+  analyzeQueryPlan,
+  optimizeQuery,
+  
+  // Sorting utilities
+  createSortCriteria,
   applySorting,
-  // Filtering
-  createFilterOptions,
-  applyFilters,
-  // Pagination
-  createPaginationOptions,
-  applyPagination,
-  createPaginationResponse,
+  
+  // Filtering utilities
+  createFilter,
+  combineFilters,
+  
+  // Pagination utilities
+  createPagination,
+  createCursorPagination,
+  createOffsetPagination,
+  createPaginationResponse
 } from './utils';

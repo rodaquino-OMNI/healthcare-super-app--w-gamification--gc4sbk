@@ -1,503 +1,626 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus, INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
-import { AppException, ErrorType } from '../../../../shared/src/exceptions/exceptions.types';
-import { APP_FILTER } from '@nestjs/core';
-import { ExceptionsFilter } from '../../../../shared/src/exceptions/exceptions.filter';
+/**
+ * Integration tests for journey-specific error handling.
+ * 
+ * These tests verify proper integration between journey errors (health, care, plan)
+ * and the core error system. They test journey-specific error classification,
+ * custom error codes, client-friendly error messages with journey context, and
+ * proper HTTP status code mapping.
+ */
 
-// Import journey-specific errors
-import { Health } from '../../src/journey/health';
-import { Care } from '../../src/journey/care';
-import { Plan } from '../../src/journey/plan';
-
-// Import error code constants
+import { HttpStatus } from '@nestjs/common';
+import { ErrorType } from '../../src/categories/index';
+import { AppException } from '../../src/base/app-exception';
+import { Health, Care, Plan } from '../../src/journey';
 import {
-  HEALTH_INVALID_METRIC,
-  HEALTH_DEVICE_CONNECTION_FAILED,
-  CARE_PROVIDER_UNAVAILABLE,
-  CARE_APPOINTMENT_SLOT_TAKEN,
-  PLAN_INVALID_CLAIM_DATA,
-  PLAN_COVERAGE_VERIFICATION_FAILED
-} from '../../../../shared/src/constants/error-codes.constants';
-
-// Mock controller for testing error handling
-class MockController {
-  throwHealthMetricError() {
-    throw new Health.Metrics.InvalidMetricValueError(
-      'Blood pressure reading is outside valid range',
-      { metricType: 'bloodPressure', value: '300/200', validRange: '70-180/40-120' }
-    );
-  }
-
-  throwHealthDeviceError() {
-    throw new Health.Devices.DeviceConnectionFailureError(
-      'Failed to connect to fitness tracker',
-      { deviceId: 'fitbit-123', connectionMethod: 'bluetooth', lastSyncTime: '2023-04-01T10:30:00Z' }
-    );
-  }
-
-  throwCareAppointmentError() {
-    throw new Care.Appointment.AppointmentOverlapError(
-      'The requested appointment slot is already taken',
-      { providerId: 'provider-456', requestedTime: '2023-04-15T14:00:00Z', availableSlots: ['2023-04-15T15:00:00Z', '2023-04-15T16:00:00Z'] }
-    );
-  }
-
-  throwCareProviderError() {
-    throw new Care.Provider.ProviderUnavailableError(
-      'The selected provider is not available for new appointments',
-      { providerId: 'provider-789', specialty: 'Cardiology', nextAvailability: '2023-05-10' }
-    );
-  }
-
-  throwPlanClaimError() {
-    throw new Plan.Claims.ClaimValidationError(
-      'Claim submission contains invalid data',
-      { claimId: 'claim-123', fields: ['serviceDate', 'procedureCode'], validationErrors: ['Date cannot be in the future', 'Invalid procedure code format'] }
-    );
-  }
-
-  throwPlanCoverageError() {
-    throw new Plan.Coverage.ServiceNotCoveredError(
-      'The requested service is not covered by your plan',
-      { planId: 'plan-456', serviceCode: 'SRV-789', coverageType: 'dental', reason: 'Service excluded from dental coverage' }
-    );
-  }
-
-  throwAppException() {
-    throw new AppException(
-      'Generic application error',
-      ErrorType.TECHNICAL,
-      'SYS_001',
-      { source: 'test' }
-    );
-  }
-}
+  Health as HealthFactory,
+  Care as CareFactory,
+  Plan as PlanFactory
+} from '../helpers/error-factory';
+import {
+  assertHealthJourneyError,
+  assertCareJourneyError,
+  assertPlanJourneyError,
+  assertJourneyHttpErrorResponse,
+  assertCrossJourneyErrorPropagation
+} from '../helpers/assertion-helpers';
 
 describe('Journey Error Integration', () => {
-  let app: INestApplication;
-  let mockController: MockController;
+  /**
+   * Health Journey Error Tests
+   */
+  describe('Health Journey Errors', () => {
+    describe('Error Classification', () => {
+      it('should classify metric errors correctly', () => {
+        // Create a health metric error
+        const error = HealthFactory.createMetricError('heartRate', {
+          code: 'HEALTH_METRICS_INVALID_HEART_RATE',
+          details: {
+            metricType: 'heartRate',
+            value: 250,
+            allowedRange: { min: 30, max: 220 }
+          }
+        });
 
-  beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      controllers: [MockController],
-      providers: [
-        {
-          provide: APP_FILTER,
-          useClass: ExceptionsFilter,
-        },
-      ],
-    }).compile();
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.VALIDATION);
+        expect(error).toContainErrorCode('HEALTH_METRICS_INVALID_HEART_RATE');
+        expect(error).toHaveJourneyContext('health', ['metricType', 'value', 'allowedRange']);
 
-    app = moduleFixture.createNestApplication();
-    mockController = moduleFixture.get<MockController>(MockController);
-    await app.init();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
-  describe('Health Journey Error Integration', () => {
-    it('should properly handle and transform Health Metrics errors', async () => {
-      // Create a route that throws a Health Metrics error
-      app.use('/test/health/metrics', (req, res, next) => {
-        try {
-          mockController.throwHealthMetricError();
-        } catch (error) {
-          next(error);
-        }
+        // Use specialized assertion helper
+        assertHealthJourneyError(error, 'HEALTH_METRICS_INVALID_HEART_RATE', 'metrics');
       });
 
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/health/metrics')
-        .expect(HttpStatus.BAD_REQUEST);
+      it('should classify goal errors correctly', () => {
+        // Create a health goal error
+        const error = HealthFactory.createGoalError('steps', {
+          code: 'HEALTH_GOALS_INVALID_STEPS',
+          details: {
+            goalType: 'steps',
+            targetValue: -100,
+            minValue: 0
+          }
+        });
 
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
-      expect(response.body.error).toHaveProperty('code', HEALTH_INVALID_METRIC);
-      expect(response.body.error).toHaveProperty('message', 'Blood pressure reading is outside valid range');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('metricType', 'bloodPressure');
-      expect(response.body.error.details).toHaveProperty('value', '300/200');
-      expect(response.body.error.details).toHaveProperty('validRange', '70-180/40-120');
-      expect(response.body.error.details).toHaveProperty('journey', 'health');
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.VALIDATION);
+        expect(error).toContainErrorCode('HEALTH_GOALS_INVALID_STEPS');
+        expect(error).toHaveJourneyContext('health', ['goalType', 'targetValue', 'minValue']);
+
+        // Use specialized assertion helper
+        assertHealthJourneyError(error, 'HEALTH_GOALS_INVALID_STEPS', 'goals');
+      });
+
+      it('should classify device errors correctly', () => {
+        // Create a device connection error
+        const error = HealthFactory.createDeviceError('fitbit', {
+          code: 'HEALTH_DEVICES_CONNECTION_FITBIT',
+          details: {
+            deviceType: 'fitbit',
+            errorCode: 'AUTH_FAILED',
+            timestamp: new Date().toISOString()
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.EXTERNAL);
+        expect(error).toContainErrorCode('HEALTH_DEVICES_CONNECTION_FITBIT');
+        expect(error).toHaveJourneyContext('health', ['deviceType', 'errorCode']);
+
+        // Use specialized assertion helper
+        assertHealthJourneyError(error, 'HEALTH_DEVICES_CONNECTION_FITBIT', 'devices');
+      });
+
+      it('should classify FHIR errors correctly', () => {
+        // Create a FHIR error
+        const error = HealthFactory.createFhirError('Patient', {
+          code: 'HEALTH_FHIR_INVALID_PATIENT',
+          details: {
+            resourceType: 'Patient',
+            validationErrors: ['Missing required field: name']
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.VALIDATION);
+        expect(error).toContainErrorCode('HEALTH_FHIR_INVALID_PATIENT');
+        expect(error).toHaveJourneyContext('health', ['resourceType', 'validationErrors']);
+
+        // Use specialized assertion helper
+        assertHealthJourneyError(error, 'HEALTH_FHIR_INVALID_PATIENT', 'fhir');
+      });
     });
 
-    it('should properly handle and transform Health Device errors', async () => {
-      // Create a route that throws a Health Device error
-      app.use('/test/health/devices', (req, res, next) => {
-        try {
-          mockController.throwHealthDeviceError();
-        } catch (error) {
-          next(error);
-        }
+    describe('Error Serialization', () => {
+      it('should serialize health errors with proper context', () => {
+        // Create a health metric error
+        const error = HealthFactory.createMetricError('heartRate', {
+          code: 'HEALTH_METRICS_INVALID_HEART_RATE',
+          details: {
+            metricType: 'heartRate',
+            value: 250,
+            allowedRange: { min: 30, max: 220 }
+          }
+        });
+
+        // Serialize to JSON
+        const serialized = error.toJSON();
+
+        // Verify serialized structure
+        expect(serialized).toHaveProperty('error');
+        expect(serialized.error).toHaveProperty('type', ErrorType.VALIDATION);
+        expect(serialized.error).toHaveProperty('code', 'HEALTH_METRICS_INVALID_HEART_RATE');
+        expect(serialized.error).toHaveProperty('message');
+        expect(serialized.error).toHaveProperty('details');
+        expect(serialized.error.details).toHaveProperty('metricType', 'heartRate');
+        expect(serialized.error.details).toHaveProperty('value', 250);
+        expect(serialized.error.details).toHaveProperty('allowedRange');
+        expect(serialized.error.details.allowedRange).toHaveProperty('min', 30);
+        expect(serialized.error.details.allowedRange).toHaveProperty('max', 220);
       });
 
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/health/devices')
-        .expect(HttpStatus.BAD_GATEWAY);
+      it('should convert health errors to HTTP exceptions with correct status codes', () => {
+        // Create errors of different types
+        const validationError = HealthFactory.createMetricError('heartRate');
+        const businessError = new Health.Goals.GoalNotFoundError('Goal not found', {
+          goalId: 'goal-123'
+        });
+        const technicalError = new Health.Insights.InsightGenerationError('Failed to generate insights', {
+          userId: 'user-123',
+          insightType: 'activity'
+        });
+        const externalError = HealthFactory.createDeviceError('fitbit');
 
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.EXTERNAL);
-      expect(response.body.error).toHaveProperty('code', HEALTH_DEVICE_CONNECTION_FAILED);
-      expect(response.body.error).toHaveProperty('message', 'Failed to connect to fitness tracker');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('deviceId', 'fitbit-123');
-      expect(response.body.error.details).toHaveProperty('connectionMethod', 'bluetooth');
-      expect(response.body.error.details).toHaveProperty('lastSyncTime', '2023-04-01T10:30:00Z');
-      expect(response.body.error.details).toHaveProperty('journey', 'health');
-    });
-  });
+        // Convert to HTTP exceptions
+        const validationHttpError = validationError.toHttpException();
+        const businessHttpError = businessError.toHttpException();
+        const technicalHttpError = technicalError.toHttpException();
+        const externalHttpError = externalError.toHttpException();
 
-  describe('Care Journey Error Integration', () => {
-    it('should properly handle and transform Care Appointment errors', async () => {
-      // Create a route that throws a Care Appointment error
-      app.use('/test/care/appointments', (req, res, next) => {
-        try {
-          mockController.throwCareAppointmentError();
-        } catch (error) {
-          next(error);
-        }
+        // Verify status codes
+        expect(validationHttpError.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        expect(businessHttpError.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+        expect(technicalHttpError.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(externalHttpError.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+
+        // Verify response structure is preserved
+        const validationResponse = validationHttpError.getResponse();
+        expect(validationResponse).toHaveProperty('error');
+        expect(validationResponse.error).toHaveProperty('type', ErrorType.VALIDATION);
+        expect(validationResponse.error).toHaveProperty('code');
       });
-
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/care/appointments')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', CARE_APPOINTMENT_SLOT_TAKEN);
-      expect(response.body.error).toHaveProperty('message', 'The requested appointment slot is already taken');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('providerId', 'provider-456');
-      expect(response.body.error.details).toHaveProperty('requestedTime', '2023-04-15T14:00:00Z');
-      expect(response.body.error.details).toHaveProperty('availableSlots');
-      expect(response.body.error.details.availableSlots).toEqual(['2023-04-15T15:00:00Z', '2023-04-15T16:00:00Z']);
-      expect(response.body.error.details).toHaveProperty('journey', 'care');
-    });
-
-    it('should properly handle and transform Care Provider errors', async () => {
-      // Create a route that throws a Care Provider error
-      app.use('/test/care/providers', (req, res, next) => {
-        try {
-          mockController.throwCareProviderError();
-        } catch (error) {
-          next(error);
-        }
-      });
-
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/care/providers')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', CARE_PROVIDER_UNAVAILABLE);
-      expect(response.body.error).toHaveProperty('message', 'The selected provider is not available for new appointments');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('providerId', 'provider-789');
-      expect(response.body.error.details).toHaveProperty('specialty', 'Cardiology');
-      expect(response.body.error.details).toHaveProperty('nextAvailability', '2023-05-10');
-      expect(response.body.error.details).toHaveProperty('journey', 'care');
-    });
-  });
-
-  describe('Plan Journey Error Integration', () => {
-    it('should properly handle and transform Plan Claim errors', async () => {
-      // Create a route that throws a Plan Claim error
-      app.use('/test/plan/claims', (req, res, next) => {
-        try {
-          mockController.throwPlanClaimError();
-        } catch (error) {
-          next(error);
-        }
-      });
-
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/plan/claims')
-        .expect(HttpStatus.BAD_REQUEST);
-
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
-      expect(response.body.error).toHaveProperty('code', PLAN_INVALID_CLAIM_DATA);
-      expect(response.body.error).toHaveProperty('message', 'Claim submission contains invalid data');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('claimId', 'claim-123');
-      expect(response.body.error.details).toHaveProperty('fields');
-      expect(response.body.error.details.fields).toEqual(['serviceDate', 'procedureCode']);
-      expect(response.body.error.details).toHaveProperty('validationErrors');
-      expect(response.body.error.details.validationErrors).toEqual(['Date cannot be in the future', 'Invalid procedure code format']);
-      expect(response.body.error.details).toHaveProperty('journey', 'plan');
     });
 
-    it('should properly handle and transform Plan Coverage errors', async () => {
-      // Create a route that throws a Plan Coverage error
-      app.use('/test/plan/coverage', (req, res, next) => {
-        try {
-          mockController.throwPlanCoverageError();
-        } catch (error) {
-          next(error);
-        }
+    describe('HTTP Response Integration', () => {
+      it('should create proper HTTP error responses with health context', () => {
+        // Create a mock HTTP response with a health error
+        const error = HealthFactory.createMetricError('heartRate');
+        const httpError = error.toHttpException();
+        const mockResponse = {
+          status: httpError.getStatus(),
+          body: httpError.getResponse()
+        };
+
+        // Verify HTTP response
+        assertJourneyHttpErrorResponse(
+          mockResponse,
+          'health',
+          HttpStatus.BAD_REQUEST,
+          ErrorType.VALIDATION,
+          error.code
+        );
       });
-
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/plan/coverage')
-        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
-
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', PLAN_COVERAGE_VERIFICATION_FAILED);
-      expect(response.body.error).toHaveProperty('message', 'The requested service is not covered by your plan');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('planId', 'plan-456');
-      expect(response.body.error.details).toHaveProperty('serviceCode', 'SRV-789');
-      expect(response.body.error.details).toHaveProperty('coverageType', 'dental');
-      expect(response.body.error.details).toHaveProperty('reason', 'Service excluded from dental coverage');
-      expect(response.body.error.details).toHaveProperty('journey', 'plan');
     });
   });
 
+  /**
+   * Care Journey Error Tests
+   */
+  describe('Care Journey Errors', () => {
+    describe('Error Classification', () => {
+      it('should classify appointment errors correctly', () => {
+        // Create an appointment error
+        const error = CareFactory.createAppointmentError('notFound', 'appt-123', {
+          code: 'CARE_APPOINTMENT_NOT_FOUND',
+          details: {
+            appointmentId: 'appt-123'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('CARE_APPOINTMENT_NOT_FOUND');
+        expect(error).toHaveJourneyContext('care', ['appointmentId']);
+
+        // Use specialized assertion helper
+        assertCareJourneyError(error, 'CARE_APPOINTMENT_NOT_FOUND', 'appointment');
+      });
+
+      it('should classify provider errors correctly', () => {
+        // Create a provider error
+        const error = CareFactory.createProviderError('unavailable', 'provider-123', {
+          code: 'CARE_PROVIDER_UNAVAILABLE',
+          details: {
+            providerId: 'provider-123',
+            reason: 'On vacation',
+            availableAfter: '2023-12-31'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('CARE_PROVIDER_UNAVAILABLE');
+        expect(error).toHaveJourneyContext('care', ['providerId', 'reason', 'availableAfter']);
+
+        // Use specialized assertion helper
+        assertCareJourneyError(error, 'CARE_PROVIDER_UNAVAILABLE', 'provider');
+      });
+
+      it('should classify telemedicine errors correctly', () => {
+        // Create a telemedicine error
+        const error = CareFactory.createTelemedicineError('connection', 'session-123', {
+          code: 'CARE_TELEMEDICINE_CONNECTION',
+          details: {
+            sessionId: 'session-123',
+            errorCode: 'WEBRTC_FAILED',
+            timestamp: new Date().toISOString()
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.TECHNICAL);
+        expect(error).toContainErrorCode('CARE_TELEMEDICINE_CONNECTION');
+        expect(error).toHaveJourneyContext('care', ['sessionId', 'errorCode']);
+
+        // Use specialized assertion helper
+        assertCareJourneyError(error, 'CARE_TELEMEDICINE_CONNECTION', 'telemedicine');
+      });
+
+      it('should classify medication errors correctly', () => {
+        // Create a medication error
+        const error = CareFactory.createMedicationError('interaction', 'med-123', {
+          code: 'CARE_MEDICATION_INTERACTION',
+          details: {
+            medicationId: 'med-123',
+            interactingWith: 'med-456',
+            severityLevel: 'high',
+            interactionDescription: 'Potentially life-threatening interaction'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('CARE_MEDICATION_INTERACTION');
+        expect(error).toHaveJourneyContext('care', [
+          'medicationId',
+          'interactingWith',
+          'severityLevel',
+          'interactionDescription'
+        ]);
+
+        // Use specialized assertion helper
+        assertCareJourneyError(error, 'CARE_MEDICATION_INTERACTION', 'medication');
+      });
+    });
+
+    describe('Error Serialization', () => {
+      it('should serialize care errors with proper context', () => {
+        // Create a care appointment error
+        const error = CareFactory.createAppointmentError('overlap', 'appt-123', {
+          code: 'CARE_APPOINTMENT_OVERLAP',
+          details: {
+            appointmentId: 'appt-123',
+            conflictingAppointmentId: 'appt-456',
+            requestedTime: '2023-12-15T14:00:00Z',
+            conflictingTime: '2023-12-15T14:30:00Z'
+          }
+        });
+
+        // Serialize to JSON
+        const serialized = error.toJSON();
+
+        // Verify serialized structure
+        expect(serialized).toHaveProperty('error');
+        expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+        expect(serialized.error).toHaveProperty('code', 'CARE_APPOINTMENT_OVERLAP');
+        expect(serialized.error).toHaveProperty('message');
+        expect(serialized.error).toHaveProperty('details');
+        expect(serialized.error.details).toHaveProperty('appointmentId', 'appt-123');
+        expect(serialized.error.details).toHaveProperty('conflictingAppointmentId', 'appt-456');
+        expect(serialized.error.details).toHaveProperty('requestedTime', '2023-12-15T14:00:00Z');
+        expect(serialized.error.details).toHaveProperty('conflictingTime', '2023-12-15T14:30:00Z');
+      });
+
+      it('should convert care errors to HTTP exceptions with correct status codes', () => {
+        // Create errors of different types
+        const validationError = new Care.SymptomAssessmentIncompleteError('Symptom assessment incomplete', {
+          missingSymptoms: ['fever', 'cough']
+        });
+        const businessError = CareFactory.createAppointmentError('notFound', 'appt-123');
+        const technicalError = CareFactory.createTelemedicineError('connection', 'session-123');
+        const externalError = new Care.PharmacyIntegrationError('Pharmacy integration failed', {
+          pharmacyId: 'pharm-123',
+          operationType: 'prescription'
+        });
+
+        // Convert to HTTP exceptions
+        const validationHttpError = validationError.toHttpException();
+        const businessHttpError = businessError.toHttpException();
+        const technicalHttpError = technicalError.toHttpException();
+        const externalHttpError = externalError.toHttpException();
+
+        // Verify status codes
+        expect(validationHttpError.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        expect(businessHttpError.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+        expect(technicalHttpError.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(externalHttpError.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+
+        // Verify response structure is preserved
+        const businessResponse = businessHttpError.getResponse();
+        expect(businessResponse).toHaveProperty('error');
+        expect(businessResponse.error).toHaveProperty('type', ErrorType.BUSINESS);
+        expect(businessResponse.error).toHaveProperty('code', 'CARE_APPOINTMENT_NOT_FOUND');
+      });
+    });
+
+    describe('HTTP Response Integration', () => {
+      it('should create proper HTTP error responses with care context', () => {
+        // Create a mock HTTP response with a care error
+        const error = CareFactory.createProviderError('unavailable', 'provider-123');
+        const httpError = error.toHttpException();
+        const mockResponse = {
+          status: httpError.getStatus(),
+          body: httpError.getResponse()
+        };
+
+        // Verify HTTP response
+        assertJourneyHttpErrorResponse(
+          mockResponse,
+          'care',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          ErrorType.BUSINESS,
+          error.code
+        );
+      });
+    });
+  });
+
+  /**
+   * Plan Journey Error Tests
+   */
+  describe('Plan Journey Errors', () => {
+    describe('Error Classification', () => {
+      it('should classify plan errors correctly', () => {
+        // Create a plan error
+        const error = PlanFactory.createPlanError('notFound', 'plan-123', {
+          code: 'PLAN_PLANS_NOT_FOUND',
+          details: {
+            planId: 'plan-123'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('PLAN_PLANS_NOT_FOUND');
+        expect(error).toHaveJourneyContext('plan', ['planId']);
+
+        // Use specialized assertion helper
+        assertPlanJourneyError(error, 'PLAN_PLANS_NOT_FOUND', 'plans');
+      });
+
+      it('should classify benefit errors correctly', () => {
+        // Create a benefit error
+        const error = PlanFactory.createBenefitError('notCovered', 'benefit-123', {
+          code: 'PLAN_BENEFITS_NOT_COVERED',
+          details: {
+            benefitId: 'benefit-123',
+            planId: 'plan-456',
+            reason: 'Not included in selected plan'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('PLAN_BENEFITS_NOT_COVERED');
+        expect(error).toHaveJourneyContext('plan', ['benefitId', 'planId', 'reason']);
+
+        // Use specialized assertion helper
+        assertPlanJourneyError(error, 'PLAN_BENEFITS_NOT_COVERED', 'benefits');
+      });
+
+      it('should classify claim errors correctly', () => {
+        // Create a claim error
+        const error = PlanFactory.createClaimError('validation', 'claim-123', {
+          code: 'PLAN_CLAIMS_VALIDATION',
+          details: {
+            claimId: 'claim-123',
+            validationErrors: [
+              { field: 'serviceDate', message: 'Date cannot be in the future' },
+              { field: 'amount', message: 'Amount must be greater than zero' }
+            ]
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.VALIDATION);
+        expect(error).toContainErrorCode('PLAN_CLAIMS_VALIDATION');
+        expect(error).toHaveJourneyContext('plan', ['claimId', 'validationErrors']);
+
+        // Use specialized assertion helper
+        assertPlanJourneyError(error, 'PLAN_CLAIMS_VALIDATION', 'claims');
+      });
+
+      it('should classify coverage errors correctly', () => {
+        // Create a coverage error
+        const error = PlanFactory.createCoverageError('outOfNetwork', 'coverage-123', {
+          code: 'PLAN_COVERAGE_OUT_OF_NETWORK',
+          details: {
+            coverageId: 'coverage-123',
+            providerId: 'provider-456',
+            networkName: 'Preferred Provider Network'
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.BUSINESS);
+        expect(error).toContainErrorCode('PLAN_COVERAGE_OUT_OF_NETWORK');
+        expect(error).toHaveJourneyContext('plan', ['coverageId', 'providerId', 'networkName']);
+
+        // Use specialized assertion helper
+        assertPlanJourneyError(error, 'PLAN_COVERAGE_OUT_OF_NETWORK', 'coverage');
+      });
+
+      it('should classify document errors correctly', () => {
+        // Create a document error
+        const error = PlanFactory.createDocumentError('format', 'doc-123', {
+          code: 'PLAN_DOCUMENTS_FORMAT',
+          details: {
+            documentId: 'doc-123',
+            providedFormat: 'bmp',
+            allowedFormats: ['pdf', 'jpg', 'png']
+          }
+        });
+
+        // Verify error classification
+        expect(error).toBeErrorType(ErrorType.VALIDATION);
+        expect(error).toContainErrorCode('PLAN_DOCUMENTS_FORMAT');
+        expect(error).toHaveJourneyContext('plan', ['documentId', 'providedFormat', 'allowedFormats']);
+
+        // Use specialized assertion helper
+        assertPlanJourneyError(error, 'PLAN_DOCUMENTS_FORMAT', 'documents');
+      });
+    });
+
+    describe('Error Serialization', () => {
+      it('should serialize plan errors with proper context', () => {
+        // Create a plan claim error
+        const error = PlanFactory.createClaimError('denied', 'claim-123', {
+          code: 'PLAN_CLAIMS_DENIED',
+          details: {
+            claimId: 'claim-123',
+            denialReason: 'Service not covered under current plan',
+            denialCode: 'NOT_COVERED',
+            appealDeadline: '2023-12-31'
+          }
+        });
+
+        // Serialize to JSON
+        const serialized = error.toJSON();
+
+        // Verify serialized structure
+        expect(serialized).toHaveProperty('error');
+        expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+        expect(serialized.error).toHaveProperty('code', 'PLAN_CLAIMS_DENIED');
+        expect(serialized.error).toHaveProperty('message');
+        expect(serialized.error).toHaveProperty('details');
+        expect(serialized.error.details).toHaveProperty('claimId', 'claim-123');
+        expect(serialized.error.details).toHaveProperty('denialReason', 'Service not covered under current plan');
+        expect(serialized.error.details).toHaveProperty('denialCode', 'NOT_COVERED');
+        expect(serialized.error.details).toHaveProperty('appealDeadline', '2023-12-31');
+      });
+
+      it('should convert plan errors to HTTP exceptions with correct status codes', () => {
+        // Create errors of different types
+        const validationError = PlanFactory.createDocumentError('format', 'doc-123');
+        const businessError = PlanFactory.createBenefitError('notCovered', 'benefit-123');
+        const technicalError = new Plan.Claims.ClaimPersistenceError('Failed to save claim', {
+          claimId: 'claim-123',
+          operation: 'create'
+        });
+        const externalError = new Plan.Coverage.CoverageApiIntegrationError('Coverage API error', {
+          apiEndpoint: '/api/coverage/verify',
+          statusCode: 503
+        });
+
+        // Convert to HTTP exceptions
+        const validationHttpError = validationError.toHttpException();
+        const businessHttpError = businessError.toHttpException();
+        const technicalHttpError = technicalError.toHttpException();
+        const externalHttpError = externalError.toHttpException();
+
+        // Verify status codes
+        expect(validationHttpError.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        expect(businessHttpError.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+        expect(technicalHttpError.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(externalHttpError.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+
+        // Verify response structure is preserved
+        const validationResponse = validationHttpError.getResponse();
+        expect(validationResponse).toHaveProperty('error');
+        expect(validationResponse.error).toHaveProperty('type', ErrorType.VALIDATION);
+        expect(validationResponse.error).toHaveProperty('code');
+      });
+    });
+
+    describe('HTTP Response Integration', () => {
+      it('should create proper HTTP error responses with plan context', () => {
+        // Create a mock HTTP response with a plan error
+        const error = PlanFactory.createClaimError('validation', 'claim-123');
+        const httpError = error.toHttpException();
+        const mockResponse = {
+          status: httpError.getStatus(),
+          body: httpError.getResponse()
+        };
+
+        // Verify HTTP response
+        assertJourneyHttpErrorResponse(
+          mockResponse,
+          'plan',
+          HttpStatus.BAD_REQUEST,
+          ErrorType.VALIDATION,
+          error.code
+        );
+      });
+    });
+  });
+
+  /**
+   * Cross-Journey Error Tests
+   */
   describe('Cross-Journey Error Handling', () => {
-    it('should preserve journey context in error responses', async () => {
-      // Create routes for each journey
-      const journeyRoutes = [
-        { path: '/test/health/metrics', method: 'throwHealthMetricError', journey: 'health' },
-        { path: '/test/care/appointments', method: 'throwCareAppointmentError', journey: 'care' },
-        { path: '/test/plan/claims', method: 'throwPlanClaimError', journey: 'plan' }
-      ];
-
-      // Set up routes
-      journeyRoutes.forEach(route => {
-        app.use(route.path, (req, res, next) => {
-          try {
-            mockController[route.method]();
-          } catch (error) {
-            next(error);
-          }
-        });
-      });
-
-      // Test each journey route
-      for (const route of journeyRoutes) {
-        const response = await request(app.getHttpServer()).get(route.path);
-        
-        // Verify journey context is preserved
-        expect(response.body.error.details).toHaveProperty('journey', route.journey);
-        
-        // Verify error code follows journey-specific naming convention
-        expect(response.body.error.code.startsWith(route.journey.toUpperCase())).toBeTruthy();
-      }
-    });
-
-    it('should map journey-specific errors to appropriate HTTP status codes', async () => {
-      // Define test cases with expected status codes
-      const testCases = [
-        { path: '/test/health/metrics', method: 'throwHealthMetricError', expectedStatus: HttpStatus.BAD_REQUEST },
-        { path: '/test/health/devices', method: 'throwHealthDeviceError', expectedStatus: HttpStatus.BAD_GATEWAY },
-        { path: '/test/care/appointments', method: 'throwCareAppointmentError', expectedStatus: HttpStatus.UNPROCESSABLE_ENTITY },
-        { path: '/test/care/providers', method: 'throwCareProviderError', expectedStatus: HttpStatus.UNPROCESSABLE_ENTITY },
-        { path: '/test/plan/claims', method: 'throwPlanClaimError', expectedStatus: HttpStatus.BAD_REQUEST },
-        { path: '/test/plan/coverage', method: 'throwPlanCoverageError', expectedStatus: HttpStatus.UNPROCESSABLE_ENTITY }
-      ];
-
-      // Set up routes
-      testCases.forEach(testCase => {
-        app.use(testCase.path, (req, res, next) => {
-          try {
-            mockController[testCase.method]();
-          } catch (error) {
-            next(error);
-          }
-        });
-      });
-
-      // Test each case
-      for (const testCase of testCases) {
-        await request(app.getHttpServer())
-          .get(testCase.path)
-          .expect(testCase.expectedStatus);
-      }
-    });
-
-    it('should handle non-journey errors with the base AppException', async () => {
-      // Create a route that throws a generic AppException
-      app.use('/test/generic-error', (req, res, next) => {
-        try {
-          mockController.throwAppException();
-        } catch (error) {
-          next(error);
+    it('should preserve context when propagating errors between journeys', () => {
+      // Create a health error
+      const healthError = HealthFactory.createMetricError('heartRate', {
+        code: 'HEALTH_METRICS_INVALID_HEART_RATE',
+        details: {
+          metricType: 'heartRate',
+          value: 250,
+          allowedRange: { min: 30, max: 220 }
         }
       });
 
-      // Test the error response
-      const response = await request(app.getHttpServer())
-        .get('/test/generic-error')
-        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
-
-      // Verify error structure and content
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', 'SYS_001');
-      expect(response.body.error).toHaveProperty('message', 'Generic application error');
-      expect(response.body.error).toHaveProperty('details');
-      expect(response.body.error.details).toHaveProperty('source', 'test');
-      
-      // Should not have journey context
-      expect(response.body.error.details).not.toHaveProperty('journey');
-    });
-  });
-
-  describe('Error Serialization and Metadata Preservation', () => {
-    it('should preserve all error metadata in serialized responses', async () => {
-      // Create routes for each journey with detailed error metadata
-      const routes = [
-        { 
-          path: '/test/health/detailed', 
-          handler: () => {
-            throw new Health.Metrics.InvalidMetricValueError(
-              'Invalid health metric value',
-              { 
-                metricType: 'heartRate', 
-                value: 250, 
-                validRange: '40-180',
-                userId: 'user-123',
-                deviceId: 'device-456',
-                timestamp: '2023-04-10T12:30:45Z',
-                source: 'manual-entry',
-                previousValue: 75,
-                measurementUnit: 'bpm'
-              }
-            );
-          }
+      // Create a care error that wraps the health error
+      const careError = new Care.TreatmentPlanConflictError(
+        'Treatment plan conflicts with health metrics',
+        {
+          treatmentPlanId: 'treatment-123',
+          sourceJourney: 'health',
+          sourceError: healthError
         },
-        { 
-          path: '/test/care/detailed', 
-          handler: () => {
-            throw new Care.Telemedicine.TelemedicineConnectionError(
-              'Failed to establish telemedicine session',
-              { 
-                sessionId: 'session-123',
-                providerId: 'provider-456',
-                patientId: 'patient-789',
-                connectionType: 'webrtc',
-                errorCode: 'ICE_FAILURE',
-                browserInfo: 'Chrome 98.0.4758.102',
-                networkQuality: 'poor',
-                timestamp: '2023-04-10T14:45:30Z',
-                retryCount: 3,
-                troubleshootingSteps: ['Check internet connection', 'Allow camera access', 'Restart browser']
-              }
-            );
-          }
-        },
-        { 
-          path: '/test/plan/detailed', 
-          handler: () => {
-            throw new Plan.Claims.ClaimProcessingError(
-              'Claim processing failed',
-              { 
-                claimId: 'claim-123',
-                memberId: 'member-456',
-                providerNpi: '1234567890',
-                submissionDate: '2023-04-01T10:15:30Z',
-                serviceDate: '2023-03-25',
-                procedureCodes: ['99213', '85025'],
-                diagnosisCodes: ['J20.9', 'I10'],
-                claimAmount: 250.75,
-                processingStage: 'verification',
-                rejectionReason: 'Missing prior authorization',
-                resubmissionAllowed: true,
-                appealDeadline: '2023-05-01'
-              }
-            );
-          }
-        }
-      ];
+        healthError
+      );
 
-      // Set up routes
-      routes.forEach(route => {
-        app.use(route.path, (req, res, next) => {
-          try {
-            route.handler();
-          } catch (error) {
-            next(error);
-          }
-        });
-      });
+      // Verify error propagation
+      expect(careError).toBeErrorType(ErrorType.BUSINESS);
+      expect(careError.cause).toBe(healthError);
+      expect(careError.details).toHaveProperty('sourceJourney', 'health');
+      expect(careError.details).toHaveProperty('sourceError');
+      expect(careError.details.sourceError).toHaveProperty('code', 'HEALTH_METRICS_INVALID_HEART_RATE');
 
-      // Test each route and verify all metadata is preserved
-      for (const route of routes) {
-        const response = await request(app.getHttpServer()).get(route.path);
-        
-        // Verify response has error structure
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toHaveProperty('details');
-        
-        // For the health route, verify all detailed metadata
-        if (route.path === '/test/health/detailed') {
-          const details = response.body.error.details;
-          expect(details).toHaveProperty('metricType', 'heartRate');
-          expect(details).toHaveProperty('value', 250);
-          expect(details).toHaveProperty('validRange', '40-180');
-          expect(details).toHaveProperty('userId', 'user-123');
-          expect(details).toHaveProperty('deviceId', 'device-456');
-          expect(details).toHaveProperty('timestamp', '2023-04-10T12:30:45Z');
-          expect(details).toHaveProperty('source', 'manual-entry');
-          expect(details).toHaveProperty('previousValue', 75);
-          expect(details).toHaveProperty('measurementUnit', 'bpm');
-          expect(details).toHaveProperty('journey', 'health');
-        }
-        
-        // For the care route, verify all detailed metadata
-        if (route.path === '/test/care/detailed') {
-          const details = response.body.error.details;
-          expect(details).toHaveProperty('sessionId', 'session-123');
-          expect(details).toHaveProperty('providerId', 'provider-456');
-          expect(details).toHaveProperty('patientId', 'patient-789');
-          expect(details).toHaveProperty('connectionType', 'webrtc');
-          expect(details).toHaveProperty('errorCode', 'ICE_FAILURE');
-          expect(details).toHaveProperty('browserInfo', 'Chrome 98.0.4758.102');
-          expect(details).toHaveProperty('networkQuality', 'poor');
-          expect(details).toHaveProperty('timestamp', '2023-04-10T14:45:30Z');
-          expect(details).toHaveProperty('retryCount', 3);
-          expect(details).toHaveProperty('troubleshootingSteps');
-          expect(details.troubleshootingSteps).toEqual(['Check internet connection', 'Allow camera access', 'Restart browser']);
-          expect(details).toHaveProperty('journey', 'care');
-        }
-        
-        // For the plan route, verify all detailed metadata
-        if (route.path === '/test/plan/detailed') {
-          const details = response.body.error.details;
-          expect(details).toHaveProperty('claimId', 'claim-123');
-          expect(details).toHaveProperty('memberId', 'member-456');
-          expect(details).toHaveProperty('providerNpi', '1234567890');
-          expect(details).toHaveProperty('submissionDate', '2023-04-01T10:15:30Z');
-          expect(details).toHaveProperty('serviceDate', '2023-03-25');
-          expect(details).toHaveProperty('procedureCodes');
-          expect(details.procedureCodes).toEqual(['99213', '85025']);
-          expect(details).toHaveProperty('diagnosisCodes');
-          expect(details.diagnosisCodes).toEqual(['J20.9', 'I10']);
-          expect(details).toHaveProperty('claimAmount', 250.75);
-          expect(details).toHaveProperty('processingStage', 'verification');
-          expect(details).toHaveProperty('rejectionReason', 'Missing prior authorization');
-          expect(details).toHaveProperty('resubmissionAllowed', true);
-          expect(details).toHaveProperty('appealDeadline', '2023-05-01');
-          expect(details).toHaveProperty('journey', 'plan');
-        }
-      }
+      // Use specialized assertion helper
+      assertCrossJourneyErrorPropagation(healthError, careError, 'health', 'care');
+    });
+
+    it('should maintain error chain when propagating through multiple journeys', () => {
+      // Create a health error
+      const healthError = HealthFactory.createMetricError('heartRate');
+
+      // Create a care error that wraps the health error
+      const careError = new Care.TreatmentPlanConflictError(
+        'Treatment plan conflicts with health metrics',
+        { treatmentPlanId: 'treatment-123' },
+        healthError
+      );
+
+      // Create a plan error that wraps the care error
+      const planError = new Plan.Claims.ClaimDeniedError(
+        'Claim denied due to treatment plan conflict',
+        { claimId: 'claim-123' },
+        careError
+      );
+
+      // Verify error chain
+      expect(planError.cause).toBe(careError);
+      expect(planError.cause.cause).toBe(healthError);
+
+      // Verify each error maintains its type
+      expect(planError).toBeErrorType(ErrorType.BUSINESS);
+      expect(planError.cause).toBeErrorType(ErrorType.BUSINESS);
+      expect(planError.cause.cause).toBeErrorType(ErrorType.VALIDATION);
+
+      // Verify error codes are preserved
+      expect(planError).toContainErrorCode('PLAN_CLAIMS_DENIED');
+      expect(planError.cause).toContainErrorCode('CARE_TREATMENT_PLAN_CONFLICT');
+      expect(planError.cause.cause).toContainErrorCode('HEALTH_METRICS_INVALID_HEART_RATE');
     });
   });
 });

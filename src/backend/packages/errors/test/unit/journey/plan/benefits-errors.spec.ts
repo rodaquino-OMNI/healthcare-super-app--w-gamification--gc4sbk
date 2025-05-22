@@ -1,378 +1,522 @@
-import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import { HttpStatus } from '@nestjs/common';
-
-// Import the BaseError class and related types
-import { BaseError, ErrorType } from '../../../../src/base';
-import { HTTP_STATUS_MAPPINGS } from '../../../../src/constants';
-
-// Import the benefit-specific error classes
+import { ErrorType } from '../../../../src/base';
 import {
+  BaseBenefitError,
   BenefitNotFoundError,
   BenefitNotCoveredError,
   BenefitEligibilityError,
   BenefitLimitExceededError,
   BenefitPersistenceError,
-  BenefitVerificationApiError
+  BenefitVerificationApiError,
+  BenefitRetrievalError,
+  BenefitValidationError,
+  BenefitCalculationError,
+  BenefitWaitingPeriodError
 } from '../../../../src/journey/plan/benefits-errors';
+import { BenefitErrorCodes } from '../../../../src/journey/plan/error-codes';
+import { PlanErrorDomain } from '../../../../src/journey/plan/types';
 
-// Import error codes and types
-import { PLAN_BENEFITS_ERROR_CODES } from '../../../../src/journey/plan/error-codes';
-import { PlanBenefitErrorType } from '../../../../src/journey/plan/types';
-
-/**
- * Test suite for the Plan journey's benefit-specific error classes
- * Verifies error inheritance, classification, HTTP status code mapping, and context handling
- */
 describe('Plan Journey Benefit Errors', () => {
-  // Common test data
-  const benefitId = 'benefit-123';
-  const planId = 'plan-456';
-  const userId = 'user-789';
-  const requestId = 'req-abc';
-  
-  describe('BenefitNotFoundError', () => {
+  describe('BaseBenefitError', () => {
     it('should extend BaseError', () => {
-      const error = new BenefitNotFoundError(benefitId);
+      // Create a concrete implementation of the abstract class for testing
+      class ConcreteBenefitError extends BaseBenefitError {
+        constructor() {
+          super('Test error', ErrorType.BUSINESS, 'TEST_CODE');
+        }
+      }
+
+      const error = new ConcreteBenefitError();
       
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitNotFoundError).toBe(true);
-    });
-    
-    it('should have correct error type classification', () => {
-      const error = new BenefitNotFoundError(benefitId);
-      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe('Test error');
       expect(error.type).toBe(ErrorType.BUSINESS);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitNotFoundError(benefitId);
+      expect(error.code).toBe('TEST_CODE');
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_NOT_FOUND);
-    });
-    
-    it('should include benefit ID in error details', () => {
-      const error = new BenefitNotFoundError(benefitId);
-      
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-    });
-    
-    it('should map to correct HTTP status code', () => {
-      const error = new BenefitNotFoundError(benefitId);
-      const httpException = error.toHttpException();
-      
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-    });
-    
-    it('should serialize with proper structure', () => {
-      const error = new BenefitNotFoundError(benefitId);
-      const serialized = error.toJSON();
-      
-      expect(serialized.error).toBeDefined();
-      expect(serialized.error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_NOT_FOUND);
-      expect(serialized.error.type).toBe(ErrorType.BUSINESS);
-      expect(serialized.error.details.benefitId).toBe(benefitId);
-    });
-    
-    it('should accept and store context data', () => {
-      const context = { requestId, userId, journeyContext: 'plan' };
-      const error = new BenefitNotFoundError(benefitId, { context });
-      
+      // Verify context
       expect(error.context).toBeDefined();
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
-      expect(error.context.journeyContext).toBe('plan');
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
     });
   });
-  
+
+  describe('BenefitNotFoundError', () => {
+    const benefitId = 'benefit-123';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Original error');
+    
+    it('should create error with correct properties', () => {
+      const error = new BenefitNotFoundError(benefitId, details, cause);
+      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitNotFoundError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Benefit with ID ${benefitId} not found`);
+      expect(error.type).toBe(ErrorType.BUSINESS);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_BUS_NOT_FOUND);
+      expect(error.cause).toBe(cause);
+      
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        operation: 'findBenefit'
+      });
+    });
+    
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitNotFoundError(benefitId);
+      const serialized = error.toJSON();
+      
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_BUS_NOT_FOUND);
+      expect(serialized.error).toHaveProperty('message', `Benefit with ID ${benefitId} not found`);
+      expect(serialized.error).toHaveProperty('details');
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitNotFoundError(benefitId);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+  });
+
   describe('BenefitNotCoveredError', () => {
-    it('should extend BaseError', () => {
-      const error = new BenefitNotCoveredError(benefitId, planId);
-      
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitNotCoveredError).toBe(true);
-    });
+    const benefitId = 'benefit-123';
+    const planId = 'plan-456';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Original error');
     
-    it('should have correct error type classification', () => {
-      const error = new BenefitNotCoveredError(benefitId, planId);
+    it('should create error with correct properties', () => {
+      const error = new BenefitNotCoveredError(benefitId, planId, details, cause);
       
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitNotCoveredError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Benefit ${benefitId} is not covered by plan ${planId}`);
       expect(error.type).toBe(ErrorType.BUSINESS);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitNotCoveredError(benefitId, planId);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_BUS_NOT_COVERED);
+      expect(error.cause).toBe(cause);
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_NOT_COVERED);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        planId,
+        operation: 'checkBenefitCoverage'
+      });
     });
     
-    it('should include benefit ID and plan ID in error details', () => {
-      const error = new BenefitNotCoveredError(benefitId, planId);
-      
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-      expect(error.details.planId).toBe(planId);
-    });
-    
-    it('should map to correct HTTP status code', () => {
-      const error = new BenefitNotCoveredError(benefitId, planId);
-      const httpException = error.toHttpException();
-      
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-    });
-    
-    it('should serialize with proper structure', () => {
+    it('should serialize to JSON with correct structure', () => {
       const error = new BenefitNotCoveredError(benefitId, planId);
       const serialized = error.toJSON();
       
-      expect(serialized.error).toBeDefined();
-      expect(serialized.error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_NOT_COVERED);
-      expect(serialized.error.type).toBe(ErrorType.BUSINESS);
-      expect(serialized.error.details.benefitId).toBe(benefitId);
-      expect(serialized.error.details.planId).toBe(planId);
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_BUS_NOT_COVERED);
+      expect(serialized.error).toHaveProperty('message', `Benefit ${benefitId} is not covered by plan ${planId}`);
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitNotCoveredError(benefitId, planId);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
   });
-  
+
   describe('BenefitEligibilityError', () => {
-    const reason = 'waiting period not satisfied';
+    const benefitId = 'benefit-123';
+    const userId = 'user-456';
+    const reason = 'Waiting period not satisfied';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Original error');
     
-    it('should extend BaseError', () => {
-      const error = new BenefitEligibilityError(benefitId, userId, reason);
+    it('should create error with correct properties', () => {
+      const error = new BenefitEligibilityError(benefitId, userId, reason, details, cause);
       
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitEligibilityError).toBe(true);
-    });
-    
-    it('should have correct error type classification', () => {
-      const error = new BenefitEligibilityError(benefitId, userId, reason);
-      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitEligibilityError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`User ${userId} is not eligible for benefit ${benefitId}: ${reason}`);
       expect(error.type).toBe(ErrorType.BUSINESS);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitEligibilityError(benefitId, userId, reason);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_BUS_REQUIRES_PREAUTHORIZATION);
+      expect(error.cause).toBe(cause);
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_ELIGIBILITY);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        userId,
+        reason,
+        operation: 'checkBenefitEligibility'
+      });
     });
     
-    it('should include benefit ID, user ID, and reason in error details', () => {
+    it('should serialize to JSON with correct structure', () => {
       const error = new BenefitEligibilityError(benefitId, userId, reason);
+      const serialized = error.toJSON();
       
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.reason).toBe(reason);
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_BUS_REQUIRES_PREAUTHORIZATION);
+      expect(serialized.error).toHaveProperty('message', `User ${userId} is not eligible for benefit ${benefitId}: ${reason}`);
     });
     
-    it('should map to correct HTTP status code', () => {
+    it('should convert to HttpException with correct status code', () => {
       const error = new BenefitEligibilityError(benefitId, userId, reason);
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
   });
-  
+
   describe('BenefitLimitExceededError', () => {
+    const benefitId = 'benefit-123';
+    const userId = 'user-456';
     const currentUsage = 5;
-    const maxLimit = 3;
+    const limit = 3;
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Original error');
     
-    it('should extend BaseError', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
+    it('should create error with correct properties', () => {
+      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, limit, details, cause);
       
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitLimitExceededError).toBe(true);
-    });
-    
-    it('should have correct error type classification', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
-      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitLimitExceededError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`User ${userId} has exceeded the limit for benefit ${benefitId}: ${currentUsage}/${limit}`);
       expect(error.type).toBe(ErrorType.BUSINESS);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_BUS_LIMIT_EXCEEDED);
+      expect(error.cause).toBe(cause);
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_LIMIT_EXCEEDED);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        userId,
+        currentUsage,
+        limit,
+        operation: 'checkBenefitLimit'
+      });
     });
     
-    it('should include usage details in error details', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
-      
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.currentUsage).toBe(currentUsage);
-      expect(error.details.maxLimit).toBe(maxLimit);
-    });
-    
-    it('should map to correct HTTP status code', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
-      const httpException = error.toHttpException();
-      
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-    });
-    
-    it('should serialize with proper structure', () => {
-      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, maxLimit);
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, limit);
       const serialized = error.toJSON();
       
-      expect(serialized.error).toBeDefined();
-      expect(serialized.error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_LIMIT_EXCEEDED);
-      expect(serialized.error.type).toBe(ErrorType.BUSINESS);
-      expect(serialized.error.details.benefitId).toBe(benefitId);
-      expect(serialized.error.details.userId).toBe(userId);
-      expect(serialized.error.details.currentUsage).toBe(currentUsage);
-      expect(serialized.error.details.maxLimit).toBe(maxLimit);
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_BUS_LIMIT_EXCEEDED);
+      expect(serialized.error).toHaveProperty('message', `User ${userId} has exceeded the limit for benefit ${benefitId}: ${currentUsage}/${limit}`);
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitLimitExceededError(benefitId, userId, currentUsage, limit);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
   });
-  
+
   describe('BenefitPersistenceError', () => {
-    const operation = 'update';
-    const originalError = new Error('Database connection failed');
+    const operation = 'createBenefit';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Database connection error');
     
-    it('should extend BaseError', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
+    it('should create error with correct properties', () => {
+      const error = new BenefitPersistenceError(operation, details, cause);
       
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitPersistenceError).toBe(true);
-    });
-    
-    it('should have correct error type classification', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
-      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitPersistenceError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Failed to perform database operation '${operation}' for benefit`);
       expect(error.type).toBe(ErrorType.TECHNICAL);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_TECH_PERSISTENCE_FAILURE);
+      expect(error.cause).toBe(cause);
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_PERSISTENCE);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        operation
+      });
     });
     
-    it('should include operation details in error details', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitPersistenceError(operation);
+      const serialized = error.toJSON();
       
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-      expect(error.details.operation).toBe(operation);
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_TECH_PERSISTENCE_FAILURE);
+      expect(serialized.error).toHaveProperty('message', `Failed to perform database operation '${operation}' for benefit`);
     });
     
-    it('should store original error as cause', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
-      
-      expect(error.cause).toBe(originalError);
-    });
-    
-    it('should map to correct HTTP status code', () => {
-      const error = new BenefitPersistenceError(benefitId, operation, originalError);
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitPersistenceError(operation);
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
   });
-  
+
   describe('BenefitVerificationApiError', () => {
-    const apiName = 'external-benefits-api';
-    const statusCode = 503;
-    const apiResponse = { error: 'Service Unavailable' };
+    const apiName = 'InsuranceVerificationAPI';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('API connection timeout');
     
-    it('should extend BaseError', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
+    it('should create error with correct properties', () => {
+      const error = new BenefitVerificationApiError(apiName, details, cause);
       
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof BenefitVerificationApiError).toBe(true);
-    });
-    
-    it('should have correct error type classification', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
-      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitVerificationApiError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Failed to verify benefit with external API: ${apiName}`);
       expect(error.type).toBe(ErrorType.EXTERNAL);
-    });
-    
-    it('should have correct error code', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_EXT_AUTHORIZATION_SERVICE_FAILURE);
+      expect(error.cause).toBe(cause);
       
-      expect(error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_VERIFICATION_API);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        apiName,
+        operation: 'verifyBenefitWithExternalApi'
+      });
     });
     
-    it('should include API details in error details', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitVerificationApiError(apiName);
+      const serialized = error.toJSON();
       
-      expect(error.details).toBeDefined();
-      expect(error.details.benefitId).toBe(benefitId);
-      expect(error.details.apiName).toBe(apiName);
-      expect(error.details.statusCode).toBe(statusCode);
-      expect(error.details.apiResponse).toBe(apiResponse);
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.EXTERNAL);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_EXT_AUTHORIZATION_SERVICE_FAILURE);
+      expect(serialized.error).toHaveProperty('message', `Failed to verify benefit with external API: ${apiName}`);
     });
     
-    it('should map to correct HTTP status code', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitVerificationApiError(apiName);
       const httpException = error.toHttpException();
       
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
-    });
-    
-    it('should serialize with proper structure', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
-      const serialized = error.toJSON();
-      
-      expect(serialized.error).toBeDefined();
-      expect(serialized.error.code).toBe(PLAN_BENEFITS_ERROR_CODES.BENEFIT_VERIFICATION_API);
-      expect(serialized.error.type).toBe(ErrorType.EXTERNAL);
-      expect(serialized.error.details.benefitId).toBe(benefitId);
-      expect(serialized.error.details.apiName).toBe(apiName);
-      expect(serialized.error.details.statusCode).toBe(statusCode);
-    });
-    
-    it('should not include sensitive API response data in serialized output by default', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
-      const serialized = error.toJSON();
-      
-      expect(serialized.error.details.apiResponse).toBeUndefined();
-    });
-    
-    it('should include API response when debug option is enabled', () => {
-      const error = new BenefitVerificationApiError(benefitId, apiName, statusCode, apiResponse);
-      const serialized = error.toJSON({ debug: true });
-      
-      expect(serialized.error.details.apiResponse).toBe(apiResponse);
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
     });
   });
-  
-  describe('Error Type Classification', () => {
-    it('should classify all benefit errors with correct error types', () => {
-      // Business errors
-      expect(new BenefitNotFoundError('test-id').type).toBe(ErrorType.BUSINESS);
-      expect(new BenefitNotCoveredError('test-id', 'plan-id').type).toBe(ErrorType.BUSINESS);
-      expect(new BenefitEligibilityError('test-id', 'user-id', 'reason').type).toBe(ErrorType.BUSINESS);
-      expect(new BenefitLimitExceededError('test-id', 'user-id', 5, 3).type).toBe(ErrorType.BUSINESS);
+
+  describe('BenefitRetrievalError', () => {
+    const operation = 'getBenefitDetails';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Data retrieval error');
+    
+    it('should create error with correct properties', () => {
+      const error = new BenefitRetrievalError(operation, details, cause);
       
-      // Technical errors
-      expect(new BenefitPersistenceError('test-id', 'create', new Error()).type).toBe(ErrorType.TECHNICAL);
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitRetrievalError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Failed to retrieve benefit data during operation '${operation}'`);
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_TECH_RETRIEVAL_FAILURE);
+      expect(error.cause).toBe(cause);
       
-      // External errors
-      expect(new BenefitVerificationApiError('test-id', 'api', 500, {}).type).toBe(ErrorType.EXTERNAL);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        operation
+      });
+    });
+    
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitRetrievalError(operation);
+      const serialized = error.toJSON();
+      
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_TECH_RETRIEVAL_FAILURE);
+      expect(serialized.error).toHaveProperty('message', `Failed to retrieve benefit data during operation '${operation}'`);
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitRetrievalError(operation);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
   });
-  
-  describe('HTTP Status Code Mapping', () => {
-    it('should map all benefit errors to correct HTTP status codes', () => {
-      // Business errors -> 400 range
-      expect(new BenefitNotFoundError('test-id').toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-      expect(new BenefitNotCoveredError('test-id', 'plan-id').toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-      expect(new BenefitEligibilityError('test-id', 'user-id', 'reason').toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
-      expect(new BenefitLimitExceededError('test-id', 'user-id', 5, 3).toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+
+  describe('BenefitValidationError', () => {
+    const field = 'coveragePercentage';
+    const value = -10;
+    const constraint = 'must be a positive number';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Validation error');
+    
+    it('should create error with correct properties', () => {
+      const error = new BenefitValidationError(field, value, constraint, details, cause);
       
-      // Technical errors -> 500 range
-      expect(new BenefitPersistenceError('test-id', 'create', new Error()).toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitValidationError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Benefit validation failed for field '${field}': ${constraint}`);
+      expect(error.type).toBe(ErrorType.VALIDATION);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_VAL_INVALID_COVERAGE);
+      expect(error.cause).toBe(cause);
       
-      // External errors -> 502/503/504 range
-      expect(new BenefitVerificationApiError('test-id', 'api', 500, {}).toHttpException().getStatus())
-        .toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        field,
+        value,
+        constraint,
+        operation: 'validateBenefit'
+      });
+    });
+    
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitValidationError(field, value, constraint);
+      const serialized = error.toJSON();
+      
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.VALIDATION);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_VAL_INVALID_COVERAGE);
+      expect(serialized.error).toHaveProperty('message', `Benefit validation failed for field '${field}': ${constraint}`);
+      expect(serialized.error).toHaveProperty('details');
+      expect(serialized.error.details).toEqual({
+        field,
+        value,
+        constraint,
+        operation: 'validateBenefit'
+      });
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitValidationError(field, value, constraint);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    });
+  });
+
+  describe('BenefitCalculationError', () => {
+    const benefitId = 'benefit-123';
+    const calculationType = 'copayAmount';
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Calculation error');
+    
+    it('should create error with correct properties', () => {
+      const error = new BenefitCalculationError(benefitId, calculationType, details, cause);
+      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitCalculationError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Failed to calculate ${calculationType} for benefit ${benefitId}`);
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_TECH_CALCULATION_FAILURE);
+      expect(error.cause).toBe(cause);
+      
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        calculationType,
+        operation: 'calculateBenefit'
+      });
+    });
+    
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitCalculationError(benefitId, calculationType);
+      const serialized = error.toJSON();
+      
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_TECH_CALCULATION_FAILURE);
+      expect(serialized.error).toHaveProperty('message', `Failed to calculate ${calculationType} for benefit ${benefitId}`);
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitCalculationError(benefitId, calculationType);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+  });
+
+  describe('BenefitWaitingPeriodError', () => {
+    const benefitId = 'benefit-123';
+    const userId = 'user-456';
+    const waitingPeriodDays = 30;
+    const effectiveDate = new Date('2023-06-01');
+    const details = { additionalInfo: 'test' };
+    const cause = new Error('Waiting period error');
+    
+    it('should create error with correct properties', () => {
+      const error = new BenefitWaitingPeriodError(benefitId, userId, waitingPeriodDays, effectiveDate, details, cause);
+      
+      // Verify error properties
+      expect(error).toBeInstanceOf(BenefitWaitingPeriodError);
+      expect(error).toBeInstanceOf(BaseBenefitError);
+      expect(error.message).toBe(`Benefit ${benefitId} requires a waiting period of ${waitingPeriodDays} days. Available from ${effectiveDate.toISOString().split('T')[0]}`);
+      expect(error.type).toBe(ErrorType.BUSINESS);
+      expect(error.code).toBe(BenefitErrorCodes.PLAN_BENEFIT_BUS_WAITING_PERIOD);
+      expect(error.cause).toBe(cause);
+      
+      // Verify context
+      expect(error.context).toBeDefined();
+      expect(error.context.domain).toBe(PlanErrorDomain.BENEFITS);
+      expect(error.context.data).toEqual({
+        ...details,
+        benefitId,
+        userId,
+        waitingPeriodDays,
+        effectiveDate: effectiveDate.toISOString(),
+        operation: 'checkBenefitWaitingPeriod'
+      });
+    });
+    
+    it('should serialize to JSON with correct structure', () => {
+      const error = new BenefitWaitingPeriodError(benefitId, userId, waitingPeriodDays, effectiveDate);
+      const serialized = error.toJSON();
+      
+      expect(serialized).toHaveProperty('error');
+      expect(serialized.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(serialized.error).toHaveProperty('code', BenefitErrorCodes.PLAN_BENEFIT_BUS_WAITING_PERIOD);
+      expect(serialized.error).toHaveProperty('message', `Benefit ${benefitId} requires a waiting period of ${waitingPeriodDays} days. Available from ${effectiveDate.toISOString().split('T')[0]}`);
+    });
+    
+    it('should convert to HttpException with correct status code', () => {
+      const error = new BenefitWaitingPeriodError(benefitId, userId, waitingPeriodDays, effectiveDate);
+      const httpException = error.toHttpException();
+      
+      expect(httpException).toBeDefined();
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
   });
 });

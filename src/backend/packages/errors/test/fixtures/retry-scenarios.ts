@@ -1,589 +1,581 @@
 /**
  * @file retry-scenarios.ts
- * @description Test fixtures for retry mechanisms and circuit breaker patterns
- * 
- * This file contains sample retry scenarios, transient error patterns, and retry history
- * objects for testing retry-related functionality. It includes pre-configured common
- * transient errors like network timeouts, rate limiting, temporary unavailability,
- * and database connection issues with appropriate timing patterns.
+ * @description Test fixtures for retry-related functionality, including sample transient errors,
+ * retry history objects, and circuit breaker test scenarios. These fixtures are used for testing
+ * the retry and circuit breaker mechanisms of the error handling framework.
  */
 
-import { 
-  TimeoutError, 
-  DatabaseError, 
-  ServiceUnavailableError 
-} from '../../src/categories/technical.errors';
+import { ErrorType } from '../../src/categories';
+import { ExternalApiError, ExternalDependencyUnavailableError, ExternalRateLimitError } from '../../src/categories/external.errors';
+import { DatabaseError, ServiceUnavailableError, TimeoutError } from '../../src/categories/technical.errors';
 
-import {
-  ExternalApiError,
-  ExternalDependencyUnavailableError,
-  ExternalRateLimitError
-} from '../../src/categories/external.errors';
+// ===== TRANSIENT ERROR INSTANCES =====
 
 /**
- * Interface representing a retry attempt history entry
+ * Common transient error patterns for testing retry mechanisms
  */
-export interface RetryAttempt {
-  timestamp: number;
-  error: Error;
-  attemptNumber: number;
-  delayMs?: number;
-}
-
-/**
- * Interface representing a complete retry history
- */
-export interface RetryHistory {
-  operationId: string;
-  startTime: number;
-  attempts: RetryAttempt[];
-  successful?: boolean;
-  finalError?: Error;
-  finalResult?: any;
-}
-
-/**
- * Interface for circuit breaker test scenarios
- */
-export interface CircuitBreakerScenario {
-  name: string;
-  description: string;
-  failureThreshold: number;
-  failureWindow: number; // in milliseconds
-  resetTimeout: number; // in milliseconds
-  errors: Error[];
-  expectedState: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-}
-
-/**
- * Common transient network errors for testing retry mechanisms
- */
-export const networkErrors = {
+export const transientErrors = {
   /**
-   * Connection timeout error - occurs when a connection cannot be established
+   * Network timeout error that typically resolves after a few retries
    */
-  connectionTimeout: new TimeoutError(
-    'Connection timed out after 5000ms', 
-    { 
-      operationId: 'connect-api-123',
-      resource: 'https://api.example.com/health',
+  networkTimeout: new TimeoutError(
+    'Request timed out after 5000ms',
+    {
+      operationName: 'fetchUserProfile',
       timeoutMs: 5000,
-      isTransient: true
+      url: 'https://api.example.com/users/123',
+      attempt: 1
     }
   ),
 
   /**
-   * Request timeout error - occurs when a request takes too long to complete
+   * Database connection error that typically resolves after a short delay
    */
-  requestTimeout: new TimeoutError(
-    'Request timed out after 30000ms', 
-    { 
-      operationId: 'fetch-user-profile',
-      resource: 'https://api.example.com/users/123',
-      timeoutMs: 30000,
-      isTransient: true
-    }
-  ),
-
-  /**
-   * Socket hang up error - occurs when the connection is unexpectedly closed
-   */
-  socketHangUp: new ExternalApiError(
-    'socket hang up', 
-    { 
-      statusCode: 0,
-      endpoint: 'https://api.example.com/data',
-      method: 'GET',
-      isTransient: true,
-      originalError: new Error('socket hang up')
-    }
-  ),
-
-  /**
-   * Network unreachable error - occurs when the network is temporarily unavailable
-   */
-  networkUnreachable: new ExternalApiError(
-    'network unreachable', 
-    { 
-      statusCode: 0,
-      endpoint: 'https://api.example.com/health',
-      method: 'GET',
-      isTransient: true,
-      originalError: new Error('network unreachable')
-    }
-  ),
-
-  /**
-   * DNS resolution error - occurs when a domain name cannot be resolved
-   */
-  dnsResolutionError: new ExternalApiError(
-    'getaddrinfo ENOTFOUND api.example.com', 
-    { 
-      statusCode: 0,
-      endpoint: 'https://api.example.com/health',
-      method: 'GET',
-      isTransient: true,
-      originalError: new Error('getaddrinfo ENOTFOUND api.example.com')
-    }
-  )
-};
-
-/**
- * Common database transient errors for testing retry mechanisms
- */
-export const databaseErrors = {
-  /**
-   * Connection pool exhausted error - occurs when all connections are in use
-   */
-  connectionPoolExhausted: new DatabaseError(
-    'Connection pool exhausted', 
-    { 
-      operation: 'connect',
-      database: 'postgres',
-      isTransient: true,
-      code: 'POOL_EXHAUSTED'
-    }
-  ),
-
-  /**
-   * Deadlock detected error - occurs when a transaction deadlock is detected
-   */
-  deadlockDetected: new DatabaseError(
-    'Deadlock detected, transaction aborted', 
-    { 
-      operation: 'update',
-      database: 'postgres',
+  databaseConnection: new DatabaseError(
+    'Connection to database lost',
+    {
+      operation: 'SELECT',
       table: 'users',
-      isTransient: true,
-      code: 'DEADLOCK_DETECTED'
+      connectionId: 'postgres-pool-3',
+      errorCode: 'ECONNRESET'
     }
   ),
 
   /**
-   * Connection terminated error - occurs when a connection is unexpectedly closed
+   * Rate limiting error with Retry-After header
    */
-  connectionTerminated: new DatabaseError(
-    'Connection terminated unexpectedly', 
-    { 
-      operation: 'query',
-      database: 'postgres',
-      isTransient: true,
-      code: 'CONNECTION_TERMINATED'
+  rateLimiting: new ExternalRateLimitError(
+    'Rate limit exceeded',
+    {
+      service: 'payment-gateway',
+      retryAfterSeconds: 30,
+      limitType: 'requests-per-minute',
+      limitValue: 100,
+      endpoint: '/api/v1/payments'
     }
   ),
 
   /**
-   * Too many connections error - occurs when the database has too many connections
-   */
-  tooManyConnections: new DatabaseError(
-    'Too many connections', 
-    { 
-      operation: 'connect',
-      database: 'postgres',
-      isTransient: true,
-      code: 'TOO_MANY_CONNECTIONS'
-    }
-  ),
-
-  /**
-   * Lock timeout error - occurs when a lock cannot be acquired within the timeout period
-   */
-  lockTimeout: new DatabaseError(
-    'Lock acquisition timeout', 
-    { 
-      operation: 'update',
-      database: 'postgres',
-      table: 'health_metrics',
-      isTransient: true,
-      code: 'LOCK_TIMEOUT'
-    }
-  )
-};
-
-/**
- * Common external service errors for testing retry mechanisms
- */
-export const externalServiceErrors = {
-  /**
-   * Rate limit exceeded error - occurs when an API rate limit is exceeded
-   */
-  rateLimitExceeded: new ExternalRateLimitError(
-    'Rate limit exceeded', 
-    { 
-      endpoint: 'https://api.example.com/data',
-      method: 'GET',
-      rateLimitReset: Date.now() + 60000, // Reset in 1 minute
-      retryAfterMs: 60000,
-      isTransient: true
-    }
-  ),
-
-  /**
-   * Service unavailable error - occurs when a service is temporarily unavailable
+   * Temporary service unavailability that resolves after multiple retries
    */
   serviceUnavailable: new ServiceUnavailableError(
-    'Service temporarily unavailable', 
-    { 
-      service: 'payment-gateway',
-      isTransient: true,
-      retryAfterMs: 30000 // Retry after 30 seconds
+    'Service temporarily unavailable',
+    {
+      service: 'notification-provider',
+      estimatedResolutionTime: '2023-05-15T14:30:00Z',
+      statusCode: 503,
+      retryable: true
     }
   ),
 
   /**
-   * Gateway timeout error - occurs when an upstream service times out
+   * External API error with a 5xx status code (typically transient)
    */
-  gatewayTimeout: new ExternalApiError(
-    'Gateway timeout', 
-    { 
-      statusCode: 504,
-      endpoint: 'https://api.example.com/payments',
-      method: 'POST',
-      isTransient: true
+  externalApi5xx: new ExternalApiError(
+    'External API returned 502 Bad Gateway',
+    {
+      service: 'health-data-provider',
+      statusCode: 502,
+      endpoint: '/api/v2/metrics',
+      requestId: '8a7b6c5d-4e3f-2d1c-0b9a-8a7b6c5d4e3f'
     }
   ),
 
   /**
-   * Dependency unavailable error - occurs when a required dependency is unavailable
+   * External dependency temporarily unavailable
    */
   dependencyUnavailable: new ExternalDependencyUnavailableError(
-    'External dependency unavailable', 
-    { 
-      dependency: 'fhir-service',
-      isTransient: true,
-      retryAfterMs: 15000 // Retry after 15 seconds
-    }
-  ),
-
-  /**
-   * Too many requests error - occurs when too many requests are made to a service
-   */
-  tooManyRequests: new ExternalRateLimitError(
-    'Too many requests', 
-    { 
-      endpoint: 'https://api.example.com/health-records',
-      method: 'GET',
-      rateLimitReset: Date.now() + 10000, // Reset in 10 seconds
-      retryAfterMs: 10000,
-      isTransient: true
+    'External dependency temporarily unavailable',
+    {
+      dependency: 'wearable-data-sync',
+      statusCode: 503,
+      lastAvailable: '2023-05-15T10:15:00Z',
+      estimatedResolutionTime: '2023-05-15T11:30:00Z'
     }
   )
 };
 
+// ===== RETRY HISTORY OBJECTS =====
+
 /**
- * Sample retry histories for testing backoff algorithms
+ * Sample retry history objects for testing backoff algorithms and retry policies
  */
-export const retryHistories: Record<string, RetryHistory> = {
+export const retryHistories = {
   /**
-   * Successful retry after multiple network timeouts
+   * Exponential backoff pattern with increasing delays
    */
-  successAfterNetworkTimeouts: {
-    operationId: 'fetch-user-profile-123',
-    startTime: Date.now() - 15000, // Started 15 seconds ago
-    attempts: [
-      {
-        timestamp: Date.now() - 15000, // First attempt 15 seconds ago
-        error: networkErrors.connectionTimeout,
-        attemptNumber: 1,
-      },
-      {
-        timestamp: Date.now() - 13000, // Second attempt 13 seconds ago
-        error: networkErrors.connectionTimeout,
-        attemptNumber: 2,
-        delayMs: 2000 // 2 second delay after first failure
-      },
-      {
-        timestamp: Date.now() - 9000, // Third attempt 9 seconds ago
-        error: networkErrors.connectionTimeout,
-        attemptNumber: 3,
-        delayMs: 4000 // 4 second delay after second failure
-      },
-      {
-        timestamp: Date.now() - 1000, // Fourth attempt 1 second ago
-        error: null, // No error on this attempt (success)
-        attemptNumber: 4,
-        delayMs: 8000 // 8 second delay after third failure
+  exponentialBackoff: [
+    {
+      timestamp: new Date('2023-05-15T10:00:00Z').getTime(),
+      attempt: 1,
+      delay: 100, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
       }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.1Z').getTime(),
+      attempt: 2,
+      delay: 200, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.3Z').getTime(),
+      attempt: 3,
+      delay: 400, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.7Z').getTime(),
+      attempt: 4,
+      delay: 800, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:01.5Z').getTime(),
+      attempt: 5,
+      delay: 1600, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    }
+  ],
+
+  /**
+   * Fixed interval retry pattern with consistent delays
+   */
+  fixedInterval: [
+    {
+      timestamp: new Date('2023-05-15T10:00:00Z').getTime(),
+      attempt: 1,
+      delay: 1000, // ms
+      error: {
+        message: 'Rate limit exceeded',
+        type: ErrorType.EXTERNAL,
+        code: 'RATE_LIMIT_EXCEEDED'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:01Z').getTime(),
+      attempt: 2,
+      delay: 1000, // ms
+      error: {
+        message: 'Rate limit exceeded',
+        type: ErrorType.EXTERNAL,
+        code: 'RATE_LIMIT_EXCEEDED'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:02Z').getTime(),
+      attempt: 3,
+      delay: 1000, // ms
+      error: {
+        message: 'Rate limit exceeded',
+        type: ErrorType.EXTERNAL,
+        code: 'RATE_LIMIT_EXCEEDED'
+      }
+    }
+  ],
+
+  /**
+   * Retry history with mixed error types
+   */
+  mixedErrorTypes: [
+    {
+      timestamp: new Date('2023-05-15T10:00:00Z').getTime(),
+      attempt: 1,
+      delay: 100, // ms
+      error: {
+        message: 'Network request failed',
+        type: ErrorType.TECHNICAL,
+        code: 'NETWORK_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.1Z').getTime(),
+      attempt: 2,
+      delay: 200, // ms
+      error: {
+        message: 'Service unavailable',
+        type: ErrorType.EXTERNAL,
+        code: 'SERVICE_UNAVAILABLE'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.3Z').getTime(),
+      attempt: 3,
+      delay: 400, // ms
+      error: {
+        message: 'Rate limit exceeded',
+        type: ErrorType.EXTERNAL,
+        code: 'RATE_LIMIT_EXCEEDED'
+      }
+    }
+  ],
+
+  /**
+   * Retry history with eventual success
+   */
+  eventualSuccess: [
+    {
+      timestamp: new Date('2023-05-15T10:00:00Z').getTime(),
+      attempt: 1,
+      delay: 100, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.1Z').getTime(),
+      attempt: 2,
+      delay: 200, // ms
+      error: {
+        message: 'Connection to database lost',
+        type: ErrorType.TECHNICAL,
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.3Z').getTime(),
+      attempt: 3,
+      delay: 400, // ms
+      success: true,
+      result: { id: '123', status: 'completed' }
+    }
+  ],
+
+  /**
+   * Retry history with maximum attempts exhausted
+   */
+  maxAttemptsExhausted: [
+    {
+      timestamp: new Date('2023-05-15T10:00:00Z').getTime(),
+      attempt: 1,
+      delay: 100, // ms
+      error: {
+        message: 'External API returned 502 Bad Gateway',
+        type: ErrorType.EXTERNAL,
+        code: 'EXTERNAL_API_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.1Z').getTime(),
+      attempt: 2,
+      delay: 200, // ms
+      error: {
+        message: 'External API returned 502 Bad Gateway',
+        type: ErrorType.EXTERNAL,
+        code: 'EXTERNAL_API_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.3Z').getTime(),
+      attempt: 3,
+      delay: 400, // ms
+      error: {
+        message: 'External API returned 502 Bad Gateway',
+        type: ErrorType.EXTERNAL,
+        code: 'EXTERNAL_API_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:00.7Z').getTime(),
+      attempt: 4,
+      delay: 800, // ms
+      error: {
+        message: 'External API returned 502 Bad Gateway',
+        type: ErrorType.EXTERNAL,
+        code: 'EXTERNAL_API_ERROR'
+      }
+    },
+    {
+      timestamp: new Date('2023-05-15T10:00:01.5Z').getTime(),
+      attempt: 5,
+      delay: 1600, // ms
+      error: {
+        message: 'External API returned 502 Bad Gateway',
+        type: ErrorType.EXTERNAL,
+        code: 'EXTERNAL_API_ERROR'
+      },
+      exhausted: true
+    }
+  ]
+};
+
+// ===== CIRCUIT BREAKER TEST SCENARIOS =====
+
+/**
+ * Circuit breaker test scenarios with different failure thresholds and patterns
+ */
+export const circuitBreakerScenarios = {
+  /**
+   * Scenario where the circuit should open after consecutive failures
+   */
+  shouldOpen: {
+    serviceName: 'payment-gateway',
+    failureThreshold: 5,
+    failureHistory: [
+      { timestamp: new Date('2023-05-15T10:00:00Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:01Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:02Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:03Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:04Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:05Z').getTime(), success: false }
     ],
-    successful: true,
-    finalResult: { userId: '123', name: 'Test User' }
+    expectedState: 'OPEN',
+    halfOpenAfter: 30000 // ms
   },
 
   /**
-   * Failed retry after database connection issues
+   * Scenario where the circuit should remain closed despite some failures
    */
-  failedAfterDatabaseIssues: {
-    operationId: 'update-health-metrics-456',
-    startTime: Date.now() - 30000, // Started 30 seconds ago
-    attempts: [
-      {
-        timestamp: Date.now() - 30000, // First attempt 30 seconds ago
-        error: databaseErrors.connectionPoolExhausted,
-        attemptNumber: 1,
-      },
-      {
-        timestamp: Date.now() - 28000, // Second attempt 28 seconds ago
-        error: databaseErrors.connectionPoolExhausted,
-        attemptNumber: 2,
-        delayMs: 2000 // 2 second delay after first failure
-      },
-      {
-        timestamp: Date.now() - 24000, // Third attempt 24 seconds ago
-        error: databaseErrors.connectionPoolExhausted,
-        attemptNumber: 3,
-        delayMs: 4000 // 4 second delay after second failure
-      },
-      {
-        timestamp: Date.now() - 16000, // Fourth attempt 16 seconds ago
-        error: databaseErrors.connectionPoolExhausted,
-        attemptNumber: 4,
-        delayMs: 8000 // 8 second delay after third failure
-      },
-      {
-        timestamp: Date.now() - 0, // Fifth attempt just now
-        error: databaseErrors.connectionPoolExhausted,
-        attemptNumber: 5,
-        delayMs: 16000 // 16 second delay after fourth failure
-      }
+  shouldStayClosed: {
+    serviceName: 'user-profile-service',
+    failureThreshold: 5,
+    failureHistory: [
+      { timestamp: new Date('2023-05-15T10:00:00Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:01Z').getTime(), success: true },
+      { timestamp: new Date('2023-05-15T10:00:02Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:03Z').getTime(), success: true },
+      { timestamp: new Date('2023-05-15T10:00:04Z').getTime(), success: false }
     ],
-    successful: false,
-    finalError: databaseErrors.connectionPoolExhausted
+    expectedState: 'CLOSED',
+    halfOpenAfter: 30000 // ms
   },
 
   /**
-   * Successful retry after rate limiting
+   * Scenario where the circuit should transition from open to half-open after timeout
    */
-  successAfterRateLimiting: {
-    operationId: 'fetch-health-records-789',
-    startTime: Date.now() - 120000, // Started 2 minutes ago
-    attempts: [
-      {
-        timestamp: Date.now() - 120000, // First attempt 2 minutes ago
-        error: externalServiceErrors.rateLimitExceeded,
-        attemptNumber: 1,
-      },
-      {
-        timestamp: Date.now() - 60000, // Second attempt 1 minute ago
-        error: null, // No error on this attempt (success)
-        attemptNumber: 2,
-        delayMs: 60000 // 60 second delay after rate limit error (from Retry-After header)
-      }
+  shouldTransitionToHalfOpen: {
+    serviceName: 'notification-provider',
+    failureThreshold: 3,
+    failureHistory: [
+      { timestamp: new Date('2023-05-15T10:00:00Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:01Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:02Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:03Z').getTime(), success: false }
     ],
-    successful: true,
-    finalResult: { records: [{ id: '1', type: 'bloodPressure' }] }
+    openStateTimestamp: new Date('2023-05-15T10:00:03Z').getTime(),
+    currentTimestamp: new Date('2023-05-15T10:00:33Z').getTime(), // 30 seconds later
+    expectedState: 'HALF_OPEN',
+    halfOpenAfter: 30000 // ms
   },
 
   /**
-   * Failed retry with mixed error types
+   * Scenario where the circuit should close after successful test request in half-open state
    */
-  failedWithMixedErrors: {
-    operationId: 'process-payment-321',
-    startTime: Date.now() - 45000, // Started 45 seconds ago
-    attempts: [
-      {
-        timestamp: Date.now() - 45000, // First attempt 45 seconds ago
-        error: networkErrors.socketHangUp,
-        attemptNumber: 1,
-      },
-      {
-        timestamp: Date.now() - 43000, // Second attempt 43 seconds ago
-        error: externalServiceErrors.serviceUnavailable,
-        attemptNumber: 2,
-        delayMs: 2000 // 2 second delay after first failure
-      },
-      {
-        timestamp: Date.now() - 13000, // Third attempt 13 seconds ago
-        error: externalServiceErrors.gatewayTimeout,
-        attemptNumber: 3,
-        delayMs: 30000 // 30 second delay from Retry-After header
-      },
-      {
-        timestamp: Date.now() - 5000, // Fourth attempt 5 seconds ago
-        error: new Error('Invalid payment details'), // Non-transient error
-        attemptNumber: 4,
-        delayMs: 8000 // 8 second delay after third failure
-      }
+  shouldCloseAfterHalfOpen: {
+    serviceName: 'health-data-provider',
+    failureThreshold: 3,
+    failureHistory: [
+      { timestamp: new Date('2023-05-15T10:00:00Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:01Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:02Z').getTime(), success: false }
     ],
-    successful: false,
-    finalError: new Error('Invalid payment details')
+    openStateTimestamp: new Date('2023-05-15T10:00:02Z').getTime(),
+    halfOpenTimestamp: new Date('2023-05-15T10:00:32Z').getTime(), // 30 seconds later
+    testRequestResult: { timestamp: new Date('2023-05-15T10:00:33Z').getTime(), success: true },
+    expectedState: 'CLOSED',
+    halfOpenAfter: 30000 // ms
+  },
+
+  /**
+   * Scenario where the circuit should remain open after failed test request in half-open state
+   */
+  shouldStayOpenAfterFailedTest: {
+    serviceName: 'wearable-data-sync',
+    failureThreshold: 3,
+    failureHistory: [
+      { timestamp: new Date('2023-05-15T10:00:00Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:01Z').getTime(), success: false },
+      { timestamp: new Date('2023-05-15T10:00:02Z').getTime(), success: false }
+    ],
+    openStateTimestamp: new Date('2023-05-15T10:00:02Z').getTime(),
+    halfOpenTimestamp: new Date('2023-05-15T10:00:32Z').getTime(), // 30 seconds later
+    testRequestResult: { timestamp: new Date('2023-05-15T10:00:33Z').getTime(), success: false },
+    expectedState: 'OPEN',
+    halfOpenAfter: 30000, // ms
+    resetTimeout: 60000 // ms
   }
 };
 
-/**
- * Sample circuit breaker test scenarios
- */
-export const circuitBreakerScenarios: CircuitBreakerScenario[] = [
-  {
-    name: 'healthy-service',
-    description: 'Service is healthy with occasional errors below threshold',
-    failureThreshold: 5,
-    failureWindow: 60000, // 1 minute
-    resetTimeout: 30000, // 30 seconds
-    errors: [
-      networkErrors.connectionTimeout,
-      networkErrors.requestTimeout,
-      // Only 2 errors, below the threshold of 5
-    ],
-    expectedState: 'CLOSED'
-  },
-  {
-    name: 'failing-service',
-    description: 'Service is failing with errors above threshold',
-    failureThreshold: 3,
-    failureWindow: 60000, // 1 minute
-    resetTimeout: 30000, // 30 seconds
-    errors: [
-      networkErrors.connectionTimeout,
-      networkErrors.requestTimeout,
-      networkErrors.socketHangUp,
-      networkErrors.networkUnreachable,
-      // 4 errors, above the threshold of 3
-    ],
-    expectedState: 'OPEN'
-  },
-  {
-    name: 'recovering-service',
-    description: 'Service is recovering after being in open state',
-    failureThreshold: 3,
-    failureWindow: 60000, // 1 minute
-    resetTimeout: 30000, // 30 seconds
-    errors: [
-      networkErrors.connectionTimeout,
-      networkErrors.requestTimeout,
-      networkErrors.socketHangUp,
-      networkErrors.networkUnreachable,
-      // 4 errors initially, then cooling period elapsed
-      // Next attempt will determine if circuit moves to closed or stays open
-    ],
-    expectedState: 'HALF_OPEN'
-  },
-  {
-    name: 'database-circuit',
-    description: 'Database connection circuit with specific error types',
-    failureThreshold: 4,
-    failureWindow: 30000, // 30 seconds
-    resetTimeout: 15000, // 15 seconds
-    errors: [
-      databaseErrors.connectionPoolExhausted,
-      databaseErrors.connectionTerminated,
-      databaseErrors.tooManyConnections,
-      databaseErrors.connectionTerminated,
-      // 4 errors, at the threshold of 4
-    ],
-    expectedState: 'OPEN'
-  },
-  {
-    name: 'rate-limited-api',
-    description: 'External API with rate limiting errors',
-    failureThreshold: 2,
-    failureWindow: 120000, // 2 minutes
-    resetTimeout: 60000, // 1 minute
-    errors: [
-      externalServiceErrors.rateLimitExceeded,
-      externalServiceErrors.tooManyRequests,
-      // 2 errors, at the threshold of 2
-    ],
-    expectedState: 'OPEN'
-  }
-];
+// ===== TIMEOUT AND EXPIRATION TEST DATA =====
 
 /**
  * Mock timestamps for testing timeout and expiration logic
  */
-export const mockTimestamps = {
-  now: Date.now(),
-  oneMinuteAgo: Date.now() - 60000,
-  fiveMinutesAgo: Date.now() - 300000,
-  fifteenMinutesAgo: Date.now() - 900000,
-  oneHourAgo: Date.now() - 3600000,
-  oneDayAgo: Date.now() - 86400000,
-  oneMinuteFromNow: Date.now() + 60000,
-  fiveMinutesFromNow: Date.now() + 300000,
-  fifteenMinutesFromNow: Date.now() + 900000,
-  oneHourFromNow: Date.now() + 3600000,
-  oneDayFromNow: Date.now() + 86400000,
+export const timeoutTestData = {
+  /**
+   * Test data for operation timeout detection
+   */
+  operationTimeout: {
+    operationStart: new Date('2023-05-15T10:00:00Z').getTime(),
+    operationTimeout: 5000, // ms
+    currentTime: new Date('2023-05-15T10:00:06Z').getTime(), // 6 seconds later
+    shouldTimeout: true
+  },
+
+  /**
+   * Test data for token expiration
+   */
+  tokenExpiration: {
+    tokenIssued: new Date('2023-05-15T10:00:00Z').getTime(),
+    tokenExpiry: new Date('2023-05-15T11:00:00Z').getTime(), // 1 hour later
+    currentTime: new Date('2023-05-15T10:30:00Z').getTime(), // 30 minutes later
+    shouldBeValid: true
+  },
+
+  /**
+   * Test data for retry window expiration
+   */
+  retryWindowExpiration: {
+    firstAttempt: new Date('2023-05-15T10:00:00Z').getTime(),
+    maxRetryWindow: 3600000, // 1 hour in ms
+    currentTime: new Date('2023-05-15T11:30:00Z').getTime(), // 1.5 hours later
+    shouldExpire: true
+  },
+
+  /**
+   * Test data for rate limit reset
+   */
+  rateLimitReset: {
+    rateLimitExceeded: new Date('2023-05-15T10:00:00Z').getTime(),
+    resetAfter: 300, // 5 minutes in seconds
+    currentTime: new Date('2023-05-15T10:04:00Z').getTime(), // 4 minutes later
+    shouldReset: false
+  }
 };
 
 /**
- * Utility function to create a retry history with exponential backoff pattern
- * @param operationId Unique identifier for the operation
- * @param error Error to use for all attempts
- * @param attempts Number of attempts to generate
- * @param baseDelayMs Base delay in milliseconds
- * @param successful Whether the final attempt was successful
- * @returns A RetryHistory object with the specified pattern
+ * Sample retry operations with different configurations for testing
  */
-export function createExponentialBackoffHistory(
-  operationId: string,
-  error: Error,
-  attempts: number,
-  baseDelayMs: number = 1000,
-  successful: boolean = false
-): RetryHistory {
-  const startTime = Date.now() - (Math.pow(2, attempts) - 1) * baseDelayMs;
-  const retryAttempts: RetryAttempt[] = [];
-  let currentTime = startTime;
+export const retryOperations = {
+  /**
+   * Email notification with exponential backoff
+   */
+  emailNotification: {
+    id: 'email-notification-1',
+    type: 'email',
+    recipient: 'user@example.com',
+    payload: {
+      subject: 'Your appointment reminder',
+      body: 'You have an appointment tomorrow at 2:00 PM.'
+    },
+    retryPolicy: {
+      type: 'exponential',
+      maxRetries: 5,
+      initialDelay: 100,
+      maxDelay: 30000,
+      backoffFactor: 2,
+      jitter: true
+    }
+  },
 
-  for (let i = 0; i < attempts; i++) {
-    const isLastAttempt = i === attempts - 1;
-    const attemptError = isLastAttempt && successful ? null : error;
-    
-    retryAttempts.push({
-      timestamp: currentTime,
-      error: attemptError,
-      attemptNumber: i + 1,
-      delayMs: i === 0 ? undefined : Math.pow(2, i - 1) * baseDelayMs
-    });
+  /**
+   * SMS notification with fixed interval
+   */
+  smsNotification: {
+    id: 'sms-notification-1',
+    type: 'sms',
+    recipient: '+1234567890',
+    payload: {
+      message: 'Your verification code is 123456'
+    },
+    retryPolicy: {
+      type: 'fixed',
+      maxRetries: 3,
+      delay: 1000,
+      jitter: false
+    }
+  },
 
-    if (i < attempts - 1) {
-      currentTime += Math.pow(2, i) * baseDelayMs;
+  /**
+   * Push notification with custom retry policy
+   */
+  pushNotification: {
+    id: 'push-notification-1',
+    type: 'push',
+    recipient: 'device-token-123',
+    payload: {
+      title: 'New message',
+      body: 'You have a new message from Dr. Smith',
+      data: {
+        messageId: '456',
+        senderId: '789'
+      }
+    },
+    retryPolicy: {
+      type: 'composite',
+      policies: [
+        {
+          errorTypes: ['NETWORK_ERROR', 'TIMEOUT_ERROR'],
+          policy: {
+            type: 'exponential',
+            maxRetries: 5,
+            initialDelay: 200,
+            maxDelay: 10000,
+            backoffFactor: 2,
+            jitter: true
+          }
+        },
+        {
+          errorTypes: ['RATE_LIMIT_EXCEEDED'],
+          policy: {
+            type: 'fixed',
+            maxRetries: 3,
+            delay: 5000,
+            jitter: false
+          }
+        }
+      ],
+      defaultPolicy: {
+        type: 'exponential',
+        maxRetries: 3,
+        initialDelay: 500,
+        maxDelay: 5000,
+        backoffFactor: 1.5,
+        jitter: true
+      }
+    }
+  },
+
+  /**
+   * Database operation with linear backoff
+   */
+  databaseOperation: {
+    id: 'db-operation-1',
+    type: 'database',
+    operation: 'UPDATE',
+    table: 'user_profiles',
+    payload: {
+      id: '123',
+      status: 'active',
+      lastLogin: '2023-05-15T10:00:00Z'
+    },
+    retryPolicy: {
+      type: 'linear',
+      maxRetries: 4,
+      initialDelay: 50,
+      increment: 50,
+      jitter: true
     }
   }
-
-  return {
-    operationId,
-    startTime,
-    attempts: retryAttempts,
-    successful,
-    finalError: successful ? undefined : error,
-    finalResult: successful ? { success: true } : undefined
-  };
-}
-
-/**
- * Sample retry scenarios with different backoff strategies
- */
-export const retryScenarios = {
-  /**
-   * Exponential backoff with network errors
-   */
-  exponentialBackoffNetwork: createExponentialBackoffHistory(
-    'api-call-with-network-issues',
-    networkErrors.connectionTimeout,
-    5, // 5 attempts
-    1000, // 1 second base delay
-    true // Eventually successful
-  ),
-
-  /**
-   * Exponential backoff with database errors
-   */
-  exponentialBackoffDatabase: createExponentialBackoffHistory(
-    'database-query-with-connection-issues',
-    databaseErrors.connectionPoolExhausted,
-    4, // 4 attempts
-    2000, // 2 second base delay
-    false // Never successful
-  ),
-
-  /**
-   * Exponential backoff with external service errors
-   */
-  exponentialBackoffExternalService: createExponentialBackoffHistory(
-    'external-service-with-availability-issues',
-    externalServiceErrors.serviceUnavailable,
-    3, // 3 attempts
-    5000, // 5 second base delay
-    true // Eventually successful
-  )
 };

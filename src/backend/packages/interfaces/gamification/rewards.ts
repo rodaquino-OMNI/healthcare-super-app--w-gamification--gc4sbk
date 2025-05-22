@@ -1,31 +1,20 @@
 /**
  * @file Defines TypeScript interfaces for rewards in the gamification engine.
- * Part of the @austa/interfaces package that provides standardized type definitions
- * across the AUSTA SuperApp platform.
- *
  * These interfaces provide a standardized contract for rewards that users can earn
  * by unlocking achievements or completing quests, and for tracking which rewards
- * have been earned by users. Without these interfaces, reward-related functionality
- * would be inconsistent across services, leading to type errors and potential runtime issues.
- *
- * @packageDocumentation
+ * have been earned by users.
  */
 
-// Import shared interfaces if needed
-// import { GameProfileInterface } from '../profiles';
-
 /**
- * Represents the possible journey types in the application.
- * Used to categorize rewards by their associated journey.
+ * Represents the different journeys in the AUSTA SuperApp.
+ * Each reward is associated with a specific journey or can be global.
  */
 export type JourneyType = 'health' | 'care' | 'plan' | 'global';
 
 /**
- * Represents a reward that a user can earn in the gamification system.
- * Part of the reward management feature (F-303) that handles distribution of 
- * digital and physical rewards based on user achievements and progress.
+ * Base interface for reward metadata that applies to all reward types.
  */
-export interface Reward {
+export interface RewardBase {
   /**
    * Unique identifier for the reward
    */
@@ -43,9 +32,11 @@ export interface Reward {
 
   /**
    * Amount of XP awarded when earning this reward
-   * @remarks Renamed from xpReward in the entity to xp for consistency with frontend
+   * @remarks
+   * This property is named 'xpValue' to standardize between backend ('xpReward')
+   * and frontend ('xp') implementations.
    */
-  xp: number;
+  xpValue: number;
 
   /**
    * Icon name/path used to visually represent the reward
@@ -54,124 +45,114 @@ export interface Reward {
 
   /**
    * The journey this reward is associated with
+   * Can be 'health', 'care', 'plan', or 'global' for cross-journey rewards
    */
   journey: JourneyType;
 }
 
 /**
- * Represents a reward specific to the Health journey.
- * Extends the base Reward interface with health-specific properties.
+ * Represents a reward that a user can earn in the gamification system.
+ * Part of the reward management feature (F-303) that handles distribution of 
+ * digital and physical rewards based on user achievements and progress.
+ */
+export interface Reward extends RewardBase {
+  /**
+   * Optional additional metadata specific to this reward
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Represents a health journey specific reward.
+ * These rewards are earned through health-related activities like
+ * completing fitness goals, tracking health metrics, or connecting devices.
  */
 export interface HealthReward extends Reward {
   /**
-   * The journey is always 'health' for this reward type
+   * The journey is always 'health' for health rewards
    */
   journey: 'health';
   
   /**
-   * Optional health-specific metadata for the reward
+   * Health-specific metadata
    */
-  healthMetadata?: {
+  metadata?: {
     /**
-     * Associated health goal category if applicable
+     * Category of health activity (e.g., 'fitness', 'nutrition', 'sleep')
      */
-    goalCategory?: string;
+    category?: string;
     
     /**
-     * Minimum health metric threshold required to earn this reward
+     * Difficulty level of the associated health activity
      */
-    metricThreshold?: number;
+    difficulty?: 'easy' | 'medium' | 'hard';
   };
 }
 
 /**
- * Represents a reward specific to the Care journey.
- * Extends the base Reward interface with care-specific properties.
+ * Represents a care journey specific reward.
+ * These rewards are earned through care-related activities like
+ * attending appointments, following treatment plans, or completing telemedicine sessions.
  */
 export interface CareReward extends Reward {
   /**
-   * The journey is always 'care' for this reward type
+   * The journey is always 'care' for care rewards
    */
   journey: 'care';
   
   /**
-   * Optional care-specific metadata for the reward
+   * Care-specific metadata
    */
-  careMetadata?: {
+  metadata?: {
     /**
-     * Associated provider type if applicable
+     * Category of care activity (e.g., 'appointment', 'medication', 'treatment')
      */
-    providerType?: string;
+    category?: string;
     
     /**
-     * Associated appointment type if applicable
+     * Provider associated with this reward, if applicable
      */
-    appointmentType?: string;
+    providerId?: string;
   };
 }
 
 /**
- * Represents a reward specific to the Plan journey.
- * Extends the base Reward interface with plan-specific properties.
+ * Represents a plan journey specific reward.
+ * These rewards are earned through plan-related activities like
+ * submitting claims, utilizing benefits, or exploring coverage options.
  */
 export interface PlanReward extends Reward {
   /**
-   * The journey is always 'plan' for this reward type
+   * The journey is always 'plan' for plan rewards
    */
   journey: 'plan';
   
   /**
-   * Optional plan-specific metadata for the reward
+   * Plan-specific metadata
    */
-  planMetadata?: {
+  metadata?: {
     /**
-     * Associated benefit category if applicable
+     * Category of plan activity (e.g., 'claim', 'benefit', 'coverage')
      */
-    benefitCategory?: string;
+    category?: string;
     
     /**
-     * Associated insurance plan type if applicable
+     * Plan ID associated with this reward, if applicable
      */
-    planType?: string;
+    planId?: string;
   };
 }
 
 /**
- * Represents a global reward that applies across all journeys.
- * Extends the base Reward interface with cross-journey properties.
- */
-export interface GlobalReward extends Reward {
-  /**
-   * The journey is always 'global' for this reward type
-   */
-  journey: 'global';
-  
-  /**
-   * Optional global reward metadata
-   */
-  globalMetadata?: {
-    /**
-     * Minimum user level required to earn this reward
-     */
-    minimumLevel?: number;
-    
-    /**
-     * Whether this is a premium reward
-     */
-    isPremium?: boolean;
-  };
-}
-
-/**
- * Represents a game profile in the gamification system.
- * This is a simplified interface for use with UserReward.
+ * Represents a profile in the gamification system.
+ * This is a simplified interface for use in cross-service communication.
  */
 export interface GameProfileReference {
   /**
    * Unique identifier for the game profile
    */
   id: string;
-  
+
   /**
    * User ID associated with this profile
    */
@@ -179,7 +160,7 @@ export interface GameProfileReference {
 }
 
 /**
- * Represents a reward earned by a user.
+ * Represents a reward earned by a user in the gamification system.
  * Part of the reward management feature (F-303) that handles distribution of 
  * digital and physical rewards based on user achievements and progress.
  */
@@ -188,151 +169,82 @@ export interface UserReward {
    * Unique identifier for the user reward
    */
   id: string;
-  
+
   /**
    * Reference to the game profile that earned this reward
    */
   profileId: string;
-  
+
   /**
    * Reference to the reward that was earned
    */
   rewardId: string;
-  
+
   /**
    * The date and time when the reward was earned
    */
   earnedAt: Date;
-  
+}
+
+/**
+ * Represents a user reward with expanded reward and profile information.
+ * Used for displaying detailed information about earned rewards.
+ */
+export interface UserRewardWithDetails extends UserReward {
   /**
-   * Optional reference to the full game profile object
-   * This would be populated when retrieving user rewards with profile data
+   * The full reward object with all details
    */
-  profile?: GameProfileReference;
-  
+  reward: Reward;
+
   /**
-   * Optional reference to the full reward object
-   * This would be populated when retrieving user rewards with reward data
+   * The game profile reference that earned this reward
    */
-  reward?: Reward;
+  profile: GameProfileReference;
 }
 
 /**
  * Represents a request to create a new reward in the system.
  */
-export interface CreateRewardDto {
+export interface CreateRewardRequest extends Omit<RewardBase, 'id'> {
   /**
-   * Title of the reward displayed to users
+   * Optional metadata specific to the reward type
    */
-  title: string;
-  
-  /**
-   * Detailed description of the reward
-   */
-  description: string;
-  
-  /**
-   * Amount of XP awarded when earning this reward
-   */
-  xp: number;
-  
-  /**
-   * Icon name/path used to visually represent the reward
-   */
-  icon: string;
-  
-  /**
-   * The journey this reward is associated with
-   */
-  journey: JourneyType;
-  
-  /**
-   * Optional journey-specific metadata
-   */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
  * Represents a request to update an existing reward in the system.
  */
-export interface UpdateRewardDto {
+export interface UpdateRewardRequest extends Partial<Omit<Reward, 'id'>> {
   /**
-   * Title of the reward displayed to users
+   * Optional metadata to update
    */
-  title?: string;
-  
-  /**
-   * Detailed description of the reward
-   */
-  description?: string;
-  
-  /**
-   * Amount of XP awarded when earning this reward
-   */
-  xp?: number;
-  
-  /**
-   * Icon name/path used to visually represent the reward
-   */
-  icon?: string;
-  
-  /**
-   * Optional journey-specific metadata
-   */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Represents a request to grant a reward to a user.
+ * Represents a request to assign a reward to a user.
  */
-export interface GrantRewardDto {
+export interface AssignRewardRequest {
   /**
-   * ID of the profile to grant the reward to
+   * ID of the profile to assign the reward to
    */
   profileId: string;
   
   /**
-   * ID of the reward to grant
+   * ID of the reward to assign
    */
   rewardId: string;
   
   /**
-   * Optional source that triggered the reward grant
+   * Optional source that triggered the reward assignment
+   * (e.g., 'achievement', 'quest', 'manual')
    */
   source?: string;
   
   /**
-   * Optional context data related to the reward grant
+   * Optional reference ID to the entity that triggered the reward
+   * (e.g., achievement ID, quest ID)
    */
-  context?: Record<string, any>;
-}
-
-/**
- * Represents a response when a user earns a reward.
- */
-export interface RewardEarnedResponse {
-  /**
-   * The user reward that was created
-   */
-  userReward: UserReward;
-  
-  /**
-   * The reward that was earned
-   */
-  reward: Reward;
-  
-  /**
-   * The amount of XP awarded
-   */
-  xpAwarded: number;
-  
-  /**
-   * Whether this reward caused a level up
-   */
-  causedLevelUp: boolean;
-  
-  /**
-   * The user's new level if they leveled up
-   */
-  newLevel?: number;
+  referenceId?: string;
 }

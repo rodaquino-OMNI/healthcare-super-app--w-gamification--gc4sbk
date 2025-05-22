@@ -1,248 +1,216 @@
-import { Request, Response, NextFunction } from 'express';
+import { Test } from '@nestjs/testing';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { ErrorType, AppException } from '../../../src/categories/app.exception';
-import { errorHandlerMiddleware } from '../../../src/middleware/error-handler.middleware';
+import { Request, Response } from 'express';
 import { LoggerService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { ErrorHandlerMiddleware } from '../../../src/middleware/error-handler.middleware';
+import { BaseError, ErrorType } from '../../../src/base';
 
-// Mock the LoggerService
-jest.mock('@austa/logging', () => {
-  return {
-    LoggerService: jest.fn().mockImplementation(() => {
-      return {
-        error: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-        log: jest.fn()
-      };
-    })
-  };
-});
+// Mock LoggerService
+class MockLoggerService {
+  log = jest.fn();
+  error = jest.fn();
+  warn = jest.fn();
+  debug = jest.fn();
+}
 
-describe('Error Handler Middleware', () => {
+// Mock TracingService
+class MockTracingService {
+  getCurrentTraceId = jest.fn().mockReturnValue('mock-trace-id');
+  recordError = jest.fn();
+}
+
+describe('ErrorHandlerMiddleware', () => {
+  let middleware: ErrorHandlerMiddleware;
+  let loggerService: MockLoggerService;
+  let tracingService: MockTracingService;
   let mockRequest: Partial<Request>;
   let mockResponse: Partial<Response>;
-  let nextFunction: NextFunction;
-  let loggerService: LoggerService;
-  
-  beforeEach(() => {
-    // Reset mocks before each test
-    jest.clearAllMocks();
+  let mockNext: jest.Mock;
+  let jsonSpy: jest.Mock;
+  let statusSpy: jest.Mock;
+  let setHeaderSpy: jest.Mock;
+
+  beforeEach(async () => {
+    // Create mocks
+    loggerService = new MockLoggerService();
+    tracingService = new MockTracingService();
     
-    // Create mock request object
+    // Create middleware instance
+    middleware = new ErrorHandlerMiddleware(
+      loggerService as unknown as LoggerService,
+      tracingService as unknown as TracingService
+    );
+
+    // Set up request mock
     mockRequest = {
       method: 'GET',
       url: '/test',
-      headers: {},
+      headers: {
+        'x-journey-id': 'health',
+        'x-request-id': 'test-request-id'
+      },
       user: { id: 'test-user-id' }
     };
+
+    // Set up response mock with spies
+    jsonSpy = jest.fn().mockReturnValue({});
+    statusSpy = jest.fn().mockReturnThis();
+    setHeaderSpy = jest.fn();
     
-    // Create mock response object with spy methods
     mockResponse = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-      send: jest.fn().mockReturnThis()
+      status: statusSpy,
+      json: jsonSpy,
+      setHeader: setHeaderSpy
     };
-    
-    // Create next function
-    nextFunction = jest.fn();
-    
-    // Create logger service
-    loggerService = new LoggerService();
+
+    // Set up next function mock
+    mockNext = jest.fn();
+
+    // Reset environment variables
+    process.env.NODE_ENV = 'test';
   });
-  
-  describe('AppException handling', () => {
-    it('should handle validation errors with 400 status code', () => {
-      // Arrange
-      const validationError = new AppException(
-        'Invalid input data',
-        ErrorType.VALIDATION,
-        'API_002',
-        { field: 'email', constraint: 'isEmail' }
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should be defined', () => {
+    expect(middleware).toBeDefined();
+  });
+
+  it('should log initialization message', () => {
+    expect(loggerService.log).toHaveBeenCalledWith(
+      'ErrorHandlerMiddleware initialized',
+      'ErrorHandlerMiddleware'
+    );
+  });
+
+  describe('handle method', () => {
+    it('should handle BaseError correctly', () => {
+      // Create a BaseError
+      const error = new BaseError(
+        'Test business error',
+        ErrorType.BUSINESS,
+        'TEST_001',
+        { component: 'test-component' },
+        { field: 'testField' }
       );
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(validationError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-      expect(mockResponse.json).toHaveBeenCalledWith({
+
+      // Call the middleware
+      middleware.handle(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      // Verify response
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(jsonSpy).toHaveBeenCalledWith(error.toJSON());
+      expect(setHeaderSpy).toHaveBeenCalledWith('x-trace-id', 'mock-trace-id');
+
+      // Verify logging
+      expect(loggerService.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Business error'),
+        expect.objectContaining({
+          method: 'GET',
+          url: '/test',
+          userId: 'test-user-id',
+          journeyId: 'health',
+          errorCode: 'TEST_001',
+          errorType: ErrorType.BUSINESS
+        }),
+        'ErrorHandlerMiddleware'
+      );
+
+      // Verify tracing
+      expect(tracingService.recordError).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          component: 'express',
+          method: 'GET',
+          url: '/test'
+        })
+      );
+    });
+
+    it('should handle HttpException correctly', () => {
+      // Create an HttpException
+      const error = new HttpException('Test HTTP exception', HttpStatus.BAD_REQUEST);
+
+      // Call the middleware
+      middleware.handle(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      // Verify response
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+      expect(jsonSpy).toHaveBeenCalledWith({
         error: {
           type: ErrorType.VALIDATION,
-          code: 'API_002',
-          message: 'Invalid input data',
-          details: { field: 'email', constraint: 'isEmail' }
+          message: 'Test HTTP exception'
         }
       });
-      expect(loggerService.debug).toHaveBeenCalled();
-    });
-    
-    it('should handle business errors with 422 status code', () => {
-      // Arrange
-      const businessError = new AppException(
-        'Cannot schedule appointment in the past',
-        ErrorType.BUSINESS,
-        'CARE_002',
-        { appointmentDate: '2023-01-01' }
+
+      // Verify logging
+      expect(loggerService.warn).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP 400 exception'),
+        expect.objectContaining({
+          statusCode: HttpStatus.BAD_REQUEST,
+          errorType: ErrorType.VALIDATION
+        }),
+        'ErrorHandlerMiddleware'
       );
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(businessError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.BUSINESS,
-          code: 'CARE_002',
-          message: 'Cannot schedule appointment in the past',
-          details: { appointmentDate: '2023-01-01' }
-        }
-      });
-      expect(loggerService.warn).toHaveBeenCalled();
     });
-    
-    it('should handle technical errors with 500 status code', () => {
-      // Arrange
-      const technicalError = new AppException(
-        'Database connection failed',
-        ErrorType.TECHNICAL,
-        'SYS_001',
-        { service: 'PostgreSQL' }
+
+    it('should handle HttpException with object response correctly', () => {
+      // Create an HttpException with object response
+      const errorResponse = {
+        message: 'Validation failed',
+        errors: ['Field is required']
+      };
+      const error = new HttpException(errorResponse, HttpStatus.BAD_REQUEST);
+
+      // Call the middleware
+      middleware.handle(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
       );
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(technicalError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(mockResponse.json).toHaveBeenCalledWith({
+
+      // Verify response
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+      expect(jsonSpy).toHaveBeenCalledWith({
         error: {
-          type: ErrorType.TECHNICAL,
-          code: 'SYS_001',
-          message: 'Database connection failed',
-          details: { service: 'PostgreSQL' }
-        }
-      });
-      expect(loggerService.error).toHaveBeenCalled();
-    });
-    
-    it('should handle external errors with 502 status code', () => {
-      // Arrange
-      const externalError = new AppException(
-        'External API unavailable',
-        ErrorType.EXTERNAL,
-        'HEALTH_002',
-        { service: 'FitbitAPI' }
-      );
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(externalError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.EXTERNAL,
-          code: 'HEALTH_002',
-          message: 'External API unavailable',
-          details: { service: 'FitbitAPI' }
-        }
-      });
-      expect(loggerService.error).toHaveBeenCalled();
-    });
-  });
-  
-  describe('HttpException handling', () => {
-    it('should handle NestJS HttpException with 400 status code', () => {
-      // Arrange
-      const httpException = new HttpException(
-        { message: 'Bad request', error: 'Validation failed' },
-        HttpStatus.BAD_REQUEST
-      );
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(httpException, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          message: 'Bad request',
-          error: 'Validation failed',
+          ...errorResponse,
           type: ErrorType.VALIDATION
         }
       });
-      expect(loggerService.warn).toHaveBeenCalled();
     });
-    
-    it('should handle NestJS HttpException with string response', () => {
-      // Arrange
-      const httpException = new HttpException('Not found', HttpStatus.NOT_FOUND);
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(httpException, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.VALIDATION,
-          message: 'Not found'
-        }
-      });
-      expect(loggerService.warn).toHaveBeenCalled();
-    });
-    
-    it('should handle NestJS HttpException with 500 status code', () => {
-      // Arrange
-      const httpException = new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(httpException, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.TECHNICAL,
-          message: 'Internal server error'
-        }
-      });
-      expect(loggerService.error).toHaveBeenCalled();
-    });
-    
-    it('should handle NestJS HttpException with 502 status code', () => {
-      // Arrange
-      const httpException = new HttpException('Bad gateway', HttpStatus.BAD_GATEWAY);
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(httpException, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.EXTERNAL,
-          message: 'Bad gateway'
-        }
-      });
-      expect(loggerService.error).toHaveBeenCalled();
-    });
-  });
-  
-  describe('Generic Error handling', () => {
-    it('should handle generic Error with 500 status code', () => {
-      // Arrange
-      const genericError = new Error('Something went wrong');
-      const originalNodeEnv = process.env.NODE_ENV;
+
+    it('should handle generic Error correctly in production environment', () => {
+      // Set production environment
       process.env.NODE_ENV = 'production';
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(genericError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(mockResponse.json).toHaveBeenCalledWith({
+
+      // Create a generic Error
+      const error = new Error('Test generic error');
+
+      // Call the middleware
+      middleware.handle(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      // Verify response
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(jsonSpy).toHaveBeenCalledWith({
         error: {
           type: ErrorType.TECHNICAL,
           code: 'INTERNAL_ERROR',
@@ -250,98 +218,185 @@ describe('Error Handler Middleware', () => {
           // No details in production
         }
       });
-      expect(loggerService.error).toHaveBeenCalled();
-      
-      // Restore NODE_ENV
-      process.env.NODE_ENV = originalNodeEnv;
+
+      // Verify logging
+      expect(loggerService.error).toHaveBeenCalledWith(
+        expect.stringContaining('Unhandled exception'),
+        expect.any(String), // stack trace
+        expect.objectContaining({
+          errorName: 'Error',
+          errorType: ErrorType.TECHNICAL
+        }),
+        'ErrorHandlerMiddleware'
+      );
     });
-    
-    it('should include error details in non-production environment', () => {
-      // Arrange
-      const genericError = new Error('Database query failed');
-      const originalNodeEnv = process.env.NODE_ENV;
+
+    it('should include error details for generic Error in non-production environment', () => {
+      // Set non-production environment
       process.env.NODE_ENV = 'development';
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(genericError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(mockResponse.json).toHaveBeenCalledWith({
+
+      // Create a generic Error
+      const error = new Error('Test generic error');
+
+      // Call the middleware
+      middleware.handle(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      // Verify response includes details
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(jsonSpy).toHaveBeenCalledWith({
         error: {
           type: ErrorType.TECHNICAL,
           code: 'INTERNAL_ERROR',
           message: 'An unexpected error occurred',
           details: {
             name: 'Error',
-            message: 'Database query failed'
+            message: 'Test generic error'
           }
         }
       });
-      expect(loggerService.error).toHaveBeenCalled();
-      
-      // Restore NODE_ENV
-      process.env.NODE_ENV = originalNodeEnv;
     });
-  });
-  
-  describe('Request context handling', () => {
-    it('should include request context in error logging', () => {
-      // Arrange
-      mockRequest.headers['x-journey-id'] = 'health-journey';
-      const genericError = new Error('Something went wrong');
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(genericError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Unhandled exception'),
-        expect.any(String),
-        expect.stringContaining('ErrorHandlerMiddleware')
-      );
-      // The first argument to the error method should be the logger context
-      const errorCall = (loggerService.error as jest.Mock).mock.calls[0];
-      expect(errorCall[0]).toContain('Unhandled exception');
-    });
-    
-    it('should handle requests without user information', () => {
-      // Arrange
-      mockRequest.user = undefined;
-      const genericError = new Error('Something went wrong');
-      
-      // Act
-      errorHandlerMiddleware(loggerService)(genericError, mockRequest as Request, mockResponse as Response, nextFunction);
-      
-      // Assert
-      expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(mockResponse.json).toHaveBeenCalled();
-      expect(loggerService.error).toHaveBeenCalled();
-    });
-  });
-  
-  describe('Error response format', () => {
-    it('should always return error responses in the standard format', () => {
-      // Arrange
-      const errors = [
-        new AppException('App error', ErrorType.BUSINESS, 'BUS_001'),
-        new HttpException('Http error', HttpStatus.BAD_REQUEST),
-        new Error('Generic error')
+
+    it('should map different error types to correct HTTP status codes', () => {
+      // Test different error types and their status code mappings
+      const errorTypesToStatusCodes = [
+        { type: ErrorType.VALIDATION, code: HttpStatus.BAD_REQUEST },
+        { type: ErrorType.BUSINESS, code: HttpStatus.UNPROCESSABLE_ENTITY },
+        { type: ErrorType.EXTERNAL, code: HttpStatus.BAD_GATEWAY },
+        { type: ErrorType.TECHNICAL, code: HttpStatus.INTERNAL_SERVER_ERROR },
+        { type: ErrorType.AUTHENTICATION, code: HttpStatus.UNAUTHORIZED },
+        { type: ErrorType.AUTHORIZATION, code: HttpStatus.FORBIDDEN },
+        { type: ErrorType.NOT_FOUND, code: HttpStatus.NOT_FOUND },
+        { type: ErrorType.CONFLICT, code: HttpStatus.CONFLICT },
+        { type: ErrorType.RATE_LIMIT, code: HttpStatus.TOO_MANY_REQUESTS },
+        { type: ErrorType.TIMEOUT, code: HttpStatus.GATEWAY_TIMEOUT }
       ];
-      
-      // Act & Assert
-      errors.forEach(error => {
-        errorHandlerMiddleware(loggerService)(error, mockRequest as Request, mockResponse as Response, nextFunction);
-        
-        // Verify the response has the standard error structure
-        const jsonCall = (mockResponse.json as jest.Mock).mock.calls.pop()[0];
-        expect(jsonCall).toHaveProperty('error');
-        expect(jsonCall.error).toHaveProperty('type');
-        expect(jsonCall.error).toHaveProperty('message');
-        
-        // Reset mocks for next iteration
+
+      for (const { type, code } of errorTypesToStatusCodes) {
+        // Reset mocks
         jest.clearAllMocks();
-      });
+
+        // Create error with specific type
+        const error = new BaseError(
+          `Test ${type} error`,
+          type,
+          'TEST_002',
+          { component: 'test-component' }
+        );
+
+        // Call the middleware
+        middleware.handle(
+          error,
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        );
+
+        // Verify correct status code
+        expect(statusSpy).toHaveBeenCalledWith(code);
+      }
+    });
+
+    it('should map HTTP status codes to correct error types for HttpExceptions', () => {
+      // Test different HTTP status codes and their error type mappings
+      const statusCodesToErrorTypes = [
+        { code: HttpStatus.BAD_REQUEST, type: ErrorType.VALIDATION },
+        { code: HttpStatus.UNPROCESSABLE_ENTITY, type: ErrorType.BUSINESS },
+        { code: HttpStatus.BAD_GATEWAY, type: ErrorType.EXTERNAL },
+        { code: HttpStatus.INTERNAL_SERVER_ERROR, type: ErrorType.TECHNICAL },
+        { code: HttpStatus.SERVICE_UNAVAILABLE, type: ErrorType.EXTERNAL },
+        { code: HttpStatus.GATEWAY_TIMEOUT, type: ErrorType.EXTERNAL }
+      ];
+
+      for (const { code, type } of statusCodesToErrorTypes) {
+        // Reset mocks
+        jest.clearAllMocks();
+
+        // Create HttpException with specific status code
+        const error = new HttpException('Test HTTP exception', code);
+
+        // Call the middleware
+        middleware.handle(
+          error,
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        );
+
+        // Verify correct error type in response
+        expect(jsonSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            error: expect.objectContaining({
+              type
+            })
+          })
+        );
+      }
+    });
+
+    it('should log different error types with appropriate severity', () => {
+      // Test different error types and their logging methods
+      const errorTypesToLogMethods = [
+        { type: ErrorType.VALIDATION, logMethod: 'debug' },
+        { type: ErrorType.BUSINESS, logMethod: 'warn' },
+        { type: ErrorType.EXTERNAL, logMethod: 'error' },
+        { type: ErrorType.TECHNICAL, logMethod: 'error' }
+      ];
+
+      for (const { type, logMethod } of errorTypesToLogMethods) {
+        // Reset mocks
+        jest.clearAllMocks();
+
+        // Create error with specific type
+        const error = new BaseError(
+          `Test ${type} error`,
+          type,
+          'TEST_003',
+          { component: 'test-component' }
+        );
+
+        // Call the middleware
+        middleware.handle(
+          error,
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        );
+
+        // Verify correct logging method was used
+        expect(loggerService[logMethod]).toHaveBeenCalled();
+      }
+    });
+
+    it('should use the static create method to instantiate middleware', () => {
+      // Use the static create method
+      const middlewareFunction = ErrorHandlerMiddleware.create(
+        loggerService as unknown as LoggerService,
+        tracingService as unknown as TracingService
+      );
+
+      // Create a BaseError
+      const error = new BaseError(
+        'Test error',
+        ErrorType.BUSINESS,
+        'TEST_004'
+      );
+
+      // Call the middleware function
+      middlewareFunction(
+        error,
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      // Verify response
+      expect(statusSpy).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(jsonSpy).toHaveBeenCalledWith(error.toJSON());
     });
   });
 });

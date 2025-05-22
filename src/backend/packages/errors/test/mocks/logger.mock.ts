@@ -1,7 +1,7 @@
 import { LoggerService as NestLoggerService } from '@nestjs/common';
 
 /**
- * Log entry structure for capturing logs in tests
+ * Interface representing a log entry for testing purposes
  */
 export interface LogEntry {
   level: 'log' | 'error' | 'warn' | 'debug' | 'verbose';
@@ -9,171 +9,210 @@ export interface LogEntry {
   context?: any;
   trace?: any;
   timestamp: Date;
-  journeyContext?: {
-    journeyType?: 'health' | 'care' | 'plan';
-    userId?: string;
-    correlationId?: string;
-  };
+  journeyContext?: 'health' | 'care' | 'plan';
+  metadata?: Record<string, any>;
 }
 
 /**
- * Mock implementation of LoggerService for testing purposes.
+ * Mock implementation of the LoggerService for testing purposes.
  * Captures log entries in memory rather than writing to console or external services.
- * Provides methods to retrieve and clear log history for test assertions.
+ * Provides methods to retrieve and clear logs for test assertions.
+ *
+ * This mock is designed for unit and integration testing of the error handling framework,
+ * allowing tests to verify that appropriate log messages are generated without side effects.
  */
 export class MockLoggerService implements NestLoggerService {
-  private static logEntries: LogEntry[] = [];
-  private journeyContext?: {
-    journeyType?: 'health' | 'care' | 'plan';
-    userId?: string;
-    correlationId?: string;
-  };
-
+  private logs: LogEntry[] = [];
+  
   /**
-   * Creates a new instance of MockLoggerService
-   * @param context Optional journey context to include with all log entries
+   * Creates a new instance of MockLoggerService.
+   * @param options Optional configuration options
    */
-  constructor(context?: {
-    journeyType?: 'health' | 'care' | 'plan';
-    userId?: string;
-    correlationId?: string;
-  }) {
-    this.journeyContext = context;
-  }
+  constructor(private options: { captureStackTraces?: boolean } = {}) {}
 
   /**
-   * Logs a message with the INFO level and stores it in memory
+   * Logs a message with the INFO level.
    * @param message The message to log
    * @param context Optional context for the log
    */
   log(message: string, context?: any): void {
-    MockLoggerService.logEntries.push({
-      level: 'log',
-      message,
-      context,
-      timestamp: new Date(),
-      journeyContext: this.journeyContext,
-    });
+    this.addLogEntry('log', message, context);
   }
 
   /**
-   * Logs a message with the ERROR level and stores it in memory
+   * Logs a message with the ERROR level.
    * @param message The message to log
    * @param trace Optional stack trace or error object
    * @param context Optional context for the log
    */
   error(message: string, trace?: any, context?: any): void {
-    MockLoggerService.logEntries.push({
-      level: 'error',
-      message,
-      trace,
-      context,
-      timestamp: new Date(),
-      journeyContext: this.journeyContext,
-    });
+    this.addLogEntry('error', message, context, trace);
   }
 
   /**
-   * Logs a message with the WARN level and stores it in memory
+   * Logs a message with the WARN level.
    * @param message The message to log
    * @param context Optional context for the log
    */
   warn(message: string, context?: any): void {
-    MockLoggerService.logEntries.push({
-      level: 'warn',
-      message,
-      context,
-      timestamp: new Date(),
-      journeyContext: this.journeyContext,
-    });
+    this.addLogEntry('warn', message, context);
   }
 
   /**
-   * Logs a message with the DEBUG level and stores it in memory
+   * Logs a message with the DEBUG level.
    * @param message The message to log
    * @param context Optional context for the log
    */
   debug(message: string, context?: any): void {
-    MockLoggerService.logEntries.push({
-      level: 'debug',
-      message,
-      context,
-      timestamp: new Date(),
-      journeyContext: this.journeyContext,
-    });
+    this.addLogEntry('debug', message, context);
   }
 
   /**
-   * Logs a message with the VERBOSE level and stores it in memory
+   * Logs a message with the VERBOSE level.
    * @param message The message to log
    * @param context Optional context for the log
    */
   verbose(message: string, context?: any): void {
-    MockLoggerService.logEntries.push({
-      level: 'verbose',
+    this.addLogEntry('verbose', message, context);
+  }
+
+  /**
+   * Adds a log entry to the internal logs array.
+   * @param level The log level
+   * @param message The message to log
+   * @param context Optional context for the log
+   * @param trace Optional stack trace or error object
+   */
+  private addLogEntry(level: LogEntry['level'], message: string, context?: any, trace?: any): void {
+    // Extract journey context from the context object if available
+    let journeyContext: 'health' | 'care' | 'plan' | undefined;
+    let metadata: Record<string, any> | undefined;
+    
+    if (context && typeof context === 'object') {
+      if (context.journey && ['health', 'care', 'plan'].includes(context.journey)) {
+        journeyContext = context.journey as 'health' | 'care' | 'plan';
+      }
+      
+      // Extract additional metadata if available
+      if (context.metadata && typeof context.metadata === 'object') {
+        metadata = { ...context.metadata };
+      }
+    }
+    
+    // Process trace if it's an Error object
+    let processedTrace = trace;
+    if (trace instanceof Error && !this.options.captureStackTraces) {
+      // Only capture error message and name by default to avoid large objects in test output
+      processedTrace = {
+        name: trace.name,
+        message: trace.message
+      };
+    }
+    
+    this.logs.push({
+      level,
       message,
       context,
+      trace: processedTrace,
       timestamp: new Date(),
-      journeyContext: this.journeyContext,
+      journeyContext,
+      metadata,
     });
   }
 
   /**
-   * Retrieves all captured log entries
+   * Returns all captured log entries.
    * @returns Array of log entries
    */
-  static getLogEntries(): LogEntry[] {
-    return [...MockLoggerService.logEntries];
+  getLogEntries(): LogEntry[] {
+    return [...this.logs];
   }
 
   /**
-   * Retrieves log entries filtered by level
+   * Returns log entries filtered by level.
    * @param level The log level to filter by
    * @returns Array of filtered log entries
    */
-  static getLogEntriesByLevel(level: LogEntry['level']): LogEntry[] {
-    return MockLoggerService.logEntries.filter(entry => entry.level === level);
+  getLogEntriesByLevel(level: LogEntry['level']): LogEntry[] {
+    return this.logs.filter(log => log.level === level);
   }
 
   /**
-   * Retrieves log entries filtered by journey type
-   * @param journeyType The journey type to filter by
+   * Returns log entries that contain the specified text in their message.
+   * @param text The text to search for in log messages
    * @returns Array of filtered log entries
    */
-  static getLogEntriesByJourney(journeyType: 'health' | 'care' | 'plan'): LogEntry[] {
-    return MockLoggerService.logEntries.filter(
-      entry => entry.journeyContext?.journeyType === journeyType
-    );
+  getLogEntriesByText(text: string): LogEntry[] {
+    return this.logs.filter(log => log.message.includes(text));
   }
 
   /**
-   * Checks if a specific message was logged
-   * @param message The message to search for
-   * @param level Optional log level to filter by
-   * @returns True if the message was found, false otherwise
+   * Returns log entries that match the specified journey context.
+   * @param journeyContext The journey context to filter by
+   * @returns Array of filtered log entries
    */
-  static hasLoggedMessage(message: string, level?: LogEntry['level']): boolean {
-    return MockLoggerService.logEntries.some(
-      entry => entry.message.includes(message) && (!level || entry.level === level)
-    );
+  getLogEntriesByJourneyContext(journeyContext: 'health' | 'care' | 'plan'): LogEntry[] {
+    return this.logs.filter(log => log.journeyContext === journeyContext);
   }
 
   /**
-   * Clears all captured log entries
+   * Clears all captured log entries.
    */
-  static clearLogs(): void {
-    MockLoggerService.logEntries = [];
+  clearLogs(): void {
+    this.logs = [];
   }
 
   /**
-   * Sets the journey context for this logger instance
-   * @param context The journey context to set
+   * Returns the count of log entries by level.
+   * @returns Object with counts for each log level
    */
-  setJourneyContext(context: {
-    journeyType?: 'health' | 'care' | 'plan';
-    userId?: string;
-    correlationId?: string;
-  }): void {
-    this.journeyContext = context;
+  getLogCounts(): Record<LogEntry['level'], number> {
+    const counts = {
+      log: 0,
+      error: 0,
+      warn: 0,
+      debug: 0,
+      verbose: 0,
+    };
+
+    this.logs.forEach(log => {
+      counts[log.level]++;
+    });
+
+    return counts;
+  }
+  
+  /**
+   * Returns log entries that contain the specified metadata key-value pair.
+   * @param key The metadata key to search for
+   * @param value The metadata value to match (optional)
+   * @returns Array of filtered log entries
+   */
+  getLogEntriesByMetadata(key: string, value?: any): LogEntry[] {
+    return this.logs.filter(log => {
+      if (!log.metadata) return false;
+      if (value === undefined) return key in log.metadata;
+      return log.metadata[key] === value;
+    });
+  }
+  
+  /**
+   * Returns the most recent log entry.
+   * @returns The most recent log entry or undefined if no logs exist
+   */
+  getLastLogEntry(): LogEntry | undefined {
+    if (this.logs.length === 0) return undefined;
+    return this.logs[this.logs.length - 1];
+  }
+  
+  /**
+   * Returns the most recent log entry of the specified level.
+   * @param level The log level to filter by
+   * @returns The most recent log entry of the specified level or undefined if none exists
+   */
+  getLastLogEntryByLevel(level: LogEntry['level']): LogEntry | undefined {
+    const filtered = this.getLogEntriesByLevel(level);
+    if (filtered.length === 0) return undefined;
+    return filtered[filtered.length - 1];
   }
 }

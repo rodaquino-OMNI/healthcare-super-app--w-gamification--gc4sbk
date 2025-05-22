@@ -1,506 +1,530 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { GlobalExceptionFilter } from '../../../src/nest/filters';
-import { BaseError, ErrorType, JourneyErrorType } from '../../../src/types';
-import { LoggerMock } from '../../mocks/logger.mock';
-import { ArgumentsHostMock, createMockArgumentsHost } from '../../mocks/nest-components.mock';
-import { TracingMock } from '../../mocks/tracing.mock';
-import { RETRY_CONFIG } from '../../../src/constants';
+import { LoggingService } from '@austa/logging';
+import { TracingService } from '@austa/tracing';
+import { FallbackStrategyExecutor } from '../../../src/recovery/fallback-strategy.executor';
+import { BaseError, ErrorType } from '../../../src/categories/base.error';
+import { TechnicalError } from '../../../src/categories/technical.errors';
+import { ExternalError } from '../../../src/categories/external.errors';
+import { isRecoverableError } from '../../../src/utils/error-classification.util';
+
+// Mock the dependencies
+jest.mock('@austa/logging');
+jest.mock('@austa/tracing');
+jest.mock('../../../src/recovery/fallback-strategy.executor');
+jest.mock('../../../src/utils/error-classification.util');
+
+// Mock implementation of BaseError for testing
+class MockBaseError extends Error implements BaseError {
+  constructor(
+    public readonly message: string,
+    public readonly type: ErrorType,
+    public readonly code: string,
+    public readonly details?: Record<string, any>,
+    public readonly context?: Record<string, any>,
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+  }
+
+  toJSON() {
+    return {
+      error: {
+        type: this.type,
+        code: this.code,
+        message: this.message,
+        ...(this.details && { details: this.details }),
+        ...(this.context && { context: this.context }),
+      },
+    };
+  }
+}
+
+// Mock implementation of TechnicalError for testing
+class MockTechnicalError extends MockBaseError {
+  constructor(
+    message: string,
+    code: string = 'TECHNICAL_ERROR',
+    details?: Record<string, any>,
+    context?: Record<string, any>,
+  ) {
+    super(message, ErrorType.TECHNICAL, code, details, context);
+  }
+}
+
+// Mock implementation of ExternalError for testing
+class MockExternalError extends MockBaseError {
+  constructor(
+    message: string,
+    code: string = 'EXTERNAL_ERROR',
+    details?: Record<string, any>,
+    context?: Record<string, any>,
+  ) {
+    super(message, ErrorType.EXTERNAL, code, details, context);
+  }
+}
+
+// Mock implementation of ValidationError for testing
+class MockValidationError extends MockBaseError {
+  constructor(
+    message: string,
+    code: string = 'VALIDATION_ERROR',
+    details?: Record<string, any>,
+    context?: Record<string, any>,
+  ) {
+    super(message, ErrorType.VALIDATION, code, details, context);
+  }
+}
+
+// Mock implementation of BusinessError for testing
+class MockBusinessError extends MockBaseError {
+  constructor(
+    message: string,
+    code: string = 'BUSINESS_ERROR',
+    details?: Record<string, any>,
+    context?: Record<string, any>,
+  ) {
+    super(message, ErrorType.BUSINESS, code, details, context);
+  }
+}
+
+// Mock implementation of JourneyError for testing
+class MockHealthJourneyError extends MockBaseError {
+  constructor(
+    message: string,
+    code: string = 'HEALTH_JOURNEY_ERROR',
+    details?: Record<string, any>,
+    context?: Record<string, any>,
+  ) {
+    super(message, ErrorType.HEALTH_JOURNEY, code, details, context);
+  }
+}
 
 describe('GlobalExceptionFilter', () => {
   let filter: GlobalExceptionFilter;
-  let loggerMock: LoggerMock;
-  let tracingMock: TracingMock;
-  let hostMock: ArgumentsHostMock;
-  let responseMock: any;
-  let requestMock: any;
+  let loggingService: jest.Mocked<LoggingService>;
+  let tracingService: jest.Mocked<TracingService>;
+  let fallbackStrategyExecutor: jest.Mocked<FallbackStrategyExecutor>;
+  let host: ArgumentsHost;
+
+  // Mock HTTP context
+  const mockHttpContext = {
+    getResponse: jest.fn().mockReturnValue({
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn().mockReturnThis(),
+    }),
+    getRequest: jest.fn().mockReturnValue({
+      method: 'GET',
+      url: '/test',
+      path: '/test',
+      params: {},
+      query: {},
+      headers: {
+        'x-request-id': 'test-request-id',
+        'x-correlation-id': 'test-correlation-id',
+        'x-journey-id': 'test-journey-id',
+        'x-journey-step': 'test-step',
+        'user-agent': 'test-user-agent',
+      },
+      user: { id: 'test-user-id' },
+    }),
+  };
 
   beforeEach(async () => {
-    loggerMock = new LoggerMock();
-    tracingMock = new TracingMock();
-    
+    // Reset all mocks
+    jest.clearAllMocks();
+
+    // Mock the ArgumentsHost
+    host = {
+      switchToHttp: jest.fn().mockReturnValue(mockHttpContext),
+      getArgByIndex: jest.fn(),
+      getArgs: jest.fn(),
+      getType: jest.fn(),
+    };
+
+    // Create mocked services
     const moduleRef = await Test.createTestingModule({
       providers: [
         GlobalExceptionFilter,
-        { provide: 'LoggerService', useValue: loggerMock },
-        { provide: 'TracingService', useValue: tracingMock }
+        {
+          provide: LoggingService,
+          useValue: {
+            info: jest.fn(),
+            debug: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+          },
+        },
+        {
+          provide: TracingService,
+          useValue: {
+            setErrorInCurrentSpan: jest.fn(),
+            getCurrentTraceId: jest.fn().mockReturnValue('test-trace-id'),
+          },
+        },
+        {
+          provide: FallbackStrategyExecutor,
+          useValue: {
+            execute: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     filter = moduleRef.get<GlobalExceptionFilter>(GlobalExceptionFilter);
-    
-    responseMock = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    
-    requestMock = {
-      method: 'GET',
-      url: '/test',
-      headers: {
-        'x-journey-id': 'health',
-        'x-request-id': '123456',
-        'x-correlation-id': 'abcdef'
-      },
-      user: { id: 'user123' }
-    };
-    
-    hostMock = createMockArgumentsHost(requestMock, responseMock);
-  });
+    loggingService = moduleRef.get(LoggingService) as jest.Mocked<LoggingService>;
+    tracingService = moduleRef.get(TracingService) as jest.Mocked<TracingService>;
+    fallbackStrategyExecutor = moduleRef.get(FallbackStrategyExecutor) as jest.Mocked<FallbackStrategyExecutor>;
 
-  afterEach(() => {
-    jest.clearAllMocks();
-    loggerMock.clearLogs();
-    tracingMock.clearSpans();
+    // Mock isRecoverableError by default to return false
+    (isRecoverableError as jest.Mock).mockReturnValue(false);
   });
 
   it('should be defined', () => {
     expect(filter).toBeDefined();
   });
 
-  describe('BaseError handling', () => {
-    it('should handle validation errors with 400 status code', () => {
+  describe('Error handling and response formatting', () => {
+    it('should handle BaseError and return the correct status code', () => {
       // Arrange
-      const validationError = new BaseError({
-        message: 'Invalid input data',
-        type: ErrorType.VALIDATION,
-        code: 'VALIDATION_ERROR',
-        details: { field: 'email', issue: 'format' }
-      });
-
+      const error = new MockBusinessError('Business rule violated', 'BUSINESS_RULE_VIOLATION');
+      
       // Act
-      filter.catch(validationError, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-      expect(responseMock.json).toHaveBeenCalledWith({
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(response.json).toHaveBeenCalledWith(error.toJSON());
+      expect(loggingService.warn).toHaveBeenCalled();
+      expect(tracingService.setErrorInCurrentSpan).toHaveBeenCalledWith(error);
+    });
+
+    it('should handle HttpException and return the correct status code', () => {
+      // Arrange
+      const error = new HttpException('Bad request', HttpStatus.BAD_REQUEST);
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+      expect(response.json).toHaveBeenCalledWith({
         error: {
           type: ErrorType.VALIDATION,
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid input data',
-          details: { field: 'email', issue: 'format' }
-        }
+          message: 'Bad request',
+        },
       });
-      expect(loggerMock.getLogEntries('debug')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-
-    it('should handle business errors with 422 status code', () => {
-      // Arrange
-      const businessError = new BaseError({
-        message: 'Cannot schedule appointment in the past',
-        type: ErrorType.BUSINESS,
-        code: 'INVALID_APPOINTMENT_DATE',
-        details: { date: '2023-01-01' }
-      });
-
-      // Act
-      filter.catch(businessError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.BUSINESS,
-          code: 'INVALID_APPOINTMENT_DATE',
-          message: 'Cannot schedule appointment in the past',
-          details: { date: '2023-01-01' }
-        }
-      });
-      expect(loggerMock.getLogEntries('warn')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-
-    it('should handle technical errors with 500 status code', () => {
-      // Arrange
-      const technicalError = new BaseError({
-        message: 'Database connection failed',
-        type: ErrorType.TECHNICAL,
-        code: 'DB_CONNECTION_ERROR',
-        details: { service: 'postgres' }
-      });
-
-      // Act
-      filter.catch(technicalError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.TECHNICAL,
-          code: 'DB_CONNECTION_ERROR',
-          message: 'Database connection failed',
-          details: { service: 'postgres' }
-        }
-      });
-      expect(loggerMock.getLogEntries('error')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-
-    it('should handle external errors with 502 status code', () => {
-      // Arrange
-      const externalError = new BaseError({
-        message: 'External API unavailable',
-        type: ErrorType.EXTERNAL,
-        code: 'EXTERNAL_API_ERROR',
-        details: { service: 'payment-gateway' }
-      });
-
-      // Act
-      filter.catch(externalError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.EXTERNAL,
-          code: 'EXTERNAL_API_ERROR',
-          message: 'External API unavailable',
-          details: { service: 'payment-gateway' }
-        }
-      });
-      expect(loggerMock.getLogEntries('error')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-
-    it('should handle journey-specific errors with appropriate status code', () => {
-      // Arrange
-      const journeyError = new BaseError({
-        message: 'Health metric not found',
-        type: ErrorType.BUSINESS,
-        code: 'HEALTH_001',
-        journeyType: JourneyErrorType.HEALTH,
-        details: { metricId: '123' }
-      });
-
-      // Act
-      filter.catch(journeyError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.BUSINESS,
-          code: 'HEALTH_001',
-          message: 'Health metric not found',
-          journeyType: JourneyErrorType.HEALTH,
-          details: { metricId: '123' }
-        }
-      });
-      expect(loggerMock.getLogEntries('warn')).toHaveLength(1);
-      expect(loggerMock.getLogEntries('warn')[0].context).toContain('HEALTH');
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls[0].tags).toHaveProperty('journeyType', JourneyErrorType.HEALTH);
-    });
-  });
-
-  describe('HttpException handling', () => {
-    it('should handle NestJS HttpException with appropriate status code', () => {
-      // Arrange
-      const httpException = new HttpException('Forbidden resource', HttpStatus.FORBIDDEN);
-
-      // Act
-      filter.catch(httpException, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.FORBIDDEN);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.VALIDATION, // 4xx maps to VALIDATION
-          message: 'Forbidden resource'
-        }
-      });
-      expect(loggerMock.getLogEntries('warn')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
+      expect(loggingService.debug).toHaveBeenCalled();
     });
 
     it('should handle HttpException with object response', () => {
       // Arrange
-      const httpException = new HttpException(
-        { message: 'Validation failed', errors: ['Field is required'] },
-        HttpStatus.BAD_REQUEST
-      );
-
+      const errorResponse = {
+        message: 'Validation failed',
+        errors: [{ field: 'email', message: 'Invalid email format' }],
+      };
+      const error = new HttpException(errorResponse, HttpStatus.BAD_REQUEST);
+      
       // Act
-      filter.catch(httpException, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-      expect(responseMock.json).toHaveBeenCalledWith({
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+      expect(response.json).toHaveBeenCalledWith({
         error: {
-          message: 'Validation failed',
-          errors: ['Field is required'],
-          type: ErrorType.VALIDATION
-        }
+          ...errorResponse,
+          type: ErrorType.VALIDATION,
+        },
       });
-      expect(loggerMock.getLogEntries('warn')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
     });
 
-    it('should map 5xx HttpExceptions to TECHNICAL error type', () => {
+    it('should handle unknown errors and return 500 status code', () => {
       // Arrange
-      const httpException = new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
-
+      const error = new Error('Unknown error');
+      
       // Act
-      filter.catch(httpException, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.TECHNICAL,
-          message: 'Internal server error'
-        }
-      });
-      expect(loggerMock.getLogEntries('error')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-
-    it('should map specific 5xx HttpExceptions to EXTERNAL error type', () => {
-      // Arrange
-      const httpException = new HttpException('Bad gateway', HttpStatus.BAD_GATEWAY);
-
-      // Act
-      filter.catch(httpException, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.EXTERNAL,
-          message: 'Bad gateway'
-        }
-      });
-      expect(loggerMock.getLogEntries('error')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-    });
-  });
-
-  describe('Unknown error handling', () => {
-    it('should handle unknown errors with 500 status code', () => {
-      // Arrange
-      const unknownError = new Error('Something went wrong');
-
-      // Act
-      filter.catch(unknownError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(responseMock.json).toHaveBeenCalledWith({
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(response.json).toHaveBeenCalledWith({
         error: {
           type: ErrorType.TECHNICAL,
           code: 'INTERNAL_ERROR',
           message: 'An unexpected error occurred',
           details: {
             name: 'Error',
-            message: 'Something went wrong'
-          }
-        }
+            message: 'Unknown error',
+          },
+          traceId: 'test-trace-id',
+        },
       });
-      expect(loggerMock.getLogEntries('error')).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
+      expect(loggingService.error).toHaveBeenCalled();
     });
 
-    it('should not include error details in production environment', () => {
+    it('should handle TechnicalError and log with error level', () => {
       // Arrange
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
-      const unknownError = new Error('Something went wrong');
-
-      // Act
-      filter.catch(unknownError, hostMock);
-
-      // Assert
-      expect(responseMock.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(responseMock.json).toHaveBeenCalledWith({
-        error: {
-          type: ErrorType.TECHNICAL,
-          code: 'INTERNAL_ERROR',
-          message: 'An unexpected error occurred'
-          // No details in production
-        }
-      });
+      const error = new MockTechnicalError('Database connection failed', 'DB_CONNECTION_ERROR');
       
-      // Restore environment
-      process.env.NODE_ENV = originalEnv;
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      expect(loggingService.error).toHaveBeenCalled();
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should handle ExternalError and log with error level', () => {
+      // Arrange
+      const error = new MockExternalError('External API unavailable', 'EXTERNAL_API_ERROR');
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      expect(loggingService.error).toHaveBeenCalled();
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
+    });
+
+    it('should handle ValidationError and log with debug level', () => {
+      // Arrange
+      const error = new MockValidationError('Invalid input', 'INVALID_INPUT');
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      expect(loggingService.debug).toHaveBeenCalled();
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+    });
+
+    it('should handle BusinessError and log with warn level', () => {
+      // Arrange
+      const error = new MockBusinessError('Resource not found', 'RESOURCE_NOT_FOUND');
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      expect(loggingService.warn).toHaveBeenCalled();
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should handle journey-specific errors with appropriate status codes', () => {
+      // Arrange
+      const error = new MockHealthJourneyError('Health goal not achievable', 'HEALTH_GOAL_ERROR');
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(loggingService.warn).toHaveBeenCalled();
     });
   });
 
-  describe('Request context handling', () => {
-    it('should include request context in logs', () => {
+  describe('Error context and journey information', () => {
+    it('should include journey context in error response when available', () => {
       // Arrange
-      const error = new Error('Test error');
-
+      const error = new MockBusinessError(
+        'Business rule violated',
+        'BUSINESS_RULE_VIOLATION',
+        { rule: 'appointment-scheduling' },
+        { journeyContext: 'care' }
+      );
+      
       // Act
-      filter.catch(error, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      const logEntry = loggerMock.getLogEntries('error')[0];
-      expect(logEntry.meta).toMatchObject({
-        requestInfo: {
-          method: 'GET',
-          url: '/test',
-          userId: 'user123',
-          journeyId: 'health'
-        }
-      });
+      const response = mockHttpContext.getResponse();
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({
+          journeyContext: expect.objectContaining({
+            journeyId: 'test-journey-id',
+            journeyStep: 'test-step'
+          })
+        })
+      }));
     });
 
-    it('should include request headers in tracing spans', () => {
+    it('should include trace ID in error response for unknown errors', () => {
       // Arrange
-      const error = new Error('Test error');
-
+      const error = new Error('Unknown error');
+      
       // Act
-      filter.catch(error, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(tracingMock.recordErrorCalls[0].tags).toMatchObject({
-        'http.method': 'GET',
-        'http.url': '/test',
-        'request.id': '123456',
-        'correlation.id': 'abcdef'
-      });
+      const response = mockHttpContext.getResponse();
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({
+          traceId: 'test-trace-id'
+        })
+      }));
+    });
+
+    it('should extract and use request information for logging context', () => {
+      // Arrange
+      const error = new MockTechnicalError('System error');
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      expect(loggingService.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          requestInfo: expect.objectContaining({
+            method: 'GET',
+            url: '/test',
+            userId: 'test-user-id',
+            journeyId: 'test-journey-id'
+          })
+        })
+      );
     });
   });
 
   describe('Fallback strategy execution', () => {
-    it('should attempt fallback for recoverable errors', () => {
+    it('should attempt recovery for recoverable errors', () => {
       // Arrange
-      const recoverableError = new BaseError({
-        message: 'Temporary database unavailable',
-        type: ErrorType.TECHNICAL,
-        code: 'DB_TEMPORARY_ERROR',
-        isRecoverable: true
-      });
+      const error = new MockExternalError('External API timeout', 'EXTERNAL_TIMEOUT');
+      (isRecoverableError as jest.Mock).mockReturnValue(true);
       
-      // Mock the fallback strategy method
-      const fallbackSpy = jest.spyOn(filter as any, 'executeFallbackStrategy').mockResolvedValue({
-        success: true,
-        data: { fallback: 'data' }
-      });
-
       // Act
-      filter.catch(recoverableError, hostMock);
-
-      // Assert
-      expect(fallbackSpy).toHaveBeenCalled();
-      expect(loggerMock.getLogEntries('info')).toContainEqual(
-        expect.objectContaining({
-          message: expect.stringContaining('Fallback strategy executed')
-        })
-      );
-    });
-
-    it('should not attempt fallback for non-recoverable errors', () => {
-      // Arrange
-      const nonRecoverableError = new BaseError({
-        message: 'Critical database error',
-        type: ErrorType.TECHNICAL,
-        code: 'DB_CRITICAL_ERROR',
-        isRecoverable: false
-      });
+      filter.catch(error, host);
       
-      // Mock the fallback strategy method
-      const fallbackSpy = jest.spyOn(filter as any, 'executeFallbackStrategy');
-
-      // Act
-      filter.catch(nonRecoverableError, hostMock);
-
       // Assert
-      expect(fallbackSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Retry mechanism', () => {
-    it('should attempt retry for transient errors', async () => {
-      // Arrange
-      const transientError = new BaseError({
-        message: 'Network temporarily unavailable',
-        type: ErrorType.EXTERNAL,
-        code: 'NETWORK_ERROR',
-        isTransient: true
-      });
-      
-      // Mock the retry method
-      const retrySpy = jest.spyOn(filter as any, 'executeWithRetry').mockResolvedValue({
-        success: false,
-        error: transientError
-      });
-
-      // Act
-      await filter.catch(transientError, hostMock);
-
-      // Assert
-      expect(retrySpy).toHaveBeenCalled();
-      expect(retrySpy).toHaveBeenCalledWith(
-        expect.any(Function),
-        RETRY_CONFIG.EXTERNAL_API,
+      expect(fallbackStrategyExecutor.execute).toHaveBeenCalledWith(
+        error,
         expect.any(Object)
       );
     });
 
-    it('should not attempt retry for non-transient errors', async () => {
+    it('should return fallback result when recovery is successful', () => {
       // Arrange
-      const nonTransientError = new BaseError({
-        message: 'Validation failed',
-        type: ErrorType.VALIDATION,
-        code: 'VALIDATION_ERROR',
-        isTransient: false
+      const error = new MockExternalError('External API timeout', 'EXTERNAL_TIMEOUT');
+      const fallbackResult = {
+        recovered: true,
+        strategyName: 'cached-data',
+        statusCode: HttpStatus.OK,
+        data: { result: 'fallback-data' }
+      };
+      
+      (isRecoverableError as jest.Mock).mockReturnValue(true);
+      fallbackStrategyExecutor.execute.mockReturnValue(fallbackResult);
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.OK);
+      expect(response.json).toHaveBeenCalledWith({ result: 'fallback-data' });
+      expect(loggingService.info).toHaveBeenCalled();
+    });
+
+    it('should proceed with normal error handling when recovery fails', () => {
+      // Arrange
+      const error = new MockExternalError('External API error', 'EXTERNAL_API_ERROR');
+      const fallbackResult = {
+        recovered: false,
+        strategyName: 'cached-data'
+      };
+      
+      (isRecoverableError as jest.Mock).mockReturnValue(true);
+      fallbackStrategyExecutor.execute.mockReturnValue(fallbackResult);
+      
+      // Act
+      filter.catch(error, host);
+      
+      // Assert
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
+      expect(loggingService.error).toHaveBeenCalled();
+    });
+
+    it('should handle errors during fallback strategy execution', () => {
+      // Arrange
+      const error = new MockExternalError('External API error', 'EXTERNAL_API_ERROR');
+      const recoveryError = new Error('Fallback strategy failed');
+      
+      (isRecoverableError as jest.Mock).mockReturnValue(true);
+      fallbackStrategyExecutor.execute.mockImplementation(() => {
+        throw recoveryError;
       });
       
-      // Mock the retry method
-      const retrySpy = jest.spyOn(filter as any, 'executeWithRetry');
-
       // Act
-      await filter.catch(nonTransientError, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(retrySpy).not.toHaveBeenCalled();
+      const response = mockHttpContext.getResponse();
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
+      expect(loggingService.error).toHaveBeenCalledWith(
+        'Error occurred during fallback strategy execution',
+        expect.objectContaining({
+          originalException: error,
+          recoveryError
+        })
+      );
     });
   });
 
   describe('Integration with distributed tracing', () => {
-    it('should record error in active span', () => {
+    it('should set error in current span', () => {
       // Arrange
-      const error = new Error('Test error');
-
+      const error = new MockTechnicalError('System error');
+      
       // Act
-      filter.catch(error, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(tracingMock.recordErrorCalls).toHaveLength(1);
-      expect(tracingMock.recordErrorCalls[0].error).toBe(error);
+      expect(tracingService.setErrorInCurrentSpan).toHaveBeenCalledWith(error);
     });
 
-    it('should include error metadata in span', () => {
+    it('should include trace ID in error response when available', () => {
       // Arrange
-      const businessError = new BaseError({
-        message: 'Business rule violation',
-        type: ErrorType.BUSINESS,
-        code: 'BUSINESS_RULE_ERROR',
-        details: { rule: 'appointment-scheduling' }
-      });
-
+      const error = new Error('Unknown error');
+      tracingService.getCurrentTraceId.mockReturnValue('specific-trace-id');
+      
       // Act
-      filter.catch(businessError, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(tracingMock.recordErrorCalls[0].tags).toMatchObject({
-        'error.type': ErrorType.BUSINESS,
-        'error.code': 'BUSINESS_RULE_ERROR'
-      });
+      const response = mockHttpContext.getResponse();
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({
+          traceId: 'specific-trace-id'
+        })
+      }));
     });
 
-    it('should create error span with correct name', () => {
+    it('should include trace ID in logging context', () => {
       // Arrange
-      const error = new Error('Test error');
-
+      const error = new MockTechnicalError('System error');
+      tracingService.getCurrentTraceId.mockReturnValue('specific-trace-id');
+      
       // Act
-      filter.catch(error, hostMock);
-
+      filter.catch(error, host);
+      
       // Assert
-      expect(tracingMock.createSpanCalls).toHaveLength(1);
-      expect(tracingMock.createSpanCalls[0].name).toContain('error.handler');
+      expect(loggingService.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          traceId: 'specific-trace-id'
+        })
+      );
     });
   });
 });

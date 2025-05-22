@@ -1,491 +1,542 @@
-import { CircuitBreaker, CircuitBreakerState, CircuitBreakerOptions } from '../../../src/utils/circuit-breaker';
+/**
+ * @file circuit-breaker.util.spec.ts
+ * @description Unit tests for the circuit breaker utility that prevents cascading failures
+ * when dependent services are unavailable.
+ */
+
+import { jest } from '@jest/globals';
+import {
+  CircuitBreaker,
+  CircuitState,
+  CircuitOpenError,
+  createCircuitBreaker,
+  createCriticalCircuitBreaker,
+  createNonCriticalCircuitBreaker,
+  cachedDataFallback,
+  defaultValueFallback,
+  emptyResultFallback,
+  rethrowWithContextFallback,
+  CircuitBreakerOptions,
+  CircuitMetrics,
+} from '../../../src/utils/circuit-breaker';
+import { CIRCUIT_BREAKER_CONFIG } from '../../../src/constants';
 
 describe('CircuitBreaker', () => {
-  // Mock the Date.now function to control time
-  let now = 0;
-  const realDateNow = Date.now;
-  
+  // Mock timers for testing time-dependent behavior
   beforeEach(() => {
-    now = 0;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.useFakeTimers();
   });
-  
+
   afterEach(() => {
-    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
-  // Helper function to advance time
-  const advanceTime = (ms: number) => {
-    now += ms;
-  };
-
-  describe('Initial State', () => {
-    it('should start in closed state', () => {
+  describe('constructor', () => {
+    it('should create a circuit breaker with default options', () => {
       const circuitBreaker = new CircuitBreaker();
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
+      
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+      expect(circuitBreaker.metrics.successCount).toBe(0);
+      expect(circuitBreaker.metrics.failureCount).toBe(0);
+      expect(circuitBreaker.metrics.rejectCount).toBe(0);
+      expect(circuitBreaker.metrics.totalCount).toBe(0);
+      expect(circuitBreaker.metrics.failureRate).toBe(0);
     });
 
-    it('should use default options when none provided', () => {
-      const circuitBreaker = new CircuitBreaker();
-      expect(circuitBreaker.getOptions()).toEqual(expect.objectContaining({
-        failureThreshold: 5,
-        resetTimeout: 30000, // 30 seconds
-        monitorInterval: 5000, // 5 seconds
-      }));
-    });
-
-    it('should accept custom options', () => {
+    it('should create a circuit breaker with custom options', () => {
       const options: CircuitBreakerOptions = {
-        failureThreshold: 3,
-        resetTimeout: 10000,
-        monitorInterval: 2000,
+        failureThresholdPercentage: 25,
+        requestVolumeThreshold: 10,
+        rollingWindowMs: 5000,
+        resetTimeoutMs: 15000,
+        name: 'test-circuit',
       };
+
       const circuitBreaker = new CircuitBreaker(options);
-      expect(circuitBreaker.getOptions()).toEqual(expect.objectContaining(options));
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
     });
   });
 
-  describe('Closed State', () => {
-    it('should execute operations normally when closed', async () => {
+  describe('execute method', () => {
+    it('should execute an operation successfully when circuit is closed', async () => {
       const circuitBreaker = new CircuitBreaker();
       const operation = jest.fn().mockResolvedValue('success');
-      
-      const result = await circuitBreaker.execute(operation);
-      
+
+      const result = await circuitBreaker.execute(operation, 'test-operation');
+
       expect(result).toBe('success');
-      expect(operation).toHaveBeenCalledTimes(1);
+      expect(operation).toHaveBeenCalled();
+      expect(circuitBreaker.metrics.successCount).toBe(1);
+      expect(circuitBreaker.metrics.failureCount).toBe(0);
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
     });
 
-    it('should track failures but remain closed when below threshold', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 3
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Execute operation twice (below threshold of 3)
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.getFailureCount()).toBe(2);
-    });
-
-    it('should trip open when failures reach threshold', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 3
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Execute operation three times (reaching threshold)
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      expect(circuitBreaker.getFailureCount()).toBe(3);
-    });
-
-    it('should reset failure count after successful execution', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 3
-      });
-      
-      const failOperation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      const successOperation = jest.fn().mockResolvedValue('success');
-      
-      // Execute failing operation twice
-      await expect(circuitBreaker.execute(failOperation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(failOperation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getFailureCount()).toBe(2);
-      
-      // Execute successful operation
-      await circuitBreaker.execute(successOperation);
-      
-      expect(circuitBreaker.getFailureCount()).toBe(0);
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-    });
-  });
-
-  describe('Open State', () => {
-    it('should reject operations immediately when open', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Reset the mock to track new calls
-      operation.mockClear();
-      
-      // Try to execute operation when circuit is open
-      await expect(circuitBreaker.execute(operation))
-        .rejects.toThrow('Circuit breaker is open');
-      
-      // Operation should not be called when circuit is open
-      expect(operation).not.toHaveBeenCalled();
-    });
-
-    it('should use fallback function when provided and circuit is open', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      const fallback = jest.fn().mockResolvedValue('fallback result');
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Execute with fallback when circuit is open
-      const result = await circuitBreaker.execute(operation, fallback);
-      
-      expect(result).toBe('fallback result');
-      expect(operation).not.toHaveBeenCalledTimes(3); // Should not call the main operation
-      expect(fallback).toHaveBeenCalledTimes(1);
-    });
-
-    it('should transition to half-open after reset timeout', async () => {
-      const resetTimeout = 10000; // 10 seconds
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Advance time to just before the reset timeout
-      advanceTime(resetTimeout - 1);
-      
-      // Circuit should still be open
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Advance time to after the reset timeout
-      advanceTime(2);
-      
-      // Circuit should now be half-open
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.HALF_OPEN);
-    });
-  });
-
-  describe('Half-Open State', () => {
-    it('should allow a single test request when half-open', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000
-      });
-      
-      const operation = jest.fn()
-        .mockRejectedValueOnce(new Error('Service unavailable'))
-        .mockRejectedValueOnce(new Error('Service unavailable'))
-        .mockResolvedValueOnce('success');
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Advance time to after the reset timeout
-      advanceTime(10001);
-      
-      // Circuit should now be half-open
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.HALF_OPEN);
-      
-      // Execute operation in half-open state
-      const result = await circuitBreaker.execute(operation);
-      
-      expect(result).toBe('success');
-      expect(operation).toHaveBeenCalledTimes(3);
-      
-      // Circuit should be closed after successful test request
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-    });
-
-    it('should reopen the circuit if the test request fails', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000
-      });
-      
-      // Create an operation that will fail even after the circuit is half-open
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Advance time to after the reset timeout
-      advanceTime(10001);
-      
-      // Circuit should now be half-open
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.HALF_OPEN);
-      
-      // Execute operation in half-open state (will fail)
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      // Circuit should be open again after failed test request
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-    });
-
-    it('should reset the failure count when transitioning to closed state', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000
-      });
-      
-      const operation = jest.fn()
-        .mockRejectedValueOnce(new Error('Service unavailable'))
-        .mockRejectedValueOnce(new Error('Service unavailable'))
-        .mockResolvedValueOnce('success');
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getFailureCount()).toBe(2);
-      
-      // Advance time to after the reset timeout
-      advanceTime(10001);
-      
-      // Execute successful operation in half-open state
-      await circuitBreaker.execute(operation);
-      
-      // Failure count should be reset
-      expect(circuitBreaker.getFailureCount()).toBe(0);
-    });
-  });
-
-  describe('Event Callbacks', () => {
-    it('should trigger onStateChange callback when state changes', async () => {
-      const onStateChange = jest.fn();
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000,
-        onStateChange
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      // Should trigger onStateChange when transitioning from CLOSED to OPEN
-      expect(onStateChange).toHaveBeenCalledWith(
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.OPEN
-      );
-      
-      // Reset mock to track new calls
-      onStateChange.mockClear();
-      
-      // Advance time to after the reset timeout
-      advanceTime(10001);
-      
-      // Should trigger onStateChange when transitioning from OPEN to HALF_OPEN
-      expect(onStateChange).toHaveBeenCalledWith(
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN
-      );
-    });
-
-    it('should trigger onSuccess callback on successful execution', async () => {
-      const onSuccess = jest.fn();
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        onSuccess
-      });
-      
-      const operation = jest.fn().mockResolvedValue('success');
-      
-      // Execute successful operation
-      await circuitBreaker.execute(operation);
-      
-      expect(onSuccess).toHaveBeenCalledWith('success');
-    });
-
-    it('should trigger onError callback on failed execution', async () => {
-      const onError = jest.fn();
-      const error = new Error('Service unavailable');
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        onError
-      });
-      
+    it('should record a failure when operation throws an error', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const error = new Error('test error');
       const operation = jest.fn().mockRejectedValue(error);
-      
-      // Execute failing operation
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(onError).toHaveBeenCalledWith(error);
+
+      await expect(circuitBreaker.execute(operation, 'test-operation')).rejects.toThrow('test error');
+
+      expect(operation).toHaveBeenCalled();
+      expect(circuitBreaker.metrics.successCount).toBe(0);
+      expect(circuitBreaker.metrics.failureCount).toBe(1);
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+    });
+
+    it('should reject operations when circuit is open', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+
+      // Manually open the circuit
+      circuitBreaker.open();
+
+      await expect(circuitBreaker.execute(operation, 'test-operation')).rejects.toThrow(CircuitOpenError);
+
+      expect(operation).not.toHaveBeenCalled();
+      expect(circuitBreaker.metrics.rejectCount).toBe(1);
+      expect(circuitBreaker.currentState).toBe(CircuitState.OPEN);
+    });
+
+    it('should allow a single operation when in half-open state', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+
+      // Manually open the circuit then set to half-open
+      circuitBreaker.open();
+      // @ts-ignore - Accessing private method for testing
+      circuitBreaker.changeState(CircuitState.HALF_OPEN);
+
+      const result = await circuitBreaker.execute(operation, 'test-operation');
+
+      expect(result).toBe('success');
+      expect(operation).toHaveBeenCalled();
+      expect(circuitBreaker.metrics.successCount).toBe(1);
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+    });
+
+    it('should transition from half-open to open on failure', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const error = new Error('test error');
+      const operation = jest.fn().mockRejectedValue(error);
+
+      // Manually open the circuit then set to half-open
+      circuitBreaker.open();
+      // @ts-ignore - Accessing private method for testing
+      circuitBreaker.changeState(CircuitState.HALF_OPEN);
+
+      await expect(circuitBreaker.execute(operation, 'test-operation')).rejects.toThrow('test error');
+
+      expect(operation).toHaveBeenCalled();
+      expect(circuitBreaker.metrics.failureCount).toBe(1);
+      expect(circuitBreaker.currentState).toBe(CircuitState.OPEN);
     });
   });
 
-  describe('Advanced Configuration', () => {
-    it('should support custom error detection', async () => {
-      // Only count network errors towards the failure threshold
-      const isFailure = (error: Error) => error.message.includes('network');
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        isFailure
-      });
-      
-      const networkError = new Error('network error');
-      const validationError = new Error('validation error');
-      
-      const operation1 = jest.fn().mockRejectedValue(networkError);
-      const operation2 = jest.fn().mockRejectedValue(validationError);
-      
-      // Network error should count towards failure threshold
-      await expect(circuitBreaker.execute(operation1)).rejects.toThrow('network error');
-      await expect(circuitBreaker.execute(operation1)).rejects.toThrow('network error');
-      
-      // Circuit should be open after two network errors
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Reset circuit breaker for next test
-      circuitBreaker.reset();
-      
-      // Validation errors should not count towards failure threshold
-      await expect(circuitBreaker.execute(operation2)).rejects.toThrow('validation error');
-      await expect(circuitBreaker.execute(operation2)).rejects.toThrow('validation error');
-      
-      // Circuit should still be closed after validation errors
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
+  describe('executeWithFallback method', () => {
+    it('should execute the operation when circuit is closed', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+      const fallback = jest.fn().mockReturnValue('fallback');
+
+      const result = await circuitBreaker.executeWithFallback(operation, fallback, 'test-operation');
+
+      expect(result).toBe('success');
+      expect(operation).toHaveBeenCalled();
+      expect(fallback).not.toHaveBeenCalled();
     });
 
-    it('should support custom health check function', async () => {
-      const healthCheck = jest.fn().mockResolvedValue(true);
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000,
-        healthCheck
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Manually check health
-      await circuitBreaker.checkHealth();
-      
-      // Health check should be called
-      expect(healthCheck).toHaveBeenCalled();
-      
-      // Circuit should be half-open after successful health check
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.HALF_OPEN);
+    it('should execute the fallback when operation fails', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const error = new Error('test error');
+      const operation = jest.fn().mockRejectedValue(error);
+      const fallback = jest.fn().mockReturnValue('fallback');
+
+      const result = await circuitBreaker.executeWithFallback(operation, fallback, 'test-operation');
+
+      expect(result).toBe('fallback');
+      expect(operation).toHaveBeenCalled();
+      expect(fallback).toHaveBeenCalledWith(error);
     });
 
-    it('should support custom monitoring interval', async () => {
-      const healthCheck = jest.fn().mockResolvedValue(true);
-      
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2,
-        resetTimeout: 10000,
-        monitorInterval: 5000, // 5 seconds
-        healthCheck
-      });
-      
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
-      
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      
-      // Advance time to just before the monitor interval
-      advanceTime(4999);
-      
-      // Health check should not be called yet
-      expect(healthCheck).not.toHaveBeenCalled();
-      
-      // Advance time to after the monitor interval
-      advanceTime(2);
-      
-      // Health check should be called after monitor interval
-      expect(healthCheck).toHaveBeenCalled();
+    it('should execute the fallback when circuit is open', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+      const fallback = jest.fn().mockReturnValue('fallback');
+
+      // Manually open the circuit
+      circuitBreaker.open();
+
+      const result = await circuitBreaker.executeWithFallback(operation, fallback, 'test-operation');
+
+      expect(result).toBe('fallback');
+      expect(operation).not.toHaveBeenCalled();
+      expect(fallback).toHaveBeenCalled();
+      expect(fallback.mock.calls[0][0]).toBeInstanceOf(CircuitOpenError);
     });
   });
 
-  describe('Reset and Manual Control', () => {
-    it('should allow manual reset of the circuit breaker', () => {
+  describe('decorate and decorateWithFallback methods', () => {
+    it('should decorate a function with circuit breaker functionality', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+      const decorated = circuitBreaker.decorate(operation, 'test-operation');
+
+      const result = await decorated('arg1', 'arg2');
+
+      expect(result).toBe('success');
+      expect(operation).toHaveBeenCalledWith('arg1', 'arg2');
+      expect(circuitBreaker.metrics.successCount).toBe(1);
+    });
+
+    it('should decorate a function with circuit breaker and fallback functionality', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const error = new Error('test error');
+      const operation = jest.fn().mockRejectedValue(error);
+      const fallback = jest.fn().mockReturnValue('fallback');
+      const decorated = circuitBreaker.decorateWithFallback(operation, fallback, 'test-operation');
+
+      const result = await decorated('arg1', 'arg2');
+
+      expect(result).toBe('fallback');
+      expect(operation).toHaveBeenCalledWith('arg1', 'arg2');
+      expect(fallback).toHaveBeenCalledWith(error, 'arg1', 'arg2');
+      expect(circuitBreaker.metrics.failureCount).toBe(1);
+    });
+  });
+
+  describe('state transitions', () => {
+    it('should trip the circuit when failure threshold is exceeded', async () => {
+      // Create a circuit breaker with a low threshold for testing
       const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2
+        failureThresholdPercentage: 50,
+        requestVolumeThreshold: 4, // Trip after 2 failures in 4 requests
       });
-      
-      // Manually set state and failure count
-      circuitBreaker['state'] = CircuitBreakerState.OPEN;
-      circuitBreaker['failureCount'] = 5;
-      
+
+      const successOperation = jest.fn().mockResolvedValue('success');
+      const failOperation = jest.fn().mockRejectedValue(new Error('test error'));
+
+      // Execute 2 successful operations
+      await circuitBreaker.execute(successOperation, 'success-1');
+      await circuitBreaker.execute(successOperation, 'success-2');
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+
+      // Execute 2 failing operations, which should trip the circuit
+      await expect(circuitBreaker.execute(failOperation, 'fail-1')).rejects.toThrow();
+      await expect(circuitBreaker.execute(failOperation, 'fail-2')).rejects.toThrow();
+
+      // Circuit should now be open
+      expect(circuitBreaker.currentState).toBe(CircuitState.OPEN);
+      expect(circuitBreaker.metrics.failureRate).toBe(50);
+    });
+
+    it('should not trip the circuit when below the request volume threshold', async () => {
+      // Create a circuit breaker with specific thresholds
+      const circuitBreaker = new CircuitBreaker({
+        failureThresholdPercentage: 50,
+        requestVolumeThreshold: 10, // Need at least 10 requests
+      });
+
+      const failOperation = jest.fn().mockRejectedValue(new Error('test error'));
+
+      // Execute 5 failing operations (below the request volume threshold)
+      for (let i = 0; i < 5; i++) {
+        await expect(circuitBreaker.execute(failOperation, `fail-${i}`)).rejects.toThrow();
+      }
+
+      // Circuit should still be closed despite 100% failure rate
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+      expect(circuitBreaker.metrics.failureRate).toBe(100);
+    });
+
+    it('should transition from open to half-open after reset timeout', async () => {
+      const resetTimeoutMs = 1000;
+      const circuitBreaker = new CircuitBreaker({
+        resetTimeoutMs,
+      });
+
+      // Manually open the circuit
+      circuitBreaker.open();
+      expect(circuitBreaker.currentState).toBe(CircuitState.OPEN);
+
+      // Advance time past the reset timeout
+      jest.advanceTimersByTime(resetTimeoutMs + 100);
+
+      // Circuit should now be half-open
+      expect(circuitBreaker.currentState).toBe(CircuitState.HALF_OPEN);
+    });
+
+    it('should transition from half-open to closed on successful execution', async () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+
+      // Manually set to half-open state
+      circuitBreaker.open();
+      // @ts-ignore - Accessing private method for testing
+      circuitBreaker.changeState(CircuitState.HALF_OPEN);
+
+      // Execute a successful operation
+      await circuitBreaker.execute(operation, 'test-operation');
+
+      // Circuit should now be closed
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+    });
+
+    it('should remove stale results outside the rolling window', async () => {
+      const rollingWindowMs = 1000;
+      const circuitBreaker = new CircuitBreaker({
+        rollingWindowMs,
+      });
+
+      const successOperation = jest.fn().mockResolvedValue('success');
+      const failOperation = jest.fn().mockRejectedValue(new Error('test error'));
+
+      // Execute operations
+      await circuitBreaker.execute(successOperation, 'success-1');
+      await expect(circuitBreaker.execute(failOperation, 'fail-1')).rejects.toThrow();
+
+      expect(circuitBreaker.metrics.successCount).toBe(1);
+      expect(circuitBreaker.metrics.failureCount).toBe(1);
+
+      // Advance time past the rolling window
+      jest.advanceTimersByTime(rollingWindowMs + 100);
+
+      // Metrics should be reset
+      expect(circuitBreaker.metrics.successCount).toBe(0);
+      expect(circuitBreaker.metrics.failureCount).toBe(0);
+    });
+  });
+
+  describe('callbacks', () => {
+    it('should call onStateChange when circuit state changes', () => {
+      const onStateChange = jest.fn();
+      const circuitBreaker = new CircuitBreaker({
+        onStateChange,
+      });
+
+      // Change state to open
+      circuitBreaker.open();
+
+      expect(onStateChange).toHaveBeenCalledWith(
+        CircuitState.CLOSED,
+        CircuitState.OPEN,
+        expect.any(Object)
+      );
+    });
+
+    it('should call onSuccess when operation succeeds', async () => {
+      const onSuccess = jest.fn();
+      const circuitBreaker = new CircuitBreaker({
+        onSuccess,
+      });
+
+      const operation = jest.fn().mockResolvedValue('success');
+      await circuitBreaker.execute(operation, 'test-operation');
+
+      expect(onSuccess).toHaveBeenCalledWith('test-operation');
+    });
+
+    it('should call onFailure when operation fails', async () => {
+      const onFailure = jest.fn();
+      const circuitBreaker = new CircuitBreaker({
+        onFailure,
+      });
+
+      const error = new Error('test error');
+      const operation = jest.fn().mockRejectedValue(error);
+
+      await expect(circuitBreaker.execute(operation, 'test-operation')).rejects.toThrow();
+
+      expect(onFailure).toHaveBeenCalledWith(error, 'test-operation');
+    });
+  });
+
+  describe('reset, open, and close methods', () => {
+    it('should reset circuit breaker metrics', () => {
+      const circuitBreaker = new CircuitBreaker();
+      const operation = jest.fn().mockResolvedValue('success');
+      const failOperation = jest.fn().mockRejectedValue(new Error('test error'));
+
+      // Execute operations to record metrics
+      circuitBreaker.execute(operation, 'success-1');
+      circuitBreaker.executeWithFallback(failOperation, () => 'fallback', 'fail-1');
+
       // Reset the circuit breaker
       circuitBreaker.reset();
-      
-      // Should be back to initial state
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.getFailureCount()).toBe(0);
+
+      // Metrics should be reset
+      expect(circuitBreaker.metrics.successCount).toBe(0);
+      expect(circuitBreaker.metrics.failureCount).toBe(0);
+      expect(circuitBreaker.metrics.rejectCount).toBe(0);
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
     });
 
-    it('should allow manual trip of the circuit breaker', () => {
+    it('should manually open the circuit', () => {
       const circuitBreaker = new CircuitBreaker();
-      
-      // Manually trip the circuit breaker
-      circuitBreaker.trip();
-      
-      // Should be in open state
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
+
+      // Manually open the circuit
+      circuitBreaker.open();
+
+      expect(circuitBreaker.currentState).toBe(CircuitState.OPEN);
     });
 
-    it('should allow forcing the circuit closed', async () => {
-      const circuitBreaker = new CircuitBreaker({
-        failureThreshold: 2
+    it('should manually close the circuit', () => {
+      const circuitBreaker = new CircuitBreaker();
+
+      // Manually open then close the circuit
+      circuitBreaker.open();
+      circuitBreaker.close();
+
+      expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+    });
+  });
+
+  describe('CircuitOpenError', () => {
+    it('should include circuit metrics in the error', () => {
+      const circuitBreaker = new CircuitBreaker();
+
+      // Manually open the circuit
+      circuitBreaker.open();
+
+      // Try to execute an operation
+      const operation = jest.fn().mockResolvedValue('success');
+      return circuitBreaker.execute(operation).catch((error) => {
+        expect(error).toBeInstanceOf(CircuitOpenError);
+        expect(error.metrics).toBeDefined();
+        expect(error.metrics.currentState).toBe(CircuitState.OPEN);
+        expect(error.name).toBe('CircuitOpenError');
       });
+    });
+  });
+});
+
+describe('Factory functions', () => {
+  it('should create a circuit breaker with default configuration', () => {
+    const circuitBreaker = createCircuitBreaker();
+    expect(circuitBreaker).toBeInstanceOf(CircuitBreaker);
+    expect(circuitBreaker.currentState).toBe(CircuitState.CLOSED);
+  });
+
+  it('should create a circuit breaker with critical service configuration', () => {
+    const circuitBreaker = createCriticalCircuitBreaker();
+    expect(circuitBreaker).toBeInstanceOf(CircuitBreaker);
+    
+    // Check that critical config was applied
+    const criticalConfig = CIRCUIT_BREAKER_CONFIG.CRITICAL;
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.failureThresholdPercentage).toBe(criticalConfig.FAILURE_THRESHOLD_PERCENTAGE);
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.requestVolumeThreshold).toBe(criticalConfig.REQUEST_VOLUME_THRESHOLD);
+  });
+
+  it('should create a circuit breaker with non-critical service configuration', () => {
+    const circuitBreaker = createNonCriticalCircuitBreaker();
+    expect(circuitBreaker).toBeInstanceOf(CircuitBreaker);
+    
+    // Check that non-critical config was applied
+    const nonCriticalConfig = CIRCUIT_BREAKER_CONFIG.NON_CRITICAL;
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.failureThresholdPercentage).toBe(nonCriticalConfig.FAILURE_THRESHOLD_PERCENTAGE);
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.requestVolumeThreshold).toBe(nonCriticalConfig.REQUEST_VOLUME_THRESHOLD);
+  });
+
+  it('should allow overriding factory defaults with custom options', () => {
+    const customOptions = {
+      name: 'custom-circuit',
+      failureThresholdPercentage: 42,
+    };
+    
+    const circuitBreaker = createCircuitBreaker(customOptions);
+    
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.name).toBe('custom-circuit');
+    // @ts-ignore - Accessing private properties for testing
+    expect(circuitBreaker.failureThresholdPercentage).toBe(42);
+  });
+});
+
+describe('Fallback functions', () => {
+  describe('cachedDataFallback', () => {
+    it('should return cached data from an object', () => {
+      const cache = { key1: 'value1', key2: 'value2' };
+      const fallback = cachedDataFallback(cache, 'key1');
       
-      const operation = jest.fn().mockRejectedValue(new Error('Service unavailable'));
+      const result = fallback(new Error('test error'));
+      expect(result).toBe('value1');
+    });
+
+    it('should return cached data from a function', () => {
+      const cacheFunction = (key: string) => {
+        const cache = { key1: 'value1', key2: 'value2' };
+        return cache[key];
+      };
       
-      // Trip the circuit breaker
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
-      await expect(circuitBreaker.execute(operation)).rejects.toThrow('Service unavailable');
+      const fallback = cachedDataFallback(cacheFunction, 'key2');
       
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
+      const result = fallback(new Error('test error'));
+      expect(result).toBe('value2');
+    });
+
+    it('should throw an error when cached data is not available', () => {
+      const cache = { key1: 'value1' };
+      const fallback = cachedDataFallback(cache, 'nonexistent');
       
-      // Force the circuit closed
-      circuitBreaker.forceClosed();
+      expect(() => fallback(new Error('test error'))).toThrow('No cached data available');
+    });
+  });
+
+  describe('defaultValueFallback', () => {
+    it('should return the default value', () => {
+      const defaultValue = { name: 'default' };
+      const fallback = defaultValueFallback(defaultValue);
       
-      // Should be in closed state with reset failure count
-      expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.getFailureCount()).toBe(0);
+      const result = fallback(new Error('test error'));
+      expect(result).toEqual(defaultValue);
+    });
+  });
+
+  describe('emptyResultFallback', () => {
+    it('should return an empty array for array-like return types', () => {
+      const fallback = emptyResultFallback<any[]>();
+      
+      const result = fallback(new Error('test error'));
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBe(0);
+    });
+
+    it('should return an empty object for object return types', () => {
+      const fallback = emptyResultFallback<object>();
+      
+      const result = fallback(new Error('test error'));
+      expect(result).toEqual({});
+    });
+  });
+
+  describe('rethrowWithContextFallback', () => {
+    it('should rethrow the error with additional context', () => {
+      const context = { userId: '123', operation: 'getData' };
+      const fallback = rethrowWithContextFallback(context);
+      const originalError = new Error('Original error');
+      
+      expect(() => fallback(originalError)).toThrow(/Original error.*Context.*userId.*operation/);
+    });
+
+    it('should preserve the original error name and stack', () => {
+      const context = { userId: '123' };
+      const fallback = rethrowWithContextFallback(context);
+      
+      const originalError = new Error('Original error');
+      originalError.name = 'CustomError';
+      const originalStack = originalError.stack;
+      
+      try {
+        fallback(originalError);
+        fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.name).toBe('CustomError');
+        expect(error.stack).toBe(originalStack);
+      }
     });
   });
 });

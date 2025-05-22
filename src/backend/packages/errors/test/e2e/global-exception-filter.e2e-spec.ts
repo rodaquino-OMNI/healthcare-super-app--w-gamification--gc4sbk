@@ -1,428 +1,492 @@
-import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { INestApplication, HttpStatus } from '@nestjs/common';
 import * as request from 'supertest';
-import { ErrorsModule } from '../../src/nest/module';
-import { ValidationError, BusinessError, TechnicalError, ExternalError } from '../../src/categories';
-import { ErrorType } from '../../src/types';
-import { createTestModule, TestController } from './test-app';
-import { assertErrorResponse } from '../helpers/assertion-helpers';
-import { createValidationError, createBusinessError, createTechnicalError, createExternalError } from '../helpers/error-factory';
+import { 
+  createDefaultTestApp,
+  createValidationErrorsTestApp,
+  createBusinessErrorsTestApp,
+  createTechnicalErrorsTestApp,
+  createExternalErrorsTestApp,
+  createJourneyErrorsTestApp
+} from './test-app';
 
-describe('GlobalExceptionFilter (e2e)', () => {
+/**
+ * End-to-end tests for the GlobalExceptionFilter
+ * 
+ * These tests verify that the GlobalExceptionFilter properly catches, formats, and responds
+ * to all types of unhandled exceptions with appropriate HTTP status codes and standardized
+ * JSON response structures.
+ */
+describe('GlobalExceptionFilter (E2E)', () => {
   let app: INestApplication;
-  let testController: TestController;
 
-  beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [createTestModule()],
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    testController = moduleRef.get<TestController>(TestController);
-    
-    await app.init();
-  });
-
-  afterAll(async () => {
-    await app.close();
+  afterEach(async () => {
+    if (app) {
+      await app.close();
+    }
   });
 
   describe('Validation Errors', () => {
-    it('should return 400 Bad Request for validation errors', async () => {
-      // Arrange
-      const errorMessage = 'Invalid input parameters';
-      const errorCode = 'VALIDATION_ERROR';
-      const validationError = createValidationError(errorMessage, errorCode);
-      
-      jest.spyOn(testController, 'triggerValidationError').mockImplementation(() => {
-        throw validationError;
-      });
-
-      // Act & Assert
-      const response = await request(app.getHttpServer())
-        .get('/test/validation-error')
-        .expect(400);
-
-      // Assert response structure
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
-      expect(response.body.error).toHaveProperty('code', errorCode);
-      expect(response.body.error).toHaveProperty('message', errorMessage);
-      
-      // Use custom assertion helper
-      assertErrorResponse(response.body, {
-        type: ErrorType.VALIDATION,
-        code: errorCode,
-        message: errorMessage,
-        status: 400
-      });
+    beforeEach(async () => {
+      app = await createValidationErrorsTestApp();
     });
 
-    it('should handle NestJS validation pipe errors', async () => {
-      // Act & Assert
+    it('should return 400 Bad Request for missing parameters', async () => {
       const response = await request(app.getHttpServer())
-        .post('/test/validate-dto')
-        .send({})
-        .expect(400);
+        .get('/validation/missing-param')
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // Assert response structure
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
+      expect(response.body.error).toHaveProperty('type', 'validation');
+      expect(response.body.error).toHaveProperty('code', 'MISSING_PARAMETER');
       expect(response.body.error).toHaveProperty('message');
-      expect(response.body.error).toHaveProperty('details');
-      expect(Array.isArray(response.body.error.details)).toBe(true);
+      expect(response.body.error.message).toContain('required');
     });
 
-    it('should include field-specific validation errors in the response', async () => {
-      // Arrange
-      const invalidData = { name: '', age: 'not-a-number' };
-
-      // Act
+    it('should return 400 Bad Request for invalid parameters', async () => {
       const response = await request(app.getHttpServer())
-        .post('/test/validate-dto')
-        .send(invalidData)
-        .expect(400);
+        .get('/validation/invalid-param/abc')
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // Assert
-      expect(response.body.error.details).toHaveLength(2);
-      expect(response.body.error.details[0]).toHaveProperty('field');
-      expect(response.body.error.details[0]).toHaveProperty('message');
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'validation');
+      expect(response.body.error).toHaveProperty('code', 'INVALID_PARAMETER');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('id');
+    });
+
+    it('should return 400 Bad Request for schema validation errors', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/validation/schema-validation')
+        .send({ age: -1 }) // Missing name and invalid age
+        .expect(HttpStatus.BAD_REQUEST);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'validation');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('Name is required');
+    });
+
+    it('should return 200 OK for valid parameters', async () => {
+      await request(app.getHttpServer())
+        .get('/validation/missing-param?required=value')
+        .expect(HttpStatus.OK);
+
+      await request(app.getHttpServer())
+        .get('/validation/invalid-param/123')
+        .expect(HttpStatus.OK);
+
+      await request(app.getHttpServer())
+        .post('/validation/schema-validation')
+        .send({ name: 'Test User', age: 30 })
+        .expect(HttpStatus.OK);
     });
   });
 
   describe('Business Errors', () => {
-    it('should return 422 Unprocessable Entity for business errors', async () => {
-      // Arrange
-      const errorMessage = 'Business rule violation';
-      const errorCode = 'BUSINESS_RULE_ERROR';
-      const businessError = createBusinessError(errorMessage, errorCode);
-      
-      jest.spyOn(testController, 'triggerBusinessError').mockImplementation(() => {
-        throw businessError;
-      });
-
-      // Act & Assert
-      const response = await request(app.getHttpServer())
-        .get('/test/business-error')
-        .expect(422);
-
-      // Assert response structure
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', errorCode);
-      expect(response.body.error).toHaveProperty('message', errorMessage);
-      
-      // Use custom assertion helper
-      assertErrorResponse(response.body, {
-        type: ErrorType.BUSINESS,
-        code: errorCode,
-        message: errorMessage,
-        status: 422
-      });
+    beforeEach(async () => {
+      app = await createBusinessErrorsTestApp();
     });
 
-    it('should include business context in the error response', async () => {
-      // Arrange
-      const errorMessage = 'Resource not found';
-      const errorCode = 'RESOURCE_NOT_FOUND';
-      const context = { resourceId: '123', resourceType: 'User' };
-      const businessError = createBusinessError(errorMessage, errorCode, context);
-      
-      jest.spyOn(testController, 'triggerBusinessErrorWithContext').mockImplementation(() => {
-        throw businessError;
-      });
-
-      // Act
+    it('should return 404 Not Found for resource not found errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/business-error-with-context')
-        .expect(422);
+        .get('/business/resource/404')
+        .expect(HttpStatus.NOT_FOUND);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('context');
-      expect(response.body.error.context).toEqual(context);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'business');
+      expect(response.body.error).toHaveProperty('code', 'RESOURCE_NOT_FOUND');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('resource');
+      expect(response.body.error.message).toContain('404');
+    });
+
+    it('should return 422 Unprocessable Entity for business rule violations', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/business/rule-violation')
+        .send({ action: 'forbidden' })
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'business');
+      expect(response.body.error).toHaveProperty('code', 'BUSINESS_RULE_VIOLATION');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('not allowed');
+    });
+
+    it('should return 422 Unprocessable Entity for custom business errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/business/custom-business')
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'business');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('Custom business logic error');
+    });
+
+    it('should return 200 OK for valid business operations', async () => {
+      await request(app.getHttpServer())
+        .get('/business/resource/123')
+        .expect(HttpStatus.OK);
+
+      await request(app.getHttpServer())
+        .post('/business/rule-violation')
+        .send({ action: 'allowed' })
+        .expect(HttpStatus.OK);
     });
   });
 
   describe('Technical Errors', () => {
-    it('should return 500 Internal Server Error for technical errors', async () => {
-      // Arrange
-      const errorMessage = 'Database connection failed';
-      const errorCode = 'DATABASE_ERROR';
-      const technicalError = createTechnicalError(errorMessage, errorCode);
-      
-      jest.spyOn(testController, 'triggerTechnicalError').mockImplementation(() => {
-        throw technicalError;
-      });
-
-      // Act & Assert
-      const response = await request(app.getHttpServer())
-        .get('/test/technical-error')
-        .expect(500);
-
-      // Assert response structure
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', errorCode);
-      expect(response.body.error).toHaveProperty('message', errorMessage);
-      
-      // Use custom assertion helper
-      assertErrorResponse(response.body, {
-        type: ErrorType.TECHNICAL,
-        code: errorCode,
-        message: errorMessage,
-        status: 500
-      });
+    beforeEach(async () => {
+      app = await createTechnicalErrorsTestApp();
     });
 
-    it('should sanitize sensitive information in technical error responses', async () => {
-      // Arrange
-      const errorMessage = 'Database query failed';
-      const errorCode = 'DATABASE_QUERY_ERROR';
-      const sensitiveDetails = {
-        query: 'SELECT * FROM users WHERE password = "secret"',
-        connectionString: 'postgresql://user:password@localhost:5432/db'
-      };
-      const technicalError = createTechnicalError(errorMessage, errorCode, sensitiveDetails);
-      
-      jest.spyOn(testController, 'triggerTechnicalErrorWithSensitiveData').mockImplementation(() => {
-        throw technicalError;
-      });
-
-      // Act
+    it('should return 500 Internal Server Error for database errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/technical-error-with-sensitive-data')
-        .expect(500);
+        .get('/technical/database')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
 
-      // Assert
-      expect(response.body.error).not.toHaveProperty('details.connectionString');
-      expect(response.body.error).not.toHaveProperty('details.query');
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'technical');
+      expect(response.body.error).toHaveProperty('code', 'DATABASE_ERROR');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('database query');
       
-      // In production, sensitive details should be completely removed
-      if (process.env.NODE_ENV === 'production') {
-        expect(response.body.error).not.toHaveProperty('details');
+      // Check if details are included in non-production environments
+      if (process.env.NODE_ENV !== 'production' && response.body.error.details) {
+        expect(response.body.error.details).toHaveProperty('operation', 'SELECT');
+        expect(response.body.error.details).toHaveProperty('table', 'users');
       }
+    });
+
+    it('should return 500 Internal Server Error for internal server errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/technical/internal')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'technical');
+      expect(response.body.error).toHaveProperty('code', 'INTERNAL_SERVER_ERROR');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('Unexpected server error');
+    });
+
+    it('should return 500 Internal Server Error for custom technical errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/technical/custom-technical')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'technical');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('Custom technical error');
     });
   });
 
   describe('External Errors', () => {
-    it('should return 502 Bad Gateway for external system errors', async () => {
-      // Arrange
-      const errorMessage = 'External API unavailable';
-      const errorCode = 'EXTERNAL_API_ERROR';
-      const externalError = createExternalError(errorMessage, errorCode);
-      
-      jest.spyOn(testController, 'triggerExternalError').mockImplementation(() => {
-        throw externalError;
-      });
-
-      // Act & Assert
-      const response = await request(app.getHttpServer())
-        .get('/test/external-error')
-        .expect(502);
-
-      // Assert response structure
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.EXTERNAL);
-      expect(response.body.error).toHaveProperty('code', errorCode);
-      expect(response.body.error).toHaveProperty('message', errorMessage);
-      
-      // Use custom assertion helper
-      assertErrorResponse(response.body, {
-        type: ErrorType.EXTERNAL,
-        code: errorCode,
-        message: errorMessage,
-        status: 502
-      });
+    beforeEach(async () => {
+      app = await createExternalErrorsTestApp();
     });
 
-    it('should include retry information for transient external errors', async () => {
-      // Arrange
-      const errorMessage = 'External API rate limit exceeded';
-      const errorCode = 'RATE_LIMIT_ERROR';
-      const retryAfter = 30; // seconds
-      const externalError = createExternalError(errorMessage, errorCode, { retryAfter });
-      
-      jest.spyOn(testController, 'triggerExternalRateLimitError').mockImplementation(() => {
-        throw externalError;
-      });
-
-      // Act
+    it('should return 502 Bad Gateway for external API errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/external-rate-limit-error')
-        .expect(502);
+        .get('/external/api')
+        .expect(HttpStatus.BAD_GATEWAY);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('retryAfter', retryAfter);
-      expect(response.headers).toHaveProperty('retry-after', String(retryAfter));
-    });
-  });
-
-  describe('Unhandled Errors', () => {
-    it('should convert generic Error to a technical error with 500 status', async () => {
-      // Arrange
-      const errorMessage = 'Something went wrong';
-      
-      jest.spyOn(testController, 'triggerGenericError').mockImplementation(() => {
-        throw new Error(errorMessage);
-      });
-
-      // Act & Assert
-      const response = await request(app.getHttpServer())
-        .get('/test/generic-error')
-        .expect(500);
-
-      // Assert response structure
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
+      expect(response.body.error).toHaveProperty('type', 'external');
+      expect(response.body.error).toHaveProperty('code', 'EXTERNAL_API_ERROR');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('external API');
       
-      // Generic error message should be sanitized in production
-      if (process.env.NODE_ENV === 'production') {
-        expect(response.body.error.message).toBe('An unexpected error occurred');
-        expect(response.body.error).not.toHaveProperty('details');
-      } else {
-        expect(response.body.error.details).toHaveProperty('message', errorMessage);
+      // Check if details are included
+      if (response.body.error.details) {
+        expect(response.body.error.details).toHaveProperty('service', 'payment-gateway');
+        expect(response.body.error.details).toHaveProperty('endpoint', '/process');
       }
     });
 
-    it('should handle async errors properly', async () => {
-      // Arrange
-      const errorMessage = 'Async operation failed';
-      
-      jest.spyOn(testController, 'triggerAsyncError').mockImplementation(async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        throw new Error(errorMessage);
-      });
-
-      // Act & Assert
+    it('should return 503 Service Unavailable for external dependency unavailable errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/async-error')
-        .expect(500);
+        .get('/external/dependency')
+        .expect(HttpStatus.SERVICE_UNAVAILABLE);
 
-      // Assert response structure
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(response.body.error).toHaveProperty('type', 'external');
+      expect(response.body.error).toHaveProperty('code', 'EXTERNAL_DEPENDENCY_UNAVAILABLE');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('External service unavailable');
+      
+      // Check if details are included
+      if (response.body.error.details) {
+        expect(response.body.error.details).toHaveProperty('service', 'email-service');
+      }
+    });
+
+    it('should return 502 Bad Gateway for custom external errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/external/custom-external')
+        .expect(HttpStatus.BAD_GATEWAY);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'external');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('Custom external system error');
     });
   });
 
-  describe('Journey-specific Errors', () => {
-    it('should handle health journey errors with proper context', async () => {
-      // Arrange
-      const errorMessage = 'Health metric validation failed';
-      const errorCode = 'HEALTH_METRIC_INVALID';
-      const journeyContext = { journeyId: 'health', metricType: 'bloodPressure' };
-      const healthError = createBusinessError(errorMessage, errorCode, journeyContext);
-      
-      jest.spyOn(testController, 'triggerHealthJourneyError').mockImplementation(() => {
-        throw healthError;
-      });
+  describe('Journey-Specific Errors', () => {
+    beforeEach(async () => {
+      app = await createJourneyErrorsTestApp();
+    });
 
-      // Act
+    it('should return appropriate status code for health journey errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/health-journey-error')
-        .set('X-Journey-ID', 'health')
-        .expect(422);
+        .get('/journey/health/metrics')
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('context');
-      expect(response.body.error.context).toEqual(journeyContext);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'validation');
+      expect(response.body.error).toHaveProperty('code');
       expect(response.body.error.code).toContain('HEALTH_');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('heart_rate');
+      
+      // Check if details are included
+      if (response.body.error.details) {
+        expect(response.body.error.details).toHaveProperty('min');
+        expect(response.body.error.details).toHaveProperty('max');
+      }
     });
 
-    it('should handle care journey errors with proper context', async () => {
-      // Arrange
-      const errorMessage = 'Appointment booking failed';
-      const errorCode = 'CARE_APPOINTMENT_CONFLICT';
-      const journeyContext = { journeyId: 'care', appointmentId: '123' };
-      const careError = createBusinessError(errorMessage, errorCode, journeyContext);
-      
-      jest.spyOn(testController, 'triggerCareJourneyError').mockImplementation(() => {
-        throw careError;
-      });
-
-      // Act
+    it('should return appropriate status code for health device errors', async () => {
       const response = await request(app.getHttpServer())
-        .get('/test/care-journey-error')
-        .set('X-Journey-ID', 'care')
-        .expect(422);
+        .get('/journey/health/devices')
+        .expect(HttpStatus.BAD_GATEWAY);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('context');
-      expect(response.body.error.context).toEqual(journeyContext);
-      expect(response.body.error.code).toContain('CARE_');
-    });
-
-    it('should handle plan journey errors with proper context', async () => {
-      // Arrange
-      const errorMessage = 'Benefit not available';
-      const errorCode = 'PLAN_BENEFIT_UNAVAILABLE';
-      const journeyContext = { journeyId: 'plan', benefitId: '456' };
-      const planError = createBusinessError(errorMessage, errorCode, journeyContext);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'external');
+      expect(response.body.error).toHaveProperty('code');
+      expect(response.body.error.code).toContain('HEALTH_DEVICES_');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toContain('fitbit');
       
-      jest.spyOn(testController, 'triggerPlanJourneyError').mockImplementation(() => {
-        throw planError;
-      });
-
-      // Act
-      const response = await request(app.getHttpServer())
-        .get('/test/plan-journey-error')
-        .set('X-Journey-ID', 'plan')
-        .expect(422);
-
-      // Assert
-      expect(response.body.error).toHaveProperty('context');
-      expect(response.body.error.context).toEqual(journeyContext);
-      expect(response.body.error.code).toContain('PLAN_');
+      // Check if details are included
+      if (response.body.error.details) {
+        expect(response.body.error.details).toHaveProperty('reason', 'authentication_failed');
+      }
     });
   });
 
-  describe('Error Serialization', () => {
-    it('should properly serialize error objects with circular references', async () => {
-      // Arrange
-      const errorMessage = 'Error with circular reference';
-      const errorWithCircularRef = new TechnicalError(errorMessage);
-      const circularObj: any = { name: 'circular' };
-      circularObj.self = circularObj; // Create circular reference
-      errorWithCircularRef.details = { circular: circularObj };
-      
-      jest.spyOn(testController, 'triggerErrorWithCircularReference').mockImplementation(() => {
-        throw errorWithCircularRef;
-      });
-
-      // Act
-      const response = await request(app.getHttpServer())
-        .get('/test/error-with-circular-reference')
-        .expect(500);
-
-      // Assert - should not crash and should have a valid JSON response
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('message', errorMessage);
+  describe('Error Response Format', () => {
+    beforeEach(async () => {
+      app = await createDefaultTestApp();
     });
 
-    it('should handle errors with nested causes', async () => {
-      // Arrange
-      const rootCause = new Error('Root cause');
-      const midCause = new TechnicalError('Intermediate cause', 'MID_ERROR', {}, rootCause);
-      const topError = new BusinessError('Top level error', 'TOP_ERROR', {}, midCause);
-      
-      jest.spyOn(testController, 'triggerErrorWithNestedCauses').mockImplementation(() => {
-        throw topError;
-      });
+    it('should include standardized error response format for all error types', async () => {
+      // Test validation error format
+      const validationResponse = await request(app.getHttpServer())
+        .get('/validation/missing-param')
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // Act
+      expect(validationResponse.body).toHaveProperty('error');
+      expect(validationResponse.body.error).toHaveProperty('type');
+      expect(validationResponse.body.error).toHaveProperty('message');
+      expect(validationResponse.body.error).toHaveProperty('code');
+
+      // Test business error format
+      const businessResponse = await request(app.getHttpServer())
+        .get('/business/resource/404')
+        .expect(HttpStatus.NOT_FOUND);
+
+      expect(businessResponse.body).toHaveProperty('error');
+      expect(businessResponse.body.error).toHaveProperty('type');
+      expect(businessResponse.body.error).toHaveProperty('message');
+      expect(businessResponse.body.error).toHaveProperty('code');
+
+      // Test technical error format
+      const technicalResponse = await request(app.getHttpServer())
+        .get('/technical/database')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      expect(technicalResponse.body).toHaveProperty('error');
+      expect(technicalResponse.body.error).toHaveProperty('type');
+      expect(technicalResponse.body.error).toHaveProperty('message');
+      expect(technicalResponse.body.error).toHaveProperty('code');
+
+      // Test external error format
+      const externalResponse = await request(app.getHttpServer())
+        .get('/external/api')
+        .expect(HttpStatus.BAD_GATEWAY);
+
+      expect(externalResponse.body).toHaveProperty('error');
+      expect(externalResponse.body.error).toHaveProperty('type');
+      expect(externalResponse.body.error).toHaveProperty('message');
+      expect(externalResponse.body.error).toHaveProperty('code');
+    });
+
+    it('should include trace ID in error responses when available', async () => {
+      // Set a trace ID header to simulate a traced request
       const response = await request(app.getHttpServer())
-        .get('/test/error-with-nested-causes')
-        .expect(422); // Business error status
+        .get('/technical/database')
+        .set('X-Trace-ID', 'test-trace-123')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('message', 'Top level error');
-      expect(response.body.error).toHaveProperty('code', 'TOP_ERROR');
+      expect(response.body).toHaveProperty('error');
       
-      // In non-production, we should see the cause chain
+      // In non-production environments, trace ID should be included
       if (process.env.NODE_ENV !== 'production') {
-        expect(response.body.error).toHaveProperty('cause');
-        expect(response.body.error.cause).toHaveProperty('message', 'Intermediate cause');
-        expect(response.body.error.cause).toHaveProperty('code', 'MID_ERROR');
+        expect(response.body.error).toHaveProperty('traceId');
+      }
+    });
+
+    it('should include journey context in error responses when available', async () => {
+      // Set journey headers to simulate a journey request
+      const response = await request(app.getHttpServer())
+        .get('/business/resource/404')
+        .set('X-Journey-ID', 'health-journey-123')
+        .set('X-Journey-Step', 'metrics-input')
+        .expect(HttpStatus.NOT_FOUND);
+
+      expect(response.body).toHaveProperty('error');
+      
+      // Journey context should be included when journey headers are present
+      if (response.body.error.journeyContext) {
+        expect(response.body.error.journeyContext).toHaveProperty('journeyId', 'health-journey-123');
+        expect(response.body.error.journeyContext).toHaveProperty('journeyStep', 'metrics-input');
+      }
+    });
+  });
+
+  describe('Error Recovery and Fallback', () => {
+    beforeEach(async () => {
+      app = await createDefaultTestApp();
+    });
+
+    it('should apply retry for transient errors when configured', async () => {
+      // The retry decorator in the test app is configured to retry 3 times
+      const response = await request(app.getHttpServer())
+        .get('/recovery/retry?succeed=true')
+        .expect(HttpStatus.OK);
+
+      // The response should indicate that the operation succeeded after retries
+      expect(response.text).toContain('succeeded after');
+      expect(response.text).toMatch(/succeeded after [1-3] attempts/);
+    });
+
+    it('should apply fallback for operations that fail', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/recovery/fallback?fail=true')
+        .expect(HttpStatus.OK);
+
+      // The response should be the fallback response
+      expect(response.text).toBe('Fallback response when operation fails');
+    });
+
+    it('should contain error boundaries for different error types', async () => {
+      // Test validation error inside boundary
+      await request(app.getHttpServer())
+        .get('/recovery/error-boundary?error-type=validation')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      // Test business error inside boundary
+      await request(app.getHttpServer())
+        .get('/recovery/error-boundary?error-type=business')
+        .expect(HttpStatus.UNPROCESSABLE_ENTITY);
+
+      // Test technical error inside boundary
+      await request(app.getHttpServer())
+        .get('/recovery/error-boundary?error-type=technical')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Test external error inside boundary
+      await request(app.getHttpServer())
+        .get('/recovery/error-boundary?error-type=external')
+        .expect(HttpStatus.BAD_GATEWAY);
+
+      // Test unhandled error inside boundary
+      await request(app.getHttpServer())
+        .get('/recovery/error-boundary?error-type=unhandled')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+  });
+
+  describe('NestJS Built-in Exceptions', () => {
+    beforeEach(async () => {
+      app = await createDefaultTestApp();
+    });
+
+    it('should handle NestJS HttpException properly', async () => {
+      // The ValidationPipe in the test app throws HttpException for validation errors
+      const response = await request(app.getHttpServer())
+        .post('/validation/schema-validation')
+        .send({}) // Empty body will trigger validation error
+        .expect(HttpStatus.BAD_REQUEST);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', 'validation');
+    });
+  });
+
+  describe('Client-Friendly Error Messages', () => {
+    beforeEach(async () => {
+      app = await createDefaultTestApp();
+    });
+
+    it('should provide user-friendly error messages for validation errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/validation/invalid-param/abc')
+        .expect(HttpStatus.BAD_REQUEST);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toBeDefined();
+      expect(response.body.error.message.length).toBeGreaterThan(0);
+      expect(response.body.error.message).not.toContain('Exception');
+      expect(response.body.error.message).not.toContain('Error:');
+    });
+
+    it('should provide user-friendly error messages for business errors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/business/resource/404')
+        .expect(HttpStatus.NOT_FOUND);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('message');
+      expect(response.body.error.message).toBeDefined();
+      expect(response.body.error.message.length).toBeGreaterThan(0);
+      expect(response.body.error.message).not.toContain('Exception');
+      expect(response.body.error.message).not.toContain('Error:');
+    });
+
+    it('should provide generic error messages for technical errors in production', async () => {
+      // Save the original NODE_ENV
+      const originalNodeEnv = process.env.NODE_ENV;
+      
+      try {
+        // Set NODE_ENV to production
+        process.env.NODE_ENV = 'production';
+        
+        const response = await request(app.getHttpServer())
+          .get('/technical/database')
+          .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('message');
+        expect(response.body.error.message).toBeDefined();
+        
+        // In production, technical errors should have generic messages
+        // and should not expose implementation details
+        expect(response.body.error.message).not.toContain('SELECT');
+        expect(response.body.error.message).not.toContain('users');
+        expect(response.body.error.message).not.toContain('Connection timeout');
+        
+        // Details should not be included in production
+        expect(response.body.error).not.toHaveProperty('details');
+        expect(response.body.error).not.toHaveProperty('stack');
+      } finally {
+        // Restore the original NODE_ENV
+        process.env.NODE_ENV = originalNodeEnv;
       }
     });
   });

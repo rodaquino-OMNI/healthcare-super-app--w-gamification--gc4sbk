@@ -1,5 +1,5 @@
 /**
- * Represents a medication interface for the Care journey.
+ * Interface representing a medication in the Care journey.
  * This interface is used for tracking medications as part of the Care Now journey.
  * It supports medication tracking with reminders and adherence monitoring.
  */

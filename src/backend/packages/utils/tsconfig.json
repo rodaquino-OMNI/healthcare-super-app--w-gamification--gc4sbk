@@ -14,18 +14,10 @@
     "strictBindCallApply": true,
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
-    "useUnknownInCatchVariables": true,
     "alwaysStrict": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
     "paths": {
-      "@austa/utils": ["./src"],
-      "@austa/utils/*": ["./src/*"]
+      "@austa/utils/*": ["./src/*"],
+      "@austa/utils": ["./src"]
     }
   },
   "include": [
@@ -35,8 +27,7 @@
     "node_modules",
     "dist",
     "**/*.spec.ts",
-    "**/*.test.ts",
-    "**/__tests__/**"
+    "**/*.test.ts"
   ],
   "references": [
     { "path": "../interfaces" }

@@ -4,108 +4,130 @@ This directory contains shared utilities used across the AUSTA SuperApp backend 
 
 ## HTTP Client
 
-The `http-client.ts` module provides a robust HTTP client with built-in resilience patterns for making external API calls. It builds on top of the secure-axios module to provide additional features like circuit breaking, retry with exponential backoff, and standardized error handling.
+The `http-client.ts` module provides a robust HTTP client implementation with advanced resilience patterns:
 
-### Features
-
-- **SSRF Protection**: Inherits all security features from secure-axios to prevent Server-Side Request Forgery attacks
-- **Circuit Breaker Pattern**: Prevents cascading failures when external services are unavailable
-- **Retry Mechanism**: Automatically retries failed requests with exponential backoff
-- **Timeout Handling**: Configurable request timeouts with proper error handling
-- **Error Classification**: Transforms HTTP errors into application-specific error types
-- **Journey Context**: Adds journey-specific context to errors for better troubleshooting
+- Circuit breaker pattern to prevent cascading failures
+- Retry mechanism with exponential backoff
+- Request timeouts
+- Standardized error handling
+- Journey-aware request context
 
 ### Usage
 
 ```typescript
-import { createHttpClient, createJourneyHttpClient } from '@austa/shared/utils/http-client';
-import { Logger } from '@nestjs/common';
+import { createHttpClient, createInternalServiceClient, createExternalApiClient } from '@austa/shared/utils/http-client';
 
 // Create a basic HTTP client
 const client = createHttpClient({
   baseURL: 'https://api.example.com',
-  headers: { 'Authorization': 'Bearer token' },
-  timeout: 5000 // 5 seconds
+  headers: {
+    'X-API-Key': 'your-api-key',
+  },
+  timeout: 5000, // 5 seconds
+  journeyContext: {
+    journey: 'health',
+    context: {
+      userId: '123',
+      sessionId: '456',
+    },
+  },
 });
 
-// Create a journey-specific HTTP client
-const healthClient = createJourneyHttpClient('health', {
-  baseURL: 'https://health-api.example.com',
-  logger: new Logger('HealthApiClient')
-});
-
-// Make requests with automatic retry and circuit breaking
-async function fetchUserData(userId: string) {
-  try {
-    return await client.get(`/users/${userId}`);
-  } catch (error) {
-    // Error will be an instance of a specific error class from @austa/errors
-    console.error(`Failed to fetch user data: ${error.message}`);
-    throw error;
-  }
+// Use the client
+try {
+  const response = await client.get('/users/123');
+  console.log(response.data);
+} catch (error) {
+  console.error('Request failed:', error.message);
 }
+
+// Create a client for internal service communication
+const authServiceClient = createInternalServiceClient(
+  'auth-service',
+  'http://auth-service:3000',
+  { journey: 'health' }
+);
+
+// Create a client for external API communication
+const externalApiClient = createExternalApiClient(
+  'https://api.external-service.com',
+  { journey: 'care' }
+);
 ```
 
 ### Configuration Options
 
-#### HttpClientOptions
+The HTTP client supports the following configuration options:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| baseURL | string | undefined | Base URL for all requests |
-| headers | Record<string, string> | {} | Default headers to include with all requests |
-| timeout | number | 10000 | Default timeout in milliseconds |
-| retry | RetryOptions | See below | Retry options for failed requests |
-| circuitBreaker | CircuitBreakerOptions | See below | Circuit breaker options |
-| journey | JourneyType | undefined | Journey type for context-aware error handling |
-| logger | Logger | undefined | Logger instance for logging retry attempts and errors |
+#### Basic Configuration
 
-#### RetryOptions
+- `baseURL`: Base URL for all requests
+- `headers`: Default headers to include with all requests
+- `timeout`: Default timeout in milliseconds (default: 30000)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| maxRetries | number | 3 | Maximum number of retry attempts |
-| backoffFactor | number | 2 | Factor by which the delay increases with each retry |
-| initialDelay | number | 1000 | Initial delay in milliseconds before the first retry |
-| maxDelay | number | 10000 | Maximum delay in milliseconds between retries |
+#### Circuit Breaker Configuration
 
-#### CircuitBreakerOptions
+- `circuitBreaker.failureThreshold`: Maximum number of failures before opening the circuit (default: 5)
+- `circuitBreaker.successThreshold`: Number of successful calls required to close the circuit (default: 3)
+- `circuitBreaker.resetTimeout`: Time in milliseconds that the circuit stays open before moving to half-open (default: 10000)
+- `circuitBreaker.timeout`: Request timeout in milliseconds (default: 3000)
+- `circuitBreaker.rollingCountBuckets`: Maximum number of requests allowed when the circuit is half-open (default: 10)
+- `circuitBreaker.rollingCountTimeout`: Time window in milliseconds for failure rate calculation (default: 10000)
+- `circuitBreaker.errorThresholdPercentage`: Percentage of failures that will trip the circuit (default: 50)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| failureThreshold | number | 5 | Number of failures before opening the circuit |
-| resetTimeout | number | 30000 | Time in milliseconds to keep the circuit open before moving to half-open |
-| successThreshold | number | 2 | Number of successful requests in half-open state to close the circuit |
+#### Retry Configuration
+
+- `retry.retries`: Number of retry attempts (default: 3)
+- `retry.httpMethodsToRetry`: HTTP methods that should be retried (default: ['GET', 'HEAD', 'OPTIONS', 'DELETE', 'PUT'])
+- `retry.statusCodesToRetry`: Status codes that should trigger a retry (default: [[100, 199], [429, 429], [500, 599]])
+- `retry.useExponentialBackoff`: Whether to use exponential backoff (default: true)
+- `retry.initialRetryDelay`: Initial retry delay in milliseconds (default: 1000)
+
+#### Journey Context
+
+- `journeyContext.journey`: Journey identifier ('health', 'care', 'plan')
+- `journeyContext.context`: Additional context information
 
 ### Error Handling
 
-The HTTP client transforms HTTP errors into application-specific error types from the `@austa/errors` package:
+The HTTP client integrates with the `@austa/errors` package for standardized error handling. All HTTP errors are wrapped in a `HttpClientError` class that includes:
 
-- **ExternalApiError**: General API errors with status code and response data
-- **ExternalDependencyUnavailableError**: Network errors or when the circuit breaker is open
-- **ExternalRateLimitError**: Rate limit exceeded (HTTP 429) with retry-after information
-- **ExternalResponseFormatError**: Invalid response format (e.g., JSON parsing errors)
-- **TimeoutError**: Request timed out
+- Original error
+- HTTP status code
+- Request URL and method
+- Response data
+- Journey context
 
-All errors include journey context and request details to aid in troubleshooting.
+Example error handling:
 
-### Retry Strategy
+```typescript
+import { HttpClientError } from '@austa/shared/utils/http-client';
 
-The HTTP client automatically retries the following types of errors:
+try {
+  const response = await client.get('/users/123');
+  console.log(response.data);
+} catch (error) {
+  if (error instanceof HttpClientError) {
+    console.error('HTTP request failed:', {
+      message: error.message,
+      status: error.metadata.status,
+      url: error.metadata.url,
+      journey: error.metadata.journey,
+    });
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
 
-- Network errors (connection failures)
-- Server errors (HTTP 5xx)
-- Rate limit errors (HTTP 429)
-- Timeout errors
+### Best Practices
 
-Client errors (HTTP 4xx) other than 429 are not retried as they typically indicate a problem with the request that won't be resolved by retrying.
+1. **Use Journey Context**: Always provide journey context for better error reporting and monitoring.
 
-### Circuit Breaker States
+2. **Configure Circuit Breakers Appropriately**: Adjust circuit breaker settings based on the criticality and expected behavior of the service.
 
-The circuit breaker has three states:
+3. **Customize Retry Logic**: Configure retry settings based on the idempotency and expected failure modes of the API.
 
-1. **CLOSED**: Normal operation, requests flow through
-2. **OPEN**: Circuit is open, requests fail fast without hitting the external service
-3. **HALF-OPEN**: Testing if the service is back online by allowing a limited number of requests
+4. **Monitor Circuit Breaker Events**: The circuit breaker emits events that can be monitored for better observability.
 
-When the circuit is in the OPEN state, requests will fail fast with an `ExternalDependencyUnavailableError` without attempting to call the external service. After the reset timeout, the circuit moves to HALF-OPEN and allows a limited number of requests to test if the service is back online.
+5. **Use Specialized Clients**: Use `createInternalServiceClient` for service-to-service communication and `createExternalApiClient` for external API calls, as they come with appropriate defaults.

@@ -1,1 +1,114 @@
-Failed to process file
+{
+  "name": "@austa/database",
+  "version": "1.0.0",
+  "description": "Database utilities and services for AUSTA SuperApp with journey-specific optimizations",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/core": "^10.3.0",
+    "@prisma/client": "^5.10.2",
+    "@opentelemetry/api": "^1.4.1",
+    "@opentelemetry/sdk-trace-base": "^1.15.2",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "cls-hooked": "^4.2.2",
+    "ioredis": "^5.3.2",
+    "pg": "^8.11.3",
+    "reflect-metadata": "^0.1.13",
+    "rxjs": "^7.8.1",
+    "zod": "^3.22.4"
+  },
+  "peerDependencies": {
+    "@austa/errors": "^1.0.0",
+    "@austa/interfaces": "^1.0.0",
+    "@austa/logging": "^1.0.0",
+    "@austa/tracing": "^1.0.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@nestjs/cli": "^10.3.0",
+    "@nestjs/schematics": "^10.0.3",
+    "@nestjs/testing": "^10.3.0",
+    "@types/cls-hooked": "^4.3.8",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.30",
+    "@types/pg": "^8.10.9",
+    "@typescript-eslint/eslint-plugin": "^7.3.1",
+    "@typescript-eslint/parser": "^7.3.1",
+    "dotenv-cli": "^7.4.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-nestjs": "^1.2.3",
+    "eslint-plugin-prettier": "^5.1.3",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.5",
+    "prisma": "^5.10.2",
+    "rimraf": "^5.0.5",
+    "ts-jest": "^29.1.2",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  },
+  "scripts": {
+    "build": "rimraf dist && nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "prisma:generate": "prisma generate",
+    "prisma:generate:health": "cd ../../health-service && prisma generate",
+    "prisma:generate:care": "cd ../../care-service && prisma generate",
+    "prisma:generate:plan": "cd ../../plan-service && prisma generate",
+    "prisma:generate:gamification": "cd ../../gamification-engine && prisma generate",
+    "prisma:generate:all": "npm run prisma:generate:health && npm run prisma:generate:care && npm run prisma:generate:plan && npm run prisma:generate:gamification",
+    "prisma:migrate:health": "cd ../../health-service && prisma migrate dev",
+    "prisma:migrate:care": "cd ../../care-service && prisma migrate dev",
+    "prisma:migrate:plan": "cd ../../plan-service && prisma migrate dev",
+    "prisma:migrate:gamification": "cd ../../gamification-engine && prisma migrate dev",
+    "prisma:migrate:all": "npm run prisma:migrate:health && npm run prisma:migrate:care && npm run prisma:migrate:plan && npm run prisma:migrate:gamification",
+    "prisma:seed:health": "cd ../../health-service && ts-node prisma/seed.ts",
+    "prisma:seed:care": "cd ../../care-service && ts-node prisma/seed.ts",
+    "prisma:seed:plan": "cd ../../plan-service && ts-node prisma/seed.ts",
+    "prisma:seed:gamification": "cd ../../gamification-engine && ts-node prisma/seed.ts",
+    "prisma:seed:all": "npm run prisma:seed:health && npm run prisma:seed:care && npm run prisma:seed:plan && npm run prisma:seed:gamification"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austa/superapp.git",
+    "directory": "src/backend/packages/database"
+  }
+}

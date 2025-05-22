@@ -1,4 +1,4 @@
-import { ICareActivity } from '../care/care-activity.interface';
+import { ICareActivity } from '../../../interfaces/journey/care/care-activity.interface';
 
 /**
  * Represents a treatment plan for a patient.

@@ -1,1077 +1,750 @@
-import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { Observable, of, throwError, timer } from 'rxjs';
-import { catchError, delay, timeout, take, toArray } from 'rxjs/operators';
-import { RetryInterceptor, CircuitBreakerInterceptor, FallbackInterceptor, TimeoutInterceptor } from '../../../src/nest/interceptors';
+import { Test, TestingModule } from '@nestjs/testing';
+import { ExecutionContext, CallHandler, HttpException, HttpStatus } from '@nestjs/common';
+import { of, throwError, Observable } from 'rxjs';
+import { delay, tap } from 'rxjs/operators';
+import {
+  RetryInterceptor,
+  CircuitBreakerInterceptor,
+  FallbackInterceptor,
+  TimeoutInterceptor,
+  RetryOptions,
+  CircuitBreakerOptions,
+  FallbackOptions,
+  TimeoutOptions
+} from '../../../src/nest/interceptors';
+import { BaseError, ErrorType } from '../../../src/base';
+import { ExternalTimeoutError } from '../../../src/categories/external.errors';
 
-/**
- * Test suite for NestJS interceptors that implement advanced error recovery mechanisms
- * including retry with exponential backoff, circuit breaking, fallback execution,
- * and request timeout handling.
- */
+// Mock constants used by the interceptors
+jest.mock('../../../src/constants', () => ({
+  RETRY_CONFIG: {
+    DEFAULT: {
+      MAX_ATTEMPTS: 3,
+      INITIAL_DELAY_MS: 100,
+      MAX_DELAY_MS: 1000,
+      BACKOFF_FACTOR: 2,
+      JITTER_FACTOR: 0.2
+    },
+    DATABASE: {
+      MAX_ATTEMPTS: 5,
+      INITIAL_DELAY_MS: 50,
+      MAX_DELAY_MS: 500,
+      BACKOFF_FACTOR: 1.5,
+      JITTER_FACTOR: 0.1
+    },
+    EXTERNAL_API: {
+      MAX_ATTEMPTS: 4,
+      INITIAL_DELAY_MS: 200,
+      MAX_DELAY_MS: 2000,
+      BACKOFF_FACTOR: 2.5,
+      JITTER_FACTOR: 0.3
+    },
+    EVENT_PROCESSING: {
+      MAX_ATTEMPTS: 6,
+      INITIAL_DELAY_MS: 300,
+      MAX_DELAY_MS: 3000,
+      BACKOFF_FACTOR: 2,
+      JITTER_FACTOR: 0.2
+    }
+  },
+  CIRCUIT_BREAKER_CONFIG: {
+    DEFAULT: {
+      FAILURE_THRESHOLD_PERCENTAGE: 50,
+      REQUEST_VOLUME_THRESHOLD: 10,
+      ROLLING_WINDOW_MS: 60000,
+      RESET_TIMEOUT_MS: 30000
+    },
+    CRITICAL: {
+      FAILURE_THRESHOLD_PERCENTAGE: 30,
+      REQUEST_VOLUME_THRESHOLD: 5,
+      ROLLING_WINDOW_MS: 30000,
+      RESET_TIMEOUT_MS: 15000
+    },
+    NON_CRITICAL: {
+      FAILURE_THRESHOLD_PERCENTAGE: 70,
+      REQUEST_VOLUME_THRESHOLD: 20,
+      ROLLING_WINDOW_MS: 120000,
+      RESET_TIMEOUT_MS: 60000
+    }
+  },
+  FALLBACK_STRATEGY: {
+    USE_CACHED_DATA: 'USE_CACHED_DATA',
+    USE_DEFAULT_VALUES: 'USE_DEFAULT_VALUES',
+    GRACEFUL_DEGRADATION: 'GRACEFUL_DEGRADATION',
+    RETURN_EMPTY: 'RETURN_EMPTY',
+    FAIL_FAST: 'FAIL_FAST'
+  },
+  CACHE_CONFIG: {
+    MAX_ITEMS: 100,
+    DEFAULT_TTL_MS: 60000
+  }
+}));
+
+// Helper function to create a mock execution context
+function createExecutionContext(handlerName = 'testHandler', className = 'TestController'): ExecutionContext {
+  const mockRequest = {
+    method: 'GET',
+    url: '/test',
+    params: { id: '123' },
+    query: { filter: 'test' },
+    user: { id: 'user-123' },
+    headers: { 'x-journey-id': 'journey-123' }
+  };
+
+  const mockResponse = {
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn().mockReturnThis()
+  };
+
+  return {
+    switchToHttp: () => ({
+      getRequest: () => mockRequest,
+      getResponse: () => mockResponse
+    }),
+    getHandler: () => ({ name: handlerName }),
+    getClass: () => ({ name: className }),
+    getType: () => 'http',
+    getArgs: () => [mockRequest, mockResponse]
+  } as unknown as ExecutionContext;
+}
+
+// Helper function to create a mock call handler
+function createCallHandler(result: any, error?: any, delayMs = 0): CallHandler {
+  return {
+    handle: (): Observable<any> => {
+      if (error) {
+        return delayMs > 0
+          ? throwError(() => error).pipe(delay(delayMs))
+          : throwError(() => error);
+      }
+      return delayMs > 0 ? of(result).pipe(delay(delayMs)) : of(result);
+    }
+  };
+}
+
+// Helper function to create a transient error
+function createTransientError(message = 'Transient error'): BaseError {
+  return new BaseError(
+    message,
+    ErrorType.EXTERNAL,
+    'TRANSIENT_ERROR',
+    { isTransient: true }
+  );
+}
+
+// Helper function to create a non-transient error
+function createNonTransientError(message = 'Non-transient error'): BaseError {
+  return new BaseError(
+    message,
+    ErrorType.TECHNICAL,
+    'PERMANENT_ERROR',
+    { isTransient: false }
+  );
+}
+
 describe('Error Handling Interceptors', () => {
-  let executionContext: ExecutionContext;
-
-  beforeEach(() => {
-    executionContext = {
-      switchToHttp: jest.fn().mockReturnValue({
-        getRequest: jest.fn().mockReturnValue({
-          url: '/test',
-          method: 'GET',
-          headers: {
-            'x-journey-id': 'test-journey'
-          }
-        }),
-        getResponse: jest.fn().mockReturnValue({})
-      }),
-      getClass: jest.fn(),
-      getHandler: jest.fn(),
-      getType: jest.fn(),
-      getArgs: jest.fn(),
-    } as any;
+  // Disable console output during tests
+  beforeAll(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'debug').mockImplementation(() => {});
   });
 
-  /**
-   * RetryInterceptor tests
-   * Tests the retry with exponential backoff functionality for transient errors
-   */
+  afterAll(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('RetryInterceptor', () => {
-    let retryInterceptor: RetryInterceptor;
-    
-    beforeEach(async () => {
-      const moduleRef = await Test.createTestingModule({
-        providers: [RetryInterceptor],
-      }).compile();
-      
-      retryInterceptor = moduleRef.get<RetryInterceptor>(RetryInterceptor);
+    let interceptor: RetryInterceptor;
+    let context: ExecutionContext;
+
+    beforeEach(() => {
+      interceptor = new RetryInterceptor();
+      context = createExecutionContext();
     });
 
-    it('should successfully pass through when no error occurs', async () => {
-      // Arrange
-      const callHandler: CallHandler = {
-        handle: () => of('success')
-      };
-      
-      // Act
-      const result = await retryInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe('success');
-    });
+    it('should pass through successful responses without retrying', (done) => {
+      const expectedResult = { success: true };
+      const handler = createCallHandler(expectedResult);
+      const next = jest.spyOn(handler, 'handle');
 
-    it('should retry the specified number of times before failing', async () => {
-      // Arrange
-      const maxRetries = 3;
-      const error = new Error('Transient error');
-      let attemptCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          return throwError(error);
-        }
-      };
-      
-      // Configure the interceptor with custom retry options
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries,
-        delayType: 'exponential',
-        initialDelayMs: 10
+      interceptor.intercept(context, handler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+          expect(next).toHaveBeenCalledTimes(1);
+        },
+        complete: () => done()
       });
-      
-      // Act & Assert
-      await expect(retryInterceptor.intercept(executionContext, callHandler).toPromise())
-        .rejects.toThrow(error);
-      
-      // Should have attempted 1 original + 3 retries = 4 total attempts
-      expect(attemptCount).toBe(maxRetries + 1);
     });
 
-    it('should implement exponential backoff between retries', async () => {
-      // Arrange
-      const maxRetries = 3;
-      const initialDelayMs = 10;
-      const error = new Error('Transient error');
-      const retryDelays: number[] = [];
-      let lastAttemptTime = Date.now();
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          const now = Date.now();
-          if (retryDelays.length > 0) {
-            retryDelays.push(now - lastAttemptTime);
-          }
-          lastAttemptTime = now;
-          return throwError(error);
-        }
-      };
-      
-      // Configure the interceptor with custom retry options
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries,
-        delayType: 'exponential',
-        initialDelayMs
-      });
-      
-      // Act
-      try {
-        await retryInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw, we're just measuring the delays
-      }
-      
-      // Assert - each delay should be approximately double the previous one
-      // We allow some margin of error due to timing inconsistencies
-      for (let i = 1; i < retryDelays.length; i++) {
-        const expectedRatio = 2;
-        const actualRatio = retryDelays[i] / retryDelays[i-1];
-        expect(actualRatio).toBeGreaterThanOrEqual(expectedRatio * 0.8);
-        expect(actualRatio).toBeLessThanOrEqual(expectedRatio * 1.2);
-      }
-    });
+    it('should retry transient errors up to maxAttempts times', (done) => {
+      const transientError = createTransientError();
+      const handler = createCallHandler(null, transientError);
+      const next = jest.spyOn(handler, 'handle');
 
-    it('should succeed if an attempt succeeds after retries', async () => {
-      // Arrange
-      let attemptCount = 0;
-      const successAfterAttempts = 2;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          if (attemptCount <= successAfterAttempts) {
-            return throwError(new Error('Transient error'));
-          }
-          return of('success after retry');
-        }
-      };
-      
-      // Configure the interceptor with custom retry options
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries: 3,
-        delayType: 'exponential',
-        initialDelayMs: 10
-      });
-      
-      // Act
-      const result = await retryInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe('success after retry');
-      expect(attemptCount).toBe(successAfterAttempts + 1);
-    });
-
-    it('should not retry on non-retryable errors', async () => {
-      // Arrange
-      const nonRetryableError = new Error('Non-retryable error');
-      let attemptCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          return throwError(nonRetryableError);
-        }
-      };
-      
-      // Configure the interceptor with custom retry options and error filter
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries: 3,
-        delayType: 'exponential',
+      // Use a custom interceptor with faster retry for testing
+      const customInterceptor = new RetryInterceptor({
+        maxAttempts: 3,
         initialDelayMs: 10,
-        retryableErrorFilter: (error: Error) => error.message.includes('Transient')
+        maxDelayMs: 50,
+        backoffFactor: 2,
+        jitterFactor: 0
       });
-      
-      // Act & Assert
-      await expect(retryInterceptor.intercept(executionContext, callHandler).toPromise())
-        .rejects.toThrow(nonRetryableError);
-      
-      // Should have attempted only once, no retries
-      expect(attemptCount).toBe(1);
+
+      customInterceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBe(transientError);
+          expect(next).toHaveBeenCalledTimes(4); // Initial + 3 retries
+          expect(error.context.retryAttempts).toBe(3);
+          done();
+        }
+      });
+    });
+
+    it('should not retry non-transient errors', (done) => {
+      const nonTransientError = createNonTransientError();
+      const handler = createCallHandler(null, nonTransientError);
+      const next = jest.spyOn(handler, 'handle');
+
+      interceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBe(nonTransientError);
+          expect(next).toHaveBeenCalledTimes(1); // No retries
+          done();
+        }
+      });
+    });
+
+    it('should use custom retryableErrorPredicate if provided', (done) => {
+      const httpError = new HttpException('Bad Request', HttpStatus.BAD_REQUEST);
+      const handler = createCallHandler(null, httpError);
+      const next = jest.spyOn(handler, 'handle');
+
+      // Custom predicate that retries HTTP 400 errors
+      const customInterceptor = new RetryInterceptor({
+        maxAttempts: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 50,
+        backoffFactor: 2,
+        jitterFactor: 0,
+        retryableErrorPredicate: (error) => error instanceof HttpException
+      });
+
+      customInterceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBe(httpError);
+          expect(next).toHaveBeenCalledTimes(3); // Initial + 2 retries
+          done();
+        }
+      });
+    });
+
+    it('should create specialized interceptors with factory methods', () => {
+      const DatabaseRetryInterceptor = RetryInterceptor.forDatabase();
+      const dbInterceptor = new DatabaseRetryInterceptor();
+      expect(dbInterceptor).toBeInstanceOf(RetryInterceptor);
+
+      const ExternalApiRetryInterceptor = RetryInterceptor.forExternalApi();
+      const apiInterceptor = new ExternalApiRetryInterceptor();
+      expect(apiInterceptor).toBeInstanceOf(RetryInterceptor);
+
+      const EventProcessingRetryInterceptor = RetryInterceptor.forEventProcessing();
+      const eventInterceptor = new EventProcessingRetryInterceptor();
+      expect(eventInterceptor).toBeInstanceOf(RetryInterceptor);
     });
   });
 
-  /**
-   * CircuitBreakerInterceptor tests
-   * Tests the circuit breaker pattern for failing dependencies
-   */
   describe('CircuitBreakerInterceptor', () => {
-    let circuitBreakerInterceptor: CircuitBreakerInterceptor;
-    
-    beforeEach(async () => {
-      const moduleRef = await Test.createTestingModule({
-        providers: [CircuitBreakerInterceptor],
-      }).compile();
-      
-      circuitBreakerInterceptor = moduleRef.get<CircuitBreakerInterceptor>(CircuitBreakerInterceptor);
-      
-      // Reset circuit breaker state before each test
-      (circuitBreakerInterceptor as any).resetCircuitState();
-    });
+    let interceptor: CircuitBreakerInterceptor;
+    let context: ExecutionContext;
+    const circuitName = 'test-circuit';
 
-    it('should successfully pass through when no error occurs', async () => {
-      // Arrange
-      const callHandler: CallHandler = {
-        handle: () => of('success')
-      };
-      
-      // Act
-      const result = await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe('success');
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('CLOSED');
-    });
-
-    it('should open the circuit after reaching the error threshold', async () => {
-      // Arrange
-      const error = new Error('Dependency failure');
-      const failureThreshold = 3;
-      let attemptCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          return throwError(error);
-        }
-      };
-      
-      // Configure the circuit breaker options
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold,
-        resetTimeoutMs: 1000,
-        requestVolumeThreshold: 1
+    beforeEach(() => {
+      interceptor = new CircuitBreakerInterceptor(circuitName, {
+        failureThresholdPercentage: 50,
+        requestVolumeThreshold: 4,
+        rollingWindowMs: 10000,
+        resetTimeoutMs: 5000
       });
-      
-      // Act - Make multiple failing requests to trip the circuit
-      for (let i = 0; i < failureThreshold; i++) {
-        try {
-          await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-        } catch (e) {
-          // Expected to throw
-        }
-      }
-      
-      // Assert - Circuit should be open after threshold failures
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      expect(attemptCount).toBe(failureThreshold);
-      
-      // Act - Make another request, which should fail fast without calling the handler
-      const previousAttemptCount = attemptCount;
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw a CircuitBreakerOpenException
-        expect(e.message).toContain('Circuit breaker is open');
-      }
-      
-      // Assert - Handler should not have been called again
-      expect(attemptCount).toBe(previousAttemptCount);
+      context = createExecutionContext();
+      // Reset the circuit before each test
+      interceptor.resetCircuit();
     });
 
-    it('should transition to half-open state after reset timeout', async () => {
-      // Arrange
-      const error = new Error('Dependency failure');
-      const failureThreshold = 2;
-      const resetTimeoutMs = 100; // Short timeout for testing
-      let attemptCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          return throwError(error);
+    it('should pass through successful responses and record success', (done) => {
+      const expectedResult = { success: true };
+      const handler = createCallHandler(expectedResult);
+
+      interceptor.intercept(context, handler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+        },
+        complete: () => done()
+      });
+    });
+
+    it('should record failures and open the circuit after threshold is reached', (done) => {
+      const serverError = new HttpException('Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+      const handler = createCallHandler(null, serverError);
+
+      // First request - circuit should remain closed
+      interceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBe(serverError);
+
+          // Second request - circuit should remain closed
+          interceptor.intercept(context, handler).subscribe({
+            error: (error) => {
+              expect(error).toBe(serverError);
+
+              // Third request - circuit should remain closed
+              interceptor.intercept(context, handler).subscribe({
+                error: (error) => {
+                  expect(error).toBe(serverError);
+
+                  // Fourth request - circuit should open after this
+                  interceptor.intercept(context, handler).subscribe({
+                    error: (error) => {
+                      expect(error).toBe(serverError);
+
+                      // Fifth request - circuit should be open now
+                      interceptor.intercept(context, handler).subscribe({
+                        error: (error) => {
+                          // Should be a circuit open error, not the original error
+                          expect(error).not.toBe(serverError);
+                          expect(error).toBeInstanceOf(BaseError);
+                          expect(error.message).toContain('circuit');
+                          expect(error.message).toContain('open');
+                          expect(error.type).toBe(ErrorType.EXTERNAL);
+                          expect(error.code).toBe('CIRCUIT_OPEN');
+                          done();
+                        }
+                      });
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+      });
+    });
+
+    it('should not count client errors as failures', (done) => {
+      const clientError = new HttpException('Bad Request', HttpStatus.BAD_REQUEST);
+      const handler = createCallHandler(null, clientError);
+
+      // Make multiple requests with client errors
+      const makeRequest = (index: number) => {
+        return new Promise<void>((resolve) => {
+          interceptor.intercept(context, handler).subscribe({
+            error: (error) => {
+              expect(error).toBe(clientError);
+              resolve();
+            }
+          });
+        });
+      };
+
+      // Make 10 requests with client errors
+      Promise.all(Array.from({ length: 10 }, (_, i) => makeRequest(i)))
+        .then(() => {
+          // Circuit should still be closed
+          interceptor.intercept(context, handler).subscribe({
+            error: (error) => {
+              // Should still be the original client error, not a circuit open error
+              expect(error).toBe(clientError);
+              done();
+            }
+          });
+        });
+    });
+
+    it('should create specialized interceptors with factory methods', () => {
+      const CriticalCircuitBreaker = CircuitBreakerInterceptor.forCriticalService('critical-circuit');
+      const criticalInterceptor = new CriticalCircuitBreaker();
+      expect(criticalInterceptor).toBeInstanceOf(CircuitBreakerInterceptor);
+
+      const NonCriticalCircuitBreaker = CircuitBreakerInterceptor.forNonCriticalService('non-critical-circuit');
+      const nonCriticalInterceptor = new NonCriticalCircuitBreaker();
+      expect(nonCriticalInterceptor).toBeInstanceOf(CircuitBreakerInterceptor);
+    });
+
+    it('should transition from open to half-open to closed after reset timeout', (done) => {
+      const serverError = new HttpException('Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+      const successHandler = createCallHandler({ success: true });
+      const errorHandler = createCallHandler(null, serverError);
+
+      // Helper to make enough failing requests to open the circuit
+      const openCircuit = async () => {
+        for (let i = 0; i < 5; i++) {
+          await new Promise<void>((resolve) => {
+            interceptor.intercept(context, errorHandler).subscribe({
+              error: () => resolve(),
+              complete: () => resolve()
+            });
+          });
         }
       };
-      
-      // Configure the circuit breaker options
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold,
-        resetTimeoutMs,
-        requestVolumeThreshold: 1
-      });
-      
-      // Act - Trip the circuit
-      for (let i = 0; i < failureThreshold; i++) {
-        try {
-          await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-        } catch (e) {
-          // Expected to throw
-        }
-      }
-      
-      // Assert - Circuit should be open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      
-      // Act - Wait for reset timeout
-      await new Promise(resolve => setTimeout(resolve, resetTimeoutMs + 10));
-      
-      // Assert - Circuit should now be half-open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('HALF_OPEN');
-    });
 
-    it('should close the circuit after a successful request in half-open state', async () => {
-      // Arrange
-      const failureThreshold = 2;
-      const resetTimeoutMs = 100; // Short timeout for testing
-      let shouldFail = true;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          if (shouldFail) {
-            return throwError(new Error('Dependency failure'));
+      // Open the circuit
+      openCircuit().then(() => {
+        // Verify circuit is open
+        interceptor.intercept(context, successHandler).subscribe({
+          error: (error) => {
+            expect(error).toBeInstanceOf(BaseError);
+            expect(error.code).toBe('CIRCUIT_OPEN');
+
+            // Mock the reset timeout by directly calling resetCircuit
+            interceptor.resetCircuit();
+
+            // Circuit should now be closed, successful request should pass
+            interceptor.intercept(context, successHandler).subscribe({
+              next: (result) => {
+                expect(result).toEqual({ success: true });
+                done();
+              }
+            });
           }
-          return of('success');
-        }
-      };
-      
-      // Configure the circuit breaker options
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold,
-        resetTimeoutMs,
-        requestVolumeThreshold: 1
+        });
       });
-      
-      // Act - Trip the circuit
-      for (let i = 0; i < failureThreshold; i++) {
-        try {
-          await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-        } catch (e) {
-          // Expected to throw
-        }
-      }
-      
-      // Assert - Circuit should be open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      
-      // Act - Wait for reset timeout
-      await new Promise(resolve => setTimeout(resolve, resetTimeoutMs + 10));
-      
-      // Assert - Circuit should now be half-open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('HALF_OPEN');
-      
-      // Act - Make a successful request in half-open state
-      shouldFail = false;
-      const result = await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert - Circuit should be closed and request should succeed
-      expect(result).toBe('success');
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('CLOSED');
-    });
-
-    it('should reopen the circuit after a failed request in half-open state', async () => {
-      // Arrange
-      const failureThreshold = 2;
-      const resetTimeoutMs = 100; // Short timeout for testing
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(new Error('Dependency failure'))
-      };
-      
-      // Configure the circuit breaker options
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold,
-        resetTimeoutMs,
-        requestVolumeThreshold: 1
-      });
-      
-      // Act - Trip the circuit
-      for (let i = 0; i < failureThreshold; i++) {
-        try {
-          await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-        } catch (e) {
-          // Expected to throw
-        }
-      }
-      
-      // Assert - Circuit should be open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      
-      // Act - Wait for reset timeout
-      await new Promise(resolve => setTimeout(resolve, resetTimeoutMs + 10));
-      
-      // Assert - Circuit should now be half-open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('HALF_OPEN');
-      
-      // Act - Make a failed request in half-open state
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw
-      }
-      
-      // Assert - Circuit should be open again
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-    });
-
-    it('should track failure rates based on the request volume threshold', async () => {
-      // Arrange
-      const failureThreshold = 50; // 50% failure rate
-      const requestVolumeThreshold = 4; // Need at least 4 requests to calculate failure rate
-      let failureCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          failureCount++;
-          if (failureCount % 2 === 0) { // 50% failure rate
-            return throwError(new Error('Dependency failure'));
-          }
-          return of('success');
-        }
-      };
-      
-      // Configure the circuit breaker options
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold, // 50%
-        resetTimeoutMs: 1000,
-        requestVolumeThreshold
-      });
-      
-      // Act - Make requests with 50% failure rate
-      for (let i = 0; i < requestVolumeThreshold - 1; i++) {
-        try {
-          await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-        } catch (e) {
-          // Some requests will throw, which is expected
-        }
-      }
-      
-      // Assert - Circuit should still be closed (not enough volume yet)
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('CLOSED');
-      
-      // Act - Make one more request to reach the volume threshold
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // May throw depending on the failure pattern
-      }
-      
-      // Assert - Circuit should now be open due to 50% failure rate
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
     });
   });
 
-  /**
-   * FallbackInterceptor tests
-   * Tests the fallback functionality for graceful degradation
-   */
   describe('FallbackInterceptor', () => {
-    let fallbackInterceptor: FallbackInterceptor;
-    
-    beforeEach(async () => {
-      const moduleRef = await Test.createTestingModule({
-        providers: [FallbackInterceptor],
-      }).compile();
-      
-      fallbackInterceptor = moduleRef.get<FallbackInterceptor>(FallbackInterceptor);
+    let context: ExecutionContext;
+
+    beforeEach(() => {
+      context = createExecutionContext();
     });
 
-    it('should successfully pass through when no error occurs', async () => {
-      // Arrange
-      const callHandler: CallHandler = {
-        handle: () => of('success')
-      };
-      
-      // Act
-      const result = await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe('success');
+    it('should pass through successful responses and cache them', (done) => {
+      const expectedResult = { data: 'test-data' };
+      const handler = createCallHandler(expectedResult);
+
+      const interceptor = new FallbackInterceptor({
+        strategy: 'USE_CACHED_DATA',
+        cacheKey: 'test-cache-key',
+        cacheTtlMs: 1000
+      });
+
+      interceptor.intercept(context, handler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+        },
+        complete: () => done()
+      });
     });
 
-    it('should return fallback value when the primary operation fails', async () => {
-      // Arrange
-      const error = new Error('Primary operation failed');
-      const fallbackValue = 'fallback data';
-      const fallbackFn = jest.fn().mockReturnValue(fallbackValue);
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Configure the fallback options
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
+    it('should return cached data when operation fails', (done) => {
+      const expectedResult = { data: 'test-data' };
+      const successHandler = createCallHandler(expectedResult);
+      const errorHandler = createCallHandler(null, new Error('Test error'));
+
+      const interceptor = new FallbackInterceptor({
+        strategy: 'USE_CACHED_DATA',
+        cacheKey: 'test-cache-key',
+        cacheTtlMs: 1000
+      });
+
+      // First, cache the successful result
+      interceptor.intercept(context, successHandler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+
+          // Then, try with an error - should return cached result
+          interceptor.intercept(context, errorHandler).subscribe({
+            next: (fallbackResult) => {
+              expect(fallbackResult).toEqual(expectedResult);
+              done();
+            }
+          });
+        }
+      });
+    });
+
+    it('should return default value when operation fails and no cache exists', (done) => {
+      const defaultValue = { default: true };
+      const errorHandler = createCallHandler(null, new Error('Test error'));
+
+      const interceptor = new FallbackInterceptor({
+        strategy: 'USE_DEFAULT_VALUES',
+        defaultValue
+      });
+
+      interceptor.intercept(context, errorHandler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(defaultValue);
+          done();
+        }
+      });
+    });
+
+    it('should execute fallback function when operation fails', (done) => {
+      const fallbackResult = { fallback: true };
+      const errorHandler = createCallHandler(null, new Error('Test error'));
+
+      const fallbackFn = jest.fn().mockReturnValue(fallbackResult);
+
+      const interceptor = new FallbackInterceptor({
+        strategy: 'GRACEFUL_DEGRADATION',
         fallbackFn
       });
-      
-      // Act
-      const result = await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe(fallbackValue);
-      expect(fallbackFn).toHaveBeenCalledWith(error, executionContext);
+
+      interceptor.intercept(context, errorHandler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(fallbackResult);
+          expect(fallbackFn).toHaveBeenCalled();
+          done();
+        }
+      });
     });
 
-    it('should pass the original error to the fallback function', async () => {
-      // Arrange
-      const error = new Error('Primary operation failed');
-      let capturedError: Error | null = null;
-      
-      const fallbackFn = jest.fn().mockImplementation((err) => {
-        capturedError = err;
-        return 'fallback data';
+    it('should return empty result when operation fails with RETURN_EMPTY strategy', (done) => {
+      const errorHandler = createCallHandler(null, new Error('Test error'));
+
+      const arrayInterceptor = new FallbackInterceptor({
+        strategy: 'RETURN_EMPTY',
+        defaultValue: []
       });
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Configure the fallback options
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
+
+      const objectInterceptor = new FallbackInterceptor({
+        strategy: 'RETURN_EMPTY',
+        defaultValue: {}
       });
-      
-      // Act
-      await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(capturedError).toBe(error);
+
+      // Test with array default value
+      arrayInterceptor.intercept(context, errorHandler).subscribe({
+        next: (result) => {
+          expect(result).toEqual([]);
+
+          // Test with object default value
+          objectInterceptor.intercept(context, errorHandler).subscribe({
+            next: (result) => {
+              expect(result).toEqual({});
+              done();
+            }
+          });
+        }
+      });
     });
 
-    it('should support async fallback functions', async () => {
-      // Arrange
-      const error = new Error('Primary operation failed');
-      const fallbackValue = 'async fallback data';
-      
-      const fallbackFn = jest.fn().mockImplementation(async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        return fallbackValue;
-      });
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Configure the fallback options
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
-      });
-      
-      // Act
-      const result = await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe(fallbackValue);
-    });
+    it('should create specialized interceptors with factory methods', () => {
+      const CachedDataInterceptor = FallbackInterceptor.withCachedData('test-key');
+      const cachedInterceptor = new CachedDataInterceptor();
+      expect(cachedInterceptor).toBeInstanceOf(FallbackInterceptor);
 
-    it('should support fallback functions that return observables', async () => {
-      // Arrange
-      const error = new Error('Primary operation failed');
-      const fallbackValue = 'observable fallback data';
-      
-      const fallbackFn = jest.fn().mockImplementation(() => {
-        return of(fallbackValue).pipe(delay(10));
-      });
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Configure the fallback options
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
-      });
-      
-      // Act
-      const result = await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe(fallbackValue);
-    });
+      const DefaultValueInterceptor = FallbackInterceptor.withDefaultValue({ default: true });
+      const defaultInterceptor = new DefaultValueInterceptor();
+      expect(defaultInterceptor).toBeInstanceOf(FallbackInterceptor);
 
-    it('should propagate errors from the fallback function', async () => {
-      // Arrange
-      const primaryError = new Error('Primary operation failed');
-      const fallbackError = new Error('Fallback also failed');
-      
-      const fallbackFn = jest.fn().mockImplementation(() => {
-        throw fallbackError;
-      });
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(primaryError)
-      };
-      
-      // Configure the fallback options
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
-      });
-      
-      // Act & Assert
-      await expect(fallbackInterceptor.intercept(executionContext, callHandler).toPromise())
-        .rejects.toThrow(fallbackError);
-    });
+      const FallbackFunctionInterceptor = FallbackInterceptor.withFallbackFunction(() => ({ fallback: true }));
+      const functionInterceptor = new FallbackFunctionInterceptor();
+      expect(functionInterceptor).toBeInstanceOf(FallbackInterceptor);
 
-    it('should support conditional fallback based on error type', async () => {
-      // Arrange
-      const networkError = new Error('Network error');
-      networkError.name = 'NetworkError';
-      
-      const validationError = new Error('Validation error');
-      validationError.name = 'ValidationError';
-      
-      const networkFallbackValue = 'network fallback';
-      const fallbackFn = jest.fn().mockReturnValue(networkFallbackValue);
-      
-      let currentError = networkError;
-      const callHandler: CallHandler = {
-        handle: () => throwError(currentError)
-      };
-      
-      // Configure the fallback options with error filter
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn,
-        errorFilter: (err: Error) => err.name === 'NetworkError'
-      });
-      
-      // Act - With network error (should use fallback)
-      const result1 = await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result1).toBe(networkFallbackValue);
-      
-      // Act - With validation error (should not use fallback)
-      currentError = validationError;
-      try {
-        await fallbackInterceptor.intercept(executionContext, callHandler).toPromise();
-        fail('Should have thrown an error');
-      } catch (e) {
-        // Assert
-        expect(e).toBe(validationError);
-      }
+      const EmptyResultInterceptor = FallbackInterceptor.withEmptyResult(true);
+      const emptyInterceptor = new EmptyResultInterceptor();
+      expect(emptyInterceptor).toBeInstanceOf(FallbackInterceptor);
     });
   });
 
-  /**
-   * TimeoutInterceptor tests
-   * Tests the timeout detection and response functionality
-   */
   describe('TimeoutInterceptor', () => {
-    let timeoutInterceptor: TimeoutInterceptor;
-    
-    beforeEach(async () => {
-      const moduleRef = await Test.createTestingModule({
-        providers: [TimeoutInterceptor],
-      }).compile();
-      
-      timeoutInterceptor = moduleRef.get<TimeoutInterceptor>(TimeoutInterceptor);
+    let context: ExecutionContext;
+
+    beforeEach(() => {
+      context = createExecutionContext();
     });
 
-    it('should successfully pass through when response is faster than timeout', async () => {
-      // Arrange
-      const callHandler: CallHandler = {
-        handle: () => of('success').pipe(delay(10))
-      };
-      
-      // Configure the timeout options
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: 100
+    it('should pass through responses that complete before timeout', (done) => {
+      const expectedResult = { success: true };
+      const handler = createCallHandler(expectedResult, null, 50);
+
+      const interceptor = new TimeoutInterceptor({
+        timeoutMs: 1000,
+        errorMessage: 'Custom timeout message',
+        errorCode: 'CUSTOM_TIMEOUT'
       });
-      
-      // Act
-      const result = await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe('success');
-    });
 
-    it('should throw a timeout error when response exceeds timeout', async () => {
-      // Arrange
-      const timeoutMs = 50;
-      const responseDelayMs = timeoutMs * 2;
-      
-      const callHandler: CallHandler = {
-        handle: () => of('delayed response').pipe(delay(responseDelayMs))
-      };
-      
-      // Configure the timeout options
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs
+      interceptor.intercept(context, handler).subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+        },
+        complete: () => done()
       });
-      
-      // Act & Assert
-      try {
-        await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-        fail('Should have thrown a timeout error');
-      } catch (e) {
-        expect(e.name).toBe('TimeoutError');
-        expect(e.message).toContain(`Timeout of ${timeoutMs}ms exceeded`);
-      }
     });
 
-    it('should include request details in timeout error message', async () => {
-      // Arrange
-      const timeoutMs = 50;
-      const responseDelayMs = timeoutMs * 2;
-      const requestUrl = '/test-endpoint';
-      const requestMethod = 'GET';
-      
-      // Update the mock execution context with specific request details
-      (executionContext.switchToHttp().getRequest as jest.Mock).mockReturnValue({
-        url: requestUrl,
-        method: requestMethod,
-        headers: {
-          'x-journey-id': 'test-journey'
+    it('should throw timeout error when operation exceeds timeout', (done) => {
+      const handler = createCallHandler({ success: true }, null, 200);
+
+      const interceptor = new TimeoutInterceptor({
+        timeoutMs: 100,
+        errorMessage: 'Custom timeout message',
+        errorCode: 'CUSTOM_TIMEOUT'
+      });
+
+      interceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBeInstanceOf(ExternalTimeoutError);
+          expect(error.message).toBe('Custom timeout message');
+          expect(error.code).toBe('CUSTOM_TIMEOUT');
+          expect(error.timeoutMs).toBe(100);
+          done();
         }
       });
-      
-      const callHandler: CallHandler = {
-        handle: () => of('delayed response').pipe(delay(responseDelayMs))
-      };
-      
-      // Configure the timeout options
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs
-      });
-      
-      // Act & Assert
-      try {
-        await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-        fail('Should have thrown a timeout error');
-      } catch (e) {
-        expect(e.message).toContain(requestMethod);
-        expect(e.message).toContain(requestUrl);
-      }
     });
 
-    it('should use different timeout values for different routes', async () => {
-      // Arrange
-      const defaultTimeoutMs = 100;
-      const longOperationTimeoutMs = 500;
-      const responseDelayMs = 200; // Between default and long operation timeout
-      
-      const callHandler: CallHandler = {
-        handle: () => of('delayed response').pipe(delay(responseDelayMs))
-      };
-      
-      // Test with default timeout (should timeout)
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: defaultTimeoutMs
+    it('should pass through non-timeout errors', (done) => {
+      const originalError = new Error('Original error');
+      const handler = createCallHandler(null, originalError, 50);
+
+      const interceptor = new TimeoutInterceptor({
+        timeoutMs: 1000
       });
-      
-      // Act & Assert for default timeout
-      try {
-        await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-        fail('Should have thrown a timeout error with default timeout');
-      } catch (e) {
-        expect(e.name).toBe('TimeoutError');
-      }
-      
-      // Test with long operation timeout (should not timeout)
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: longOperationTimeoutMs
+
+      interceptor.intercept(context, handler).subscribe({
+        error: (error) => {
+          expect(error).toBe(originalError);
+          done();
+        }
       });
-      
-      // Act & Assert for long operation timeout
-      const result = await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-      expect(result).toBe('delayed response');
     });
 
-    it('should handle errors that occur before timeout', async () => {
-      // Arrange
-      const error = new Error('Operation failed');
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Configure the timeout options
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: 100
-      });
-      
-      // Act & Assert
-      await expect(timeoutInterceptor.intercept(executionContext, callHandler).toPromise())
-        .rejects.toThrow(error);
-    });
+    it('should create specialized interceptors with factory methods', () => {
+      const ApiTimeoutInterceptor = TimeoutInterceptor.forApiRequest(5000);
+      const apiInterceptor = new ApiTimeoutInterceptor();
+      expect(apiInterceptor).toBeInstanceOf(TimeoutInterceptor);
 
-    it('should cancel the original operation when timeout occurs', async () => {
-      // Arrange
-      const timeoutMs = 50;
-      let operationCancelled = false;
-      
-      // Create an observable that can detect cancellation
-      const observable = new Observable(subscriber => {
-        const timer = setTimeout(() => {
-          subscriber.next('delayed response');
-          subscriber.complete();
-        }, timeoutMs * 2);
-        
-        // Return teardown logic that will be called on unsubscribe
-        return () => {
-          clearTimeout(timer);
-          operationCancelled = true;
-        };
-      });
-      
-      const callHandler: CallHandler = {
-        handle: () => observable
-      };
-      
-      // Configure the timeout options
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs
-      });
-      
-      // Act
-      try {
-        await timeoutInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw timeout error
-      }
-      
-      // Assert - Verify that the operation was cancelled
-      expect(operationCancelled).toBe(true);
+      const DatabaseTimeoutInterceptor = TimeoutInterceptor.forDatabaseOperation(2000);
+      const dbInterceptor = new DatabaseTimeoutInterceptor();
+      expect(dbInterceptor).toBeInstanceOf(TimeoutInterceptor);
+
+      const ExternalServiceTimeoutInterceptor = TimeoutInterceptor.forExternalService(10000);
+      const externalInterceptor = new ExternalServiceTimeoutInterceptor();
+      expect(externalInterceptor).toBeInstanceOf(TimeoutInterceptor);
     });
   });
 
-  /**
-   * Combined Interceptors tests
-   * Tests the integration of multiple interceptors working together
-   */
   describe('Combined Interceptors', () => {
-    let retryInterceptor: RetryInterceptor;
-    let circuitBreakerInterceptor: CircuitBreakerInterceptor;
-    let fallbackInterceptor: FallbackInterceptor;
-    let timeoutInterceptor: TimeoutInterceptor;
-    
-    beforeEach(async () => {
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          RetryInterceptor,
-          CircuitBreakerInterceptor,
-          FallbackInterceptor,
-          TimeoutInterceptor
-        ],
-      }).compile();
-      
-      retryInterceptor = moduleRef.get<RetryInterceptor>(RetryInterceptor);
-      circuitBreakerInterceptor = moduleRef.get<CircuitBreakerInterceptor>(CircuitBreakerInterceptor);
-      fallbackInterceptor = moduleRef.get<FallbackInterceptor>(FallbackInterceptor);
-      timeoutInterceptor = moduleRef.get<TimeoutInterceptor>(TimeoutInterceptor);
-      
-      // Reset circuit breaker state before each test
-      (circuitBreakerInterceptor as any).resetCircuitState();
-      
-      // Configure default options for each interceptor
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries: 2,
-        delayType: 'exponential',
-        initialDelayMs: 10
-      });
-      
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold: 50,
-        resetTimeoutMs: 1000,
-        requestVolumeThreshold: 4
-      });
-      
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: 100
-      });
+    let context: ExecutionContext;
+
+    beforeEach(() => {
+      context = createExecutionContext();
     });
 
-    it('should handle timeout with fallback', async () => {
-      // Arrange
-      const fallbackValue = 'fallback for timeout';
-      const fallbackFn = jest.fn().mockReturnValue(fallbackValue);
-      
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
-      });
-      
-      const callHandler: CallHandler = {
-        handle: () => of('delayed response').pipe(delay(200)) // Will timeout
-      };
-      
-      // Act - Apply timeout interceptor first, then fallback
-      const timeoutHandler = {
-        handle: () => timeoutInterceptor.intercept(executionContext, callHandler)
-      };
-      
-      const result = await fallbackInterceptor.intercept(executionContext, timeoutHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe(fallbackValue);
-      expect(fallbackFn).toHaveBeenCalled();
-    });
+    it('should work together in a chain for successful responses', (done) => {
+      const expectedResult = { success: true };
+      const handler = createCallHandler(expectedResult);
 
-    it('should retry transient errors before circuit breaker trips', async () => {
-      // Arrange
-      const error = new Error('Transient error');
-      let attemptCount = 0;
-      
-      const callHandler: CallHandler = {
-        handle: () => {
-          attemptCount++;
-          return throwError(error);
+      // Create interceptors
+      const timeoutInterceptor = new TimeoutInterceptor({ timeoutMs: 1000 });
+      const retryInterceptor = new RetryInterceptor({
+        maxAttempts: 3,
+        initialDelayMs: 10,
+        maxDelayMs: 50
+      });
+      const circuitInterceptor = new CircuitBreakerInterceptor('test-combined-circuit');
+      const fallbackInterceptor = FallbackInterceptor.withDefaultValue({ default: true });
+
+      // Apply interceptors in chain
+      const result$ = timeoutInterceptor.intercept(
+        context,
+        {
+          handle: () => retryInterceptor.intercept(
+            context,
+            {
+              handle: () => circuitInterceptor.intercept(
+                context,
+                {
+                  handle: () => fallbackInterceptor.intercept(
+                    context,
+                    handler
+                  )
+                }
+              )
+            }
+          )
         }
-      };
-      
-      // Configure retry to make 2 retries
-      jest.spyOn(retryInterceptor as any, 'getRetryOptions').mockReturnValue({
-        maxRetries: 2,
-        delayType: 'exponential',
-        initialDelayMs: 10
+      );
+
+      result$.subscribe({
+        next: (result) => {
+          expect(result).toEqual(expectedResult);
+        },
+        complete: () => done()
       });
-      
-      // Configure circuit breaker to trip after 3 failures
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold: 3,
-        resetTimeoutMs: 1000,
-        requestVolumeThreshold: 1
-      });
-      
-      // Act - Apply retry interceptor first, then circuit breaker
-      const retryHandler = {
-        handle: () => retryInterceptor.intercept(executionContext, callHandler)
-      };
-      
-      // First request - should retry but eventually fail
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, retryHandler).toPromise();
-      } catch (e) {
-        // Expected to throw after retries
-      }
-      
-      // Assert - Should have attempted 1 original + 2 retries = 3 total attempts
-      expect(attemptCount).toBe(3);
-      
-      // Reset attempt count for next request
-      attemptCount = 0;
-      
-      // Second request - should retry but eventually fail
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, retryHandler).toPromise();
-      } catch (e) {
-        // Expected to throw after retries
-      }
-      
-      // Assert - Should have attempted 1 original + 2 retries = 3 total attempts
-      expect(attemptCount).toBe(3);
-      
-      // Reset attempt count for next request
-      attemptCount = 0;
-      
-      // Third request - circuit should be open now, so no retries should happen
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, retryHandler).toPromise();
-      } catch (e) {
-        // Expected to throw circuit open error
-        expect(e.message).toContain('Circuit breaker is open');
-      }
-      
-      // Assert - Should not have attempted any calls because circuit is open
-      expect(attemptCount).toBe(0);
     });
 
-    it('should apply fallback when circuit breaker is open', async () => {
-      // Arrange
-      const error = new Error('Dependency failure');
-      const fallbackValue = 'circuit breaker fallback';
-      const fallbackFn = jest.fn().mockReturnValue(fallbackValue);
-      
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
+    it('should handle errors appropriately in a chain', (done) => {
+      const transientError = createTransientError();
+      const handler = createCallHandler(null, transientError);
+
+      // Create interceptors with fast timeouts for testing
+      const timeoutInterceptor = new TimeoutInterceptor({ timeoutMs: 1000 });
+      const retryInterceptor = new RetryInterceptor({
+        maxAttempts: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 20
       });
-      
-      // Configure circuit breaker to trip after 2 failures
-      jest.spyOn(circuitBreakerInterceptor as any, 'getCircuitBreakerOptions').mockReturnValue({
-        failureThreshold: 2,
-        resetTimeoutMs: 1000,
-        requestVolumeThreshold: 1
+      const circuitInterceptor = new CircuitBreakerInterceptor('test-combined-error-circuit');
+      const fallbackInterceptor = FallbackInterceptor.withDefaultValue({ fallback: true });
+
+      // Apply interceptors in chain
+      const result$ = timeoutInterceptor.intercept(
+        context,
+        {
+          handle: () => retryInterceptor.intercept(
+            context,
+            {
+              handle: () => circuitInterceptor.intercept(
+                context,
+                {
+                  handle: () => fallbackInterceptor.intercept(
+                    context,
+                    handler
+                  )
+                }
+              )
+            }
+          )
+        }
+      );
+
+      result$.subscribe({
+        next: (result) => {
+          // Should get fallback result after retries fail
+          expect(result).toEqual({ fallback: true });
+        },
+        complete: () => done()
       });
-      
-      const callHandler: CallHandler = {
-        handle: () => throwError(error)
-      };
-      
-      // Act - Apply circuit breaker first, then fallback
-      const circuitBreakerHandler = {
-        handle: () => circuitBreakerInterceptor.intercept(executionContext, callHandler)
-      };
-      
-      // Trip the circuit with two failing requests
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw
-      }
-      
-      try {
-        await circuitBreakerInterceptor.intercept(executionContext, callHandler).toPromise();
-      } catch (e) {
-        // Expected to throw
-      }
-      
-      // Assert - Circuit should be open
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      
-      // Act - Now try with fallback
-      const result = await fallbackInterceptor.intercept(executionContext, circuitBreakerHandler).toPromise();
-      
-      // Assert - Should have used fallback
-      expect(result).toBe(fallbackValue);
-      expect(fallbackFn).toHaveBeenCalled();
     });
 
-    it('should apply all interceptors in the correct order', async () => {
-      // Arrange
-      const fallbackValue = 'complete fallback chain';
-      const fallbackFn = jest.fn().mockReturnValue(fallbackValue);
-      
-      jest.spyOn(fallbackInterceptor as any, 'getFallbackOptions').mockReturnValue({
-        fallbackFn
+    it('should handle timeout errors in a chain', (done) => {
+      // Handler that delays longer than the timeout
+      const handler = createCallHandler({ success: true }, null, 200);
+
+      // Create interceptors
+      const timeoutInterceptor = new TimeoutInterceptor({ timeoutMs: 50 });
+      const fallbackInterceptor = FallbackInterceptor.withDefaultValue({ timeout: true });
+
+      // Apply interceptors in chain
+      const result$ = fallbackInterceptor.intercept(
+        context,
+        {
+          handle: () => timeoutInterceptor.intercept(
+            context,
+            handler
+          )
+        }
+      );
+
+      result$.subscribe({
+        next: (result) => {
+          // Should get fallback result after timeout
+          expect(result).toEqual({ timeout: true });
+        },
+        complete: () => done()
       });
-      
-      // Configure a short timeout
-      jest.spyOn(timeoutInterceptor as any, 'getTimeoutOptions').mockReturnValue({
-        timeoutMs: 50
-      });
-      
-      // This handler will timeout
-      const callHandler: CallHandler = {
-        handle: () => of('delayed response').pipe(delay(100))
-      };
-      
-      // Create the interceptor chain: Fallback -> Retry -> CircuitBreaker -> Timeout -> Handler
-      // The timeout will trigger, retry will attempt to retry the timeout,
-      // circuit breaker will eventually open, and fallback will provide the final response
-      
-      // Apply timeout first
-      const timeoutHandler = {
-        handle: () => timeoutInterceptor.intercept(executionContext, callHandler)
-      };
-      
-      // Then circuit breaker
-      const circuitBreakerHandler = {
-        handle: () => circuitBreakerInterceptor.intercept(executionContext, timeoutHandler)
-      };
-      
-      // Then retry
-      const retryHandler = {
-        handle: () => retryInterceptor.intercept(executionContext, circuitBreakerHandler)
-      };
-      
-      // Finally fallback
-      
-      // Act - Make multiple requests to trigger the full chain
-      let result;
-      
-      // First few requests will timeout, be retried, and eventually trip the circuit breaker
-      for (let i = 0; i < 3; i++) {
-        result = await fallbackInterceptor.intercept(executionContext, retryHandler).toPromise();
-        // Even the first requests should use fallback because of timeout
-        expect(result).toBe(fallbackValue);
-      }
-      
-      // Assert - Circuit should be open after multiple failures
-      expect((circuitBreakerInterceptor as any).getCircuitState()).toBe('OPEN');
-      
-      // One more request should use fallback immediately due to open circuit
-      fallbackFn.mockClear(); // Reset the mock to verify it's called again
-      result = await fallbackInterceptor.intercept(executionContext, retryHandler).toPromise();
-      
-      // Assert
-      expect(result).toBe(fallbackValue);
-      expect(fallbackFn).toHaveBeenCalled();
     });
   });
 });

@@ -1,11 +1,15 @@
-import { describe, expect, it } from '@jest/globals';
+/**
+ * @file coverage-errors.spec.ts
+ * @description Unit tests for Plan journey's coverage-specific error classes
+ * 
+ * These tests validate that coverage-related error classes properly extend BaseError,
+ * include appropriate context data, map to correct HTTP status codes, and serialize
+ * consistently. This ensures consistent error handling for coverage verification features.
+ */
+
 import { HttpStatus } from '@nestjs/common';
-
-// Import the BaseError class and related types
-import { BaseError, ErrorType } from '../../../../src/base';
-import { HTTP_STATUS_MAPPINGS } from '../../../../src/constants';
-
-// Import the coverage-specific error classes
+import { BaseError, ErrorType, JourneyType } from '../../../../src/base';
+import { PLAN_ERROR_CODES } from '../../../../src/constants';
 import {
   CoverageNotFoundError,
   ServiceNotCoveredError,
@@ -15,361 +19,652 @@ import {
   CoverageApiIntegrationError
 } from '../../../../src/journey/plan/coverage-errors';
 
-/**
- * Test suite for Plan journey's coverage-specific error classes
- * Verifies error inheritance, classification, HTTP status code mapping, and context handling
- */
 describe('Plan Journey Coverage Errors', () => {
-  // Common test data
-  const coverageId = 'coverage-123';
-  const userId = 'user-456';
-  const planId = 'plan-789';
-  const providerId = 'provider-101';
-  const serviceCode = 'service-202';
-  
   describe('CoverageNotFoundError', () => {
+    const coverageId = 'cov-12345';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: CoverageNotFoundError;
+
+    beforeEach(() => {
+      error = new CoverageNotFoundError(coverageId, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new CoverageNotFoundError(coverageId);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new CoverageNotFoundError(coverageId);
+    it('should have correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include coverage ID in error details', () => {
-      const error = new CoverageNotFoundError(coverageId);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new CoverageNotFoundError(coverageId);
+    it('should include coverageId in the error message', () => {
+      expect(error.message).toContain(coverageId);
+    });
+
+    it('should include coverageId in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ coverageId });
+    });
+
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe('coverage-verification');
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new CoverageNotFoundError(coverageId, {
-        userId,
-        planId
-      });
-
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Coverage with ID ${coverageId} not found`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'CoverageNotFoundError',
+        message: `Coverage with ID ${coverageId} not found`,
+        type: ErrorType.BUSINESS,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: 'coverage-verification',
+          component: 'coverage-service',
+          metadata: { coverageId },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
     });
   });
 
   describe('ServiceNotCoveredError', () => {
+    const serviceCode = 'SVC-001';
+    const planId = 'plan-12345';
+    const memberId = 'mem-12345';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: ServiceNotCoveredError;
+
+    beforeEach(() => {
+      error = new ServiceNotCoveredError(serviceCode, planId, memberId, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new ServiceNotCoveredError(coverageId, serviceCode);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new ServiceNotCoveredError(coverageId, serviceCode);
+    it('should have correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include coverage and service details in error details', () => {
-      const error = new ServiceNotCoveredError(coverageId, serviceCode);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
-      expect(error.details.serviceCode).toBe(serviceCode);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new ServiceNotCoveredError(coverageId, serviceCode);
+    it('should include serviceCode and planId in the error message', () => {
+      expect(error.message).toContain(serviceCode);
+      expect(error.message).toContain(planId);
+    });
+
+    it('should include serviceCode, planId, and memberId in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ serviceCode, planId, memberId });
+    });
+
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe('service-coverage-check');
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new ServiceNotCoveredError(coverageId, serviceCode, {
-        userId,
-        planId,
-        serviceName: 'Specialized Consultation'
-      });
-
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.details.serviceCode).toBe(serviceCode);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
-      expect(json.error.context.serviceName).toBe('Specialized Consultation');
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Service ${serviceCode} is not covered by plan ${planId}`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'ServiceNotCoveredError',
+        message: `Service ${serviceCode} is not covered by plan ${planId}`,
+        type: ErrorType.BUSINESS,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: 'service-coverage-check',
+          component: 'coverage-service',
+          metadata: { serviceCode, planId, memberId },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
     });
   });
 
   describe('OutOfNetworkError', () => {
+    const providerId = 'prov-12345';
+    const networkId = 'net-12345';
+    const planId = 'plan-12345';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: OutOfNetworkError;
+
+    beforeEach(() => {
+      error = new OutOfNetworkError(providerId, networkId, planId, details, cause);
+    });
+
     it('should extend BaseError', () => {
-      const error = new OutOfNetworkError(coverageId, providerId);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have BUSINESS error type', () => {
-      const error = new OutOfNetworkError(coverageId, providerId);
+    it('should have correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
     });
 
-    it('should include coverage and provider details in error details', () => {
-      const error = new OutOfNetworkError(coverageId, providerId);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
-      expect(error.details.providerId).toBe(providerId);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new OutOfNetworkError(coverageId, providerId);
+    it('should include providerId and planId in the error message', () => {
+      expect(error.message).toContain(providerId);
+      expect(error.message).toContain(planId);
+    });
+
+    it('should include providerId, networkId, and planId in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ providerId, networkId, planId });
+    });
+
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe('network-provider-check');
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new OutOfNetworkError(coverageId, providerId, {
-        userId,
-        planId,
-        providerName: 'Dr. Smith Clinic',
-        networkName: 'Premium Provider Network'
-      });
-
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.details.providerId).toBe(providerId);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
-      expect(json.error.context.providerName).toBe('Dr. Smith Clinic');
-      expect(json.error.context.networkName).toBe('Premium Provider Network');
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Provider ${providerId} is out of network for plan ${planId}`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'OutOfNetworkError',
+        message: `Provider ${providerId} is out of network for plan ${planId}`,
+        type: ErrorType.BUSINESS,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: 'network-provider-check',
+          component: 'coverage-service',
+          metadata: { providerId, networkId, planId },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
     });
   });
 
   describe('CoverageVerificationError', () => {
-    const verificationSystem = 'insurance-verification-api';
-    const originalError = new Error('Verification system unavailable');
+    const memberId = 'mem-12345';
+    const planId = 'plan-12345';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: CoverageVerificationError;
+
+    beforeEach(() => {
+      error = new CoverageVerificationError(memberId, planId, details, cause);
+    });
 
     it('should extend BaseError', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have EXTERNAL error type', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError);
-      expect(error.type).toBe(ErrorType.EXTERNAL);
+    it('should have correct error type', () => {
+      expect(error.type).toBe(ErrorType.TECHNICAL);
     });
 
-    it('should include verification details in error details', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
-      expect(error.details.verificationSystem).toBe(verificationSystem);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should preserve original error as cause', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError);
-      expect(error.cause).toBe(originalError);
+    it('should include memberId and planId in the error message', () => {
+      expect(error.message).toContain(memberId);
+      expect(error.message).toContain(planId);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError);
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
+    it('should include memberId and planId in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ memberId, planId });
     });
 
-    it('should serialize with proper context', () => {
-      const error = new CoverageVerificationError(coverageId, verificationSystem, originalError, {
-        userId,
-        planId,
-        serviceCode,
-        verificationAttempt: 2
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe('coverage-verification');
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should mark the error as transient', () => {
+      expect(error.context.isTransient).toBe(true);
+    });
+
+    it('should include retry strategy', () => {
+      expect(error.context.retryStrategy).toEqual({
+        maxAttempts: 3,
+        baseDelayMs: 500,
+        useExponentialBackoff: true
       });
+    });
 
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.details.verificationSystem).toBe(verificationSystem);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
-      expect(json.error.context.serviceCode).toBe(serviceCode);
-      expect(json.error.context.verificationAttempt).toBe(2);
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.TECHNICAL,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Failed to verify coverage for member ${memberId} with plan ${planId}`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'CoverageVerificationError',
+        message: `Failed to verify coverage for member ${memberId} with plan ${planId}`,
+        type: ErrorType.TECHNICAL,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: 'coverage-verification',
+          component: 'coverage-service',
+          isTransient: true,
+          retryStrategy: {
+            maxAttempts: 3,
+            baseDelayMs: 500,
+            useExponentialBackoff: true
+          },
+          metadata: { memberId, planId },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
     });
   });
 
   describe('CoveragePersistenceError', () => {
-    const originalError = new Error('Database connection failed');
+    const operation = 'update' as const;
+    const coverageId = 'cov-12345';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: CoveragePersistenceError;
+
+    beforeEach(() => {
+      error = new CoveragePersistenceError(operation, coverageId, details, cause);
+    });
 
     it('should extend BaseError', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have TECHNICAL error type', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError);
+    it('should have correct error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
     });
 
-    it('should include coverage ID in error details', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should preserve original error as cause', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError);
-      expect(error.cause).toBe(originalError);
+    it('should include operation and coverageId in the error message', () => {
+      expect(error.message).toContain(operation);
+      expect(error.message).toContain(coverageId);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError);
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+    it('should include operation and coverageId in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ operation, coverageId });
     });
 
-    it('should serialize with proper context', () => {
-      const error = new CoveragePersistenceError(coverageId, originalError, {
-        userId,
-        planId,
-        operation: 'update',
-        databaseInstance: 'plan-service-db'
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe(`${operation}-coverage`);
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should mark the error as transient', () => {
+      expect(error.context.isTransient).toBe(true);
+    });
+
+    it('should include retry strategy', () => {
+      expect(error.context.retryStrategy).toEqual({
+        maxAttempts: 5,
+        baseDelayMs: 200,
+        useExponentialBackoff: true
       });
+    });
 
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
-      expect(json.error.context.operation).toBe('update');
-      expect(json.error.context.databaseInstance).toBe('plan-service-db');
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.TECHNICAL,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Failed to ${operation} coverage ${coverageId} in database`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
+      });
+    });
+
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'CoveragePersistenceError',
+        message: `Failed to ${operation} coverage ${coverageId} in database`,
+        type: ErrorType.TECHNICAL,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: `${operation}-coverage`,
+          component: 'coverage-service',
+          isTransient: true,
+          retryStrategy: {
+            maxAttempts: 5,
+            baseDelayMs: 200,
+            useExponentialBackoff: true
+          },
+          metadata: { operation, coverageId },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
+    });
+
+    it('should handle missing coverageId', () => {
+      const errorWithoutId = new CoveragePersistenceError('create');
+      expect(errorWithoutId.message).toBe('Failed to create coverage record in database');
+      expect(errorWithoutId.context.metadata).toEqual({ operation: 'create' });
     });
   });
 
   describe('CoverageApiIntegrationError', () => {
-    const apiSystem = 'insurance-provider-api';
-    const originalError = new Error('API request failed');
+    const apiName = 'InsuranceAPI';
+    const errorCode = 'API-500';
+    const details = { additionalInfo: 'Test details' };
+    const cause = new Error('Original error');
+    let error: CoverageApiIntegrationError;
+
+    beforeEach(() => {
+      error = new CoverageApiIntegrationError(apiName, errorCode, details, cause);
+    });
 
     it('should extend BaseError', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError);
       expect(error).toBeInstanceOf(BaseError);
     });
 
-    it('should have EXTERNAL error type', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError);
+    it('should have correct error type', () => {
       expect(error.type).toBe(ErrorType.EXTERNAL);
     });
 
-    it('should include API system details in error details', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError);
-      expect(error.details).toBeDefined();
-      expect(error.details.coverageId).toBe(coverageId);
-      expect(error.details.apiSystem).toBe(apiSystem);
+    it('should have correct error code', () => {
+      expect(error.code).toBe(PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED);
     });
 
-    it('should preserve original error as cause', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError);
-      expect(error.cause).toBe(originalError);
+    it('should include apiName and errorCode in the error message', () => {
+      expect(error.message).toContain(apiName);
+      expect(error.message).toContain(errorCode);
     });
 
-    it('should map to correct HTTP status code', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError);
+    it('should include apiName and errorCode in the context metadata', () => {
+      expect(error.context.metadata).toEqual({ apiName, errorCode });
+    });
+
+    it('should set the journey context to PLAN', () => {
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+    });
+
+    it('should set the operation context', () => {
+      expect(error.context.operation).toBe('external-coverage-verification');
+    });
+
+    it('should set the component context', () => {
+      expect(error.context.component).toBe('coverage-service');
+    });
+
+    it('should mark the error as transient', () => {
+      expect(error.context.isTransient).toBe(true);
+    });
+
+    it('should include retry strategy', () => {
+      expect(error.context.retryStrategy).toEqual({
+        maxAttempts: 3,
+        baseDelayMs: 500,
+        useExponentialBackoff: true
+      });
+    });
+
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
+
+    it('should include the provided cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.EXTERNAL);
+      expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
     });
 
-    it('should serialize with proper context', () => {
-      const error = new CoverageApiIntegrationError(coverageId, apiSystem, originalError, {
-        userId,
-        planId,
-        endpoint: '/api/coverage/verify',
-        requestId: 'req-abc-123',
-        statusCode: 503
-      });
-
+    it('should serialize to JSON correctly', () => {
       const json = error.toJSON();
-      expect(json.error.details.coverageId).toBe(coverageId);
-      expect(json.error.details.apiSystem).toBe(apiSystem);
-      expect(json.error.context.userId).toBe(userId);
-      expect(json.error.context.planId).toBe(planId);
-      expect(json.error.context.endpoint).toBe('/api/coverage/verify');
-      expect(json.error.context.requestId).toBe('req-abc-123');
-      expect(json.error.context.statusCode).toBe(503);
-    });
-  });
-
-  describe('Error Integration', () => {
-    it('should support error chaining for coverage verification workflow', () => {
-      // Simulate a chain of errors in coverage verification
-      const apiError = new Error('API timeout');
-      const coverageApiError = new CoverageApiIntegrationError('coverage-123', 'insurance-api', apiError, {
-        endpoint: '/api/coverage/verify',
-        statusCode: 504
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.EXTERNAL,
+          code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+          message: `Failed to communicate with external coverage API ${apiName} (error code: ${errorCode})`,
+          details,
+          journey: JourneyType.PLAN,
+          requestId: undefined,
+          timestamp: expect.any(String)
+        }
       });
-      
-      const verificationError = new CoverageVerificationError(
-        'coverage-123',
-        'verification-service',
-        coverageApiError,
-        { verificationAttempt: 3 }
-      );
-
-      // Verify error chain
-      expect(verificationError.cause).toBe(coverageApiError);
-      expect(coverageApiError.cause).toBe(apiError);
-      
-      // Verify root cause extraction
-      expect(verificationError.getRootCause()).toBe(apiError);
-      
-      // Verify error chain formatting
-      const chainString = verificationError.formatErrorChain();
-      expect(chainString).toContain('verification-service');
-      expect(chainString).toContain('insurance-api');
-      expect(chainString).toContain('API timeout');
     });
 
-    it('should support context propagation through error chain', () => {
-      // Create a chain of errors with context
-      const apiError = new CoverageApiIntegrationError(
-        'coverage-123',
-        'insurance-api',
-        new Error('API error'),
-        { requestId: 'req-123', planId: 'plan-456' }
-      );
-      
-      const verificationError = new CoverageVerificationError(
-        'coverage-123',
-        'verification-service',
-        apiError,
-        { userId: 'user-789', serviceCode: 'service-101' }
-      );
-
-      // Context from both errors should be merged
-      expect(verificationError.context.requestId).toBe('req-123');
-      expect(verificationError.context.planId).toBe('plan-456');
-      expect(verificationError.context.userId).toBe('user-789');
-      expect(verificationError.context.serviceCode).toBe('service-101');
+    it('should include detailed information in detailed JSON', () => {
+      const detailedJson = error.toDetailedJSON();
+      expect(detailedJson).toEqual({
+        name: 'CoverageApiIntegrationError',
+        message: `Failed to communicate with external coverage API ${apiName} (error code: ${errorCode})`,
+        type: ErrorType.EXTERNAL,
+        code: PLAN_ERROR_CODES.COVERAGE_VERIFICATION_FAILED,
+        details,
+        context: {
+          journey: JourneyType.PLAN,
+          operation: 'external-coverage-verification',
+          component: 'coverage-service',
+          isTransient: true,
+          retryStrategy: {
+            maxAttempts: 3,
+            baseDelayMs: 500,
+            useExponentialBackoff: true
+          },
+          metadata: { apiName, errorCode },
+          timestamp: expect.any(String),
+          stack: expect.any(String)
+        },
+        cause: {
+          name: 'Error',
+          message: 'Original error',
+          stack: expect.any(String)
+        }
+      });
     });
 
-    it('should handle complex coverage verification scenarios', () => {
-      // First, try to verify coverage with external API
-      const apiError = new CoverageApiIntegrationError(
-        'coverage-123',
-        'insurance-api',
-        new Error('API unavailable'),
-        { endpoint: '/api/coverage/verify' }
-      );
-      
-      // Then, determine the service is not covered
-      const serviceNotCoveredError = new ServiceNotCoveredError(
-        'coverage-123',
-        'service-202',
-        { cause: apiError, serviceName: 'Specialized Consultation' }
-      );
-
-      // Verify error details
-      expect(serviceNotCoveredError.details.serviceCode).toBe('service-202');
-      expect(serviceNotCoveredError.context.serviceName).toBe('Specialized Consultation');
-      
-      // Verify cause chain
-      expect(serviceNotCoveredError.cause).toBe(apiError);
-      expect(serviceNotCoveredError.getRootCause().message).toBe('API unavailable');
+    it('should handle missing errorCode', () => {
+      const errorWithoutCode = new CoverageApiIntegrationError('InsuranceAPI');
+      expect(errorWithoutCode.message).toBe('Failed to communicate with external coverage API InsuranceAPI');
+      expect(errorWithoutCode.context.metadata).toEqual({ apiName: 'InsuranceAPI' });
     });
   });
 });

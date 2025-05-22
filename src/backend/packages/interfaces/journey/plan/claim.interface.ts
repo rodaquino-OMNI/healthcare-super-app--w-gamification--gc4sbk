@@ -4,11 +4,9 @@
  * across the Plan Journey. This interface is used for type-safe claim schemas throughout the platform.
  */
 
-import { IDocument } from '../../common/document.interface';
-
 /**
- * Enum representing all possible statuses for an insurance claim.
- * This provides standardized type-safe values for claim processing states.
+ * Standardized enum for all possible claim statuses in the system.
+ * This provides type safety and consistency for claim status values across services.
  */
 export enum ClaimStatus {
   /**
@@ -27,7 +25,7 @@ export enum ClaimStatus {
   UNDER_REVIEW = 'UNDER_REVIEW',
 
   /**
-   * Additional information is required from the claimant to continue processing
+   * Additional information is required from the user to continue processing
    */
   ADDITIONAL_INFO_REQUIRED = 'ADDITIONAL_INFO_REQUIRED',
 
@@ -42,17 +40,17 @@ export enum ClaimStatus {
   DENIED = 'DENIED',
 
   /**
-   * Claim has been appealed after initial denial
+   * User has appealed a denied claim for reconsideration
    */
   APPEALED = 'APPEALED',
 
   /**
-   * Claim has expired due to lack of response or required information
+   * Claim has expired due to lack of response or time limits
    */
   EXPIRED = 'EXPIRED',
 
   /**
-   * Claim payment is being processed
+   * Payment or reimbursement for the claim is being processed
    */
   PROCESSING = 'PROCESSING',
 
@@ -62,33 +60,58 @@ export enum ClaimStatus {
   COMPLETED = 'COMPLETED',
 
   /**
-   * Claim has been cancelled by the claimant or administrator
-   */
-  CANCELLED = 'CANCELLED',
-
-  /**
-   * Claim processing has failed due to technical or administrative issues
+   * Processing of the claim has failed
    */
   FAILED = 'FAILED',
 
   /**
-   * Claim has been denied after appeal with no further recourse
+   * Claim has been cancelled by the user or system
    */
-  FINAL_DENIAL = 'FINAL_DENIAL',
+  CANCELLED = 'CANCELLED',
 
   /**
-   * Claim has been rejected due to invalid information or policy restrictions
+   * Claim has been denied after appeal with no further recourse
    */
-  REJECTED = 'REJECTED'
+  FINAL_DENIAL = 'FINAL_DENIAL'
+}
+
+/**
+ * Interface for document references associated with claims
+ */
+export interface IClaimDocument {
+  /**
+   * Unique identifier for the document
+   */
+  id: string;
+
+  /**
+   * Type of document (e.g., 'receipt', 'prescription', 'medical_report')
+   */
+  type: string;
+
+  /**
+   * URL or path to access the document
+   */
+  url: string;
+
+  /**
+   * Date when the document was uploaded
+   */
+  uploadedAt: Date;
+
+  /**
+   * Optional metadata for the document
+   */
+  metadata?: Record<string, any>;
 }
 
 /**
  * Interface representing an insurance claim in the Plan Journey.
- * This provides a standardized structure for claim data across all services.
+ * This interface defines the structure for claim data across all services.
  */
 export interface IClaim {
   /**
-   * Unique identifier for the claim (UUID)
+   * Unique identifier for the claim
    */
   id: string;
 
@@ -113,9 +136,9 @@ export interface IClaim {
   amount: number;
 
   /**
-   * Current status of the claim using the ClaimStatus enum for type safety
+   * Current status of the claim using the standardized ClaimStatus enum
    */
-  status: ClaimStatus | string;
+  status: ClaimStatus;
 
   /**
    * Optional procedure code for medical claims
@@ -135,120 +158,62 @@ export interface IClaim {
   /**
    * Documents associated with this claim (e.g., receipts, prescriptions)
    */
-  documents?: IDocument[];
-
-  /**
-   * Optional additional metadata for the claim
-   */
-  metadata?: Record<string, any>;
+  documents?: IClaimDocument[];
 }
 
 /**
- * Interface for creating a new claim
+ * Type for creating a new claim
+ * Omits system-generated fields like id, submittedAt, and processedAt
  */
-export interface ICreateClaimInput {
+export type ICreateClaim = Omit<IClaim, 'id' | 'submittedAt' | 'processedAt' | 'documents'> & {
   /**
-   * ID of the plan this claim is associated with
-   */
-  planId: string;
-
-  /**
-   * Type of claim (e.g., 'medical_visit', 'procedure', 'medication', 'exam')
-   */
-  type: string;
-
-  /**
-   * Claim amount in the local currency (BRL)
-   */
-  amount: number;
-
-  /**
-   * Optional procedure code for medical claims
-   */
-  procedureCode?: string;
-
-  /**
-   * Optional IDs of documents to associate with this claim
+   * Optional array of document IDs to associate with the claim
    */
   documentIds?: string[];
-
-  /**
-   * Optional additional metadata for the claim
-   */
-  metadata?: Record<string, any>;
-}
+};
 
 /**
- * Interface for updating an existing claim
+ * Type for updating an existing claim
+ * Makes all fields optional except id
  */
-export interface IUpdateClaimInput {
+export type IUpdateClaim = Partial<Omit<IClaim, 'id' | 'userId' | 'planId'>> & {
   /**
-   * Type of claim (e.g., 'medical_visit', 'procedure', 'medication', 'exam')
-   */
-  type?: string;
-
-  /**
-   * Claim amount in the local currency (BRL)
-   */
-  amount?: number;
-
-  /**
-   * Current status of the claim using the ClaimStatus enum for type safety
-   */
-  status?: ClaimStatus | string;
-
-  /**
-   * Optional procedure code for medical claims
-   */
-  procedureCode?: string | null;
-
-  /**
-   * Optional IDs of documents to associate with this claim
+   * Optional array of document IDs to associate with the claim
    */
   documentIds?: string[];
-
-  /**
-   * Optional additional metadata for the claim
-   */
-  metadata?: Record<string, any>;
-}
+};
 
 /**
  * Interface for claim events published to the event system
  */
 export interface IClaimEvent {
   /**
-   * Type of event (e.g., 'CLAIM_SUBMITTED', 'CLAIM_APPROVED')
+   * Type of claim event
    */
-  eventType: string;
+  eventType: 'CLAIM_SUBMITTED' | 'CLAIM_APPROVED' | 'CLAIM_DENIED' | 'CLAIM_COMPLETED';
 
   /**
-   * ID of the user who submitted the claim
+   * ID of the user associated with the claim
    */
   userId: string;
 
   /**
-   * ID of the claim this event is associated with
+   * ID of the claim
    */
   claimId: string;
 
   /**
-   * Type of claim (e.g., 'medical_visit', 'procedure', 'medication', 'exam')
+   * Type of claim
    */
   claimType: string;
 
   /**
-   * Claim amount in the local currency (BRL)
+   * Amount of the claim
    */
   amount: number;
 
   /**
-   * ISO timestamp when the event occurred
+   * Timestamp when the event occurred
    */
   timestamp: string;
-
-  /**
-   * Optional additional data related to the event
-   */
-  metadata?: Record<string, any>;
 }

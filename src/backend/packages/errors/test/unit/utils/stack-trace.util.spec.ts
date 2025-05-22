@@ -1,498 +1,463 @@
-import { jest } from '@jest/globals';
 import * as path from 'path';
 import {
-  captureStackTrace,
-  cleanStackTrace,
-  enhanceStackTrace,
-  extractErrorOrigin,
-  formatStackTrace,
-  parseStackFrame,
-  filterStackFrames,
-  getSourceMapInfo,
+  parseStackTrace,
+  isApplicationStackFrame,
+  cleanStack,
+  extractKeyFrames,
+  determineErrorOrigin,
+  condenseStack,
+  correlateWithSourceMap,
+  extractStackMetadata,
+  enhanceErrorWithStackInfo,
+  getStackInfo,
+  StackTraceOptions,
+  StackFrame
 } from '../../../src/utils/stack';
 
+// Mock for source-map-support
+jest.mock('source-map-support', () => ({
+  mapStackTrace: jest.fn((stack) => {
+    // Simple mock implementation that adds a comment to show it was processed
+    return stack.replace(
+      /at\s+([^\s]+)\s+\(([^:]+):(\d+):(\d+)\)/g,
+      'at $1 ($2:$3:$4) /* source-mapped */'
+    );
+  })
+}));
+
+// Helper to create a sample error with a known stack trace
+function createSampleError(includeNodeModules = true): Error {
+  const error = new Error('Test error');
+  
+  // Create a synthetic stack trace for testing
+  error.stack = 'Error: Test error\n' +
+    '    at Object.<anonymous> (/app/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:10:20)\n' +
+    '    at Module._compile (internal/modules/cjs/loader.js:1085:14)\n' +
+    '    at processTicksAndRejections (internal/process/task_queues.js:95:5)\n' +
+    (includeNodeModules ? 
+      '    at runMicrotasks (<anonymous>)\n' +
+      '    at Router.use (/app/node_modules/express/lib/router/index.js:136:12)\n' +
+      '    at NestFactory.create (/app/node_modules/@nestjs/core/nest-factory.js:97:17)\n' : '') +
+    '    at UserService.findById (/app/src/backend/auth-service/src/users/users.service.ts:42:23)\n' +
+    '    at AuthController.login (/app/src/backend/auth-service/src/auth/auth.controller.ts:28:35)';
+  
+  return error;
+}
+
+// Helper to create a sample stack trace string
+function createSampleStackTrace(includeNodeModules = true): string {
+  return 'Error: Test error\n' +
+    '    at Object.<anonymous> (/app/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:10:20)\n' +
+    '    at Module._compile (internal/modules/cjs/loader.js:1085:14)\n' +
+    '    at processTicksAndRejections (internal/process/task_queues.js:95:5)\n' +
+    (includeNodeModules ? 
+      '    at runMicrotasks (<anonymous>)\n' +
+      '    at Router.use (/app/node_modules/express/lib/router/index.js:136:12)\n' +
+      '    at NestFactory.create (/app/node_modules/@nestjs/core/nest-factory.js:97:17)\n' : '') +
+    '    at UserService.findById (/app/src/backend/auth-service/src/users/users.service.ts:42:23)\n' +
+    '    at AuthController.login (/app/src/backend/auth-service/src/auth/auth.controller.ts:28:35)';
+}
+
 describe('Stack Trace Utilities', () => {
-  // Mock Error.captureStackTrace to control stack trace generation
-  const originalCaptureStackTrace = Error.captureStackTrace;
+  // Save original NODE_ENV and restore after tests
+  const originalNodeEnv = process.env.NODE_ENV;
   
   beforeEach(() => {
-    // Reset mocks before each test
-    jest.resetAllMocks();
+    // Set a consistent working directory for tests
+    jest.spyOn(process, 'cwd').mockReturnValue('/app');
   });
-
+  
   afterAll(() => {
-    // Restore original implementation after all tests
-    Error.captureStackTrace = originalCaptureStackTrace;
+    process.env.NODE_ENV = originalNodeEnv;
+    jest.restoreAllMocks();
   });
-
-  describe('captureStackTrace', () => {
-    it('should capture a stack trace for the current call site', () => {
-      const stack = captureStackTrace();
+  
+  describe('parseStackTrace', () => {
+    it('should parse a stack trace string into StackFrame objects', () => {
+      const stack = createSampleStackTrace();
+      const frames = parseStackTrace(stack);
       
-      // Stack should be a string
-      expect(typeof stack).toBe('string');
-      
-      // Stack should contain this file name
-      expect(stack).toContain('stack-trace.util.spec.ts');
-      
-      // Stack should contain multiple lines
-      expect(stack.split('\n').length).toBeGreaterThan(1);
+      expect(frames).toBeInstanceOf(Array);
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames[0]).toHaveProperty('fileName');
+      expect(frames[0]).toHaveProperty('lineNumber');
+      expect(frames[0]).toHaveProperty('columnNumber');
+      expect(frames[0]).toHaveProperty('functionName');
+      expect(frames[0]).toHaveProperty('isApplicationFrame');
+      expect(frames[0]).toHaveProperty('raw');
     });
-
-    it('should capture a stack trace from an error object', () => {
-      const error = new Error('Test error');
-      const stack = captureStackTrace(error);
-      
-      // Stack should contain the error message
-      expect(stack).toContain('Test error');
-      
-      // Stack should contain stack frames
-      expect(stack.split('\n').length).toBeGreaterThan(1);
+    
+    it('should handle empty or invalid stack traces', () => {
+      expect(parseStackTrace('')).toEqual([]);
+      expect(parseStackTrace('Not a stack trace')).toEqual([]);
+      expect(parseStackTrace(undefined as any)).toEqual([]);
     });
-
-    it('should handle errors without stack traces', () => {
-      const errorWithoutStack = new Error('No stack');
-      delete errorWithoutStack.stack;
+    
+    it('should respect maxFrames option', () => {
+      const stack = createSampleStackTrace();
+      const frames = parseStackTrace(stack, { maxFrames: 3 });
       
-      const stack = captureStackTrace(errorWithoutStack);
+      expect(frames.length).toBeLessThanOrEqual(3);
+    });
+    
+    it('should correctly identify application frames', () => {
+      const stack = createSampleStackTrace();
+      const frames = parseStackTrace(stack);
       
-      // Should still return a string
-      expect(typeof stack).toBe('string');
+      // The first frame should be an application frame (our test file)
+      expect(frames[0].isApplicationFrame).toBe(true);
       
-      // Should contain the error message
-      expect(stack).toContain('No stack');
+      // Node.js internal frames should not be application frames
+      const internalFrame = frames.find(f => f.fileName.includes('internal/modules'));
+      expect(internalFrame?.isApplicationFrame).toBe(false);
+    });
+    
+    it('should handle eval stack frames', () => {
+      const evalStack = 'Error: Test error\n' +
+        '    at eval (eval at <anonymous> (/app/src/test.js:1:1), <anonymous>:1:1)';
+      
+      const frames = parseStackTrace(evalStack);
+      expect(frames.length).toBe(1);
+      expect(frames[0].fileName).toContain('/app/src/test.js');
     });
   });
-
-  describe('parseStackFrame', () => {
-    it('should parse a Node.js stack frame correctly', () => {
-      const frame = '    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)';
-      const parsed = parseStackFrame(frame);
+  
+  describe('isApplicationStackFrame', () => {
+    it('should identify application frames correctly', () => {
+      // Application file
+      expect(isApplicationStackFrame('/app/src/backend/auth-service/src/users/users.service.ts')).toBe(true);
       
-      expect(parsed).toEqual({
-        raw: frame,
-        functionName: 'Context.<anonymous>',
-        fileName: '/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts',
-        lineNumber: 42,
-        columnNumber: 7,
-        isNative: false,
-        isEval: false,
-        isConstructor: false,
-        isNodeInternal: false,
-        isAppCode: true,
+      // Node.js internal
+      expect(isApplicationStackFrame('internal/modules/cjs/loader.js')).toBe(false);
+      
+      // node_modules
+      expect(isApplicationStackFrame('/app/node_modules/express/lib/router/index.js')).toBe(false);
+    });
+    
+    it('should respect applicationRoots option', () => {
+      const options: StackTraceOptions = {
+        applicationRoots: ['/custom/path']
+      };
+      
+      expect(isApplicationStackFrame('/custom/path/file.js', options)).toBe(true);
+      expect(isApplicationStackFrame('/app/src/file.js', options)).toBe(false);
+    });
+    
+    it('should respect includeNodeModules option', () => {
+      const options: StackTraceOptions = {
+        includeNodeModules: true
+      };
+      
+      expect(isApplicationStackFrame('/app/node_modules/express/lib/router/index.js', options)).toBe(true);
+    });
+    
+    it('should handle relative paths', () => {
+      // Mock path.resolve to simulate relative path resolution
+      jest.spyOn(path, 'resolve').mockImplementation((p) => {
+        if (p === 'src/file.js') {
+          return '/app/src/file.js';
+        }
+        return p;
       });
-    });
-
-    it('should identify node internal frames', () => {
-      const frame = '    at Module._compile (node:internal/modules/cjs/loader:1105:14)';
-      const parsed = parseStackFrame(frame);
       
-      expect(parsed.isNodeInternal).toBe(true);
-      expect(parsed.isAppCode).toBe(false);
-    });
-
-    it('should identify node_modules frames', () => {
-      const frame = '    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)';
-      const parsed = parseStackFrame(frame);
-      
-      expect(parsed.isNodeInternal).toBe(false);
-      expect(parsed.isAppCode).toBe(false);
-    });
-
-    it('should identify constructor calls', () => {
-      const frame = '    at new CustomError (/project/src/backend/packages/errors/src/journey/health/custom-error.ts:15:5)';
-      const parsed = parseStackFrame(frame);
-      
-      expect(parsed.isConstructor).toBe(true);
-      expect(parsed.functionName).toBe('new CustomError');
-    });
-
-    it('should handle eval frames', () => {
-      const frame = '    at eval (eval at <anonymous> (/project/src/file.js:1:1), <anonymous>:1:1)';
-      const parsed = parseStackFrame(frame);
-      
-      expect(parsed.isEval).toBe(true);
-    });
-
-    it('should handle native frames', () => {
-      const frame = '    at Array.map (<native>)';
-      const parsed = parseStackFrame(frame);
-      
-      expect(parsed.isNative).toBe(true);
-    });
-
-    it('should handle malformed frames', () => {
-      const frame = 'This is not a valid stack frame';
-      const parsed = parseStackFrame(frame);
-      
-      expect(parsed.raw).toBe(frame);
-      expect(parsed.fileName).toBeUndefined();
-      expect(parsed.lineNumber).toBeUndefined();
+      expect(isApplicationStackFrame('src/file.js')).toBe(true);
     });
   });
-
-  describe('filterStackFrames', () => {
-    it('should filter out node_modules frames when specified', () => {
-      const frames = [
-        '    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)',
-        '    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)',
-        '    at Module._compile (node:internal/modules/cjs/loader:1105:14)',
-        '    at CustomHandler (/project/src/backend/packages/errors/src/handlers/custom-handler.ts:25:3)'
-      ];
+  
+  describe('cleanStack', () => {
+    it('should clean a stack trace by highlighting application frames', () => {
+      const error = createSampleError();
+      const cleaned = cleanStack(error);
       
-      const filtered = filterStackFrames(frames, { removeNodeModules: true });
+      // Should contain the original error message
+      expect(cleaned).toContain('Error: Test error');
       
-      expect(filtered.length).toBe(2);
-      expect(filtered[0]).toContain('stack-trace.util.spec.ts');
-      expect(filtered[1]).toContain('custom-handler.ts');
+      // Should highlight application frames with an arrow
+      expect(cleaned).toContain('→ ');
     });
-
-    it('should filter out node internal frames when specified', () => {
-      const frames = [
-        '    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)',
-        '    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)',
-        '    at Module._compile (node:internal/modules/cjs/loader:1105:14)',
-        '    at CustomHandler (/project/src/backend/packages/errors/src/handlers/custom-handler.ts:25:3)'
-      ];
+    
+    it('should filter out framework frames when includeFrameworkFrames is false', () => {
+      const error = createSampleError();
+      const cleaned = cleanStack(error, { includeFrameworkFrames: false });
       
-      const filtered = filterStackFrames(frames, { removeNodeInternals: true });
-      
-      expect(filtered.length).toBe(3);
-      expect(filtered).not.toContain('    at Module._compile (node:internal/modules/cjs/loader:1105:14)');
+      // Should not contain node_modules frames
+      expect(cleaned).not.toContain('node_modules/@nestjs/core');
+      expect(cleaned).not.toContain('node_modules/express');
     });
-
-    it('should limit the number of frames when specified', () => {
-      const frames = [
-        '    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)',
-        '    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)',
-        '    at Module._compile (node:internal/modules/cjs/loader:1105:14)',
-        '    at CustomHandler (/project/src/backend/packages/errors/src/handlers/custom-handler.ts:25:3)'
-      ];
+    
+    it('should return the original stack if all frames would be filtered out', () => {
+      // Create an error with only framework frames
+      const error = new Error('Framework error');
+      error.stack = 'Error: Framework error\n' +
+        '    at NestFactory.create (/app/node_modules/@nestjs/core/nest-factory.js:97:17)\n' +
+        '    at Router.use (/app/node_modules/express/lib/router/index.js:136:12)';
       
-      const filtered = filterStackFrames(frames, { limit: 2 });
+      const cleaned = cleanStack(error, { includeFrameworkFrames: false });
       
-      expect(filtered.length).toBe(2);
-      expect(filtered[0]).toContain('stack-trace.util.spec.ts');
-      expect(filtered[1]).toContain('jest.js');
+      // Should return the original stack
+      expect(cleaned).toBe(error.stack);
     });
-
-    it('should only include app code when specified', () => {
-      const frames = [
-        '    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)',
-        '    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)',
-        '    at Module._compile (node:internal/modules/cjs/loader:1105:14)',
-        '    at CustomHandler (/project/src/backend/packages/errors/src/handlers/custom-handler.ts:25:3)'
-      ];
-      
-      const filtered = filterStackFrames(frames, { onlyAppCode: true });
-      
-      expect(filtered.length).toBe(2);
-      expect(filtered[0]).toContain('stack-trace.util.spec.ts');
-      expect(filtered[1]).toContain('custom-handler.ts');
-    });
-  });
-
-  describe('cleanStackTrace', () => {
-    it('should clean a stack trace by removing node_modules and internal frames', () => {
-      const stack = `Error: Test error
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)
-    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)
-    at Module._compile (node:internal/modules/cjs/loader:1105:14)
-    at CustomHandler (/project/src/backend/packages/errors/src/handlers/custom-handler.ts:25:3)`;
-      
-      const cleaned = cleanStackTrace(stack);
+    
+    it('should handle string input', () => {
+      const stack = createSampleStackTrace();
+      const cleaned = cleanStack(stack);
       
       expect(cleaned).toContain('Error: Test error');
-      expect(cleaned).toContain('stack-trace.util.spec.ts');
-      expect(cleaned).toContain('custom-handler.ts');
-      expect(cleaned).not.toContain('node_modules');
-      expect(cleaned).not.toContain('node:internal');
-    });
-
-    it('should preserve the error message when cleaning', () => {
-      const stack = `TypeError: Cannot read property 'id' of undefined
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)`;
-      
-      const cleaned = cleanStackTrace(stack);
-      
-      expect(cleaned).toContain('TypeError: Cannot read property \'id\' of undefined');
-    });
-
-    it('should handle multi-line error messages', () => {
-      const stack = `Error: Complex error message
-with multiple lines
-and details
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)`;
-      
-      const cleaned = cleanStackTrace(stack);
-      
-      expect(cleaned).toContain('Error: Complex error message\nwith multiple lines\nand details');
-    });
-
-    it('should handle stack traces without an error message', () => {
-      const stack = `    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)
-    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)`;
-      
-      const cleaned = cleanStackTrace(stack);
-      
-      expect(cleaned).toContain('stack-trace.util.spec.ts');
-      expect(cleaned).not.toContain('node_modules');
+      expect(cleaned).toContain('→ ');
     });
   });
-
-  describe('enhanceStackTrace', () => {
-    it('should add contextual information to stack frames', () => {
-      const stack = `Error: Test error
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)`;
+  
+  describe('extractKeyFrames', () => {
+    it('should extract the most important frames from a stack trace', () => {
+      const error = createSampleError();
+      const keyFrames = extractKeyFrames(error, { maxFrames: 3 });
       
-      const enhanced = enhanceStackTrace(stack, {
-        userId: '12345',
-        journeyId: 'health',
-        requestId: 'req-abc-123',
-      });
+      expect(keyFrames.length).toBeLessThanOrEqual(3);
       
-      expect(enhanced).toContain('Error: Test error');
-      expect(enhanced).toContain('stack-trace.util.spec.ts');
-      expect(enhanced).toContain('Context: {');
-      expect(enhanced).toContain('"userId": "12345"');
-      expect(enhanced).toContain('"journeyId": "health"');
-      expect(enhanced).toContain('"requestId": "req-abc-123"');
+      // Should prioritize application frames
+      const appFrameCount = keyFrames.filter(f => f.isApplicationFrame).length;
+      expect(appFrameCount).toBeGreaterThan(0);
     });
-
-    it('should handle empty context object', () => {
-      const stack = `Error: Test error
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)`;
+    
+    it('should include framework frames if not enough application frames', () => {
+      const error = createSampleError();
+      const keyFrames = extractKeyFrames(error, { maxFrames: 10 });
       
-      const enhanced = enhanceStackTrace(stack, {});
+      // Should include both application and framework frames
+      const appFrames = keyFrames.filter(f => f.isApplicationFrame);
+      const frameworkFrames = keyFrames.filter(f => !f.isApplicationFrame);
       
-      expect(enhanced).toContain('Error: Test error');
-      expect(enhanced).toContain('stack-trace.util.spec.ts');
-      expect(enhanced).not.toContain('Context:');
+      expect(appFrames.length).toBeGreaterThan(0);
+      expect(frameworkFrames.length).toBeGreaterThan(0);
     });
-
-    it('should handle complex context objects with nested properties', () => {
-      const stack = `Error: Test error
-    at Context.<anonymous> (/project/src/backend/packages/errors/test/unit/utils/stack-trace.util.spec.ts:42:7)`;
+    
+    it('should handle string input', () => {
+      const stack = createSampleStackTrace();
+      const keyFrames = extractKeyFrames(stack, { maxFrames: 3 });
       
-      const enhanced = enhanceStackTrace(stack, {
-        user: {
-          id: '12345',
-          roles: ['admin', 'user'],
-        },
-        request: {
-          path: '/api/health',
-          method: 'GET',
-        },
-      });
-      
-      expect(enhanced).toContain('Error: Test error');
-      expect(enhanced).toContain('stack-trace.util.spec.ts');
-      expect(enhanced).toContain('Context: {');
-      expect(enhanced).toContain('"user": {');
-      expect(enhanced).toContain('"id": "12345"');
-      expect(enhanced).toContain('"roles": [');
-      expect(enhanced).toContain('"admin"');
+      expect(keyFrames.length).toBeLessThanOrEqual(3);
     });
   });
-
-  describe('extractErrorOrigin', () => {
-    it('should extract the origin of an error from the stack trace', () => {
-      const stack = `Error: Test error
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)
-    at HealthController.getProfile (/project/src/backend/health-service/src/health/health.controller.ts:25:3)
-    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)`;
+  
+  describe('determineErrorOrigin', () => {
+    it('should determine the origin of an error based on its stack trace', () => {
+      const error = createSampleError();
+      const origin = determineErrorOrigin(error);
       
-      const origin = extractErrorOrigin(stack);
+      expect(origin).toHaveProperty('fileName');
+      expect(origin).toHaveProperty('lineNumber');
+      expect(origin).toHaveProperty('columnNumber');
+      expect(origin).toHaveProperty('functionName');
+      expect(origin).toHaveProperty('isApplicationCode');
       
-      expect(origin).toEqual({
-        service: 'health-service',
-        module: 'users',
-        file: 'user.service.ts',
-        function: 'UserService.findById',
-        line: 42,
-        column: 7,
-      });
+      // The first frame in our sample error is an application frame
+      expect(origin.isApplicationCode).toBe(true);
     });
-
-    it('should handle stack traces without service information', () => {
-      const stack = `Error: Test error
-    at Object.<anonymous> (/project/src/utils/helper.ts:15:3)`;
+    
+    it('should prioritize application frames over framework frames', () => {
+      // Create an error with framework frames first
+      const error = new Error('Mixed error');
+      error.stack = 'Error: Mixed error\n' +
+        '    at NestFactory.create (/app/node_modules/@nestjs/core/nest-factory.js:97:17)\n' +
+        '    at UserService.findById (/app/src/backend/auth-service/src/users/users.service.ts:42:23)';
       
-      const origin = extractErrorOrigin(stack);
+      const origin = determineErrorOrigin(error);
       
-      expect(origin).toEqual({
-        service: undefined,
-        module: 'utils',
-        file: 'helper.ts',
-        function: 'Object.<anonymous>',
-        line: 15,
-        column: 3,
-      });
+      // Should identify the application frame as the origin
+      expect(origin.fileName).toContain('users.service.ts');
+      expect(origin.isApplicationCode).toBe(true);
     });
-
-    it('should return undefined for malformed stack traces', () => {
-      const stack = `Error: Test error
-    This is not a valid stack frame`;
+    
+    it('should handle string input', () => {
+      const stack = createSampleStackTrace();
+      const origin = determineErrorOrigin(stack);
       
-      const origin = extractErrorOrigin(stack);
-      
-      expect(origin).toBeUndefined();
+      expect(origin.fileName).toContain('stack-trace.util.spec.ts');
     });
-
-    it('should prioritize app code over node_modules and internals', () => {
-      const stack = `Error: Test error
-    at Module._compile (node:internal/modules/cjs/loader:1105:14)
-    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)`;
+    
+    it('should handle empty or invalid stack traces', () => {
+      const origin = determineErrorOrigin('');
       
-      const origin = extractErrorOrigin(stack);
-      
-      expect(origin?.file).toBe('user.service.ts');
-      expect(origin?.function).toBe('UserService.findById');
+      expect(origin.fileName).toBe('<unknown>');
+      expect(origin.lineNumber).toBe(0);
+      expect(origin.isApplicationCode).toBe(false);
     });
   });
-
-  describe('formatStackTrace', () => {
-    it('should format a stack trace with default options', () => {
-      const stack = `Error: Test error
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)
-    at Object.<anonymous> (/project/node_modules/jest/bin/jest.js:23:11)`;
+  
+  describe('condenseStack', () => {
+    it('should generate a condensed representation of a stack trace', () => {
+      const error = createSampleError();
+      const condensed = condenseStack(error, { maxFrames: 2 });
       
-      const formatted = formatStackTrace(stack);
+      // Should contain the error message
+      expect(condensed).toContain('Error: Test error');
       
-      expect(formatted).toContain('Error: Test error');
-      expect(formatted).toContain('UserService.findById');
-      expect(formatted).toContain('user.service.ts:42:7');
-      expect(formatted).not.toContain('/project/src/backend/health-service/src/');
-      expect(formatted).not.toContain('node_modules');
+      // Should contain only file basenames
+      expect(condensed).toContain('stack-trace.util.spec.ts:');
+      expect(condensed).not.toContain('/app/src/backend/packages/errors/test/unit/utils/');
+      
+      // Should indicate truncated frames
+      expect(condensed).toContain('... ');
+      expect(condensed).toContain(' more');
     });
-
-    it('should format a stack trace with color highlighting when specified', () => {
-      const stack = `Error: Test error
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)`;
+    
+    it('should handle string input', () => {
+      const stack = createSampleStackTrace();
+      const condensed = condenseStack(stack, { maxFrames: 2 });
       
-      const formatted = formatStackTrace(stack, { colors: true });
-      
-      // Check for ANSI color codes
-      expect(formatted).toMatch(/\u001b\[/); 
-      expect(formatted).toContain('Error: Test error');
+      expect(condensed).toContain('Error: Test error');
+      expect(condensed).toContain('stack-trace.util.spec.ts:');
     });
-
-    it('should include line content when available', () => {
-      const stack = `Error: Test error
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)`;
-      
-      // Mock the function that would normally read the file content
-      jest.spyOn(global, 'require').mockImplementation(() => ({
-        readFileSync: jest.fn().mockReturnValue('  const user = await this.userRepository.findById(id); // Line 42')
-      }));
-      
-      const formatted = formatStackTrace(stack, { includeLineContent: true });
-      
-      expect(formatted).toContain('Error: Test error');
-      expect(formatted).toContain('user.service.ts:42:7');
-      expect(formatted).toContain('const user = await this.userRepository.findById(id);');
-    });
-
-    it('should handle relative paths when specified', () => {
-      const stack = `Error: Test error
-    at UserService.findById (/project/src/backend/health-service/src/users/user.service.ts:42:7)`;
-      
-      const formatted = formatStackTrace(stack, { relativePaths: true, basePath: '/project' });
-      
-      expect(formatted).toContain('Error: Test error');
-      expect(formatted).toContain('src/backend/health-service/src/users/user.service.ts:42:7');
-      expect(formatted).not.toContain('/project/');
+    
+    it('should handle empty or invalid stack traces', () => {
+      expect(condenseStack('')).toBe('');
     });
   });
-
-  describe('getSourceMapInfo', () => {
-    beforeEach(() => {
-      // Mock process.env.NODE_ENV
-      process.env.NODE_ENV = 'development';
-      
-      // Mock source-map module
-      jest.mock('source-map-support', () => ({
-        install: jest.fn(),
-        retrieveSourceMap: jest.fn().mockReturnValue({
-          url: 'file:///project/src/backend/packages/errors/src/utils/stack.ts',
-          map: {
-            version: 3,
-            sources: ['stack.ts'],
-            names: [],
-            mappings: 'AAAA',
-            file: 'stack.js',
-            sourceRoot: '',
-          },
-        }),
-      }));
-    });
-
-    it('should retrieve source map information for a compiled file', () => {
-      const frame = {
-        fileName: '/project/dist/backend/packages/errors/utils/stack.js',
-        lineNumber: 42,
-        columnNumber: 7,
-      };
-      
-      const sourceMapInfo = getSourceMapInfo(frame);
-      
-      expect(sourceMapInfo).toBeDefined();
-      expect(sourceMapInfo?.originalFile).toContain('stack.ts');
-      expect(sourceMapInfo?.originalLine).toBeDefined();
-      expect(sourceMapInfo?.originalColumn).toBeDefined();
-    });
-
-    it('should return undefined in production environment', () => {
+  
+  describe('correlateWithSourceMap', () => {
+    it('should not attempt source map correlation in production', () => {
+      // Set NODE_ENV to production
       process.env.NODE_ENV = 'production';
       
-      const frame = {
-        fileName: '/project/dist/backend/packages/errors/utils/stack.js',
-        lineNumber: 42,
-        columnNumber: 7,
-      };
+      const error = createSampleError();
+      const correlated = correlateWithSourceMap(error);
       
-      const sourceMapInfo = getSourceMapInfo(frame);
-      
-      expect(sourceMapInfo).toBeUndefined();
+      // Should return the original stack
+      expect(correlated).toBe(error.stack);
     });
-
-    it('should handle missing source maps', () => {
-      // Mock source-map module to return null
-      jest.mock('source-map-support', () => ({
-        install: jest.fn(),
-        retrieveSourceMap: jest.fn().mockReturnValue(null),
-      }));
+    
+    it('should attempt source map correlation in development', () => {
+      // Set NODE_ENV to development
+      process.env.NODE_ENV = 'development';
       
-      const frame = {
-        fileName: '/project/dist/backend/packages/errors/utils/stack.js',
-        lineNumber: 42,
-        columnNumber: 7,
-      };
+      const error = createSampleError();
+      const correlated = correlateWithSourceMap(error);
       
-      const sourceMapInfo = getSourceMapInfo(frame);
-      
-      expect(sourceMapInfo).toBeUndefined();
+      // Should contain source-mapped comment from our mock
+      expect(correlated).toContain('/* source-mapped */');
     });
-
-    it('should handle source map errors', () => {
-      // Mock source-map module to throw an error
-      jest.mock('source-map-support', () => ({
-        install: jest.fn(),
-        retrieveSourceMap: jest.fn().mockImplementation(() => {
-          throw new Error('Source map error');
-        }),
-      }));
+    
+    it('should handle string input', () => {
+      // Set NODE_ENV to development
+      process.env.NODE_ENV = 'development';
       
-      const frame = {
-        fileName: '/project/dist/backend/packages/errors/utils/stack.js',
-        lineNumber: 42,
-        columnNumber: 7,
-      };
+      const stack = createSampleStackTrace();
+      const correlated = correlateWithSourceMap(stack);
       
-      const sourceMapInfo = getSourceMapInfo(frame);
+      expect(correlated).toContain('/* source-mapped */');
+    });
+    
+    it('should handle errors when source-map-support is not available', () => {
+      // Mock require to throw when source-map-support is required
+      const originalRequire = require;
+      global.require = jest.fn((module) => {
+        if (module === 'source-map-support') {
+          throw new Error('Module not found');
+        }
+        return originalRequire(module);
+      });
       
-      expect(sourceMapInfo).toBeUndefined();
+      const error = createSampleError();
+      const correlated = correlateWithSourceMap(error);
+      
+      // Should return the original stack
+      expect(correlated).toBe(error.stack);
+      
+      // Restore original require
+      global.require = originalRequire;
+    });
+  });
+  
+  describe('extractStackMetadata', () => {
+    it('should extract metadata from a stack trace', () => {
+      const error = createSampleError();
+      const metadata = extractStackMetadata(error);
+      
+      expect(metadata).toHaveProperty('files');
+      expect(metadata).toHaveProperty('functions');
+      expect(metadata).toHaveProperty('applicationFrames');
+      expect(metadata).toHaveProperty('frameworkFrames');
+      expect(metadata).toHaveProperty('deepestFrame');
+      
+      // Files should be an array of file paths
+      expect(Array.isArray(metadata.files)).toBe(true);
+      expect(metadata.files.length).toBeGreaterThan(0);
+      
+      // Should have both application and framework frames
+      expect(metadata.applicationFrames).toBeGreaterThan(0);
+      expect(metadata.frameworkFrames).toBeGreaterThan(0);
+      
+      // Deepest frame should be the last one in the stack
+      expect(metadata.deepestFrame.fileName).toContain('auth.controller.ts');
+    });
+    
+    it('should handle string input', () => {
+      const stack = createSampleStackTrace();
+      const metadata = extractStackMetadata(stack);
+      
+      expect(metadata.files.length).toBeGreaterThan(0);
+      expect(metadata.deepestFrame.fileName).toContain('auth.controller.ts');
+    });
+    
+    it('should handle empty or invalid stack traces', () => {
+      const metadata = extractStackMetadata('');
+      
+      expect(metadata.files).toEqual([]);
+      expect(metadata.functions).toEqual([]);
+      expect(metadata.applicationFrames).toBe(0);
+      expect(metadata.frameworkFrames).toBe(0);
+      expect(metadata.deepestFrame.fileName).toBe('<unknown>');
+    });
+  });
+  
+  describe('enhanceErrorWithStackInfo', () => {
+    it('should enhance an error object with additional stack information', () => {
+      const error = createSampleError();
+      const enhanced = enhanceErrorWithStackInfo(error);
+      
+      // Should be the same error object
+      expect(enhanced).toBe(error);
+      
+      // Should have _stackInfo property
+      expect((enhanced as any)._stackInfo).toBeDefined();
+      expect((enhanced as any)._stackInfo.origin).toBeDefined();
+      expect((enhanced as any)._stackInfo.metadata).toBeDefined();
+      expect((enhanced as any)._stackInfo.isApplicationError).toBeDefined();
+      expect((enhanced as any)._stackInfo.frames).toBeDefined();
+    });
+    
+    it('should handle errors without a stack trace', () => {
+      const error = new Error('No stack');
+      error.stack = undefined;
+      
+      const enhanced = enhanceErrorWithStackInfo(error);
+      
+      // Should be the same error object
+      expect(enhanced).toBe(error);
+      
+      // Should not have _stackInfo property
+      expect((enhanced as any)._stackInfo).toBeUndefined();
+    });
+  });
+  
+  describe('getStackInfo', () => {
+    it('should get the stack info from an enhanced error object', () => {
+      const error = createSampleError();
+      const enhanced = enhanceErrorWithStackInfo(error);
+      const stackInfo = getStackInfo(enhanced);
+      
+      expect(stackInfo).toBeDefined();
+      expect(stackInfo?.origin).toBeDefined();
+      expect(stackInfo?.metadata).toBeDefined();
+      expect(stackInfo?.isApplicationError).toBeDefined();
+      expect(stackInfo?.frames).toBeDefined();
+    });
+    
+    it('should return null for non-enhanced errors', () => {
+      const error = new Error('Not enhanced');
+      const stackInfo = getStackInfo(error);
+      
+      expect(stackInfo).toBeNull();
     });
   });
 });

@@ -4,408 +4,274 @@ import { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'ax
  * Interface for configuring mock HTTP client behavior
  */
 export interface MockHttpClientConfig {
-  /** Determines if the request should fail */
-  shouldFail?: boolean;
-  /** Delay in ms before responding (can be used to simulate timeouts) */
-  delay?: number;
-  /** Status code to return (for API errors) */
+  /** Determines if requests should fail with network error */
+  shouldFailWithNetworkError?: boolean;
+  /** Determines if requests should timeout */
+  shouldTimeout?: boolean;
+  /** Simulated response delay in ms */
+  responseDelay?: number;
+  /** Status code to return (for error responses) */
   statusCode?: number;
-  /** Response data to return on success */
+  /** Response data to return */
   responseData?: any;
-  /** Error data to return on failure */
-  errorData?: any;
-  /** Error message for network errors */
+  /** Custom error message */
   errorMessage?: string;
-  /** Custom error type (e.g., 'Network Error', 'Timeout', 'SSRF Protection') */
-  errorType?: string;
-  /** Whether to simulate SSRF protection behavior */
+  /** Number of retries before success (for testing retry mechanisms) */
+  retriesBeforeSuccess?: number;
+  /** Whether to simulate SSRF protection */
   enableSsrfProtection?: boolean;
-  /** Function to determine if a URL should be blocked by SSRF protection */
-  ssrfBlockPredicate?: (url: string, config: AxiosRequestConfig) => boolean;
-  /** Number of consecutive failures before success (for testing retry mechanisms) */
-  failureCount?: number;
-  /** Whether to track request history */
-  trackRequests?: boolean;
 }
 
 /**
- * Tracked request information for test assertions
+ * Interface for tracking request history
  */
-export interface TrackedRequest {
-  /** Request configuration */
+export interface RequestHistory {
+  /** The URL that was requested */
+  url: string;
+  /** The HTTP method used */
+  method: string;
+  /** The request configuration */
   config: AxiosRequestConfig;
   /** Timestamp when the request was made */
   timestamp: number;
-  /** Whether the request succeeded */
-  succeeded: boolean;
-  /** Response if the request succeeded */
-  response?: AxiosResponse;
-  /** Error if the request failed */
-  error?: AxiosError;
+  /** Number of times this URL was requested (for retry tracking) */
+  attemptCount: number;
 }
 
 /**
- * Mock implementation of AxiosInstance for testing error handling
+ * Creates a mock HTTP client for testing error handling scenarios
+ * 
+ * @param config Configuration for the mock client behavior
+ * @returns A mock Axios-compatible instance
  */
-export class MockHttpClient implements Partial<AxiosInstance> {
-  private config: MockHttpClientConfig;
-  private requestHistory: TrackedRequest[] = [];
-  private requestCount: number = 0;
+export function createMockHttpClient(config: MockHttpClientConfig = {}): AxiosInstance & { requestHistory: RequestHistory[] } {
+  // Default configuration
+  const {
+    shouldFailWithNetworkError = false,
+    shouldTimeout = false,
+    responseDelay = 0,
+    statusCode = 200,
+    responseData = {},
+    errorMessage = 'Network Error',
+    retriesBeforeSuccess = 0,
+    enableSsrfProtection = false,
+  } = config;
 
-  constructor(config: MockHttpClientConfig = {}) {
-    this.config = {
-      shouldFail: false,
-      delay: 0,
-      statusCode: 200,
-      responseData: { success: true },
-      errorData: { message: 'Error occurred' },
-      errorMessage: 'Request failed',
-      errorType: 'Error',
-      enableSsrfProtection: false,
-      failureCount: 0,
-      trackRequests: true,
-      ...config,
-    };
+  // Track request history for assertions
+  const requestHistory: RequestHistory[] = [];
+  const requestCounts: Record<string, number> = {};
 
-    // Create request methods
-    this.request = this.createRequestMethod();
-    this.get = this.createRequestMethod('get');
-    this.post = this.createRequestMethod('post');
-    this.put = this.createRequestMethod('put');
-    this.delete = this.createRequestMethod('delete');
-    this.patch = this.createRequestMethod('patch');
-    this.head = this.createRequestMethod('head');
-    this.options = this.createRequestMethod('options');
+  // Create request tracking function
+  const trackRequest = (url: string, method: string, config: AxiosRequestConfig) => {
+    // Increment request count for this URL
+    requestCounts[url] = (requestCounts[url] || 0) + 1;
+    
+    // Add to request history
+    requestHistory.push({
+      url,
+      method,
+      config,
+      timestamp: Date.now(),
+      attemptCount: requestCounts[url],
+    });
 
-    // Create interceptors object
-    this.interceptors = {
-      request: this.createInterceptorManager(),
-      response: this.createInterceptorManager(),
-    };
-  }
+    return requestCounts[url];
+  };
 
-  /**
-   * Main request method implementation
-   */
-  request: any;
+  // Create response handler based on configuration
+  const handleRequest = async (url: string, method: string, axiosConfig: AxiosRequestConfig) => {
+    // Track this request
+    const attemptCount = trackRequest(url, method, axiosConfig);
 
-  /**
-   * HTTP method implementations
-   */
-  get: any;
-  post: any;
-  put: any;
-  delete: any;
-  patch: any;
-  head: any;
-  options: any;
-
-  /**
-   * Mock interceptors implementation
-   */
-  interceptors: any;
-
-  /**
-   * Creates a request method implementation
-   */
-  private createRequestMethod(method?: string) {
-    return async (url: string | AxiosRequestConfig, config?: AxiosRequestConfig): Promise<AxiosResponse> => {
-      // Normalize arguments
-      let requestConfig: AxiosRequestConfig;
-      if (typeof url === 'string') {
-        requestConfig = { ...(config || {}), url, method: method || 'get' };
-      } else {
-        requestConfig = { ...url, method: method || url.method || 'get' };
-      }
-
-      this.requestCount++;
-      const currentRequestCount = this.requestCount;
-
-      // Check for SSRF protection
-      if (this.config.enableSsrfProtection) {
-        const urlString = requestConfig.url || '';
-        const baseURL = requestConfig.baseURL || '';
-        const fullUrl = urlString.startsWith('http') ? urlString : `${baseURL}${urlString}`;
-
-        // Default SSRF protection logic
-        const isBlocked = this.config.ssrfBlockPredicate
-          ? this.config.ssrfBlockPredicate(fullUrl, requestConfig)
-          : this.defaultSsrfCheck(fullUrl);
-
-        if (isBlocked) {
-          const error = new Error('SSRF Protection: Blocked request to private or local network') as AxiosError;
-          error.config = requestConfig;
-          error.isAxiosError = true;
-          error.name = 'AxiosError';
-          error.code = 'SSRF_PROTECTION';
-
-          if (this.config.trackRequests) {
-            this.trackRequest(requestConfig, undefined, error);
-          }
-
-          return Promise.reject(error);
-        }
-      }
-
-      // Determine if this request should fail based on failure count
-      const shouldFailThisRequest = this.config.shouldFail || 
-        (this.config.failureCount && currentRequestCount <= this.config.failureCount);
-
-      // Simulate network delay
-      if (this.config.delay > 0) {
-        await new Promise(resolve => setTimeout(resolve, this.config.delay));
-      }
-
-      // Handle success case
-      if (!shouldFailThisRequest) {
-        const response: AxiosResponse = {
-          data: this.config.responseData,
-          status: this.config.statusCode || 200,
-          statusText: 'OK',
-          headers: {},
-          config: requestConfig,
-        };
-
-        if (this.config.trackRequests) {
-          this.trackRequest(requestConfig, response);
-        }
-
-        return response;
-      }
-
-      // Handle error case
-      let error: AxiosError;
-
-      // Create appropriate error based on configuration
-      if (this.config.errorType === 'Network Error') {
-        // Network error
-        error = new Error(this.config.errorMessage || 'Network Error') as AxiosError;
-        error.config = requestConfig;
-        error.isAxiosError = true;
-        error.name = 'AxiosError';
-        error.code = 'ENETUNREACH';
-      } else if (this.config.errorType === 'Timeout') {
-        // Timeout error
-        error = new Error(this.config.errorMessage || 'Timeout Error') as AxiosError;
-        error.config = requestConfig;
-        error.isAxiosError = true;
-        error.name = 'AxiosError';
-        error.code = 'ECONNABORTED';
-      } else {
-        // API error with status code
-        const response: AxiosResponse = {
-          data: this.config.errorData,
-          status: this.config.statusCode || 500,
-          statusText: this.config.statusCode === 404 ? 'Not Found' : 'Error',
-          headers: {},
-          config: requestConfig,
-        };
-
-        error = new Error(this.config.errorMessage || `Request failed with status code ${response.status}`) as AxiosError;
-        error.config = requestConfig;
-        error.isAxiosError = true;
-        error.name = 'AxiosError';
-        error.code = 'ERR_BAD_RESPONSE';
-        error.response = response;
-      }
-
-      if (this.config.trackRequests) {
-        this.trackRequest(requestConfig, undefined, error);
-      }
-
-      return Promise.reject(error);
-    };
-  }
-
-  /**
-   * Creates a mock interceptor manager
-   */
-  private createInterceptorManager() {
-    return {
-      use: (onFulfilled?: any, onRejected?: any) => {
-        // In a real implementation, we would store these handlers
-        // and apply them in the request/response chain
-        return 0; // Return a handler ID
-      },
-      eject: (id: number) => {
-        // In a real implementation, we would remove the handler
-      },
-    };
-  }
-
-  /**
-   * Default SSRF protection check
-   */
-  private defaultSsrfCheck(url: string): boolean {
-    try {
-      const parsedUrl = new URL(url);
-      const hostname = parsedUrl.hostname;
-      
-      // Block requests to private IP ranges
-      return (
+    // Simulate SSRF protection
+    if (enableSsrfProtection) {
+      const hostname = new URL(url).hostname;
+      if (
         /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.|0\.0\.0\.0|localhost)/.test(hostname) ||
         hostname === '::1' ||
         hostname === 'fe80::' ||
         hostname.endsWith('.local')
-      );
-    } catch (error) {
-      // If URL parsing fails, block the request to be safe
-      return true;
+      ) {
+        const error = new Error('SSRF Protection: Blocked request to private or local network');
+        error.name = 'SSRFProtectionError';
+        throw error;
+      }
     }
-  }
 
-  /**
-   * Track a request for later assertions
-   */
-  private trackRequest(config: AxiosRequestConfig, response?: AxiosResponse, error?: AxiosError) {
-    this.requestHistory.push({
-      config,
-      timestamp: Date.now(),
-      succeeded: !error,
-      response,
-      error,
-    });
-  }
+    // Simulate response delay
+    if (responseDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, responseDelay));
+    }
 
-  /**
-   * Get the history of tracked requests
-   */
-  getRequestHistory(): TrackedRequest[] {
-    return [...this.requestHistory];
-  }
+    // Simulate timeout
+    if (shouldTimeout) {
+      const timeoutError = new Error('timeout of 0ms exceeded');
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
 
-  /**
-   * Clear the request history
-   */
-  clearRequestHistory(): void {
-    this.requestHistory = [];
-    this.requestCount = 0;
-  }
+    // Simulate network error
+    if (shouldFailWithNetworkError) {
+      const networkError = new Error(errorMessage);
+      networkError.name = 'NetworkError';
+      throw networkError;
+    }
 
-  /**
-   * Get the count of requests made
-   */
-  getRequestCount(): number {
-    return this.requestCount;
-  }
+    // Simulate retry-then-success scenario
+    if (retriesBeforeSuccess > 0 && attemptCount <= retriesBeforeSuccess) {
+      const retryError = new Error(`Request failed (attempt ${attemptCount} of ${retriesBeforeSuccess + 1})`);
+      retryError.name = 'RetryableError';
+      throw retryError;
+    }
 
-  /**
-   * Update the configuration of this mock client
-   */
-  updateConfig(config: Partial<MockHttpClientConfig>): void {
-    this.config = { ...this.config, ...config };
-  }
+    // Create response object
+    const response: AxiosResponse = {
+      data: responseData,
+      status: statusCode,
+      statusText: statusCode >= 200 && statusCode < 300 ? 'OK' : 'Error',
+      headers: {},
+      config: axiosConfig,
+    };
+
+    // Simulate error response
+    if (statusCode >= 400) {
+      const axiosError = new Error() as AxiosError;
+      axiosError.name = 'AxiosError';
+      axiosError.message = `Request failed with status code ${statusCode}`;
+      axiosError.response = response;
+      axiosError.config = axiosConfig;
+      axiosError.isAxiosError = true;
+      throw axiosError;
+    }
+
+    return response;
+  };
+
+  // Create mock interceptors
+  const interceptors = {
+    request: {
+      use: jest.fn(),
+      eject: jest.fn(),
+    },
+    response: {
+      use: jest.fn(),
+      eject: jest.fn(),
+    },
+  };
+
+  // Create mock HTTP methods
+  const mockMethods = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].reduce(
+    (methods, method) => {
+      methods[method] = jest.fn((url: string, data?: any, config?: AxiosRequestConfig) => {
+        const axiosConfig = { ...config, method, url, data };
+        return handleRequest(url, method, axiosConfig);
+      });
+      return methods;
+    },
+    {} as Record<string, jest.Mock>
+  );
+
+  // Create mock request method
+  const request = jest.fn((config: AxiosRequestConfig) => {
+    const { url = '', method = 'get' } = config;
+    return handleRequest(url, method, config);
+  });
+
+  // Create mock create method
+  const create = jest.fn(() => mockInstance);
+
+  // Assemble the mock instance
+  const mockInstance = {
+    ...mockMethods,
+    request,
+    create,
+    interceptors,
+    requestHistory,
+    defaults: {},
+    getUri: jest.fn(),
+    isAxiosError: jest.fn(),
+    isCancel: jest.fn(),
+    all: jest.fn(),
+    spread: jest.fn(),
+  } as unknown as AxiosInstance & { requestHistory: RequestHistory[] };
+
+  return mockInstance;
 }
 
 /**
- * Factory function to create a mock HTTP client that simulates network errors
+ * Creates a mock HTTP client that simulates network failures
+ * 
+ * @param errorMessage Optional custom error message
+ * @returns A mock Axios-compatible instance that fails with network errors
  */
-export function createNetworkErrorMock(config: Partial<MockHttpClientConfig> = {}): MockHttpClient {
-  return new MockHttpClient({
-    shouldFail: true,
-    errorType: 'Network Error',
-    errorMessage: 'Network Error',
-    ...config,
+export function createNetworkErrorMock(errorMessage = 'Network Error'): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createMockHttpClient({
+    shouldFailWithNetworkError: true,
+    errorMessage,
   });
 }
 
 /**
- * Factory function to create a mock HTTP client that simulates timeout errors
+ * Creates a mock HTTP client that simulates timeout errors
+ * 
+ * @param delayMs Optional delay before timeout occurs
+ * @returns A mock Axios-compatible instance that times out
  */
-export function createTimeoutMock(timeoutMs: number = 3000, config: Partial<MockHttpClientConfig> = {}): MockHttpClient {
-  return new MockHttpClient({
-    shouldFail: true,
-    delay: timeoutMs,
-    errorType: 'Timeout',
-    errorMessage: 'Timeout of ' + timeoutMs + 'ms exceeded',
-    ...config,
+export function createTimeoutMock(delayMs = 100): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createMockHttpClient({
+    shouldTimeout: true,
+    responseDelay: delayMs,
   });
 }
 
 /**
- * Factory function to create a mock HTTP client that simulates API errors
+ * Creates a mock HTTP client that simulates API errors with specific status codes
+ * 
+ * @param statusCode HTTP status code to return
+ * @param responseData Optional response data to include
+ * @returns A mock Axios-compatible instance that returns the specified error
  */
-export function createApiErrorMock(
-  statusCode: number = 500,
-  errorData: any = { message: 'Server Error' },
-  config: Partial<MockHttpClientConfig> = {}
-): MockHttpClient {
-  return new MockHttpClient({
-    shouldFail: true,
+export function createApiErrorMock(statusCode = 500, responseData = { message: 'Internal Server Error' }): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createMockHttpClient({
     statusCode,
-    errorData,
-    ...config,
-  });
-}
-
-/**
- * Factory function to create a mock HTTP client that simulates SSRF protection
- */
-export function createSsrfProtectionMock(config: Partial<MockHttpClientConfig> = {}): MockHttpClient {
-  return new MockHttpClient({
-    enableSsrfProtection: true,
-    ...config,
-  });
-}
-
-/**
- * Factory function to create a mock HTTP client that simulates transient failures
- * (fails a certain number of times before succeeding)
- */
-export function createTransientErrorMock(
-  failureCount: number = 3,
-  config: Partial<MockHttpClientConfig> = {}
-): MockHttpClient {
-  return new MockHttpClient({
-    failureCount,
-    ...config,
-  });
-}
-
-/**
- * Factory function to create a mock HTTP client that simulates successful responses
- */
-export function createSuccessMock(
-  responseData: any = { success: true },
-  config: Partial<MockHttpClientConfig> = {}
-): MockHttpClient {
-  return new MockHttpClient({
-    shouldFail: false,
     responseData,
-    ...config,
   });
 }
 
 /**
- * Creates a mock implementation of the secure axios client
+ * Creates a mock HTTP client that simulates successful retry after failures
+ * 
+ * @param retriesRequired Number of retries before success
+ * @param responseData Optional response data to return on success
+ * @returns A mock Axios-compatible instance that succeeds after specified retries
  */
-export function createMockSecureAxios(config: Partial<MockHttpClientConfig> = {}): MockHttpClient {
-  return new MockHttpClient({
-    enableSsrfProtection: true,
-    ...config,
+export function createRetrySuccessMock(retriesRequired = 2, responseData = { success: true }): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createMockHttpClient({
+    retriesBeforeSuccess: retriesRequired,
+    responseData,
   });
 }
 
 /**
- * Creates a mock implementation of the internal API client
+ * Creates a mock HTTP client that simulates SSRF protection
+ * 
+ * @returns A mock Axios-compatible instance with SSRF protection enabled
  */
-export function createMockInternalApiClient(
-  baseURL: string = 'https://api.internal.austa.com',
-  config: Partial<MockHttpClientConfig> = {}
-): MockHttpClient {
-  return new MockHttpClient({
+export function createSecureMockHttpClient(): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createMockHttpClient({
     enableSsrfProtection: true,
-    ...config,
   });
 }
 
-export default {
-  createNetworkErrorMock,
-  createTimeoutMock,
-  createApiErrorMock,
-  createSsrfProtectionMock,
-  createTransientErrorMock,
-  createSuccessMock,
-  createMockSecureAxios,
-  createMockInternalApiClient,
-};
+/**
+ * Creates a mock HTTP client for internal API calls with predefined configuration
+ * 
+ * @param baseURL Base URL for the client
+ * @param headers Optional headers to include
+ * @returns A mock Axios-compatible instance configured for internal API calls
+ */
+export function createMockInternalApiClient(baseURL: string, headers = {}): AxiosInstance & { requestHistory: RequestHistory[] } {
+  return createSecureMockHttpClient();
+}
+
+export default createMockHttpClient;

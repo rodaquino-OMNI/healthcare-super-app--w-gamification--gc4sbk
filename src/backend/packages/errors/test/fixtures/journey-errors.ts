@@ -1,298 +1,498 @@
 /**
  * Journey-specific error fixtures for testing
  * 
- * This file contains sample error instances for Health, Care, and Plan journeys
- * to be used in testing journey-specific error handling and context-aware error responses.
+ * This file contains pre-configured error instances for each journey (Health, Care, Plan)
+ * that can be used in tests to verify error handling, serialization, and client responses.
  * Each journey has dedicated sample errors for common scenarios.
  */
 
-// Import error codes
-import {
-  HEALTH_INVALID_METRIC,
-  HEALTH_DEVICE_CONNECTION_FAILED,
-  CARE_PROVIDER_UNAVAILABLE,
-  CARE_APPOINTMENT_SLOT_TAKEN,
-  CARE_TELEMEDICINE_CONNECTION_FAILED,
-  PLAN_INVALID_CLAIM_DATA,
-  PLAN_COVERAGE_VERIFICATION_FAILED,
-} from '../../../shared/src/constants/error-codes.constants';
-
-// Import journey constants
-import { JOURNEY_IDS, JOURNEY_NAMES } from '../../../shared/src/constants/journey.constants';
-
-// Import base error types
-import { ValidationError } from '../../src/categories/validation.errors';
-import { BusinessError } from '../../src/categories/business.errors';
-import { TechnicalError } from '../../src/categories/technical.errors';
-import { ExternalError } from '../../src/categories/external.errors';
+import { BaseError, ErrorType, JourneyType } from '../../src/base';
+import * as ErrorCodes from 'src/backend/shared/src/constants/error-codes.constants';
+import { JOURNEY_IDS, JOURNEY_NAMES } from 'src/backend/shared/src/constants/journey.constants';
 
 // Import journey-specific error classes
-// Health journey errors
-import { InvalidMetricValueError } from '../../src/journey/health/metrics.errors';
-import { DeviceConnectionFailureError } from '../../src/journey/health/devices.errors';
-import { InsufficientDataError } from '../../src/journey/health/insights.errors';
-import { InvalidGoalParametersError } from '../../src/journey/health/goals.errors';
-
-// Care journey errors
-import { ProviderUnavailableError } from '../../src/journey/care/provider-errors';
-import { AppointmentOverlapError } from '../../src/journey/care/appointment-errors';
-import { TelemedicineConnectionError } from '../../src/journey/care/telemedicine-errors';
-import { MedicationInteractionError } from '../../src/journey/care/medication-errors';
-
-// Plan journey errors
-import { ClaimValidationError } from '../../src/journey/plan/claims-errors';
-import { CoverageVerificationError } from '../../src/journey/plan/coverage-errors';
-import { BenefitNotCoveredError } from '../../src/journey/plan/benefits-errors';
-import { PlanNotAvailableInRegionError } from '../../src/journey/plan/plans-errors';
+import { Health, Care, Plan } from '../../src';
 
 /**
  * Health Journey Error Fixtures
  */
-export const healthJourneyErrors = {
-  // Validation errors
-  invalidMetricValue: new InvalidMetricValueError({
-    message: 'Blood pressure value is outside acceptable range',
-    code: HEALTH_INVALID_METRIC,
-    context: {
-      journeyId: JOURNEY_IDS.HEALTH,
-      journeyName: JOURNEY_NAMES.HEALTH,
-      metricType: 'bloodPressure',
-      providedValue: '300/180',
+export const healthErrors = {
+  /**
+   * Invalid health metric error
+   * Used for testing validation error handling in health metrics
+   */
+  invalidMetric: new Health.Metrics.InvalidMetricValueError(
+    'Blood pressure reading is outside acceptable range',
+    {
+      metricType: 'blood_pressure',
+      providedValue: '300/200',
       acceptableRange: '90/60 - 140/90',
-      userId: 'user-123',
-    },
-  }),
+      userId: 'user123',
+    }
+  ),
 
-  // Business errors
-  invalidGoalParameters: new InvalidGoalParametersError({
-    message: 'Goal parameters are not achievable based on user profile',
-    context: {
-      journeyId: JOURNEY_IDS.HEALTH,
-      journeyName: JOURNEY_NAMES.HEALTH,
-      goalType: 'weightLoss',
-      targetValue: '10kg',
-      timeframe: '1 week',
-      reason: 'Exceeds safe weight loss rate of 1kg per week',
-      userId: 'user-123',
-    },
-  }),
-
-  // Technical errors
-  insufficientData: new InsufficientDataError({
-    message: 'Not enough data points to generate health insights',
-    context: {
-      journeyId: JOURNEY_IDS.HEALTH,
-      journeyName: JOURNEY_NAMES.HEALTH,
-      dataType: 'sleepPattern',
-      requiredDataPoints: 5,
-      availableDataPoints: 2,
-      userId: 'user-123',
-      timeRange: 'last 7 days',
-    },
-  }),
-
-  // External errors
-  deviceConnectionFailed: new DeviceConnectionFailureError({
-    message: 'Failed to connect to fitness tracker',
-    code: HEALTH_DEVICE_CONNECTION_FAILED,
-    context: {
-      journeyId: JOURNEY_IDS.HEALTH,
-      journeyName: JOURNEY_NAMES.HEALTH,
+  /**
+   * Device connection error
+   * Used for testing device integration error handling
+   */
+  deviceConnectionFailed: new Health.Devices.DeviceConnectionFailureError(
+    'Failed to connect to Fitbit device',
+    {
+      deviceId: 'fitbit-123456',
       deviceType: 'fitbit',
-      deviceId: 'device-456',
-      userId: 'user-123',
-      errorCode: 'BLE_CONNECTION_TIMEOUT',
-      lastConnected: '2023-04-10T14:30:00Z',
-    },
-  }),
+      connectionMethod: 'bluetooth',
+      lastSyncTimestamp: new Date(Date.now() - 86400000).toISOString(),
+      errorCode: 'DEVICE_UNREACHABLE',
+    }
+  ),
 
-  // Factory function for creating custom health errors
-  createHealthMetricError: (metricType: string, value: string, range: string) => {
-    return new InvalidMetricValueError({
-      message: `${metricType} value is outside acceptable range`,
-      code: HEALTH_INVALID_METRIC,
-      context: {
-        journeyId: JOURNEY_IDS.HEALTH,
-        journeyName: JOURNEY_NAMES.HEALTH,
+  /**
+   * Health goal validation error
+   * Used for testing business rule validation in health goals
+   */
+  invalidGoalParameters: new Health.Goals.InvalidGoalParametersError(
+    'Daily step goal must be between 1,000 and 50,000 steps',
+    {
+      goalType: 'steps',
+      providedValue: 100000,
+      acceptableRange: { min: 1000, max: 50000 },
+      userId: 'user123',
+    }
+  ),
+
+  /**
+   * Health insights error
+   * Used for testing error handling in health insights generation
+   */
+  insufficientDataForInsights: new Health.Insights.InsufficientDataError(
+    'Not enough sleep data to generate sleep quality insights',
+    {
+      insightType: 'sleep_quality',
+      requiredDataPoints: 7,
+      availableDataPoints: 2,
+      dataTimespan: '7 days',
+      userId: 'user123',
+    }
+  ),
+
+  /**
+   * FHIR integration error
+   * Used for testing external system errors in health data integration
+   */
+  fhirConnectionError: new Health.Fhir.FhirConnectionFailureError(
+    'Failed to connect to FHIR server',
+    {
+      endpoint: 'https://fhir.example.org/api/v4',
+      operationType: 'GET',
+      resourceType: 'Patient',
+      statusCode: 503,
+      responseBody: { error: 'Service Unavailable' },
+    }
+  ),
+
+  /**
+   * Factory function to create custom health metric errors
+   */
+  createMetricError: (metricType: string, value: any, message?: string) => {
+    return new Health.Metrics.InvalidMetricValueError(
+      message || `Invalid ${metricType} value provided`,
+      {
         metricType,
         providedValue: value,
-        acceptableRange: range,
-        userId: 'user-123',
-      },
-    });
+        userId: 'user123',
+      }
+    );
+  },
+
+  /**
+   * Factory function to create custom device connection errors
+   */
+  createDeviceError: (deviceType: string, errorCode: string, message?: string) => {
+    return new Health.Devices.DeviceConnectionFailureError(
+      message || `Failed to connect to ${deviceType} device`,
+      {
+        deviceType,
+        errorCode,
+        connectionMethod: 'bluetooth',
+        userId: 'user123',
+      }
+    );
   },
 };
 
 /**
  * Care Journey Error Fixtures
  */
-export const careJourneyErrors = {
-  // Validation errors
-  medicationInteraction: new MedicationInteractionError({
-    message: 'Potential harmful interaction between medications detected',
-    context: {
-      journeyId: JOURNEY_IDS.CARE,
-      journeyName: JOURNEY_NAMES.CARE,
-      medications: ['Lisinopril', 'Potassium supplements'],
-      interactionSeverity: 'high',
-      interactionDescription: 'Increased risk of hyperkalemia',
-      userId: 'user-123',
-    },
-  }),
+export const careErrors = {
+  /**
+   * Provider unavailable error
+   * Used for testing business logic errors in provider scheduling
+   */
+  providerUnavailable: new Care.ProviderUnavailableError(
+    'The selected healthcare provider is not available at the requested time',
+    {
+      providerId: 'provider789',
+      providerName: 'Dr. Maria Silva',
+      requestedDate: '2023-06-15',
+      requestedTime: '14:30',
+      specialtyType: 'cardiology',
+      userId: 'user123',
+    }
+  ),
 
-  // Business errors
-  providerUnavailable: new ProviderUnavailableError({
-    message: 'The selected healthcare provider is not available',
-    code: CARE_PROVIDER_UNAVAILABLE,
-    context: {
-      journeyId: JOURNEY_IDS.CARE,
-      journeyName: JOURNEY_NAMES.CARE,
-      providerId: 'provider-789',
-      providerName: 'Dr. Silva',
-      speciality: 'Cardiologist',
-      requestedDate: '2023-04-15',
-      nextAvailableDate: '2023-04-22',
-      userId: 'user-123',
-    },
-  }),
+  /**
+   * Appointment conflict error
+   * Used for testing business logic errors in appointment scheduling
+   */
+  appointmentConflict: new Care.AppointmentOverlapError(
+    'Cannot schedule appointment due to overlap with existing appointment',
+    {
+      requestedAppointmentTime: '2023-06-15T14:30:00Z',
+      requestedDuration: 30,
+      conflictingAppointmentId: 'appt456',
+      conflictingAppointmentTime: '2023-06-15T14:00:00Z',
+      conflictingAppointmentDuration: 60,
+      userId: 'user123',
+    }
+  ),
 
-  // Business errors
-  appointmentOverlap: new AppointmentOverlapError({
-    message: 'The requested appointment time conflicts with an existing appointment',
-    code: CARE_APPOINTMENT_SLOT_TAKEN,
-    context: {
-      journeyId: JOURNEY_IDS.CARE,
-      journeyName: JOURNEY_NAMES.CARE,
-      requestedTime: '2023-04-15T10:00:00Z',
-      existingAppointmentId: 'appt-456',
-      existingAppointmentTime: '2023-04-15T09:30:00Z',
-      existingAppointmentDuration: 60,
-      providerId: 'provider-789',
-      userId: 'user-123',
-    },
-  }),
-
-  // Technical/External errors
-  telemedicineConnectionFailed: new TelemedicineConnectionError({
-    message: 'Failed to establish telemedicine video connection',
-    code: CARE_TELEMEDICINE_CONNECTION_FAILED,
-    context: {
-      journeyId: JOURNEY_IDS.CARE,
-      journeyName: JOURNEY_NAMES.CARE,
-      sessionId: 'session-123',
-      providerId: 'provider-789',
-      userId: 'user-123',
-      errorCode: 'ICE_NEGOTIATION_FAILED',
-      networkQuality: 'poor',
+  /**
+   * Telemedicine connection error
+   * Used for testing technical errors in telemedicine sessions
+   */
+  telemedicineConnectionFailed: new Care.TelemedicineConnectionError(
+    'Failed to establish telemedicine video connection',
+    {
+      sessionId: 'tele123',
+      providerName: 'Dr. Carlos Mendes',
+      errorCode: 'ICE_CONNECTION_FAILED',
       browserInfo: 'Chrome 98.0.4758.102',
-    },
-  }),
+      networkType: 'wifi',
+      userId: 'user123',
+    }
+  ),
 
-  // Factory function for creating custom care errors
-  createAppointmentError: (providerId: string, requestedTime: string, reason: string) => {
-    return new AppointmentOverlapError({
-      message: `The requested appointment cannot be scheduled: ${reason}`,
-      code: CARE_APPOINTMENT_SLOT_TAKEN,
-      context: {
-        journeyId: JOURNEY_IDS.CARE,
-        journeyName: JOURNEY_NAMES.CARE,
-        requestedTime,
+  /**
+   * Medication interaction error
+   * Used for testing business logic errors in medication management
+   */
+  medicationInteraction: new Care.MedicationInteractionError(
+    'Potential severe interaction detected between medications',
+    {
+      medications: [
+        { id: 'med123', name: 'Lisinopril', dosage: '10mg' },
+        { id: 'med456', name: 'Potassium supplements', dosage: '20mEq' },
+      ],
+      interactionSeverity: 'severe',
+      interactionDescription: 'Increased risk of hyperkalemia',
+      recommendedAction: 'Consult healthcare provider before taking together',
+      userId: 'user123',
+    }
+  ),
+
+  /**
+   * Symptom assessment error
+   * Used for testing business logic errors in symptom checker
+   */
+  symptomAssessmentIncomplete: new Care.SymptomAssessmentIncompleteError(
+    'Cannot generate assessment with incomplete symptom information',
+    {
+      providedSymptoms: ['headache', 'fatigue'],
+      missingInformation: ['duration', 'severity', 'associated symptoms'],
+      assessmentId: 'assess789',
+      userId: 'user123',
+    }
+  ),
+
+  /**
+   * Factory function to create custom appointment errors
+   */
+  createAppointmentError: (errorType: string, appointmentId: string, message?: string) => {
+    if (errorType === 'not_found') {
+      return new Care.AppointmentNotFoundError(
+        message || `Appointment with ID ${appointmentId} not found`,
+        { appointmentId, userId: 'user123' }
+      );
+    } else if (errorType === 'past_date') {
+      return new Care.AppointmentDateInPastError(
+        message || 'Cannot schedule appointment in the past',
+        {
+          appointmentId,
+          requestedDate: new Date(Date.now() - 86400000).toISOString(),
+          userId: 'user123',
+        }
+      );
+    } else {
+      return new BaseError(
+        message || `Appointment error: ${errorType}`,
+        ErrorType.BUSINESS,
+        ErrorCodes.CARE_APPOINTMENT_SLOT_TAKEN,
+        { journey: JourneyType.CARE, appointmentId, userId: 'user123' }
+      );
+    }
+  },
+
+  /**
+   * Factory function to create custom provider errors
+   */
+  createProviderError: (providerId: string, specialtyType: string, message?: string) => {
+    return new Care.ProviderNotFoundError(
+      message || `Provider with ID ${providerId} not found`,
+      {
         providerId,
-        reason,
-        userId: 'user-123',
-      },
-    });
+        specialtyType,
+        userId: 'user123',
+      }
+    );
   },
 };
 
 /**
  * Plan Journey Error Fixtures
  */
-export const planJourneyErrors = {
-  // Validation errors
-  invalidClaimData: new ClaimValidationError({
-    message: 'Claim submission contains invalid or missing data',
-    code: PLAN_INVALID_CLAIM_DATA,
-    context: {
-      journeyId: JOURNEY_IDS.PLAN,
-      journeyName: JOURNEY_NAMES.PLAN,
-      claimId: 'claim-123',
+export const planErrors = {
+  /**
+   * Invalid claim data error
+   * Used for testing validation errors in claim submission
+   */
+  invalidClaimData: new Plan.Claims.ClaimValidationError(
+    'Claim submission contains invalid or missing required fields',
+    {
+      claimId: 'claim123',
       validationErrors: [
         { field: 'serviceDate', error: 'Date cannot be in the future' },
-        { field: 'receiptImage', error: 'Receipt image is required' },
+        { field: 'diagnosisCode', error: 'Invalid ICD-10 code format' },
+        { field: 'providerNPI', error: 'Provider NPI is required' },
       ],
-      userId: 'user-123',
-    },
-  }),
+      userId: 'user123',
+    }
+  ),
 
-  // Business errors
-  benefitNotCovered: new BenefitNotCoveredError({
-    message: 'The requested service is not covered by your current plan',
-    context: {
-      journeyId: JOURNEY_IDS.PLAN,
-      journeyName: JOURNEY_NAMES.PLAN,
-      serviceType: 'Dental Implants',
-      planId: 'plan-456',
-      planName: 'Basic Health Plan',
-      coverageCategory: 'Dental',
-      userId: 'user-123',
-      upgradePlanSuggestion: 'Premium Health Plan',
-    },
-  }),
+  /**
+   * Coverage verification error
+   * Used for testing business logic errors in coverage verification
+   */
+  coverageVerificationFailed: new Plan.Coverage.CoverageVerificationError(
+    'Failed to verify coverage for the requested service',
+    {
+      memberId: 'member456',
+      serviceCode: 'H1001',
+      serviceDescription: 'Prenatal care visit',
+      verificationId: 'verify789',
+      errorReason: 'Service requires pre-authorization',
+      userId: 'user123',
+    }
+  ),
 
-  // Business errors
-  planNotAvailableInRegion: new PlanNotAvailableInRegionError({
-    message: 'The selected health plan is not available in your region',
-    context: {
-      journeyId: JOURNEY_IDS.PLAN,
-      journeyName: JOURNEY_NAMES.PLAN,
-      planId: 'plan-789',
-      planName: 'Premium Health Plan',
-      requestedRegion: 'Amazonas',
-      availableRegions: ['São Paulo', 'Rio de Janeiro', 'Minas Gerais'],
-      userId: 'user-123',
-    },
-  }),
+  /**
+   * Service not covered error
+   * Used for testing business logic errors in coverage benefits
+   */
+  serviceNotCovered: new Plan.Coverage.ServiceNotCoveredError(
+    'The requested service is not covered by your current plan',
+    {
+      serviceCode: 'D9972',
+      serviceDescription: 'External bleaching per arch',
+      planId: 'plan789',
+      planName: 'Essential Care',
+      coverageCategory: 'dental',
+      userId: 'user123',
+    }
+  ),
 
-  // External errors
-  coverageVerificationFailed: new CoverageVerificationError({
-    message: 'Failed to verify coverage with insurance provider',
-    code: PLAN_COVERAGE_VERIFICATION_FAILED,
-    context: {
-      journeyId: JOURNEY_IDS.PLAN,
-      journeyName: JOURNEY_NAMES.PLAN,
-      serviceType: 'Specialist Consultation',
-      providerId: 'provider-789',
-      insuranceId: 'ins-456',
-      errorCode: 'PROVIDER_API_TIMEOUT',
-      requestId: 'req-123',
-      userId: 'user-123',
-    },
-  }),
+  /**
+   * Benefit limit exceeded error
+   * Used for testing business logic errors in benefits utilization
+   */
+  benefitLimitExceeded: new Plan.Benefits.BenefitLimitExceededError(
+    'You have reached the annual limit for this benefit',
+    {
+      benefitType: 'physical_therapy',
+      benefitDescription: 'Physical Therapy Sessions',
+      annualLimit: 20,
+      currentUsage: 20,
+      planId: 'plan789',
+      planName: 'Essential Care',
+      coveragePeriod: '2023-01-01 to 2023-12-31',
+      userId: 'user123',
+    }
+  ),
 
-  // Factory function for creating custom plan errors
-  createClaimError: (claimId: string, validationErrors: Array<{field: string, error: string}>) => {
-    return new ClaimValidationError({
-      message: 'Claim submission contains validation errors',
-      code: PLAN_INVALID_CLAIM_DATA,
-      context: {
-        journeyId: JOURNEY_IDS.PLAN,
-        journeyName: JOURNEY_NAMES.PLAN,
-        claimId,
-        validationErrors,
-        userId: 'user-123',
-      },
-    });
+  /**
+   * Document upload error
+   * Used for testing technical errors in document management
+   */
+  documentUploadFailed: new Plan.Documents.DocumentStorageError(
+    'Failed to upload claim supporting document',
+    {
+      documentType: 'medical_receipt',
+      fileName: 'receipt-2023-05-12.pdf',
+      fileSize: 2.5, // MB
+      mimeType: 'application/pdf',
+      errorCode: 'STORAGE_UNAVAILABLE',
+      userId: 'user123',
+    }
+  ),
+
+  /**
+   * Factory function to create custom claim errors
+   */
+  createClaimError: (errorType: string, claimId: string, message?: string) => {
+    if (errorType === 'not_found') {
+      return new Plan.Claims.ClaimNotFoundError(
+        message || `Claim with ID ${claimId} not found`,
+        { claimId, userId: 'user123' }
+      );
+    } else if (errorType === 'duplicate') {
+      return new Plan.Claims.DuplicateClaimError(
+        message || `Duplicate claim detected`,
+        {
+          claimId,
+          duplicateClaimId: `dup-${claimId}`,
+          serviceDate: new Date().toISOString().split('T')[0],
+          userId: 'user123',
+        }
+      );
+    } else {
+      return new BaseError(
+        message || `Claim error: ${errorType}`,
+        ErrorType.BUSINESS,
+        ErrorCodes.PLAN_INVALID_CLAIM_DATA,
+        { journey: JourneyType.PLAN, claimId, userId: 'user123' }
+      );
+    }
+  },
+
+  /**
+   * Factory function to create custom coverage errors
+   */
+  createCoverageError: (serviceCode: string, planId: string, message?: string) => {
+    return new Plan.Coverage.ServiceNotCoveredError(
+      message || `Service ${serviceCode} is not covered by plan ${planId}`,
+      {
+        serviceCode,
+        planId,
+        userId: 'user123',
+      }
+    );
   },
 };
 
 /**
- * Combined export of all journey errors
+ * Combined journey errors for easy access
  */
 export const journeyErrors = {
-  health: healthJourneyErrors,
-  care: careJourneyErrors,
-  plan: planJourneyErrors,
+  health: healthErrors,
+  care: careErrors,
+  plan: planErrors,
 };
 
-export default journeyErrors;
+/**
+ * Factory function to create journey-specific errors with custom messages
+ * Useful for creating test-specific error instances
+ */
+export function createJourneyError(
+  journey: keyof typeof JOURNEY_IDS,
+  errorType: ErrorType,
+  code: string,
+  message: string,
+  details?: Record<string, any>
+): BaseError {
+  return BaseError.journeyError(
+    message,
+    errorType,
+    code,
+    journey as unknown as JourneyType,
+    {
+      journey: journey as unknown as JourneyType,
+      component: `${journey}-service`,
+      operation: 'test-operation',
+      userId: 'test-user',
+      metadata: {
+        journeyName: JOURNEY_NAMES[journey.toUpperCase() as keyof typeof JOURNEY_NAMES],
+        testGenerated: true,
+      },
+    },
+    details
+  );
+}
+
+/**
+ * Factory function to create validation errors for any journey
+ */
+export function createValidationError(
+  journey: keyof typeof JOURNEY_IDS,
+  field: string,
+  value: any,
+  message?: string
+): BaseError {
+  return createJourneyError(
+    journey,
+    ErrorType.VALIDATION,
+    `${journey.toUpperCase()}_VALIDATION_ERROR`,
+    message || `Invalid value for field '${field}'`,
+    {
+      field,
+      providedValue: value,
+      validationError: true,
+    }
+  );
+}
+
+/**
+ * Factory function to create business logic errors for any journey
+ */
+export function createBusinessError(
+  journey: keyof typeof JOURNEY_IDS,
+  code: string,
+  message: string,
+  details?: Record<string, any>
+): BaseError {
+  return createJourneyError(
+    journey,
+    ErrorType.BUSINESS,
+    code,
+    message,
+    details
+  );
+}
+
+/**
+ * Factory function to create technical errors for any journey
+ */
+export function createTechnicalError(
+  journey: keyof typeof JOURNEY_IDS,
+  code: string,
+  message: string,
+  details?: Record<string, any>
+): BaseError {
+  return createJourneyError(
+    journey,
+    ErrorType.TECHNICAL,
+    code,
+    message,
+    details
+  );
+}
+
+/**
+ * Factory function to create external system errors for any journey
+ */
+export function createExternalError(
+  journey: keyof typeof JOURNEY_IDS,
+  system: string,
+  code: string,
+  message: string,
+  details?: Record<string, any>
+): BaseError {
+  return createJourneyError(
+    journey,
+    ErrorType.EXTERNAL,
+    code,
+    message,
+    {
+      externalSystem: system,
+      ...details,
+    }
+  );
+}

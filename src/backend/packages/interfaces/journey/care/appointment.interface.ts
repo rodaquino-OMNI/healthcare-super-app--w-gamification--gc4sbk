@@ -1,12 +1,4 @@
-/**
- * @file Appointment interface for the Care journey
- * @description Defines TypeScript interfaces and enums for appointments in the AUSTA SuperApp.
- * These interfaces provide standardized type definitions for scheduling, tracking, and managing
- * healthcare appointments without ORM-specific decorators, ensuring consistent data structure
- * across frontend and backend applications.
- */
-
-import { IUser } from '../../../auth/user.interface';
+import { User } from '@austa/interfaces/auth/user.interface';
 import { IProvider } from './provider.interface';
 
 /**
@@ -27,9 +19,9 @@ export enum AppointmentStatus {
 }
 
 /**
- * Interface representing an appointment in the Care journey.
- * This interface is part of the Care Journey and defines the structure for
- * appointments between users and healthcare providers.
+ * Represents an appointment interface in the care journey.
+ * This interface is used for tracking scheduled appointments
+ * between users and healthcare providers.
  */
 export interface IAppointment {
   /**
@@ -45,7 +37,7 @@ export interface IAppointment {
   /**
    * The user scheduling the appointment.
    */
-  user: IUser;
+  user: User;
 
   /**
    * ID of the healthcare provider for the appointment.

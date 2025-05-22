@@ -1,22 +1,63 @@
-import { pascalCase, camelCase, paramCase } from 'change-case';
+import { pascalCase, camelCase } from 'change-case'; // Updated for TypeScript v5.3.3 compatibility
 
 /**
  * Generates the content for a TypeORM entity file based on the provided service name.
- * Includes database optimizations, proper indexing, soft deletion, and integration with @austa/interfaces.
+ * Includes optimized database indexing, soft deletion support, and proper relation handling.
  * 
- * This template implements PostgreSQL-specific optimizations and follows TypeORM best practices
- * for entity design, including proper indexing strategies, relation handling, and soft deletion support.
+ * This template implements best practices for PostgreSQL optimization including:
+ * - Proper indexing strategies for common query patterns
+ * - Soft deletion with metadata retention
+ * - JSONB support for flexible schema evolution
+ * - Optimistic concurrency control
+ * - Relation handling with appropriate cascade options
  * 
  * @param serviceName - The name of the service
+ * @param journeyType - Optional journey type (health, care, plan) for journey-specific interfaces
+ * @param options - Additional options for entity generation
  * @returns The content of the entity file
  */
-export function generateEntityTemplate(serviceName: string): string {
-  // Convert service name to proper cases for different naming conventions
+export function generateEntityTemplate(
+  serviceName: string, 
+  journeyType?: 'health' | 'care' | 'plan',
+  options?: {
+    hasParentRelation?: boolean;
+    hasChildRelations?: boolean;
+    isAuditable?: boolean;
+    usesTimeSeries?: boolean;
+  }
+): string {
+  // Default options
+  const opts = {
+    hasParentRelation: options?.hasParentRelation ?? false,
+    hasChildRelations: options?.hasChildRelations ?? false,
+    isAuditable: options?.isAuditable ?? true,
+    usesTimeSeries: options?.usesTimeSeries ?? false
+  };
+
+  // Convert service name to proper cases
   const entityName = pascalCase(serviceName);
   const serviceNameCamel = camelCase(serviceName);
-  const serviceNameParam = paramCase(serviceName);
-  const entityNamePlural = `${serviceNameCamel}s`;
-  const tableName = paramCase(entityNamePlural); // Use kebab-case for table names
+  const tableName = `${serviceNameCamel}s`;
+  
+  // Determine interface import path based on journey type
+  const interfaceImport = journeyType 
+    ? `import { I${entityName} } from '@austa/interfaces/journey/${journeyType}';
+` 
+    : `import { I${entityName} } from '@austa/interfaces/common';
+`;
+  
+  // Additional imports based on options
+  let additionalImports = '';
+  
+  if (opts.hasParentRelation || opts.hasChildRelations) {
+    additionalImports += `import { Repository } from 'typeorm';
+`;
+  }
+  
+  if (opts.usesTimeSeries) {
+    additionalImports += `import { TimeSeriesEntity } from '@austa/database/src/types/time-series.entity';
+`;
+  }
   
   // Construct the entity file content
   return `import { 
@@ -28,27 +69,37 @@ export function generateEntityTemplate(serviceName: string): string {
   DeleteDateColumn,
   Index,
   Check,
-  Unique,
-  OneToMany,
   ManyToOne,
-  JoinColumn
+  OneToMany,
+  JoinColumn,
+  Unique,
+  BeforeInsert,
+  BeforeUpdate,
+  AfterLoad,
+  AfterRecover
 } from 'typeorm';
-// Import shared interface from @austa/interfaces package
-import { I${entityName} } from '@austa/interfaces/journey/${serviceNameCamel}';
-// Import any related entities needed for relationships
-// import { RelatedEntity } from '../related-entity/related-entity.entity';
-// import { ParentEntity } from '../parent-entity/parent-entity.entity';
+${interfaceImport}${additionalImports}
+import { User } from '../../users/entities/user.entity';
+import { AuditableEntity } from '@austa/database/src/types/auditable.entity';
+import { SoftDeletableEntity } from '@austa/database/src/types/soft-deletable.entity';
 
 /**
  * Entity representing a ${serviceNameCamel} in the system
- * Implements the I${entityName} interface from @austa/interfaces for type consistency
+ * Implements soft deletion pattern and optimized indexing for PostgreSQL
+ * 
+ * Features:
+ * - Soft deletion with metadata retention
+ * - Optimized indexing for common query patterns
+ * - Proper relation handling with cascade options
+ * - Auditable entity tracking for compliance
+ * - PostgreSQL-specific optimizations
  */
 @Entity('${tableName}')
-@Index(['createdAt'], { name: 'idx_${serviceNameParam}_created_at' }) // Index for time-based queries
-@Index(['isActive', 'deletedAt'], { name: 'idx_${serviceNameParam}_active_status' }) // Composite index for active record filtering
-@Unique(['externalId'], { name: 'uq_${serviceNameParam}_external_id' }) // Ensure uniqueness of external identifiers
-@Check('"name" <> \'\'') // Database constraint to prevent empty names
-export class ${entityName} implements I${entityName} {
+@Index(['name', 'isActive']) // Composite index for common query patterns
+@Index(['createdAt']) // Index for timestamp-based queries
+@Unique(['name', 'deletedAt']) // Ensure uniqueness only among non-deleted records
+@Check('"isActive" = true OR "deletedAt" IS NOT NULL') // Ensure consistency between isActive and deletedAt
+export class ${entityName} implements I${entityName}${opts.isAuditable ? ', AuditableEntity' : ''}${opts.usesTimeSeries ? ', TimeSeriesEntity' : ''} {
   /**
    * Unique identifier for the ${serviceNameCamel}
    * Uses UUID v4 for better distribution and security
@@ -57,123 +108,139 @@ export class ${entityName} implements I${entityName} {
   id: string;
 
   /**
-   * External identifier for integration with external systems
-   * Nullable for entities that don't require external mapping
-   */
-  @Column({ length: 100, nullable: true })
-  externalId?: string;
-
-  /**
    * Name of the ${serviceNameCamel}
-   * Limited to 100 characters for database optimization
+   * Indexed for faster lookups
    */
   @Column({ length: 100 })
+  @Index() // Single column index for direct lookups
   name: string;
 
   /**
    * Description of the ${serviceNameCamel}
-   * Uses text type for unlimited length
+   * Stored as text type for unlimited length
    */
   @Column({ type: 'text', nullable: true })
   description?: string;
 
   /**
-   * JSON metadata for flexible storage of additional properties
-   * Useful for storing non-queryable attributes
-   * Uses PostgreSQL JSONB type for efficient storage and querying
-   */
-  @Column({ type: 'jsonb', nullable: true, default: '{}' })
-  @Index({ name: 'idx_${serviceNameParam}_metadata_gin', using: 'GIN' }) // GIN index for efficient JSONB querying
-  metadata?: Record<string, any>;
-
-  /**
    * Whether the ${serviceNameCamel} is active
-   * Used for soft-state management without deletion
+   * Used for quick filtering of inactive records
    */
   @Column({ default: true })
+  @Index() // Index for common filtering condition
   isActive: boolean;
 
   /**
-   * User ID who created this record
-   * Important for audit trails
+   * User who created this ${serviceNameCamel}
+   * Implements proper relation handling with cascade options
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'createdBy' })
+  creator?: User;
+
+  /**
+   * ID of the user who created this ${serviceNameCamel}
    */
   @Column({ nullable: true })
+  @Index() // Index for foreign key lookups
   createdBy?: string;
 
   /**
-   * User ID who last updated this record
-   * Important for audit trails
-   */
-  @Column({ nullable: true })
-  updatedBy?: string;
-
-  /**
    * Timestamp when the ${serviceNameCamel} was created
-   * Automatically managed by TypeORM
+   * Automatically set by TypeORM
    */
   @CreateDateColumn({ type: 'timestamptz' }) // Use timestamptz for timezone awareness
   createdAt: Date;
 
   /**
    * Timestamp when the ${serviceNameCamel} was last updated
-   * Automatically managed by TypeORM
+   * Automatically updated by TypeORM
    */
   @UpdateDateColumn({ type: 'timestamptz' }) // Use timestamptz for timezone awareness
   updatedAt: Date;
 
   /**
    * Timestamp when the ${serviceNameCamel} was soft-deleted
-   * Null indicates the record is not deleted
+   * NULL indicates the record is not deleted
    */
   @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  @Index() // Index for filtering deleted/non-deleted records
   deletedAt?: Date;
 
   /**
-   * Example of a One-to-Many relationship
-   * Uncomment and modify as needed for your specific entity relationships
+   * Metadata for the ${serviceNameCamel}
+   * Stored as JSONB for flexible schema and efficient querying
    * 
-   * This demonstrates proper relation handling with cascade options
-   * and lazy loading for better performance
+   * PostgreSQL JSONB type allows for efficient querying and indexing of JSON data
+   * Example query: WHERE metadata @> '{"key": "value"}'
    */
-  /*
-  @OneToMany(() => RelatedEntity, (relatedEntity) => relatedEntity.${serviceNameCamel}, {
-    cascade: ['insert', 'update'], // Automatically save related entities when saving this entity
-    eager: false, // Lazy load by default for better performance
-    onDelete: 'SET NULL', // Options: CASCADE, SET NULL, NO ACTION, etc.
-  })
-  relatedEntities?: RelatedEntity[];
-  */
+  @Column({ type: 'jsonb', nullable: true, default: '{}' })
+  metadata?: Record<string, any>;
 
   /**
-   * Example of a Many-to-One relationship
-   * Uncomment and modify as needed for your specific entity relationships
-   * 
-   * This demonstrates proper foreign key handling with explicit column naming
-   * and appropriate deletion behavior
+   * Version number for optimistic concurrency control
+   * Automatically incremented by TypeORM on each update
    */
-  /*
-  @ManyToOne(() => ParentEntity, (parentEntity) => parentEntity.${entityNamePlural}, {
-    onDelete: 'SET NULL', // Options: CASCADE, SET NULL, NO ACTION, etc.
-    nullable: true,
-  })
-  @JoinColumn({ name: 'parent_id' }) // Explicitly name the foreign key column
-  parent?: ParentEntity;
+  @Column({ type: 'int', default: 1 })
+  version: number;
 
+${opts.hasParentRelation ? `
+  /**
+   * Parent ${serviceNameCamel} if this is a child record
+   * Implements hierarchical data structure with proper cascading
+   */
+  @ManyToOne(() => ${entityName}, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'parentId' })
+  parent?: ${entityName};
+
+  /**
+   * ID of the parent ${serviceNameCamel}
+   */
   @Column({ nullable: true })
-  @Index({ name: 'idx_${serviceNameParam}_parent_id' }) // Index foreign keys for better join performance
+  @Index() // Index for hierarchical queries
   parentId?: string;
-  */
+` : ''}
+
+${opts.hasChildRelations ? `
+  /**
+   * Child ${serviceNameCamel}s related to this record
+   * Implements one-to-many relationship with proper cascading
+   */
+  @OneToMany(() => ${entityName}, (child) => child.parent, { 
+    cascade: ['insert', 'update'],
+    eager: false // Load only when explicitly requested for performance
+  })
+  children?: ${entityName}[];
+` : ''}
 
   /**
-   * Converts entity to a plain object, useful for API responses
-   * Implements any custom transformations needed
+   * Lifecycle hooks for additional business logic
    */
-  toJSON(): Record<string, any> {
-    return {
-      ...this,
-      // Add any custom transformations here
-      // For example, format dates or transform nested objects
-    };
+  @BeforeInsert()
+  @BeforeUpdate()
+  prepareData() {
+    // Ensure metadata is always an object
+    this.metadata = this.metadata || {};
+    
+    // Add audit trail for changes if needed
+    if (this.metadata.changes) {
+      this.metadata.changes.push({
+        timestamp: new Date(),
+        version: this.version
+      });
+    }
+  }
+
+  /**
+   * After entity is recovered from soft-deletion
+   */
+  @AfterRecover()
+  markAsRecovered() {
+    this.isActive = true;
+    if (this.metadata) {
+      this.metadata.recovered = true;
+      this.metadata.recoveredAt = new Date();
+    }
   }
 }
 `;

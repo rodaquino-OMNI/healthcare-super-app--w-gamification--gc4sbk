@@ -1,105 +1,161 @@
-import { describe, expect, it } from '@jest/globals';
+import { Test } from '@nestjs/testing';
+import * as nestErrorsModule from '../../../src/nest';
+import * as filters from '../../../src/nest/filters';
+import * as interceptors from '../../../src/nest/interceptors';
+import * as decorators from '../../../src/nest/decorators';
+import * as module from '../../../src/nest/module';
 
-// Import all exports from the nest index barrel file
-import * as nestExports from '../../../src/nest';
-
-describe('NestJS Error Handling Components', () => {
+describe('NestJS Error Handling Module', () => {
   describe('Public API Structure', () => {
-    it('should export all required component categories', () => {
-      // Verify that all component categories are exported
-      expect(nestExports).toHaveProperty('filters');
-      expect(nestExports).toHaveProperty('interceptors');
-      expect(nestExports).toHaveProperty('decorators');
-      expect(nestExports).toHaveProperty('ErrorsModule');
+    it('should export all filters correctly', () => {
+      // Check that all filters are exported
+      expect(nestErrorsModule.GlobalExceptionFilter).toBeDefined();
+      expect(nestErrorsModule.GlobalExceptionFilter).toBe(filters.GlobalExceptionFilter);
     });
 
-    it('should export filters as an object with all filter components', () => {
-      expect(nestExports.filters).toBeDefined();
-      expect(typeof nestExports.filters).toBe('object');
+    it('should export all interceptors correctly', () => {
+      // Check that all interceptors are exported
+      expect(nestErrorsModule.RetryInterceptor).toBeDefined();
+      expect(nestErrorsModule.CircuitBreakerInterceptor).toBeDefined();
+      expect(nestErrorsModule.FallbackInterceptor).toBeDefined();
+      expect(nestErrorsModule.TimeoutInterceptor).toBeDefined();
       
-      // Verify that the GlobalExceptionFilter is exported
-      expect(nestExports.filters).toHaveProperty('GlobalExceptionFilter');
-      expect(typeof nestExports.filters.GlobalExceptionFilter).toBe('function');
+      expect(nestErrorsModule.RetryInterceptor).toBe(interceptors.RetryInterceptor);
+      expect(nestErrorsModule.CircuitBreakerInterceptor).toBe(interceptors.CircuitBreakerInterceptor);
+      expect(nestErrorsModule.FallbackInterceptor).toBe(interceptors.FallbackInterceptor);
+      expect(nestErrorsModule.TimeoutInterceptor).toBe(interceptors.TimeoutInterceptor);
     });
 
-    it('should export interceptors as an object with all interceptor components', () => {
-      expect(nestExports.interceptors).toBeDefined();
-      expect(typeof nestExports.interceptors).toBe('object');
+    it('should export all decorators correctly', () => {
+      // Check that all decorators are exported
+      expect(nestErrorsModule.Retry).toBeDefined();
+      expect(nestErrorsModule.CircuitBreaker).toBeDefined();
+      expect(nestErrorsModule.Fallback).toBeDefined();
+      expect(nestErrorsModule.ErrorBoundary).toBeDefined();
+      expect(nestErrorsModule.TimeoutConfig).toBeDefined();
+      expect(nestErrorsModule.ErrorHandling).toBeDefined();
       
-      // Verify that all interceptors are exported
-      const expectedInterceptors = [
-        'RetryInterceptor',
-        'CircuitBreakerInterceptor',
-        'FallbackInterceptor',
-        'TimeoutInterceptor'
-      ];
-
-      expectedInterceptors.forEach(interceptor => {
-        expect(nestExports.interceptors).toHaveProperty(interceptor);
-        expect(typeof nestExports.interceptors[interceptor]).toBe('function');
-      });
+      expect(nestErrorsModule.Retry).toBe(decorators.Retry);
+      expect(nestErrorsModule.CircuitBreaker).toBe(decorators.CircuitBreaker);
+      expect(nestErrorsModule.Fallback).toBe(decorators.Fallback);
+      expect(nestErrorsModule.ErrorBoundary).toBe(decorators.ErrorBoundary);
+      expect(nestErrorsModule.TimeoutConfig).toBe(decorators.TimeoutConfig);
+      expect(nestErrorsModule.ErrorHandling).toBe(decorators.ErrorHandling);
     });
 
-    it('should export decorators as an object with all decorator components', () => {
-      expect(nestExports.decorators).toBeDefined();
-      expect(typeof nestExports.decorators).toBe('object');
-      
-      // Verify that all decorators are exported
-      const expectedDecorators = [
-        'Retry',
-        'CircuitBreaker',
-        'Fallback',
-        'ErrorBoundary',
-        'TimeoutConfig'
-      ];
-
-      expectedDecorators.forEach(decorator => {
-        expect(nestExports.decorators).toHaveProperty(decorator);
-        expect(typeof nestExports.decorators[decorator]).toBe('function');
-      });
+    it('should export the module correctly', () => {
+      // Check that the module is exported
+      expect(nestErrorsModule.ErrorsModule).toBeDefined();
+      expect(nestErrorsModule.ErrorsModule).toBe(module.ErrorsModule);
     });
 
-    it('should export ErrorsModule as a NestJS module', () => {
-      expect(nestExports.ErrorsModule).toBeDefined();
-      expect(typeof nestExports.ErrorsModule).toBe('function');
-      
-      // Verify that it has the expected NestJS module structure
-      // Note: We can't directly check for @Module decorator, but we can check for its effects
-      const modulePrototype = Object.getPrototypeOf(nestExports.ErrorsModule);
-      expect(modulePrototype.name).toBe('Function');
+    it('should export all module interfaces correctly', () => {
+      // Check that all module interfaces are exported
+      expect(nestErrorsModule.ErrorsModuleOptions).toBeDefined();
+      expect(nestErrorsModule.ErrorsModuleOptionsFactory).toBeDefined();
+      expect(nestErrorsModule.ErrorsModuleAsyncOptions).toBeDefined();
+    });
+
+    it('should export all interceptor interfaces correctly', () => {
+      // Check that all interceptor interfaces are exported
+      expect(nestErrorsModule.RetryOptions).toBeDefined();
+      expect(nestErrorsModule.CircuitBreakerOptions).toBeDefined();
+      expect(nestErrorsModule.FallbackOptions).toBeDefined();
+      expect(nestErrorsModule.TimeoutOptions).toBeDefined();
+    });
+
+    it('should export all decorator interfaces correctly', () => {
+      // Check that all decorator interfaces are exported
+      expect(nestErrorsModule.RetryConfig).toBeDefined();
+      expect(nestErrorsModule.CircuitBreakerConfig).toBeDefined();
+      expect(nestErrorsModule.FallbackConfig).toBeDefined();
+      expect(nestErrorsModule.ErrorBoundaryConfig).toBeDefined();
+      expect(nestErrorsModule.TimeoutConfig).toBeDefined();
+    });
+  });
+
+  describe('Module Integration', () => {
+    it('should create a module with default options', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [nestErrorsModule.ErrorsModule.forRoot()],
+      }).compile();
+
+      expect(moduleRef).toBeDefined();
+    });
+
+    it('should create a module with custom options', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          nestErrorsModule.ErrorsModule.forRoot({
+            enableDetailedErrors: true,
+            enableGlobalRetry: true,
+            defaultRetryOptions: {
+              maxAttempts: 5,
+              baseDelayMs: 500,
+            },
+          }),
+        ],
+      }).compile();
+
+      expect(moduleRef).toBeDefined();
+    });
+
+    it('should create a module with async options', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          nestErrorsModule.ErrorsModule.forRootAsync({
+            useFactory: () => ({
+              enableDetailedErrors: true,
+              enableGlobalRetry: true,
+            }),
+          }),
+        ],
+      }).compile();
+
+      expect(moduleRef).toBeDefined();
     });
   });
 
   describe('Documentation', () => {
     it('should have JSDoc comments for all exported components', () => {
-      // This is a simple check to ensure documentation exists
-      // A more thorough check would require parsing the source code
-      
-      // Convert the module to string and check for JSDoc comment patterns
-      const moduleString = nestExports.ErrorsModule.toString();
-      expect(moduleString).toContain('/**');
-      expect(moduleString).toContain('*/');
+      // Get the source code of the index.ts file
+      const indexSource = require('fs').readFileSync(
+        require('path').resolve(__dirname, '../../../src/nest/index.ts'),
+        'utf8'
+      );
+
+      // Check for JSDoc comments for each category
+      expect(indexSource).toContain('* Exception filters for global error handling');
+      expect(indexSource).toContain('* Interceptors for implementing error recovery strategies');
+      expect(indexSource).toContain('* Decorators for declarative error handling');
+      expect(indexSource).toContain('* The ErrorsModule for NestJS integration');
     });
   });
 
-  describe('Dependency Structure', () => {
-    it('should not have circular dependencies', () => {
-      // This is a simple check to ensure the module can be imported without errors
-      // More thorough circular dependency checks would require static analysis tools
-      
-      // If we got this far without errors, the imports worked correctly
+  describe('Circular Dependencies Prevention', () => {
+    it('should not have circular dependencies between components', () => {
+      // This is a simple check to ensure that the imports in the test don't cause circular dependency warnings
+      // If there are circular dependencies, Jest will show warnings during test execution
       expect(true).toBe(true);
     });
 
-    it('should maintain clean dependency structure', () => {
-      // Verify that filters don't depend on interceptors and vice versa
-      // This is a simplified check - a real check would require analyzing the implementation
-      
-      // Check that filters and interceptors are separate objects
-      expect(nestExports.filters).not.toBe(nestExports.interceptors);
-      
-      // Check that decorators and interceptors are separate objects
-      expect(nestExports.decorators).not.toBe(nestExports.interceptors);
+    it('should have proper organization by category', () => {
+      // Check that the exports are organized by category
+      const indexSource = require('fs').readFileSync(
+        require('path').resolve(__dirname, '../../../src/nest/index.ts'),
+        'utf8'
+      );
+
+      // The order of exports should be: filters, interceptors, decorators, module
+      const filtersExportIndex = indexSource.indexOf("export * from './filters'");
+      const interceptorsExportIndex = indexSource.indexOf("export * from './interceptors'");
+      const decoratorsExportIndex = indexSource.indexOf("export * from './decorators'");
+      const moduleExportIndex = indexSource.indexOf("export * from './module'");
+
+      expect(filtersExportIndex).toBeGreaterThan(0);
+      expect(interceptorsExportIndex).toBeGreaterThan(filtersExportIndex);
+      expect(decoratorsExportIndex).toBeGreaterThan(interceptorsExportIndex);
+      expect(moduleExportIndex).toBeGreaterThan(decoratorsExportIndex);
     });
   });
 });

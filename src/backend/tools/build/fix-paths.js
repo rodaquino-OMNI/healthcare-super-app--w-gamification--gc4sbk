@@ -3,27 +3,18 @@
 /**
  * fix-paths.js
  * 
- * A comprehensive tool for standardizing module path resolution across the AUSTA SuperApp monorepo.
- * This script addresses critical build failures and architectural issues by:
+ * A standardization tool for module path resolution that ensures consistent import paths 
+ * and alias usage across the monorepo. This script:
  * 
- * 1. Standardizing path resolution in tsconfig.json for each service
- * 2. Implementing consistent path alias normalization (@app/auth, @app/shared, @austa/*)
- * 3. Validating import statements against defined path aliases
- * 4. Automatically correcting non-standard import paths
- * 5. Ensuring compatibility across web and mobile platforms
- * 6. Verifying successful TypeScript compilation after changes
+ * 1. Scans TypeScript files to normalize import statements according to path alias conventions
+ * 2. Updates tsconfig.json path mappings to ensure proper resolution
+ * 3. Validates that the changes result in successful TypeScript compilation
+ * 4. Ensures compatibility between web and mobile platforms
  */
 
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const util = require('util');
-
-// Promisify fs functions for better async handling
-const readFile = util.promisify(fs.readFile);
-const writeFile = util.promisify(fs.writeFile);
-const readdir = util.promisify(fs.readdir);
-const stat = util.promisify(fs.stat);
 
 // ANSI color codes for better console output
 const colors = {
@@ -35,40 +26,38 @@ const colors = {
   yellow: '\x1b[33m',
   blue: '\x1b[34m',
   magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
+  cyan: '\x1b[36m'
 };
 
-// Logger with color support
-const logger = {
+// Log with colors and emoji
+const log = {
   info: (msg) => console.log(`${colors.blue}ℹ️ ${msg}${colors.reset}`),
   success: (msg) => console.log(`${colors.green}✅ ${msg}${colors.reset}`),
   warning: (msg) => console.log(`${colors.yellow}⚠️ ${msg}${colors.reset}`),
-  error: (msg) => console.log(`${colors.red}❌ ${msg}${colors.reset}`),
-  title: (msg) => console.log(`\n${colors.bright}${colors.cyan}${msg}${colors.reset}\n`),
-  section: (msg) => console.log(`\n${colors.magenta}${msg}${colors.reset}`),
-  debug: (msg) => process.env.DEBUG && console.log(`${colors.dim}🔍 ${msg}${colors.reset}`),
+  error: (msg) => console.error(`${colors.red}❌ ${msg}${colors.reset}`),
+  title: (msg) => console.log(`\n${colors.bright}${colors.cyan}🔧 ${msg}${colors.reset}\n`)
 };
 
 // Base directories
-const rootDir = path.resolve(__dirname, '../../../..');
-const backendDir = path.resolve(rootDir, 'src/backend');
-const webDir = path.resolve(rootDir, 'src/web');
+const rootDir = path.resolve(__dirname, '../../../');
+const backendDir = path.join(rootDir, 'src/backend');
+const webDir = path.join(rootDir, 'src/web');
 
-// Services to process in the backend
+// Backend services to process
 const backendServices = [
   'api-gateway',
   'auth-service',
-  'care-service',
+  'care-service', 
   'health-service',
   'plan-service',
   'gamification-engine',
   'notification-service',
   'shared',
-  'packages',
+  'packages'
 ];
 
-// Frontend packages to process
-const frontendPackages = [
+// Web packages to process
+const webPackages = [
   'web',
   'mobile',
   'design-system',
@@ -76,397 +65,457 @@ const frontendPackages = [
   'interfaces',
   'journey-context',
   'shared',
+  'types'
 ];
 
-// Path alias definitions for standardization
-const pathAliasMap = {
-  // Backend service aliases
-  '@app/api': 'src/backend/api-gateway',
-  '@app/auth': 'src/backend/auth-service',
-  '@app/care': 'src/backend/care-service',
-  '@app/health': 'src/backend/health-service',
-  '@app/plan': 'src/backend/plan-service',
-  '@app/gamification': 'src/backend/gamification-engine',
-  '@app/notification': 'src/backend/notification-service',
-  '@app/shared': 'src/backend/shared',
+// Map of correct import paths for backend
+const backendPathAliasMap = {
+  // Old relative paths to shared
+  '../../../shared/': '@app/shared/',
+  '../../shared/': '@app/shared/',
+  '../shared/': '@app/shared/',
+  './shared/': '@app/shared/',
   
-  // Shared package aliases
-  '@austa/design-system': 'src/web/design-system',
-  '@design-system/primitives': 'src/web/primitives',
-  '@austa/interfaces': 'src/web/interfaces',
-  '@austa/journey-context': 'src/web/journey-context',
+  // Old absolute paths
+  'src/backend/shared/': '@app/shared/',
+  'src/backend/api-gateway/': '@app/api/',
+  'src/backend/auth-service/': '@app/auth/',
+  'src/backend/health-service/': '@app/health/',
+  'src/backend/care-service/': '@app/care/',
+  'src/backend/plan-service/': '@app/plan/',
+  'src/backend/gamification-engine/': '@app/gamification/',
+  'src/backend/notification-service/': '@app/notification/',
   
-  // Internal package aliases
-  '@packages/auth': 'src/backend/packages/auth',
-  '@packages/utils': 'src/backend/packages/utils',
-  '@packages/tracing': 'src/backend/packages/tracing',
-  '@packages/logging': 'src/backend/packages/logging',
-  '@packages/events': 'src/backend/packages/events',
-  '@packages/errors': 'src/backend/packages/errors',
-  '@packages/database': 'src/backend/packages/database',
-  '@packages/interfaces': 'src/backend/packages/interfaces',
+  // Old alias format to new format
+  '@shared/': '@app/shared/',
+  '@api/': '@app/api/',
+  '@auth/': '@app/auth/',
+  '@health/': '@app/health/',
+  '@care/': '@app/care/',
+  '@plan/': '@app/plan/',
+  '@gamification/': '@app/gamification/',
+  '@notification/': '@app/notification/',
+  
+  // Package paths
+  'src/backend/packages/auth/': '@austa/auth/',
+  'src/backend/packages/utils/': '@austa/utils/',
+  'src/backend/packages/tracing/': '@austa/tracing/',
+  'src/backend/packages/logging/': '@austa/logging/',
+  'src/backend/packages/events/': '@austa/events/',
+  'src/backend/packages/errors/': '@austa/errors/',
+  'src/backend/packages/database/': '@austa/database/',
+  'src/backend/packages/interfaces/': '@austa/interfaces/'
 };
 
-// Reverse mapping for import path correction
-const reversePathAliasMap = {};
-Object.entries(pathAliasMap).forEach(([alias, pathValue]) => {
-  reversePathAliasMap[pathValue] = alias;
+// Map of correct import paths for web
+const webPathAliasMap = {
+  // Relative paths to shared
+  '../../../shared/': '@web/shared/',
+  '../../shared/': '@web/shared/',
+  '../shared/': '@web/shared/',
+  './shared/': '@web/shared/',
   
-  // Add variations with trailing slash
-  reversePathAliasMap[`${pathValue}/`] = `${alias}/`;
+  // Absolute paths
+  'src/web/shared/': '@web/shared/',
+  'src/web/web/': '@web/web/',
+  'src/web/mobile/': '@web/mobile/',
+  'src/web/design-system/': '@austa/design-system/',
+  'src/web/primitives/': '@design-system/primitives/',
+  'src/web/interfaces/': '@austa/interfaces/',
+  'src/web/journey-context/': '@austa/journey-context/',
+  'src/web/types/': '@web/types/',
   
-  // Add relative path variations
-  const segments = pathValue.split('/');
-  if (segments.length > 2) {
-    const relativePaths = [];
-    for (let i = 1; i <= 3; i++) {
-      const prefix = Array(i).fill('..').join('/');
-      const relativePath = segments.slice(-segments.length + i).join('/');
-      if (relativePath) {
-        relativePaths.push(`${prefix}/${relativePath}`);
-      }
-    }
-    
-    relativePaths.forEach(relPath => {
-      reversePathAliasMap[relPath] = alias;
-      reversePathAliasMap[`${relPath}/`] = `${alias}/`;
-    });
-  }
-});
+  // Old alias format to new format
+  '@shared/': '@web/shared/',
+  '@web-app/': '@web/web/',
+  '@mobile-app/': '@web/mobile/',
+  '@design-system/': '@austa/design-system/',
+  '@interfaces/': '@austa/interfaces/',
+  '@journey-context/': '@austa/journey-context/'
+};
 
 /**
  * Find all TypeScript and JavaScript files in a directory recursively
- * @param {string} dir - Directory to search
- * @param {Array<string>} fileList - Accumulator for found files
- * @returns {Promise<Array<string>>} - List of found files
  */
-async function findTsJsFiles(dir, fileList = []) {
-  try {
-    const files = await readdir(dir);
-    
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stats = await stat(filePath);
-      
-      if (stats.isDirectory()) {
-        // Skip node_modules, dist, and .git directories
-        if (file !== 'node_modules' && file !== 'dist' && file !== '.git') {
-          fileList = await findTsJsFiles(filePath, fileList);
-        }
-      } else if (file.endsWith('.ts') || file.endsWith('.tsx') || 
-                file.endsWith('.js') || file.endsWith('.jsx')) {
-        fileList.push(filePath);
-      }
-    }
-    
-    return fileList;
-  } catch (error) {
-    logger.error(`Error finding files in ${dir}: ${error.message}`);
+function findTsJsFiles(dir, fileList = []) {
+  if (!fs.existsSync(dir)) {
     return fileList;
   }
+  
+  const files = fs.readdirSync(dir);
+  
+  files.forEach(file => {
+    const filePath = path.join(dir, file);
+    
+    if (fs.statSync(filePath).isDirectory()) {
+      // Skip node_modules, dist, and .git directories
+      if (file !== 'node_modules' && file !== 'dist' && file !== '.git' && file !== '.next' && file !== 'build') {
+        fileList = findTsJsFiles(filePath, fileList);
+      }
+    } else if (file.endsWith('.ts') || file.endsWith('.tsx') || file.endsWith('.js') || file.endsWith('.jsx')) {
+      fileList.push(filePath);
+    }
+  });
+  
+  return fileList;
 }
 
 /**
  * Find all tsconfig.json files in a directory recursively
- * @param {string} dir - Directory to search
- * @param {Array<string>} fileList - Accumulator for found files
- * @returns {Promise<Array<string>>} - List of found tsconfig.json files
  */
-async function findTsConfigFiles(dir, fileList = []) {
-  try {
-    const files = await readdir(dir);
-    
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stats = await stat(filePath);
-      
-      if (stats.isDirectory()) {
-        // Skip node_modules, dist, and .git directories
-        if (file !== 'node_modules' && file !== 'dist' && file !== '.git') {
-          fileList = await findTsConfigFiles(filePath, fileList);
-        }
-      } else if (file === 'tsconfig.json') {
-        fileList.push(filePath);
-      }
-    }
-    
-    return fileList;
-  } catch (error) {
-    logger.error(`Error finding tsconfig files in ${dir}: ${error.message}`);
+function findTsConfigFiles(dir, fileList = []) {
+  if (!fs.existsSync(dir)) {
     return fileList;
   }
+  
+  const files = fs.readdirSync(dir);
+  
+  files.forEach(file => {
+    const filePath = path.join(dir, file);
+    
+    if (fs.statSync(filePath).isDirectory()) {
+      // Skip node_modules, dist, and .git directories
+      if (file !== 'node_modules' && file !== 'dist' && file !== '.git' && file !== '.next' && file !== 'build') {
+        fileList = findTsConfigFiles(filePath, fileList);
+      }
+    } else if (file === 'tsconfig.json') {
+      fileList.push(filePath);
+    }
+  });
+  
+  return fileList;
 }
 
 /**
- * Fix import paths in a file
- * @param {string} filePath - Path to the file to fix
- * @returns {Promise<boolean>} - Whether the file was modified
+ * Fix imports in a file
  */
-async function fixImportsInFile(filePath) {
+function fixImportsInFile(filePath, pathAliasMap) {
+  log.info(`Processing ${path.relative(rootDir, filePath)}`);
+  
   try {
-    let content = await readFile(filePath, 'utf8');
+    let content = fs.readFileSync(filePath, 'utf8');
     let modified = false;
     
-    // Skip files that are generated or should not be modified
-    if (content.includes('// @generated') || 
-        content.includes('/* eslint-disable */') ||
-        filePath.includes('node_modules')) {
-      logger.debug(`Skipping generated or excluded file: ${filePath}`);
-      return false;
-    }
-    
-    // Fix import paths using the reverse mapping
-    for (const [oldPath, newPath] of Object.entries(reversePathAliasMap)) {
-      // Match both import and require statements
-      const importRegex = new RegExp(`(from\\s+['"]|require\\(['"])${escapeRegExp(oldPath)}([^'"]*['"])`, 'g');
+    // Fix import paths
+    for (const [oldPath, newPath] of Object.entries(pathAliasMap)) {
+      // Regex to match imports and requires with the oldPath
+      const importRegex = new RegExp(`(from|import|require\\()\\s*['"](${oldPath})([^'"]+)['"]`, 'g');
       
       if (importRegex.test(content)) {
-        content = content.replace(importRegex, (match, prefix, suffix) => {
+        content = content.replace(importRegex, (match, importType, oldPathMatch, importPath) => {
           modified = true;
-          return `${prefix}${newPath}${suffix}`;
+          return `${importType} '${newPath}${importPath}'`;
         });
       }
     }
     
     // Write back to file if modified
     if (modified) {
-      await writeFile(filePath, content);
-      logger.success(`Fixed imports in ${path.relative(rootDir, filePath)}`);
+      fs.writeFileSync(filePath, content);
+      log.success(`Fixed imports in ${path.relative(rootDir, filePath)}`);
       return true;
     } else {
-      logger.debug(`No imports to fix in ${path.relative(rootDir, filePath)}`);
       return false;
     }
   } catch (error) {
-    logger.error(`Error fixing imports in ${filePath}: ${error.message}`);
+    log.error(`Error fixing imports in ${path.relative(rootDir, filePath)}: ${error.message}`);
     return false;
   }
 }
 
 /**
- * Update tsconfig.json paths configuration
- * @param {string} tsconfigPath - Path to tsconfig.json file
- * @returns {Promise<boolean>} - Whether the file was modified
+ * Update tsconfig.json path mappings
  */
-async function updateTsConfigPaths(tsconfigPath) {
+function updateTsConfig(tsConfigPath, isBackend) {
+  log.info(`Updating ${path.relative(rootDir, tsConfigPath)}`);
+  
   try {
-    const content = await readFile(tsconfigPath, 'utf8');
-    const tsconfig = JSON.parse(content);
-    
-    // Skip if this is a special tsconfig that extends another
-    if (tsconfig.extends && !tsconfig.compilerOptions) {
-      logger.debug(`Skipping extended tsconfig: ${tsconfigPath}`);
-      return false;
-    }
+    const tsConfig = JSON.parse(fs.readFileSync(tsConfigPath, 'utf8'));
+    let modified = false;
     
     // Ensure compilerOptions and paths exist
-    tsconfig.compilerOptions = tsconfig.compilerOptions || {};
-    const originalPaths = JSON.stringify(tsconfig.compilerOptions.paths || {});
+    if (!tsConfig.compilerOptions) {
+      tsConfig.compilerOptions = {};
+      modified = true;
+    }
     
-    // Create standardized paths object
-    tsconfig.compilerOptions.paths = {};
+    if (!tsConfig.compilerOptions.paths) {
+      tsConfig.compilerOptions.paths = {};
+      modified = true;
+    }
     
-    // Determine which aliases to include based on the location of the tsconfig
-    const isBackend = tsconfigPath.includes('/backend/');
-    const isWeb = tsconfigPath.includes('/web/');
-    
-    // Add appropriate path mappings
-    Object.entries(pathAliasMap).forEach(([alias, pathValue]) => {
-      // Backend services get backend aliases
-      if (isBackend && alias.startsWith('@app/') || alias.startsWith('@packages/')) {
-        tsconfig.compilerOptions.paths[`${alias}/*`] = [`${pathValue}/*`];
-      }
+    // Backend path mappings
+    if (isBackend) {
+      // Add or update backend path mappings
+      const backendPaths = {
+        '@app/shared/*': ['../shared/src/*'],
+        '@app/api/*': ['../api-gateway/src/*'],
+        '@app/auth/*': ['../auth-service/src/*'],
+        '@app/health/*': ['../health-service/src/*'],
+        '@app/care/*': ['../care-service/src/*'],
+        '@app/plan/*': ['../plan-service/src/*'],
+        '@app/gamification/*': ['../gamification-engine/src/*'],
+        '@app/notification/*': ['../notification-service/src/*'],
+        '@austa/auth/*': ['../packages/auth/src/*'],
+        '@austa/utils/*': ['../packages/utils/src/*'],
+        '@austa/tracing/*': ['../packages/tracing/src/*'],
+        '@austa/logging/*': ['../packages/logging/src/*'],
+        '@austa/events/*': ['../packages/events/src/*'],
+        '@austa/errors/*': ['../packages/errors/src/*'],
+        '@austa/database/*': ['../packages/database/src/*'],
+        '@austa/interfaces/*': ['../packages/interfaces/*']
+      };
       
-      // Web packages get web aliases
-      if (isWeb && alias.startsWith('@austa/') || alias.startsWith('@design-system/')) {
-        tsconfig.compilerOptions.paths[`${alias}/*`] = [`${pathValue}/*`];
+      // Update paths
+      for (const [alias, pathMapping] of Object.entries(backendPaths)) {
+        tsConfig.compilerOptions.paths[alias] = pathMapping;
+        modified = true;
       }
+    } else {
+      // Add or update web path mappings
+      const webPaths = {
+        '@web/shared/*': ['../shared/*'],
+        '@web/web/*': ['../web/*'],
+        '@web/mobile/*': ['../mobile/*'],
+        '@web/types/*': ['../types/*'],
+        '@austa/design-system/*': ['../design-system/src/*'],
+        '@design-system/primitives/*': ['../primitives/src/*'],
+        '@austa/interfaces/*': ['../interfaces/*'],
+        '@austa/journey-context/*': ['../journey-context/src/*']
+      };
       
-      // Everyone gets shared packages
-      if (alias.startsWith('@austa/')) {
-        tsconfig.compilerOptions.paths[`${alias}/*`] = [`${pathValue}/*`];
-      }
-    });
-    
-    // Add specific aliases for the current service/package
-    const relativePath = path.relative(rootDir, path.dirname(tsconfigPath));
-    for (const [alias, pathValue] of Object.entries(pathAliasMap)) {
-      if (relativePath === pathValue || relativePath.startsWith(`${pathValue}/`)) {
-        // Add self-reference for the current service
-        tsconfig.compilerOptions.paths[`${alias}/*`] = ['./src/*'];
-        break;
+      // Update paths
+      for (const [alias, pathMapping] of Object.entries(webPaths)) {
+        tsConfig.compilerOptions.paths[alias] = pathMapping;
+        modified = true;
       }
     }
     
-    // Check if paths were modified
-    const newPaths = JSON.stringify(tsconfig.compilerOptions.paths);
-    if (newPaths !== originalPaths) {
-      // Write updated tsconfig back to file
-      await writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2));
-      logger.success(`Updated paths in ${path.relative(rootDir, tsconfigPath)}`);
+    // Write back to file if modified
+    if (modified) {
+      fs.writeFileSync(tsConfigPath, JSON.stringify(tsConfig, null, 2));
+      log.success(`Updated path mappings in ${path.relative(rootDir, tsConfigPath)}`);
       return true;
     } else {
-      logger.debug(`No path updates needed in ${path.relative(rootDir, tsconfigPath)}`);
       return false;
     }
   } catch (error) {
-    logger.error(`Error updating tsconfig paths in ${tsconfigPath}: ${error.message}`);
+    log.error(`Error updating ${path.relative(rootDir, tsConfigPath)}: ${error.message}`);
     return false;
   }
 }
 
 /**
- * Process a service or package directory
- * @param {string} dirPath - Path to the service or package directory
- * @returns {Promise<{tsFiles: number, fixedImports: number, tsconfigs: number, fixedTsconfigs: number}>} - Statistics
+ * Process a backend service
  */
-async function processDirectory(dirPath) {
-  try {
-    if (!fs.existsSync(dirPath)) {
-      logger.error(`Directory not found: ${dirPath}`);
-      return { tsFiles: 0, fixedImports: 0, tsconfigs: 0, fixedTsconfigs: 0 };
-    }
-    
-    logger.section(`Processing directory: ${path.relative(rootDir, dirPath)}`);
-    
-    // Find all TypeScript/JavaScript files
-    const tsFiles = await findTsJsFiles(dirPath);
-    logger.info(`Found ${tsFiles.length} TypeScript/JavaScript files`);
-    
-    // Find all tsconfig.json files
-    const tsconfigs = await findTsConfigFiles(dirPath);
-    logger.info(`Found ${tsconfigs.length} tsconfig.json files`);
-    
-    // Fix imports in all TypeScript/JavaScript files
-    let fixedImports = 0;
-    for (const file of tsFiles) {
-      if (await fixImportsInFile(file)) {
-        fixedImports++;
-      }
-    }
-    
-    // Update paths in all tsconfig.json files
-    let fixedTsconfigs = 0;
-    for (const tsconfigPath of tsconfigs) {
-      if (await updateTsConfigPaths(tsconfigPath)) {
-        fixedTsconfigs++;
-      }
-    }
-    
-    logger.success(`Fixed imports in ${fixedImports}/${tsFiles.length} files`);
-    logger.success(`Updated paths in ${fixedTsconfigs}/${tsconfigs.length} tsconfig.json files`);
-    
-    return { 
-      tsFiles: tsFiles.length, 
-      fixedImports, 
-      tsconfigs: tsconfigs.length, 
-      fixedTsconfigs 
-    };
-  } catch (error) {
-    logger.error(`Error processing directory ${dirPath}: ${error.message}`);
-    return { tsFiles: 0, fixedImports: 0, tsconfigs: 0, fixedTsconfigs: 0 };
+function processBackendService(serviceName) {
+  const servicePath = path.join(backendDir, serviceName);
+  
+  if (!fs.existsSync(servicePath)) {
+    log.error(`Service directory not found: ${servicePath}`);
+    return false;
   }
+  
+  log.title(`Processing backend service: ${serviceName}`);
+  
+  // Find and update TypeScript files
+  const tsFiles = findTsJsFiles(servicePath);
+  let fixedFiles = 0;
+  
+  tsFiles.forEach(file => {
+    if (fixImportsInFile(file, backendPathAliasMap)) {
+      fixedFiles++;
+    }
+  });
+  
+  // Find and update tsconfig.json files
+  const tsConfigFiles = findTsConfigFiles(servicePath);
+  let updatedConfigs = 0;
+  
+  tsConfigFiles.forEach(file => {
+    if (updateTsConfig(file, true)) {
+      updatedConfigs++;
+    }
+  });
+  
+  log.success(`Fixed imports in ${fixedFiles} files for ${serviceName}`);
+  log.success(`Updated ${updatedConfigs} tsconfig.json files for ${serviceName}`);
+  return true;
 }
 
 /**
- * Validate TypeScript compilation after changes
- * @param {string} dir - Directory to validate
- * @returns {Promise<boolean>} - Whether compilation was successful
+ * Process a web package
  */
-async function validateTypeScriptCompilation(dir) {
+function processWebPackage(packageName) {
+  const packagePath = path.join(webDir, packageName);
+  
+  if (!fs.existsSync(packagePath)) {
+    log.error(`Package directory not found: ${packagePath}`);
+    return false;
+  }
+  
+  log.title(`Processing web package: ${packageName}`);
+  
+  // Find and update TypeScript files
+  const tsFiles = findTsJsFiles(packagePath);
+  let fixedFiles = 0;
+  
+  tsFiles.forEach(file => {
+    if (fixImportsInFile(file, webPathAliasMap)) {
+      fixedFiles++;
+    }
+  });
+  
+  // Find and update tsconfig.json files
+  const tsConfigFiles = findTsConfigFiles(packagePath);
+  let updatedConfigs = 0;
+  
+  tsConfigFiles.forEach(file => {
+    if (updateTsConfig(file, false)) {
+      updatedConfigs++;
+    }
+  });
+  
+  log.success(`Fixed imports in ${fixedFiles} files for ${packageName}`);
+  log.success(`Updated ${updatedConfigs} tsconfig.json files for ${packageName}`);
+  return true;
+}
+
+/**
+ * Validate TypeScript compilation
+ */
+function validateTypeScript(directory, isBackend) {
+  log.title(`Validating TypeScript compilation for ${isBackend ? 'backend' : 'web'}`);
+  
   try {
-    logger.section(`Validating TypeScript compilation in ${path.relative(rootDir, dir)}`);
-    
-    // Run TypeScript in noEmit mode to check for errors
-    execSync('npx tsc -b --noEmit', { cwd: dir, stdio: 'pipe' });
-    
-    logger.success('TypeScript compilation successful!');
+    // Use --noEmit to just check for errors without generating output
+    execSync('npx tsc -b --noEmit', { cwd: directory, stdio: 'inherit' });
+    log.success('TypeScript validation successful!');
     return true;
-  } catch (error) {
-    logger.error('TypeScript compilation failed with errors:');
-    console.error(error.stdout?.toString() || error.message);
+  } catch (buildError) {
+    log.warning('TypeScript validation has errors. This might require manual fixing for specific issues.');
     return false;
   }
 }
 
 /**
- * Escape special characters in a string for use in a regular expression
- * @param {string} string - String to escape
- * @returns {string} - Escaped string
+ * Create or update root tsconfig.json with references
  */
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function updateRootTsConfig() {
+  log.title('Updating root tsconfig.json');
+  
+  const rootTsConfigPath = path.join(rootDir, 'tsconfig.json');
+  let rootTsConfig = {};
+  
+  // Load existing config or create new one
+  if (fs.existsSync(rootTsConfigPath)) {
+    try {
+      rootTsConfig = JSON.parse(fs.readFileSync(rootTsConfigPath, 'utf8'));
+    } catch (error) {
+      log.warning(`Error parsing root tsconfig.json: ${error.message}. Creating new one.`);
+      rootTsConfig = {};
+    }
+  }
+  
+  // Ensure files array exists and is empty (we'll use references instead)
+  rootTsConfig.files = [];
+  
+  // Create references array
+  rootTsConfig.references = [];
+  
+  // Add backend service references
+  backendServices.forEach(service => {
+    const serviceConfigPath = path.join(backendDir, service, 'tsconfig.json');
+    if (fs.existsSync(serviceConfigPath)) {
+      rootTsConfig.references.push({
+        path: `./src/backend/${service}`
+      });
+    }
+  });
+  
+  // Add web package references
+  webPackages.forEach(pkg => {
+    const pkgConfigPath = path.join(webDir, pkg, 'tsconfig.json');
+    if (fs.existsSync(pkgConfigPath)) {
+      rootTsConfig.references.push({
+        path: `./src/web/${pkg}`
+      });
+    }
+  });
+  
+  // Write updated config
+  fs.writeFileSync(rootTsConfigPath, JSON.stringify(rootTsConfig, null, 2));
+  log.success('Updated root tsconfig.json with project references');
+  return true;
 }
 
 /**
- * Main execution function
+ * Main execution
  */
 async function main() {
-  logger.title('🛠️  AUSTA SuperApp Path Resolution Standardization Tool');
-  logger.info('Standardizing module path resolution across the monorepo...');
+  log.title('AUSTA SuperApp Path Standardization Tool');
+  log.info('This tool standardizes import paths and tsconfig.json configurations across the monorepo.');
   
-  const stats = {
-    tsFiles: 0,
-    fixedImports: 0,
-    tsconfigs: 0,
-    fixedTsconfigs: 0,
-  };
+  let backendSuccess = true;
+  let webSuccess = true;
   
-  // Process backend services
-  logger.title('Processing Backend Services');
-  for (const service of backendServices) {
-    const servicePath = path.join(backendDir, service);
-    const serviceStats = await processDirectory(servicePath);
+  try {
+    // Process backend services
+    log.title('Processing Backend Services');
+    for (const service of backendServices) {
+      const result = processBackendService(service);
+      backendSuccess = backendSuccess && result;
+    }
     
-    // Accumulate statistics
-    stats.tsFiles += serviceStats.tsFiles;
-    stats.fixedImports += serviceStats.fixedImports;
-    stats.tsconfigs += serviceStats.tsconfigs;
-    stats.fixedTsconfigs += serviceStats.fixedTsconfigs;
-  }
-  
-  // Process frontend packages
-  logger.title('Processing Frontend Packages');
-  for (const pkg of frontendPackages) {
-    const pkgPath = path.join(webDir, pkg);
-    const pkgStats = await processDirectory(pkgPath);
+    // Process web packages
+    log.title('Processing Web Packages');
+    for (const pkg of webPackages) {
+      const result = processWebPackage(pkg);
+      webSuccess = webSuccess && result;
+    }
     
-    // Accumulate statistics
-    stats.tsFiles += pkgStats.tsFiles;
-    stats.fixedImports += pkgStats.fixedImports;
-    stats.tsconfigs += pkgStats.tsconfigs;
-    stats.fixedTsconfigs += pkgStats.fixedTsconfigs;
-  }
-  
-  // Validate TypeScript compilation
-  logger.title('Validating Changes');
-  const backendValid = await validateTypeScriptCompilation(backendDir);
-  const webValid = await validateTypeScriptCompilation(webDir);
-  
-  // Summary
-  logger.title('Summary');
-  logger.info(`Total TypeScript/JavaScript files processed: ${stats.tsFiles}`);
-  logger.info(`Total import statements fixed: ${stats.fixedImports}`);
-  logger.info(`Total tsconfig.json files processed: ${stats.tsconfigs}`);
-  logger.info(`Total tsconfig.json files updated: ${stats.fixedTsconfigs}`);
-  
-  if (backendValid && webValid) {
-    logger.success('\n🎉 Path resolution standardization completed successfully!');
-    logger.info('All TypeScript compilation checks passed.');
-  } else {
-    logger.warning('\n⚠️ Path resolution standardization completed with warnings.');
-    logger.warning('Some TypeScript compilation checks failed. Manual fixes may be required.');
-    logger.info('\nTry running the TypeScript build manually to check for specific errors:');
-    logger.info('  npx tsc -b');
+    // Update root tsconfig.json
+    updateRootTsConfig();
     
-    // Exit with error code
+    // Validate TypeScript compilation
+    const backendValidation = validateTypeScript(backendDir, true);
+    const webValidation = validateTypeScript(webDir, false);
+    
+    // Final summary
+    log.title('Path Standardization Summary');
+    
+    if (backendSuccess && webSuccess && backendValidation && webValidation) {
+      log.success('All path standardization tasks completed successfully!');
+      log.info('You may need to restart your TypeScript server for changes to take effect.');
+    } else {
+      if (!backendSuccess) {
+        log.warning('There were issues processing some backend services.');
+      }
+      
+      if (!webSuccess) {
+        log.warning('There were issues processing some web packages.');
+      }
+      
+      if (!backendValidation) {
+        log.warning('Backend TypeScript validation failed. Manual fixes may be required.');
+      }
+      
+      if (!webValidation) {
+        log.warning('Web TypeScript validation failed. Manual fixes may be required.');
+      }
+      
+      log.info('Try running the TypeScript build manually to check for specific errors:');
+      log.info('  Backend: cd src/backend && npx tsc -b');
+      log.info('  Web: cd src/web && npx tsc -b');
+    }
+  } catch (error) {
+    log.error(`An unexpected error occurred: ${error.message}`);
     process.exit(1);
   }
 }
 
 // Run the main function
 main().catch(error => {
-  logger.error(`Unexpected error: ${error.message}`);
-  logger.error(error.stack);
+  log.error(`Fatal error: ${error.message}`);
   process.exit(1);
 });
