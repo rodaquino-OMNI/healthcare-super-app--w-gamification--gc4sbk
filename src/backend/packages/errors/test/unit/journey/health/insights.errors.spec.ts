@@ -1,417 +1,552 @@
-import { describe, expect, it } from '@jest/globals';
 import { HttpStatus } from '@nestjs/common';
-
-// Import the error classes and types
-import { ErrorType } from '../../../../src/types';
-import { BaseError } from '../../../../src/base';
-import { HTTP_STATUS_MAPPINGS } from '../../../../src/constants';
+import { ErrorType } from '../../../../../../shared/src/exceptions/exceptions.types';
 import {
+  HealthInsightError,
   InsufficientDataError,
   PatternRecognitionFailureError,
-  InsightGenerationError,
-  InsightRecommendationError,
-  InsightAlgorithmError,
-  InsightProcessingTimeoutError
+  ContradictoryAdviceError,
+  UnsupportedRecommendationError,
+  AlgorithmFailureError,
+  ProcessingTimeoutError,
+  DataQualityError,
+  ExternalIntegrationError,
+  HealthInsightErrorUtils
 } from '../../../../src/journey/health/insights.errors';
 
-/**
- * Test suite for Health Insights error classes
- * Validates that insight-specific errors properly implement HEALTH_INSIGHTS_ prefixed error codes,
- * include relevant context data about insights processing, and follow the standardized error
- * classification and serialization patterns.
- */
-describe('Health Insights Errors', () => {
-  // Sample insight data for testing
-  const insightType = 'sleepPattern';
-  const userId = 'user-123';
-  const dataPoints = 3;
-  const requiredDataPoints = 7;
-  const algorithm = 'timeSeriesAnalysis';
-  const recommendationType = 'sleepSchedule';
-  
-  describe('InsufficientDataError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints
-      });
-
-      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof InsufficientDataError).toBe(true);
+describe('Health Insights Error Classes', () => {
+  describe('HealthInsightError', () => {
+    it('should be defined', () => {
+      expect(HealthInsightError).toBeDefined();
     });
 
-    it('should include data availability context in error details', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.dataPoints).toBe(dataPoints);
-      expect(error.details.requiredDataPoints).toBe(requiredDataPoints);
-      expect(error.details.userId).toBe(userId);
-    });
-
-    it('should be classified as a BUSINESS error type', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints
-      });
-
-      expect(error.type).toBe(ErrorType.BUSINESS);
+    it('should set name to the constructor name', () => {
+      // Create a concrete implementation for testing
+      class TestHealthInsightError extends HealthInsightError {
+        constructor() {
+          super('Test error', 'HEALTH_INSIGHTS_TEST', ErrorType.VALIDATION, {});
+        }
+      }
       
-      // Should map to appropriate HTTP status code for business errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      const error = new TestHealthInsightError();
+      expect(error.name).toBe('TestHealthInsightError');
     });
 
-    it('should generate appropriate error message with context', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints
-      });
+    it('should ensure proper prototype chain for instanceof checks', () => {
+      // Create a concrete implementation for testing
+      class TestHealthInsightError extends HealthInsightError {
+        constructor() {
+          super('Test error', 'HEALTH_INSIGHTS_TEST', ErrorType.VALIDATION, {});
+        }
+      }
+      
+      const error = new TestHealthInsightError();
+      expect(error instanceof HealthInsightError).toBe(true);
+      expect(error instanceof Error).toBe(true);
+    });
+  });
 
-      expect(error.message).toContain(insightType);
-      expect(error.message).toContain(String(dataPoints));
-      expect(error.message).toContain(String(requiredDataPoints));
+  describe('InsufficientDataError', () => {
+    const message = 'Not enough data points for analysis';
+    const details = {
+      requiredDataPoints: 30,
+      availableDataPoints: 5,
+      dataType: 'heart_rate',
+      timeRange: { start: new Date('2023-01-01'), end: new Date('2023-01-31') },
+      userId: '123',
+      metricTypes: ['heart_rate', 'steps']
+    };
+    const cause = new Error('Original error');
+    
+    let error: InsufficientDataError;
+    
+    beforeEach(() => {
+      error = new InsufficientDataError(message, details, cause);
+    });
+    
+    it('should be defined', () => {
+      expect(InsufficientDataError).toBeDefined();
+    });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use BUSINESS error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_INSUFFICIENT_DATA');
+    });
+    
+    it('should include data availability context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
+      
+      const defaultError = new InsufficientDataError();
+      expect(defaultError.message).toBe('Insufficient data to generate health insights');
+    });
+    
+    it('should preserve the original cause', () => {
+      expect(error.cause).toBe(cause);
     });
   });
 
   describe('PatternRecognitionFailureError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new PatternRecognitionFailureError({
-        insightType,
-        userId,
-        algorithm,
-        reason: 'Inconsistent data patterns'
-      });
-
-      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof PatternRecognitionFailureError).toBe(true);
+    const message = 'Failed to identify patterns in sleep data';
+    const details = {
+      analysisMethod: 'time_series_clustering',
+      dataQualityIssues: ['inconsistent_sampling', 'missing_data_points'],
+      metricTypes: ['sleep_duration', 'sleep_quality'],
+      timeRange: { start: new Date('2023-01-01'), end: new Date('2023-01-31') },
+      userId: '123',
+      confidenceScore: 0.35
+    };
+    const cause = new Error('Algorithm error');
+    
+    let error: PatternRecognitionFailureError;
+    
+    beforeEach(() => {
+      error = new PatternRecognitionFailureError(message, details, cause);
     });
-
-    it('should include pattern recognition context in error details', () => {
-      const error = new PatternRecognitionFailureError({
-        insightType,
-        userId,
-        algorithm,
-        reason: 'Inconsistent data patterns'
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.algorithm).toBe(algorithm);
-      expect(error.details.reason).toBe('Inconsistent data patterns');
-      expect(error.details.userId).toBe(userId);
+    
+    it('should be defined', () => {
+      expect(PatternRecognitionFailureError).toBeDefined();
     });
-
-    it('should be classified as a TECHNICAL error type', () => {
-      const error = new PatternRecognitionFailureError({
-        insightType,
-        userId,
-        algorithm,
-        reason: 'Inconsistent data patterns'
-      });
-
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use TECHNICAL error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
-      
-      // Should map to appropriate HTTP status code for technical errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
     });
-
-    it('should include user context in error context', () => {
-      const error = new PatternRecognitionFailureError({
-        insightType,
-        userId,
-        algorithm,
-        reason: 'Inconsistent data patterns'
-      });
-
-      expect(error.context).toBeDefined();
-      expect(error.context.userId).toBe(userId);
-      expect(error.context.journeyContext).toBe('health');
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_PATTERN_RECOGNITION_FAILURE');
+    });
+    
+    it('should include analysis context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
+      
+      const defaultError = new PatternRecognitionFailureError();
+      expect(defaultError.message).toBe('Failed to recognize patterns in health data');
+    });
+    
+    it('should preserve the original cause', () => {
+      expect(error.cause).toBe(cause);
     });
   });
 
-  describe('InsightGenerationError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new InsightGenerationError({
-        insightType,
-        userId,
-        reason: 'Failed to generate insight'
-      });
-
-      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof InsightGenerationError).toBe(true);
+  describe('ContradictoryAdviceError', () => {
+    const message = 'Conflicting recommendations detected';
+    const details = {
+      recommendationTypes: ['exercise', 'rest'],
+      conflictingRecommendations: [
+        { id: 'rec1', advice: 'Increase daily steps to 10,000' },
+        { id: 'rec2', advice: 'Rest for 48 hours to recover from injury' }
+      ],
+      analysisMethod: 'rule_based_inference',
+      dataSourceIds: ['activity_log', 'medical_records'],
+      userId: '123',
+      severity: 'medium' as const
+    };
+    
+    let error: ContradictoryAdviceError;
+    
+    beforeEach(() => {
+      error = new ContradictoryAdviceError(message, details);
     });
-
-    it('should include insight generation context in error details', () => {
-      const error = new InsightGenerationError({
-        insightType,
-        userId,
-        reason: 'Failed to generate insight'
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.reason).toBe('Failed to generate insight');
+    
+    it('should be defined', () => {
+      expect(ContradictoryAdviceError).toBeDefined();
     });
-
-    it('should be classified as a TECHNICAL error type', () => {
-      const error = new InsightGenerationError({
-        insightType,
-        userId,
-        reason: 'Failed to generate insight'
-      });
-
-      expect(error.type).toBe(ErrorType.TECHNICAL);
-      
-      // Should map to appropriate HTTP status code for technical errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
     });
-
-    it('should propagate cause error when provided', () => {
-      const causeError = new Error('Algorithm execution failed');
-      const error = new InsightGenerationError({
-        insightType,
-        userId,
-        reason: 'Failed to generate insight',
-        cause: causeError
-      });
-
-      expect(error.cause).toBe(causeError);
-      
-      // Root cause should be the original error
-      expect(error.getRootCause()).toBe(causeError);
-    });
-  });
-
-  describe('InsightRecommendationError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new InsightRecommendationError({
-        insightType,
-        recommendationType,
-        userId,
-        reason: 'Contradictory recommendations'
-      });
-
-      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof InsightRecommendationError).toBe(true);
-    });
-
-    it('should include recommendation context in error details', () => {
-      const error = new InsightRecommendationError({
-        insightType,
-        recommendationType,
-        userId,
-        reason: 'Contradictory recommendations'
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.recommendationType).toBe(recommendationType);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.reason).toBe('Contradictory recommendations');
-    });
-
-    it('should be classified as a BUSINESS error type', () => {
-      const error = new InsightRecommendationError({
-        insightType,
-        recommendationType,
-        userId,
-        reason: 'Contradictory recommendations'
-      });
-
+    
+    it('should use BUSINESS error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_CONTRADICTORY_ADVICE');
+    });
+    
+    it('should include recommendation context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
       
-      // Should map to appropriate HTTP status code for business errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.BUSINESS);
+      const defaultError = new ContradictoryAdviceError();
+      expect(defaultError.message).toBe('Generated contradictory health recommendations');
     });
   });
 
-  describe('InsightAlgorithmError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new InsightAlgorithmError({
-        insightType,
-        algorithm,
-        userId,
-        reason: 'Algorithm execution failed'
-      });
-
-      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof InsightAlgorithmError).toBe(true);
+  describe('UnsupportedRecommendationError', () => {
+    const message = 'Cannot provide nutrition recommendations with available data';
+    const details = {
+      recommendationType: 'nutrition',
+      requiredDataTypes: ['food_log', 'metabolic_rate'],
+      availableDataTypes: ['weight', 'activity'],
+      userId: '123',
+      reasonCode: 'MISSING_FOOD_LOG',
+      alternativeRecommendationTypes: ['activity', 'hydration']
+    };
+    
+    let error: UnsupportedRecommendationError;
+    
+    beforeEach(() => {
+      error = new UnsupportedRecommendationError(message, details);
     });
+    
+    it('should be defined', () => {
+      expect(UnsupportedRecommendationError).toBeDefined();
+    });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use BUSINESS error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_UNSUPPORTED_RECOMMENDATION');
+    });
+    
+    it('should include recommendation context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
+      
+      const defaultError = new UnsupportedRecommendationError();
+      expect(defaultError.message).toBe('Cannot generate recommendation with available data');
+    });
+  });
 
+  describe('AlgorithmFailureError', () => {
+    const message = 'Machine learning model failed to process health data';
+    const details = {
+      algorithmName: 'health_trend_predictor',
+      algorithmVersion: '1.2.3',
+      inputDataTypes: ['heart_rate', 'sleep', 'activity'],
+      processingStage: 'feature_extraction',
+      errorCode: 'INVALID_FEATURE_MATRIX',
+      userId: '123',
+      technicalDetails: { matrix_shape: [0, 10], expected_shape: [5, 10] }
+    };
+    const cause = new Error('Matrix dimension error');
+    
+    let error: AlgorithmFailureError;
+    
+    beforeEach(() => {
+      error = new AlgorithmFailureError(message, details, cause);
+    });
+    
+    it('should be defined', () => {
+      expect(AlgorithmFailureError).toBeDefined();
+    });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use TECHNICAL error type', () => {
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_ALGORITHM_FAILURE');
+    });
+    
     it('should include algorithm context in error details', () => {
-      const error = new InsightAlgorithmError({
-        insightType,
-        algorithm,
-        userId,
-        reason: 'Algorithm execution failed'
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.algorithm).toBe(algorithm);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.reason).toBe('Algorithm execution failed');
+      expect(error.details).toEqual(details);
     });
-
-    it('should be classified as a TECHNICAL error type', () => {
-      const error = new InsightAlgorithmError({
-        insightType,
-        algorithm,
-        userId,
-        reason: 'Algorithm execution failed'
-      });
-
-      expect(error.type).toBe(ErrorType.TECHNICAL);
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
       
-      // Should map to appropriate HTTP status code for technical errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      const defaultError = new AlgorithmFailureError();
+      expect(defaultError.message).toBe('Health insight algorithm failed to process data');
     });
-
-    it('should propagate cause error when provided', () => {
-      const causeError = new Error('Division by zero');
-      const error = new InsightAlgorithmError({
-        insightType,
-        algorithm,
-        userId,
-        reason: 'Algorithm execution failed',
-        cause: causeError
-      });
-
-      expect(error.cause).toBe(causeError);
-      
-      // Root cause should be the original error
-      expect(error.getRootCause()).toBe(causeError);
+    
+    it('should preserve the original cause', () => {
+      expect(error.cause).toBe(cause);
     });
   });
 
-  describe('InsightProcessingTimeoutError', () => {
-    it('should create error with HEALTH_INSIGHTS_ prefixed error code', () => {
-      const error = new InsightProcessingTimeoutError({
-        insightType,
-        userId,
-        timeoutMs: 30000,
-        operation: 'data analysis'
-      });
-
+  describe('ProcessingTimeoutError', () => {
+    const message = 'Health trend analysis timed out';
+    const details = {
+      processingStage: 'time_series_analysis',
+      timeoutThreshold: 30000, // 30 seconds
+      actualDuration: 45000, // 45 seconds
+      insightType: 'sleep_pattern',
+      dataVolume: 90, // 90 data points
+      userId: '123',
+      operationId: 'op-123456'
+    };
+    
+    let error: ProcessingTimeoutError;
+    
+    beforeEach(() => {
+      error = new ProcessingTimeoutError(message, details);
+    });
+    
+    it('should be defined', () => {
+      expect(ProcessingTimeoutError).toBeDefined();
+    });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use TECHNICAL error type', () => {
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
       expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
-      expect(error instanceof BaseError).toBe(true);
-      expect(error instanceof InsightProcessingTimeoutError).toBe(true);
+      expect(error.code).toBe('HEALTH_INSIGHTS_PROCESSING_TIMEOUT');
     });
-
+    
     it('should include timeout context in error details', () => {
-      const error = new InsightProcessingTimeoutError({
-        insightType,
-        userId,
-        timeoutMs: 30000,
-        operation: 'data analysis'
-      });
-
-      expect(error.details).toBeDefined();
-      expect(error.details.insightType).toBe(insightType);
-      expect(error.details.userId).toBe(userId);
-      expect(error.details.timeoutMs).toBe(30000);
-      expect(error.details.operation).toBe('data analysis');
+      expect(error.details).toEqual(details);
     });
-
-    it('should be classified as a TECHNICAL error type', () => {
-      const error = new InsightProcessingTimeoutError({
-        insightType,
-        userId,
-        timeoutMs: 30000,
-        operation: 'data analysis'
-      });
-
-      expect(error.type).toBe(ErrorType.TECHNICAL);
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
       
-      // Should map to appropriate HTTP status code for technical errors
-      const httpException = error.toHttpException();
-      expect(httpException.getStatus()).toBe(HTTP_STATUS_MAPPINGS.TECHNICAL);
+      const defaultError = new ProcessingTimeoutError();
+      expect(defaultError.message).toBe('Health insight processing timed out');
     });
   });
 
-  describe('Error Recovery and Handling', () => {
-    it('should provide appropriate recovery strategies for insufficient data errors', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints
-      });
-
-      // Should include data points information to guide the user
-      const json = error.toJSON();
-      expect(json.error.details.dataPoints).toBe(dataPoints);
-      expect(json.error.details.requiredDataPoints).toBe(requiredDataPoints);
+  describe('DataQualityError', () => {
+    const message = 'Poor quality sleep data prevents reliable analysis';
+    const details = {
+      qualityIssues: ['inconsistent_sampling', 'outliers', 'missing_segments'],
+      affectedDataTypes: ['sleep_duration', 'sleep_quality'],
+      dataSourceIds: ['fitbit', 'manual_entry'],
+      timeRange: { start: new Date('2023-01-01'), end: new Date('2023-01-31') },
+      userId: '123',
+      recommendedAction: 'Ensure consistent sleep tracking',
+      severity: 'high' as const
+    };
+    
+    let error: DataQualityError;
+    
+    beforeEach(() => {
+      error = new DataQualityError(message, details);
+    });
+    
+    it('should be defined', () => {
+      expect(DataQualityError).toBeDefined();
+    });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use BUSINESS error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_DATA_QUALITY');
+    });
+    
+    it('should include data quality context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
       
-      // Message should be user-friendly
-      expect(json.error.message).toBeDefined();
-      expect(typeof json.error.message).toBe('string');
-      expect(json.error.message.length).toBeGreaterThan(0);
+      const defaultError = new DataQualityError();
+      expect(defaultError.message).toBe('Data quality issues prevent reliable insight generation');
     });
+  });
 
-    it('should provide appropriate recovery strategies for algorithm errors', () => {
-      const error = new InsightAlgorithmError({
-        insightType,
-        algorithm,
-        userId,
-        reason: 'Algorithm execution failed'
-      });
-
-      // Should include algorithm information for troubleshooting
-      const json = error.toJSON();
-      expect(json.error.details.algorithm).toBe(algorithm);
-      expect(json.error.details.reason).toBe('Algorithm execution failed');
+  describe('ExternalIntegrationError', () => {
+    const message = 'Failed to retrieve data from FHIR server';
+    const details = {
+      integrationSource: 'FHIR',
+      sourceSystem: 'hospital_ehr',
+      errorResponse: { status: 429, message: 'Too Many Requests' },
+      requestId: 'req-789012',
+      endpoint: 'https://fhir.hospital.org/api/Patient/123',
+      userId: '123',
+      retryable: true,
+      retryAttempts: 2
+    };
+    const cause = new Error('HTTP 429 error');
+    
+    let error: ExternalIntegrationError;
+    
+    beforeEach(() => {
+      error = new ExternalIntegrationError(message, details, cause);
     });
-
-    it('should support graceful degradation for insight features', () => {
-      const error = new InsufficientDataError({
-        insightType,
-        userId,
-        dataPoints,
-        requiredDataPoints,
-        alternativeInsights: ['basicSleepDuration', 'simpleTrend']
-      });
-
-      // Should include alternative insights when available
-      const json = error.toJSON();
-      expect(json.error.details.alternativeInsights).toEqual(['basicSleepDuration', 'simpleTrend']);
+    
+    it('should be defined', () => {
+      expect(ExternalIntegrationError).toBeDefined();
     });
+    
+    it('should extend HealthInsightError', () => {
+      expect(error instanceof HealthInsightError).toBe(true);
+    });
+    
+    it('should use EXTERNAL error type', () => {
+      expect(error.type).toBe(ErrorType.EXTERNAL);
+    });
+    
+    it('should use HEALTH_INSIGHTS_ prefixed error code', () => {
+      expect(error.code).toMatch(/^HEALTH_INSIGHTS_/);
+      expect(error.code).toBe('HEALTH_INSIGHTS_EXTERNAL_INTEGRATION');
+    });
+    
+    it('should include integration context in error details', () => {
+      expect(error.details).toEqual(details);
+    });
+    
+    it('should use provided message or default message', () => {
+      expect(error.message).toBe(message);
+      
+      const defaultError = new ExternalIntegrationError();
+      expect(defaultError.message).toBe('External health data integration failed during insight generation');
+    });
+    
+    it('should preserve the original cause', () => {
+      expect(error.cause).toBe(cause);
+    });
+  });
 
-    it('should provide clear guidance for recommendation errors', () => {
-      const error = new InsightRecommendationError({
-        insightType,
-        recommendationType,
-        userId,
-        reason: 'Contradictory recommendations',
-        alternativeRecommendations: ['generalSleepGuidelines']
+  describe('HealthInsightErrorUtils', () => {
+    describe('isHealthInsightError', () => {
+      it('should return true for health insight errors', () => {
+        const error = new InsufficientDataError();
+        expect(HealthInsightErrorUtils.isHealthInsightError(error)).toBe(true);
       });
-
-      // Should include alternative recommendations when available
-      const json = error.toJSON();
-      expect(json.error.details.alternativeRecommendations).toEqual(['generalSleepGuidelines']);
+      
+      it('should return false for other errors', () => {
+        const error = new Error('Generic error');
+        expect(HealthInsightErrorUtils.isHealthInsightError(error)).toBe(false);
+      });
+      
+      it('should return false for null or undefined', () => {
+        expect(HealthInsightErrorUtils.isHealthInsightError(null)).toBe(false);
+        expect(HealthInsightErrorUtils.isHealthInsightError(undefined)).toBe(false);
+      });
+    });
+    
+    describe('createUserFriendlyMessage', () => {
+      it('should create user-friendly message for InsufficientDataError', () => {
+        const error = new InsufficientDataError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('more health data');
+      });
+      
+      it('should create user-friendly message for PatternRecognitionFailureError', () => {
+        const error = new PatternRecognitionFailureError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('couldn\'t identify clear patterns');
+      });
+      
+      it('should create user-friendly message for ContradictoryAdviceError', () => {
+        const error = new ContradictoryAdviceError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('conflicting patterns');
+      });
+      
+      it('should create user-friendly message for UnsupportedRecommendationError', () => {
+        const error = new UnsupportedRecommendationError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('don\'t have enough information');
+      });
+      
+      it('should create user-friendly message for DataQualityError', () => {
+        const error = new DataQualityError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('issues with the quality');
+      });
+      
+      it('should create user-friendly message for ExternalIntegrationError', () => {
+        const error = new ExternalIntegrationError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('couldn\'t connect to an external health system');
+      });
+      
+      it('should create user-friendly message for technical errors', () => {
+        const error = new AlgorithmFailureError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toContain('technical issue');
+        
+        const timeoutError = new ProcessingTimeoutError();
+        const timeoutMessage = HealthInsightErrorUtils.createUserFriendlyMessage(timeoutError);
+        expect(timeoutMessage).toContain('technical issue');
+      });
+      
+      it('should provide a default message for unknown error types', () => {
+        // Create a custom error that extends HealthInsightError
+        class CustomHealthInsightError extends HealthInsightError {
+          constructor() {
+            super('Custom error', 'HEALTH_INSIGHTS_CUSTOM', ErrorType.VALIDATION, {});
+          }
+        }
+        
+        const error = new CustomHealthInsightError();
+        const message = HealthInsightErrorUtils.createUserFriendlyMessage(error);
+        expect(message).toBe('Unable to generate health insights at this time.');
+      });
+    });
+    
+    describe('isRetryable', () => {
+      it('should identify technical errors as retryable', () => {
+        const algorithmError = new AlgorithmFailureError();
+        expect(HealthInsightErrorUtils.isRetryable(algorithmError)).toBe(true);
+        
+        const timeoutError = new ProcessingTimeoutError();
+        expect(HealthInsightErrorUtils.isRetryable(timeoutError)).toBe(true);
+      });
+      
+      it('should identify external integration errors as retryable', () => {
+        const integrationError = new ExternalIntegrationError();
+        expect(HealthInsightErrorUtils.isRetryable(integrationError)).toBe(true);
+      });
+      
+      it('should identify business errors as non-retryable', () => {
+        const insufficientDataError = new InsufficientDataError();
+        expect(HealthInsightErrorUtils.isRetryable(insufficientDataError)).toBe(false);
+        
+        const contradictoryAdviceError = new ContradictoryAdviceError();
+        expect(HealthInsightErrorUtils.isRetryable(contradictoryAdviceError)).toBe(false);
+        
+        const unsupportedRecommendationError = new UnsupportedRecommendationError();
+        expect(HealthInsightErrorUtils.isRetryable(unsupportedRecommendationError)).toBe(false);
+        
+        const dataQualityError = new DataQualityError();
+        expect(HealthInsightErrorUtils.isRetryable(dataQualityError)).toBe(false);
+      });
     });
   });
 });
