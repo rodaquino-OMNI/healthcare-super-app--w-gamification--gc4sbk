@@ -1,1210 +1,1052 @@
 /**
- * @file validation-events.ts
- * @description Provides event fixtures specifically designed for testing validation logic across different event types.
- * This file contains both valid and invalid event examples that exercise boundary conditions, required fields,
- * data type constraints, and business rules.
+ * @file Validation Event Fixtures
+ * @description Provides test fixtures for validating event processing across all journeys.
  * 
- * These fixtures are essential for unit testing validation decorators, ensuring validators reject improper data
- * while accepting valid events across all journeys.
- *
- * @module events/test/fixtures
+ * This file contains both valid and invalid event examples that exercise boundary conditions,
+ * required fields, data type constraints, and business rules. These fixtures are essential for
+ * unit testing validation decorators, ensuring validators reject improper data while accepting
+ * valid events across all journeys.
  */
 
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../src/dto/event-metadata.dto';
-import { HealthMetricType, HealthGoalType, DeviceType, HealthInsightType } from '../../src/dto/health-event.dto';
+import { EventJourney, EventType, EventVersion } from '@austa/interfaces/gamification';
+import { MetricSource, MetricType, GoalStatus, GoalType, DeviceType, ConnectionStatus } from '@austa/interfaces/journey/health';
+import { AppointmentStatus, AppointmentType } from '@austa/interfaces/journey/care';
+import { ClaimStatus, ClaimType } from '@austa/interfaces/journey/plan';
 
-// ===== VALID EVENT FIXTURES =====
+// =============================================================================
+// Common Test Values
+// =============================================================================
 
 /**
- * Collection of valid event fixtures that should pass all validation rules.
- * These fixtures can be used as positive test cases for validation logic.
+ * Valid UUID for testing
+ */
+export const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000';
+
+/**
+ * Valid ISO timestamp for testing
+ */
+export const VALID_TIMESTAMP = '2023-04-15T14:32:17.123Z';
+
+/**
+ * Valid event version for testing
+ */
+export const VALID_VERSION: EventVersion = {
+  major: 1,
+  minor: 0,
+  patch: 0
+};
+
+// =============================================================================
+// Valid Event Fixtures
+// =============================================================================
+
+/**
+ * Collection of valid event fixtures that pass all validation rules.
+ * These can be used as positive test cases for validation logic.
  */
 export const validEvents = {
-  /**
-   * Valid health journey events
-   */
+  // Health Journey Events
   health: {
     /**
-     * Valid health metric recorded event with all required fields
+     * Valid HEALTH_METRIC_RECORDED event
      */
     metricRecorded: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL,
+        isWithinHealthyRange: true
       },
-      metadata: {
-        eventId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'health-service',
-          component: 'metric-processor'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid health goal achieved event with all required fields
+     * Valid HEALTH_GOAL_ACHIEVED event
      */
     goalAchieved: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_GOAL_ACHIEVED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        goalId: '7ba7b810-9dad-11d1-80b4-00c04fd430c8',
-        goalType: HealthGoalType.STEPS_TARGET,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        goalId: VALID_UUID,
+        goalType: GoalType.STEPS,
         targetValue: 10000,
-        achievedValue: 10250,
-        completedAt: new Date().toISOString()
+        unit: 'steps',
+        completionPercentage: 100,
+        isFirstTimeAchievement: true
       },
-      metadata: {
-        eventId: '8ba7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'health-service',
-          component: 'goal-processor'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid device connected event with all required fields
+     * Valid DEVICE_SYNCED event
      */
-    deviceConnected: {
-      type: EventType.HEALTH_DEVICE_CONNECTED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        deviceId: '9ba7b810-9dad-11d1-80b4-00c04fd430c8',
-        deviceType: DeviceType.FITNESS_TRACKER,
-        connectionMethod: 'oauth',
-        connectedAt: new Date().toISOString()
+    deviceSynced: {
+      eventId: VALID_UUID,
+      type: EventType.DEVICE_SYNCED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        deviceId: VALID_UUID,
+        deviceType: DeviceType.SMARTWATCH,
+        manufacturer: 'Garmin',
+        metricCount: 15
       },
-      metadata: {
-        eventId: 'aba7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'health-service',
-          component: 'device-manager'
-        }
-      }
-    },
-
-    /**
-     * Valid health insight generated event with all required fields
-     */
-    insightGenerated: {
-      type: EventType.HEALTH_INSIGHT_GENERATED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        insightId: 'bba7b810-9dad-11d1-80b4-00c04fd430c8',
-        insightType: HealthInsightType.TREND_ANALYSIS,
-        metricType: HealthMetricType.BLOOD_PRESSURE,
-        description: 'Your blood pressure has been consistently improving over the past month.',
-        severity: 'info',
-        generatedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'cba7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'health-service',
-          component: 'insight-generator'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app',
+      correlationId: VALID_UUID
     }
   },
 
-  /**
-   * Valid care journey events
-   */
+  // Care Journey Events
   care: {
     /**
-     * Valid appointment booked event with all required fields
+     * Valid APPOINTMENT_BOOKED event
      */
     appointmentBooked: {
-      type: EventType.CARE_APPOINTMENT_BOOKED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        appointmentId: 'dba7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: 'eba7b810-9dad-11d1-80b4-00c04fd430c8',
-        specialtyType: 'Cardiologia',
-        appointmentType: 'in_person',
-        scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-        bookedAt: new Date().toISOString()
+      eventId: VALID_UUID,
+      type: EventType.APPOINTMENT_BOOKED,
+      userId: VALID_UUID,
+      journey: EventJourney.CARE,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        appointmentId: VALID_UUID,
+        appointmentType: AppointmentType.IN_PERSON,
+        providerId: VALID_UUID,
+        isFirstAppointment: true
       },
-      metadata: {
-        eventId: 'fba7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'care-service',
-          component: 'appointment-scheduler'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid medication taken event with all required fields
+     * Valid MEDICATION_TAKEN event
      */
     medicationTaken: {
-      type: EventType.CARE_MEDICATION_TAKEN,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        medicationId: '0ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        medicationName: 'Atenolol',
-        dosage: '50mg',
-        takenAt: new Date().toISOString(),
-        adherence: 'on_time'
+      eventId: VALID_UUID,
+      type: EventType.MEDICATION_TAKEN,
+      userId: VALID_UUID,
+      journey: EventJourney.CARE,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        medicationId: VALID_UUID,
+        medicationName: 'Atorvastatin',
+        takenOnTime: true
       },
-      metadata: {
-        eventId: '1ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'care-service',
-          component: 'medication-tracker'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid telemedicine completed event with all required fields
+     * Valid TELEMEDICINE_SESSION_COMPLETED event
      */
     telemedicineCompleted: {
-      type: EventType.CARE_TELEMEDICINE_COMPLETED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        sessionId: '2ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        appointmentId: '3ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: '4ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-        endedAt: new Date().toISOString(),
-        duration: 30,
-        quality: 'good'
+      eventId: VALID_UUID,
+      type: EventType.TELEMEDICINE_SESSION_COMPLETED,
+      userId: VALID_UUID,
+      journey: EventJourney.CARE,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        sessionId: VALID_UUID,
+        providerId: VALID_UUID,
+        durationMinutes: 30,
+        isFirstSession: false
       },
-      metadata: {
-        eventId: '5ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'care-service',
-          component: 'telemedicine-manager'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app',
+      correlationId: VALID_UUID
     }
   },
 
-  /**
-   * Valid plan journey events
-   */
+  // Plan Journey Events
   plan: {
     /**
-     * Valid claim submitted event with all required fields
+     * Valid CLAIM_SUBMITTED event
      */
     claimSubmitted: {
-      type: EventType.PLAN_CLAIM_SUBMITTED,
-      journey: 'plan',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        claimId: '6ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        claimType: 'medical',
-        providerId: '7ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        serviceDate: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
-        amount: 250.00,
-        submittedAt: new Date().toISOString()
+      eventId: VALID_UUID,
+      type: EventType.CLAIM_SUBMITTED,
+      userId: VALID_UUID,
+      journey: EventJourney.PLAN,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        claimId: VALID_UUID,
+        claimType: ClaimType.MEDICAL_CONSULTATION,
+        amount: 150.00
       },
-      metadata: {
-        eventId: '8ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'plan-service',
-          component: 'claim-processor'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid benefit utilized event with all required fields
+     * Valid BENEFIT_UTILIZED event
      */
     benefitUtilized: {
-      type: EventType.PLAN_BENEFIT_UTILIZED,
-      journey: 'plan',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        benefitId: '9ca7b810-9dad-11d1-80b4-00c04fd430c8',
-        benefitType: 'preventive',
-        providerId: 'aca7b810-9dad-11d1-80b4-00c04fd430c8',
-        utilizationDate: new Date().toISOString(),
-        savingsAmount: 150.00
+      eventId: VALID_UUID,
+      type: EventType.BENEFIT_UTILIZED,
+      userId: VALID_UUID,
+      journey: EventJourney.PLAN,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        benefitId: VALID_UUID,
+        benefitType: 'ANNUAL_CHECKUP',
+        value: 1
       },
-      metadata: {
-        eventId: 'bca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'plan-service',
-          component: 'benefit-tracker'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid reward redeemed event with all required fields
+     * Valid PLAN_COMPARED event
      */
-    rewardRedeemed: {
-      type: EventType.PLAN_REWARD_REDEEMED,
-      journey: 'plan',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        rewardId: 'cca7b810-9dad-11d1-80b4-00c04fd430c8',
-        rewardType: 'gift_card',
-        pointsRedeemed: 1000,
-        value: 50.00,
-        redeemedAt: new Date().toISOString()
+    planCompared: {
+      eventId: VALID_UUID,
+      type: EventType.PLAN_COMPARED,
+      userId: VALID_UUID,
+      journey: EventJourney.PLAN,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        planId: VALID_UUID,
+        planType: 'PREMIUM',
+        comparedPlanIds: [VALID_UUID, VALID_UUID]
       },
-      metadata: {
-        eventId: 'dca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'plan-service',
-          component: 'reward-manager'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app',
+      correlationId: VALID_UUID
     }
   },
 
-  /**
-   * Valid gamification events
-   */
-  gamification: {
+  // Cross-Journey Events
+  crossJourney: {
     /**
-     * Valid points earned event with all required fields
-     */
-    pointsEarned: {
-      type: EventType.GAMIFICATION_POINTS_EARNED,
-      journey: 'gamification',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        sourceType: 'health',
-        sourceId: 'eca7b810-9dad-11d1-80b4-00c04fd430c8',
-        points: 50,
-        reason: 'Completed daily step goal',
-        earnedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'fca7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'gamification-engine',
-          component: 'point-calculator'
-        }
-      }
-    },
-
-    /**
-     * Valid achievement unlocked event with all required fields
+     * Valid ACHIEVEMENT_UNLOCKED event
      */
     achievementUnlocked: {
-      type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-      journey: 'gamification',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        achievementId: '0da7b810-9dad-11d1-80b4-00c04fd430c8',
-        achievementType: 'health-check-streak',
-        tier: 'silver',
-        points: 100,
-        unlockedAt: new Date().toISOString()
+      eventId: VALID_UUID,
+      type: EventType.ACHIEVEMENT_UNLOCKED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        achievementId: VALID_UUID,
+        achievementTitle: 'Health Enthusiast',
+        achievementDescription: 'Record health metrics for 7 consecutive days',
+        xpEarned: 100,
+        relatedJourney: EventJourney.HEALTH
       },
-      metadata: {
-        eventId: '1da7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'gamification-engine',
-          component: 'achievement-processor'
-        }
-      }
-    }
-  },
-
-  /**
-   * Valid user events
-   */
-  user: {
-    /**
-     * Valid user login event with all required fields
-     */
-    login: {
-      type: EventType.USER_LOGIN,
-      journey: 'user',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        loginMethod: 'password',
-        deviceType: 'mobile',
-        loginAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: '2da7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'auth-service',
-          component: 'login-processor'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid user onboarding completed event with all required fields
+     * Valid XP_EARNED event
      */
-    onboardingCompleted: {
-      type: EventType.USER_ONBOARDING_COMPLETED,
-      journey: 'user',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        completedSteps: ['profile', 'preferences', 'health-assessment', 'plan-selection'],
-        selectedJourneys: ['health', 'care', 'plan'],
-        duration: 300, // 5 minutes in seconds
-        completedAt: new Date().toISOString()
+    xpEarned: {
+      eventId: VALID_UUID,
+      type: EventType.XP_EARNED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        amount: 50,
+        source: 'daily-login',
+        description: 'Logged in for 5 consecutive days',
+        relatedJourney: EventJourney.CROSS_JOURNEY
       },
-      metadata: {
-        eventId: '3da7b810-9dad-11d1-80b4-00c04fd430c8',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        timestamp: new Date(),
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0'
-        },
-        origin: {
-          service: 'user-service',
-          component: 'onboarding-manager'
-        }
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine',
+      correlationId: VALID_UUID
+    },
+
+    /**
+     * Valid LEVEL_UP event
+     */
+    levelUp: {
+      eventId: VALID_UUID,
+      type: EventType.LEVEL_UP,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        newLevel: 5,
+        previousLevel: 4,
+        totalXp: 1000,
+        unlockedRewards: [
+          {
+            rewardId: VALID_UUID,
+            rewardType: 'BADGE',
+            rewardDescription: 'Health Explorer Badge'
+          }
+        ]
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine',
+      correlationId: VALID_UUID
     }
   },
 
-  /**
-   * Valid events with edge case values that should still pass validation
-   */
+  // Edge Cases (Valid but testing boundaries)
   edgeCases: {
     /**
-     * Valid health metric with minimum acceptable heart rate
+     * Valid event with minimum required fields
      */
-    minHeartRate: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 30, // Minimum acceptable heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+    minimumRequiredFields: {
+      eventId: VALID_UUID,
+      type: EventType.DAILY_LOGIN,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP
       },
-      metadata: {
-        eventId: '4da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+      // correlationId is optional and omitted
     },
 
     /**
-     * Valid health metric with maximum acceptable heart rate
+     * Valid event with empty arrays where allowed
      */
-    maxHeartRate: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 220, // Maximum acceptable heart rate
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+    emptyArrays: {
+      eventId: VALID_UUID,
+      type: EventType.LEVEL_UP,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        newLevel: 2,
+        previousLevel: 1,
+        totalXp: 200,
+        unlockedRewards: [] // Empty array is valid
       },
-      metadata: {
-        eventId: '5da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine',
+      correlationId: VALID_UUID
     },
 
     /**
-     * Valid event with minimal metadata
+     * Valid event with maximum length strings
      */
-    minimalMetadata: {
-      type: EventType.USER_LOGIN,
-      journey: 'user',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        loginMethod: 'password',
-        deviceType: 'mobile',
-        loginAt: new Date().toISOString()
+    maxLengthStrings: {
+      eventId: VALID_UUID,
+      type: EventType.FEEDBACK_PROVIDED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        // 500 character string (assuming this is the max)
+        feedback: 'A'.repeat(500)
       },
-      metadata: {
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app',
+      correlationId: VALID_UUID
     }
   }
 };
 
-// ===== INVALID EVENT FIXTURES =====
+// =============================================================================
+// Invalid Event Fixtures
+// =============================================================================
 
 /**
- * Collection of invalid event fixtures that should fail validation.
- * These fixtures can be used as negative test cases for validation logic.
+ * Collection of invalid event fixtures that fail validation rules.
+ * These can be used as negative test cases for validation logic.
  */
 export const invalidEvents = {
-  /**
-   * Events with missing required fields
-   */
-  missingRequiredFields: {
+  // Missing Required Fields
+  missingRequired: {
     /**
-     * Missing event type
+     * Missing eventId
      */
-    missingType: {
-      // type is missing
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+    missingEventId: {
+      // eventId: VALID_UUID, // Missing required field
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: '6da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Missing type
+     */
+    missingType: {
+      eventId: VALID_UUID,
+      // type: EventType.HEALTH_METRIC_RECORDED, // Missing required field
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Missing userId
+     */
+    missingUserId: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      // userId: VALID_UUID, // Missing required field
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
      * Missing journey
      */
     missingJourney: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      // journey is missing
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      // journey: EventJourney.HEALTH, // Missing required field
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: '7da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
-     * Missing user ID
+     * Missing payload
      */
-    missingUserId: {
+    missingPayload: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      // userId is missing
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      // payload: {...}, // Missing required field
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Missing version
+     */
+    missingVersion: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: '8da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      // version: VALID_VERSION, // Missing required field
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
-     * Missing data
+     * Missing timestamp in payload
      */
-    missingData: {
+    missingTimestamp: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      // data is missing
-      metadata: {
-        eventId: '9da7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Missing metadata
-     */
-    missingMetadata: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        // timestamp: VALID_TIMESTAMP, // Missing required field
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      }
-      // metadata is missing
-    },
-
-    /**
-     * Missing required field in data (health metric)
-     */
-    missingMetricType: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        // metricType is missing
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: 'ada7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Missing required field in data (appointment)
-     */
-    missingAppointmentId: {
-      type: EventType.CARE_APPOINTMENT_BOOKED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        // appointmentId is missing
-        providerId: 'bda7b810-9dad-11d1-80b4-00c04fd430c8',
-        specialtyType: 'Cardiologia',
-        appointmentType: 'in_person',
-        scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-        bookedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'cda7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     }
   },
 
-  /**
-   * Events with incorrect data types
-   */
-  incorrectDataTypes: {
+  // Invalid Data Types
+  invalidTypes: {
     /**
-     * Incorrect type for event type (number instead of string)
+     * Invalid UUID format
      */
-    numericEventType: {
-      type: 123, // Should be a string
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+    invalidUuid: {
+      eventId: 'not-a-valid-uuid',
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: 'dda7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
-     * Incorrect type for user ID (number instead of UUID string)
-     */
-    numericUserId: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: 12345, // Should be a UUID string
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: 'eda7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Incorrect type for metric value (string instead of number)
-     */
-    stringMetricValue: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: '75', // Should be a number
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: 'fda7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Incorrect type for timestamp (Date object instead of ISO string)
-     */
-    dateObjectTimestamp: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date(), // Should be an ISO string
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '0ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Incorrect type for metadata (string instead of object)
-     */
-    stringMetadata: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: 'invalid metadata' // Should be an object
-    },
-
-    /**
-     * Incorrect type for array field (string instead of array)
-     */
-    stringInsteadOfArray: {
-      type: EventType.USER_ONBOARDING_COMPLETED,
-      journey: 'user',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        completedSteps: 'profile,preferences', // Should be an array
-        selectedJourneys: ['health', 'care', 'plan'],
-        duration: 300,
-        completedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: '1ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    }
-  },
-
-  /**
-   * Events with values outside acceptable ranges
-   */
-  outOfRangeValues: {
-    /**
-     * Heart rate below minimum acceptable value
-     */
-    heartRateTooLow: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 20, // Below minimum of 30
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '2ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Heart rate above maximum acceptable value
-     */
-    heartRateTooHigh: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 250, // Above maximum of 220
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '3ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Negative steps count
-     */
-    negativeSteps: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.STEPS,
-        value: -100, // Should be non-negative
-        unit: 'steps',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '4ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Unrealistically high steps count
-     */
-    tooManySteps: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.STEPS,
-        value: 200000, // Above maximum of 100000
-        unit: 'steps',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '5ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Negative duration for telemedicine session
-     */
-    negativeDuration: {
-      type: EventType.CARE_TELEMEDICINE_COMPLETED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        sessionId: '6ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        appointmentId: '7ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: '8ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        startedAt: new Date(Date.now() - 1800000).toISOString(),
-        endedAt: new Date().toISOString(),
-        duration: -30, // Should be positive
-        quality: 'good'
-      },
-      metadata: {
-        eventId: '9ea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Progress percentage above 100%
-     */
-    progressTooHigh: {
-      type: EventType.HEALTH_GOAL_ACHIEVED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        goalId: 'aea7b810-9dad-11d1-80b4-00c04fd430c8',
-        goalType: HealthGoalType.STEPS_TARGET,
-        progressPercentage: 120, // Should be max 100
-        targetValue: 10000,
-        achievedValue: 12000,
-        completedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'bea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    }
-  },
-
-  /**
-   * Events with invalid relationships between fields
-   */
-  invalidRelationships: {
-    /**
-     * End time before start time
-     */
-    endBeforeStart: {
-      type: EventType.CARE_TELEMEDICINE_COMPLETED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        sessionId: 'cea7b810-9dad-11d1-80b4-00c04fd430c8',
-        appointmentId: 'dea7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: 'eea7b810-9dad-11d1-80b4-00c04fd430c8',
-        startedAt: new Date().toISOString(), // Now
-        endedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-        duration: 30,
-        quality: 'good'
-      },
-      metadata: {
-        eventId: 'fea7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Appointment scheduled in the past
-     */
-    appointmentInPast: {
-      type: EventType.CARE_APPOINTMENT_BOOKED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        appointmentId: '0fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: '1fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        specialtyType: 'Cardiologia',
-        appointmentType: 'in_person',
-        scheduledAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-        bookedAt: new Date().toISOString() // Now
-      },
-      metadata: {
-        eventId: '2fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Achieved value less than target value for goal
-     */
-    achievedLessThanTarget: {
-      type: EventType.HEALTH_GOAL_ACHIEVED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        goalId: '3fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        goalType: HealthGoalType.STEPS_TARGET,
-        targetValue: 10000,
-        achievedValue: 9000, // Less than target
-        completedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: '4fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Mismatched unit for metric type
-     */
-    mismatchedUnit: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'kg', // Should be 'bpm' for heart rate
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '5fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    }
-  },
-
-  /**
-   * Events with invalid enum values
-   */
-  invalidEnumValues: {
-    /**
-     * Invalid journey name
-     */
-    invalidJourney: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'invalid_journey', // Not a valid journey
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '6fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Invalid event type
-     */
-    invalidEventType: {
-      type: 'INVALID_EVENT_TYPE', // Not a valid event type
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '7fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Invalid metric type
-     */
-    invalidMetricType: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: 'INVALID_METRIC', // Not a valid metric type
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: '8fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Invalid device type
-     */
-    invalidDeviceType: {
-      type: EventType.HEALTH_DEVICE_CONNECTED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        deviceId: '9fa7b810-9dad-11d1-80b4-00c04fd430c8',
-        deviceType: 'INVALID_DEVICE', // Not a valid device type
-        connectionMethod: 'oauth',
-        connectedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'afa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Invalid appointment status
-     */
-    invalidAppointmentStatus: {
-      type: EventType.CARE_APPOINTMENT_COMPLETED,
-      journey: 'care',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        appointmentId: 'bfa7b810-9dad-11d1-80b4-00c04fd430c8',
-        providerId: 'cfa7b810-9dad-11d1-80b4-00c04fd430c8',
-        status: 'INVALID_STATUS', // Not a valid appointment status
-        completedAt: new Date().toISOString()
-      },
-      metadata: {
-        eventId: 'dfa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date()
-      }
-    }
-  },
-
-  /**
-   * Events with invalid metadata
-   */
-  invalidMetadata: {
-    /**
-     * Invalid event ID (not a UUID)
-     */
-    invalidEventId: {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 75,
-        unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
-      },
-      metadata: {
-        eventId: 'not-a-uuid', // Not a valid UUID
-        timestamp: new Date()
-      }
-    },
-
-    /**
-     * Invalid timestamp (string instead of Date)
+     * Invalid timestamp format
      */
     invalidTimestamp: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: '2023-04-15 14:32:17', // Invalid ISO format
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: 'efa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: 'not-a-date' // Should be a Date object
-      }
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Invalid enum value
+     */
+    invalidEnum: {
+      eventId: VALID_UUID,
+      type: 'INVALID_EVENT_TYPE', // Invalid enum value
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Invalid number (string instead of number)
+     */
+    invalidNumber: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: '75', // String instead of number
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
      * Invalid version format
      */
     invalidVersionFormat: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: 'ffa7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date(),
-        version: {
-          major: 'one', // Should be a numeric string
-          minor: '0',
-          patch: '0'
-        }
-      }
+      version: '1.0.0', // String instead of object
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    }
+  },
+
+  // Out of Range Values
+  outOfRange: {
+    /**
+     * Negative number where positive is required
+     */
+    negativeNumber: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: -75, // Negative value not allowed
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
     },
 
     /**
-     * Missing required field in origin
+     * String exceeding maximum length
      */
-    missingServiceInOrigin: {
+    stringTooLong: {
+      eventId: VALID_UUID,
+      type: EventType.FEEDBACK_PROVIDED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        feedback: 'A'.repeat(1001) // Exceeds maximum length
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Array with too many items
+     */
+    arrayTooLarge: {
+      eventId: VALID_UUID,
+      type: EventType.PLAN_COMPARED,
+      userId: VALID_UUID,
+      journey: EventJourney.PLAN,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        planId: VALID_UUID,
+        planType: 'PREMIUM',
+        comparedPlanIds: Array(101).fill(VALID_UUID) // Too many items
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Value below minimum
+     */
+    belowMinimum: {
+      eventId: VALID_UUID,
+      type: EventType.LEVEL_UP,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        newLevel: 0, // Below minimum (assuming 1 is minimum)
+        previousLevel: -1, // Below minimum
+        totalXp: 0 // Below minimum
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine'
+    },
+
+    /**
+     * Value above maximum
+     */
+    aboveMaximum: {
+      eventId: VALID_UUID,
       type: EventType.HEALTH_METRIC_RECORDED,
-      journey: 'health',
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      data: {
-        metricType: HealthMetricType.HEART_RATE,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 500, // Above maximum for heart rate
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    }
+  },
+
+  // Invalid Patterns
+  invalidPatterns: {
+    /**
+     * Invalid email format
+     */
+    invalidEmail: {
+      eventId: VALID_UUID,
+      type: EventType.PROFILE_UPDATED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        email: 'not-an-email' // Invalid email format
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Invalid phone number format
+     */
+    invalidPhone: {
+      eventId: VALID_UUID,
+      type: EventType.PROFILE_UPDATED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        phone: '123' // Invalid phone format
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Invalid URL format
+     */
+    invalidUrl: {
+      eventId: VALID_UUID,
+      type: EventType.APP_FEATURE_USED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        featurePath: 'not-a-url' // Invalid URL format
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    }
+  },
+
+  // Business Rule Violations
+  businessRules: {
+    /**
+     * Inconsistent data (newLevel <= previousLevel)
+     */
+    inconsistentData: {
+      eventId: VALID_UUID,
+      type: EventType.LEVEL_UP,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        newLevel: 3,
+        previousLevel: 3, // Should be less than newLevel
+        totalXp: 500
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'gamification-engine'
+    },
+
+    /**
+     * Future timestamp
+     */
+    futureTimestamp: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+        metricType: MetricType.HEART_RATE,
         value: 75,
         unit: 'bpm',
-        timestamp: new Date().toISOString(),
-        source: 'manual'
+        source: MetricSource.MANUAL
       },
-      metadata: {
-        eventId: '00a7b810-9dad-11d1-80b4-00c04fd430c8',
-        timestamp: new Date(),
-        origin: {
-          // service is missing
-          component: 'metric-processor'
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Invalid state transition
+     */
+    invalidStateTransition: {
+      eventId: VALID_UUID,
+      type: EventType.APPOINTMENT_CANCELLED,
+      userId: VALID_UUID,
+      journey: EventJourney.CARE,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        appointmentId: VALID_UUID,
+        appointmentType: AppointmentType.IN_PERSON,
+        providerId: VALID_UUID,
+        cancellationReason: 'Schedule conflict',
+        previousStatus: AppointmentStatus.COMPLETED // Can't cancel a completed appointment
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Mismatched journey and event type
+     */
+    mismatchedJourneyEventType: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED, // Health event type
+      userId: VALID_UUID,
+      journey: EventJourney.CARE, // Care journey
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    }
+  }
+};
+
+// =============================================================================
+// Specialized Test Cases
+// =============================================================================
+
+/**
+ * Collection of specialized test cases for specific validation scenarios.
+ */
+export const specializedTestCases = {
+  /**
+   * Test cases for version compatibility validation
+   */
+  versionCompatibility: {
+    /**
+     * Event with older but compatible version
+     */
+    olderCompatibleVersion: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL
+        // Missing newer fields that should be optional
+      },
+      version: { major: 1, minor: 0, patch: 0 }, // Older version
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Event with newer version that should be forward compatible
+     */
+    newerCompatibleVersion: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        metricType: MetricType.HEART_RATE,
+        value: 75,
+        unit: 'bpm',
+        source: MetricSource.MANUAL,
+        additionalNewField: 'some value' // New field in newer version
+      },
+      version: { major: 1, minor: 2, patch: 0 }, // Newer version
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    },
+
+    /**
+     * Event with incompatible major version
+     */
+    incompatibleMajorVersion: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_METRIC_RECORDED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        // Different payload structure in major version 2
+        healthData: {
+          type: MetricType.HEART_RATE,
+          measurement: 75,
+          unit: 'bpm'
+        },
+        source: MetricSource.MANUAL
+      },
+      version: { major: 2, minor: 0, patch: 0 }, // Incompatible major version
+      createdAt: VALID_TIMESTAMP,
+      source: 'mobile-app'
+    }
+  },
+
+  /**
+   * Test cases for security validation
+   */
+  security: {
+    /**
+     * Event with potential SQL injection
+     */
+    sqlInjection: {
+      eventId: VALID_UUID,
+      type: EventType.PROFILE_UPDATED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        name: "Robert'); DROP TABLE Users; --" // SQL injection attempt
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Event with potential XSS attack
+     */
+    xssAttack: {
+      eventId: VALID_UUID,
+      type: EventType.FEEDBACK_PROVIDED,
+      userId: VALID_UUID,
+      journey: EventJourney.CROSS_JOURNEY,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        feedback: "<script>alert('XSS');</script>" // XSS attempt
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    }
+  },
+
+  /**
+   * Test cases for performance validation
+   */
+  performance: {
+    /**
+     * Event with very large payload
+     */
+    largePayload: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_ASSESSMENT_COMPLETED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        assessmentId: VALID_UUID,
+        // Large array with many items
+        responses: Array(500).fill(0).map((_, i) => ({
+          questionId: `question-${i}`,
+          answer: `answer-${i}`,
+          metadata: {
+            timeSpent: Math.random() * 60,
+            revisions: Math.floor(Math.random() * 3)
+          }
+        }))
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'web-app'
+    },
+
+    /**
+     * Event with deeply nested objects
+     */
+    deeplyNested: {
+      eventId: VALID_UUID,
+      type: EventType.HEALTH_INSIGHT_GENERATED,
+      userId: VALID_UUID,
+      journey: EventJourney.HEALTH,
+      payload: {
+        timestamp: VALID_TIMESTAMP,
+        insightId: VALID_UUID,
+        // Deeply nested object structure
+        analysis: {
+          level1: {
+            level2: {
+              level3: {
+                level4: {
+                  level5: {
+                    level6: {
+                      level7: {
+                        level8: {
+                          level9: {
+                            level10: {
+                              result: 'Too deep for efficient processing'
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
-      }
+      },
+      version: VALID_VERSION,
+      createdAt: VALID_TIMESTAMP,
+      source: 'health-service'
     }
   }
 };
@@ -1213,47 +1055,78 @@ export const invalidEvents = {
  * Helper function to create a valid event with custom overrides.
  * Useful for creating test cases with specific variations.
  * 
- * @param baseEvent The base event to start with
- * @param overrides Properties to override in the base event
- * @returns A new event with the specified overrides
+ * @param overrides - Properties to override in the base valid event
+ * @returns A new event object with the specified overrides
  */
-export function createEventWithOverrides(baseEvent: any, overrides: any): any {
-  return {
-    ...JSON.parse(JSON.stringify(baseEvent)), // Deep clone
-    ...overrides,
-    // Handle nested overrides
-    data: overrides.data ? { ...baseEvent.data, ...overrides.data } : baseEvent.data,
-    metadata: overrides.metadata ? { ...baseEvent.metadata, ...overrides.metadata } : baseEvent.metadata
+export function createValidEvent(overrides: Partial<any> = {}): any {
+  // Start with a basic valid event
+  const baseEvent = {
+    eventId: VALID_UUID,
+    type: EventType.HEALTH_METRIC_RECORDED,
+    userId: VALID_UUID,
+    journey: EventJourney.HEALTH,
+    payload: {
+      timestamp: VALID_TIMESTAMP,
+      metricType: MetricType.HEART_RATE,
+      value: 75,
+      unit: 'bpm',
+      source: MetricSource.MANUAL
+    },
+    version: VALID_VERSION,
+    createdAt: VALID_TIMESTAMP,
+    source: 'mobile-app',
+    correlationId: VALID_UUID
   };
+
+  // Apply overrides using deep merge
+  return deepMerge(baseEvent, overrides);
 }
 
 /**
- * Helper function to create a batch of events for testing batch validation.
+ * Helper function to create an invalid event with custom overrides.
+ * Useful for creating test cases with specific validation failures.
  * 
- * @param count Number of events to create
- * @param baseEvent Base event to use as a template
- * @param modifierFn Optional function to modify each event
- * @returns Array of events
+ * @param overrides - Properties to override in the base valid event
+ * @returns A new event object with the specified overrides
  */
-export function createEventBatch(count: number, baseEvent: any, modifierFn?: (event: any, index: number) => any): any[] {
-  const batch = [];
+export function createInvalidEvent(overrides: Partial<any> = {}): any {
+  // Start with a valid event and apply overrides to make it invalid
+  return createValidEvent(overrides);
+}
+
+/**
+ * Deep merge utility function for combining objects.
+ * 
+ * @param target - The target object to merge into
+ * @param source - The source object to merge from
+ * @returns A new object with properties from both target and source
+ */
+function deepMerge(target: any, source: any): any {
+  const output = { ...target };
   
-  for (let i = 0; i < count; i++) {
-    const event = JSON.parse(JSON.stringify(baseEvent)); // Deep clone
-    
-    // Generate a unique event ID for each event
-    if (event.metadata && event.metadata.eventId) {
-      event.metadata.eventId = `batch-${i}-${Date.now()}`;
-    }
-    
-    // Apply custom modifications if provided
-    if (modifierFn) {
-      const modifiedEvent = modifierFn(event, i);
-      batch.push(modifiedEvent);
-    } else {
-      batch.push(event);
-    }
+  if (isObject(target) && isObject(source)) {
+    Object.keys(source).forEach(key => {
+      if (isObject(source[key])) {
+        if (!(key in target)) {
+          Object.assign(output, { [key]: source[key] });
+        } else {
+          output[key] = deepMerge(target[key], source[key]);
+        }
+      } else {
+        Object.assign(output, { [key]: source[key] });
+      }
+    });
   }
   
-  return batch;
+  return output;
+}
+
+/**
+ * Helper function to check if a value is an object.
+ * 
+ * @param item - The value to check
+ * @returns True if the value is an object, false otherwise
+ */
+function isObject(item: any): boolean {
+  return item && typeof item === 'object' && !Array.isArray(item);
 }
