@@ -8,6 +8,47 @@
  * @version TypeScript 5.3.3
  */
 
+/**
+ * Options for user seeding
+ */
+export interface UserSeedOptions {
+  /**
+   * Email for the admin user
+   * @default 'admin@austa.com.br'
+   */
+  adminEmail?: string;
+  
+  /**
+   * Password for the admin user
+   * @default 'Password123!'
+   */
+  adminPassword?: string;
+  
+  /**
+   * Email for the test user
+   * @default 'user@austa.com.br'
+   */
+  testUserEmail?: string;
+  
+  /**
+   * Password for the test user
+   * @default 'Password123!'
+   */
+  testUserPassword?: string;
+  
+  /**
+   * Whether to create an admin user
+   * @default true
+   */
+  createAdminUser?: boolean;
+  
+  /**
+   * Whether to create a test user
+   * @default true
+   */
+  createTestUser?: boolean;
+}
+
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { JourneyType as BaseJourneyType } from '@austa/interfaces/common';
@@ -46,20 +87,17 @@ export interface SeedOptions {
   /** Whether to clean the database before seeding */
   cleanDatabase?: boolean;
   /** Whether to log seeding operations */
-  logging?: boolean;
+  logEnabled?: boolean;
   /** Specific journeys to seed (if not provided, all journeys will be seeded) */
   journeys?: JourneyType[];
   /** Whether to throw errors or just log them */
   throwOnError?: boolean;
   /** Custom seed data to use instead of defaults */
   customData?: Partial<SeedData>;
-  /** Database transaction options */
-  transaction?: {
-    /** Whether to use transactions for seeding */
-    enabled: boolean;
-    /** Timeout for transactions in milliseconds */
-    timeout?: number;
-  };
+  /** Whether to use transactions for seeding */
+  useTransactions?: boolean;
+  /** Timeout for transactions in milliseconds */
+  transactionTimeout?: number;
   /** Environment-specific configuration */
   environment?: 'development' | 'test' | 'staging' | 'production';
 }
@@ -69,14 +107,12 @@ export interface SeedOptions {
  */
 export const SeedOptionsSchema = z.object({
   cleanDatabase: z.boolean().optional().default(true),
-  logging: z.boolean().optional().default(true),
+  logEnabled: z.boolean().optional().default(true),
   journeys: z.array(z.string()).optional(),
   throwOnError: z.boolean().optional().default(true),
   customData: z.record(z.any()).optional(),
-  transaction: z.object({
-    enabled: z.boolean().default(true),
-    timeout: z.number().optional().default(30000)
-  }).optional(),
+  useTransactions: z.boolean().optional().default(true),
+  transactionTimeout: z.number().optional().default(30000),
   environment: z.enum(['development', 'test', 'staging', 'production']).optional().default('development')
 });
 
