@@ -1,591 +1,871 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { v4 as uuidv4 } from 'uuid';
 import { KafkaService } from '../../src/kafka/kafka.service';
-import { EventType } from '../../src/dto/event-types.enum';
-import { HEALTH_TOPIC, CARE_TOPIC, PLAN_TOPIC, DLQ_TOPIC } from '../../src/constants/topics.constants';
-import { EventErrorCode } from '../../src/constants/errors.constants';
-import { LoggerService } from '@austa/logging';
+import { KafkaProducer } from '../../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { DlqService, DlqErrorType, DlqEntryStatus, DlqProcessAction } from '../../src/errors/dlq';
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
+import { KafkaEvent } from '../../src/interfaces/kafka-event.interface';
+import {
+  RetryStrategy,
+  JourneyType,
+  RetryPolicyConfig,
+  RetryContext,
+  RetryResult,
+  createRetryContext,
+  getRetryPolicy,
+  calculateRetryDelay,
+  isRetryableError,
+  isCircuitBreakerOpen,
+  recordCircuitBreakerFailure,
+  recordCircuitBreakerSuccess,
+  sendToDeadLetterQueue,
+  executeWithRetry,
+  retryEventProcessing,
+  withRetry
+} from '../../src/utils/retry-utils';
 import { TracingService } from '@austa/tracing';
-import { ConfigService } from '@nestjs/config';
-import { EventsModule } from '../../src/events.module';
-import { EventMetadata } from '../../src/dto/event-metadata.dto';
-import { createMock } from '@golevelup/ts-jest';
-import { setTimeout as sleep } from 'timers/promises';
+import { LoggerService } from '@austa/logging';
+import { getRepositoryToken } from '@nestjs/typeorm';
 
-/**
- * Integration tests for error handling in the event processing pipeline.
- * 
- * These tests verify that the system properly handles various error scenarios,
- * including dead letter queues, retry mechanisms, backoff strategies, and error logging.
- */
-describe('Error Handling Integration', () => {
-  let module: TestingModule;
-  let kafkaService: KafkaService;
-  let loggerService: LoggerService;
-  let configService: ConfigService;
-  let mockProducer: any;
-  let mockConsumer: any;
-  let mockAdmin: any;
+// Mock implementations
+class MockKafkaService {
+  async produce(topic: string, key: string, value: any): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+class MockKafkaProducer {
+  async produce(options: any): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+class MockTracingService {
+  startSpan(name: string) {
+    return {
+      setStatus: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+}
+
+class MockLoggerService {
+  log(message: string, context?: any, source?: string): void {}
+  error(message: string, trace?: string, context?: any, source?: string): void {}
+  warn(message: string, context?: any, source?: string): void {}
+}
+
+class MockRepository {
+  items: any[] = [];
   
-  // Mock event data for testing
-  const testEventMetadata: EventMetadata = {
-    eventId: 'test-event-123',
+  async save(item: any): Promise<any> {
+    if (!item.id) {
+      item.id = uuidv4();
+    }
+    const existingIndex = this.items.findIndex(i => i.id === item.id);
+    if (existingIndex >= 0) {
+      this.items[existingIndex] = item;
+    } else {
+      this.items.push(item);
+    }
+    return item;
+  }
+  
+  async findOne(options: any): Promise<any> {
+    const { where } = options;
+    return this.items.find(item => item.id === where.id);
+  }
+  
+  async count(options?: any): Promise<number> {
+    if (!options) return this.items.length;
+    
+    const { where } = options;
+    if (!where) return this.items.length;
+    
+    return this.items.filter(item => {
+      for (const [key, value] of Object.entries(where)) {
+        if (item[key] !== value) return false;
+      }
+      return true;
+    }).length;
+  }
+  
+  async find(options?: any): Promise<any[]> {
+    if (!options) return this.items;
+    
+    const { where } = options;
+    if (!where) return this.items;
+    
+    return this.items.filter(item => {
+      for (const [key, value] of Object.entries(where)) {
+        if (item[key] !== value) return false;
+      }
+      return true;
+    });
+  }
+  
+  async delete(options: any): Promise<{ affected: number }> {
+    const { where } = options;
+    const initialCount = this.items.length;
+    this.items = this.items.filter(item => {
+      for (const [key, value] of Object.entries(where)) {
+        if (item[key] !== value) return true;
+      }
+      return false;
+    });
+    return { affected: initialCount - this.items.length };
+  }
+  
+  createQueryBuilder() {
+    return {
+      andWhere: () => this,
+      orderBy: () => this,
+      skip: () => this,
+      take: () => this,
+      getManyAndCount: () => [this.items, this.items.length]
+    };
+  }
+}
+
+// Test event factory
+function createTestEvent(journeyType: JourneyType = JourneyType.HEALTH): BaseEvent {
+  return {
+    eventId: uuidv4(),
+    userId: `user-${uuidv4().substring(0, 8)}`,
+    journey: journeyType,
+    type: `${journeyType.toLowerCase()}.test.event`,
+    data: { test: 'data', timestamp: new Date().toISOString() },
     timestamp: new Date().toISOString(),
-    correlationId: 'correlation-123',
-    userId: 'user-123',
-    source: 'integration-test',
-    version: '1.0.0'
+    version: '1.0.0',
+    source: 'test'
   };
-  
-  const healthEvent = {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    payload: {
-      metricType: 'HEART_RATE',
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    metadata: testEventMetadata
+}
+
+function createKafkaEvent(baseEvent: BaseEvent): KafkaEvent {
+  return {
+    event: baseEvent,
+    topic: `${baseEvent.journey.toLowerCase()}-events`,
+    partition: 0,
+    offset: '0',
+    timestamp: new Date().toISOString(),
+    headers: {
+      'correlation-id': uuidv4(),
+      'event-type': baseEvent.type
+    }
   };
-  
+}
+
+// Custom errors for testing
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+class DatabaseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseError';
+  }
+}
+
+describe('Error Handling Integration Tests', () => {
+  let module: TestingModule;
+  let dlqService: DlqService;
+  let kafkaService: KafkaService;
+  let kafkaProducer: KafkaProducer;
+  let loggerService: LoggerService;
+  let mockRepository: MockRepository;
+  let logger: Logger;
+
   beforeEach(async () => {
-    // Create mock Kafka client components
-    mockProducer = {
-      connect: jest.fn().mockResolvedValue(undefined),
-      send: jest.fn().mockResolvedValue(undefined),
-      disconnect: jest.fn().mockResolvedValue(undefined)
-    };
+    jest.useFakeTimers();
+    mockRepository = new MockRepository();
     
-    mockConsumer = {
-      connect: jest.fn().mockResolvedValue(undefined),
-      subscribe: jest.fn().mockResolvedValue(undefined),
-      run: jest.fn().mockResolvedValue(undefined),
-      disconnect: jest.fn().mockResolvedValue(undefined),
-      pause: jest.fn(),
-      resume: jest.fn()
-    };
-    
-    mockAdmin = {
-      connect: jest.fn().mockResolvedValue(undefined),
-      createTopics: jest.fn().mockResolvedValue(undefined),
-      disconnect: jest.fn().mockResolvedValue(undefined),
-      fetchTopicMetadata: jest.fn().mockResolvedValue({
-        topics: [
-          { name: HEALTH_TOPIC },
-          { name: CARE_TOPIC },
-          { name: PLAN_TOPIC },
-          { name: DLQ_TOPIC }
-        ]
-      })
-    };
-    
-    // Create test module with mocked dependencies
     module = await Test.createTestingModule({
-      imports: [EventsModule],
-    })
-      .overrideProvider(KafkaService)
-      .useValue({
-        createProducer: jest.fn().mockReturnValue(mockProducer),
-        createConsumer: jest.fn().mockReturnValue(mockConsumer),
-        createAdminClient: jest.fn().mockReturnValue(mockAdmin),
-        getProducer: jest.fn().mockReturnValue(mockProducer),
-        getConsumer: jest.fn().mockReturnValue(mockConsumer),
-        getAdminClient: jest.fn().mockReturnValue(mockAdmin),
-        sendToDLQ: jest.fn().mockResolvedValue(undefined),
-        serialize: jest.fn().mockImplementation((value) => JSON.stringify(value)),
-        deserialize: jest.fn().mockImplementation((value) => JSON.parse(value)),
-      })
-      .overrideProvider(LoggerService)
-      .useValue(createMock<LoggerService>())
-      .overrideProvider(TracingService)
-      .useValue(createMock<TracingService>())
-      .overrideProvider(ConfigService)
-      .useValue({
-        get: jest.fn().mockImplementation((key) => {
-          const config = {
-            'kafka.retryAttempts': 3,
-            'kafka.initialRetryDelay': 100,
-            'kafka.maxRetryDelay': 5000,
-            'kafka.retryBackoffMultiplier': 2,
-            'kafka.dlqEnabled': true,
-            'kafka.dlqTopic': DLQ_TOPIC,
-            'kafka.brokers': ['localhost:9092'],
-            'kafka.clientId': 'test-client',
-            'kafka.groupId': 'test-group',
-          };
-          return config[key];
-        })
-      })
-      .compile();
-    
-    kafkaService = module.get<KafkaService>(KafkaService);
-    loggerService = module.get<LoggerService>(LoggerService);
-    configService = module.get<ConfigService>(ConfigService);
-    
-    // Spy on logger methods
-    jest.spyOn(loggerService, 'error');
-    jest.spyOn(loggerService, 'warn');
-    jest.spyOn(loggerService, 'debug');
-  });
-  
-  afterEach(async () => {
-    await module.close();
-    jest.clearAllMocks();
-  });
-  
-  describe('Dead Letter Queue', () => {
-    it('should send failed events to DLQ after retry exhaustion', async () => {
-      // Mock producer to fail consistently
-      const error = new Error('Broker connection failed');
-      mockProducer.send.mockRejectedValue(error);
-      
-      // Attempt to send an event that will fail
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{
-            key: healthEvent.metadata.eventId,
-            value: kafkaService.serialize(healthEvent)
-          }]
-        });
-      } catch (e) {
-        // Expected to fail
-      }
-      
-      // Wait for retry attempts to complete
-      await sleep(1000);
-      
-      // Verify DLQ was called with the failed event
-      expect(kafkaService.sendToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalTopic: HEALTH_TOPIC,
-          originalMessage: expect.objectContaining({
-            key: healthEvent.metadata.eventId,
-          }),
-          error: expect.any(Error),
-          retryCount: configService.get('kafka.retryAttempts')
-        })
-      );
-      
-      // Verify error was logged
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to produce message after maximum retries'),
-        expect.objectContaining({
-          eventId: healthEvent.metadata.eventId,
-          topic: HEALTH_TOPIC,
-          error: expect.any(Error),
-          retryCount: configService.get('kafka.retryAttempts')
-        })
-      );
-    });
-    
-    it('should include original event data and error context in DLQ message', async () => {
-      // Setup a specific error for testing
-      const validationError = new Error('Event validation failed');
-      validationError.name = 'ValidationError';
-      mockProducer.send.mockRejectedValue(validationError);
-      
-      // Capture the DLQ call
-      const sendToDLQSpy = jest.spyOn(kafkaService, 'sendToDLQ');
-      
-      // Attempt to send an event that will fail
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{
-            key: healthEvent.metadata.eventId,
-            value: kafkaService.serialize(healthEvent),
-            headers: {
-              'correlation-id': Buffer.from(healthEvent.metadata.correlationId || ''),
-              'user-id': Buffer.from(healthEvent.metadata.userId || '')
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [() => ({
+            kafka: {
+              dlqTopicPrefix: 'dlq.',
+              brokers: ['localhost:9092'],
+              clientId: 'test-client'
             }
-          }]
-        });
-      } catch (e) {
-        // Expected to fail
-      }
+          })]
+        })
+      ],
+      providers: [
+        {
+          provide: KafkaService,
+          useClass: MockKafkaService
+        },
+        {
+          provide: KafkaProducer,
+          useClass: MockKafkaProducer
+        },
+        {
+          provide: TracingService,
+          useClass: MockTracingService
+        },
+        {
+          provide: LoggerService,
+          useClass: MockLoggerService
+        },
+        {
+          provide: getRepositoryToken(DlqService),
+          useValue: mockRepository
+        },
+        ConfigService,
+        DlqService
+      ]
+    }).compile();
+
+    dlqService = module.get<DlqService>(DlqService);
+    kafkaService = module.get<KafkaService>(KafkaService);
+    kafkaProducer = module.get<KafkaProducer>(KafkaProducer);
+    loggerService = module.get<LoggerService>(LoggerService);
+    logger = new Logger('TestLogger');
+    
+    // Spy on methods
+    jest.spyOn(kafkaService, 'produce').mockResolvedValue();
+    jest.spyOn(kafkaProducer, 'produce').mockResolvedValue();
+    jest.spyOn(logger, 'log').mockImplementation();
+    jest.spyOn(logger, 'error').mockImplementation();
+    jest.spyOn(logger, 'warn').mockImplementation();
+  });
+
+  afterEach(async () => {
+    jest.clearAllMocks();
+    jest.useRealTimers();
+    await module.close();
+  });
+
+  describe('Dead Letter Queue (DLQ) Tests', () => {
+    it('should send a failed event to the DLQ', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.HEALTH);
+      const kafkaEvent = createKafkaEvent(testEvent);
+      const error = new ValidationError('Invalid event data');
       
-      // Wait for retry attempts to complete
-      await sleep(1000);
+      // Act
+      const result = await dlqService.sendKafkaEventToDlq(kafkaEvent, error, [
+        {
+          timestamp: new Date(),
+          error: 'First attempt failed',
+          stackTrace: 'Error stack trace'
+        }
+      ]);
       
-      // Verify DLQ message contains all required context
-      expect(sendToDLQSpy).toHaveBeenCalled();
-      const dlqCall = sendToDLQSpy.mock.calls[0][0];
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.eventId).toBe(testEvent.eventId);
+      expect(result.errorType).toBe(DlqErrorType.VALIDATION);
+      expect(result.status).toBe(DlqEntryStatus.PENDING);
+      expect(kafkaService.produce).toHaveBeenCalled();
+    });
+
+    it('should retrieve DLQ entries by query parameters', async () => {
+      // Arrange
+      const testEvent1 = createTestEvent(JourneyType.HEALTH);
+      const testEvent2 = createTestEvent(JourneyType.CARE);
+      const kafkaEvent1 = createKafkaEvent(testEvent1);
+      const kafkaEvent2 = createKafkaEvent(testEvent2);
       
-      expect(dlqCall).toMatchObject({
-        originalTopic: HEALTH_TOPIC,
-        originalMessage: expect.objectContaining({
-          key: healthEvent.metadata.eventId,
-          headers: expect.objectContaining({
-            'correlation-id': expect.any(Buffer),
-            'user-id': expect.any(Buffer)
-          })
-        }),
-        error: expect.objectContaining({
-          name: 'ValidationError',
-          message: 'Event validation failed'
-        }),
-        retryCount: expect.any(Number),
-        timestamp: expect.any(String)
+      await dlqService.sendKafkaEventToDlq(kafkaEvent1, new ValidationError('Invalid health data'));
+      await dlqService.sendKafkaEventToDlq(kafkaEvent2, new DatabaseError('Database connection failed'));
+      
+      // Act
+      const [healthEntries, healthCount] = await dlqService.queryDlqEntries({
+        journey: JourneyType.HEALTH
       });
       
-      // Verify the original event payload is preserved
-      const originalValue = JSON.parse(dlqCall.originalMessage.value.toString());
-      expect(originalValue).toEqual(healthEvent);
+      // Assert
+      expect(healthCount).toBe(1);
+      expect(healthEntries[0].journey).toBe(JourneyType.HEALTH);
+    });
+
+    it('should process a DLQ entry for reprocessing', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.PLAN);
+      const kafkaEvent = createKafkaEvent(testEvent);
+      const error = new NetworkError('Connection timeout');
+      
+      const dlqEntry = await dlqService.sendKafkaEventToDlq(kafkaEvent, error);
+      
+      // Act
+      const processedEntry = await dlqService.processDlqEntry(
+        dlqEntry.id,
+        DlqProcessAction.REPROCESS,
+        'Fixed network issue, reprocessing'
+      );
+      
+      // Assert
+      expect(processedEntry.status).toBe(DlqEntryStatus.REPROCESSED);
+      expect(processedEntry.resolvedAt).toBeDefined();
+      expect(processedEntry.comments).toBe('Fixed network issue, reprocessing');
+      expect(kafkaService.produce).toHaveBeenCalledTimes(2); // Once for DLQ, once for reprocessing
+    });
+
+    it('should get DLQ statistics', async () => {
+      // Arrange
+      const testEvent1 = createTestEvent(JourneyType.HEALTH);
+      const testEvent2 = createTestEvent(JourneyType.CARE);
+      const testEvent3 = createTestEvent(JourneyType.PLAN);
+      
+      const kafkaEvent1 = createKafkaEvent(testEvent1);
+      const kafkaEvent2 = createKafkaEvent(testEvent2);
+      const kafkaEvent3 = createKafkaEvent(testEvent3);
+      
+      await dlqService.sendKafkaEventToDlq(kafkaEvent1, new ValidationError('Invalid health data'));
+      await dlqService.sendKafkaEventToDlq(kafkaEvent2, new DatabaseError('Database connection failed'));
+      await dlqService.sendKafkaEventToDlq(kafkaEvent3, new NetworkError('API timeout'));
+      
+      // Act
+      const stats = await dlqService.getDlqStatistics();
+      
+      // Assert
+      expect(stats.totalEntries).toBe(3);
+      expect(stats.byJourney[JourneyType.HEALTH]).toBe(1);
+      expect(stats.byJourney[JourneyType.CARE]).toBe(1);
+      expect(stats.byJourney[JourneyType.PLAN]).toBe(1);
+      expect(stats.byErrorType[DlqErrorType.VALIDATION]).toBe(1);
+      expect(stats.byErrorType[DlqErrorType.DATABASE]).toBe(1);
+      expect(stats.byErrorType[DlqErrorType.NETWORK]).toBe(1);
     });
   });
-  
-  describe('Retry Mechanism', () => {
-    it('should retry failed events with exponential backoff', async () => {
-      // Mock producer to fail initially then succeed
-      let attemptCount = 0;
-      mockProducer.send.mockImplementation(() => {
-        attemptCount++;
-        if (attemptCount <= 2) {
-          return Promise.reject(new Error('Temporary network error'));
+
+  describe('Retry Mechanism Tests', () => {
+    it('should retry an operation with exponential backoff', async () => {
+      // Arrange
+      let attempts = 0;
+      const maxAttempts = 3;
+      const operation = jest.fn().mockImplementation(() => {
+        attempts++;
+        if (attempts < maxAttempts) {
+          throw new NetworkError('Connection failed');
         }
-        return Promise.resolve();
+        return 'Success';
       });
       
-      // Record timestamps for retry attempts
-      const timestamps: number[] = [];
-      const originalSend = mockProducer.send;
-      mockProducer.send = jest.fn().mockImplementation(async (...args) => {
-        timestamps.push(Date.now());
-        return originalSend(...args);
-      });
+      const policy: RetryPolicyConfig = {
+        maxRetries: 5,
+        initialDelayMs: 100,
+        maxDelayMs: 1000,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        backoffFactor: 2,
+        jitterMs: 0 // Disable jitter for predictable testing
+      };
       
-      // Send an event that will fail initially
-      await kafkaService.getProducer().send({
-        topic: HEALTH_TOPIC,
-        messages: [{
-          key: healthEvent.metadata.eventId,
-          value: kafkaService.serialize(healthEvent)
-        }]
-      });
+      const retryContext = createRetryContext(policy, JourneyType.HEALTH);
       
-      // Verify the correct number of attempts were made
-      expect(mockProducer.send).toHaveBeenCalledTimes(3);
+      // Act
+      const result = await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
       
-      // Verify exponential backoff pattern
-      const initialDelay = configService.get('kafka.initialRetryDelay');
-      const backoffMultiplier = configService.get('kafka.retryBackoffMultiplier');
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.result).toBe('Success');
+      expect(operation).toHaveBeenCalledTimes(maxAttempts);
+      expect(result.retryContext.attempt).toBe(maxAttempts);
       
-      // Calculate expected minimum delays (allowing for some execution time variance)
-      const expectedMinDelay1 = initialDelay * 0.9;
-      const expectedMinDelay2 = initialDelay * backoffMultiplier * 0.9;
-      
-      // Calculate actual delays
-      const delay1 = timestamps[1] - timestamps[0];
-      const delay2 = timestamps[2] - timestamps[1];
-      
-      // Verify delays follow exponential pattern
-      expect(delay1).toBeGreaterThanOrEqual(expectedMinDelay1);
-      expect(delay2).toBeGreaterThanOrEqual(expectedMinDelay2);
-      expect(delay2).toBeGreaterThan(delay1); // Second delay should be longer
+      // Verify exponential backoff delays
+      expect(setTimeout).toHaveBeenCalledTimes(maxAttempts - 1);
+      expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 100); // Initial delay
+      expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 200); // 100 * 2^1
     });
-    
-    it('should apply different retry policies based on error type', async () => {
-      // Create different error types
-      const networkError = new Error('Network error');
-      networkError.name = 'NetworkError';
+
+    it('should stop retrying after max retries and send to DLQ', async () => {
+      // Arrange
+      const operation = jest.fn().mockRejectedValue(new DatabaseError('Database connection failed'));
       
-      const validationError = new Error('Validation error');
-      validationError.name = 'ValidationError';
+      const policy: RetryPolicyConfig = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        deadLetterQueueTopic: 'test-dlq'
+      };
       
-      // Mock producer to return different errors
-      let attemptCount = 0;
-      mockProducer.send.mockImplementation(() => {
-        attemptCount++;
-        if (attemptCount === 1) return Promise.reject(networkError);
-        if (attemptCount === 2) return Promise.reject(validationError);
-        return Promise.resolve();
+      const retryContext = createRetryContext(policy, JourneyType.CARE);
+      const sendToDlqSpy = jest.spyOn(dlqService, 'sendKafkaEventToDlq').mockResolvedValue({} as any);
+      
+      // Act
+      const result = await executeWithRetry(
+        operation,
+        retryContext,
+        logger,
+        kafkaProducer
+      );
+      
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeInstanceOf(DatabaseError);
+      expect(operation).toHaveBeenCalledTimes(policy.maxRetries + 1); // Initial + retries
+      expect(result.retryContext.attempt).toBe(policy.maxRetries + 1);
+      expect(kafkaProducer.produce).toHaveBeenCalled();
+    });
+
+    it('should not retry non-retryable errors', async () => {
+      // Arrange
+      const operation = jest.fn().mockRejectedValue(new ValidationError('Invalid input'));
+      
+      const policy: RetryPolicyConfig = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        nonRetryableErrors: ['ValidationError']
+      };
+      
+      const retryContext = createRetryContext(policy, JourneyType.PLAN);
+      
+      // Act
+      const result = await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
+      
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(operation).toHaveBeenCalledTimes(1); // No retries
+      expect(result.retryContext.attempt).toBe(1);
+    });
+
+    it('should retry only specified retryable errors', async () => {
+      // Arrange
+      let callCount = 0;
+      const operation = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) throw new NetworkError('Network error');
+        if (callCount === 2) throw new ValidationError('Validation error');
+        return 'Success';
       });
       
-      // Spy on retry delay calculation
-      const calculateRetryDelaySpy = jest.spyOn(kafkaService as any, 'calculateRetryDelay');
+      const policy: RetryPolicyConfig = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        retryableErrors: ['NetworkError']
+      };
       
-      // Send an event that will trigger different errors
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{
-            key: healthEvent.metadata.eventId,
-            value: kafkaService.serialize(healthEvent)
-          }]
-        });
-      } catch (e) {
-        // ValidationError should not be retried, so we expect to catch it
-        expect(e.name).toBe('ValidationError');
-      }
+      const retryContext = createRetryContext(policy, JourneyType.HEALTH);
       
-      // Verify retry delay calculation was called with network error but not validation error
-      expect(calculateRetryDelaySpy).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'NetworkError' }),
-        expect.any(Number)
+      // Act
+      const result = await executeWithRetry(
+        operation,
+        retryContext,
+        logger
       );
       
-      expect(calculateRetryDelaySpy).not.toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'ValidationError' }),
-        expect.any(Number)
-      );
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(operation).toHaveBeenCalledTimes(2); // Only retried the NetworkError
+      expect(result.retryContext.attempt).toBe(2);
+    });
+
+    it('should use journey-specific retry policies', async () => {
+      // Arrange
+      const healthPolicy = getRetryPolicy(JourneyType.HEALTH);
+      const carePolicy = getRetryPolicy(JourneyType.CARE);
+      const planPolicy = getRetryPolicy(JourneyType.PLAN);
       
-      // Verify appropriate logging
-      expect(loggerService.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Retrying failed Kafka operation'),
-        expect.objectContaining({
-          error: expect.objectContaining({ name: 'NetworkError' }),
-          attempt: 1,
-          delay: expect.any(Number)
-        })
-      );
+      // Act & Assert
+      expect(healthPolicy.maxRetries).toBe(5);
+      expect(carePolicy.maxRetries).toBe(3);
+      expect(planPolicy.maxRetries).toBe(7);
       
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Non-retriable error encountered'),
-        expect.objectContaining({
-          error: expect.objectContaining({ name: 'ValidationError' })
-        })
-      );
+      expect(healthPolicy.deadLetterQueueTopic).toBe('health-events-dlq');
+      expect(carePolicy.deadLetterQueueTopic).toBe('care-events-dlq');
+      expect(planPolicy.deadLetterQueueTopic).toBe('plan-events-dlq');
+    });
+
+    it('should wrap a function with retry capabilities', async () => {
+      // Arrange
+      let attempts = 0;
+      const testFn = jest.fn().mockImplementation(async () => {
+        attempts++;
+        if (attempts < 3) {
+          throw new NetworkError('Connection failed');
+        }
+        return 'Success';
+      });
+      
+      const retryableFunction = withRetry(JourneyType.HEALTH)(testFn);
+      
+      // Act
+      const result = await retryableFunction();
+      
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.result).toBe('Success');
+      expect(testFn).toHaveBeenCalledTimes(3);
     });
   });
-  
-  describe('Circuit Breaker Pattern', () => {
-    it('should open circuit after consecutive failures', async () => {
-      // Mock implementation to track circuit state
-      let circuitOpen = false;
-      const originalSend = mockProducer.send;
+
+  describe('Circuit Breaker Tests', () => {
+    it('should open circuit breaker after threshold failures', () => {
+      // Arrange
+      const serviceName = 'test-service';
+      const options = {
+        failureThreshold: 3,
+        resetTimeout: 30000,
+        rollingCountWindow: 60000
+      };
       
-      // Mock the isCircuitOpen method
-      jest.spyOn(kafkaService as any, 'isCircuitOpen').mockImplementation(() => circuitOpen);
+      // Act & Assert
+      expect(isCircuitBreakerOpen(serviceName)).toBe(false);
       
-      // Mock the openCircuit method
-      jest.spyOn(kafkaService as any, 'openCircuit').mockImplementation(() => {
-        circuitOpen = true;
-      });
+      recordCircuitBreakerFailure(serviceName, options);
+      expect(isCircuitBreakerOpen(serviceName)).toBe(false);
       
-      // Mock producer to always fail
-      mockProducer.send.mockRejectedValue(new Error('Broker connection failed'));
+      recordCircuitBreakerFailure(serviceName, options);
+      expect(isCircuitBreakerOpen(serviceName)).toBe(false);
       
-      // Configure failure threshold
-      jest.spyOn(configService, 'get').mockImplementation((key) => {
-        if (key === 'kafka.circuitBreakerFailureThreshold') return 3;
-        if (key === 'kafka.circuitBreakerResetTimeout') return 30000;
-        return undefined;
-      });
+      recordCircuitBreakerFailure(serviceName, options);
+      expect(isCircuitBreakerOpen(serviceName)).toBe(true);
+    });
+
+    it('should close circuit breaker after reset timeout', () => {
+      // Arrange
+      const serviceName = 'test-service';
+      const options = {
+        failureThreshold: 3,
+        resetTimeout: 1000, // 1 second for testing
+        rollingCountWindow: 60000
+      };
       
-      // Attempt multiple operations to trigger circuit breaker
-      for (let i = 0; i < 5; i++) {
-        try {
-          await kafkaService.getProducer().send({
-            topic: HEALTH_TOPIC,
-            messages: [{
-              key: `event-${i}`,
-              value: kafkaService.serialize(healthEvent)
-            }]
-          });
-        } catch (e) {
-          // Expected to fail
-        }
-      }
+      // Act
+      recordCircuitBreakerFailure(serviceName, options);
+      recordCircuitBreakerFailure(serviceName, options);
+      recordCircuitBreakerFailure(serviceName, options);
+      expect(isCircuitBreakerOpen(serviceName)).toBe(true);
       
-      // Verify circuit was opened
-      expect(kafkaService['openCircuit']).toHaveBeenCalled();
-      expect(circuitOpen).toBe(true);
+      // Fast-forward time
+      jest.advanceTimersByTime(1500); // 1.5 seconds
       
-      // Verify fast-fail behavior when circuit is open
-      const startTime = Date.now();
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{
-            key: 'event-after-circuit-open',
-            value: kafkaService.serialize(healthEvent)
-          }]
-        });
-      } catch (e) {
-        expect(e.message).toContain('Circuit breaker is open');
-      }
-      const duration = Date.now() - startTime;
+      // Assert
+      expect(isCircuitBreakerOpen(serviceName)).toBe(false);
+    });
+
+    it('should reset circuit breaker on success', () => {
+      // Arrange
+      const serviceName = 'test-service';
+      const options = {
+        failureThreshold: 3,
+        resetTimeout: 30000,
+        rollingCountWindow: 60000
+      };
       
-      // Verify fast failure (no retry delay)
-      expect(duration).toBeLessThan(50); // Should fail immediately
+      // Act
+      recordCircuitBreakerFailure(serviceName, options);
+      recordCircuitBreakerFailure(serviceName, options);
+      recordCircuitBreakerFailure(serviceName, options);
+      expect(isCircuitBreakerOpen(serviceName)).toBe(true);
       
-      // Verify appropriate logging
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Circuit breaker opened'),
+      recordCircuitBreakerSuccess(serviceName);
+      
+      // Assert
+      expect(isCircuitBreakerOpen(serviceName)).toBe(false);
+    });
+
+    it('should skip operation when circuit breaker is open', async () => {
+      // Arrange
+      const serviceName = 'test-service';
+      const options = {
+        failureThreshold: 3,
+        resetTimeout: 30000,
+        rollingCountWindow: 60000
+      };
+      
+      const operation = jest.fn().mockResolvedValue('Success');
+      const policy: RetryPolicyConfig = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        enableCircuitBreaker: true,
+        circuitBreakerOptions: options
+      };
+      
+      const retryContext = createRetryContext(policy, JourneyType.HEALTH);
+      retryContext.journeyType = JourneyType.HEALTH;
+      
+      // Open the circuit breaker
+      recordCircuitBreakerFailure(JourneyType.HEALTH, options);
+      recordCircuitBreakerFailure(JourneyType.HEALTH, options);
+      recordCircuitBreakerFailure(JourneyType.HEALTH, options);
+      
+      // Act
+      const result = await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
+      
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error.message).toContain('Circuit breaker open');
+      expect(operation).not.toHaveBeenCalled(); // Operation was skipped
+      expect(result.retryContext.circuitBreakerOpen).toBe(true);
+    });
+  });
+
+  describe('Error Logging and Monitoring Tests', () => {
+    it('should log retry attempts', async () => {
+      // Arrange
+      const operation = jest.fn()
+        .mockRejectedValueOnce(new NetworkError('First failure'))
+        .mockRejectedValueOnce(new NetworkError('Second failure'))
+        .mockResolvedValue('Success');
+      
+      const policy: RetryPolicyConfig = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF
+      };
+      
+      const retryContext = createRetryContext(policy, JourneyType.HEALTH);
+      
+      // Act
+      await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
+      
+      // Assert
+      expect(logger.log).toHaveBeenCalledTimes(2); // Two retry logs
+      expect(logger.log).toHaveBeenCalledWith(
+        expect.stringContaining('Retrying operation'),
         expect.objectContaining({
-          failureCount: expect.any(Number),
-          resetTimeout: expect.any(Number)
+          error: 'First failure',
+          journeyType: JourneyType.HEALTH
         })
       );
     });
-    
-    it('should reset circuit after timeout period', async () => {
-      // Mock implementation to track circuit state
-      let circuitOpen = true;
-      let circuitOpenedAt = Date.now() - 31000; // Opened 31 seconds ago
+
+    it('should log when max retries are exceeded', async () => {
+      // Arrange
+      const operation = jest.fn().mockRejectedValue(new DatabaseError('Database connection failed'));
       
-      // Mock the isCircuitOpen method
-      jest.spyOn(kafkaService as any, 'isCircuitOpen').mockImplementation(() => {
-        // Check if reset timeout has elapsed
-        const resetTimeout = 30000; // 30 seconds
-        if (circuitOpen && (Date.now() - circuitOpenedAt) > resetTimeout) {
-          circuitOpen = false; // Auto-reset after timeout
-          return false;
+      const policy: RetryPolicyConfig = {
+        maxRetries: 2,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF
+      };
+      
+      const retryContext = createRetryContext(policy, JourneyType.CARE);
+      
+      // Act
+      await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
+      
+      // Assert
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Max retries (2) exceeded'),
+        expect.objectContaining({
+          attempts: 3, // Initial + 2 retries
+          journeyType: JourneyType.CARE
+        })
+      );
+    });
+
+    it('should log when circuit breaker opens', async () => {
+      // Arrange
+      const operation = jest.fn().mockRejectedValue(new NetworkError('Connection failed'));
+      
+      const policy: RetryPolicyConfig = {
+        maxRetries: 2,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
+        enableCircuitBreaker: true,
+        circuitBreakerOptions: {
+          failureThreshold: 1, // Open after just one failure for testing
+          resetTimeout: 30000,
+          rollingCountWindow: 60000
         }
-        return circuitOpen;
-      });
+      };
       
-      // Mock the resetCircuit method
-      jest.spyOn(kafkaService as any, 'resetCircuit').mockImplementation(() => {
-        circuitOpen = false;
-      });
+      const retryContext = createRetryContext(policy, JourneyType.PLAN);
+      retryContext.journeyType = JourneyType.PLAN;
       
-      // Configure circuit breaker settings
-      jest.spyOn(configService, 'get').mockImplementation((key) => {
-        if (key === 'kafka.circuitBreakerResetTimeout') return 30000;
-        return undefined;
-      });
+      // Act
+      await executeWithRetry(
+        operation,
+        retryContext,
+        logger
+      );
       
-      // Mock producer to succeed
-      mockProducer.send.mockResolvedValue(undefined);
-      
-      // Attempt operation after circuit timeout
-      await kafkaService.getProducer().send({
-        topic: HEALTH_TOPIC,
-        messages: [{
-          key: 'event-after-reset',
-          value: kafkaService.serialize(healthEvent)
-        }]
-      });
-      
-      // Verify circuit was checked and reset
-      expect(kafkaService['isCircuitOpen']).toHaveBeenCalled();
-      expect(circuitOpen).toBe(false);
-      
-      // Verify appropriate logging
-      expect(loggerService.info).toHaveBeenCalledWith(
-        expect.stringContaining('Circuit breaker reset'),
+      // Assert
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Circuit breaker opened for'),
         expect.any(Object)
       );
     });
-  });
-  
-  describe('Error Logging and Monitoring', () => {
-    it('should log detailed error information with context', async () => {
-      // Create a specific error for testing
-      const specificError = new Error('Schema validation failed');
-      specificError.name = 'SchemaValidationError';
-      (specificError as any).code = EventErrorCode.SCHEMA_VALIDATION_ERROR;
-      (specificError as any).details = {
-        field: 'payload.metricType',
-        constraint: 'enum',
-        value: 'INVALID_TYPE'
-      };
+
+    it('should log when sending to DLQ', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.HEALTH);
+      const error = new ValidationError('Invalid event data');
+      const retryContext = createRetryContext(
+        getRetryPolicy(JourneyType.HEALTH),
+        JourneyType.HEALTH
+      );
+      retryContext.attempt = 3; // After some retries
       
-      // Mock producer to fail with the specific error
-      mockProducer.send.mockRejectedValue(specificError);
+      // Act
+      await sendToDeadLetterQueue(
+        testEvent,
+        error,
+        retryContext,
+        kafkaProducer,
+        logger
+      );
       
-      // Attempt to send an event that will fail
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{
-            key: healthEvent.metadata.eventId,
-            value: kafkaService.serialize(healthEvent),
-            headers: {
-              'correlation-id': Buffer.from(healthEvent.metadata.correlationId || ''),
-              'user-id': Buffer.from(healthEvent.metadata.userId || '')
-            }
-          }]
-        });
-      } catch (e) {
-        // Expected to fail
-      }
-      
-      // Verify error was logged with detailed context
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Schema validation failed'),
+      // Assert
+      expect(logger.log).toHaveBeenCalledWith(
+        expect.stringContaining('Event sent to DLQ'),
         expect.objectContaining({
-          eventId: healthEvent.metadata.eventId,
-          correlationId: healthEvent.metadata.correlationId,
-          userId: healthEvent.metadata.userId,
-          topic: HEALTH_TOPIC,
-          errorCode: EventErrorCode.SCHEMA_VALIDATION_ERROR,
-          errorDetails: expect.objectContaining({
-            field: 'payload.metricType',
-            constraint: 'enum',
-            value: 'INVALID_TYPE'
-          })
+          eventId: testEvent.eventId,
+          journeyType: JourneyType.HEALTH
         })
       );
+      expect(kafkaProducer.produce).toHaveBeenCalledWith(expect.objectContaining({
+        topic: 'health-events-dlq',
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            key: testEvent.eventId,
+            headers: expect.objectContaining({
+              'x-retry-count': '3',
+              'x-original-event-type': testEvent.type,
+              'x-failure-reason': error.message,
+              'x-journey-type': JourneyType.HEALTH
+            })
+          })
+        ])
+      }));
     });
-    
-    it('should track error metrics for monitoring', async () => {
-      // Mock metrics tracking
-      const incrementMetricSpy = jest.fn();
-      jest.spyOn(kafkaService as any, 'incrementErrorMetric').mockImplementation(incrementMetricSpy);
+  });
+
+  describe('End-to-End Event Processing Tests', () => {
+    it('should process an event with retries and eventually succeed', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.HEALTH);
+      let attempts = 0;
       
-      // Create different error types
-      const networkError = new Error('Network error');
-      networkError.name = 'NetworkError';
-      (networkError as any).code = EventErrorCode.BROKER_CONNECTION_ERROR;
-      
-      const validationError = new Error('Validation error');
-      validationError.name = 'ValidationError';
-      (validationError as any).code = EventErrorCode.SCHEMA_VALIDATION_ERROR;
-      
-      // Mock producer to return different errors in sequence
-      let attemptCount = 0;
-      mockProducer.send.mockImplementation(() => {
-        attemptCount++;
-        if (attemptCount === 1) return Promise.reject(networkError);
-        if (attemptCount === 2) return Promise.reject(validationError);
-        return Promise.resolve();
+      const eventProcessor = jest.fn().mockImplementation(async (event: BaseEvent) => {
+        attempts++;
+        if (attempts < 3) {
+          throw new NetworkError(`Processing attempt ${attempts} failed`);
+        }
+        return { processed: true, eventId: event.eventId };
       });
       
-      // Attempt operations that will trigger different errors
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{ key: 'event-1', value: kafkaService.serialize(healthEvent) }]
-        });
-      } catch (e) {
-        // Expected to fail with network error, then retry
-      }
-      
-      try {
-        await kafkaService.getProducer().send({
-          topic: HEALTH_TOPIC,
-          messages: [{ key: 'event-2', value: kafkaService.serialize(healthEvent) }]
-        });
-      } catch (e) {
-        // Expected to fail with validation error
-      }
-      
-      // Verify metrics were incremented for each error type
-      expect(incrementMetricSpy).toHaveBeenCalledWith(
-        'kafka_error_count',
-        expect.objectContaining({
-          error_code: EventErrorCode.BROKER_CONNECTION_ERROR,
-          topic: HEALTH_TOPIC
-        })
+      // Act
+      const result = await retryEventProcessing(
+        testEvent,
+        eventProcessor,
+        JourneyType.HEALTH,
+        undefined,
+        logger,
+        kafkaProducer
       );
       
-      expect(incrementMetricSpy).toHaveBeenCalledWith(
-        'kafka_error_count',
-        expect.objectContaining({
-          error_code: EventErrorCode.SCHEMA_VALIDATION_ERROR,
-          topic: HEALTH_TOPIC
-        })
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.result).toEqual({
+        processed: true,
+        eventId: testEvent.eventId
+      });
+      expect(eventProcessor).toHaveBeenCalledTimes(3);
+      expect(eventProcessor).toHaveBeenCalledWith(testEvent);
+    });
+
+    it('should process an event, fail all retries, and send to DLQ', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.CARE);
+      const eventProcessor = jest.fn().mockRejectedValue(
+        new DatabaseError('Database connection failed')
       );
       
-      // Verify retry metrics
-      expect(incrementMetricSpy).toHaveBeenCalledWith(
-        'kafka_retry_count',
-        expect.objectContaining({
-          topic: HEALTH_TOPIC
-        })
+      // Override the retry policy for faster testing
+      const customPolicy = {
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 50
+      };
+      
+      // Act
+      const result = await retryEventProcessing(
+        testEvent,
+        eventProcessor,
+        JourneyType.CARE,
+        customPolicy,
+        logger,
+        kafkaProducer
       );
+      
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeInstanceOf(DatabaseError);
+      expect(eventProcessor).toHaveBeenCalledTimes(3); // Initial + 2 retries
+      expect(kafkaProducer.produce).toHaveBeenCalled(); // Sent to DLQ
+    });
+
+    it('should handle non-retryable errors immediately', async () => {
+      // Arrange
+      const testEvent = createTestEvent(JourneyType.PLAN);
+      const eventProcessor = jest.fn().mockRejectedValue(
+        new ValidationError('Invalid event format')
+      );
+      
+      const customPolicy = {
+        maxRetries: 3,
+        initialDelayMs: 50,
+        maxDelayMs: 500,
+        nonRetryableErrors: ['ValidationError']
+      };
+      
+      // Act
+      const result = await retryEventProcessing(
+        testEvent,
+        eventProcessor,
+        JourneyType.PLAN,
+        customPolicy,
+        logger,
+        kafkaProducer
+      );
+      
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(eventProcessor).toHaveBeenCalledTimes(1); // No retries
+      expect(kafkaProducer.produce).toHaveBeenCalled(); // Sent to DLQ
     });
   });
 });
