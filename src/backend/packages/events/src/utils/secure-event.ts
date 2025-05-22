@@ -1,420 +1,343 @@
-import { BaseEventDto } from '../dto/base-event.dto';
 import { EventTypes } from '../dto/event-types.enum';
-import { ValidationResult } from '../interfaces/event-validation.interface';
 
 /**
- * Sensitive data patterns that should be sanitized from event payloads
- * These are regex patterns that match common sensitive data formats
+ * Represents a security policy for event payloads
+ * Defines what fields should be sanitized and how
  */
-const SENSITIVE_DATA_PATTERNS = {
-  // Personal identifiable information
-  SSN: /\b\d{3}-\d{2}-\d{4}\b/g,
-  CPF: /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,
-  EMAIL: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
-  PHONE: /\b\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
-  // Financial information
-  CREDIT_CARD: /\b(?:\d{4}[- ]?){3}\d{4}\b/g,
-  BANK_ACCOUNT: /\b\d{4,17}\b/g,
-  // Authentication data
-  PASSWORD: /"password"\s*:\s*"[^"]*"/g,
-  ACCESS_TOKEN: /"(access_token|accessToken|token)"\s*:\s*"[^"]*"/g,
-  REFRESH_TOKEN: /"(refresh_token|refreshToken)"\s*:\s*"[^"]*"/g,
-  // Healthcare specific
-  MEDICAL_RECORD_NUMBER: /\bMRN\s*:?\s*\d{6,10}\b/gi,
+export interface EventSecurityPolicy {
+  /**
+   * Fields that should be completely removed from the payload
+   */
+  sensitiveFields: string[];
+  
+  /**
+   * Fields that should be masked (e.g., partial display)
+   */
+  maskedFields?: Record<string, (value: any) => any>;
+  
+  /**
+   * Fields that should be encrypted
+   */
+  encryptedFields?: string[];
+  
+  /**
+   * Allowed sources for this event type
+   */
+  allowedSources?: string[];
+}
+
+/**
+ * Map of event types to their security policies
+ */
+const eventSecurityPolicies: Record<string, EventSecurityPolicy> = {
+  // Health journey events
+  [EventTypes.HEALTH_METRIC_RECORDED]: {
+    sensitiveFields: ['deviceId', 'rawData'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+    },
+    allowedSources: ['health-service', 'mobile-app', 'web-app'],
+  },
+  [EventTypes.HEALTH_GOAL_ACHIEVED]: {
+    sensitiveFields: ['deviceId'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+    },
+    allowedSources: ['health-service', 'gamification-engine'],
+  },
+  
+  // Care journey events
+  [EventTypes.APPOINTMENT_BOOKED]: {
+    sensitiveFields: ['providerNotes', 'medicalRecordId', 'insuranceDetails'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+      phoneNumber: (value) => maskPhoneNumber(value),
+    },
+    allowedSources: ['care-service', 'mobile-app', 'web-app'],
+  },
+  [EventTypes.MEDICATION_TAKEN]: {
+    sensitiveFields: ['prescriptionId', 'dosageDetails', 'medicationNotes'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+    },
+    allowedSources: ['care-service', 'mobile-app'],
+  },
+  
+  // Plan journey events
+  [EventTypes.CLAIM_SUBMITTED]: {
+    sensitiveFields: ['bankDetails', 'documentIds', 'claimEvidence'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+      claimAmount: (value) => value ? `${value.toString().charAt(0)}XXX` : value,
+    },
+    allowedSources: ['plan-service', 'mobile-app', 'web-app'],
+  },
+  [EventTypes.BENEFIT_USED]: {
+    sensitiveFields: ['transactionDetails', 'benefitCode'],
+    maskedFields: {
+      userId: (value) => maskUserId(value),
+    },
+    allowedSources: ['plan-service'],
+  },
 };
 
 /**
- * List of event types that require special handling for sensitive data
+ * Default security policy for events without a specific policy
  */
-const SENSITIVE_EVENT_TYPES = [
-  // Health journey events with sensitive medical data
-  EventTypes.Health.HEALTH_METRIC_RECORDED,
-  EventTypes.Health.MEDICAL_RECORD_UPDATED,
-  EventTypes.Health.HEALTH_GOAL_ACHIEVED,
-  // Care journey events with provider/patient information
-  EventTypes.Care.APPOINTMENT_BOOKED,
-  EventTypes.Care.MEDICATION_TAKEN,
-  EventTypes.Care.TELEMEDICINE_SESSION_COMPLETED,
-  // Plan journey events with financial information
-  EventTypes.Plan.CLAIM_SUBMITTED,
-  EventTypes.Plan.BENEFIT_UTILIZED,
-  EventTypes.Plan.PAYMENT_PROCESSED,
-];
-
-/**
- * Journey-specific security policies for event content
- */
-const JOURNEY_SECURITY_POLICIES = {
-  health: {
-    allowedSources: ['health-service', 'device-integration', 'fhir-connector'],
-    sensitiveFields: ['medicalHistory', 'diagnosis', 'vitalSigns', 'labResults', 'medications'],
-    requiredFields: ['userId', 'timestamp', 'type'],
+const defaultSecurityPolicy: EventSecurityPolicy = {
+  sensitiveFields: ['password', 'token', 'secret', 'key', 'credential', 'authorization'],
+  maskedFields: {
+    userId: (value) => maskUserId(value),
+    email: (value) => maskEmail(value),
+    phoneNumber: (value) => maskPhoneNumber(value),
   },
-  care: {
-    allowedSources: ['care-service', 'appointment-system', 'telemedicine-platform'],
-    sensitiveFields: ['providerNotes', 'symptoms', 'treatmentPlan', 'prescriptions'],
-    requiredFields: ['userId', 'timestamp', 'type'],
-  },
-  plan: {
-    allowedSources: ['plan-service', 'claims-processor', 'payment-gateway'],
-    sensitiveFields: ['claimAmount', 'paymentDetails', 'bankInformation', 'coverageDetails'],
-    requiredFields: ['userId', 'timestamp', 'type'],
-  },
-  // Default policy for events without a specific journey
-  default: {
-    allowedSources: ['api-gateway', 'auth-service', 'notification-service', 'gamification-engine'],
-    sensitiveFields: [],
-    requiredFields: ['userId', 'timestamp', 'type'],
-  },
+  allowedSources: ['api-gateway', 'auth-service', 'health-service', 'care-service', 'plan-service', 'gamification-engine', 'notification-service', 'mobile-app', 'web-app'],
 };
 
 /**
- * Blocked IP ranges for event source validation
- * Similar to SSRF protection in secure-axios
+ * Masks a user ID by showing only the first and last characters
+ * @param userId The user ID to mask
+ * @returns The masked user ID
  */
-const BLOCKED_IP_RANGES = [
-  /^10\./,
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-  /^192\.168\./,
-  /^127\./,
-  /^0\.0\.0\.0/,
-  /^localhost$/,
-  /^::1$/,
-  /^fe80::/,
-  /\.local$/,
-];
-
-/**
- * Interface for sanitization options
- */
-interface SanitizeOptions {
-  /** Whether to remove all sensitive data patterns */
-  removeSensitiveData?: boolean;
-  /** Whether to apply journey-specific sanitization rules */
-  applyJourneyRules?: boolean;
-  /** Custom fields to sanitize beyond the defaults */
-  additionalSensitiveFields?: string[];
-  /** Custom replacement for sanitized values */
-  replacement?: string;
+export function maskUserId(userId: string): string {
+  if (!userId || userId.length < 4) return userId;
+  return `${userId.substring(0, 2)}...${userId.substring(userId.length - 2)}`;
 }
 
 /**
- * Interface for source validation options
+ * Masks an email address by showing only the first 2 characters of the username
+ * @param email The email to mask
+ * @returns The masked email
  */
-interface SourceValidationOptions {
-  /** Whether to validate against allowed sources list */
-  checkAllowedSources?: boolean;
-  /** Whether to validate IP addresses in source */
-  checkIpAddresses?: boolean;
-  /** Additional allowed sources beyond the defaults */
-  additionalAllowedSources?: string[];
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return email;
+  const [username, domain] = email.split('@');
+  return `${username.substring(0, 2)}...@${domain}`;
 }
 
 /**
- * Creates a secured event by sanitizing sensitive data and validating the source
- * 
- * @param event The event to secure
- * @param sanitizeOptions Options for sanitizing the event
- * @param sourceValidationOptions Options for validating the event source
- * @returns The secured event with sanitized data
+ * Masks a phone number by showing only the last 4 digits
+ * @param phoneNumber The phone number to mask
+ * @returns The masked phone number
  */
-export function createSecureEvent<T extends BaseEventDto>(
-  event: T,
-  sanitizeOptions: SanitizeOptions = {},
-  sourceValidationOptions: SourceValidationOptions = {}
-): T {
-  // Validate the event source
-  validateEventSource(event, sourceValidationOptions);
-  
-  // Sanitize the event payload
-  return sanitizeEventPayload(event, sanitizeOptions);
+export function maskPhoneNumber(phoneNumber: string): string {
+  if (!phoneNumber || phoneNumber.length < 4) return phoneNumber;
+  return `XXX-XXX-${phoneNumber.substring(phoneNumber.length - 4)}`;
 }
 
 /**
- * Sanitizes an event payload by removing or masking sensitive data
- * 
- * @param event The event to sanitize
- * @param options Options for sanitization
- * @returns The sanitized event
+ * Gets the security policy for a specific event type
+ * @param eventType The event type
+ * @returns The security policy for the event type
  */
-export function sanitizeEventPayload<T extends BaseEventDto>(
-  event: T,
-  options: SanitizeOptions = {}
-): T {
-  const {
-    removeSensitiveData = true,
-    applyJourneyRules = true,
-    additionalSensitiveFields = [],
-    replacement = '[REDACTED]',
-  } = options;
+export function getSecurityPolicy(eventType: string): EventSecurityPolicy {
+  return eventSecurityPolicies[eventType] || defaultSecurityPolicy;
+}
+
+/**
+ * Sanitizes an event payload by removing or masking sensitive fields
+ * @param eventType The type of event
+ * @param payload The event payload to sanitize
+ * @returns A sanitized copy of the payload
+ */
+export function sanitizeEventPayload<T extends Record<string, any>>(eventType: string, payload: T): T {
+  const policy = getSecurityPolicy(eventType);
+  const sanitizedPayload = { ...payload };
   
-  // Create a deep copy of the event to avoid modifying the original
-  const sanitizedEvent = JSON.parse(JSON.stringify(event)) as T;
-  
-  if (!sanitizedEvent.data) {
-    return sanitizedEvent;
-  }
-  
-  // Apply journey-specific rules if enabled
-  if (applyJourneyRules && sanitizedEvent.journey) {
-    const journeyPolicy = JOURNEY_SECURITY_POLICIES[sanitizedEvent.journey as keyof typeof JOURNEY_SECURITY_POLICIES] || 
-                          JOURNEY_SECURITY_POLICIES.default;
-    
-    // Sanitize journey-specific sensitive fields
-    const fieldsToSanitize = [...journeyPolicy.sensitiveFields, ...additionalSensitiveFields];
-    
-    for (const field of fieldsToSanitize) {
-      sanitizeNestedField(sanitizedEvent.data, field, replacement);
+  // Remove sensitive fields
+  for (const field of policy.sensitiveFields) {
+    if (field.includes('.')) {
+      // Handle nested fields
+      const parts = field.split('.');
+      let current = sanitizedPayload;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (current[parts[i]]) {
+          current = current[parts[i]];
+        } else {
+          break;
+        }
+      }
+      if (current) {
+        delete current[parts[parts.length - 1]];
+      }
+    } else {
+      // Handle top-level fields
+      delete sanitizedPayload[field];
     }
   }
   
-  // Remove common sensitive data patterns if enabled
-  if (removeSensitiveData) {
-    // Check if this event type requires special handling
-    const requiresSpecialHandling = SENSITIVE_EVENT_TYPES.includes(sanitizedEvent.type as EventTypes);
-    
-    // Convert the data to a string for regex replacement
-    let dataString = JSON.stringify(sanitizedEvent.data);
-    
-    // Apply regex patterns to remove sensitive data
-    for (const [patternName, pattern] of Object.entries(SENSITIVE_DATA_PATTERNS)) {
-      dataString = dataString.replace(pattern, replacement);
-    }
-    
-    // Parse the string back to an object
-    try {
-      sanitizedEvent.data = JSON.parse(dataString);
-    } catch (error) {
-      // If parsing fails, keep the original data
-      console.error('Failed to parse sanitized data:', error);
+  // Apply masking to specified fields
+  if (policy.maskedFields) {
+    for (const [field, maskFn] of Object.entries(policy.maskedFields)) {
+      if (field.includes('.')) {
+        // Handle nested fields
+        const parts = field.split('.');
+        let current = sanitizedPayload;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (current[parts[i]]) {
+            current = current[parts[i]];
+          } else {
+            break;
+          }
+        }
+        const lastPart = parts[parts.length - 1];
+        if (current && current[lastPart] !== undefined) {
+          current[lastPart] = maskFn(current[lastPart]);
+        }
+      } else {
+        // Handle top-level fields
+        if (sanitizedPayload[field] !== undefined) {
+          sanitizedPayload[field] = maskFn(sanitizedPayload[field]);
+        }
+      }
     }
   }
   
-  return sanitizedEvent;
+  return sanitizedPayload;
 }
 
 /**
  * Validates that an event comes from an authorized source
- * 
- * @param event The event to validate
- * @param options Options for source validation
- * @throws Error if the event source is not valid
+ * @param eventType The type of event
+ * @param source The source of the event
+ * @returns True if the source is authorized for this event type, false otherwise
  */
-export function validateEventSource<T extends BaseEventDto>(
-  event: T,
-  options: SourceValidationOptions = {}
-): void {
-  const {
-    checkAllowedSources = true,
-    checkIpAddresses = true,
-    additionalAllowedSources = [],
-  } = options;
+export function validateEventSource(eventType: string, source: string): boolean {
+  const policy = getSecurityPolicy(eventType);
   
-  if (!event.source) {
-    throw new Error('Event source is required for security validation');
+  if (!policy.allowedSources || policy.allowedSources.length === 0) {
+    return true; // No restrictions
   }
   
-  // Check against allowed sources if enabled
-  if (checkAllowedSources) {
-    const journeyPolicy = event.journey ? 
-      (JOURNEY_SECURITY_POLICIES[event.journey as keyof typeof JOURNEY_SECURITY_POLICIES] || JOURNEY_SECURITY_POLICIES.default) :
-      JOURNEY_SECURITY_POLICIES.default;
-    
-    const allowedSources = [...journeyPolicy.allowedSources, ...additionalAllowedSources];
-    
-    if (!allowedSources.includes(event.source)) {
-      throw new Error(`Event source '${event.source}' is not in the allowed sources list for journey '${event.journey || 'default'}'`);
-    }
+  return policy.allowedSources.includes(source);
+}
+
+/**
+ * Validates that an event payload doesn't contain malicious content
+ * Checks for potential injection attacks in the payload
+ * @param payload The event payload to validate
+ * @returns True if the payload is safe, false if it contains potentially malicious content
+ */
+export function validateEventPayloadSafety(payload: Record<string, any>): boolean {
+  // Convert payload to string for analysis
+  const payloadStr = JSON.stringify(payload);
+  
+  // Check for potential script injection
+  if (/<script[\s\S]*?>/i.test(payloadStr)) {
+    return false;
   }
   
-  // Check for blocked IP addresses if enabled
-  if (checkIpAddresses) {
-    // Extract potential IP addresses from the source string
-    const ipMatches = event.source.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
-    
-    if (ipMatches) {
-      const ip = ipMatches[0];
-      
-      // Check against blocked IP ranges
-      for (const blockedRange of BLOCKED_IP_RANGES) {
-        if (blockedRange.test(ip)) {
-          throw new Error(`Event source contains blocked IP address: ${ip}`);
-        }
-      }
-    }
+  // Check for potential SQL injection patterns
+  if (/('\s*(or|and)\s*'\s*=\s*')|(-{2})/i.test(payloadStr)) {
+    return false;
   }
+  
+  // Check for potential command injection
+  if (/([;&|`]\s*\w+)/i.test(payloadStr)) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Creates a secure event object with sanitized payload and source validation
+ * @param eventType The type of event
+ * @param payload The event payload
+ * @param source The source of the event
+ * @returns A secure event object or throws an error if validation fails
+ */
+export function createSecureEvent<T extends Record<string, any>>(
+  eventType: string,
+  payload: T,
+  source: string
+): { type: string; payload: T; source: string; timestamp: string } {
+  // Validate event source
+  if (!validateEventSource(eventType, source)) {
+    throw new Error(`Unauthorized source '${source}' for event type '${eventType}'`);
+  }
+  
+  // Validate payload safety
+  if (!validateEventPayloadSafety(payload)) {
+    throw new Error(`Event payload for '${eventType}' contains potentially malicious content`);
+  }
+  
+  // Sanitize the payload
+  const sanitizedPayload = sanitizeEventPayload(eventType, payload);
+  
+  // Create the secure event
+  return {
+    type: eventType,
+    payload: sanitizedPayload,
+    source,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /**
  * Validates an event against journey-specific security policies
- * 
- * @param event The event to validate
- * @returns Validation result with success flag and any error messages
+ * @param eventType The type of event
+ * @param journey The journey the event belongs to
+ * @param payload The event payload
+ * @returns True if the event passes journey-specific validation, false otherwise
  */
-export function validateEventSecurity<T extends BaseEventDto>(event: T): ValidationResult {
-  const errors: string[] = [];
-  
-  // Check for required fields based on journey
-  const journeyPolicy = event.journey ? 
-    (JOURNEY_SECURITY_POLICIES[event.journey as keyof typeof JOURNEY_SECURITY_POLICIES] || JOURNEY_SECURITY_POLICIES.default) :
-    JOURNEY_SECURITY_POLICIES.default;
-  
-  for (const field of journeyPolicy.requiredFields) {
-    if (!(field in event) || event[field as keyof T] === undefined || event[field as keyof T] === null) {
-      errors.push(`Required field '${field}' is missing or null`);
-    }
-  }
-  
-  // Validate event source
-  try {
-    validateEventSource(event);
-  } catch (error) {
-    errors.push((error as Error).message);
-  }
-  
-  return {
-    success: errors.length === 0,
-    errors,
-  };
-}
-
-/**
- * Sanitizes a nested field in an object by replacing its value with a placeholder
- * 
- * @param obj The object containing the field to sanitize
- * @param field The field path (can be nested with dot notation, e.g., 'user.address.street')
- * @param replacement The replacement value
- */
-function sanitizeNestedField(obj: any, field: string, replacement: string): void {
-  if (!obj || typeof obj !== 'object') {
-    return;
-  }
-  
-  const parts = field.split('.');
-  const currentPart = parts[0];
-  
-  if (parts.length === 1) {
-    // Base case: replace the field if it exists
-    if (currentPart in obj) {
-      obj[currentPart] = replacement;
-    }
-  } else {
-    // Recursive case: traverse the object
-    const remainingParts = parts.slice(1).join('.');
-    
-    if (currentPart in obj && obj[currentPart] !== null && typeof obj[currentPart] === 'object') {
-      sanitizeNestedField(obj[currentPart], remainingParts, replacement);
-    }
-  }
-  
-  // Also check arrays at this level
-  for (const key in obj) {
-    if (Array.isArray(obj[key])) {
-      for (let i = 0; i < obj[key].length; i++) {
-        if (typeof obj[key][i] === 'object' && obj[key][i] !== null) {
-          sanitizeNestedField(obj[key][i], field, replacement);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Checks if an event contains sensitive data that should be sanitized
- * 
- * @param event The event to check
- * @returns True if the event contains sensitive data, false otherwise
- */
-export function containsSensitiveData<T extends BaseEventDto>(event: T): boolean {
-  if (!event.data) {
+export function validateJourneyEventSecurity(
+  eventType: string,
+  journey: 'health' | 'care' | 'plan',
+  payload: Record<string, any>
+): boolean {
+  // Validate that the event type belongs to the specified journey
+  if (eventType.startsWith('HEALTH_') && journey !== 'health') {
     return false;
   }
   
-  const dataString = JSON.stringify(event.data);
-  
-  // Check against sensitive data patterns
-  for (const pattern of Object.values(SENSITIVE_DATA_PATTERNS)) {
-    if (pattern.test(dataString)) {
-      return true;
-    }
+  if ((eventType.startsWith('APPOINTMENT_') || eventType.startsWith('MEDICATION_') || eventType.startsWith('TELEMEDICINE_')) && journey !== 'care') {
+    return false;
   }
   
-  // Check against journey-specific sensitive fields
-  if (event.journey) {
-    const journeyPolicy = JOURNEY_SECURITY_POLICIES[event.journey as keyof typeof JOURNEY_SECURITY_POLICIES] || 
-                          JOURNEY_SECURITY_POLICIES.default;
-    
-    for (const field of journeyPolicy.sensitiveFields) {
-      const parts = field.split('.');
-      let current: any = event.data;
-      
-      // Navigate the object path
-      let fieldExists = true;
-      for (const part of parts) {
-        if (current === null || typeof current !== 'object' || !(part in current)) {
-          fieldExists = false;
-          break;
-        }
-        current = current[part];
-      }
-      
-      if (fieldExists && current !== undefined && current !== null) {
-        return true;
-      }
-    }
+  if ((eventType.startsWith('CLAIM_') || eventType.startsWith('BENEFIT_') || eventType.startsWith('PLAN_')) && journey !== 'plan') {
+    return false;
   }
   
-  return false;
+  // Additional journey-specific validation could be added here
+  
+  return true;
 }
 
 /**
- * Creates a secure event producer that automatically sanitizes events before sending
- * 
- * @param producerFn The original event producer function
- * @param sanitizeOptions Options for sanitizing events
- * @returns A wrapped producer function that sanitizes events
+ * Comprehensive event security validation
+ * Combines source validation, payload safety, and journey-specific validation
+ * @param eventType The type of event
+ * @param payload The event payload
+ * @param source The source of the event
+ * @param journey The journey the event belongs to
+ * @returns An object with validation result and any error messages
  */
-export function createSecureEventProducer<T extends BaseEventDto>(
-  producerFn: (event: T) => Promise<any>,
-  sanitizeOptions: SanitizeOptions = {}
-): (event: T) => Promise<any> {
-  return async (event: T) => {
-    // Sanitize the event before producing
-    const sanitizedEvent = sanitizeEventPayload(event, sanitizeOptions);
-    
-    // Validate the event security
-    const validationResult = validateEventSecurity(sanitizedEvent);
-    if (!validationResult.success) {
-      throw new Error(`Event security validation failed: ${validationResult.errors.join(', ')}`);
-    }
-    
-    // Call the original producer with the sanitized event
-    return producerFn(sanitizedEvent);
-  };
-}
-
-/**
- * Creates a secure event consumer that validates events before processing
- * 
- * @param consumerFn The original event consumer function
- * @param sourceValidationOptions Options for validating event sources
- * @returns A wrapped consumer function that validates events
- */
-export function createSecureEventConsumer<T extends BaseEventDto, R>(
-  consumerFn: (event: T) => Promise<R>,
-  sourceValidationOptions: SourceValidationOptions = {}
-): (event: T) => Promise<R> {
-  return async (event: T) => {
-    // Validate the event source
-    validateEventSource(event, sourceValidationOptions);
-    
-    // Validate the event security
-    const validationResult = validateEventSecurity(event);
-    if (!validationResult.success) {
-      throw new Error(`Event security validation failed: ${validationResult.errors.join(', ')}`);
-    }
-    
-    // Call the original consumer with the validated event
-    return consumerFn(event);
+export function validateEventSecurity(
+  eventType: string,
+  payload: Record<string, any>,
+  source: string,
+  journey?: 'health' | 'care' | 'plan'
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  // Validate event source
+  if (!validateEventSource(eventType, source)) {
+    errors.push(`Unauthorized source '${source}' for event type '${eventType}'`);
+  }
+  
+  // Validate payload safety
+  if (!validateEventPayloadSafety(payload)) {
+    errors.push(`Event payload contains potentially malicious content`);
+  }
+  
+  // Validate journey-specific security if journey is provided
+  if (journey && !validateJourneyEventSecurity(eventType, journey, payload)) {
+    errors.push(`Event type '${eventType}' is not valid for journey '${journey}'`);
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors,
   };
 }
