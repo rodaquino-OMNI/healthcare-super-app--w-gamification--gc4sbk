@@ -1,11 +1,9 @@
-/**
- * @file Treatment Plan Interface
- * @description Defines the interface for treatment plans in the Care Journey.
- */
+import { ICareActivity } from '../../../interfaces/journey/care/care-activity.interface';
 
 /**
- * Interface for treatment plan data in the Care Journey.
- * Represents prescribed treatment plans for patients with progress tracking.
+ * Represents a treatment plan for a patient.
+ * This interface is part of the Care Journey and allows tracking and display
+ * of prescribed treatment plans as specified in the Care Now journey requirements.
  */
 export interface ITreatmentPlan {
   /**
@@ -39,9 +37,9 @@ export interface ITreatmentPlan {
   progress: number;
 
   /**
-   * ID of the care activity this treatment plan is associated with.
+   * Reference to the care activity this treatment plan is associated with.
    */
-  careActivityId: string;
+  careActivity: ICareActivity;
 
   /**
    * Date and time when the treatment plan was created.
