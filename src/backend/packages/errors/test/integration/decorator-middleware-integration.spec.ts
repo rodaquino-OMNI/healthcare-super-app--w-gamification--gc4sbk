@@ -1,188 +1,161 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Controller, Get, Injectable, Module, Param, UseFilters } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { INestApplication } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+import { ClassifyError, TransformError, WithErrorContext } from '../../src/decorators/error-context.decorator';
+import { ErrorType } from '../../src/categories/error-types';
+import { AppException } from '../../src/categories/app-exception';
+import { AllExceptionsFilter } from '../../src/nest/all-exceptions.filter';
+import { ErrorHandlerMiddleware } from '../../src/middleware/error-handler.middleware';
+import { RequestContextMiddleware } from '../../src/middleware/request-context.middleware';
 import * as request from 'supertest';
+import { INestApplication } from '@nestjs/common';
 
-// Import error handling components
-import { 
-  ClassifyError, 
-  TransformError, 
-  WithErrorContext 
-} from '../../src/decorators/error-context.decorator';
-import { GlobalExceptionFilter } from '../../src/nest/filters';
-import { ErrorsModule } from '../../src/nest/module';
-import { BaseError } from '../../src/base';
-import { ErrorType } from '../../src/types';
-
-// Custom error classes for testing
-class TestBusinessError extends BaseError {
-  constructor(message: string, details?: Record<string, any>) {
-    super({
-      message,
-      type: ErrorType.BUSINESS,
-      code: 'TEST_BUSINESS_ERROR',
-      details
-    });
-  }
-}
-
-class TestValidationError extends BaseError {
-  constructor(message: string, details?: Record<string, any>) {
-    super({
-      message,
-      type: ErrorType.VALIDATION,
-      code: 'TEST_VALIDATION_ERROR',
-      details
-    });
-  }
-}
-
-class TestTechnicalError extends BaseError {
-  constructor(message: string, details?: Record<string, any>) {
-    super({
-      message,
-      type: ErrorType.TECHNICAL,
-      code: 'TEST_TECHNICAL_ERROR',
-      details
-    });
-  }
-}
-
-class TestExternalError extends BaseError {
-  constructor(message: string, details?: Record<string, any>) {
-    super({
-      message,
-      type: ErrorType.EXTERNAL,
-      code: 'TEST_EXTERNAL_ERROR',
-      details
-    });
-  }
-}
-
-// Test service with decorated methods
+/**
+ * Test service with decorated methods for error handling
+ */
 @Injectable()
-@ClassifyError() // Class-level decorator to classify uncaught errors
-class TestErrorService {
-  // Method that throws a specific error type
-  @WithErrorContext()
-  throwBusinessError(param: string): never {
-    throw new TestBusinessError('Business logic error', { param });
-  }
-
-  // Method that throws a validation error
-  @WithErrorContext()
-  throwValidationError(param: string): never {
-    throw new TestValidationError('Invalid input', { param });
-  }
-
-  // Method that throws a technical error
-  @WithErrorContext()
-  throwTechnicalError(param: string): never {
-    throw new TestTechnicalError('System error occurred', { param });
-  }
-
-  // Method that throws an external error
-  @WithErrorContext()
-  throwExternalError(param: string): never {
-    throw new TestExternalError('External system failed', { param });
-  }
-
-  // Method that throws a generic error which should be classified
-  @ClassifyError()
-  throwGenericError(param: string): never {
-    throw new Error(`Generic error with param: ${param}`);
-  }
-
-  // Method that transforms one error type to another
-  @TransformError(Error, (err, context) => {
-    return new TestBusinessError(`Transformed error: ${err.message}`, { 
-      originalError: err.message,
-      context 
-    });
+class TestService {
+  /**
+   * Method that throws a validation error
+   * Decorated with ClassifyError to ensure proper error classification
+   */
+  @ClassifyError({
+    errorType: ErrorType.VALIDATION,
+    errorCode: 'TEST_001',
+    message: 'Invalid input parameter'
   })
-  transformError(param: string): never {
-    throw new Error(`Original error with param: ${param}`);
+  throwValidationError(param: string): string {
+    if (!param || param.length < 3) {
+      throw new Error('Parameter must be at least 3 characters');
+    }
+    return `Valid parameter: ${param}`;
   }
 
-  // Method with multiple decorators to test chaining
-  @WithErrorContext()
-  @ClassifyError()
-  @TransformError(TestValidationError, (err) => {
-    return new TestBusinessError(`Transformed from validation: ${err.message}`, {
-      originalCode: err.code,
-      originalType: err.type
-    });
+  /**
+   * Method that throws a business error
+   * Decorated with TransformError to convert generic errors to AppExceptions
+   */
+  @TransformError({
+    transformer: (error: Error) => {
+      return new AppException(
+        error.message,
+        ErrorType.BUSINESS,
+        'TEST_002',
+        { operation: 'businessOperation' }
+      );
+    }
   })
-  chainedDecorators(param: string): never {
-    throw new TestValidationError(`Validation error with param: ${param}`);
+  throwBusinessError(param: string): string {
+    if (param === 'business-error') {
+      throw new Error('Business rule violation');
+    }
+    return `Business operation completed: ${param}`;
+  }
+
+  /**
+   * Method that throws a technical error
+   * Decorated with WithErrorContext to add context information to the error
+   */
+  @WithErrorContext({
+    contextProvider: () => ({
+      service: 'TestService',
+      operation: 'technicalOperation',
+      timestamp: new Date().toISOString()
+    })
+  })
+  throwTechnicalError(param: string): string {
+    if (param === 'technical-error') {
+      throw new Error('System failure occurred');
+    }
+    return `Technical operation completed: ${param}`;
+  }
+
+  /**
+   * Method that throws an external dependency error
+   * Decorated with multiple decorators to demonstrate chaining
+   */
+  @ClassifyError({
+    errorType: ErrorType.EXTERNAL,
+    errorCode: 'TEST_003'
+  })
+  @WithErrorContext({
+    contextProvider: () => ({
+      externalSystem: 'TestExternalAPI',
+      endpoint: '/api/test'
+    })
+  })
+  throwExternalError(param: string): string {
+    if (param === 'external-error') {
+      throw new Error('External API failure');
+    }
+    return `External operation completed: ${param}`;
   }
 }
 
-// Test controller that uses the service
-@Controller('test-errors')
-@UseFilters(GlobalExceptionFilter)
-class TestErrorController {
-  constructor(private readonly errorService: TestErrorService) {}
-
-  @Get('business/:param')
-  throwBusinessError(@Param('param') param: string) {
-    return this.errorService.throwBusinessError(param);
-  }
+/**
+ * Test controller with decorated endpoints
+ */
+@Controller('test')
+@ClassifyError({
+  errorType: ErrorType.TECHNICAL,
+  errorCode: 'CONTROLLER_ERROR'
+})
+class TestController {
+  constructor(private readonly testService: TestService) {}
 
   @Get('validation/:param')
-  throwValidationError(@Param('param') param: string) {
-    return this.errorService.throwValidationError(param);
+  testValidation(@Param('param') param: string): string {
+    return this.testService.throwValidationError(param);
+  }
+
+  @Get('business/:param')
+  testBusiness(@Param('param') param: string): string {
+    return this.testService.throwBusinessError(param);
   }
 
   @Get('technical/:param')
-  throwTechnicalError(@Param('param') param: string) {
-    return this.errorService.throwTechnicalError(param);
+  testTechnical(@Param('param') param: string): string {
+    return this.testService.throwTechnicalError(param);
   }
 
   @Get('external/:param')
-  throwExternalError(@Param('param') param: string) {
-    return this.errorService.throwExternalError(param);
+  testExternal(@Param('param') param: string): string {
+    return this.testService.throwExternalError(param);
   }
 
-  @Get('generic/:param')
-  throwGenericError(@Param('param') param: string) {
-    return this.errorService.throwGenericError(param);
-  }
-
-  @Get('transform/:param')
-  transformError(@Param('param') param: string) {
-    return this.errorService.transformError(param);
-  }
-
-  @Get('chained/:param')
-  chainedDecorators(@Param('param') param: string) {
-    return this.errorService.chainedDecorators(param);
+  @Get('controller-error')
+  testControllerError(): string {
+    throw new Error('Controller-level error');
+    return 'This should not be returned';
   }
 }
 
-// Test module
+/**
+ * Test module that sets up the controller and service
+ */
 @Module({
-  imports: [ErrorsModule],
-  controllers: [TestErrorController],
-  providers: [TestErrorService],
+  controllers: [TestController],
+  providers: [TestService, AllExceptionsFilter],
 })
-class TestAppModule {}
+class TestModule {}
 
 describe('Decorator and Middleware Integration', () => {
   let app: INestApplication;
-  
+  let moduleRef: TestingModule;
+
   beforeAll(async () => {
-    // Create a NestJS application for testing
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [TestAppModule],
+    // Create a NestJS testing module
+    moduleRef = await Test.createTestingModule({
+      imports: [TestModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
-    
-    // Set up request context middleware and global exception filter
-    app.useGlobalFilters(new GlobalExceptionFilter());
-    
+    // Create the application instance
+    app = moduleRef.createNestApplication();
+
+    // Apply middleware
+    app.use(RequestContextMiddleware);
+    app.useGlobalFilters(app.get(AllExceptionsFilter));
+
     await app.init();
   });
 
@@ -190,103 +163,228 @@ describe('Decorator and Middleware Integration', () => {
     await app.close();
   });
 
-  describe('Error Classification and Context', () => {
-    it('should properly handle business errors with context', async () => {
-      const param = 'test-param';
+  describe('Method-level error decorators', () => {
+    it('should transform and classify validation errors correctly', async () => {
+      // Test with a parameter that will trigger a validation error
       const response = await request(app.getHttpServer())
-        .get(`/test-errors/business/${param}`)
-        .expect(422); // Unprocessable Entity for business errors
+        .get('/test/validation/ab')
+        .expect(400); // Validation errors should return 400 Bad Request
 
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', 'TEST_BUSINESS_ERROR');
-      expect(response.body.error).toHaveProperty('message', 'Business logic error');
-      expect(response.body.error.details).toHaveProperty('param', param);
-    });
-
-    it('should properly handle validation errors with context', async () => {
-      const param = 'invalid-input';
-      const response = await request(app.getHttpServer())
-        .get(`/test-errors/validation/${param}`)
-        .expect(400); // Bad Request for validation errors
-
+      // Verify the error response structure
       expect(response.body).toHaveProperty('error');
       expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
-      expect(response.body.error).toHaveProperty('code', 'TEST_VALIDATION_ERROR');
-      expect(response.body.error).toHaveProperty('message', 'Invalid input');
-      expect(response.body.error.details).toHaveProperty('param', param);
+      expect(response.body.error).toHaveProperty('code', 'TEST_001');
+      expect(response.body.error).toHaveProperty('message', 'Invalid input parameter');
     });
 
-    it('should properly handle technical errors with context', async () => {
-      const param = 'system-error';
+    it('should transform business errors correctly', async () => {
+      // Test with a parameter that will trigger a business error
       const response = await request(app.getHttpServer())
-        .get(`/test-errors/technical/${param}`)
-        .expect(500); // Internal Server Error for technical errors
+        .get('/test/business/business-error')
+        .expect(422); // Business errors should return 422 Unprocessable Entity
 
+      // Verify the error response structure
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
+      expect(response.body.error).toHaveProperty('code', 'TEST_002');
+      expect(response.body.error).toHaveProperty('message', 'Business rule violation');
+      expect(response.body.error).toHaveProperty('details');
+      expect(response.body.error.details).toHaveProperty('operation', 'businessOperation');
+    });
+
+    it('should add context to technical errors', async () => {
+      // Test with a parameter that will trigger a technical error
+      const response = await request(app.getHttpServer())
+        .get('/test/technical/technical-error')
+        .expect(500); // Technical errors should return 500 Internal Server Error
+
+      // Verify the error response structure
       expect(response.body).toHaveProperty('error');
       expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', 'TEST_TECHNICAL_ERROR');
-      expect(response.body.error).toHaveProperty('message', 'System error occurred');
-      expect(response.body.error.details).toHaveProperty('param', param);
+      expect(response.body.error).toHaveProperty('details');
+      
+      // Context information should be included in the details
+      expect(response.body.error.details).toHaveProperty('service', 'TestService');
+      expect(response.body.error.details).toHaveProperty('operation', 'technicalOperation');
+      expect(response.body.error.details).toHaveProperty('timestamp');
     });
+  });
 
-    it('should properly handle external errors with context', async () => {
-      const param = 'external-error';
+  describe('Decorator chaining', () => {
+    it('should apply multiple decorators in the correct order', async () => {
+      // Test with a parameter that will trigger an external error
       const response = await request(app.getHttpServer())
-        .get(`/test-errors/external/${param}`)
-        .expect(502); // Bad Gateway for external errors
+        .get('/test/external/external-error')
+        .expect(502); // External errors should return 502 Bad Gateway
 
+      // Verify the error response structure
       expect(response.body).toHaveProperty('error');
       expect(response.body.error).toHaveProperty('type', ErrorType.EXTERNAL);
-      expect(response.body.error).toHaveProperty('code', 'TEST_EXTERNAL_ERROR');
-      expect(response.body.error).toHaveProperty('message', 'External system failed');
-      expect(response.body.error.details).toHaveProperty('param', param);
+      expect(response.body.error).toHaveProperty('code', 'TEST_003');
+      expect(response.body.error).toHaveProperty('message', 'External API failure');
+      
+      // Context information from WithErrorContext should be included
+      expect(response.body.error.details).toHaveProperty('externalSystem', 'TestExternalAPI');
+      expect(response.body.error.details).toHaveProperty('endpoint', '/api/test');
     });
   });
 
-  describe('Error Classification for Generic Errors', () => {
-    it('should classify generic errors as technical errors', async () => {
-      const param = 'generic-error';
+  describe('Class-level error decorators', () => {
+    it('should apply class-level decorators to all methods', async () => {
+      // Test the controller-level error handler
       const response = await request(app.getHttpServer())
-        .get(`/test-errors/generic/${param}`)
-        .expect(500); // Internal Server Error for technical errors
+        .get('/test/controller-error')
+        .expect(500); // Technical errors should return 500 Internal Server Error
 
+      // Verify the error response structure
       expect(response.body).toHaveProperty('error');
       expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
-      expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
-      expect(response.body.error.message).toContain('Generic error with param');
+      expect(response.body.error).toHaveProperty('code', 'CONTROLLER_ERROR');
+      expect(response.body.error).toHaveProperty('message', 'Controller-level error');
     });
   });
 
-  describe('Error Transformation', () => {
-    it('should transform errors according to the decorator configuration', async () => {
-      const param = 'transform-test';
+  describe('Successful responses', () => {
+    it('should return successful responses when no errors occur', async () => {
+      // Test with valid parameters that won't trigger errors
       const response = await request(app.getHttpServer())
-        .get(`/test-errors/transform/${param}`)
-        .expect(422); // Unprocessable Entity for business errors
+        .get('/test/validation/valid-param')
+        .expect(200);
 
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', 'TEST_BUSINESS_ERROR');
-      expect(response.body.error.message).toContain('Transformed error');
-      expect(response.body.error.details).toHaveProperty('originalError');
-      expect(response.body.error.details.originalError).toContain(param);
+      expect(response.text).toBe('Valid parameter: valid-param');
     });
   });
+});
 
-  describe('Decorator Chaining', () => {
-    it('should process decorators in the correct order', async () => {
-      const param = 'chained-decorators';
-      const response = await request(app.getHttpServer())
-        .get(`/test-errors/chained/${param}`)
-        .expect(422); // Unprocessable Entity for business errors
+/**
+ * Tests for Express middleware integration with error decorators
+ */
+describe('Express Middleware and Decorator Integration', () => {
+  let app: INestApplication;
+  let moduleRef: TestingModule;
 
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(response.body.error).toHaveProperty('code', 'TEST_BUSINESS_ERROR');
-      expect(response.body.error.message).toContain('Transformed from validation');
-      expect(response.body.error.details).toHaveProperty('originalCode', 'TEST_VALIDATION_ERROR');
-      expect(response.body.error.details).toHaveProperty('originalType', ErrorType.VALIDATION);
+  beforeAll(async () => {
+    // Create a NestJS testing module
+    moduleRef = await Test.createTestingModule({
+      imports: [TestModule],
+    }).compile();
+
+    // Create the application instance
+    app = moduleRef.createNestApplication();
+
+    // Apply Express middleware manually instead of using NestJS filters
+    app.use(RequestContextMiddleware);
+    app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+      const middleware = new ErrorHandlerMiddleware();
+      middleware.use(err, req, res, next);
     });
+
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('should handle errors with Express middleware', async () => {
+    // Test with a parameter that will trigger a validation error
+    const response = await request(app.getHttpServer())
+      .get('/test/validation/ab')
+      .expect(400); // Validation errors should return 400 Bad Request
+
+    // Verify the error response structure
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toHaveProperty('type', ErrorType.VALIDATION);
+    expect(response.body.error).toHaveProperty('code', 'TEST_001');
+  });
+});
+
+/**
+ * Tests for custom error decorators with specific error types
+ */
+describe('Custom Error Decorators', () => {
+  // Create a custom error decorator for health journey errors
+  const HealthJourneyError = (config: { errorCode: string, message?: string }) => {
+    return ClassifyError({
+      errorType: ErrorType.BUSINESS,
+      errorCode: `HEALTH_${config.errorCode}`,
+      message: config.message,
+      details: { journey: 'health' }
+    });
+  };
+
+  // Create a test service with the custom decorator
+  @Injectable()
+  class HealthService {
+    @HealthJourneyError({
+      errorCode: '001',
+      message: 'Health metric validation failed'
+    })
+    validateHealthMetric(value: number): number {
+      if (value < 0 || value > 100) {
+        throw new Error('Health metric must be between 0 and 100');
+      }
+      return value;
+    }
+  }
+
+  @Controller('health')
+  class HealthController {
+    constructor(private readonly healthService: HealthService) {}
+
+    @Get('metric/:value')
+    validateMetric(@Param('value') value: string): number {
+      return this.healthService.validateHealthMetric(parseInt(value, 10));
+    }
+  }
+
+  @Module({
+    controllers: [HealthController],
+    providers: [HealthService, AllExceptionsFilter],
+  })
+  class HealthModule {}
+
+  let app: INestApplication;
+  let moduleRef: TestingModule;
+
+  beforeAll(async () => {
+    // Create a NestJS testing module
+    moduleRef = await Test.createTestingModule({
+      imports: [HealthModule],
+    }).compile();
+
+    // Create the application instance
+    app = moduleRef.createNestApplication();
+    app.useGlobalFilters(app.get(AllExceptionsFilter));
+
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('should apply custom journey-specific error decorators', async () => {
+    // Test with an invalid health metric value
+    const response = await request(app.getHttpServer())
+      .get('/health/metric/150')
+      .expect(422); // Business errors should return 422 Unprocessable Entity
+
+    // Verify the error response structure
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toHaveProperty('type', ErrorType.BUSINESS);
+    expect(response.body.error).toHaveProperty('code', 'HEALTH_001');
+    expect(response.body.error).toHaveProperty('message', 'Health metric validation failed');
+    expect(response.body.error).toHaveProperty('details');
+    expect(response.body.error.details).toHaveProperty('journey', 'health');
+  });
+
+  it('should return successful responses for valid inputs', async () => {
+    // Test with a valid health metric value
+    const response = await request(app.getHttpServer())
+      .get('/health/metric/75')
+      .expect(200);
+
+    expect(response.body).toBe(75);
   });
 });
