@@ -1,281 +1,419 @@
-import { describe, expect, it } from '@jest/globals';
+/**
+ * @file Unit tests for Health journey error type definitions
+ * 
+ * Tests ensure that Health-specific error enums, interfaces, and type guards
+ * are correctly defined and function as expected. Validates type compatibility,
+ * error code prefixing patterns, and type guard behavior for error classification.
+ */
 
-// Import the types from the Health journey errors module
+import { ErrorType } from '../../../../../../shared/src/exceptions/exceptions.types';
 import {
-  HealthErrorType,
+  // Error type enums
   HealthMetricsErrorType,
   HealthGoalsErrorType,
   HealthInsightsErrorType,
-  HealthDevicesErrorType,
-  HealthFhirErrorType,
-  isHealthError,
-  isHealthMetricsError,
-  isHealthGoalsError,
-  isHealthInsightsError,
-  isHealthDevicesError,
-  isHealthFhirError,
-  HEALTH_ERROR_CODE_PREFIX,
-  HEALTH_METRICS_ERROR_CODE_PREFIX,
-  HEALTH_GOALS_ERROR_CODE_PREFIX,
-  HEALTH_INSIGHTS_ERROR_CODE_PREFIX,
-  HEALTH_DEVICES_ERROR_CODE_PREFIX,
-  HEALTH_FHIR_ERROR_CODE_PREFIX
+  DeviceConnectionErrorType,
+  FHIRIntegrationErrorType,
+  
+  // Error code constants
+  HEALTH_METRICS_ERROR_CODES,
+  HEALTH_GOALS_ERROR_CODES,
+  HEALTH_INSIGHTS_ERROR_CODES,
+  HEALTH_DEVICE_ERROR_CODES,
+  HEALTH_FHIR_ERROR_CODES,
+  
+  // Error code types
+  HealthMetricsErrorCode,
+  HealthGoalsErrorCode,
+  HealthInsightsErrorCode,
+  HealthDeviceErrorCode,
+  HealthFHIRErrorCode,
+  HealthErrorCode,
+  
+  // Type guards
+  isHealthMetricsErrorCode,
+  isHealthGoalsErrorCode,
+  isHealthInsightsErrorCode,
+  isHealthDeviceErrorCode,
+  isHealthFHIRErrorCode,
+  isHealthErrorCode,
+  
+  // Error code mapping functions
+  getHealthMetricsErrorCode,
+  getHealthGoalsErrorCode,
+  getHealthInsightsErrorCode,
+  getHealthDeviceErrorCode,
+  getHealthFHIRErrorCode,
+  
+  // Error type mapping
+  getErrorTypeFromHealthCode
 } from '../../../../src/journey/health/types';
 
-// Import the BaseError and ErrorType for testing
-import { BaseError, ErrorType } from '../../../../src/base';
-
-/**
- * Test suite for Health journey error type definitions
- * Verifies error enums, interfaces, and type guards for Health-specific errors
- */
 describe('Health Journey Error Types', () => {
   describe('Error Type Enums', () => {
-    it('should define the main HealthErrorType enum with all domains', () => {
-      // Verify all domains are included in the main enum
-      expect(HealthErrorType).toBeDefined();
-      expect(HealthErrorType.METRICS).toBeDefined();
-      expect(HealthErrorType.GOALS).toBeDefined();
-      expect(HealthErrorType.INSIGHTS).toBeDefined();
-      expect(HealthErrorType.DEVICES).toBeDefined();
-      expect(HealthErrorType.FHIR).toBeDefined();
+    it('should define all required HealthMetricsErrorType values', () => {
+      expect(Object.keys(HealthMetricsErrorType)).toHaveLength(8);
+      expect(HealthMetricsErrorType.INVALID_METRIC_DATA).toBe('invalid_metric_data');
+      expect(HealthMetricsErrorType.UNSUPPORTED_METRIC_TYPE).toBe('unsupported_metric_type');
+      expect(HealthMetricsErrorType.DUPLICATE_METRIC).toBe('duplicate_metric');
+      expect(HealthMetricsErrorType.METRIC_NOT_FOUND).toBe('metric_not_found');
+      expect(HealthMetricsErrorType.INVALID_DATE_RANGE).toBe('invalid_date_range');
+      expect(HealthMetricsErrorType.THRESHOLD_EXCEEDED).toBe('threshold_exceeded');
+      expect(HealthMetricsErrorType.THRESHOLD_NOT_MET).toBe('threshold_not_met');
+      expect(HealthMetricsErrorType.PROCESSING_FAILED).toBe('processing_failed');
     });
 
-    it('should define HealthMetricsErrorType with all metric-specific error types', () => {
-      expect(HealthMetricsErrorType).toBeDefined();
-      expect(HealthMetricsErrorType.INVALID_METRIC_VALUE).toBeDefined();
-      expect(HealthMetricsErrorType.METRIC_NOT_FOUND).toBeDefined();
-      expect(HealthMetricsErrorType.METRIC_THRESHOLD_EXCEEDED).toBeDefined();
-      expect(HealthMetricsErrorType.METRIC_STORAGE_FAILED).toBeDefined();
-      expect(HealthMetricsErrorType.METRIC_PROCESSING_FAILED).toBeDefined();
+    it('should define all required HealthGoalsErrorType values', () => {
+      expect(Object.keys(HealthGoalsErrorType)).toHaveLength(8);
+      expect(HealthGoalsErrorType.INVALID_GOAL).toBe('invalid_goal');
+      expect(HealthGoalsErrorType.DUPLICATE_GOAL).toBe('duplicate_goal');
+      expect(HealthGoalsErrorType.GOAL_NOT_FOUND).toBe('goal_not_found');
+      expect(HealthGoalsErrorType.INVALID_TARGET).toBe('invalid_target');
+      expect(HealthGoalsErrorType.INVALID_DEADLINE).toBe('invalid_deadline');
+      expect(HealthGoalsErrorType.PROGRESS_CALCULATION_FAILED).toBe('progress_calculation_failed');
+      expect(HealthGoalsErrorType.UPDATE_FAILED).toBe('update_failed');
+      expect(HealthGoalsErrorType.MAX_GOALS_REACHED).toBe('max_goals_reached');
     });
 
-    it('should define HealthGoalsErrorType with all goal-specific error types', () => {
-      expect(HealthGoalsErrorType).toBeDefined();
-      expect(HealthGoalsErrorType.INVALID_GOAL_PARAMETERS).toBeDefined();
-      expect(HealthGoalsErrorType.GOAL_NOT_FOUND).toBeDefined();
-      expect(HealthGoalsErrorType.CONFLICTING_GOALS).toBeDefined();
-      expect(HealthGoalsErrorType.GOAL_TRACKING_FAILED).toBeDefined();
-      expect(HealthGoalsErrorType.GOAL_ACHIEVEMENT_PROCESSING_FAILED).toBeDefined();
+    it('should define all required HealthInsightsErrorType values', () => {
+      expect(Object.keys(HealthInsightsErrorType)).toHaveLength(6);
+      expect(HealthInsightsErrorType.GENERATION_FAILED).toBe('generation_failed');
+      expect(HealthInsightsErrorType.INSUFFICIENT_DATA).toBe('insufficient_data');
+      expect(HealthInsightsErrorType.INSIGHT_NOT_FOUND).toBe('insight_not_found');
+      expect(HealthInsightsErrorType.UNSUPPORTED_TYPE).toBe('unsupported_type');
+      expect(HealthInsightsErrorType.PROCESSING_TIMEOUT).toBe('processing_timeout');
+      expect(HealthInsightsErrorType.ALGORITHM_ERROR).toBe('algorithm_error');
     });
 
-    it('should define HealthInsightsErrorType with all insight-specific error types', () => {
-      expect(HealthInsightsErrorType).toBeDefined();
-      expect(HealthInsightsErrorType.INSUFFICIENT_DATA).toBeDefined();
-      expect(HealthInsightsErrorType.PATTERN_RECOGNITION_FAILED).toBeDefined();
-      expect(HealthInsightsErrorType.INSIGHT_GENERATION_FAILED).toBeDefined();
-      expect(HealthInsightsErrorType.RECOMMENDATION_FAILED).toBeDefined();
-      expect(HealthInsightsErrorType.INSIGHT_NOT_FOUND).toBeDefined();
+    it('should define all required DeviceConnectionErrorType values', () => {
+      expect(Object.keys(DeviceConnectionErrorType)).toHaveLength(8);
+      expect(DeviceConnectionErrorType.CONNECTION_FAILED).toBe('connection_failed');
+      expect(DeviceConnectionErrorType.DEVICE_NOT_FOUND).toBe('device_not_found');
+      expect(DeviceConnectionErrorType.UNSUPPORTED_DEVICE).toBe('unsupported_device');
+      expect(DeviceConnectionErrorType.AUTHENTICATION_FAILED).toBe('authentication_failed');
+      expect(DeviceConnectionErrorType.SYNC_FAILED).toBe('sync_failed');
+      expect(DeviceConnectionErrorType.ALREADY_CONNECTED).toBe('already_connected');
+      expect(DeviceConnectionErrorType.UNEXPECTED_DISCONNECT).toBe('unexpected_disconnect');
+      expect(DeviceConnectionErrorType.MAX_DEVICES_REACHED).toBe('max_devices_reached');
     });
 
-    it('should define HealthDevicesErrorType with all device-specific error types', () => {
-      expect(HealthDevicesErrorType).toBeDefined();
-      expect(HealthDevicesErrorType.DEVICE_CONNECTION_FAILED).toBeDefined();
-      expect(HealthDevicesErrorType.DEVICE_NOT_FOUND).toBeDefined();
-      expect(HealthDevicesErrorType.SYNCHRONIZATION_FAILED).toBeDefined();
-      expect(HealthDevicesErrorType.DEVICE_COMPATIBILITY_ERROR).toBeDefined();
-      expect(HealthDevicesErrorType.DEVICE_AUTHENTICATION_FAILED).toBeDefined();
-    });
-
-    it('should define HealthFhirErrorType with all FHIR-specific error types', () => {
-      expect(HealthFhirErrorType).toBeDefined();
-      expect(HealthFhirErrorType.FHIR_CONNECTION_FAILED).toBeDefined();
-      expect(HealthFhirErrorType.INVALID_RESOURCE).toBeDefined();
-      expect(HealthFhirErrorType.RESOURCE_NOT_FOUND).toBeDefined();
-      expect(HealthFhirErrorType.OPERATION_NOT_SUPPORTED).toBeDefined();
-      expect(HealthFhirErrorType.FHIR_PROCESSING_FAILED).toBeDefined();
+    it('should define all required FHIRIntegrationErrorType values', () => {
+      expect(Object.keys(FHIRIntegrationErrorType)).toHaveLength(8);
+      expect(FHIRIntegrationErrorType.RESOURCE_VALIDATION_FAILED).toBe('resource_validation_failed');
+      expect(FHIRIntegrationErrorType.RESOURCE_NOT_FOUND).toBe('resource_not_found');
+      expect(FHIRIntegrationErrorType.CONNECTION_FAILED).toBe('connection_failed');
+      expect(FHIRIntegrationErrorType.UNSUPPORTED_OPERATION).toBe('unsupported_operation');
+      expect(FHIRIntegrationErrorType.AUTHENTICATION_FAILED).toBe('authentication_failed');
+      expect(FHIRIntegrationErrorType.MAPPING_FAILED).toBe('mapping_failed');
+      expect(FHIRIntegrationErrorType.REQUEST_TIMEOUT).toBe('request_timeout');
+      expect(FHIRIntegrationErrorType.SERVER_ERROR).toBe('server_error');
     });
   });
 
-  describe('Error Code Prefixes', () => {
-    it('should define the main HEALTH error code prefix', () => {
-      expect(HEALTH_ERROR_CODE_PREFIX).toBeDefined();
-      expect(HEALTH_ERROR_CODE_PREFIX).toBe('HEALTH_');
+  describe('Error Code Constants', () => {
+    it('should define all Health Metrics error codes with correct prefix', () => {
+      const errorCodes = Object.values(HEALTH_METRICS_ERROR_CODES);
+      expect(errorCodes).toHaveLength(8);
+      errorCodes.forEach(code => {
+        expect(code).toMatch(/^HEALTH_METRICS_\d{3}$/);
+      });
     });
 
-    it('should define domain-specific error code prefixes', () => {
-      expect(HEALTH_METRICS_ERROR_CODE_PREFIX).toBeDefined();
-      expect(HEALTH_GOALS_ERROR_CODE_PREFIX).toBeDefined();
-      expect(HEALTH_INSIGHTS_ERROR_CODE_PREFIX).toBeDefined();
-      expect(HEALTH_DEVICES_ERROR_CODE_PREFIX).toBeDefined();
-      expect(HEALTH_FHIR_ERROR_CODE_PREFIX).toBeDefined();
+    it('should define all Health Goals error codes with correct prefix', () => {
+      const errorCodes = Object.values(HEALTH_GOALS_ERROR_CODES);
+      expect(errorCodes).toHaveLength(8);
+      errorCodes.forEach(code => {
+        expect(code).toMatch(/^HEALTH_GOALS_\d{3}$/);
+      });
+    });
 
-      // Verify prefixes follow the pattern HEALTH_DOMAIN_
-      expect(HEALTH_METRICS_ERROR_CODE_PREFIX).toBe('HEALTH_METRICS_');
-      expect(HEALTH_GOALS_ERROR_CODE_PREFIX).toBe('HEALTH_GOALS_');
-      expect(HEALTH_INSIGHTS_ERROR_CODE_PREFIX).toBe('HEALTH_INSIGHTS_');
-      expect(HEALTH_DEVICES_ERROR_CODE_PREFIX).toBe('HEALTH_DEVICES_');
-      expect(HEALTH_FHIR_ERROR_CODE_PREFIX).toBe('HEALTH_FHIR_');
+    it('should define all Health Insights error codes with correct prefix', () => {
+      const errorCodes = Object.values(HEALTH_INSIGHTS_ERROR_CODES);
+      expect(errorCodes).toHaveLength(6);
+      errorCodes.forEach(code => {
+        expect(code).toMatch(/^HEALTH_INSIGHTS_\d{3}$/);
+      });
+    });
+
+    it('should define all Health Device error codes with correct prefix', () => {
+      const errorCodes = Object.values(HEALTH_DEVICE_ERROR_CODES);
+      expect(errorCodes).toHaveLength(8);
+      errorCodes.forEach(code => {
+        expect(code).toMatch(/^HEALTH_DEVICE_\d{3}$/);
+      });
+    });
+
+    it('should define all Health FHIR error codes with correct prefix', () => {
+      const errorCodes = Object.values(HEALTH_FHIR_ERROR_CODES);
+      expect(errorCodes).toHaveLength(8);
+      errorCodes.forEach(code => {
+        expect(code).toMatch(/^HEALTH_FHIR_\d{3}$/);
+      });
+    });
+
+    it('should have unique error codes across all Health domains', () => {
+      const allCodes = [
+        ...Object.values(HEALTH_METRICS_ERROR_CODES),
+        ...Object.values(HEALTH_GOALS_ERROR_CODES),
+        ...Object.values(HEALTH_INSIGHTS_ERROR_CODES),
+        ...Object.values(HEALTH_DEVICE_ERROR_CODES),
+        ...Object.values(HEALTH_FHIR_ERROR_CODES)
+      ];
+      
+      const uniqueCodes = new Set(allCodes);
+      expect(uniqueCodes.size).toBe(allCodes.length);
     });
   });
 
   describe('Type Guards', () => {
-    // Create sample errors for testing type guards
-    const createHealthMetricsError = () => new BaseError({
-      message: 'Invalid metric value',
-      type: ErrorType.VALIDATION,
-      code: 'HEALTH_METRICS_INVALID_VALUE',
-      details: { healthErrorType: HealthErrorType.METRICS, metricErrorType: HealthMetricsErrorType.INVALID_METRIC_VALUE }
+    it('should correctly identify Health Metrics error codes', () => {
+      Object.values(HEALTH_METRICS_ERROR_CODES).forEach(code => {
+        expect(isHealthMetricsErrorCode(code)).toBe(true);
+        expect(isHealthGoalsErrorCode(code)).toBe(false);
+        expect(isHealthInsightsErrorCode(code)).toBe(false);
+        expect(isHealthDeviceErrorCode(code)).toBe(false);
+        expect(isHealthFHIRErrorCode(code)).toBe(false);
+        expect(isHealthErrorCode(code)).toBe(true);
+      });
     });
 
-    const createHealthGoalsError = () => new BaseError({
-      message: 'Goal not found',
-      type: ErrorType.BUSINESS,
-      code: 'HEALTH_GOALS_NOT_FOUND',
-      details: { healthErrorType: HealthErrorType.GOALS, goalErrorType: HealthGoalsErrorType.GOAL_NOT_FOUND }
+    it('should correctly identify Health Goals error codes', () => {
+      Object.values(HEALTH_GOALS_ERROR_CODES).forEach(code => {
+        expect(isHealthMetricsErrorCode(code)).toBe(false);
+        expect(isHealthGoalsErrorCode(code)).toBe(true);
+        expect(isHealthInsightsErrorCode(code)).toBe(false);
+        expect(isHealthDeviceErrorCode(code)).toBe(false);
+        expect(isHealthFHIRErrorCode(code)).toBe(false);
+        expect(isHealthErrorCode(code)).toBe(true);
+      });
     });
 
-    const createHealthInsightsError = () => new BaseError({
-      message: 'Insufficient data for insight',
-      type: ErrorType.BUSINESS,
-      code: 'HEALTH_INSIGHTS_INSUFFICIENT_DATA',
-      details: { healthErrorType: HealthErrorType.INSIGHTS, insightErrorType: HealthInsightsErrorType.INSUFFICIENT_DATA }
+    it('should correctly identify Health Insights error codes', () => {
+      Object.values(HEALTH_INSIGHTS_ERROR_CODES).forEach(code => {
+        expect(isHealthMetricsErrorCode(code)).toBe(false);
+        expect(isHealthGoalsErrorCode(code)).toBe(false);
+        expect(isHealthInsightsErrorCode(code)).toBe(true);
+        expect(isHealthDeviceErrorCode(code)).toBe(false);
+        expect(isHealthFHIRErrorCode(code)).toBe(false);
+        expect(isHealthErrorCode(code)).toBe(true);
+      });
     });
 
-    const createHealthDevicesError = () => new BaseError({
-      message: 'Device connection failed',
-      type: ErrorType.EXTERNAL,
-      code: 'HEALTH_DEVICES_CONNECTION_FAILED',
-      details: { healthErrorType: HealthErrorType.DEVICES, deviceErrorType: HealthDevicesErrorType.DEVICE_CONNECTION_FAILED }
+    it('should correctly identify Health Device error codes', () => {
+      Object.values(HEALTH_DEVICE_ERROR_CODES).forEach(code => {
+        expect(isHealthMetricsErrorCode(code)).toBe(false);
+        expect(isHealthGoalsErrorCode(code)).toBe(false);
+        expect(isHealthInsightsErrorCode(code)).toBe(false);
+        expect(isHealthDeviceErrorCode(code)).toBe(true);
+        expect(isHealthFHIRErrorCode(code)).toBe(false);
+        expect(isHealthErrorCode(code)).toBe(true);
+      });
     });
 
-    const createHealthFhirError = () => new BaseError({
-      message: 'Invalid FHIR resource',
-      type: ErrorType.VALIDATION,
-      code: 'HEALTH_FHIR_INVALID_RESOURCE',
-      details: { healthErrorType: HealthErrorType.FHIR, fhirErrorType: HealthFhirErrorType.INVALID_RESOURCE }
+    it('should correctly identify Health FHIR error codes', () => {
+      Object.values(HEALTH_FHIR_ERROR_CODES).forEach(code => {
+        expect(isHealthMetricsErrorCode(code)).toBe(false);
+        expect(isHealthGoalsErrorCode(code)).toBe(false);
+        expect(isHealthInsightsErrorCode(code)).toBe(false);
+        expect(isHealthDeviceErrorCode(code)).toBe(false);
+        expect(isHealthFHIRErrorCode(code)).toBe(true);
+        expect(isHealthErrorCode(code)).toBe(true);
+      });
     });
 
-    const createNonHealthError = () => new BaseError({
-      message: 'Generic error',
-      type: ErrorType.TECHNICAL,
-      code: 'GENERIC_ERROR'
-    });
+    it('should reject non-Health error codes', () => {
+      const nonHealthCodes = [
+        'CARE_APPOINTMENT_001',
+        'PLAN_BENEFITS_002',
+        'AUTH_003',
+        'UNKNOWN_CODE',
+        '',
+        null,
+        undefined
+      ];
 
-    it('should correctly identify Health errors with isHealthError', () => {
-      expect(isHealthError(createHealthMetricsError())).toBe(true);
-      expect(isHealthError(createHealthGoalsError())).toBe(true);
-      expect(isHealthError(createHealthInsightsError())).toBe(true);
-      expect(isHealthError(createHealthDevicesError())).toBe(true);
-      expect(isHealthError(createHealthFhirError())).toBe(true);
-      expect(isHealthError(createNonHealthError())).toBe(false);
-      expect(isHealthError(new Error('Standard error'))).toBe(false);
-      expect(isHealthError(null)).toBe(false);
-      expect(isHealthError(undefined)).toBe(false);
-    });
-
-    it('should correctly identify Health Metrics errors with isHealthMetricsError', () => {
-      expect(isHealthMetricsError(createHealthMetricsError())).toBe(true);
-      expect(isHealthMetricsError(createHealthGoalsError())).toBe(false);
-      expect(isHealthMetricsError(createHealthInsightsError())).toBe(false);
-      expect(isHealthMetricsError(createHealthDevicesError())).toBe(false);
-      expect(isHealthMetricsError(createHealthFhirError())).toBe(false);
-      expect(isHealthMetricsError(createNonHealthError())).toBe(false);
-    });
-
-    it('should correctly identify Health Goals errors with isHealthGoalsError', () => {
-      expect(isHealthGoalsError(createHealthMetricsError())).toBe(false);
-      expect(isHealthGoalsError(createHealthGoalsError())).toBe(true);
-      expect(isHealthGoalsError(createHealthInsightsError())).toBe(false);
-      expect(isHealthGoalsError(createHealthDevicesError())).toBe(false);
-      expect(isHealthGoalsError(createHealthFhirError())).toBe(false);
-      expect(isHealthGoalsError(createNonHealthError())).toBe(false);
-    });
-
-    it('should correctly identify Health Insights errors with isHealthInsightsError', () => {
-      expect(isHealthInsightsError(createHealthMetricsError())).toBe(false);
-      expect(isHealthInsightsError(createHealthGoalsError())).toBe(false);
-      expect(isHealthInsightsError(createHealthInsightsError())).toBe(true);
-      expect(isHealthInsightsError(createHealthDevicesError())).toBe(false);
-      expect(isHealthInsightsError(createHealthFhirError())).toBe(false);
-      expect(isHealthInsightsError(createNonHealthError())).toBe(false);
-    });
-
-    it('should correctly identify Health Devices errors with isHealthDevicesError', () => {
-      expect(isHealthDevicesError(createHealthMetricsError())).toBe(false);
-      expect(isHealthDevicesError(createHealthGoalsError())).toBe(false);
-      expect(isHealthDevicesError(createHealthInsightsError())).toBe(false);
-      expect(isHealthDevicesError(createHealthDevicesError())).toBe(true);
-      expect(isHealthDevicesError(createHealthFhirError())).toBe(false);
-      expect(isHealthDevicesError(createNonHealthError())).toBe(false);
-    });
-
-    it('should correctly identify Health FHIR errors with isHealthFhirError', () => {
-      expect(isHealthFhirError(createHealthMetricsError())).toBe(false);
-      expect(isHealthFhirError(createHealthGoalsError())).toBe(false);
-      expect(isHealthFhirError(createHealthInsightsError())).toBe(false);
-      expect(isHealthFhirError(createHealthDevicesError())).toBe(false);
-      expect(isHealthFhirError(createHealthFhirError())).toBe(true);
-      expect(isHealthFhirError(createNonHealthError())).toBe(false);
+      nonHealthCodes.forEach(code => {
+        expect(isHealthMetricsErrorCode(code as any)).toBe(false);
+        expect(isHealthGoalsErrorCode(code as any)).toBe(false);
+        expect(isHealthInsightsErrorCode(code as any)).toBe(false);
+        expect(isHealthDeviceErrorCode(code as any)).toBe(false);
+        expect(isHealthFHIRErrorCode(code as any)).toBe(false);
+        expect(isHealthErrorCode(code as any)).toBe(false);
+      });
     });
   });
 
-  describe('Error Code Pattern Validation', () => {
-    it('should validate that error codes follow the correct pattern', () => {
-      // Create a mock error with a valid Health error code
-      const validHealthError = new BaseError({
-        message: 'Valid health error',
-        type: ErrorType.BUSINESS,
-        code: 'HEALTH_METRICS_INVALID_VALUE'
-      });
-
-      // Create a mock error with an invalid Health error code
-      const invalidHealthError = new BaseError({
-        message: 'Invalid health error',
-        type: ErrorType.BUSINESS,
-        code: 'INVALID_CODE_FORMAT'
-      });
-
-      // Test the isHealthError function with these errors
-      expect(isHealthError(validHealthError)).toBe(true);
-      expect(isHealthError(invalidHealthError)).toBe(false);
+  describe('Error Code Mapping Functions', () => {
+    it('should map Health Metrics error types to correct error codes', () => {
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.INVALID_METRIC_DATA))
+        .toBe(HEALTH_METRICS_ERROR_CODES.INVALID_METRIC_DATA);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.UNSUPPORTED_METRIC_TYPE))
+        .toBe(HEALTH_METRICS_ERROR_CODES.UNSUPPORTED_METRIC_TYPE);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.DUPLICATE_METRIC))
+        .toBe(HEALTH_METRICS_ERROR_CODES.DUPLICATE_METRIC);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.METRIC_NOT_FOUND))
+        .toBe(HEALTH_METRICS_ERROR_CODES.METRIC_NOT_FOUND);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.INVALID_DATE_RANGE))
+        .toBe(HEALTH_METRICS_ERROR_CODES.INVALID_DATE_RANGE);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.THRESHOLD_EXCEEDED))
+        .toBe(HEALTH_METRICS_ERROR_CODES.THRESHOLD_EXCEEDED);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.THRESHOLD_NOT_MET))
+        .toBe(HEALTH_METRICS_ERROR_CODES.THRESHOLD_NOT_MET);
+      expect(getHealthMetricsErrorCode(HealthMetricsErrorType.PROCESSING_FAILED))
+        .toBe(HEALTH_METRICS_ERROR_CODES.PROCESSING_FAILED);
     });
 
-    it('should validate domain-specific error code patterns', () => {
-      // Create mock errors with valid domain-specific error codes
-      const validMetricsError = new BaseError({
-        message: 'Valid metrics error',
-        type: ErrorType.VALIDATION,
-        code: 'HEALTH_METRICS_INVALID_VALUE'
+    it('should throw for unknown Health Metrics error types', () => {
+      expect(() => getHealthMetricsErrorCode('unknown_type' as any))
+        .toThrow('Unknown Health Metrics error type: unknown_type');
+    });
+
+    it('should map Health Goals error types to correct error codes', () => {
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.INVALID_GOAL))
+        .toBe(HEALTH_GOALS_ERROR_CODES.INVALID_GOAL);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.DUPLICATE_GOAL))
+        .toBe(HEALTH_GOALS_ERROR_CODES.DUPLICATE_GOAL);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.GOAL_NOT_FOUND))
+        .toBe(HEALTH_GOALS_ERROR_CODES.GOAL_NOT_FOUND);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.INVALID_TARGET))
+        .toBe(HEALTH_GOALS_ERROR_CODES.INVALID_TARGET);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.INVALID_DEADLINE))
+        .toBe(HEALTH_GOALS_ERROR_CODES.INVALID_DEADLINE);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.PROGRESS_CALCULATION_FAILED))
+        .toBe(HEALTH_GOALS_ERROR_CODES.PROGRESS_CALCULATION_FAILED);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.UPDATE_FAILED))
+        .toBe(HEALTH_GOALS_ERROR_CODES.UPDATE_FAILED);
+      expect(getHealthGoalsErrorCode(HealthGoalsErrorType.MAX_GOALS_REACHED))
+        .toBe(HEALTH_GOALS_ERROR_CODES.MAX_GOALS_REACHED);
+    });
+
+    it('should map Health Insights error types to correct error codes', () => {
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.GENERATION_FAILED))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.GENERATION_FAILED);
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.INSUFFICIENT_DATA))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.INSUFFICIENT_DATA);
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.INSIGHT_NOT_FOUND))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.INSIGHT_NOT_FOUND);
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.UNSUPPORTED_TYPE))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.UNSUPPORTED_TYPE);
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.PROCESSING_TIMEOUT))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.PROCESSING_TIMEOUT);
+      expect(getHealthInsightsErrorCode(HealthInsightsErrorType.ALGORITHM_ERROR))
+        .toBe(HEALTH_INSIGHTS_ERROR_CODES.ALGORITHM_ERROR);
+    });
+
+    it('should map Device Connection error types to correct error codes', () => {
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.CONNECTION_FAILED))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.CONNECTION_FAILED);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.DEVICE_NOT_FOUND))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.UNSUPPORTED_DEVICE))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.UNSUPPORTED_DEVICE);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.AUTHENTICATION_FAILED))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.AUTHENTICATION_FAILED);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.SYNC_FAILED))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.SYNC_FAILED);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.ALREADY_CONNECTED))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.ALREADY_CONNECTED);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.UNEXPECTED_DISCONNECT))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.UNEXPECTED_DISCONNECT);
+      expect(getHealthDeviceErrorCode(DeviceConnectionErrorType.MAX_DEVICES_REACHED))
+        .toBe(HEALTH_DEVICE_ERROR_CODES.MAX_DEVICES_REACHED);
+    });
+
+    it('should map FHIR Integration error types to correct error codes', () => {
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.RESOURCE_VALIDATION_FAILED))
+        .toBe(HEALTH_FHIR_ERROR_CODES.RESOURCE_VALIDATION_FAILED);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.RESOURCE_NOT_FOUND))
+        .toBe(HEALTH_FHIR_ERROR_CODES.RESOURCE_NOT_FOUND);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.CONNECTION_FAILED))
+        .toBe(HEALTH_FHIR_ERROR_CODES.CONNECTION_FAILED);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.UNSUPPORTED_OPERATION))
+        .toBe(HEALTH_FHIR_ERROR_CODES.UNSUPPORTED_OPERATION);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.AUTHENTICATION_FAILED))
+        .toBe(HEALTH_FHIR_ERROR_CODES.AUTHENTICATION_FAILED);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.MAPPING_FAILED))
+        .toBe(HEALTH_FHIR_ERROR_CODES.MAPPING_FAILED);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.REQUEST_TIMEOUT))
+        .toBe(HEALTH_FHIR_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(getHealthFHIRErrorCode(FHIRIntegrationErrorType.SERVER_ERROR))
+        .toBe(HEALTH_FHIR_ERROR_CODES.SERVER_ERROR);
+    });
+  });
+
+  describe('Error Type Mapping', () => {
+    it('should map validation error codes to VALIDATION error type', () => {
+      const validationErrorCodes = [
+        HEALTH_METRICS_ERROR_CODES.INVALID_METRIC_DATA,
+        HEALTH_METRICS_ERROR_CODES.INVALID_DATE_RANGE,
+        HEALTH_GOALS_ERROR_CODES.INVALID_GOAL,
+        HEALTH_GOALS_ERROR_CODES.INVALID_TARGET,
+        HEALTH_GOALS_ERROR_CODES.INVALID_DEADLINE,
+        HEALTH_FHIR_ERROR_CODES.RESOURCE_VALIDATION_FAILED
+      ];
+
+      validationErrorCodes.forEach(code => {
+        expect(getErrorTypeFromHealthCode(code)).toBe(ErrorType.VALIDATION);
       });
+    });
 
-      const validGoalsError = new BaseError({
-        message: 'Valid goals error',
-        type: ErrorType.BUSINESS,
-        code: 'HEALTH_GOALS_NOT_FOUND'
+    it('should map business error codes to BUSINESS error type', () => {
+      const businessErrorCodes = [
+        HEALTH_METRICS_ERROR_CODES.DUPLICATE_METRIC,
+        HEALTH_METRICS_ERROR_CODES.METRIC_NOT_FOUND,
+        HEALTH_METRICS_ERROR_CODES.THRESHOLD_EXCEEDED,
+        HEALTH_METRICS_ERROR_CODES.THRESHOLD_NOT_MET,
+        HEALTH_GOALS_ERROR_CODES.DUPLICATE_GOAL,
+        HEALTH_GOALS_ERROR_CODES.GOAL_NOT_FOUND,
+        HEALTH_GOALS_ERROR_CODES.MAX_GOALS_REACHED,
+        HEALTH_INSIGHTS_ERROR_CODES.INSUFFICIENT_DATA,
+        HEALTH_INSIGHTS_ERROR_CODES.INSIGHT_NOT_FOUND,
+        HEALTH_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+        HEALTH_DEVICE_ERROR_CODES.ALREADY_CONNECTED,
+        HEALTH_DEVICE_ERROR_CODES.MAX_DEVICES_REACHED,
+        HEALTH_FHIR_ERROR_CODES.RESOURCE_NOT_FOUND
+      ];
+
+      businessErrorCodes.forEach(code => {
+        expect(getErrorTypeFromHealthCode(code)).toBe(ErrorType.BUSINESS);
       });
+    });
 
-      const validInsightsError = new BaseError({
-        message: 'Valid insights error',
-        type: ErrorType.BUSINESS,
-        code: 'HEALTH_INSIGHTS_INSUFFICIENT_DATA'
+    it('should map external system error codes to EXTERNAL error type', () => {
+      const externalErrorCodes = [
+        HEALTH_DEVICE_ERROR_CODES.CONNECTION_FAILED,
+        HEALTH_DEVICE_ERROR_CODES.AUTHENTICATION_FAILED,
+        HEALTH_DEVICE_ERROR_CODES.SYNC_FAILED,
+        HEALTH_DEVICE_ERROR_CODES.UNEXPECTED_DISCONNECT,
+        HEALTH_FHIR_ERROR_CODES.CONNECTION_FAILED,
+        HEALTH_FHIR_ERROR_CODES.AUTHENTICATION_FAILED,
+        HEALTH_FHIR_ERROR_CODES.REQUEST_TIMEOUT,
+        HEALTH_FHIR_ERROR_CODES.SERVER_ERROR
+      ];
+
+      externalErrorCodes.forEach(code => {
+        expect(getErrorTypeFromHealthCode(code)).toBe(ErrorType.EXTERNAL);
       });
+    });
 
-      const validDevicesError = new BaseError({
-        message: 'Valid devices error',
-        type: ErrorType.EXTERNAL,
-        code: 'HEALTH_DEVICES_CONNECTION_FAILED'
+    it('should map technical error codes to TECHNICAL error type', () => {
+      const technicalErrorCodes = [
+        HEALTH_METRICS_ERROR_CODES.UNSUPPORTED_METRIC_TYPE,
+        HEALTH_METRICS_ERROR_CODES.PROCESSING_FAILED,
+        HEALTH_GOALS_ERROR_CODES.PROGRESS_CALCULATION_FAILED,
+        HEALTH_GOALS_ERROR_CODES.UPDATE_FAILED,
+        HEALTH_INSIGHTS_ERROR_CODES.GENERATION_FAILED,
+        HEALTH_INSIGHTS_ERROR_CODES.UNSUPPORTED_TYPE,
+        HEALTH_INSIGHTS_ERROR_CODES.PROCESSING_TIMEOUT,
+        HEALTH_INSIGHTS_ERROR_CODES.ALGORITHM_ERROR,
+        HEALTH_DEVICE_ERROR_CODES.UNSUPPORTED_DEVICE,
+        HEALTH_FHIR_ERROR_CODES.UNSUPPORTED_OPERATION,
+        HEALTH_FHIR_ERROR_CODES.MAPPING_FAILED
+      ];
+
+      technicalErrorCodes.forEach(code => {
+        expect(getErrorTypeFromHealthCode(code)).toBe(ErrorType.TECHNICAL);
       });
-
-      const validFhirError = new BaseError({
-        message: 'Valid FHIR error',
-        type: ErrorType.VALIDATION,
-        code: 'HEALTH_FHIR_INVALID_RESOURCE'
-      });
-
-      // Test the domain-specific type guards with these errors
-      expect(isHealthMetricsError(validMetricsError)).toBe(true);
-      expect(isHealthGoalsError(validGoalsError)).toBe(true);
-      expect(isHealthInsightsError(validInsightsError)).toBe(true);
-      expect(isHealthDevicesError(validDevicesError)).toBe(true);
-      expect(isHealthFhirError(validFhirError)).toBe(true);
-
-      // Cross-check to ensure domain-specific guards don't match other domains
-      expect(isHealthMetricsError(validGoalsError)).toBe(false);
-      expect(isHealthGoalsError(validInsightsError)).toBe(false);
-      expect(isHealthInsightsError(validDevicesError)).toBe(false);
-      expect(isHealthDevicesError(validFhirError)).toBe(false);
-      expect(isHealthFhirError(validMetricsError)).toBe(false);
     });
   });
 });
