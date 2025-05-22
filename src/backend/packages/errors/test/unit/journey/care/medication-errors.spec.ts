@@ -1,7 +1,5 @@
-import { describe, expect, it } from '@jest/globals';
 import { HttpStatus } from '@nestjs/common';
-
-// Import the error classes and related types
+import { ErrorType } from '../../../../../../../shared/src/exceptions/exceptions.types';
 import {
   MedicationNotFoundError,
   MedicationInteractionError,
@@ -10,423 +8,329 @@ import {
   MedicationPersistenceError,
   MedicationExternalLookupError,
   PharmacyIntegrationError
-} from '../../../../src/journey/care/medication-errors';
-import { ErrorType } from '../../../../src/base';
-import { CARE_MEDICATION_ERROR_CODES } from '../../../../src/journey/care/error-codes';
+} from '../../../../../src/journey/care/medication-errors';
 
-/**
- * Test suite for Care journey medication error classes
- * Verifies error classification, code prefixing, context capture, and HTTP status code mapping
- */
 describe('Care Journey Medication Errors', () => {
-  // Common test data
-  const medicationId = 'med-123';
-  const userId = 'user-456';
-  const dosage = '10mg twice daily';
-  const interactingMedications = ['med-456', 'med-789'];
-  const requestId = 'req-abc123';
+  const ERROR_CODE_PREFIX = 'CARE_MED_';
 
   describe('MedicationNotFoundError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationNotFoundError({
-        medicationId,
-        message: `Medication with ID ${medicationId} not found`,
-        context: { requestId, userId }
-      });
+    const medicationId = 'med-123';
+    const details = { userId: 'user-456' };
+    let error: MedicationNotFoundError;
 
+    beforeEach(() => {
+      error = new MedicationNotFoundError(medicationId, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Medication with ID ${medicationId} not found`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.MEDICATION_NOT_FOUND);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture medication-specific context', () => {
-      const error = new MedicationNotFoundError({
-        medicationId,
-        message: `Medication with ID ${medicationId} not found`,
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({ medicationId });
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}001`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationNotFoundError({
-        medicationId,
-        message: `Medication with ID ${medicationId} not found`,
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // Business errors map to 422 Unprocessable Entity
       expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: `${ERROR_CODE_PREFIX}001`,
+          message: `Medication with ID ${medicationId} not found`,
+          details
+        }
+      });
     });
   });
 
   describe('MedicationInteractionError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationInteractionError({
-        medicationId,
-        interactingMedications,
-        message: 'Potential dangerous interaction detected',
-        context: { requestId, userId }
-      });
+    const medicationName = 'Aspirin';
+    const interactingWith = 'Warfarin';
+    const details = { severity: 'high', recommendation: 'avoid combination' };
+    let error: MedicationInteractionError;
 
+    beforeEach(() => {
+      error = new MedicationInteractionError(medicationName, interactingWith, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Potential interaction detected between ${medicationName} and ${interactingWith}`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.MEDICATION_INTERACTION);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture interaction-specific context', () => {
-      const error = new MedicationInteractionError({
-        medicationId,
-        interactingMedications,
-        interactionSeverity: 'high',
-        message: 'Potential dangerous interaction detected',
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        interactingMedications,
-        interactionSeverity: 'high'
-      });
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}002`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationInteractionError({
-        medicationId,
-        interactingMedications,
-        message: 'Potential dangerous interaction detected',
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // Business errors map to 422 Unprocessable Entity
       expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: `${ERROR_CODE_PREFIX}002`,
+          message: `Potential interaction detected between ${medicationName} and ${interactingWith}`,
+          details
+        }
+      });
     });
   });
 
   describe('MedicationDosageError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationDosageError({
-        medicationId,
-        dosage,
-        message: 'Invalid medication dosage',
-        context: { requestId, userId }
-      });
+    const medicationName = 'Metformin';
+    const message = 'Exceeds maximum daily dose';
+    const details = { prescribed: '3000mg', maximum: '2500mg' };
+    let error: MedicationDosageError;
 
+    beforeEach(() => {
+      error = new MedicationDosageError(medicationName, message, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Invalid dosage for ${medicationName}: ${message}`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.VALIDATION);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.INVALID_DOSAGE);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture dosage-specific context', () => {
-      const recommendedDosage = '5mg once daily';
-      const error = new MedicationDosageError({
-        medicationId,
-        dosage,
-        recommendedDosage,
-        message: 'Invalid medication dosage',
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        dosage,
-        recommendedDosage
-      });
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}003`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationDosageError({
-        medicationId,
-        dosage,
-        message: 'Invalid medication dosage',
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // Validation errors map to 400 Bad Request
       expect(httpException.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.VALIDATION,
+          code: `${ERROR_CODE_PREFIX}003`,
+          message: `Invalid dosage for ${medicationName}: ${message}`,
+          details
+        }
+      });
     });
   });
 
   describe('MedicationAdherenceError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationAdherenceError({
-        medicationId,
-        adherenceRate: 0.65,
-        message: 'Low medication adherence detected',
-        context: { requestId, userId }
-      });
+    const medicationName = 'Lisinopril';
+    const message = 'Missed 3 consecutive doses';
+    const details = { missedDoses: 3, lastTaken: '2023-05-15T10:30:00Z' };
+    let error: MedicationAdherenceError;
 
+    beforeEach(() => {
+      error = new MedicationAdherenceError(medicationName, message, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Medication adherence issue for ${medicationName}: ${message}`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.ADHERENCE_ISSUE);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture adherence-specific context', () => {
-      const error = new MedicationAdherenceError({
-        medicationId,
-        adherenceRate: 0.65,
-        expectedAdherenceRate: 0.9,
-        missedDoses: 3,
-        message: 'Low medication adherence detected',
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        adherenceRate: 0.65,
-        expectedAdherenceRate: 0.9,
-        missedDoses: 3
-      });
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}004`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationAdherenceError({
-        medicationId,
-        adherenceRate: 0.65,
-        message: 'Low medication adherence detected',
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // Business errors map to 422 Unprocessable Entity
       expect(httpException.getStatus()).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: `${ERROR_CODE_PREFIX}004`,
+          message: `Medication adherence issue for ${medicationName}: ${message}`,
+          details
+        }
+      });
     });
   });
 
   describe('MedicationPersistenceError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationPersistenceError({
-        medicationId,
-        operation: 'create',
-        message: 'Failed to persist medication data',
-        cause: new Error('Database connection error'),
-        context: { requestId, userId }
-      });
+    const operation = 'save';
+    const cause = new Error('Database connection failed');
+    const details = { medicationId: 'med-789', attempt: 2 };
+    let error: MedicationPersistenceError;
 
+    beforeEach(() => {
+      error = new MedicationPersistenceError(operation, cause, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Failed to ${operation} medication data`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.PERSISTENCE_FAILURE);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture persistence-specific context', () => {
-      const error = new MedicationPersistenceError({
-        medicationId,
-        operation: 'create',
-        message: 'Failed to persist medication data',
-        cause: new Error('Database connection error'),
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        operation: 'create'
-      });
-      expect(error.cause).toBeDefined();
-      expect(error.cause.message).toBe('Database connection error');
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}005`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationPersistenceError({
-        medicationId,
-        operation: 'create',
-        message: 'Failed to persist medication data',
-        cause: new Error('Database connection error')
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should include the cause error', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // Technical errors map to 500 Internal Server Error
       expect(httpException.getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.TECHNICAL,
+          code: `${ERROR_CODE_PREFIX}005`,
+          message: `Failed to ${operation} medication data`,
+          details
+        }
+      });
     });
   });
 
   describe('MedicationExternalLookupError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new MedicationExternalLookupError({
-        medicationId,
-        externalSystem: 'DrugInfoAPI',
-        message: 'Failed to retrieve medication information from external system',
-        cause: new Error('API timeout'),
-        context: { requestId, userId }
-      });
+    const medicationName = 'Atorvastatin';
+    const service = 'DrugBank API';
+    const cause = new Error('API request timeout');
+    const details = { requestId: 'req-123', timeout: 30000 };
+    let error: MedicationExternalLookupError;
 
+    beforeEach(() => {
+      error = new MedicationExternalLookupError(medicationName, service, cause, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Failed to retrieve information for ${medicationName} from ${service}`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.EXTERNAL);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.EXTERNAL_LOOKUP_FAILURE);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture external lookup-specific context', () => {
-      const error = new MedicationExternalLookupError({
-        medicationId,
-        externalSystem: 'DrugInfoAPI',
-        externalReference: 'DI-456',
-        message: 'Failed to retrieve medication information from external system',
-        cause: new Error('API timeout'),
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        externalSystem: 'DrugInfoAPI',
-        externalReference: 'DI-456'
-      });
-      expect(error.cause).toBeDefined();
-      expect(error.cause.message).toBe('API timeout');
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}006`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new MedicationExternalLookupError({
-        medicationId,
-        externalSystem: 'DrugInfoAPI',
-        message: 'Failed to retrieve medication information from external system',
-        cause: new Error('API timeout')
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should include the cause error', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // External errors map to 502 Bad Gateway
       expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    });
+
+    it('should have the correct JSON representation', () => {
+      const json = error.toJSON();
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.EXTERNAL,
+          code: `${ERROR_CODE_PREFIX}006`,
+          message: `Failed to retrieve information for ${medicationName} from ${service}`,
+          details
+        }
+      });
     });
   });
 
   describe('PharmacyIntegrationError', () => {
-    it('should create error with correct type and code prefix', () => {
-      const error = new PharmacyIntegrationError({
-        medicationId,
-        pharmacyId: 'pharm-123',
-        message: 'Failed to send prescription to pharmacy',
-        cause: new Error('Integration service unavailable'),
-        context: { requestId, userId }
-      });
+    const pharmacyName = 'MedExpress Pharmacy';
+    const operation = 'transmit prescription';
+    const cause = new Error('Connection refused');
+    const details = { prescriptionId: 'rx-456', retryCount: 3 };
+    let error: PharmacyIntegrationError;
 
+    beforeEach(() => {
+      error = new PharmacyIntegrationError(pharmacyName, operation, cause, details);
+    });
+
+    it('should have the correct error message', () => {
+      expect(error.message).toBe(`Failed to ${operation} with pharmacy ${pharmacyName}`);
+    });
+
+    it('should have the correct error type', () => {
       expect(error.type).toBe(ErrorType.EXTERNAL);
-      expect(error.code).toBe(CARE_MEDICATION_ERROR_CODES.PHARMACY_INTEGRATION_FAILURE);
-      expect(error.code.startsWith('CARE_MEDICATION_')).toBe(true);
     });
 
-    it('should capture pharmacy-specific context', () => {
-      const error = new PharmacyIntegrationError({
-        medicationId,
-        pharmacyId: 'pharm-123',
-        prescriptionId: 'rx-789',
-        message: 'Failed to send prescription to pharmacy',
-        cause: new Error('Integration service unavailable'),
-        context: { requestId, userId }
-      });
-
-      expect(error.details).toEqual({
-        medicationId,
-        pharmacyId: 'pharm-123',
-        prescriptionId: 'rx-789'
-      });
-      expect(error.cause).toBeDefined();
-      expect(error.cause.message).toBe('Integration service unavailable');
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
+    it('should have the correct error code with prefix', () => {
+      expect(error.code).toBe(`${ERROR_CODE_PREFIX}007`);
     });
 
-    it('should convert to HttpException with correct status code', () => {
-      const error = new PharmacyIntegrationError({
-        medicationId,
-        pharmacyId: 'pharm-123',
-        message: 'Failed to send prescription to pharmacy',
-        cause: new Error('Integration service unavailable')
-      });
+    it('should include the provided details', () => {
+      expect(error.details).toEqual(details);
+    });
 
+    it('should include the cause error', () => {
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should map to the correct HTTP status code', () => {
       const httpException = error.toHttpException();
-      
-      // External errors map to 502 Bad Gateway
       expect(httpException.getStatus()).toBe(HttpStatus.BAD_GATEWAY);
     });
-  });
 
-  describe('Error Serialization', () => {
-    it('should properly serialize medication errors to JSON', () => {
-      const error = new MedicationInteractionError({
-        medicationId,
-        interactingMedications,
-        interactionSeverity: 'high',
-        message: 'Potential dangerous interaction detected',
-        context: { requestId, userId }
-      });
-
+    it('should have the correct JSON representation', () => {
       const json = error.toJSON();
-
-      // Verify JSON structure
-      expect(json.error).toBeDefined();
-      expect(json.error.type).toBe(ErrorType.BUSINESS);
-      expect(json.error.code).toBe(CARE_MEDICATION_ERROR_CODES.MEDICATION_INTERACTION);
-      expect(json.error.message).toBe('Potential dangerous interaction detected');
-      expect(json.error.details).toEqual({
-        medicationId,
-        interactingMedications,
-        interactionSeverity: 'high'
-      });
-      expect(json.error.context).toBeDefined();
-      expect(json.error.context.requestId).toBe(requestId);
-      expect(json.error.context.userId).toBe(userId);
-    });
-
-    it('should include stack trace and cause when requested', () => {
-      const cause = new Error('Original database error');
-      const error = new MedicationPersistenceError({
-        medicationId,
-        operation: 'update',
-        message: 'Failed to update medication record',
-        cause,
-        context: { requestId, userId }
-      });
-
-      const json = error.toJSON({ includeStack: true });
-
-      // Verify stack and cause are included
-      expect(json.error.stack).toBeDefined();
-      expect(json.error.cause).toBeDefined();
-      expect(json.error.cause.message).toBe('Original database error');
-    });
-  });
-
-  describe('Error Context Propagation', () => {
-    it('should propagate context from cause error', () => {
-      // Create a cause error with context
-      const causeError = new MedicationNotFoundError({
-        medicationId,
-        message: 'Medication not found',
-        context: {
-          requestId,
-          userId,
-          journeyContext: 'care'
+      expect(json).toEqual({
+        error: {
+          type: ErrorType.EXTERNAL,
+          code: `${ERROR_CODE_PREFIX}007`,
+          message: `Failed to ${operation} with pharmacy ${pharmacyName}`,
+          details
         }
       });
-
-      // Create a new error with the cause
-      const error = new MedicationPersistenceError({
-        medicationId,
-        operation: 'read',
-        message: 'Failed to read medication data',
-        cause: causeError
-      });
-
-      // Context should be propagated from cause
-      expect(error.context.requestId).toBe(requestId);
-      expect(error.context.userId).toBe(userId);
-      expect(error.context.journeyContext).toBe('care');
     });
   });
 });

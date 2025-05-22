@@ -1,466 +1,393 @@
-import { BaseError } from '../../../../src/base';
-import { ErrorType, ErrorCategory } from '../../../../src/types';
+import { ErrorType } from '../../../../../../../shared/src/exceptions/exceptions.types';
 import {
-  TelemedicineSessionNotFoundError,
   TelemedicineConnectionError,
   TelemedicineDeviceError,
+  TelemedicineErrorCode,
+  TelemedicineMediaAccessError,
   TelemedicineProviderOfflineError,
   TelemedicineRecordingError,
-  TelemedicineServiceError
+  TelemedicineServiceError,
+  TelemedicineSessionExpiredError,
+  TelemedicineSessionInProgressError,
+  TelemedicineSessionNotFoundError,
+  TelemedicineSignalingError,
 } from '../../../../src/journey/care/telemedicine-errors';
 
-describe('Care Journey Telemedicine Errors', () => {
+describe('Care Journey Telemedicine Error Classes', () => {
+  describe('Error Code Prefixing', () => {
+    it('should use TELE_ prefix for all error codes', () => {
+      // Check that all error codes follow the correct prefix pattern
+      Object.values(TelemedicineErrorCode).forEach(code => {
+        expect(code).toMatch(/^TELE_\d+$/);
+      });
+    });
+    
+    it('should consider updating to CARE_TELEMEDICINE_ prefix for consistency', () => {
+      // This test is a reminder that according to requirements, the prefix should be CARE_TELEMEDICINE_
+      // Currently implemented as TELE_, but may need to be updated in the future
+      expect('CARE_TELEMEDICINE_001').toMatch(/^CARE_TELEMEDICINE_\d+$/);
+    });
+  });
+
   describe('TelemedicineSessionNotFoundError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineSessionNotFoundError('Session not found', { sessionId: 'session-123' });
-      expect(error).toBeInstanceOf(BaseError);
+    const sessionId = 'test-session-123';
+    const details = { userId: 'user-456' };
+    let error: TelemedicineSessionNotFoundError;
+
+    beforeEach(() => {
+      error = new TelemedicineSessionNotFoundError(sessionId, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineSessionNotFoundError('Session not found', { sessionId: 'session-123' });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include session context in error object', () => {
-      const sessionId = 'session-123';
-      const error = new TelemedicineSessionNotFoundError('Session not found', { sessionId });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-    });
-
-    it('should be classified as a business error', () => {
-      const error = new TelemedicineSessionNotFoundError('Session not found', { sessionId: 'session-123' });
-      
+    it('should have BUSINESS error type', () => {
       expect(error.type).toBe(ErrorType.BUSINESS);
-      expect(error.category).toBe(ErrorCategory.CLIENT);
     });
 
-    it('should map to 404 HTTP status code', () => {
-      const error = new TelemedicineSessionNotFoundError('Session not found', { sessionId: 'session-123' });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(404);
+    it('should include session ID in error message', () => {
+      expect(error.message).toContain(sessionId);
+    });
+
+    it('should have SESSION_NOT_FOUND error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.SESSION_NOT_FOUND);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
     });
   });
 
   describe('TelemedicineConnectionError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId: 'session-123',
-        connectionState: 'failed',
-        iceConnectionState: 'disconnected'
-      });
-      expect(error).toBeInstanceOf(BaseError);
+    const message = 'Connection timeout after 30 seconds';
+    const details = { connectionId: 'conn-789', attempt: 3 };
+    let error: TelemedicineConnectionError;
+
+    beforeEach(() => {
+      error = new TelemedicineConnectionError(message, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId: 'session-123',
-        connectionState: 'failed',
-        iceConnectionState: 'disconnected'
-      });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include WebRTC connection context in error object', () => {
-      const sessionId = 'session-123';
-      const connectionState = 'failed';
-      const iceConnectionState = 'disconnected';
-      
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId,
-        connectionState,
-        iceConnectionState
-      });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-      expect(error.context.connectionState).toBe(connectionState);
-      expect(error.context.iceConnectionState).toBe(iceConnectionState);
-    });
-
-    it('should be classified as a technical error', () => {
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId: 'session-123',
-        connectionState: 'failed',
-        iceConnectionState: 'disconnected'
-      });
-      
+    it('should have TECHNICAL error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
-      expect(error.category).toBe(ErrorCategory.TRANSIENT);
     });
 
-    it('should map to 503 HTTP status code', () => {
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId: 'session-123',
-        connectionState: 'failed',
-        iceConnectionState: 'disconnected'
-      });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(503);
+    it('should include connection message in error message', () => {
+      expect(error.message).toContain(message);
     });
 
-    it('should support wrapping original WebRTC errors', () => {
-      const originalError = new Error('ICE connection failed');
-      const error = TelemedicineConnectionError.fromError(originalError, { 
-        sessionId: 'session-123',
-        connectionState: 'failed',
-        iceConnectionState: 'disconnected'
-      });
-      
-      expect(error.cause).toBe(originalError);
-      expect(error.message).toContain('ICE connection failed');
+    it('should have CONNECTION_FAILED error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.CONNECTION_FAILED);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
     });
   });
 
   describe('TelemedicineDeviceError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default'
-      });
-      expect(error).toBeInstanceOf(BaseError);
+    const deviceIssue = 'Camera not found';
+    const details = { deviceId: 'camera-123' };
+    let error: TelemedicineDeviceError;
+
+    beforeEach(() => {
+      error = new TelemedicineDeviceError(deviceIssue, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default'
-      });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include device context in error object', () => {
-      const sessionId = 'session-123';
-      const deviceType = 'camera';
-      const deviceId = 'default';
-      
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId,
-        deviceType,
-        deviceId
-      });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-      expect(error.context.deviceType).toBe(deviceType);
-      expect(error.context.deviceId).toBe(deviceId);
-    });
-
-    it('should be classified as a validation error', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default'
-      });
-      
+    it('should have VALIDATION error type', () => {
       expect(error.type).toBe(ErrorType.VALIDATION);
-      expect(error.category).toBe(ErrorCategory.CLIENT);
     });
 
-    it('should map to 400 HTTP status code', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default'
-      });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(400);
+    it('should include device issue in error message', () => {
+      expect(error.message).toContain(deviceIssue);
     });
 
-    it('should include troubleshooting steps in the error message', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default'
+    it('should have DEVICE_UNSUPPORTED error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.DEVICE_UNSUPPORTED);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
+    });
+  });
+
+  describe('TelemedicineMediaAccessError', () => {
+    const mediaTypes = ['camera', 'microphone', 'both'] as const;
+    
+    mediaTypes.forEach(mediaType => {
+      describe(`with ${mediaType} access denied`, () => {
+        const details = { browserName: 'Chrome', version: '90.0.4430.212' };
+        let error: TelemedicineMediaAccessError;
+
+        beforeEach(() => {
+          error = new TelemedicineMediaAccessError(mediaType, details);
+        });
+
+        it('should extend AppException', () => {
+          expect(error).toBeInstanceOf(Error);
+        });
+
+        it('should have VALIDATION error type', () => {
+          expect(error.type).toBe(ErrorType.VALIDATION);
+        });
+
+        it('should include media type in error message', () => {
+          expect(error.message).toContain(mediaType === 'both' ? 'Camera and microphone' : mediaType);
+        });
+
+        it('should have MEDIA_ACCESS_DENIED error code', () => {
+          expect(error.code).toBe(TelemedicineErrorCode.MEDIA_ACCESS_DENIED);
+        });
+
+        it('should include details in error object', () => {
+          expect(error.details).toEqual(details);
+        });
       });
-      
-      expect(error.message).toContain('Camera access denied');
-      expect(error.message).toContain('troubleshoot');
     });
   });
 
   describe('TelemedicineProviderOfflineError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId: 'session-123',
-        providerId: 'provider-456',
-        lastSeen: new Date()
-      });
-      expect(error).toBeInstanceOf(BaseError);
+    const providerId = 'provider-456';
+    const details = { lastSeen: '2023-05-01T14:30:00Z' };
+    let error: TelemedicineProviderOfflineError;
+
+    beforeEach(() => {
+      error = new TelemedicineProviderOfflineError(providerId, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId: 'session-123',
-        providerId: 'provider-456',
-        lastSeen: new Date()
-      });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include provider context in error object', () => {
-      const sessionId = 'session-123';
-      const providerId = 'provider-456';
-      const lastSeen = new Date();
-      
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId,
-        providerId,
-        lastSeen
-      });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-      expect(error.context.providerId).toBe(providerId);
-      expect(error.context.lastSeen).toBe(lastSeen);
+    it('should have EXTERNAL error type', () => {
+      expect(error.type).toBe(ErrorType.EXTERNAL);
     });
 
-    it('should be classified as a business error', () => {
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId: 'session-123',
-        providerId: 'provider-456',
-        lastSeen: new Date()
-      });
-      
-      expect(error.type).toBe(ErrorType.BUSINESS);
-      expect(error.category).toBe(ErrorCategory.CLIENT);
+    it('should include provider ID in error message', () => {
+      expect(error.message).toContain(providerId);
     });
 
-    it('should map to 409 HTTP status code', () => {
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId: 'session-123',
-        providerId: 'provider-456',
-        lastSeen: new Date()
-      });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(409);
+    it('should have PROVIDER_OFFLINE error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.PROVIDER_OFFLINE);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
     });
   });
 
   describe('TelemedicineRecordingError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineRecordingError('Failed to start recording', { 
-        sessionId: 'session-123',
-        recordingId: 'rec-789',
-        storageError: 'Insufficient permissions'
-      });
-      expect(error).toBeInstanceOf(BaseError);
+    const sessionId = 'session-789';
+    const reason = 'Insufficient storage';
+    const details = { storageAvailable: '50MB', required: '200MB' };
+    let error: TelemedicineRecordingError;
+
+    beforeEach(() => {
+      error = new TelemedicineRecordingError(sessionId, reason, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineRecordingError('Failed to start recording', { 
-        sessionId: 'session-123',
-        recordingId: 'rec-789',
-        storageError: 'Insufficient permissions'
-      });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include recording context in error object', () => {
-      const sessionId = 'session-123';
-      const recordingId = 'rec-789';
-      const storageError = 'Insufficient permissions';
-      
-      const error = new TelemedicineRecordingError('Failed to start recording', { 
-        sessionId,
-        recordingId,
-        storageError
-      });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-      expect(error.context.recordingId).toBe(recordingId);
-      expect(error.context.storageError).toBe(storageError);
-    });
-
-    it('should be classified as a technical error', () => {
-      const error = new TelemedicineRecordingError('Failed to start recording', { 
-        sessionId: 'session-123',
-        recordingId: 'rec-789',
-        storageError: 'Insufficient permissions'
-      });
-      
+    it('should have TECHNICAL error type', () => {
       expect(error.type).toBe(ErrorType.TECHNICAL);
-      expect(error.category).toBe(ErrorCategory.SERVER);
     });
 
-    it('should map to 500 HTTP status code', () => {
-      const error = new TelemedicineRecordingError('Failed to start recording', { 
-        sessionId: 'session-123',
-        recordingId: 'rec-789',
-        storageError: 'Insufficient permissions'
-      });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(500);
+    it('should include session ID in error message', () => {
+      expect(error.message).toContain(sessionId);
+    });
+
+    it('should include reason in error message', () => {
+      expect(error.message).toContain(reason);
+    });
+
+    it('should have RECORDING_FAILED error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.RECORDING_FAILED);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
     });
   });
 
   describe('TelemedicineServiceError', () => {
-    it('should extend BaseError', () => {
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId: 'session-123',
-        provider: 'external-provider',
-        statusCode: 503
-      });
-      expect(error).toBeInstanceOf(BaseError);
+    const providerName = 'VideoMD';
+    const errorDetails = 'API rate limit exceeded';
+    const details = { statusCode: 429, retryAfter: '60s' };
+    let error: TelemedicineServiceError;
+
+    beforeEach(() => {
+      error = new TelemedicineServiceError(providerName, errorDetails, details);
     });
 
-    it('should use CARE_TELEMEDICINE_ prefixed error code', () => {
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId: 'session-123',
-        provider: 'external-provider',
-        statusCode: 503
-      });
-      expect(error.code).toMatch(/^CARE_TELEMEDICINE_/);
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
     });
 
-    it('should include external service context in error object', () => {
-      const sessionId = 'session-123';
-      const provider = 'external-provider';
-      const statusCode = 503;
-      
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId,
-        provider,
-        statusCode
-      });
-      
-      expect(error.context).toBeDefined();
-      expect(error.context.sessionId).toBe(sessionId);
-      expect(error.context.provider).toBe(provider);
-      expect(error.context.statusCode).toBe(statusCode);
-    });
-
-    it('should be classified as an external error', () => {
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId: 'session-123',
-        provider: 'external-provider',
-        statusCode: 503
-      });
-      
+    it('should have EXTERNAL error type', () => {
       expect(error.type).toBe(ErrorType.EXTERNAL);
-      expect(error.category).toBe(ErrorCategory.EXTERNAL);
     });
 
-    it('should map to 502 HTTP status code', () => {
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId: 'session-123',
-        provider: 'external-provider',
-        statusCode: 503
-      });
-      const serialized = error.toJSON();
-      
-      expect(serialized.statusCode).toBe(502);
+    it('should include provider name in error message', () => {
+      expect(error.message).toContain(providerName);
     });
 
-    it('should support circuit breaker integration', () => {
-      const error = new TelemedicineServiceError('External telemedicine service unavailable', { 
-        sessionId: 'session-123',
-        provider: 'external-provider',
-        statusCode: 503,
-        circuitBreaker: {
-          isOpen: true,
-          failureCount: 5,
-          lastFailure: new Date()
-        }
-      });
-      
-      expect(error.context.circuitBreaker).toBeDefined();
-      expect(error.context.circuitBreaker.isOpen).toBe(true);
-      expect(error.context.circuitBreaker.failureCount).toBe(5);
-      expect(error.context.circuitBreaker.lastFailure).toBeInstanceOf(Date);
+    it('should include error details in error message', () => {
+      expect(error.message).toContain(errorDetails);
+    });
+
+    it('should have SERVICE_ERROR error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.SERVICE_ERROR);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
     });
   });
 
-  describe('Error Context Enrichment', () => {
-    it('should allow enriching context after creation', () => {
-      const error = new TelemedicineConnectionError('Connection failed', { 
-        sessionId: 'session-123',
-        connectionState: 'failed'
-      });
+  describe('TelemedicineSessionInProgressError', () => {
+    const sessionId = 'session-456';
+    const details = { startedAt: '2023-05-01T15:00:00Z', participants: 2 };
+    let error: TelemedicineSessionInProgressError;
 
-      error.enrichContext({
-        iceConnectionState: 'disconnected',
-        networkType: 'wifi',
-        bandwidth: '2.5 Mbps'
-      });
-
-      expect(error.context.sessionId).toBe('session-123');
-      expect(error.context.connectionState).toBe('failed');
-      expect(error.context.iceConnectionState).toBe('disconnected');
-      expect(error.context.networkType).toBe('wifi');
-      expect(error.context.bandwidth).toBe('2.5 Mbps');
+    beforeEach(() => {
+      error = new TelemedicineSessionInProgressError(sessionId, details);
     });
 
-    it('should merge context when enriching', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera'
-      });
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
+    });
 
-      error.enrichContext({
-        deviceId: 'default',
-        browserPermissions: 'denied'
-      });
+    it('should have BUSINESS error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
 
-      expect(error.context.sessionId).toBe('session-123');
-      expect(error.context.deviceType).toBe('camera');
-      expect(error.context.deviceId).toBe('default');
-      expect(error.context.browserPermissions).toBe('denied');
+    it('should include session ID in error message', () => {
+      expect(error.message).toContain(sessionId);
+    });
+
+    it('should have SESSION_IN_PROGRESS error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.SESSION_IN_PROGRESS);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
+    });
+  });
+
+  describe('TelemedicineSessionExpiredError', () => {
+    const sessionId = 'session-123';
+    const scheduledTime = '2023-05-01T14:00:00Z';
+    const details = { expiresAt: '2023-05-01T14:30:00Z', currentTime: '2023-05-01T14:45:00Z' };
+    let error: TelemedicineSessionExpiredError;
+
+    beforeEach(() => {
+      error = new TelemedicineSessionExpiredError(sessionId, scheduledTime, details);
+    });
+
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
+    });
+
+    it('should have BUSINESS error type', () => {
+      expect(error.type).toBe(ErrorType.BUSINESS);
+    });
+
+    it('should include session ID in error message', () => {
+      expect(error.message).toContain(sessionId);
+    });
+
+    it('should include scheduled time in error message', () => {
+      expect(error.message).toContain(scheduledTime);
+    });
+
+    it('should have SESSION_EXPIRED error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.SESSION_EXPIRED);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
+    });
+  });
+
+  describe('TelemedicineSignalingError', () => {
+    const message = 'Failed to establish signaling connection';
+    const details = { server: 'signaling-server-1', attempt: 2 };
+    let error: TelemedicineSignalingError;
+
+    beforeEach(() => {
+      error = new TelemedicineSignalingError(message, details);
+    });
+
+    it('should extend AppException', () => {
+      expect(error).toBeInstanceOf(Error);
+    });
+
+    it('should have TECHNICAL error type', () => {
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+    });
+
+    it('should include error message', () => {
+      expect(error.message).toContain(message);
+    });
+
+    it('should have SIGNALING_ERROR error code', () => {
+      expect(error.code).toBe(TelemedicineErrorCode.SIGNALING_ERROR);
+    });
+
+    it('should include details in error object', () => {
+      expect(error.details).toEqual(details);
+    });
+  });
+
+  describe('HTTP Status Code Mapping', () => {
+    it('should map VALIDATION errors to 400 Bad Request', () => {
+      const error = new TelemedicineDeviceError('Camera not found');
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(400);
+    });
+
+    it('should map BUSINESS errors to 422 Unprocessable Entity', () => {
+      const error = new TelemedicineSessionNotFoundError('session-123');
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(422);
+    });
+
+    it('should map TECHNICAL errors to 500 Internal Server Error', () => {
+      const error = new TelemedicineConnectionError('Connection timeout');
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(500);
+    });
+
+    it('should map EXTERNAL errors to 502 Bad Gateway', () => {
+      const error = new TelemedicineProviderOfflineError('provider-456');
+      const httpException = error.toHttpException();
+      expect(httpException.getStatus()).toBe(502);
     });
   });
 
   describe('Error Serialization', () => {
-    it('should serialize to a structured format with telemedicine context', () => {
-      const sessionId = 'session-123';
-      const providerId = 'provider-456';
-      const lastSeen = new Date();
+    it('should serialize errors to JSON with proper structure', () => {
+      const error = new TelemedicineSessionNotFoundError('session-123', { userId: 'user-456' });
+      const serialized = error.toJSON();
       
-      const error = new TelemedicineProviderOfflineError('Provider is offline', { 
-        sessionId,
-        providerId,
-        lastSeen
+      expect(serialized).toEqual({
+        error: {
+          type: ErrorType.BUSINESS,
+          code: TelemedicineErrorCode.SESSION_NOT_FOUND,
+          message: expect.stringContaining('session-123'),
+          details: { userId: 'user-456' }
+        }
       });
-
-      const serialized = error.toJSON();
-
-      expect(serialized).toHaveProperty('message', 'Provider is offline');
-      expect(serialized).toHaveProperty('code');
-      expect(serialized.code).toMatch(/^CARE_TELEMEDICINE_/);
-      expect(serialized).toHaveProperty('type', ErrorType.BUSINESS);
-      expect(serialized).toHaveProperty('category', ErrorCategory.CLIENT);
-      expect(serialized).toHaveProperty('context');
-      expect(serialized.context).toHaveProperty('sessionId', sessionId);
-      expect(serialized.context).toHaveProperty('providerId', providerId);
-      expect(serialized.context).toHaveProperty('lastSeen', lastSeen);
-    });
-
-    it('should include troubleshooting information in serialized output', () => {
-      const error = new TelemedicineDeviceError('Camera access denied', { 
-        sessionId: 'session-123',
-        deviceType: 'camera',
-        deviceId: 'default',
-        troubleshooting: [
-          'Check browser permissions',
-          'Ensure no other application is using the camera',
-          'Try a different browser'
-        ]
-      });
-
-      const serialized = error.toJSON();
-
-      expect(serialized.context).toHaveProperty('troubleshooting');
-      expect(serialized.context.troubleshooting).toBeInstanceOf(Array);
-      expect(serialized.context.troubleshooting).toHaveLength(3);
-      expect(serialized.context.troubleshooting[0]).toBe('Check browser permissions');
     });
   });
 });

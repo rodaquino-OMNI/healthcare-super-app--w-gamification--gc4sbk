@@ -1,211 +1,210 @@
-import * as HealthErrors from '../../../../src/journey/health';
-import * as FhirErrors from '../../../../src/journey/health/fhir.errors';
-import * as DevicesErrors from '../../../../src/journey/health/devices.errors';
-import * as InsightsErrors from '../../../../src/journey/health/insights.errors';
-import * as GoalsErrors from '../../../../src/journey/health/goals.errors';
-import * as MetricsErrors from '../../../../src/journey/health/metrics.errors';
-import * as Types from '../../../../src/journey/health/types';
+import { describe, expect, it } from '@jest/globals';
+import * as HealthErrors from '../../../../../../src/journey/health';
+import { Health } from '../../../../../../src/journey/health';
 
 describe('Health Journey Errors Barrel File', () => {
-  describe('Export Structure', () => {
-    it('should export all FHIR errors', () => {
-      // Get all exported members from fhir.errors.ts
-      const fhirErrorNames = Object.keys(FhirErrors);
-      
-      // Verify each error is exported through the barrel file
-      fhirErrorNames.forEach(errorName => {
-        expect(HealthErrors).toHaveProperty(errorName);
-        expect(HealthErrors[errorName]).toBe(FhirErrors[errorName]);
-      });
+  describe('Direct exports', () => {
+    it('should export all metrics error classes', () => {
+      expect(HealthErrors.InvalidMetricValueError).toBeDefined();
+      expect(HealthErrors.MetricNotFoundError).toBeDefined();
+      expect(HealthErrors.MetricTypeNotSupportedError).toBeDefined();
+      expect(HealthErrors.MetricValidationError).toBeDefined();
+      expect(HealthErrors.MetricPersistenceError).toBeDefined();
     });
 
-    it('should export all devices errors', () => {
-      const devicesErrorNames = Object.keys(DevicesErrors);
-      
-      devicesErrorNames.forEach(errorName => {
-        expect(HealthErrors).toHaveProperty(errorName);
-        expect(HealthErrors[errorName]).toBe(DevicesErrors[errorName]);
-      });
-    });
-
-    it('should export all insights errors', () => {
-      const insightsErrorNames = Object.keys(InsightsErrors);
-      
-      insightsErrorNames.forEach(errorName => {
-        expect(HealthErrors).toHaveProperty(errorName);
-        expect(HealthErrors[errorName]).toBe(InsightsErrors[errorName]);
-      });
-    });
-
-    it('should export all goals errors', () => {
-      const goalsErrorNames = Object.keys(GoalsErrors);
-      
-      goalsErrorNames.forEach(errorName => {
-        expect(HealthErrors).toHaveProperty(errorName);
-        expect(HealthErrors[errorName]).toBe(GoalsErrors[errorName]);
-      });
-    });
-
-    it('should export all metrics errors', () => {
-      const metricsErrorNames = Object.keys(MetricsErrors);
-      
-      metricsErrorNames.forEach(errorName => {
-        expect(HealthErrors).toHaveProperty(errorName);
-        expect(HealthErrors[errorName]).toBe(MetricsErrors[errorName]);
-      });
-    });
-
-    it('should export all types', () => {
-      const typeNames = Object.keys(Types);
-      
-      typeNames.forEach(typeName => {
-        expect(HealthErrors).toHaveProperty(typeName);
-        expect(HealthErrors[typeName]).toBe(Types[typeName]);
-      });
-    });
-  });
-
-  describe('Namespaced Exports', () => {
-    it('should provide namespaced access to FHIR errors', () => {
-      expect(HealthErrors.FHIR).toBeDefined();
-      
-      const fhirErrorNames = Object.keys(FhirErrors);
-      fhirErrorNames.forEach(errorName => {
-        expect(HealthErrors.FHIR).toHaveProperty(errorName);
-        expect(HealthErrors.FHIR[errorName]).toBe(FhirErrors[errorName]);
-      });
-    });
-
-    it('should provide namespaced access to devices errors', () => {
-      expect(HealthErrors.Devices).toBeDefined();
-      
-      const devicesErrorNames = Object.keys(DevicesErrors);
-      devicesErrorNames.forEach(errorName => {
-        expect(HealthErrors.Devices).toHaveProperty(errorName);
-        expect(HealthErrors.Devices[errorName]).toBe(DevicesErrors[errorName]);
-      });
-    });
-
-    it('should provide namespaced access to insights errors', () => {
-      expect(HealthErrors.Insights).toBeDefined();
-      
-      const insightsErrorNames = Object.keys(InsightsErrors);
-      insightsErrorNames.forEach(errorName => {
-        expect(HealthErrors.Insights).toHaveProperty(errorName);
-        expect(HealthErrors.Insights[errorName]).toBe(InsightsErrors[errorName]);
-      });
-    });
-
-    it('should provide namespaced access to goals errors', () => {
-      expect(HealthErrors.Goals).toBeDefined();
-      
-      const goalsErrorNames = Object.keys(GoalsErrors);
-      goalsErrorNames.forEach(errorName => {
-        expect(HealthErrors.Goals).toHaveProperty(errorName);
-        expect(HealthErrors.Goals[errorName]).toBe(GoalsErrors[errorName]);
-      });
-    });
-
-    it('should provide namespaced access to metrics errors', () => {
-      expect(HealthErrors.Metrics).toBeDefined();
-      
-      const metricsErrorNames = Object.keys(MetricsErrors);
-      metricsErrorNames.forEach(errorName => {
-        expect(HealthErrors.Metrics).toHaveProperty(errorName);
-        expect(HealthErrors.Metrics[errorName]).toBe(MetricsErrors[errorName]);
-      });
-    });
-  });
-
-  describe('Error Class Verification', () => {
-    it('should export specific FHIR error classes', () => {
-      expect(HealthErrors.FhirConnectionFailureError).toBeDefined();
-      expect(HealthErrors.InvalidResourceError).toBeDefined();
-      expect(HealthErrors.FhirAuthenticationError).toBeDefined();
-      expect(HealthErrors.ResourceNotFoundError).toBeDefined();
-      expect(HealthErrors.UnsupportedResourceTypeError).toBeDefined();
-      expect(HealthErrors.FhirParsingError).toBeDefined();
-    });
-
-    it('should export specific devices error classes', () => {
-      expect(HealthErrors.DeviceConnectionFailureError).toBeDefined();
-      expect(HealthErrors.DeviceAuthenticationError).toBeDefined();
-      expect(HealthErrors.SynchronizationFailedError).toBeDefined();
-      expect(HealthErrors.UnsupportedDeviceError).toBeDefined();
-      expect(HealthErrors.DeviceDataFormatError).toBeDefined();
-      expect(HealthErrors.DeviceTimeoutError).toBeDefined();
-    });
-
-    it('should export specific insights error classes', () => {
-      expect(HealthErrors.InsufficientDataError).toBeDefined();
-      expect(HealthErrors.PatternRecognitionFailureError).toBeDefined();
-      expect(HealthErrors.ContradictoryRecommendationError).toBeDefined();
-      expect(HealthErrors.InsightGenerationTimeoutError).toBeDefined();
-      expect(HealthErrors.UnsupportedInsightTypeError).toBeDefined();
-      expect(HealthErrors.InsightAlgorithmError).toBeDefined();
-    });
-
-    it('should export specific goals error classes', () => {
-      expect(HealthErrors.InvalidGoalParametersError).toBeDefined();
-      expect(HealthErrors.ConflictingGoalsError).toBeDefined();
+    it('should export all goals error classes', () => {
       expect(HealthErrors.GoalNotFoundError).toBeDefined();
-      expect(HealthErrors.GoalTrackingError).toBeDefined();
-      expect(HealthErrors.UnachievableGoalError).toBeDefined();
+      expect(HealthErrors.GoalValidationError).toBeDefined();
+      expect(HealthErrors.GoalProgressUpdateError).toBeDefined();
+      expect(HealthErrors.GoalCompletionError).toBeDefined();
       expect(HealthErrors.GoalPersistenceError).toBeDefined();
     });
 
-    it('should export specific metrics error classes', () => {
-      expect(HealthErrors.InvalidMetricValueError).toBeDefined();
-      expect(HealthErrors.MetricNotFoundError).toBeDefined();
-      expect(HealthErrors.MetricThresholdExceededError).toBeDefined();
-      expect(HealthErrors.MetricPersistenceError).toBeDefined();
-      expect(HealthErrors.ConflictingMetricsError).toBeDefined();
-      expect(HealthErrors.MetricSourceUnavailableError).toBeDefined();
+    it('should export all insights error classes', () => {
+      expect(HealthErrors.InsightGenerationError).toBeDefined();
+      expect(HealthErrors.InsightNotFoundError).toBeDefined();
+      expect(HealthErrors.InsightDataInsufficientError).toBeDefined();
+      expect(HealthErrors.InsightPersistenceError).toBeDefined();
+    });
+
+    it('should export all devices error classes', () => {
+      expect(HealthErrors.DeviceConnectionError).toBeDefined();
+      expect(HealthErrors.DeviceNotFoundError).toBeDefined();
+      expect(HealthErrors.DeviceSyncError).toBeDefined();
+      expect(HealthErrors.DeviceAuthenticationError).toBeDefined();
+      expect(HealthErrors.DeviceTypeNotSupportedError).toBeDefined();
+      expect(HealthErrors.DevicePersistenceError).toBeDefined();
+    });
+
+    it('should export all FHIR error classes', () => {
+      expect(HealthErrors.FHIRIntegrationError).toBeDefined();
+      expect(HealthErrors.FHIRResourceNotFoundError).toBeDefined();
+      expect(HealthErrors.FHIRAuthenticationError).toBeDefined();
+      expect(HealthErrors.FHIRResponseFormatError).toBeDefined();
+      expect(HealthErrors.FHIRRequestValidationError).toBeDefined();
     });
   });
 
-  describe('Import Pattern Consistency', () => {
-    it('should allow importing specific errors directly', () => {
-      const { FhirConnectionFailureError, DeviceConnectionFailureError } = HealthErrors;
-      expect(FhirConnectionFailureError).toBe(FhirErrors.FhirConnectionFailureError);
-      expect(DeviceConnectionFailureError).toBe(DevicesErrors.DeviceConnectionFailureError);
+  describe('Namespace exports', () => {
+    it('should export the Health namespace', () => {
+      expect(Health).toBeDefined();
     });
 
-    it('should allow importing errors through namespaces', () => {
-      const { FHIR, Devices, Insights, Goals, Metrics } = HealthErrors;
-      
-      expect(FHIR.FhirConnectionFailureError).toBe(FhirErrors.FhirConnectionFailureError);
-      expect(Devices.DeviceConnectionFailureError).toBe(DevicesErrors.DeviceConnectionFailureError);
-      expect(Insights.InsufficientDataError).toBe(InsightsErrors.InsufficientDataError);
-      expect(Goals.InvalidGoalParametersError).toBe(GoalsErrors.InvalidGoalParametersError);
-      expect(Metrics.InvalidMetricValueError).toBe(MetricsErrors.InvalidMetricValueError);
+    it('should export the Metrics namespace with all metrics error classes', () => {
+      expect(Health.Metrics).toBeDefined();
+      expect(Health.Metrics.InvalidMetricValueError).toBeDefined();
+      expect(Health.Metrics.MetricNotFoundError).toBeDefined();
+      expect(Health.Metrics.MetricTypeNotSupportedError).toBeDefined();
+      expect(Health.Metrics.MetricValidationError).toBeDefined();
+      expect(Health.Metrics.MetricPersistenceError).toBeDefined();
+    });
+
+    it('should export the Goals namespace with all goals error classes', () => {
+      expect(Health.Goals).toBeDefined();
+      expect(Health.Goals.GoalNotFoundError).toBeDefined();
+      expect(Health.Goals.GoalValidationError).toBeDefined();
+      expect(Health.Goals.GoalProgressUpdateError).toBeDefined();
+      expect(Health.Goals.GoalCompletionError).toBeDefined();
+      expect(Health.Goals.GoalPersistenceError).toBeDefined();
+    });
+
+    it('should export the Insights namespace with all insights error classes', () => {
+      expect(Health.Insights).toBeDefined();
+      expect(Health.Insights.InsightGenerationError).toBeDefined();
+      expect(Health.Insights.InsightNotFoundError).toBeDefined();
+      expect(Health.Insights.InsightDataInsufficientError).toBeDefined();
+      expect(Health.Insights.InsightPersistenceError).toBeDefined();
+    });
+
+    it('should export the Devices namespace with all devices error classes', () => {
+      expect(Health.Devices).toBeDefined();
+      expect(Health.Devices.DeviceConnectionError).toBeDefined();
+      expect(Health.Devices.DeviceNotFoundError).toBeDefined();
+      expect(Health.Devices.DeviceSyncError).toBeDefined();
+      expect(Health.Devices.DeviceAuthenticationError).toBeDefined();
+      expect(Health.Devices.DeviceTypeNotSupportedError).toBeDefined();
+      expect(Health.Devices.DevicePersistenceError).toBeDefined();
+    });
+
+    it('should export the FHIR namespace with all FHIR error classes', () => {
+      expect(Health.FHIR).toBeDefined();
+      expect(Health.FHIR.FHIRIntegrationError).toBeDefined();
+      expect(Health.FHIR.FHIRResourceNotFoundError).toBeDefined();
+      expect(Health.FHIR.FHIRAuthenticationError).toBeDefined();
+      expect(Health.FHIR.FHIRResponseFormatError).toBeDefined();
+      expect(Health.FHIR.FHIRRequestValidationError).toBeDefined();
+    });
+
+    it('should export the ErrorCodes namespace', () => {
+      expect(Health.ErrorCodes).toBeDefined();
     });
   });
 
-  describe('Type Definitions', () => {
-    it('should export error type enums', () => {
-      expect(HealthErrors.HealthMetricsErrorType).toBeDefined();
-      expect(HealthErrors.HealthGoalsErrorType).toBeDefined();
-      expect(HealthErrors.HealthInsightsErrorType).toBeDefined();
-      expect(HealthErrors.HealthDevicesErrorType).toBeDefined();
-      expect(HealthErrors.HealthFhirErrorType).toBeDefined();
+  describe('Error codes', () => {
+    it('should export all metrics error codes', () => {
+      expect(HealthErrors.ErrorCodes.HEALTH_METRICS_INVALID_VALUE).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_METRICS_NOT_FOUND).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_METRICS_TYPE_NOT_SUPPORTED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_METRICS_VALIDATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_METRICS_PERSISTENCE_FAILED).toBeDefined();
     });
 
-    it('should export error code constants', () => {
-      // Metrics error codes
-      expect(HealthErrors.HEALTH_METRICS_INVALID_VALUE).toBeDefined();
-      expect(HealthErrors.HEALTH_METRICS_NOT_FOUND).toBeDefined();
-      expect(HealthErrors.HEALTH_METRICS_THRESHOLD_EXCEEDED).toBeDefined();
-      
-      // Goals error codes
-      expect(HealthErrors.HEALTH_GOALS_INVALID_PARAMETERS).toBeDefined();
-      expect(HealthErrors.HEALTH_GOALS_CONFLICTING).toBeDefined();
-      expect(HealthErrors.HEALTH_GOALS_NOT_FOUND).toBeDefined();
-      
-      // FHIR error codes
-      expect(HealthErrors.HEALTH_FHIR_CONNECTION_FAILURE).toBeDefined();
-      expect(HealthErrors.HEALTH_FHIR_INVALID_RESOURCE).toBeDefined();
-      expect(HealthErrors.HEALTH_FHIR_AUTHENTICATION_ERROR).toBeDefined();
+    it('should export all goals error codes', () => {
+      expect(HealthErrors.ErrorCodes.HEALTH_GOALS_NOT_FOUND).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_GOALS_VALIDATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_GOALS_PROGRESS_UPDATE_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_GOALS_COMPLETION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_GOALS_PERSISTENCE_FAILED).toBeDefined();
+    });
+
+    it('should export all insights error codes', () => {
+      expect(HealthErrors.ErrorCodes.HEALTH_INSIGHTS_GENERATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_INSIGHTS_NOT_FOUND).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_INSIGHTS_DATA_INSUFFICIENT).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_INSIGHTS_PERSISTENCE_FAILED).toBeDefined();
+    });
+
+    it('should export all devices error codes', () => {
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_CONNECTION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_NOT_FOUND).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_SYNC_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_AUTHENTICATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_TYPE_NOT_SUPPORTED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_DEVICES_PERSISTENCE_FAILED).toBeDefined();
+    });
+
+    it('should export all FHIR error codes', () => {
+      expect(HealthErrors.ErrorCodes.HEALTH_FHIR_INTEGRATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_FHIR_RESOURCE_NOT_FOUND).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_FHIR_AUTHENTICATION_FAILED).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_FHIR_RESPONSE_FORMAT_INVALID).toBeDefined();
+      expect(HealthErrors.ErrorCodes.HEALTH_FHIR_REQUEST_VALIDATION_FAILED).toBeDefined();
+    });
+  });
+
+  describe('Error class instantiation', () => {
+    it('should be able to instantiate metrics error classes', () => {
+      const error = new HealthErrors.InvalidMetricValueError('heart_rate', 250, '30-220 bpm');
+      expect(error).toBeInstanceOf(HealthErrors.InvalidMetricValueError);
+      expect(error.message).toContain('heart_rate');
+      expect(error.message).toContain('250');
+    });
+
+    it('should be able to instantiate goals error classes', () => {
+      const error = new HealthErrors.GoalNotFoundError('goal-123');
+      expect(error).toBeInstanceOf(HealthErrors.GoalNotFoundError);
+      expect(error.message).toContain('goal-123');
+    });
+
+    it('should be able to instantiate insights error classes', () => {
+      const error = new HealthErrors.InsightNotFoundError('insight-123');
+      expect(error).toBeInstanceOf(HealthErrors.InsightNotFoundError);
+      expect(error.message).toContain('insight-123');
+    });
+
+    it('should be able to instantiate devices error classes', () => {
+      const error = new HealthErrors.DeviceNotFoundError('device-123');
+      expect(error).toBeInstanceOf(HealthErrors.DeviceNotFoundError);
+      expect(error.message).toContain('device-123');
+    });
+
+    it('should be able to instantiate FHIR error classes', () => {
+      const error = new HealthErrors.FHIRResourceNotFoundError('Patient/123');
+      expect(error).toBeInstanceOf(HealthErrors.FHIRResourceNotFoundError);
+      expect(error.message).toContain('Patient/123');
+    });
+  });
+
+  describe('Namespace error class instantiation', () => {
+    it('should be able to instantiate metrics error classes from namespace', () => {
+      const error = new Health.Metrics.InvalidMetricValueError('heart_rate', 250, '30-220 bpm');
+      expect(error).toBeInstanceOf(HealthErrors.InvalidMetricValueError);
+      expect(error.message).toContain('heart_rate');
+      expect(error.message).toContain('250');
+    });
+
+    it('should be able to instantiate goals error classes from namespace', () => {
+      const error = new Health.Goals.GoalNotFoundError('goal-123');
+      expect(error).toBeInstanceOf(HealthErrors.GoalNotFoundError);
+      expect(error.message).toContain('goal-123');
+    });
+
+    it('should be able to instantiate insights error classes from namespace', () => {
+      const error = new Health.Insights.InsightNotFoundError('insight-123');
+      expect(error).toBeInstanceOf(HealthErrors.InsightNotFoundError);
+      expect(error.message).toContain('insight-123');
+    });
+
+    it('should be able to instantiate devices error classes from namespace', () => {
+      const error = new Health.Devices.DeviceNotFoundError('device-123');
+      expect(error).toBeInstanceOf(HealthErrors.DeviceNotFoundError);
+      expect(error.message).toContain('device-123');
+    });
+
+    it('should be able to instantiate FHIR error classes from namespace', () => {
+      const error = new Health.FHIR.FHIRResourceNotFoundError('Patient/123');
+      expect(error).toBeInstanceOf(HealthErrors.FHIRResourceNotFoundError);
+      expect(error.message).toContain('Patient/123');
     });
   });
 });

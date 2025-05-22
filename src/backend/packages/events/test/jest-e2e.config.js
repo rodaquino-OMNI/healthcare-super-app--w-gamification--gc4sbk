@@ -1,167 +1,113 @@
 /**
- * Jest configuration for end-to-end tests of the events package.
+ * Jest E2E configuration for the events package
  * 
- * This configuration file sets up:
- * - Longer timeouts for event processing tests
- * - Retry policies for flaky Kafka tests
- * - Test database connections when needed
- * - Custom Kafka test environment
- * 
- * @module jest-e2e.config
+ * This configuration is specifically designed for end-to-end tests of the events package,
+ * with special considerations for Kafka testing. It includes longer timeouts for event
+ * processing, retry policies for flaky tests, and proper test isolation.
  */
 
-const path = require('path');
+const { resolve } = require('path');
+const rootDir = resolve(__dirname, '..');
 
 module.exports = {
-  // Display name for this test configuration
-  displayName: 'events-e2e',
+  // Use the custom Kafka test environment for E2E tests
+  testEnvironment: resolve(__dirname, './kafka-test-environment.js'),
   
-  // Test environment configuration
-  testEnvironment: path.join(__dirname, 'kafka-test-environment.js'),
-  testEnvironmentOptions: {
-    // Kafka configuration for tests
-    kafkaBrokerPort: 9092,
-    zookeeperPort: 2181,
-    topicPrefix: 'test',
-    autoCreateTopics: true,
-    cleanupTopics: true,
-    
-    // Additional Kafka options
-    kafka: {
-      clientId: 'events-e2e-test-client',
-      connectionTimeout: 5000,
-      authenticationTimeout: 5000,
-    },
-  },
+  // Root directory for the events package
+  rootDir,
   
-  // Test file patterns
-  testMatch: [
-    '**/*.e2e-spec.ts',
-    '**/*.e2e-test.ts',
-  ],
+  // Specify the test files pattern for E2E tests
+  testMatch: ['**/test/e2e/**/*.e2e-spec.{ts,js}'],
   
-  // Root directory for resolving modules
-  rootDir: path.join(__dirname, '..'),
-  
-  // Module file extensions to handle
-  moduleFileExtensions: ['js', 'json', 'ts'],
-  
-  // Transform TypeScript files
+  // Transform TypeScript files using ts-jest
   transform: {
     '^.+\\.(t|j)s$': ['ts-jest', {
-      tsconfig: path.join(__dirname, '..', 'tsconfig.json'),
+      tsconfig: '<rootDir>/tsconfig.json',
       isolatedModules: true,
     }],
   },
   
-  // Setup files
-  setupFilesAfterEnv: [path.join(__dirname, 'jest-setup.ts')],
-  
-  // Global teardown script
-  globalTeardown: path.join(__dirname, 'global-teardown.js'),
-  
-  // Test timeout configuration (longer for E2E tests)
-  testTimeout: 30000, // 30 seconds for individual tests
-  
-  // Retry configuration for flaky tests
-  retry: 3,
-  
-  // Verbose output for better debugging
-  verbose: true,
+  // Module file extensions for importing
+  moduleFileExtensions: ['js', 'json', 'ts'],
   
   // Coverage configuration
-  collectCoverage: process.env.COLLECT_COVERAGE === 'true',
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
     '!src/**/*.interface.ts',
     '!src/**/*.dto.ts',
-    '!src/**/*.entity.ts',
-    '!src/**/*.module.ts',
     '!src/**/index.ts',
-    '!src/**/*.mock.ts',
-    '!src/**/*.spec.ts',
-    '!src/**/*.test.ts',
-    '!src/**/*.e2e-spec.ts',
-    '!src/**/*.e2e-test.ts',
   ],
-  coverageDirectory: path.join(__dirname, '..', 'coverage', 'e2e'),
-  coverageReporters: ['text', 'lcov', 'clover', 'json'],
+  coverageDirectory: './coverage/e2e',
   
-  // Fail tests on warnings
-  bail: 0,
+  // Setup files
+  setupFilesAfterEnv: ['<rootDir>/test/jest-setup.ts'],
   
-  // Automatically clear mock calls between every test
-  clearMocks: true,
+  // Global teardown script to clean up resources
+  globalTeardown: '<rootDir>/test/global-teardown.js',
   
-  // Indicates whether the coverage information should be restored from the cache
-  restoreMocks: true,
+  // Longer timeout for Kafka operations (30 seconds)
+  // This is necessary because Kafka operations can be slow in test environments
+  testTimeout: 30000,
   
-  // Indicates whether each individual test should be reported during the run
-  reporters: [
-    'default',
-    ['jest-junit', {
-      outputDirectory: path.join(__dirname, '..', 'reports'),
-      outputName: 'events-e2e-junit.xml',
-    }],
-  ],
+  // Retry configuration for flaky tests
+  // Kafka tests can be flaky due to timing issues with message processing
+  retry: 2,
   
-  // Global variables available in all test files
-  globals: {
-    'ts-jest': {
-      isolatedModules: true,
-    },
-    // Environment variables for tests
-    __E2E_TEST__: true,
-  },
+  // Verbose output for better debugging
+  verbose: true,
+  
+  // Test isolation settings
+  maxConcurrency: 1, // Run tests sequentially to avoid Kafka topic conflicts
+  maxWorkers: 1,     // Use a single worker to ensure isolation
   
   // Module name mapper for path aliases
   moduleNameMapper: {
-    '^@app/events/(.*)$': '<rootDir>/src/$1',
-    '^@app/shared/(.*)$': '<rootDir>/../../../shared/src/$1',
-    '^@austa/interfaces/(.*)$': '<rootDir>/../interfaces/$1',
-    '^@austa/(.*)$': '<rootDir>/../$1',
+    '^@app/(.*)$': '<rootDir>/../../../$1',
+    '^@austa/(.*)$': '<rootDir>/../../$1',
   },
   
-  // Test sequencer configuration
-  testSequencer: path.join(__dirname, 'custom-test-sequencer.js'),
-  
-  // Additional configuration for E2E tests
-  maxWorkers: process.env.CI ? 2 : '50%', // Limit parallel execution in CI
-  maxConcurrency: 5, // Limit concurrent tests to prevent Kafka connection issues
-  
-  // Database configuration for tests that need it
-  // These will be available as environment variables in tests
-  testEnvironmentVariables: {
-    // Database connection for tests
-    DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/events_test',
-    // Redis connection for tests
-    REDIS_URL: 'redis://localhost:6379/1',
-    // Kafka configuration
-    KAFKA_BROKERS: 'localhost:9092',
-    KAFKA_CLIENT_ID: 'events-e2e-test-client',
-    KAFKA_GROUP_ID: 'events-e2e-test-group',
-    // Event topics
-    KAFKA_HEALTH_TOPIC: 'health.events.test',
-    KAFKA_CARE_TOPIC: 'care.events.test',
-    KAFKA_PLAN_TOPIC: 'plan.events.test',
-    KAFKA_USER_TOPIC: 'user.events.test',
-    KAFKA_GAME_TOPIC: 'game.events.test',
-    KAFKA_DLQ_TOPIC: 'dlq.events.test',
-    // Test mode flag
-    NODE_ENV: 'test',
+  // Environment variables for tests
+  // These can be overridden by setting actual environment variables
+  testEnvironmentOptions: {
+    // Kafka connection settings for tests
+    KAFKA_BROKERS: process.env.KAFKA_BROKERS || 'localhost:9092',
+    KAFKA_CLIENT_ID: process.env.KAFKA_CLIENT_ID || 'events-e2e-test-client',
+    KAFKA_GROUP_ID: process.env.KAFKA_GROUP_ID || 'events-e2e-test-group',
+    
+    // Schema registry settings
+    SCHEMA_REGISTRY_URL: process.env.SCHEMA_REGISTRY_URL || 'http://localhost:8081',
+    
+    // Test database connection (if needed)
+    DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/test_events',
+    
+    // Logging settings
+    LOG_LEVEL: process.env.LOG_LEVEL || 'error',
+    
+    // Test topic prefix to ensure isolation
+    TEST_TOPIC_PREFIX: process.env.TEST_TOPIC_PREFIX || 'test-events-',
+    
+    // Kafka consumer settings
+    CONSUMER_HEARTBEAT_INTERVAL: 1000,  // Faster heartbeats for quicker test completion
+    CONSUMER_SESSION_TIMEOUT: 10000,    // Shorter session timeout for tests
+    CONSUMER_MAX_POLL_INTERVAL: 15000,  // Maximum time between polls
+    CONSUMER_MAX_BYTES: 1048576,        // 1MB max bytes per partition
+    
+    // Kafka producer settings
+    PRODUCER_TRANSACTION_TIMEOUT: 5000,  // Shorter transaction timeout for tests
+    PRODUCER_REQUEST_TIMEOUT: 3000,      // Shorter request timeout for tests
+    
+    // Retry settings for Kafka operations
+    KAFKA_RETRY_MAX_RETRIES: 3,
+    KAFKA_RETRY_INITIAL_BACKOFF_MS: 100,
+    KAFKA_RETRY_MAX_BACKOFF_MS: 1000,
   },
   
-  // Notification configuration
-  notify: false,
-  notifyMode: 'failure-change',
+  // Detect open handles to identify resource leaks
+  // This is important for Kafka tests which can leave connections open
+  detectOpenHandles: true,
   
-  // Projects configuration for multi-project runner
-  projects: null,
-  
-  // Automatically reset mock state between every test
-  resetMocks: false,
-  
-  // Reset the module registry before running each individual test
-  resetModules: false,
+  // Force exit after tests complete
+  // This helps with Kafka connection issues that can prevent Jest from exiting
+  forceExit: true,
 };

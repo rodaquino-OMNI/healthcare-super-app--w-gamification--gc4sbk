@@ -1,261 +1,192 @@
 /**
- * Jest setup file for the events package
+ * Jest setup file for the @austa/events package
  * 
- * This file configures the testing environment for all event-related tests:
- * - Sets up environment variables for test Kafka connections
- * - Configures global mocks for Kafka clients and producers
- * - Sets up event validation for testing
- * - Ensures proper cleanup between tests
+ * This file configures the testing environment for all Jest tests in the events package.
+ * It sets up environment variables, global mocks, and ensures proper test isolation.
  */
 
-import { jest } from '@jest/globals';
+import { KafkaService } from '../src/kafka/kafka.service';
+import { KafkaProducer } from '../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../src/kafka/kafka.consumer';
+import { EventValidator } from '../src/utils/event-validator';
+import * as dotenv from 'dotenv';
+import { resolve } from 'path';
 
-// Mock KafkaJS
-jest.mock('kafkajs', () => {
-  // Create mock implementations with Jest spy functions
-  const mockConnect = jest.fn().mockResolvedValue(undefined);
-  const mockDisconnect = jest.fn().mockResolvedValue(undefined);
-  const mockSend = jest.fn().mockResolvedValue({
-    topicName: 'test-topic',
-    partition: 0,
-    errorCode: 0,
-  });
-  const mockSubscribe = jest.fn().mockResolvedValue(undefined);
-  const mockRun = jest.fn().mockResolvedValue(undefined);
-  const mockStop = jest.fn().mockResolvedValue(undefined);
-  const mockPause = jest.fn().mockResolvedValue(undefined);
-  const mockResume = jest.fn().mockResolvedValue(undefined);
-  const mockSeek = jest.fn().mockResolvedValue(undefined);
-  const mockCommitOffsets = jest.fn().mockResolvedValue(undefined);
-  const mockCreateTopics = jest.fn().mockResolvedValue(undefined);
-  const mockDeleteTopics = jest.fn().mockResolvedValue(undefined);
-  const mockFetchTopicMetadata = jest.fn().mockResolvedValue({
-    topics: [{ name: 'test-topic', partitions: [{ partitionId: 0 }] }],
-  });
+// Load test environment variables
+dotenv.config({ path: resolve(__dirname, '.env.test') });
 
-  // Mock Producer class
-  const MockProducer = jest.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    disconnect: mockDisconnect,
-    send: mockSend,
-    transaction: jest.fn().mockImplementation(() => ({
-      send: mockSend,
-      commit: jest.fn().mockResolvedValue(undefined),
-      abort: jest.fn().mockResolvedValue(undefined),
-    })),
-    logger: jest.fn(),
-    events: {
-      CONNECT: 'producer.connect',
-      DISCONNECT: 'producer.disconnect',
-      REQUEST: 'producer.request',
-      REQUEST_TIMEOUT: 'producer.request_timeout',
-      REQUEST_QUEUE_SIZE: 'producer.request_queue_size',
-    },
-  }));
+// Set default test environment variables if not already set
+process.env.KAFKA_BROKERS = process.env.KAFKA_BROKERS || 'localhost:9092';
+process.env.KAFKA_CLIENT_ID = process.env.KAFKA_CLIENT_ID || 'events-test-client';
+process.env.KAFKA_CONSUMER_GROUP_ID = process.env.KAFKA_CONSUMER_GROUP_ID || 'events-test-consumer-group';
+process.env.KAFKA_CONNECTION_TIMEOUT = process.env.KAFKA_CONNECTION_TIMEOUT || '3000';
+process.env.KAFKA_REQUEST_TIMEOUT = process.env.KAFKA_REQUEST_TIMEOUT || '5000';
+process.env.KAFKA_RETRY_MAX_RETRIES = process.env.KAFKA_RETRY_MAX_RETRIES || '3';
+process.env.KAFKA_RETRY_INITIAL_BACKOFF = process.env.KAFKA_RETRY_INITIAL_BACKOFF || '300';
+process.env.KAFKA_RETRY_MAX_BACKOFF = process.env.KAFKA_RETRY_MAX_BACKOFF || '1000';
 
-  // Mock Consumer class
-  const MockConsumer = jest.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    disconnect: mockDisconnect,
-    subscribe: mockSubscribe,
-    run: mockRun,
-    stop: mockStop,
-    pause: mockPause,
-    resume: mockResume,
-    seek: mockSeek,
-    commitOffsets: mockCommitOffsets,
-    logger: jest.fn(),
-    events: {
-      CONNECT: 'consumer.connect',
-      DISCONNECT: 'consumer.disconnect',
-      REQUEST: 'consumer.request',
-      REQUEST_TIMEOUT: 'consumer.request_timeout',
-      REQUEST_QUEUE_SIZE: 'consumer.request_queue_size',
-      CRASH: 'consumer.crash',
-    },
-  }));
+// Create global mocks
+jest.mock('../src/kafka/kafka.service');
+jest.mock('../src/kafka/kafka.producer');
+jest.mock('../src/kafka/kafka.consumer');
+jest.mock('../src/utils/event-validator');
 
-  // Mock Admin class
-  const MockAdmin = jest.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    disconnect: mockDisconnect,
-    createTopics: mockCreateTopics,
-    deleteTopics: mockDeleteTopics,
-    fetchTopicMetadata: mockFetchTopicMetadata,
-    logger: jest.fn(),
-    events: {
-      CONNECT: 'admin.connect',
-      DISCONNECT: 'admin.disconnect',
-      REQUEST: 'admin.request',
-      REQUEST_TIMEOUT: 'admin.request_timeout',
-      REQUEST_QUEUE_SIZE: 'admin.request_queue_size',
-    },
-  }));
-
-  // Mock Kafka class
-  const MockKafka = jest.fn().mockImplementation(() => ({
-    producer: jest.fn().mockReturnValue(new MockProducer()),
-    consumer: jest.fn().mockReturnValue(new MockConsumer()),
-    admin: jest.fn().mockReturnValue(new MockAdmin()),
-    logger: jest.fn(),
-  }));
-
-  // Return the mock implementation
-  return {
-    Kafka: MockKafka,
-    logLevel: {
-      NOTHING: 0,
-      ERROR: 1,
-      WARN: 2,
-      INFO: 4,
-      DEBUG: 5,
-    },
-    CompressionTypes: {
-      None: 0,
-      GZIP: 1,
-      Snappy: 2,
-      LZ4: 3,
-      ZSTD: 4,
-    },
-    // Expose mock functions for test assertions and manipulations
-    mockProducer: {
-      connect: mockConnect,
-      disconnect: mockDisconnect,
-      send: mockSend,
-    },
-    mockConsumer: {
-      connect: mockConnect,
-      disconnect: mockDisconnect,
-      subscribe: mockSubscribe,
-      run: mockRun,
-      stop: mockStop,
-      pause: mockPause,
-      resume: mockResume,
-      seek: mockSeek,
-      commitOffsets: mockCommitOffsets,
-    },
-    mockAdmin: {
-      connect: mockConnect,
-      disconnect: mockDisconnect,
-      createTopics: mockCreateTopics,
-      deleteTopics: mockDeleteTopics,
-      fetchTopicMetadata: mockFetchTopicMetadata,
-    },
-  };
+// Mock implementation for KafkaService
+const mockKafkaService = KafkaService as jest.MockedClass<typeof KafkaService>;
+mockKafkaService.prototype.connect = jest.fn().mockResolvedValue(undefined);
+mockKafkaService.prototype.disconnect = jest.fn().mockResolvedValue(undefined);
+mockKafkaService.prototype.getProducer = jest.fn().mockReturnValue({
+  connect: jest.fn().mockResolvedValue(undefined),
+  disconnect: jest.fn().mockResolvedValue(undefined),
+  send: jest.fn().mockResolvedValue({ topicName: 'test-topic', partition: 0, errorCode: 0 }),
 });
 
-// Mock event validation
-jest.mock('../src/utils/event-validator', () => ({
-  validateEvent: jest.fn().mockReturnValue({ valid: true, errors: [] }),
-  validateEventSchema: jest.fn().mockReturnValue({ valid: true, errors: [] }),
-  getEventSchema: jest.fn().mockReturnValue({}),
-}));
+// Mock implementation for KafkaProducer
+const mockKafkaProducer = KafkaProducer as jest.MockedClass<typeof KafkaProducer>;
+mockKafkaProducer.prototype.connect = jest.fn().mockResolvedValue(undefined);
+mockKafkaProducer.prototype.disconnect = jest.fn().mockResolvedValue(undefined);
+mockKafkaProducer.prototype.send = jest.fn().mockResolvedValue({ topicName: 'test-topic', partition: 0, errorCode: 0 });
 
-// Configure environment variables for testing
-process.env.KAFKA_BROKERS = 'localhost:9092';
-process.env.KAFKA_CLIENT_ID = 'test-client';
-process.env.KAFKA_GROUP_ID = 'test-group';
-process.env.KAFKA_CONNECTION_TIMEOUT = '3000';
-process.env.KAFKA_RETRY_MAX_RETRIES = '3';
-process.env.KAFKA_RETRY_INITIAL_RETRY_TIME = '100';
-process.env.KAFKA_RETRY_FACTOR = '1.5';
+// Mock implementation for KafkaConsumer
+const mockKafkaConsumer = KafkaConsumer as jest.MockedClass<typeof KafkaConsumer>;
+mockKafkaConsumer.prototype.connect = jest.fn().mockResolvedValue(undefined);
+mockKafkaConsumer.prototype.disconnect = jest.fn().mockResolvedValue(undefined);
+mockKafkaConsumer.prototype.subscribe = jest.fn().mockResolvedValue(undefined);
+mockKafkaConsumer.prototype.consume = jest.fn().mockResolvedValue(undefined);
 
-// Configure event topics for testing
-process.env.KAFKA_HEALTH_TOPIC = 'health.events.test';
-process.env.KAFKA_CARE_TOPIC = 'care.events.test';
-process.env.KAFKA_PLAN_TOPIC = 'plan.events.test';
-process.env.KAFKA_USER_TOPIC = 'user.events.test';
-process.env.KAFKA_GAME_TOPIC = 'game.events.test';
-process.env.KAFKA_DLQ_TOPIC = 'dlq.events.test';
+// Mock implementation for EventValidator
+const mockEventValidator = EventValidator as jest.MockedClass<typeof EventValidator>;
+mockEventValidator.prototype.validate = jest.fn().mockReturnValue({ valid: true, errors: [] });
 
-// Reset all mocks before each test
+// Configure Jest hooks
+beforeAll(() => {
+  // Set up any global test configuration
+  console.log('Setting up event tests environment...');
+});
+
 beforeEach(() => {
+  // Reset all mocks before each test
   jest.clearAllMocks();
-  
-  // Reset Kafka mock implementations to default behavior
-  const kafkajs = require('kafkajs');
-  
-  // Reset producer mocks
-  kafkajs.mockProducer.connect.mockResolvedValue(undefined);
-  kafkajs.mockProducer.disconnect.mockResolvedValue(undefined);
-  kafkajs.mockProducer.send.mockResolvedValue({
-    topicName: 'test-topic',
-    partition: 0,
-    errorCode: 0,
-  });
-  
-  // Reset consumer mocks
-  kafkajs.mockConsumer.connect.mockResolvedValue(undefined);
-  kafkajs.mockConsumer.disconnect.mockResolvedValue(undefined);
-  kafkajs.mockConsumer.subscribe.mockResolvedValue(undefined);
-  kafkajs.mockConsumer.run.mockResolvedValue(undefined);
-  kafkajs.mockConsumer.stop.mockResolvedValue(undefined);
-  
-  // Reset admin mocks
-  kafkajs.mockAdmin.connect.mockResolvedValue(undefined);
-  kafkajs.mockAdmin.disconnect.mockResolvedValue(undefined);
-  kafkajs.mockAdmin.createTopics.mockResolvedValue(undefined);
-  kafkajs.mockAdmin.deleteTopics.mockResolvedValue(undefined);
-  kafkajs.mockAdmin.fetchTopicMetadata.mockResolvedValue({
-    topics: [{ name: 'test-topic', partitions: [{ partitionId: 0 }] }],
-  });
-  
-  // Reset event validation mocks
-  const eventValidator = require('../src/utils/event-validator');
-  eventValidator.validateEvent.mockReturnValue({ valid: true, errors: [] });
-  eventValidator.validateEventSchema.mockReturnValue({ valid: true, errors: [] });
-  eventValidator.getEventSchema.mockReturnValue({});
 });
 
-// Global teardown after all tests
-afterAll(() => {
-  // Clean up any resources that might persist between test runs
-  jest.restoreAllMocks();
+afterAll(async () => {
+  // Clean up any resources after all tests
+  console.log('Cleaning up event tests environment...');
 });
 
-// Helper function to simulate Kafka message consumption
-global.simulateKafkaMessage = (topic: string, message: any) => {
-  const kafkajs = require('kafkajs');
-  const mockEachMessageFn = kafkajs.mockConsumer.run.mock.calls[0]?.[0]?.eachMessage;
-  
-  if (mockEachMessageFn) {
-    return mockEachMessageFn({
+// Configure Jest globals
+global.EventTestHelpers = {
+  /**
+   * Creates a mock Kafka message for testing
+   * 
+   * @param topic - The Kafka topic
+   * @param payload - The message payload
+   * @param headers - Optional message headers
+   * @returns A mock Kafka message object
+   */
+  createMockKafkaMessage: (topic: string, payload: any, headers: Record<string, string> = {}) => {
+    const value = JSON.stringify(payload);
+    return {
       topic,
       partition: 0,
-      message: {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify(message)),
-        timestamp: Date.now().toString(),
-        offset: '0',
-        headers: {},
-      },
-    });
-  }
-  
-  throw new Error('No consumer is running. Make sure to call consumer.run() before simulating messages.');
-};
+      offset: '0',
+      timestamp: Date.now().toString(),
+      size: value.length,
+      attributes: 0,
+      key: null,
+      value: Buffer.from(value),
+      headers: Object.entries(headers).map(([key, value]) => ({
+        key,
+        value: Buffer.from(value),
+      })),
+    };
+  },
 
-// Helper function to create test events
-global.createTestEvent = (type: string, payload: any, userId: string = 'test-user-id') => {
-  return {
-    eventId: `test-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    source: 'test',
-    type,
-    userId,
-    payload,
-    metadata: {
+  /**
+   * Creates a mock event with the specified type and payload
+   * 
+   * @param eventType - The type of event to create
+   * @param payload - The event payload
+   * @param journeyContext - Optional journey context
+   * @returns A mock event object
+   */
+  createMockEvent: (eventType: string, payload: any, journeyContext?: string) => {
+    return {
+      id: `test-event-${Date.now()}`,
+      type: eventType,
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      payload,
+      journeyContext: journeyContext || 'health',
+      source: 'test',
       correlationId: `test-correlation-${Date.now()}`,
-      journeyContext: type.split('.')[0] || 'test',
-    },
-  };
+    };
+  },
+
+  /**
+   * Waits for a specified amount of time
+   * 
+   * @param ms - The number of milliseconds to wait
+   * @returns A promise that resolves after the specified time
+   */
+  wait: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
 };
 
-// Add global type definitions
+// Add custom matchers
+expect.extend({
+  /**
+   * Custom matcher to check if an event is valid according to its schema
+   */
+  toBeValidEvent(received: any) {
+    const validator = new EventValidator();
+    const result = validator.validate(received);
+    
+    if (result.valid) {
+      return {
+        message: () => 'Expected event to not be valid',
+        pass: true,
+      };
+    } else {
+      return {
+        message: () => `Expected event to be valid, but found errors: ${JSON.stringify(result.errors)}`,
+        pass: false,
+      };
+    }
+  },
+
+  /**
+   * Custom matcher to check if an event has the expected journey context
+   */
+  toHaveJourneyContext(received: any, journeyContext: string) {
+    const pass = received.journeyContext === journeyContext;
+    
+    if (pass) {
+      return {
+        message: () => `Expected event not to have journey context ${journeyContext}`,
+        pass: true,
+      };
+    } else {
+      return {
+        message: () => `Expected event to have journey context ${journeyContext}, but found ${received.journeyContext}`,
+        pass: false,
+      };
+    }
+  },
+});
+
+// Extend TypeScript declarations
 declare global {
   // eslint-disable-next-line no-var
-  var simulateKafkaMessage: (topic: string, message: any) => Promise<void>;
-  // eslint-disable-next-line no-var
-  var createTestEvent: (type: string, payload: any, userId?: string) => any;
+  var EventTestHelpers: {
+    createMockKafkaMessage: (topic: string, payload: any, headers?: Record<string, string>) => any;
+    createMockEvent: (eventType: string, payload: any, journeyContext?: string) => any;
+    wait: (ms: number) => Promise<void>;
+  };
+  
+  namespace jest {
+    interface Matchers<R> {
+      toBeValidEvent(): R;
+      toHaveJourneyContext(journeyContext: string): R;
+    }
+  }
 }

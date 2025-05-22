@@ -1,191 +1,179 @@
 /**
  * Global teardown script for event tests.
  * 
- * This script is executed after all tests have completed and is responsible for:
- * - Disconnecting Kafka clients
- * - Removing test topics
- * - Cleaning up Docker containers
- * - Releasing system resources
+ * This script ensures proper cleanup of test resources after all tests have completed.
+ * It disconnects Kafka connections, removes test topics, and releases any system resources
+ * allocated during tests to prevent resource leaks and ensure complete test isolation
+ * between test runs.
  */
 
 // Import required modules
-const { execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const { Kafka } = require('kafkajs');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
-// Constants
-const KAFKA_CONTAINER_NAME_PREFIX = 'kafka-test';
-const ZOOKEEPER_CONTAINER_NAME_PREFIX = 'zookeeper-test';
-const KAFKA_CLIENT_REGISTRY_PATH = path.join(process.cwd(), '.kafka-clients-registry.json');
+// Constants for Kafka configuration
+const KAFKA_TEST_CLIENT_ID = 'austa-test-teardown';
+const KAFKA_TEST_TOPIC_PREFIX = 'test-';
+const KAFKA_TEST_BROKER = process.env.KAFKA_TEST_BROKER || 'localhost:9092';
 
 /**
- * Logs a message with a timestamp
- * @param {string} message - The message to log
+ * Utility function to execute shell commands and log output
+ * @param {string} command - The shell command to execute
+ * @returns {Promise<string>} - Command output
  */
-function log(message) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Teardown] ${message}`);
+async function executeCommand(command) {
+  try {
+    const { stdout, stderr } = await execPromise(command);
+    if (stderr) {
+      console.warn(`Command warning: ${stderr}`);
+    }
+    return stdout.trim();
+  } catch (error) {
+    console.error(`Command failed: ${error.message}`);
+    return '';
+  }
 }
 
 /**
- * Disconnects all registered Kafka clients
+ * Disconnects all Kafka clients created during testing
+ * @returns {Promise<void>}
  */
 async function disconnectKafkaClients() {
   try {
-    if (!fs.existsSync(KAFKA_CLIENT_REGISTRY_PATH)) {
-      log('No Kafka client registry found, skipping client disconnection');
-      return;
-    }
-
-    const registry = JSON.parse(fs.readFileSync(KAFKA_CLIENT_REGISTRY_PATH, 'utf8'));
-    log(`Found ${registry.length} Kafka clients to disconnect`);
-
-    // The registry contains client IDs that were registered during tests
-    // We need to call the global disconnection function that was registered for each client
-    if (global.__KAFKA_DISCONNECT_CALLBACKS__ && Array.isArray(global.__KAFKA_DISCONNECT_CALLBACKS__)) {
-      log(`Executing ${global.__KAFKA_DISCONNECT_CALLBACKS__.length} disconnect callbacks`);
-      
-      for (const callback of global.__KAFKA_DISCONNECT_CALLBACKS__) {
-        if (typeof callback === 'function') {
-          try {
-            await callback();
-          } catch (error) {
-            log(`Error disconnecting Kafka client: ${error.message}`);
-          }
-        }
+    console.log('Disconnecting Kafka test clients...');
+    
+    // Create a new admin client for cleanup operations
+    const kafka = new Kafka({
+      clientId: KAFKA_TEST_CLIENT_ID,
+      brokers: [KAFKA_TEST_BROKER],
+      retry: {
+        initialRetryTime: 100,
+        retries: 3
       }
+    });
+    
+    const admin = kafka.admin();
+    await admin.connect();
+    
+    // List all topics
+    const topics = await admin.listTopics();
+    
+    // Filter test topics (those with the test prefix)
+    const testTopics = topics.filter(topic => topic.startsWith(KAFKA_TEST_TOPIC_PREFIX));
+    
+    if (testTopics.length > 0) {
+      console.log(`Found ${testTopics.length} test topics to clean up: ${testTopics.join(', ')}`);
+      
+      // Delete all test topics
+      await admin.deleteTopics({
+        topics: testTopics,
+        timeout: 5000
+      });
+      
+      console.log('Successfully deleted test topics');
+    } else {
+      console.log('No test topics found to clean up');
     }
-
-    // Clean up the registry file
-    fs.unlinkSync(KAFKA_CLIENT_REGISTRY_PATH);
-    log('Removed Kafka client registry');
+    
+    // Disconnect admin client
+    await admin.disconnect();
+    console.log('Kafka admin client disconnected');
+    
   } catch (error) {
-    log(`Error disconnecting Kafka clients: ${error.message}`);
+    console.error(`Error disconnecting Kafka clients: ${error.message}`);
+    // Continue with teardown even if there's an error
   }
 }
 
 /**
- * Removes test topics from Kafka
+ * Cleans up Docker containers used for Kafka testing
+ * @returns {Promise<void>}
  */
-function removeTestTopics() {
+async function cleanupDockerContainers() {
   try {
-    // Check if Kafka container is running
-    const containerCheck = execSync('docker ps -q -f name=' + KAFKA_CONTAINER_NAME_PREFIX).toString().trim();
+    console.log('Checking for test Docker containers to clean up...');
     
-    if (!containerCheck) {
-      log('No Kafka container found, skipping topic removal');
-      return;
+    // Find containers with the test label
+    const containersOutput = await executeCommand('docker ps -a --filter "label=austa-test=true" --format "{{.ID}}"');
+    
+    if (containersOutput) {
+      const containerIds = containersOutput.split('\n').filter(Boolean);
+      
+      if (containerIds.length > 0) {
+        console.log(`Found ${containerIds.length} test containers to clean up`);
+        
+        // Stop containers first
+        await executeCommand(`docker stop ${containerIds.join(' ')}`);
+        console.log('Stopped test containers');
+        
+        // Remove containers
+        await executeCommand(`docker rm ${containerIds.join(' ')}`);
+        console.log('Removed test containers');
+      } else {
+        console.log('No test containers found to clean up');
+      }
+    } else {
+      console.log('No test containers found to clean up');
     }
-
-    // Get list of test topics
-    log('Listing test topics...');
-    const listTopicsCmd = `docker exec ${KAFKA_CONTAINER_NAME_PREFIX} kafka-topics --list --bootstrap-server localhost:9092`;
-    const topics = execSync(listTopicsCmd).toString().trim().split('\n');
-    const testTopics = topics.filter(topic => topic.startsWith('test-'));
-    
-    if (testTopics.length === 0) {
-      log('No test topics found');
-      return;
-    }
-    
-    log(`Found ${testTopics.length} test topics to remove`);
-    
-    // Delete each test topic
-    for (const topic of testTopics) {
-      log(`Removing topic: ${topic}`);
-      const deleteTopicCmd = `docker exec ${KAFKA_CONTAINER_NAME_PREFIX} kafka-topics --delete --topic ${topic} --bootstrap-server localhost:9092`;
-      execSync(deleteTopicCmd);
-    }
-    
-    log('All test topics removed successfully');
   } catch (error) {
-    log(`Error removing test topics: ${error.message}`);
+    console.error(`Error cleaning up Docker containers: ${error.message}`);
+    // Continue with teardown even if there's an error
   }
 }
 
 /**
- * Stops and removes Docker containers used for testing
+ * Validates that the test environment is properly cleaned up
+ * @returns {Promise<void>}
  */
-function cleanupDockerContainers() {
+async function validateCleanup() {
   try {
-    log('Cleaning up Docker containers...');
+    console.log('Validating test environment cleanup...');
     
-    // Check for Kafka container
-    const kafkaContainer = execSync(`docker ps -a -q -f name=${KAFKA_CONTAINER_NAME_PREFIX}`).toString().trim();
-    if (kafkaContainer) {
-      log(`Stopping and removing Kafka container: ${KAFKA_CONTAINER_NAME_PREFIX}`);
-      execSync(`docker stop ${KAFKA_CONTAINER_NAME_PREFIX}`);
-      execSync(`docker rm ${KAFKA_CONTAINER_NAME_PREFIX}`);
+    // Check for any remaining Kafka connections
+    const kafkaProcesses = await executeCommand('ps aux | grep kafka | grep -v grep | wc -l');
+    if (parseInt(kafkaProcesses, 10) > 0) {
+      console.warn(`Warning: ${kafkaProcesses} Kafka-related processes still running after cleanup`);
+    } else {
+      console.log('No lingering Kafka processes found');
     }
     
-    // Check for ZooKeeper container
-    const zookeeperContainer = execSync(`docker ps -a -q -f name=${ZOOKEEPER_CONTAINER_NAME_PREFIX}`).toString().trim();
-    if (zookeeperContainer) {
-      log(`Stopping and removing ZooKeeper container: ${ZOOKEEPER_CONTAINER_NAME_PREFIX}`);
-      execSync(`docker stop ${ZOOKEEPER_CONTAINER_NAME_PREFIX}`);
-      execSync(`docker rm ${ZOOKEEPER_CONTAINER_NAME_PREFIX}`);
+    // Check for any remaining test containers
+    const remainingContainers = await executeCommand('docker ps -a --filter "label=austa-test=true" --format "{{.ID}}" | wc -l');
+    if (parseInt(remainingContainers, 10) > 0) {
+      console.warn(`Warning: ${remainingContainers} test containers still present after cleanup`);
+    } else {
+      console.log('No lingering test containers found');
     }
     
-    log('Docker containers cleaned up successfully');
+    console.log('Cleanup validation completed');
   } catch (error) {
-    log(`Error cleaning up Docker containers: ${error.message}`);
+    console.error(`Error validating cleanup: ${error.message}`);
+    // Continue with teardown even if there's an error
   }
 }
 
 /**
- * Cleans up any temporary files created during testing
+ * Main teardown function that orchestrates the cleanup process
+ * @returns {Promise<void>}
  */
-function cleanupTempFiles() {
-  try {
-    const tempDir = path.join(process.cwd(), '.tmp');
-    if (fs.existsSync(tempDir)) {
-      log(`Removing temporary directory: ${tempDir}`);
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
-    
-    // Clean up any other temp files that might have been created
-    const testLogFile = path.join(process.cwd(), 'kafka-test.log');
-    if (fs.existsSync(testLogFile)) {
-      log(`Removing test log file: ${testLogFile}`);
-      fs.unlinkSync(testLogFile);
-    }
-  } catch (error) {
-    log(`Error cleaning up temporary files: ${error.message}`);
-  }
-}
-
-/**
- * Main teardown function
- */
-module.exports = async () => {
-  log('Starting global teardown for event tests...');
+async function teardown() {
+  console.log('Starting global teardown for event tests...');
   
   try {
-    // Disconnect Kafka clients first to ensure clean shutdown
+    // Perform cleanup tasks in sequence
     await disconnectKafkaClients();
+    await cleanupDockerContainers();
+    await validateCleanup();
     
-    // Remove test topics
-    removeTestTopics();
-    
-    // Clean up Docker containers
-    cleanupDockerContainers();
-    
-    // Clean up temporary files
-    cleanupTempFiles();
-    
-    // Reset global variables
-    if (global.__KAFKA_DISCONNECT_CALLBACKS__) {
-      global.__KAFKA_DISCONNECT_CALLBACKS__ = [];
-    }
-    
-    log('Global teardown completed successfully');
+    console.log('Global teardown completed successfully');
   } catch (error) {
-    log(`Error during global teardown: ${error.message}`);
-    log(error.stack);
-    // Don't throw the error to prevent test failures due to teardown issues
-    // But exit with a non-zero code if this is a CI environment
-    if (process.env.CI === 'true') {
-      process.exit(1);
-    }
+    console.error(`Global teardown failed: ${error.message}`);
+    // Exit with error code to indicate teardown failure
+    process.exit(1);
   }
-};
+}
+
+// Export the teardown function as the module's default export
+module.exports = teardown;

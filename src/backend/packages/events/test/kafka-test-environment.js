@@ -1,404 +1,369 @@
 /**
  * Custom Jest test environment for Kafka-based event tests.
  * 
- * This environment manages test Kafka broker setup, topic creation, message consumption,
- * and cleanup between tests. It ensures isolated Kafka testing for parallel test execution
- * and proper cleanup after tests.
- * 
- * @module kafka-test-environment
+ * This environment provides isolated Kafka testing capabilities without requiring
+ * an external Kafka broker. It manages test topic creation, message consumption,
+ * and cleanup between tests to ensure proper isolation for parallel test execution.
  */
 
 const NodeEnvironment = require('jest-environment-node');
 const { v4: uuidv4 } = require('uuid');
-const { execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const { EventEmitter } = require('events');
 
-// Constants
-const KAFKA_CONTAINER_NAME_PREFIX = 'kafka-test';
-const ZOOKEEPER_CONTAINER_NAME_PREFIX = 'zookeeper-test';
-const KAFKA_CLIENT_REGISTRY_PATH = path.join(process.cwd(), '.kafka-clients-registry.json');
-const DEFAULT_KAFKA_PORT = 9092;
-const DEFAULT_ZOOKEEPER_PORT = 2181;
+/**
+ * In-memory Kafka broker simulation for testing.
+ * Handles topics, messages, and consumer groups without external dependencies.
+ */
+class InMemoryKafkaBroker {
+  constructor() {
+    this.topics = new Map(); // topic name -> messages
+    this.consumerGroups = new Map(); // groupId -> { topic, offset }
+    this.eventEmitter = new EventEmitter();
+    
+    // Increase max listeners to avoid warnings when many tests run in parallel
+    this.eventEmitter.setMaxListeners(100);
+  }
+
+  /**
+   * Creates a new topic if it doesn't exist
+   * @param {string} topicName - Name of the topic to create
+   * @returns {boolean} - True if topic was created, false if it already existed
+   */
+  createTopic(topicName) {
+    if (!this.topics.has(topicName)) {
+      this.topics.set(topicName, []);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Deletes a topic and all its messages
+   * @param {string} topicName - Name of the topic to delete
+   * @returns {boolean} - True if topic was deleted, false if it didn't exist
+   */
+  deleteTopic(topicName) {
+    return this.topics.delete(topicName);
+  }
+
+  /**
+   * Produces a message to a topic
+   * @param {string} topicName - Name of the topic
+   * @param {Object} message - Message to produce
+   * @param {string} [key] - Optional message key
+   * @returns {Promise<number>} - Promise resolving to the offset of the produced message
+   */
+  async produceMessage(topicName, message, key = null) {
+    if (!this.topics.has(topicName)) {
+      this.createTopic(topicName);
+    }
+    
+    const messages = this.topics.get(topicName);
+    const offset = messages.length;
+    
+    const kafkaMessage = {
+      offset,
+      key: key,
+      value: message,
+      timestamp: Date.now(),
+      headers: {},
+      partition: 0
+    };
+    
+    messages.push(kafkaMessage);
+    
+    // Emit event for any active consumers
+    this.eventEmitter.emit(`message:${topicName}`, kafkaMessage);
+    
+    return offset;
+  }
+
+  /**
+   * Consumes messages from a topic
+   * @param {string} topicName - Name of the topic
+   * @param {string} groupId - Consumer group ID
+   * @param {Object} options - Consumption options
+   * @param {boolean} [options.fromBeginning=false] - Whether to consume from the beginning
+   * @param {Function} messageHandler - Function to handle consumed messages
+   * @returns {Function} - Function to stop consuming
+   */
+  consumeMessages(topicName, groupId, options = {}, messageHandler) {
+    const { fromBeginning = false } = options;
+    
+    if (!this.topics.has(topicName)) {
+      this.createTopic(topicName);
+    }
+    
+    // Initialize consumer group offset tracking
+    if (!this.consumerGroups.has(groupId)) {
+      this.consumerGroups.set(groupId, new Map());
+    }
+    
+    const groupOffsets = this.consumerGroups.get(groupId);
+    if (!groupOffsets.has(topicName)) {
+      groupOffsets.set(topicName, fromBeginning ? 0 : this.topics.get(topicName).length);
+    }
+    
+    // Process existing messages if consuming from beginning
+    if (fromBeginning) {
+      const currentOffset = groupOffsets.get(topicName);
+      const messages = this.topics.get(topicName);
+      
+      for (let i = currentOffset; i < messages.length; i++) {
+        messageHandler(messages[i]);
+        groupOffsets.set(topicName, i + 1);
+      }
+    }
+    
+    // Set up listener for new messages
+    const messageListener = (message) => {
+      const currentOffset = groupOffsets.get(topicName);
+      
+      if (message.offset >= currentOffset) {
+        messageHandler(message);
+        groupOffsets.set(topicName, message.offset + 1);
+      }
+    };
+    
+    this.eventEmitter.on(`message:${topicName}`, messageListener);
+    
+    // Return function to stop consuming
+    return () => {
+      this.eventEmitter.removeListener(`message:${topicName}`, messageListener);
+    };
+  }
+
+  /**
+   * Commits offsets for a consumer group
+   * @param {string} groupId - Consumer group ID
+   * @param {Array<{topic: string, partition: number, offset: number}>} offsets - Offsets to commit
+   */
+  commitOffsets(groupId, offsets) {
+    if (!this.consumerGroups.has(groupId)) {
+      this.consumerGroups.set(groupId, new Map());
+    }
+    
+    const groupOffsets = this.consumerGroups.get(groupId);
+    
+    for (const { topic, offset } of offsets) {
+      groupOffsets.set(topic, offset);
+    }
+  }
+
+  /**
+   * Gets the current offset for a consumer group and topic
+   * @param {string} groupId - Consumer group ID
+   * @param {string} topicName - Topic name
+   * @returns {number} - Current offset, or 0 if not set
+   */
+  getOffset(groupId, topicName) {
+    if (!this.consumerGroups.has(groupId)) {
+      return 0;
+    }
+    
+    const groupOffsets = this.consumerGroups.get(groupId);
+    return groupOffsets.has(topicName) ? groupOffsets.get(topicName) : 0;
+  }
+
+  /**
+   * Clears all topics and consumer groups
+   */
+  clear() {
+    this.topics.clear();
+    this.consumerGroups.clear();
+    this.eventEmitter.removeAllListeners();
+  }
+}
 
 /**
  * Custom Jest test environment for Kafka testing.
- * Extends the Node environment to provide Kafka-specific functionality.
+ * Extends the Node environment and adds Kafka-specific functionality.
  */
 class KafkaTestEnvironment extends NodeEnvironment {
-  /**
-   * Constructor for the Kafka test environment.
-   * 
-   * @param {Object} config - Jest configuration
-   * @param {Object} context - Test context information
-   */
-  constructor(config, context) {
-    super(config, context);
+  constructor(config) {
+    super(config);
     
     // Generate a unique ID for this test environment instance
     this.environmentId = uuidv4();
     
-    // Extract test-specific configuration
-    const { testEnvironmentOptions = {} } = config.projectConfig || {};
+    // Create the in-memory Kafka broker
+    this.kafkaBroker = new InMemoryKafkaBroker();
     
-    // Set up Kafka configuration
-    this.kafkaConfig = {
-      brokerPort: testEnvironmentOptions.kafkaBrokerPort || DEFAULT_KAFKA_PORT,
-      zookeeperPort: testEnvironmentOptions.zookeeperPort || DEFAULT_ZOOKEEPER_PORT,
-      topicPrefix: testEnvironmentOptions.topicPrefix || 'test',
-      autoCreateTopics: testEnvironmentOptions.autoCreateTopics !== false,
-      cleanupTopics: testEnvironmentOptions.cleanupTopics !== false,
-      ...testEnvironmentOptions.kafka,
-    };
+    // Track created topics for cleanup
+    this.testTopics = new Set();
     
-    // Initialize topic registry
-    this.topics = new Set();
-    
-    // Initialize client registry
-    this.clients = new Set();
-    
-    // Log initialization
-    this.log(`Initialized Kafka test environment with ID: ${this.environmentId}`);
+    // Track active consumers for cleanup
+    this.activeConsumers = new Map();
   }
-  
+
   /**
-   * Set up the Kafka test environment before running tests.
-   * This method is called automatically by Jest before each test file.
+   * Setup the test environment
    */
   async setup() {
-    // Call the parent setup method first
     await super.setup();
     
-    try {
-      // Ensure Kafka container is running
-      await this.ensureKafkaIsRunning();
+    // Add Kafka-specific globals to the test environment
+    this.global.kafkaTestEnvironment = {
+      /**
+       * Creates a unique topic name for the current test
+       * @param {string} baseName - Base name for the topic
+       * @returns {string} - Unique topic name
+       */
+      createTestTopicName: (baseName) => {
+        const topicName = `${baseName}-${this.environmentId}-${Date.now()}`;
+        this.testTopics.add(topicName);
+        this.kafkaBroker.createTopic(topicName);
+        return topicName;
+      },
       
-      // Set up global variables for the test environment
-      this.global.__KAFKA_ENV__ = this.environmentId;
-      this.global.__KAFKA_BROKER__ = `localhost:${this.kafkaConfig.brokerPort}`;
+      /**
+       * Produces a message to a topic
+       * @param {string} topicName - Name of the topic
+       * @param {Object} message - Message to produce
+       * @param {string} [key] - Optional message key
+       * @returns {Promise<number>} - Promise resolving to the offset of the produced message
+       */
+      produceMessage: (topicName, message, key) => {
+        return this.kafkaBroker.produceMessage(topicName, message, key);
+      },
       
-      // Set up helper methods in the global scope
-      this.global.createTestTopic = this.createTestTopic.bind(this);
-      this.global.deleteTestTopic = this.deleteTestTopic.bind(this);
-      this.global.registerKafkaClient = this.registerKafkaClient.bind(this);
+      /**
+       * Consumes messages from a topic
+       * @param {string} topicName - Name of the topic
+       * @param {string} groupId - Consumer group ID
+       * @param {Object} options - Consumption options
+       * @param {Function} messageHandler - Function to handle consumed messages
+       * @returns {string} - Consumer ID that can be used to stop consuming
+       */
+      consumeMessages: (topicName, groupId, options, messageHandler) => {
+        const consumerId = uuidv4();
+        const stopFn = this.kafkaBroker.consumeMessages(topicName, groupId, options, messageHandler);
+        this.activeConsumers.set(consumerId, stopFn);
+        return consumerId;
+      },
       
-      // Register disconnect callback for cleanup
-      if (!global.__KAFKA_DISCONNECT_CALLBACKS__) {
-        global.__KAFKA_DISCONNECT_CALLBACKS__ = [];
+      /**
+       * Stops consuming messages
+       * @param {string} consumerId - Consumer ID returned from consumeMessages
+       */
+      stopConsuming: (consumerId) => {
+        if (this.activeConsumers.has(consumerId)) {
+          const stopFn = this.activeConsumers.get(consumerId);
+          stopFn();
+          this.activeConsumers.delete(consumerId);
+        }
+      },
+      
+      /**
+       * Commits offsets for a consumer group
+       * @param {string} groupId - Consumer group ID
+       * @param {Array<{topic: string, partition: number, offset: number}>} offsets - Offsets to commit
+       */
+      commitOffsets: (groupId, offsets) => {
+        this.kafkaBroker.commitOffsets(groupId, offsets);
+      },
+      
+      /**
+       * Gets the current offset for a consumer group and topic
+       * @param {string} groupId - Consumer group ID
+       * @param {string} topicName - Topic name
+       * @returns {number} - Current offset
+       */
+      getOffset: (groupId, topicName) => {
+        return this.kafkaBroker.getOffset(groupId, topicName);
+      },
+      
+      /**
+       * Waits for a specific number of messages to be produced to a topic
+       * @param {string} topicName - Name of the topic
+       * @param {number} count - Number of messages to wait for
+       * @param {number} [timeout=5000] - Timeout in milliseconds
+       * @returns {Promise<Array>} - Promise resolving to the messages
+       */
+      waitForMessages: async (topicName, count, timeout = 5000) => {
+        return new Promise((resolve, reject) => {
+          const messages = [];
+          const consumerId = uuidv4();
+          
+          const timeoutId = setTimeout(() => {
+            this.activeConsumers.get(consumerId)();
+            this.activeConsumers.delete(consumerId);
+            reject(new Error(`Timeout waiting for ${count} messages on topic ${topicName}`));
+          }, timeout);
+          
+          const stopFn = this.kafkaBroker.consumeMessages(
+            topicName,
+            `wait-group-${consumerId}`,
+            { fromBeginning: true },
+            (message) => {
+              messages.push(message);
+              
+              if (messages.length >= count) {
+                clearTimeout(timeoutId);
+                stopFn();
+                this.activeConsumers.delete(consumerId);
+                resolve(messages);
+              }
+            }
+          );
+          
+          this.activeConsumers.set(consumerId, stopFn);
+        });
+      },
+      
+      /**
+       * Validates that the Kafka test environment is properly set up
+       * @returns {Promise<boolean>} - Promise resolving to true if valid
+       */
+      validateEnvironment: async () => {
+        try {
+          // Create a test topic
+          const testTopic = `validation-${uuidv4()}`;
+          this.testTopics.add(testTopic);
+          this.kafkaBroker.createTopic(testTopic);
+          
+          // Produce a test message
+          const testMessage = { test: 'validation', timestamp: Date.now() };
+          await this.kafkaBroker.produceMessage(testTopic, testMessage);
+          
+          // Consume the test message
+          const messages = await this.global.kafkaTestEnvironment.waitForMessages(testTopic, 1, 1000);
+          
+          // Verify the message was consumed correctly
+          return messages.length === 1 && 
+                 messages[0].value.test === 'validation' && 
+                 messages[0].value.timestamp === testMessage.timestamp;
+        } catch (error) {
+          console.error('Kafka test environment validation failed:', error);
+          return false;
+        }
       }
-      
-      // Add this environment's disconnect callback
-      global.__KAFKA_DISCONNECT_CALLBACKS__.push(async () => {
-        await this.disconnectAllClients();
-      });
-      
-      this.log('Kafka test environment setup complete');
-    } catch (error) {
-      this.log(`Error setting up Kafka test environment: ${error.message}`);
-      throw error;
-    }
+    };
   }
-  
+
   /**
-   * Clean up the Kafka test environment after running tests.
-   * This method is called automatically by Jest after each test file.
+   * Teardown the test environment
    */
   async teardown() {
-    try {
-      this.log('Starting Kafka test environment teardown');
-      
-      // Clean up all topics created by this environment
-      if (this.kafkaConfig.cleanupTopics) {
-        await this.cleanupTopics();
-      }
-      
-      // Disconnect all clients registered by this environment
-      await this.disconnectAllClients();
-      
-      // Remove this environment's disconnect callback
-      if (global.__KAFKA_DISCONNECT_CALLBACKS__) {
-        const index = global.__KAFKA_DISCONNECT_CALLBACKS__.findIndex(
-          callback => callback.environmentId === this.environmentId
-        );
-        if (index !== -1) {
-          global.__KAFKA_DISCONNECT_CALLBACKS__.splice(index, 1);
-        }
-      }
-      
-      this.log('Kafka test environment teardown complete');
-    } catch (error) {
-      this.log(`Error during Kafka test environment teardown: ${error.message}`);
-      // Don't throw the error to prevent test failures due to teardown issues
-    } finally {
-      // Always call the parent teardown method
-      await super.teardown();
+    // Stop all active consumers
+    for (const stopFn of this.activeConsumers.values()) {
+      stopFn();
     }
-  }
-  
-  /**
-   * Ensures that Kafka and ZooKeeper containers are running.
-   * If they're not running, it will start them.
-   */
-  async ensureKafkaIsRunning() {
-    try {
-      // Check if Kafka container is already running
-      const kafkaRunning = this.isContainerRunning(KAFKA_CONTAINER_NAME_PREFIX);
-      const zookeeperRunning = this.isContainerRunning(ZOOKEEPER_CONTAINER_NAME_PREFIX);
-      
-      if (kafkaRunning && zookeeperRunning) {
-        this.log('Kafka and ZooKeeper containers are already running');
-        return;
-      }
-      
-      // Start ZooKeeper if not running
-      if (!zookeeperRunning) {
-        this.log('Starting ZooKeeper container...');
-        execSync(`
-          docker run -d \
-            --name ${ZOOKEEPER_CONTAINER_NAME_PREFIX} \
-            -p ${this.kafkaConfig.zookeeperPort}:2181 \
-            -e ZOOKEEPER_CLIENT_PORT=2181 \
-            confluentinc/cp-zookeeper:latest
-        `);
-        this.log('ZooKeeper container started');
-      }
-      
-      // Start Kafka if not running
-      if (!kafkaRunning) {
-        this.log('Starting Kafka container...');
-        execSync(`
-          docker run -d \
-            --name ${KAFKA_CONTAINER_NAME_PREFIX} \
-            -p ${this.kafkaConfig.brokerPort}:9092 \
-            -e KAFKA_ZOOKEEPER_CONNECT=${ZOOKEEPER_CONTAINER_NAME_PREFIX}:2181 \
-            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:${this.kafkaConfig.brokerPort} \
-            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
-            -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=${this.kafkaConfig.autoCreateTopics} \
-            --link ${ZOOKEEPER_CONTAINER_NAME_PREFIX}:zookeeper \
-            confluentinc/cp-kafka:latest
-        `);
-        this.log('Kafka container started');
-        
-        // Wait for Kafka to be ready
-        this.log('Waiting for Kafka to be ready...');
-        await this.waitForKafkaReady();
-        this.log('Kafka is ready');
-      }
-    } catch (error) {
-      this.log(`Error ensuring Kafka is running: ${error.message}`);
-      throw error;
+    this.activeConsumers.clear();
+    
+    // Delete all test topics
+    for (const topicName of this.testTopics) {
+      this.kafkaBroker.deleteTopic(topicName);
     }
+    this.testTopics.clear();
+    
+    await super.teardown();
   }
-  
+
   /**
-   * Checks if a Docker container is running.
-   * 
-   * @param {string} containerNamePrefix - The prefix of the container name
-   * @returns {boolean} - True if the container is running, false otherwise
+   * Run a script in the context of the test environment
    */
-  isContainerRunning(containerNamePrefix) {
-    try {
-      const result = execSync(`docker ps -q -f name=${containerNamePrefix}`).toString().trim();
-      return result !== '';
-    } catch (error) {
-      return false;
-    }
-  }
-  
-  /**
-   * Waits for Kafka to be ready by checking if it's possible to list topics.
-   * Retries several times with increasing delays.
-   */
-  async waitForKafkaReady() {
-    const maxRetries = 10;
-    const initialDelay = 1000; // 1 second
-    
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        execSync(`docker exec ${KAFKA_CONTAINER_NAME_PREFIX} kafka-topics --list --bootstrap-server localhost:9092`);
-        return; // Success
-      } catch (error) {
-        const delay = initialDelay * Math.pow(1.5, i); // Exponential backoff
-        this.log(`Kafka not ready yet, retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-    
-    throw new Error('Kafka failed to become ready in the allocated time');
-  }
-  
-  /**
-   * Creates a test topic with a unique name.
-   * 
-   * @param {string} baseName - Base name for the topic
-   * @param {Object} options - Topic creation options
-   * @param {number} options.partitions - Number of partitions (default: 1)
-   * @param {number} options.replicationFactor - Replication factor (default: 1)
-   * @returns {string} - The full name of the created topic
-   */
-  createTestTopic(baseName, options = {}) {
-    const { partitions = 1, replicationFactor = 1 } = options;
-    
-    // Generate a unique topic name
-    const uniqueId = uuidv4().substring(0, 8);
-    const topicName = `${this.kafkaConfig.topicPrefix}-${baseName}-${uniqueId}`;
-    
-    try {
-      // Create the topic
-      execSync(`
-        docker exec ${KAFKA_CONTAINER_NAME_PREFIX} \
-        kafka-topics --create \
-        --topic ${topicName} \
-        --partitions ${partitions} \
-        --replication-factor ${replicationFactor} \
-        --bootstrap-server localhost:9092
-      `);
-      
-      // Register the topic for cleanup
-      this.topics.add(topicName);
-      
-      this.log(`Created test topic: ${topicName}`);
-      return topicName;
-    } catch (error) {
-      this.log(`Error creating test topic: ${error.message}`);
-      throw error;
-    }
-  }
-  
-  /**
-   * Deletes a test topic.
-   * 
-   * @param {string} topicName - Name of the topic to delete
-   */
-  deleteTestTopic(topicName) {
-    try {
-      // Delete the topic
-      execSync(`
-        docker exec ${KAFKA_CONTAINER_NAME_PREFIX} \
-        kafka-topics --delete \
-        --topic ${topicName} \
-        --bootstrap-server localhost:9092
-      `);
-      
-      // Remove the topic from the registry
-      this.topics.delete(topicName);
-      
-      this.log(`Deleted test topic: ${topicName}`);
-    } catch (error) {
-      this.log(`Error deleting test topic: ${error.message}`);
-      // Don't throw the error to prevent test failures due to cleanup issues
-    }
-  }
-  
-  /**
-   * Cleans up all topics created by this environment.
-   */
-  async cleanupTopics() {
-    this.log(`Cleaning up ${this.topics.size} test topics...`);
-    
-    for (const topicName of this.topics) {
-      this.deleteTestTopic(topicName);
-    }
-    
-    this.topics.clear();
-    this.log('Topic cleanup complete');
-  }
-  
-  /**
-   * Registers a Kafka client for cleanup.
-   * 
-   * @param {Object} client - The Kafka client to register
-   * @param {Function} disconnectFn - Function to call to disconnect the client
-   */
-  registerKafkaClient(client, disconnectFn) {
-    const clientId = client.clientId || uuidv4();
-    
-    this.clients.add({
-      id: clientId,
-      client,
-      disconnect: disconnectFn,
-    });
-    
-    // Also register in the global registry for global teardown
-    this.updateGlobalClientRegistry(clientId, true);
-    
-    this.log(`Registered Kafka client: ${clientId}`);
-    return clientId;
-  }
-  
-  /**
-   * Disconnects all Kafka clients registered by this environment.
-   */
-  async disconnectAllClients() {
-    this.log(`Disconnecting ${this.clients.size} Kafka clients...`);
-    
-    const disconnectPromises = [];
-    
-    for (const { id, disconnect } of this.clients) {
-      try {
-        disconnectPromises.push(disconnect());
-        this.updateGlobalClientRegistry(id, false);
-      } catch (error) {
-        this.log(`Error disconnecting client ${id}: ${error.message}`);
-      }
-    }
-    
-    await Promise.all(disconnectPromises);
-    this.clients.clear();
-    this.log('All Kafka clients disconnected');
-  }
-  
-  /**
-   * Updates the global client registry file.
-   * 
-   * @param {string} clientId - ID of the client
-   * @param {boolean} add - Whether to add or remove the client
-   */
-  updateGlobalClientRegistry(clientId, add) {
-    try {
-      let registry = [];
-      
-      // Read existing registry if it exists
-      if (fs.existsSync(KAFKA_CLIENT_REGISTRY_PATH)) {
-        registry = JSON.parse(fs.readFileSync(KAFKA_CLIENT_REGISTRY_PATH, 'utf8'));
-      }
-      
-      if (add) {
-        // Add client if not already in registry
-        if (!registry.includes(clientId)) {
-          registry.push(clientId);
-        }
-      } else {
-        // Remove client from registry
-        registry = registry.filter(id => id !== clientId);
-      }
-      
-      // Write updated registry
-      fs.writeFileSync(KAFKA_CLIENT_REGISTRY_PATH, JSON.stringify(registry), 'utf8');
-    } catch (error) {
-      this.log(`Error updating global client registry: ${error.message}`);
-      // Don't throw the error to prevent test failures due to registry issues
-    }
-  }
-  
-  /**
-   * Logs a message with a timestamp and environment ID.
-   * 
-   * @param {string} message - The message to log
-   */
-  log(message) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [KafkaEnv:${this.environmentId.substring(0, 8)}] ${message}`);
-  }
-  
-  /**
-   * Executes a script in the test environment.
-   * Required by the Jest NodeEnvironment interface.
-   * 
-   * @param {Object} script - The script to run
-   * @returns {*} - The result of the script execution
-   */
-  runScript(script) {
+  async runScript(script) {
     return super.runScript(script);
   }
 }

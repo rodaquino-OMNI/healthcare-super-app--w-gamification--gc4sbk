@@ -1,589 +1,517 @@
 /**
  * Type conversion utilities for safely handling different data types in events.
  * 
- * This module provides functions for converting between various data types
- * (strings, numbers, dates, booleans, etc.) with robust error handling and validation.
- * It ensures that data conversions are performed consistently across all services,
- * preventing type-related errors during event processing.
- */
-
-import { isISO8601 } from 'class-validator';
-
-/**
- * Error thrown when a type conversion fails.
- */
-export class TypeConversionError extends Error {
-  constructor(
-    public readonly value: unknown,
-    public readonly targetType: string,
-    message?: string,
-  ) {
-    super(message || `Failed to convert value '${value}' to type ${targetType}`);
-    this.name = 'TypeConversionError';
-  }
-}
-
-/**
- * Options for string conversion.
- */
-export interface StringConversionOptions {
-  /** Trim whitespace from the result */
-  trim?: boolean;
-  /** Convert empty strings to null */
-  emptyAsNull?: boolean;
-  /** Maximum allowed length */
-  maxLength?: number;
-  /** Minimum allowed length */
-  minLength?: number;
-}
-
-/**
- * Options for number conversion.
- */
-export interface NumberConversionOptions {
-  /** Minimum allowed value (inclusive) */
-  min?: number;
-  /** Maximum allowed value (inclusive) */
-  max?: number;
-  /** Allow only integers */
-  integer?: boolean;
-  /** Allow only positive numbers */
-  positive?: boolean;
-  /** Allow only negative numbers */
-  negative?: boolean;
-}
-
-/**
- * Options for date conversion.
- */
-export interface DateConversionOptions {
-  /** Minimum allowed date (inclusive) */
-  min?: Date;
-  /** Maximum allowed date (inclusive) */
-  max?: Date;
-  /** Allow only future dates (relative to now) */
-  future?: boolean;
-  /** Allow only past dates (relative to now) */
-  past?: boolean;
-}
-
-/**
- * Options for boolean conversion.
- */
-export interface BooleanConversionOptions {
-  /** Custom truthy values */
-  truthyValues?: unknown[];
-  /** Custom falsy values */
-  falsyValues?: unknown[];
-}
-
-/**
- * Safely converts a value to a string with validation.
+ * This module provides functions for converting between various data types with robust
+ * error handling and validation. It ensures that data conversions are performed consistently
+ * across all services, preventing type-related errors during event processing.
  * 
- * @param value - The value to convert
- * @param options - String conversion options
- * @returns The converted string
- * @throws {TypeConversionError} If conversion fails or validation fails
+ * @module type-converters
  */
-export function toString(
-  value: unknown,
-  options: StringConversionOptions = {}
-): string {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'string', 'Cannot convert null or undefined to string');
-  }
 
-  // Convert to string
-  let result = String(value);
+import { isNil, isString, isNumber, isBoolean, isDate, isObject } from '../utils/type-guards';
+import { ValidationError } from '../errors/validation.error';
 
-  // Apply trim if requested
-  if (options.trim) {
-    result = result.trim();
-  }
-
-  // Handle empty strings
-  if (result === '' && options.emptyAsNull) {
-    throw new TypeConversionError(value, 'string', 'Empty string converted to null');
-  }
-
-  // Validate length constraints
-  if (options.maxLength !== undefined && result.length > options.maxLength) {
-    throw new TypeConversionError(
-      value,
-      'string',
-      `String exceeds maximum length of ${options.maxLength} characters`
-    );
-  }
-
-  if (options.minLength !== undefined && result.length < options.minLength) {
-    throw new TypeConversionError(
-      value,
-      'string',
-      `String below minimum length of ${options.minLength} characters`
-    );
-  }
-
-  return result;
+/**
+ * Options for type conversion operations
+ */
+export interface ConversionOptions {
+  /** Whether to throw an error on conversion failure (default: true) */
+  throwOnError?: boolean;
+  /** Custom error message for conversion failures */
+  errorMessage?: string;
+  /** Default value to return on conversion failure (if throwOnError is false) */
+  defaultValue?: any;
+  /** Whether to allow null/undefined values (default: false) */
+  allowNil?: boolean;
+  /** Journey context for journey-specific error messages */
+  journeyContext?: string;
 }
 
 /**
- * Safely converts a value to a number with validation.
- * 
- * @param value - The value to convert
- * @param options - Number conversion options
- * @returns The converted number
- * @throws {TypeConversionError} If conversion fails or validation fails
+ * Default conversion options
  */
-export function toNumber(
-  value: unknown,
-  options: NumberConversionOptions = {}
-): number {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'number', 'Cannot convert null or undefined to number');
-  }
+const defaultOptions: ConversionOptions = {
+  throwOnError: true,
+  allowNil: false,
+};
 
-  // Convert to number
-  let result: number;
+/**
+ * Error messages for type conversion failures
+ */
+const errorMessages = {
+  string: 'Failed to convert value to string',
+  number: 'Failed to convert value to number',
+  boolean: 'Failed to convert value to boolean',
+  date: 'Failed to convert value to date',
+  object: 'Failed to convert value to object',
+  array: 'Failed to convert value to array',
+  nil: 'Value is null or undefined',
+};
 
-  if (typeof value === 'number') {
-    result = value;
-  } else if (typeof value === 'string') {
-    // Try to parse the string as a number
-    const trimmed = value.trim();
-    if (trimmed === '') {
-      throw new TypeConversionError(value, 'number', 'Cannot convert empty string to number');
+/**
+ * Creates a validation error with the appropriate message and context
+ * @param message Error message
+ * @param value The value that failed conversion
+ * @param targetType The target type for conversion
+ * @param options Conversion options
+ * @returns ValidationError instance
+ */
+function createConversionError(
+  message: string,
+  value: any,
+  targetType: string,
+  options?: ConversionOptions
+): ValidationError {
+  const errorMessage = options?.errorMessage || message;
+  const journeyContext = options?.journeyContext || 'events';
+  
+  return new ValidationError(
+    errorMessage,
+    {
+      value,
+      targetType,
+      journeyContext,
     }
-
-    result = Number(trimmed);
-
-    // Check if the conversion was successful
-    if (isNaN(result)) {
-      throw new TypeConversionError(value, 'number', `Invalid number format: '${value}'`);
-    }
-  } else if (typeof value === 'boolean') {
-    // Convert boolean to 0 or 1
-    result = value ? 1 : 0;
-  } else {
-    throw new TypeConversionError(value, 'number', `Cannot convert ${typeof value} to number`);
-  }
-
-  // Validate integer constraint
-  if (options.integer && !Number.isInteger(result)) {
-    throw new TypeConversionError(value, 'integer', `Value '${value}' is not an integer`);
-  }
-
-  // Validate range constraints
-  if (options.min !== undefined && result < options.min) {
-    throw new TypeConversionError(
-      value,
-      'number',
-      `Number ${result} is less than minimum value ${options.min}`
-    );
-  }
-
-  if (options.max !== undefined && result > options.max) {
-    throw new TypeConversionError(
-      value,
-      'number',
-      `Number ${result} is greater than maximum value ${options.max}`
-    );
-  }
-
-  // Validate sign constraints
-  if (options.positive && result <= 0) {
-    throw new TypeConversionError(value, 'positive number', `Number ${result} is not positive`);
-  }
-
-  if (options.negative && result >= 0) {
-    throw new TypeConversionError(value, 'negative number', `Number ${result} is not negative`);
-  }
-
-  return result;
-}
-
-/**
- * Safely converts a value to a boolean with validation.
- * 
- * @param value - The value to convert
- * @param options - Boolean conversion options
- * @returns The converted boolean
- * @throws {TypeConversionError} If conversion fails
- */
-export function toBoolean(
-  value: unknown,
-  options: BooleanConversionOptions = {}
-): boolean {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'boolean', 'Cannot convert null or undefined to boolean');
-  }
-
-  // Default truthy values
-  const truthyValues = options.truthyValues || [true, 'true', 'yes', 'y', '1', 1];
-  // Default falsy values
-  const falsyValues = options.falsyValues || [false, 'false', 'no', 'n', '0', 0];
-
-  // Check if the value is in the truthy list
-  if (truthyValues.some(v => v === value)) {
-    return true;
-  }
-
-  // Check if the value is in the falsy list
-  if (falsyValues.some(v => v === value)) {
-    return false;
-  }
-
-  // If the value is not in either list, throw an error
-  throw new TypeConversionError(
-    value,
-    'boolean',
-    `Cannot convert value '${value}' to boolean. Expected one of: ${[...truthyValues, ...falsyValues].join(', ')}`
   );
 }
 
 /**
- * Safely converts a value to a Date with validation.
- * 
- * @param value - The value to convert
- * @param options - Date conversion options
- * @returns The converted Date
- * @throws {TypeConversionError} If conversion fails or validation fails
+ * Handles the result of a conversion operation based on the provided options
+ * @param result The conversion result
+ * @param value The original value
+ * @param targetType The target type for conversion
+ * @param options Conversion options
+ * @returns The conversion result or default value
  */
-export function toDate(
-  value: unknown,
-  options: DateConversionOptions = {}
-): Date {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'Date', 'Cannot convert null or undefined to Date');
-  }
-
-  let result: Date;
-
-  // Convert to Date based on the type
-  if (value instanceof Date) {
-    result = new Date(value.getTime()); // Create a new Date to avoid reference issues
-  } else if (typeof value === 'string') {
-    // Check if it's an ISO 8601 date string
-    if (isISO8601(value)) {
-      result = new Date(value);
-    } else {
-      // Try to parse the string as a date
-      result = new Date(value);
-    }
-
-    // Check if the conversion was successful
-    if (isNaN(result.getTime())) {
-      throw new TypeConversionError(value, 'Date', `Invalid date format: '${value}'`);
-    }
-  } else if (typeof value === 'number') {
-    // Assume it's a timestamp
-    result = new Date(value);
-
-    // Check if the conversion was successful
-    if (isNaN(result.getTime())) {
-      throw new TypeConversionError(value, 'Date', `Invalid timestamp: ${value}`);
-    }
-  } else {
-    throw new TypeConversionError(value, 'Date', `Cannot convert ${typeof value} to Date`);
-  }
-
-  // Validate range constraints
-  if (options.min !== undefined && result < options.min) {
-    throw new TypeConversionError(
-      value,
-      'Date',
-      `Date ${result.toISOString()} is before minimum date ${options.min.toISOString()}`
-    );
-  }
-
-  if (options.max !== undefined && result > options.max) {
-    throw new TypeConversionError(
-      value,
-      'Date',
-      `Date ${result.toISOString()} is after maximum date ${options.max.toISOString()}`
-    );
-  }
-
-  // Validate future/past constraints
-  const now = new Date();
-  if (options.future && result <= now) {
-    throw new TypeConversionError(
-      value,
-      'future Date',
-      `Date ${result.toISOString()} is not in the future`
-    );
-  }
-
-  if (options.past && result >= now) {
-    throw new TypeConversionError(
-      value,
-      'past Date',
-      `Date ${result.toISOString()} is not in the past`
-    );
-  }
-
-  return result;
-}
-
-/**
- * Safely converts a value to an array with validation.
- * 
- * @param value - The value to convert
- * @param itemConverter - Function to convert each item in the array
- * @returns The converted array
- * @throws {TypeConversionError} If conversion fails
- */
-export function toArray<T>(
-  value: unknown,
-  itemConverter: (item: unknown, index: number) => T
-): T[] {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'array', 'Cannot convert null or undefined to array');
-  }
-
-  // If it's already an array, convert each item
-  if (Array.isArray(value)) {
-    return value.map((item, index) => {
-      try {
-        return itemConverter(item, index);
-      } catch (error) {
-        if (error instanceof TypeConversionError) {
-          throw new TypeConversionError(
-            item,
-            'array item',
-            `Failed to convert array item at index ${index}: ${error.message}`
-          );
-        }
-        throw error;
-      }
-    });
-  }
-
-  // If it's a string, try to parse it as JSON
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.map((item, index) => {
-          try {
-            return itemConverter(item, index);
-          } catch (error) {
-            if (error instanceof TypeConversionError) {
-              throw new TypeConversionError(
-                item,
-                'array item',
-                `Failed to convert array item at index ${index}: ${error.message}`
-              );
-            }
-            throw error;
-          }
-        });
-      }
-      throw new TypeConversionError(value, 'array', 'Parsed JSON is not an array');
-    } catch (error) {
-      if (error instanceof TypeConversionError) {
-        throw error;
-      }
-      throw new TypeConversionError(value, 'array', `Failed to parse string as JSON array: ${error.message}`);
-    }
-  }
-
-  // For any other type, wrap it in an array and convert
-  try {
-    return [itemConverter(value, 0)];
-  } catch (error) {
-    if (error instanceof TypeConversionError) {
-      throw new TypeConversionError(
+function handleConversionResult<T>(
+  result: T | null,
+  value: any,
+  targetType: string,
+  options?: ConversionOptions
+): T | null | undefined {
+  const mergedOptions = { ...defaultOptions, ...options };
+  
+  if (result === null) {
+    if (mergedOptions.throwOnError) {
+      throw createConversionError(
+        errorMessages[targetType as keyof typeof errorMessages] || `Failed to convert value to ${targetType}`,
         value,
-        'array item',
-        `Failed to convert single value to array item: ${error.message}`
+        targetType,
+        mergedOptions
       );
     }
-    throw error;
+    return mergedOptions.defaultValue as T;
   }
+  
+  return result;
 }
 
 /**
- * Safely converts a value to an object with validation.
- * 
- * @param value - The value to convert
- * @returns The converted object
- * @throws {TypeConversionError} If conversion fails
+ * Handles null or undefined values based on the provided options
+ * @param value The value to check
+ * @param targetType The target type for conversion
+ * @param options Conversion options
+ * @returns true if the value should be handled as nil, false otherwise
  */
-export function toObject(
-  value: unknown
-): Record<string, unknown> {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'object', 'Cannot convert null or undefined to object');
-  }
-
-  // If it's already an object, return it
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-
-  // If it's a string, try to parse it as JSON
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-      throw new TypeConversionError(value, 'object', 'Parsed JSON is not an object');
-    } catch (error) {
-      if (error instanceof TypeConversionError) {
-        throw error;
-      }
-      throw new TypeConversionError(value, 'object', `Failed to parse string as JSON object: ${error.message}`);
+function handleNilValue(
+  value: any,
+  targetType: string,
+  options?: ConversionOptions
+): boolean {
+  const mergedOptions = { ...defaultOptions, ...options };
+  
+  if (isNil(value)) {
+    if (mergedOptions.allowNil) {
+      return true;
     }
+    
+    if (mergedOptions.throwOnError) {
+      throw createConversionError(
+        errorMessages.nil,
+        value,
+        targetType,
+        mergedOptions
+      );
+    }
+    return true;
   }
-
-  throw new TypeConversionError(value, 'object', `Cannot convert ${typeof value} to object`);
+  
+  return false;
 }
 
 /**
- * Safely handles nullable values by applying a converter function or returning null.
- * 
- * @param value - The value to convert
- * @param converter - Function to convert the value if it's not null or undefined
- * @returns The converted value or null
+ * Converts a value to a string with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted string or null/default value
  */
-export function toNullable<T>(
-  value: unknown,
-  converter: (value: unknown) => T
-): T | null {
-  if (value === null || value === undefined) {
-    return null;
+export function toString(
+  value: any,
+  options?: ConversionOptions
+): string | null | undefined {
+  if (handleNilValue(value, 'string', options)) {
+    return options?.defaultValue as string;
   }
-
-  return converter(value);
-}
-
-/**
- * Safely handles optional values by applying a converter function or returning undefined.
- * 
- * @param value - The value to convert
- * @param converter - Function to convert the value if it's not undefined
- * @returns The converted value or undefined
- */
-export function toOptional<T>(
-  value: unknown,
-  converter: (value: unknown) => T
-): T | undefined {
-  if (value === undefined) {
-    return undefined;
+  
+  if (isString(value)) {
+    return value;
   }
-
-  return converter(value);
-}
-
-/**
- * Safely handles values with a default by applying a converter function or returning the default.
- * 
- * @param value - The value to convert
- * @param converter - Function to convert the value if it's not null or undefined
- * @param defaultValue - Default value to return if the input is null or undefined
- * @returns The converted value or the default value
- */
-export function toDefault<T>(
-  value: unknown,
-  converter: (value: unknown) => T,
-  defaultValue: T
-): T {
-  if (value === null || value === undefined) {
-    return defaultValue;
-  }
-
+  
   try {
-    return converter(value);
+    // Handle special cases
+    if (isDate(value)) {
+      return value.toISOString();
+    }
+    
+    if (isObject(value)) {
+      return JSON.stringify(value);
+    }
+    
+    // Default string conversion
+    const result = String(value);
+    return result;
   } catch (error) {
-    return defaultValue;
+    return handleConversionResult(null, value, 'string', options);
   }
 }
 
 /**
- * Safely converts a value to an enum value with validation.
- * 
- * @param value - The value to convert
- * @param enumObject - The enum object to convert to
- * @returns The converted enum value
- * @throws {TypeConversionError} If conversion fails
+ * Converts a value to a number with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted number or null/default value
  */
-export function toEnum<T extends Record<string, string | number>>(
-  value: unknown,
-  enumObject: T
-): T[keyof T] {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    throw new TypeConversionError(value, 'enum', 'Cannot convert null or undefined to enum');
+export function toNumber(
+  value: any,
+  options?: ConversionOptions
+): number | null | undefined {
+  if (handleNilValue(value, 'number', options)) {
+    return options?.defaultValue as number;
   }
-
-  // Get all possible enum values
-  const enumValues = Object.values(enumObject);
-
-  // Check if the value is a valid enum value
-  if (enumValues.includes(value as T[keyof T])) {
-    return value as T[keyof T];
+  
+  if (isNumber(value)) {
+    return value;
   }
+  
+  try {
+    // Handle string conversion
+    if (isString(value)) {
+      // Remove non-numeric characters for currency strings (e.g., "R$ 1.234,56")
+      if (value.includes('R$')) {
+        value = value.replace(/[^\d,.-]/g, '')
+                     .replace(',', '.');
+      }
+      
+      const num = Number(value);
+      if (isNaN(num)) {
+        return handleConversionResult(null, value, 'number', options);
+      }
+      return num;
+    }
+    
+    // Handle boolean conversion
+    if (isBoolean(value)) {
+      return value ? 1 : 0;
+    }
+    
+    // Handle date conversion
+    if (isDate(value)) {
+      return value.getTime();
+    }
+    
+    // Default conversion
+    const num = Number(value);
+    if (isNaN(num)) {
+      return handleConversionResult(null, value, 'number', options);
+    }
+    return num;
+  } catch (error) {
+    return handleConversionResult(null, value, 'number', options);
+  }
+}
 
-  // If the value is a string, try to match it case-insensitively
-  if (typeof value === 'string') {
-    const lowerValue = value.toLowerCase();
-    for (const enumValue of enumValues) {
-      if (typeof enumValue === 'string' && enumValue.toLowerCase() === lowerValue) {
-        return enumValue as T[keyof T];
+/**
+ * Converts a value to an integer with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted integer or null/default value
+ */
+export function toInteger(
+  value: any,
+  options?: ConversionOptions
+): number | null | undefined {
+  const num = toNumber(value, options);
+  if (isNil(num)) {
+    return num;
+  }
+  
+  return Math.floor(num);
+}
+
+/**
+ * Converts a value to a boolean with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted boolean or null/default value
+ */
+export function toBoolean(
+  value: any,
+  options?: ConversionOptions
+): boolean | null | undefined {
+  if (handleNilValue(value, 'boolean', options)) {
+    return options?.defaultValue as boolean;
+  }
+  
+  if (isBoolean(value)) {
+    return value;
+  }
+  
+  try {
+    // Handle string conversion with common boolean strings
+    if (isString(value)) {
+      const normalized = value.toLowerCase().trim();
+      if (['true', 'yes', 'y', '1', 'sim', 's'].includes(normalized)) {
+        return true;
+      }
+      if (['false', 'no', 'n', '0', 'não', 'nao'].includes(normalized)) {
+        return false;
+      }
+      return handleConversionResult(null, value, 'boolean', options);
+    }
+    
+    // Handle number conversion
+    if (isNumber(value)) {
+      // Only 0 and 1 are valid number-to-boolean conversions to avoid ambiguity
+      if (value === 0) return false;
+      if (value === 1) return true;
+      return handleConversionResult(null, value, 'boolean', options);
+    }
+    
+    // Default conversion
+    return Boolean(value);
+  } catch (error) {
+    return handleConversionResult(null, value, 'boolean', options);
+  }
+}
+
+/**
+ * Converts a value to a Date with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted Date or null/default value
+ */
+export function toDate(
+  value: any,
+  options?: ConversionOptions
+): Date | null | undefined {
+  if (handleNilValue(value, 'date', options)) {
+    return options?.defaultValue as Date;
+  }
+  
+  if (isDate(value)) {
+    return value;
+  }
+  
+  try {
+    // Handle number conversion (timestamp)
+    if (isNumber(value)) {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        return handleConversionResult(null, value, 'date', options);
+      }
+      return date;
+    }
+    
+    // Handle string conversion
+    if (isString(value)) {
+      // Handle Brazilian date format (DD/MM/YYYY)
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+        const [day, month, year] = value.split('/').map(Number);
+        const date = new Date(year, month - 1, day);
+        if (isNaN(date.getTime())) {
+          return handleConversionResult(null, value, 'date', options);
+        }
+        return date;
+      }
+      
+      // Standard ISO date parsing
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        return handleConversionResult(null, value, 'date', options);
+      }
+      return date;
+    }
+    
+    return handleConversionResult(null, value, 'date', options);
+  } catch (error) {
+    return handleConversionResult(null, value, 'date', options);
+  }
+}
+
+/**
+ * Converts a value to an array with validation and error handling
+ * @param value The value to convert
+ * @param itemConverter Optional converter function for array items
+ * @param options Conversion options
+ * @returns The converted array or null/default value
+ */
+export function toArray<T>(
+  value: any,
+  itemConverter?: (item: any, index: number) => T,
+  options?: ConversionOptions
+): T[] | null | undefined {
+  if (handleNilValue(value, 'array', options)) {
+    return options?.defaultValue as T[];
+  }
+  
+  try {
+    // Handle array conversion
+    if (Array.isArray(value)) {
+      if (itemConverter) {
+        return value.map((item, index) => itemConverter(item, index));
+      }
+      return value as T[];
+    }
+    
+    // Handle string conversion (JSON array)
+    if (isString(value) && value.trim().startsWith('[') && value.trim().endsWith(']')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          if (itemConverter) {
+            return parsed.map((item, index) => itemConverter(item, index));
+          }
+          return parsed as T[];
+        }
+      } catch {
+        // Fall through to default handling
       }
     }
-  }
-
-  // If the value is a number or string number, try to match it as a numeric enum value
-  const numericValue = typeof value === 'string' ? Number(value) : value;
-  if (typeof numericValue === 'number' && !isNaN(numericValue)) {
-    if (enumValues.includes(numericValue as T[keyof T])) {
-      return numericValue as T[keyof T];
+    
+    // Convert single item to array
+    const result = [value];
+    if (itemConverter) {
+      return result.map((item, index) => itemConverter(item, index));
     }
+    return result as T[];
+  } catch (error) {
+    return handleConversionResult(null, value, 'array', options);
   }
-
-  throw new TypeConversionError(
-    value,
-    'enum',
-    `Invalid enum value: '${value}'. Expected one of: ${enumValues.join(', ')}`
-  );
 }
 
 /**
- * Safely converts a value to a specific type based on the target type name.
- * 
- * @param value - The value to convert
- * @param targetType - The name of the target type
- * @param options - Conversion options
- * @returns The converted value
- * @throws {TypeConversionError} If conversion fails
+ * Converts a value to an object with validation and error handling
+ * @param value The value to convert
+ * @param options Conversion options
+ * @returns The converted object or null/default value
  */
-export function convertTo(
-  value: unknown,
+export function toObject<T extends object = Record<string, any>>(
+  value: any,
+  options?: ConversionOptions
+): T | null | undefined {
+  if (handleNilValue(value, 'object', options)) {
+    return options?.defaultValue as T;
+  }
+  
+  if (isObject(value) && !isDate(value) && !Array.isArray(value)) {
+    return value as T;
+  }
+  
+  try {
+    // Handle string conversion (JSON object)
+    if (isString(value)) {
+      try {
+        const parsed = JSON.parse(value);
+        if (isObject(parsed) && !Array.isArray(parsed)) {
+          return parsed as T;
+        }
+      } catch {
+        return handleConversionResult(null, value, 'object', options);
+      }
+    }
+    
+    return handleConversionResult(null, value, 'object', options);
+  } catch (error) {
+    return handleConversionResult(null, value, 'object', options);
+  }
+}
+
+/**
+ * Safely converts a value to the specified type with validation
+ * @param value The value to convert
+ * @param targetType The target type for conversion
+ * @param options Conversion options
+ * @returns The converted value or null/default value
+ */
+export function convertTo<T>(
+  value: any,
   targetType: 'string' | 'number' | 'boolean' | 'date' | 'object' | 'array',
-  options?: StringConversionOptions | NumberConversionOptions | BooleanConversionOptions | DateConversionOptions
-): unknown {
+  options?: ConversionOptions
+): T | null | undefined {
   switch (targetType) {
     case 'string':
-      return toString(value, options as StringConversionOptions);
+      return toString(value, options) as unknown as T;
     case 'number':
-      return toNumber(value, options as NumberConversionOptions);
+      return toNumber(value, options) as unknown as T;
     case 'boolean':
-      return toBoolean(value, options as BooleanConversionOptions);
+      return toBoolean(value, options) as unknown as T;
     case 'date':
-      return toDate(value, options as DateConversionOptions);
+      return toDate(value, options) as unknown as T;
     case 'object':
-      return toObject(value);
+      return toObject(value, options) as unknown as T;
     case 'array':
-      return toArray(value, item => item);
+      return toArray(value, undefined, options) as unknown as T;
     default:
-      throw new TypeConversionError(value, targetType, `Unsupported target type: ${targetType}`);
+      if (options?.throwOnError) {
+        throw createConversionError(
+          `Unsupported target type: ${targetType}`,
+          value,
+          targetType,
+          options
+        );
+      }
+      return options?.defaultValue as T;
   }
 }
+
+/**
+ * Converts a value to a nullable type (allowing null/undefined values)
+ * @param value The value to convert
+ * @param converter The converter function to use
+ * @param options Conversion options
+ * @returns The converted value, null, or undefined
+ */
+export function toNullable<T>(
+  value: any,
+  converter: (value: any, options?: ConversionOptions) => T,
+  options?: ConversionOptions
+): T | null | undefined {
+  return converter(value, { ...options, allowNil: true });
+}
+
+/**
+ * Converts a value with a default fallback value
+ * @param value The value to convert
+ * @param converter The converter function to use
+ * @param defaultValue The default value to use if conversion fails
+ * @param options Conversion options
+ * @returns The converted value or default value
+ */
+export function toDefault<T>(
+  value: any,
+  converter: (value: any, options?: ConversionOptions) => T,
+  defaultValue: T,
+  options?: ConversionOptions
+): T {
+  return converter(value, { 
+    ...options, 
+    throwOnError: false, 
+    defaultValue 
+  }) as T;
+}
+
+/**
+ * Type guard utilities for checking types
+ * These are re-exported from type-guards.ts for convenience
+ */
+export { isNil, isString, isNumber, isBoolean, isDate, isObject };
