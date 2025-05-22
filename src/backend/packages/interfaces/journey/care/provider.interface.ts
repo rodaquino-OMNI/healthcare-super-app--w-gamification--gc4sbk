@@ -1,11 +1,11 @@
 /**
- * @file Provider interface for the Care journey
- * @description Defines the standard interface for healthcare provider data across the AUSTA SuperApp
+ * @file Provider Interface
+ * @description Defines the interface for healthcare providers in the Care Journey.
  */
 
 /**
- * Interface representing a healthcare provider.
- * Used for consistent typing across the Care journey services and client applications.
+ * Interface for healthcare provider data in the Care Journey.
+ * Represents medical professionals who can be scheduled for appointments.
  */
 export interface IProvider {
   /**
