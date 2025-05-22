@@ -1,201 +1,331 @@
-import { describe, expect, it } from '@jest/globals';
-
-// Import the constants to test
+import { HttpStatus } from '@nestjs/common';
 import {
-  ERROR_CODES,
+  ErrorType,
+  ERROR_TYPE_TO_HTTP_STATUS,
+  ERROR_CODE_PREFIXES,
+  COMMON_ERROR_CODES,
+  HEALTH_ERROR_CODES,
+  CARE_ERROR_CODES,
+  PLAN_ERROR_CODES,
+  GAMIFICATION_ERROR_CODES,
+  AUTH_ERROR_CODES,
   ERROR_MESSAGES,
-  HTTP_STATUS_MAPPINGS,
-  RETRY_CONFIGURATIONS,
-  JOURNEY_ERROR_PREFIXES
+  RETRY_CONFIG,
+  DLQ_CONFIG,
+  CIRCUIT_BREAKER_CONFIG,
+  FALLBACK_STRATEGY,
+  CACHE_CONFIG
 } from '../../src/constants';
 
 describe('Error Constants', () => {
-  describe('ERROR_CODES', () => {
-    it('should export ERROR_CODES as an object', () => {
-      expect(ERROR_CODES).toBeDefined();
-      expect(typeof ERROR_CODES).toBe('object');
+  describe('ErrorType enum', () => {
+    it('should define all required error types', () => {
+      expect(ErrorType.VALIDATION).toBe('VALIDATION');
+      expect(ErrorType.BUSINESS).toBe('BUSINESS');
+      expect(ErrorType.EXTERNAL).toBe('EXTERNAL');
+      expect(ErrorType.TECHNICAL).toBe('TECHNICAL');
     });
 
-    it('should contain common error codes', () => {
-      // Common error codes that should exist
-      const expectedCommonCodes = [
-        'INTERNAL_ERROR',
-        'VALIDATION_ERROR',
-        'UNAUTHORIZED',
-        'FORBIDDEN',
-        'NOT_FOUND',
-        'CONFLICT',
-        'BAD_REQUEST',
-        'SERVICE_UNAVAILABLE'
-      ];
+    it('should have exactly 4 error types', () => {
+      const errorTypeCount = Object.keys(ErrorType).length;
+      expect(errorTypeCount).toBe(4);
+    });
+  });
 
-      expectedCommonCodes.forEach(code => {
-        expect(ERROR_CODES).toHaveProperty(code);
-        expect(typeof ERROR_CODES[code]).toBe('string');
-      });
+  describe('ERROR_TYPE_TO_HTTP_STATUS mapping', () => {
+    it('should map all error types to appropriate HTTP status codes', () => {
+      expect(ERROR_TYPE_TO_HTTP_STATUS[ErrorType.VALIDATION]).toBe(HttpStatus.BAD_REQUEST);
+      expect(ERROR_TYPE_TO_HTTP_STATUS[ErrorType.BUSINESS]).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(ERROR_TYPE_TO_HTTP_STATUS[ErrorType.EXTERNAL]).toBe(HttpStatus.BAD_GATEWAY);
+      expect(ERROR_TYPE_TO_HTTP_STATUS[ErrorType.TECHNICAL]).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
 
-    it('should have journey-specific error code prefixes', () => {
-      // Check that journey-specific error codes exist with proper prefixes
-      const journeyPrefixes = ['HEALTH_', 'CARE_', 'PLAN_'];
+    it('should have a mapping for every error type', () => {
+      const errorTypes = Object.values(ErrorType);
+      const mappedTypes = Object.keys(ERROR_TYPE_TO_HTTP_STATUS);
       
-      // Verify that at least some error codes exist with each prefix
-      journeyPrefixes.forEach(prefix => {
-        const hasCodesWithPrefix = Object.values(ERROR_CODES).some(
-          (code: string) => code.startsWith(prefix)
-        );
-        expect(hasCodesWithPrefix).toBe(true);
+      expect(mappedTypes.length).toBe(errorTypes.length);
+      errorTypes.forEach(type => {
+        expect(ERROR_TYPE_TO_HTTP_STATUS[type]).toBeDefined();
       });
     });
   });
 
-  describe('JOURNEY_ERROR_PREFIXES', () => {
-    it('should export JOURNEY_ERROR_PREFIXES as an object', () => {
-      expect(JOURNEY_ERROR_PREFIXES).toBeDefined();
-      expect(typeof JOURNEY_ERROR_PREFIXES).toBe('object');
+  describe('ERROR_CODE_PREFIXES', () => {
+    it('should define all journey-specific prefixes', () => {
+      expect(ERROR_CODE_PREFIXES.HEALTH).toBe('HEALTH_');
+      expect(ERROR_CODE_PREFIXES.CARE).toBe('CARE_');
+      expect(ERROR_CODE_PREFIXES.PLAN).toBe('PLAN_');
+      expect(ERROR_CODE_PREFIXES.GAMIFICATION).toBe('GAMIFICATION_');
+      expect(ERROR_CODE_PREFIXES.AUTH).toBe('AUTH_');
+      expect(ERROR_CODE_PREFIXES.GENERAL).toBe('GENERAL_');
     });
 
-    it('should contain prefixes for all journeys', () => {
-      expect(JOURNEY_ERROR_PREFIXES).toHaveProperty('HEALTH');
-      expect(JOURNEY_ERROR_PREFIXES).toHaveProperty('CARE');
-      expect(JOURNEY_ERROR_PREFIXES).toHaveProperty('PLAN');
-      
-      expect(JOURNEY_ERROR_PREFIXES.HEALTH).toBe('HEALTH_');
-      expect(JOURNEY_ERROR_PREFIXES.CARE).toBe('CARE_');
-      expect(JOURNEY_ERROR_PREFIXES.PLAN).toBe('PLAN_');
+    it('should have all prefixes ending with underscore', () => {
+      Object.values(ERROR_CODE_PREFIXES).forEach(prefix => {
+        expect(prefix.endsWith('_')).toBe(true);
+      });
     });
   });
 
-  describe('ERROR_MESSAGES', () => {
-    it('should export ERROR_MESSAGES as an object', () => {
-      expect(ERROR_MESSAGES).toBeDefined();
-      expect(typeof ERROR_MESSAGES).toBe('object');
+  describe('Common Error Codes', () => {
+    it('should define all common error codes', () => {
+      expect(COMMON_ERROR_CODES.VALIDATION_ERROR).toBe('VALIDATION_ERROR');
+      expect(COMMON_ERROR_CODES.NOT_FOUND).toBe('NOT_FOUND');
+      expect(COMMON_ERROR_CODES.UNAUTHORIZED).toBe('UNAUTHORIZED');
+      expect(COMMON_ERROR_CODES.FORBIDDEN).toBe('FORBIDDEN');
+      expect(COMMON_ERROR_CODES.INTERNAL_ERROR).toBe('INTERNAL_ERROR');
+      expect(COMMON_ERROR_CODES.EXTERNAL_SERVICE_ERROR).toBe('EXTERNAL_SERVICE_ERROR');
+      expect(COMMON_ERROR_CODES.DATABASE_ERROR).toBe('DATABASE_ERROR');
+      expect(COMMON_ERROR_CODES.TIMEOUT).toBe('TIMEOUT');
+      expect(COMMON_ERROR_CODES.RATE_LIMIT_EXCEEDED).toBe('RATE_LIMIT_EXCEEDED');
+      expect(COMMON_ERROR_CODES.CONFLICT).toBe('CONFLICT');
     });
 
-    it('should contain message templates for all error codes', () => {
-      // All error codes should have corresponding message templates
-      Object.keys(ERROR_CODES).forEach(codeKey => {
-        const errorCode = ERROR_CODES[codeKey];
-        expect(ERROR_MESSAGES).toHaveProperty(errorCode);
+    it('should have at least 10 common error codes', () => {
+      expect(Object.keys(COMMON_ERROR_CODES).length).toBeGreaterThanOrEqual(10);
+    });
+  });
+
+  describe('Journey-specific Error Codes', () => {
+    it('should prefix all health error codes with HEALTH_', () => {
+      Object.values(HEALTH_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(ERROR_CODE_PREFIXES.HEALTH)).toBe(true);
+      });
+    });
+
+    it('should prefix all care error codes with CARE_', () => {
+      Object.values(CARE_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(ERROR_CODE_PREFIXES.CARE)).toBe(true);
+      });
+    });
+
+    it('should prefix all plan error codes with PLAN_', () => {
+      Object.values(PLAN_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(ERROR_CODE_PREFIXES.PLAN)).toBe(true);
+      });
+    });
+
+    it('should prefix all gamification error codes with GAMIFICATION_', () => {
+      Object.values(GAMIFICATION_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(ERROR_CODE_PREFIXES.GAMIFICATION)).toBe(true);
+      });
+    });
+
+    it('should prefix all auth error codes with AUTH_', () => {
+      Object.values(AUTH_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(ERROR_CODE_PREFIXES.AUTH)).toBe(true);
+      });
+    });
+
+    it('should have at least 5 error codes for each journey', () => {
+      expect(Object.keys(HEALTH_ERROR_CODES).length).toBeGreaterThanOrEqual(5);
+      expect(Object.keys(CARE_ERROR_CODES).length).toBeGreaterThanOrEqual(5);
+      expect(Object.keys(PLAN_ERROR_CODES).length).toBeGreaterThanOrEqual(5);
+      expect(Object.keys(GAMIFICATION_ERROR_CODES).length).toBeGreaterThanOrEqual(5);
+      expect(Object.keys(AUTH_ERROR_CODES).length).toBeGreaterThanOrEqual(5);
+    });
+  });
+
+  describe('Error Messages', () => {
+    it('should have a message for each common error code', () => {
+      Object.keys(COMMON_ERROR_CODES).forEach(key => {
+        const errorCode = COMMON_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
         expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
       });
     });
 
-    it('should have properly formatted message templates', () => {
-      // Message templates should be strings and may contain placeholders like {0}, {1}, etc.
-      const messageTemplateRegex = /^[^{}]*(?:\{\d+\}[^{}]*)*$/;
-      
-      Object.values(ERROR_MESSAGES).forEach(message => {
-        expect(typeof message).toBe('string');
-        // Check if message templates with placeholders are properly formatted
-        if (message.includes('{')) {
-          expect(message).toMatch(messageTemplateRegex);
-        }
+    it('should have a message for each health error code', () => {
+      Object.keys(HEALTH_ERROR_CODES).forEach(key => {
+        const errorCode = HEALTH_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
+        expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
+      });
+    });
+
+    it('should have a message for each care error code', () => {
+      Object.keys(CARE_ERROR_CODES).forEach(key => {
+        const errorCode = CARE_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
+        expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
+      });
+    });
+
+    it('should have a message for each plan error code', () => {
+      Object.keys(PLAN_ERROR_CODES).forEach(key => {
+        const errorCode = PLAN_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
+        expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
+      });
+    });
+
+    it('should have a message for each gamification error code', () => {
+      Object.keys(GAMIFICATION_ERROR_CODES).forEach(key => {
+        const errorCode = GAMIFICATION_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
+        expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
+      });
+    });
+
+    it('should have a message for each auth error code', () => {
+      Object.keys(AUTH_ERROR_CODES).forEach(key => {
+        const errorCode = AUTH_ERROR_CODES[key];
+        expect(ERROR_MESSAGES[errorCode]).toBeDefined();
+        expect(typeof ERROR_MESSAGES[errorCode]).toBe('string');
       });
     });
   });
 
-  describe('HTTP_STATUS_MAPPINGS', () => {
-    it('should export HTTP_STATUS_MAPPINGS as an object', () => {
-      expect(HTTP_STATUS_MAPPINGS).toBeDefined();
-      expect(typeof HTTP_STATUS_MAPPINGS).toBe('object');
+  describe('Retry Configuration', () => {
+    it('should define all required retry configurations', () => {
+      expect(RETRY_CONFIG.DEFAULT).toBeDefined();
+      expect(RETRY_CONFIG.DATABASE).toBeDefined();
+      expect(RETRY_CONFIG.EXTERNAL_API).toBeDefined();
+      expect(RETRY_CONFIG.EVENT_PROCESSING).toBeDefined();
+      expect(RETRY_CONFIG.NOTIFICATION).toBeDefined();
     });
 
-    it('should map error types to valid HTTP status codes', () => {
-      // Common error types and their expected HTTP status codes
-      const expectedMappings = {
-        'VALIDATION': 400, // Bad Request
-        'BUSINESS': 422,   // Unprocessable Entity
-        'TECHNICAL': 500,  // Internal Server Error
-        'EXTERNAL': 502,   // Bad Gateway
-        'UNAUTHORIZED': 401,
-        'FORBIDDEN': 403,
-        'NOT_FOUND': 404,
-        'CONFLICT': 409,
-        'SERVICE_UNAVAILABLE': 503
-      };
-
-      Object.entries(expectedMappings).forEach(([errorType, statusCode]) => {
-        expect(HTTP_STATUS_MAPPINGS).toHaveProperty(errorType);
-        expect(HTTP_STATUS_MAPPINGS[errorType]).toBe(statusCode);
+    it('should have valid retry attempt ranges', () => {
+      // Check that max attempts are within reasonable ranges
+      Object.values(RETRY_CONFIG).forEach(config => {
+        expect(config.MAX_ATTEMPTS).toBeGreaterThanOrEqual(1);
+        expect(config.MAX_ATTEMPTS).toBeLessThanOrEqual(20); // Reasonable upper limit
       });
     });
 
-    it('should only contain valid HTTP status codes', () => {
-      // Valid HTTP status codes range from 100 to 599
-      Object.values(HTTP_STATUS_MAPPINGS).forEach(statusCode => {
-        expect(typeof statusCode).toBe('number');
-        expect(statusCode).toBeGreaterThanOrEqual(100);
-        expect(statusCode).toBeLessThanOrEqual(599);
+    it('should have valid delay ranges', () => {
+      // Check that delays are within reasonable ranges
+      Object.values(RETRY_CONFIG).forEach(config => {
+        // Initial delay should be positive
+        expect(config.INITIAL_DELAY_MS).toBeGreaterThan(0);
+        
+        // Max delay should be greater than initial delay
+        expect(config.MAX_DELAY_MS).toBeGreaterThan(config.INITIAL_DELAY_MS);
+        
+        // Max delay should be reasonable (less than 10 minutes)
+        expect(config.MAX_DELAY_MS).toBeLessThanOrEqual(10 * 60 * 1000);
+      });
+    });
+
+    it('should have valid backoff factors', () => {
+      Object.values(RETRY_CONFIG).forEach(config => {
+        expect(config.BACKOFF_FACTOR).toBeGreaterThanOrEqual(1);
+        expect(config.BACKOFF_FACTOR).toBeLessThanOrEqual(10); // Reasonable upper limit
+      });
+    });
+
+    it('should have valid jitter factors', () => {
+      Object.values(RETRY_CONFIG).forEach(config => {
+        expect(config.JITTER_FACTOR).toBeGreaterThanOrEqual(0);
+        expect(config.JITTER_FACTOR).toBeLessThanOrEqual(1);
       });
     });
   });
 
-  describe('RETRY_CONFIGURATIONS', () => {
-    it('should export RETRY_CONFIGURATIONS as an object', () => {
-      expect(RETRY_CONFIGURATIONS).toBeDefined();
-      expect(typeof RETRY_CONFIGURATIONS).toBe('object');
+  describe('Dead Letter Queue Configuration', () => {
+    it('should define all required DLQ configuration parameters', () => {
+      expect(DLQ_CONFIG.BATCH_SIZE).toBeDefined();
+      expect(DLQ_CONFIG.PROCESSING_INTERVAL_MS).toBeDefined();
+      expect(DLQ_CONFIG.MAX_AGE_MS).toBeDefined();
+      expect(DLQ_CONFIG.MAX_RETRIES).toBeDefined();
     });
 
-    it('should define retry configurations for different error scenarios', () => {
-      // Common retry configuration scenarios
-      const expectedScenarios = [
-        'DEFAULT',
-        'NETWORK_ERROR',
-        'DATABASE_ERROR',
-        'EXTERNAL_SERVICE_ERROR',
-        'RATE_LIMIT_ERROR'
-      ];
+    it('should have valid batch size', () => {
+      expect(DLQ_CONFIG.BATCH_SIZE).toBeGreaterThanOrEqual(1);
+      expect(DLQ_CONFIG.BATCH_SIZE).toBeLessThanOrEqual(100); // Reasonable upper limit
+    });
 
-      expectedScenarios.forEach(scenario => {
-        expect(RETRY_CONFIGURATIONS).toHaveProperty(scenario);
-        expect(typeof RETRY_CONFIGURATIONS[scenario]).toBe('object');
+    it('should have valid processing interval', () => {
+      expect(DLQ_CONFIG.PROCESSING_INTERVAL_MS).toBeGreaterThan(0);
+      // Should be less than 1 hour
+      expect(DLQ_CONFIG.PROCESSING_INTERVAL_MS).toBeLessThanOrEqual(60 * 60 * 1000);
+    });
+
+    it('should have valid max age', () => {
+      expect(DLQ_CONFIG.MAX_AGE_MS).toBeGreaterThan(0);
+      // Should be less than 30 days
+      expect(DLQ_CONFIG.MAX_AGE_MS).toBeLessThanOrEqual(30 * 24 * 60 * 60 * 1000);
+    });
+
+    it('should have valid max retries', () => {
+      expect(DLQ_CONFIG.MAX_RETRIES).toBeGreaterThanOrEqual(1);
+      expect(DLQ_CONFIG.MAX_RETRIES).toBeLessThanOrEqual(20); // Reasonable upper limit
+    });
+  });
+
+  describe('Circuit Breaker Configuration', () => {
+    it('should define all required circuit breaker configurations', () => {
+      expect(CIRCUIT_BREAKER_CONFIG.DEFAULT).toBeDefined();
+      expect(CIRCUIT_BREAKER_CONFIG.CRITICAL).toBeDefined();
+      expect(CIRCUIT_BREAKER_CONFIG.NON_CRITICAL).toBeDefined();
+    });
+
+    it('should have valid failure threshold percentages', () => {
+      Object.values(CIRCUIT_BREAKER_CONFIG).forEach(config => {
+        expect(config.FAILURE_THRESHOLD_PERCENTAGE).toBeGreaterThan(0);
+        expect(config.FAILURE_THRESHOLD_PERCENTAGE).toBeLessThanOrEqual(100);
       });
     });
 
-    it('should have valid retry configuration parameters', () => {
-      // Each retry configuration should have these parameters
-      const requiredParams = [
-        'maxRetries',
-        'initialDelayMs',
-        'maxDelayMs',
-        'backoffFactor',
-        'jitterFactor'
-      ];
-
-      Object.values(RETRY_CONFIGURATIONS).forEach(config => {
-        requiredParams.forEach(param => {
-          expect(config).toHaveProperty(param);
-        });
-
-        // Validate parameter types and ranges
-        expect(typeof config.maxRetries).toBe('number');
-        expect(config.maxRetries).toBeGreaterThanOrEqual(0);
-        expect(config.maxRetries).toBeLessThanOrEqual(10); // Reasonable upper limit
-
-        expect(typeof config.initialDelayMs).toBe('number');
-        expect(config.initialDelayMs).toBeGreaterThanOrEqual(0);
-        
-        expect(typeof config.maxDelayMs).toBe('number');
-        expect(config.maxDelayMs).toBeGreaterThanOrEqual(config.initialDelayMs);
-        
-        expect(typeof config.backoffFactor).toBe('number');
-        expect(config.backoffFactor).toBeGreaterThanOrEqual(1);
-        
-        expect(typeof config.jitterFactor).toBe('number');
-        expect(config.jitterFactor).toBeGreaterThanOrEqual(0);
-        expect(config.jitterFactor).toBeLessThanOrEqual(1);
+    it('should have valid request volume thresholds', () => {
+      Object.values(CIRCUIT_BREAKER_CONFIG).forEach(config => {
+        expect(config.REQUEST_VOLUME_THRESHOLD).toBeGreaterThanOrEqual(1);
+        expect(config.REQUEST_VOLUME_THRESHOLD).toBeLessThanOrEqual(100); // Reasonable upper limit
       });
     });
 
-    it('should have reasonable retry limits for different scenarios', () => {
-      // Network errors might need more retries than other types
-      expect(RETRY_CONFIGURATIONS.NETWORK_ERROR.maxRetries)
-        .toBeGreaterThanOrEqual(RETRY_CONFIGURATIONS.DEFAULT.maxRetries);
+    it('should have valid rolling window durations', () => {
+      Object.values(CIRCUIT_BREAKER_CONFIG).forEach(config => {
+        expect(config.ROLLING_WINDOW_MS).toBeGreaterThan(0);
+        // Should be less than 5 minutes
+        expect(config.ROLLING_WINDOW_MS).toBeLessThanOrEqual(5 * 60 * 1000);
+      });
+    });
+
+    it('should have valid reset timeout durations', () => {
+      Object.values(CIRCUIT_BREAKER_CONFIG).forEach(config => {
+        expect(config.RESET_TIMEOUT_MS).toBeGreaterThan(0);
+        // Should be less than 10 minutes
+        expect(config.RESET_TIMEOUT_MS).toBeLessThanOrEqual(10 * 60 * 1000);
+      });
+    });
+  });
+
+  describe('Fallback Strategy', () => {
+    it('should define all required fallback strategies', () => {
+      expect(FALLBACK_STRATEGY.USE_CACHED_DATA).toBe('USE_CACHED_DATA');
+      expect(FALLBACK_STRATEGY.USE_DEFAULT_VALUES).toBe('USE_DEFAULT_VALUES');
+      expect(FALLBACK_STRATEGY.GRACEFUL_DEGRADATION).toBe('GRACEFUL_DEGRADATION');
+      expect(FALLBACK_STRATEGY.RETURN_EMPTY).toBe('RETURN_EMPTY');
+      expect(FALLBACK_STRATEGY.FAIL_FAST).toBe('FAIL_FAST');
+    });
+
+    it('should have at least 5 fallback strategies', () => {
+      expect(Object.keys(FALLBACK_STRATEGY).length).toBeGreaterThanOrEqual(5);
+    });
+  });
+
+  describe('Cache Configuration', () => {
+    it('should define all required cache configuration parameters', () => {
+      expect(CACHE_CONFIG.DEFAULT_TTL_MS).toBeDefined();
+      expect(CACHE_CONFIG.DEGRADED_SERVICE_TTL_MS).toBeDefined();
+      expect(CACHE_CONFIG.MAX_ITEMS).toBeDefined();
+    });
+
+    it('should have valid TTL values', () => {
+      expect(CACHE_CONFIG.DEFAULT_TTL_MS).toBeGreaterThan(0);
+      expect(CACHE_CONFIG.DEGRADED_SERVICE_TTL_MS).toBeGreaterThan(CACHE_CONFIG.DEFAULT_TTL_MS);
       
-      // Rate limit errors should have longer delays
-      expect(RETRY_CONFIGURATIONS.RATE_LIMIT_ERROR.initialDelayMs)
-        .toBeGreaterThanOrEqual(RETRY_CONFIGURATIONS.DEFAULT.initialDelayMs);
+      // Should be less than 1 day
+      expect(CACHE_CONFIG.DEFAULT_TTL_MS).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+      expect(CACHE_CONFIG.DEGRADED_SERVICE_TTL_MS).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+    });
+
+    it('should have valid max items', () => {
+      expect(CACHE_CONFIG.MAX_ITEMS).toBeGreaterThan(0);
+      // Reasonable upper limit for in-memory cache
+      expect(CACHE_CONFIG.MAX_ITEMS).toBeLessThanOrEqual(10000);
     });
   });
 });
