@@ -1,259 +1,158 @@
 /**
- * @fileoverview
  * Implementation of the Circuit Breaker pattern for preventing cascading failures
- * in event processing. This pattern temporarily stops operations that are likely to fail,
- * allowing the system to recover and preventing system overload.
+ * in event processing systems. This pattern helps maintain system stability by
+ * temporarily stopping operations when a service is experiencing problems.
  */
 
-import { Logger } from '@nestjs/common';
+/**
+ * Circuit breaker states
+ */
+export enum CircuitBreakerState {
+  CLOSED = 'CLOSED',   // Normal operation, requests allowed
+  OPEN = 'OPEN',       // Failure threshold exceeded, requests blocked
+  HALF_OPEN = 'HALF_OPEN' // Testing if service has recovered
+}
 
 /**
- * Configuration options for the CircuitBreaker
+ * Configuration options for the circuit breaker
  */
 export interface CircuitBreakerOptions {
-  /**
-   * Number of failures before opening the circuit
-   */
-  failureThreshold?: number;
-  
-  /**
-   * Time in milliseconds to keep the circuit open before trying again
-   */
-  resetTimeout?: number;
-  
-  /**
-   * Window size for tracking failures (number of most recent calls to consider)
-   */
-  windowSize?: number;
-  
-  /**
-   * Failure rate threshold (0-1) that triggers the circuit to open
-   */
-  failureRateThreshold?: number;
-  
-  /**
-   * Name of this circuit breaker for logging and metrics
-   */
-  name?: string;
+  // Number of failures before opening the circuit
+  failureThreshold: number;
+  // Time in milliseconds before attempting to close the circuit
+  resetTimeout: number;
+  // Interval in milliseconds to check circuit state
+  monitorInterval: number;
 }
 
 /**
- * States of the circuit breaker
+ * Default circuit breaker options
  */
-enum CircuitState {
-  CLOSED = 'CLOSED',   // Normal operation, requests pass through
-  OPEN = 'OPEN',       // Circuit is open, requests are rejected
-  HALF_OPEN = 'HALF_OPEN' // Testing if service is healthy again
-}
+export const DEFAULT_CIRCUIT_BREAKER_OPTIONS: CircuitBreakerOptions = {
+  failureThreshold: 5,
+  resetTimeout: 30000, // 30 seconds
+  monitorInterval: 5000 // 5 seconds
+};
 
 /**
- * Implementation of the Circuit Breaker pattern
- * Tracks failures and temporarily prevents operations when failure threshold is exceeded
+ * Circuit breaker implementation for preventing cascading failures
  */
 export class CircuitBreaker {
-  private state: CircuitState = CircuitState.CLOSED;
-  private failureCount: number = 0;
-  private successCount: number = 0;
-  private lastStateChange: number = Date.now();
-  private readonly failureThreshold: number;
-  private readonly resetTimeout: number;
-  private readonly windowSize: number;
-  private readonly failureRateThreshold: number;
-  private readonly name: string;
-  private readonly logger: Logger;
+  private static instances: Map<string, CircuitBreaker> = new Map();
   
-  // Circular buffer to track recent call results
-  private readonly callResults: boolean[] = [];
+  private state: CircuitBreakerState = CircuitBreakerState.CLOSED;
+  private failureCount: number = 0;
+  private lastFailureTime: number = 0;
+  private lastSuccessTime: number = 0;
+  private monitorIntervalId: NodeJS.Timeout | null = null;
   
   /**
-   * Creates a new CircuitBreaker instance
-   * 
+   * Get a circuit breaker instance by key, creating it if it doesn't exist
+   * @param key Unique identifier for the circuit breaker
    * @param options Configuration options
    */
-  constructor(options?: CircuitBreakerOptions) {
-    this.failureThreshold = options?.failureThreshold ?? 5;
-    this.resetTimeout = options?.resetTimeout ?? 30000; // 30 seconds
-    this.windowSize = options?.windowSize ?? 10;
-    this.failureRateThreshold = options?.failureRateThreshold ?? 0.5; // 50%
-    this.name = options?.name ?? 'default';
-    this.logger = new Logger(`CircuitBreaker:${this.name}`);
-    
-    this.logger.log(`Initialized circuit breaker with threshold ${this.failureThreshold}, ` +
-      `reset timeout ${this.resetTimeout}ms, window size ${this.windowSize}, ` +
-      `failure rate threshold ${this.failureRateThreshold * 100}%`);
-  }
-  
-  /**
-   * Checks if the circuit is currently open (rejecting requests)
-   * 
-   * @returns True if the circuit is open
-   */
-  isOpen(): boolean {
-    this.updateState();
-    return this.state === CircuitState.OPEN;
-  }
-  
-  /**
-   * Records a successful operation
-   */
-  recordSuccess(): void {
-    if (this.state === CircuitState.HALF_OPEN) {
-      this.successCount++;
-      
-      // If we've seen enough successes in half-open state, close the circuit
-      if (this.successCount >= this.failureThreshold) {
-        this.transitionTo(CircuitState.CLOSED);
-      }
+  public static getInstance(key: string, options: CircuitBreakerOptions = DEFAULT_CIRCUIT_BREAKER_OPTIONS): CircuitBreaker {
+    if (!CircuitBreaker.instances.has(key)) {
+      CircuitBreaker.instances.set(key, new CircuitBreaker(options));
     }
+    return CircuitBreaker.instances.get(key)!;
+  }
+  
+  /**
+   * Reset all circuit breaker instances
+   */
+  public static resetAll(): void {
+    CircuitBreaker.instances.forEach(instance => instance.reset());
+  }
+  
+  /**
+   * Create a new circuit breaker
+   * @param options Configuration options
+   */
+  private constructor(private options: CircuitBreakerOptions) {
+    this.startMonitoring();
+  }
+  
+  /**
+   * Check if the circuit breaker allows operations
+   */
+  public isAllowed(): boolean {
+    return this.state !== CircuitBreakerState.OPEN;
+  }
+  
+  /**
+   * Get the current state of the circuit breaker
+   */
+  public getState(): { state: CircuitBreakerState; failureCount: number; lastFailureTime: number } {
+    return {
+      state: this.state,
+      failureCount: this.failureCount,
+      lastFailureTime: this.lastFailureTime
+    };
+  }
+  
+  /**
+   * Record a successful operation
+   */
+  public recordSuccess(): void {
+    this.lastSuccessTime = Date.now();
     
-    // Add to the circular buffer of results
-    this.recordResult(true);
-  }
-  
-  /**
-   * Records a failed operation
-   */
-  recordFailure(): void {
-    if (this.state === CircuitState.HALF_OPEN) {
-      // If any failure in half-open state, reopen the circuit
-      this.transitionTo(CircuitState.OPEN);
-    } else if (this.state === CircuitState.CLOSED) {
-      this.failureCount++;
-      
-      // Check if we need to open the circuit based on absolute count
-      if (this.failureCount >= this.failureThreshold) {
-        this.transitionTo(CircuitState.OPEN);
-      }
-    }
-    
-    // Add to the circular buffer of results
-    this.recordResult(false);
-    
-    // Check if we need to open the circuit based on failure rate
-    this.checkFailureRate();
-  }
-  
-  /**
-   * Gets the current state of the circuit breaker
-   * 
-   * @returns The current state
-   */
-  getState(): CircuitState {
-    this.updateState();
-    return this.state;
-  }
-  
-  /**
-   * Gets the current failure count
-   * 
-   * @returns The number of consecutive failures
-   */
-  getFailureCount(): number {
-    return this.failureCount;
-  }
-  
-  /**
-   * Gets the current success count in half-open state
-   * 
-   * @returns The number of consecutive successes in half-open state
-   */
-  getSuccessCount(): number {
-    return this.successCount;
-  }
-  
-  /**
-   * Gets the time since the last state change in milliseconds
-   * 
-   * @returns Time in milliseconds since last state change
-   */
-  getTimeSinceLastStateChange(): number {
-    return Date.now() - this.lastStateChange;
-  }
-  
-  /**
-   * Resets the circuit breaker to closed state
-   */
-  reset(): void {
-    this.transitionTo(CircuitState.CLOSED);
-  }
-  
-  /**
-   * Manually opens the circuit
-   */
-  forceOpen(): void {
-    this.transitionTo(CircuitState.OPEN);
-  }
-  
-  /**
-   * Updates the state based on timeouts
-   */
-  private updateState(): void {
-    if (this.state === CircuitState.OPEN) {
-      const timeInOpen = this.getTimeSinceLastStateChange();
-      
-      // Check if it's time to try again
-      if (timeInOpen >= this.resetTimeout) {
-        this.transitionTo(CircuitState.HALF_OPEN);
-      }
+    // If in half-open state and operation succeeded, close the circuit
+    if (this.state === CircuitBreakerState.HALF_OPEN) {
+      this.state = CircuitBreakerState.CLOSED;
+      this.failureCount = 0;
     }
   }
   
   /**
-   * Transitions to a new state
-   * 
-   * @param newState The state to transition to
+   * Record a failed operation
    */
-  private transitionTo(newState: CircuitState): void {
-    if (this.state !== newState) {
-      this.logger.log(`State change: ${this.state} -> ${newState}`);
-      
-      this.state = newState;
-      this.lastStateChange = Date.now();
-      
-      if (newState === CircuitState.CLOSED) {
-        this.failureCount = 0;
-        this.successCount = 0;
-        this.callResults.length = 0; // Clear the buffer
-      } else if (newState === CircuitState.HALF_OPEN) {
-        this.successCount = 0;
-      }
-      
-      // This would be a good place to emit metrics or events
-      // this.emitStateChangeMetric(newState);
+  public recordFailure(): void {
+    this.lastFailureTime = Date.now();
+    this.failureCount++;
+    
+    // If failure threshold is reached, open the circuit
+    if (this.failureCount >= this.options.failureThreshold) {
+      this.state = CircuitBreakerState.OPEN;
     }
   }
   
   /**
-   * Records a result in the circular buffer
-   * 
-   * @param success Whether the operation was successful
+   * Reset the circuit breaker to closed state
    */
-  private recordResult(success: boolean): void {
-    // Add to the circular buffer, removing oldest if at capacity
-    if (this.callResults.length >= this.windowSize) {
-      this.callResults.shift();
+  public reset(): void {
+    this.state = CircuitBreakerState.CLOSED;
+    this.failureCount = 0;
+    this.lastFailureTime = 0;
+    this.lastSuccessTime = 0;
+  }
+  
+  /**
+   * Start monitoring the circuit breaker state
+   */
+  private startMonitoring(): void {
+    if (this.monitorIntervalId) {
+      clearInterval(this.monitorIntervalId);
     }
     
-    this.callResults.push(success);
+    this.monitorIntervalId = setInterval(() => {
+      // If circuit is open and reset timeout has passed, move to half-open
+      if (
+        this.state === CircuitBreakerState.OPEN &&
+        Date.now() - this.lastFailureTime > this.options.resetTimeout
+      ) {
+        this.state = CircuitBreakerState.HALF_OPEN;
+      }
+    }, this.options.monitorInterval);
   }
   
   /**
-   * Checks if the failure rate exceeds the threshold
+   * Stop monitoring the circuit breaker state
    */
-  private checkFailureRate(): void {
-    // Only check if we have enough data and the circuit is closed
-    if (this.callResults.length >= this.windowSize && this.state === CircuitState.CLOSED) {
-      const failures = this.callResults.filter(result => !result).length;
-      const failureRate = failures / this.callResults.length;
-      
-      if (failureRate >= this.failureRateThreshold) {
-        this.logger.warn(
-          `Failure rate ${(failureRate * 100).toFixed(2)}% exceeds threshold ` +
-          `${(this.failureRateThreshold * 100).toFixed(2)}%, opening circuit`
-        );
-        
-        this.transitionTo(CircuitState.OPEN);
-      }
+  public stopMonitoring(): void {
+    if (this.monitorIntervalId) {
+      clearInterval(this.monitorIntervalId);
+      this.monitorIntervalId = null;
     }
   }
 }
