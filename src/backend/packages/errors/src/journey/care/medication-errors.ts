@@ -7,151 +7,76 @@ import { AppException, ErrorType } from '../../../../../shared/src/exceptions/ex
 const ERROR_CODE_PREFIX = 'CARE_MED_';
 
 /**
- * Error thrown when a requested medication cannot be found.
- * This is a business logic error as it relates to the application's domain rules.
+ * Error thrown when a medication record cannot be found.
+ * Used when attempting to access, update, or delete a non-existent medication.
  */
 export class MedicationNotFoundError extends AppException {
-  /**
-   * Creates a new MedicationNotFoundError instance.
-   * 
-   * @param medicationId - ID of the medication that was not found
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly medicationId: string,
-    message: string = `Medication with ID ${medicationId} not found`,
-    cause?: Error
-  ) {
+  constructor(medicationId: string, details?: any) {
     super(
-      message,
+      `Medication with ID ${medicationId} not found`,
       ErrorType.BUSINESS,
       `${ERROR_CODE_PREFIX}001`,
-      { medicationId },
-      cause
+      details
     );
   }
 }
 
 /**
  * Error thrown when a potential drug interaction is detected.
- * This is a business logic error related to medication safety.
+ * Used during medication safety checks to prevent harmful drug combinations.
  */
 export class MedicationInteractionError extends AppException {
-  /**
-   * Creates a new MedicationInteractionError instance.
-   * 
-   * @param medications - Array of medication IDs involved in the interaction
-   * @param interactionType - Type of interaction (e.g., 'contraindication', 'warning')
-   * @param interactionDescription - Description of the interaction
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly medications: string[],
-    public readonly interactionType: string,
-    public readonly interactionDescription: string,
-    message: string = `Medication interaction detected: ${interactionDescription}`,
-    cause?: Error
-  ) {
+  constructor(medicationName: string, interactingWith: string, details?: any) {
     super(
-      message,
+      `Potential interaction detected between ${medicationName} and ${interactingWith}`,
       ErrorType.BUSINESS,
       `${ERROR_CODE_PREFIX}002`,
-      { medications, interactionType, interactionDescription },
-      cause
+      details
     );
   }
 }
 
 /**
- * Error thrown when medication dosage validation fails.
- * This is a validation error as it relates to input validation.
+ * Error thrown when medication dosage information is invalid.
+ * Used during prescription validation to ensure proper dosing.
  */
 export class MedicationDosageError extends AppException {
-  /**
-   * Creates a new MedicationDosageError instance.
-   * 
-   * @param medicationId - ID of the medication with invalid dosage
-   * @param providedDosage - The dosage that was provided
-   * @param validationDetails - Details about the validation failure
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly medicationId: string,
-    public readonly providedDosage: string,
-    public readonly validationDetails: Record<string, any>,
-    message: string = `Invalid medication dosage: ${providedDosage}`,
-    cause?: Error
-  ) {
+  constructor(medicationName: string, message: string, details?: any) {
     super(
-      message,
+      `Invalid dosage for ${medicationName}: ${message}`,
       ErrorType.VALIDATION,
       `${ERROR_CODE_PREFIX}003`,
-      { medicationId, providedDosage, validationDetails },
-      cause
+      details
     );
   }
 }
 
 /**
- * Error thrown when medication adherence tracking encounters an issue.
- * This is a business logic error related to medication adherence monitoring.
+ * Error thrown when there are issues with medication adherence tracking.
+ * Used when recording or analyzing medication consumption patterns.
  */
 export class MedicationAdherenceError extends AppException {
-  /**
-   * Creates a new MedicationAdherenceError instance.
-   * 
-   * @param userId - ID of the user whose adherence is being tracked
-   * @param medicationId - ID of the medication
-   * @param adherenceIssue - Description of the adherence issue
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly userId: string,
-    public readonly medicationId: string,
-    public readonly adherenceIssue: string,
-    message: string = `Medication adherence issue: ${adherenceIssue}`,
-    cause?: Error
-  ) {
+  constructor(medicationName: string, message: string, details?: any) {
     super(
-      message,
+      `Medication adherence issue for ${medicationName}: ${message}`,
       ErrorType.BUSINESS,
       `${ERROR_CODE_PREFIX}004`,
-      { userId, medicationId, adherenceIssue },
-      cause
+      details
     );
   }
 }
 
 /**
- * Error thrown when medication data persistence fails.
- * This is a technical error as it relates to database operations.
+ * Error thrown when there are database or persistence issues with medication data.
+ * Used for technical errors during CRUD operations on medication records.
  */
 export class MedicationPersistenceError extends AppException {
-  /**
-   * Creates a new MedicationPersistenceError instance.
-   * 
-   * @param operation - The database operation that failed (e.g., 'create', 'update', 'delete')
-   * @param medicationId - ID of the medication (if applicable)
-   * @param details - Additional details about the error
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly operation: string,
-    public readonly medicationId?: string,
-    public readonly details?: Record<string, any>,
-    message: string = `Failed to ${operation} medication data`,
-    cause?: Error
-  ) {
+  constructor(operation: string, cause?: Error, details?: any) {
     super(
-      message,
+      `Failed to ${operation} medication data`,
       ErrorType.TECHNICAL,
       `${ERROR_CODE_PREFIX}005`,
-      { operation, medicationId, details },
+      details,
       cause
     );
   }
@@ -159,61 +84,31 @@ export class MedicationPersistenceError extends AppException {
 
 /**
  * Error thrown when external drug information lookup fails.
- * This is an external system error as it relates to external service integration.
+ * Used when integrating with external drug databases or information services.
  */
 export class MedicationExternalLookupError extends AppException {
-  /**
-   * Creates a new MedicationExternalLookupError instance.
-   * 
-   * @param externalSystem - The external system that failed (e.g., 'drugDatabase', 'formulary')
-   * @param lookupParameters - Parameters used for the lookup
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly externalSystem: string,
-    public readonly lookupParameters: Record<string, any>,
-    message: string = `Failed to lookup medication information from ${externalSystem}`,
-    cause?: Error
-  ) {
+  constructor(medicationName: string, service: string, cause?: Error, details?: any) {
     super(
-      message,
+      `Failed to retrieve information for ${medicationName} from ${service}`,
       ErrorType.EXTERNAL,
       `${ERROR_CODE_PREFIX}006`,
-      { externalSystem, lookupParameters },
+      details,
       cause
     );
   }
 }
 
 /**
- * Error thrown when pharmacy integration for prescription fulfillment fails.
- * This is an external system error as it relates to external service integration.
+ * Error thrown when integration with pharmacy systems fails.
+ * Used for prescription fulfillment and electronic prescription transmission.
  */
 export class PharmacyIntegrationError extends AppException {
-  /**
-   * Creates a new PharmacyIntegrationError instance.
-   * 
-   * @param pharmacyId - ID of the pharmacy
-   * @param prescriptionId - ID of the prescription
-   * @param operationType - Type of operation that failed (e.g., 'submit', 'status', 'cancel')
-   * @param details - Additional details about the error
-   * @param message - Optional custom error message
-   * @param cause - Optional cause of the error
-   */
-  constructor(
-    public readonly pharmacyId: string,
-    public readonly prescriptionId: string,
-    public readonly operationType: string,
-    public readonly details?: Record<string, any>,
-    message: string = `Pharmacy integration error for operation: ${operationType}`,
-    cause?: Error
-  ) {
+  constructor(pharmacyName: string, operation: string, cause?: Error, details?: any) {
     super(
-      message,
+      `Failed to ${operation} with pharmacy ${pharmacyName}`,
       ErrorType.EXTERNAL,
       `${ERROR_CODE_PREFIX}007`,
-      { pharmacyId, prescriptionId, operationType, details },
+      details,
       cause
     );
   }
