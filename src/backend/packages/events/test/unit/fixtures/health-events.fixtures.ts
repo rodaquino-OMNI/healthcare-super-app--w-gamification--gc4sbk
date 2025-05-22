@@ -1,800 +1,851 @@
 /**
  * @file health-events.fixtures.ts
- * @description Test fixtures for Health journey events in the AUSTA SuperApp.
- * 
- * This file provides a comprehensive set of test fixtures for health-related events,
- * including health metrics recording, goal achievements, health insights, and device
- * synchronization. These fixtures are used for testing event validation, processing,
- * and transformation logic in the events package.
- *
- * @module events/test/fixtures
+ * @description Test fixtures for Health journey events, including health metrics recording,
+ * goal achievements, health insights, and device synchronization. These fixtures provide
+ * realistic mock data for testing health-specific event validation, processing, and
+ * transformation logic in the events package.
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import { 
-  HealthMetricRecordedEventDto,
-  HealthGoalAchievedEventDto,
-  HealthInsightGeneratedEventDto,
-  DeviceSynchronizedEventDto,
-  HealthMetricData,
-  HealthGoalData,
-  HealthInsightData,
-  DeviceSyncData,
-  HealthMetricType,
-  HealthGoalType,
-  HealthInsightType,
-  DeviceType
-} from '../../../src/dto/health-event.dto';
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+import { BaseEvent, createEvent } from '../../../src/interfaces/base-event.interface';
+import {
+  HealthEventType,
+  IHealthMetricRecordedPayload,
+  IHealthGoalCreatedPayload,
+  IHealthGoalUpdatedPayload,
+  IHealthGoalAchievedPayload,
+  IHealthDeviceConnectedPayload,
+  IHealthDeviceSyncedPayload,
+  IHealthMedicalRecordAddedPayload,
+  IHealthCheckCompletedPayload,
+  IHealthInsightGeneratedPayload,
+  JourneyType
+} from '../../../src/interfaces/journey-events.interface';
 
-// Common test user IDs
-const TEST_USER_IDS = {
-  standard: '550e8400-e29b-41d4-a716-446655440000',
-  premium: '550e8400-e29b-41d4-a716-446655440001',
-  new: '550e8400-e29b-41d4-a716-446655440002',
-  inactive: '550e8400-e29b-41d4-a716-446655440003',
-  withDevices: '550e8400-e29b-41d4-a716-446655440004',
-};
-
-// Common test device IDs
-const TEST_DEVICE_IDS = {
-  smartwatch: 'device-sw-' + uuidv4().substring(0, 8),
-  bloodPressureMonitor: 'device-bp-' + uuidv4().substring(0, 8),
-  glucoseMonitor: 'device-gm-' + uuidv4().substring(0, 8),
-  scale: 'device-sc-' + uuidv4().substring(0, 8),
-  sleepTracker: 'device-st-' + uuidv4().substring(0, 8),
-};
-
-// Common test goal IDs
-const TEST_GOAL_IDS = {
-  steps: 'goal-steps-' + uuidv4().substring(0, 8),
-  weight: 'goal-weight-' + uuidv4().substring(0, 8),
-  sleep: 'goal-sleep-' + uuidv4().substring(0, 8),
-  bloodPressure: 'goal-bp-' + uuidv4().substring(0, 8),
-  bloodGlucose: 'goal-bg-' + uuidv4().substring(0, 8),
-  activity: 'goal-activity-' + uuidv4().substring(0, 8),
-  water: 'goal-water-' + uuidv4().substring(0, 8),
-};
-
-// Common test insight IDs
-const TEST_INSIGHT_IDS = {
-  anomaly: 'insight-anomaly-' + uuidv4().substring(0, 8),
-  trend: 'insight-trend-' + uuidv4().substring(0, 8),
-  recommendation: 'insight-rec-' + uuidv4().substring(0, 8),
-  suggestion: 'insight-sug-' + uuidv4().substring(0, 8),
-  risk: 'insight-risk-' + uuidv4().substring(0, 8),
-};
+// Constants for generating realistic test data
+const USER_IDS = ['user_123456', 'user_789012', 'user_345678'];
+const SOURCE = 'health-service';
+const VERSION = '1.0.0';
 
 /**
- * Creates a base event object with common properties.
- * 
- * @param userId The ID of the user associated with the event
- * @returns A partial event object with common properties
+ * Enum for health metric types used in test fixtures
  */
-const createBaseEvent = (userId: string) => ({
-  userId,
-  timestamp: new Date().toISOString(),
-  metadata: {
-    correlationId: uuidv4(),
-    source: 'health-service',
-    version: '1.0.0',
-  },
-});
+enum MetricType {
+  HEART_RATE = 'HEART_RATE',
+  BLOOD_PRESSURE = 'BLOOD_PRESSURE',
+  BLOOD_GLUCOSE = 'BLOOD_GLUCOSE',
+  STEPS = 'STEPS',
+  WEIGHT = 'WEIGHT',
+  SLEEP = 'SLEEP'
+}
 
 /**
- * Generates a set of health metric recorded event fixtures for testing.
- * 
- * @returns An object containing various health metric recorded event fixtures
+ * Enum for health goal types used in test fixtures
  */
-export const healthMetricRecordedFixtures = {
-  /**
-   * Valid heart rate metric with normal value
-   */
-  validHeartRate: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
+enum GoalType {
+  STEPS = 'STEPS',
+  WEIGHT = 'WEIGHT',
+  SLEEP = 'SLEEP',
+  HEART_RATE = 'HEART_RATE',
+  BLOOD_PRESSURE = 'BLOOD_PRESSURE',
+  BLOOD_GLUCOSE = 'BLOOD_GLUCOSE'
+}
+
+/**
+ * Enum for health goal status used in test fixtures
+ */
+enum GoalStatus {
+  ACTIVE = 'ACTIVE',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  PAUSED = 'PAUSED'
+}
+
+/**
+ * Enum for device types used in test fixtures
+ */
+enum DeviceType {
+  SMARTWATCH = 'Smartwatch',
+  BLOOD_PRESSURE_MONITOR = 'Blood Pressure Monitor',
+  GLUCOSE_MONITOR = 'Glucose Monitor',
+  SMART_SCALE = 'Smart Scale'
+}
+
+// ===== HEALTH METRIC RECORDED EVENT FIXTURES =====
+
+/**
+ * Creates a health metric recorded event fixture for heart rate
+ * @param userId Optional user ID
+ * @returns BaseEvent with heart rate metric payload
+ */
+export const createHeartRateRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_123456',
+        userId,
+        type: MetricType.HEART_RATE,
+        value: 72,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'Smartwatch'
+      },
+      metricType: MetricType.HEART_RATE,
       value: 72,
       unit: 'bpm',
-      recordedAt: new Date().toISOString(),
-      notes: 'Resting heart rate',
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Smartwatch',
+      previousValue: 75,
+      change: -3,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_123456'
+      }
+    }
+  );
+};
 
-  /**
-   * Valid blood pressure metric with normal values
-   */
-  validBloodPressure: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.BLOOD_PRESSURE,
-      value: 120, // Systolic value (would be 120/80 in real implementation)
+/**
+ * Creates a health metric recorded event fixture for blood pressure
+ * @param userId Optional user ID
+ * @returns BaseEvent with blood pressure metric payload
+ */
+export const createBloodPressureRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_234567',
+        userId,
+        type: MetricType.BLOOD_PRESSURE,
+        value: 120, // Systolic value
+        secondaryValue: 80, // Diastolic value
+        unit: 'mmHg',
+        timestamp: new Date().toISOString(),
+        source: 'Blood Pressure Monitor'
+      },
+      metricType: MetricType.BLOOD_PRESSURE,
+      value: 120, // Systolic value
+      secondaryValue: 80, // Diastolic value
       unit: 'mmHg',
-      recordedAt: new Date().toISOString(),
-      notes: 'Morning measurement',
-      deviceId: TEST_DEVICE_IDS.bloodPressureMonitor,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Blood Pressure Monitor',
+      previousValue: 125,
+      previousSecondaryValue: 85,
+      change: -5,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_234567'
+      }
+    }
+  );
+};
 
-  /**
-   * Valid blood glucose metric with normal value
-   */
-  validBloodGlucose: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.BLOOD_GLUCOSE,
+/**
+ * Creates a health metric recorded event fixture for blood glucose
+ * @param userId Optional user ID
+ * @returns BaseEvent with blood glucose metric payload
+ */
+export const createBloodGlucoseRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_345678',
+        userId,
+        type: MetricType.BLOOD_GLUCOSE,
+        value: 95,
+        unit: 'mg/dL',
+        timestamp: new Date().toISOString(),
+        source: 'Glucose Monitor'
+      },
+      metricType: MetricType.BLOOD_GLUCOSE,
       value: 95,
       unit: 'mg/dL',
-      recordedAt: new Date().toISOString(),
-      notes: 'Fasting blood glucose',
-      deviceId: TEST_DEVICE_IDS.glucoseMonitor,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Glucose Monitor',
+      previousValue: 105,
+      change: -10,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_345678',
+        mealContext: 'fasting' // Additional context specific to glucose readings
+      }
+    }
+  );
+};
 
-  /**
-   * Valid steps metric with high value
-   */
-  validSteps: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.STEPS,
-      value: 12500,
+/**
+ * Creates a health metric recorded event fixture for steps
+ * @param userId Optional user ID
+ * @returns BaseEvent with steps metric payload
+ */
+export const createStepsRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_456789',
+        userId,
+        type: MetricType.STEPS,
+        value: 8547,
+        unit: 'steps',
+        timestamp: new Date().toISOString(),
+        source: 'Smartwatch'
+      },
+      metricType: MetricType.STEPS,
+      value: 8547,
       unit: 'steps',
-      recordedAt: new Date().toISOString(),
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Smartwatch',
+      previousValue: 7823,
+      change: 724,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_123456',
+        activityContext: 'daily' // Additional context for steps
+      }
+    }
+  );
+};
 
-  /**
-   * Valid weight metric
-   */
-  validWeight: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.WEIGHT,
+/**
+ * Creates a health metric recorded event fixture for weight
+ * @param userId Optional user ID
+ * @returns BaseEvent with weight metric payload
+ */
+export const createWeightRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_567890',
+        userId,
+        type: MetricType.WEIGHT,
+        value: 75.5,
+        unit: 'kg',
+        timestamp: new Date().toISOString(),
+        source: 'Smart Scale'
+      },
+      metricType: MetricType.WEIGHT,
       value: 75.5,
       unit: 'kg',
-      recordedAt: new Date().toISOString(),
-      deviceId: TEST_DEVICE_IDS.scale,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Smart Scale',
+      previousValue: 76.2,
+      change: -0.7,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_567890',
+        bodyComposition: {
+          bodyFat: 22.5,
+          muscleMass: 45.3,
+          waterPercentage: 55.2
+        }
+      }
+    }
+  );
+};
 
-  /**
-   * Valid sleep metric
-   */
-  validSleep: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.SLEEP,
+/**
+ * Creates a health metric recorded event fixture for sleep
+ * @param userId Optional user ID
+ * @returns BaseEvent with sleep metric payload
+ */
+export const createSleepRecordedEvent = (userId = USER_IDS[0]): BaseEvent<IHealthMetricRecordedPayload> => {
+  return createEvent<IHealthMetricRecordedPayload>(
+    HealthEventType.METRIC_RECORDED,
+    SOURCE,
+    {
+      metric: {
+        id: 'metric_678901',
+        userId,
+        type: MetricType.SLEEP,
+        value: 7.5,
+        unit: 'hours',
+        timestamp: new Date().toISOString(),
+        source: 'Smartwatch'
+      },
+      metricType: MetricType.SLEEP,
       value: 7.5,
       unit: 'hours',
-      recordedAt: new Date().toISOString(),
-      notes: 'Good quality sleep',
-      deviceId: TEST_DEVICE_IDS.sleepTracker,
-    } as HealthMetricData,
-  }),
+      timestamp: new Date().toISOString(),
+      source: 'Smartwatch',
+      previousValue: 6.8,
+      change: 0.7,
+      isImprovement: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceId: 'device_123456',
+        sleepQuality: {
+          deepSleep: 2.3,
+          lightSleep: 4.1,
+          remSleep: 1.1,
+          awake: 0.2
+        }
+      }
+    }
+  );
+};
 
-  /**
-   * Valid oxygen saturation metric
-   */
-  validOxygenSaturation: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.OXYGEN_SATURATION,
-      value: 98,
-      unit: '%',
-      recordedAt: new Date().toISOString(),
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-    } as HealthMetricData,
-  }),
+// Collection of all health metric recorded events
+export const healthMetricRecordedEvents = [
+  createHeartRateRecordedEvent(),
+  createBloodPressureRecordedEvent(),
+  createBloodGlucoseRecordedEvent(),
+  createStepsRecordedEvent(),
+  createWeightRecordedEvent(),
+  createSleepRecordedEvent()
+];
 
-  /**
-   * Valid water intake metric
-   */
-  validWaterIntake: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.WATER_INTAKE,
-      value: 2500,
-      unit: 'ml',
-      recordedAt: new Date().toISOString(),
-    } as HealthMetricData,
-  }),
+// ===== HEALTH GOAL EVENTS FIXTURES =====
 
-  /**
-   * Valid temperature metric
-   */
-  validTemperature: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.TEMPERATURE,
-      value: 36.8,
-      unit: '°C',
-      recordedAt: new Date().toISOString(),
-    } as HealthMetricData,
-  }),
+/**
+ * Creates a health goal created event fixture
+ * @param goalType Type of health goal
+ * @param userId Optional user ID
+ * @returns BaseEvent with goal created payload
+ */
+export const createHealthGoalCreatedEvent = (
+  goalType = GoalType.STEPS,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthGoalCreatedPayload> => {
+  const goalData = {
+    [GoalType.STEPS]: { targetValue: 10000, unit: 'steps' },
+    [GoalType.WEIGHT]: { targetValue: 70, unit: 'kg' },
+    [GoalType.SLEEP]: { targetValue: 8, unit: 'hours' },
+    [GoalType.HEART_RATE]: { targetValue: 65, unit: 'bpm' },
+    [GoalType.BLOOD_PRESSURE]: { targetValue: 120, secondaryTargetValue: 80, unit: 'mmHg' },
+    [GoalType.BLOOD_GLUCOSE]: { targetValue: 90, unit: 'mg/dL' }
+  }[goalType];
 
-  /**
-   * Invalid heart rate metric with value outside acceptable range
-   */
-  invalidHeartRate: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 250, // Outside acceptable range
-      unit: 'bpm',
-      recordedAt: new Date().toISOString(),
-    } as HealthMetricData,
-  }),
-
-  /**
-   * Invalid blood glucose metric with value outside acceptable range
-   */
-  invalidBloodGlucose: (): HealthMetricRecordedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.BLOOD_GLUCOSE,
-      value: -10, // Negative value, which is invalid
-      unit: 'mg/dL',
-      recordedAt: new Date().toISOString(),
-    } as HealthMetricData,
-  }),
-
-  /**
-   * Invalid metric with missing required fields
-   */
-  invalidMissingFields: (): Partial<HealthMetricRecordedEventDto> => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: {
-      metricType: HealthMetricType.STEPS,
-      // Missing value and unit
-      recordedAt: new Date().toISOString(),
-    } as Partial<HealthMetricData>,
-  }),
-
-  /**
-   * Batch of multiple valid metrics for testing bulk processing
-   */
-  batchValidMetrics: (): HealthMetricRecordedEventDto[] => [
-    healthMetricRecordedFixtures.validHeartRate(),
-    healthMetricRecordedFixtures.validBloodPressure(),
-    healthMetricRecordedFixtures.validSteps(),
-    healthMetricRecordedFixtures.validWeight(),
-    healthMetricRecordedFixtures.validSleep(),
-  ],
+  return createEvent<IHealthGoalCreatedPayload>(
+    HealthEventType.GOAL_CREATED,
+    SOURCE,
+    {
+      goal: {
+        id: `goal_${Date.now()}`,
+        userId,
+        type: goalType,
+        targetValue: goalData.targetValue,
+        secondaryTargetValue: goalData.secondaryTargetValue,
+        unit: goalData.unit,
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+        status: GoalStatus.ACTIVE,
+        progress: 0
+      },
+      goalType: goalType,
+      targetValue: goalData.targetValue,
+      unit: goalData.unit,
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        isRecurring: false,
+        difficulty: 'medium'
+      }
+    }
+  );
 };
 
 /**
- * Generates a set of health goal achieved event fixtures for testing.
- * 
- * @returns An object containing various health goal achieved event fixtures
+ * Creates a health goal updated event fixture
+ * @param goalType Type of health goal
+ * @param progress Current progress percentage (0-100)
+ * @param userId Optional user ID
+ * @returns BaseEvent with goal updated payload
  */
-export const healthGoalAchievedFixtures = {
-  /**
-   * Valid steps goal achieved with 100% completion
-   */
-  validStepsGoalComplete: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.steps,
-      goalType: HealthGoalType.STEPS_TARGET,
-      description: 'Walk 10,000 steps daily for a week',
-      targetValue: 10000,
-      unit: 'steps',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    } as HealthGoalData,
-  }),
+export const createHealthGoalUpdatedEvent = (
+  goalType = GoalType.STEPS,
+  progress = 50,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthGoalUpdatedPayload> => {
+  const goalData = {
+    [GoalType.STEPS]: { targetValue: 10000, currentValue: 5000, unit: 'steps' },
+    [GoalType.WEIGHT]: { targetValue: 70, currentValue: 72.5, unit: 'kg' },
+    [GoalType.SLEEP]: { targetValue: 8, currentValue: 7.2, unit: 'hours' },
+    [GoalType.HEART_RATE]: { targetValue: 65, currentValue: 68, unit: 'bpm' },
+    [GoalType.BLOOD_PRESSURE]: { targetValue: 120, currentValue: 125, unit: 'mmHg' },
+    [GoalType.BLOOD_GLUCOSE]: { targetValue: 90, currentValue: 95, unit: 'mg/dL' }
+  }[goalType];
 
-  /**
-   * Valid weight goal achieved with 100% completion
-   */
-  validWeightGoalComplete: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.weight,
-      goalType: HealthGoalType.WEIGHT_TARGET,
-      description: 'Lose 5kg in 3 months',
-      targetValue: 70,
-      unit: 'kg',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    } as HealthGoalData,
-  }),
+  // Adjust current value based on progress
+  const currentValue = goalType === GoalType.WEIGHT
+    ? goalData.targetValue + ((goalData.currentValue - goalData.targetValue) * (1 - progress / 100))
+    : goalData.targetValue * (progress / 100);
 
-  /**
-   * Valid sleep goal achieved with 100% completion
-   */
-  validSleepGoalComplete: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.sleep,
-      goalType: HealthGoalType.SLEEP_DURATION,
-      description: 'Sleep 8 hours every night for a month',
-      targetValue: 8,
-      unit: 'hours',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Valid blood pressure goal achieved with 100% completion
-   */
-  validBloodPressureGoalComplete: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.bloodPressure,
-      goalType: HealthGoalType.BLOOD_PRESSURE_MANAGEMENT,
-      description: 'Maintain blood pressure below 130/85 for 3 months',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Valid water intake goal achieved with 100% completion
-   */
-  validWaterIntakeGoalComplete: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.water,
-      goalType: HealthGoalType.WATER_INTAKE,
-      description: 'Drink 2.5 liters of water daily for a month',
-      targetValue: 2500,
-      unit: 'ml',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Valid steps goal with partial completion (75%)
-   */
-  validStepsGoalPartial: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.steps,
-      goalType: HealthGoalType.STEPS_TARGET,
-      description: 'Walk 10,000 steps daily for a week',
-      targetValue: 10000,
-      unit: 'steps',
-      progressPercentage: 75,
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Valid activity frequency goal with partial completion (50%)
-   */
-  validActivityGoalPartial: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.activity,
-      goalType: HealthGoalType.ACTIVITY_FREQUENCY,
-      description: 'Exercise 3 times per week for a month',
-      progressPercentage: 50,
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Invalid goal with progress percentage outside valid range
-   */
-  invalidProgressPercentage: (): HealthGoalAchievedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      goalId: TEST_GOAL_IDS.steps,
-      goalType: HealthGoalType.STEPS_TARGET,
-      description: 'Walk 10,000 steps daily for a week',
-      targetValue: 10000,
-      unit: 'steps',
-      progressPercentage: 120, // Invalid: over 100%
-    } as HealthGoalData,
-  }),
-
-  /**
-   * Invalid goal with missing required fields
-   */
-  invalidMissingFields: (): Partial<HealthGoalAchievedEventDto> => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: {
-      // Missing goalId and goalType
-      description: 'Incomplete goal data',
-      progressPercentage: 50,
-    } as Partial<HealthGoalData>,
-  }),
-
-  /**
-   * Batch of multiple valid goals for testing bulk processing
-   */
-  batchValidGoals: (): HealthGoalAchievedEventDto[] => [
-    healthGoalAchievedFixtures.validStepsGoalComplete(),
-    healthGoalAchievedFixtures.validWeightGoalComplete(),
-    healthGoalAchievedFixtures.validSleepGoalComplete(),
-    healthGoalAchievedFixtures.validBloodPressureGoalComplete(),
-    healthGoalAchievedFixtures.validWaterIntakeGoalComplete(),
-  ],
+  return createEvent<IHealthGoalUpdatedPayload>(
+    HealthEventType.GOAL_UPDATED,
+    SOURCE,
+    {
+      goal: {
+        id: `goal_${Date.now() - 1000000}`, // Created some time ago
+        userId,
+        type: goalType,
+        targetValue: goalData.targetValue,
+        unit: goalData.unit,
+        startDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
+        endDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days from now
+        status: progress >= 100 ? GoalStatus.COMPLETED : GoalStatus.ACTIVE,
+        progress: progress
+      },
+      previousStatus: GoalStatus.ACTIVE,
+      newStatus: progress >= 100 ? GoalStatus.COMPLETED : GoalStatus.ACTIVE,
+      progress: progress,
+      currentValue: currentValue,
+      targetValue: goalData.targetValue
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        lastUpdated: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+      }
+    }
+  );
 };
 
 /**
- * Generates a set of health insight generated event fixtures for testing.
- * 
- * @returns An object containing various health insight generated event fixtures
+ * Creates a health goal achieved event fixture
+ * @param goalType Type of health goal
+ * @param userId Optional user ID
+ * @returns BaseEvent with goal achieved payload
  */
-export const healthInsightGeneratedFixtures = {
-  /**
-   * Valid anomaly detection insight with high confidence
-   */
-  validAnomalyHighConfidence: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.anomaly,
-      insightType: HealthInsightType.ANOMALY_DETECTION,
-      title: 'Unusual Heart Rate Pattern Detected',
-      description: 'We noticed your heart rate has been elevated during rest for the past 3 days.',
-      relatedMetricTypes: [HealthMetricType.HEART_RATE],
-      confidenceScore: 85,
-      generatedAt: new Date().toISOString(),
-      userAcknowledged: false,
-    } as HealthInsightData,
-  }),
+export const createHealthGoalAchievedEvent = (
+  goalType = GoalType.STEPS,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthGoalAchievedPayload> => {
+  const goalData = {
+    [GoalType.STEPS]: { targetValue: 10000, achievedValue: 10250, unit: 'steps' },
+    [GoalType.WEIGHT]: { targetValue: 70, achievedValue: 70, unit: 'kg' },
+    [GoalType.SLEEP]: { targetValue: 8, achievedValue: 8.2, unit: 'hours' },
+    [GoalType.HEART_RATE]: { targetValue: 65, achievedValue: 65, unit: 'bpm' },
+    [GoalType.BLOOD_PRESSURE]: { targetValue: 120, achievedValue: 118, unit: 'mmHg' },
+    [GoalType.BLOOD_GLUCOSE]: { targetValue: 90, achievedValue: 90, unit: 'mg/dL' }
+  }[goalType];
 
-  /**
-   * Valid trend analysis insight with medium confidence
-   */
-  validTrendMediumConfidence: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.trend,
-      insightType: HealthInsightType.TREND_ANALYSIS,
-      title: 'Improving Sleep Pattern',
-      description: 'Your sleep duration has been consistently improving over the past 2 weeks.',
-      relatedMetricTypes: [HealthMetricType.SLEEP],
-      confidenceScore: 65,
-      generatedAt: new Date().toISOString(),
-      userAcknowledged: false,
-    } as HealthInsightData,
-  }),
+  return createEvent<IHealthGoalAchievedPayload>(
+    HealthEventType.GOAL_ACHIEVED,
+    SOURCE,
+    {
+      goal: {
+        id: `goal_${Date.now() - 2000000}`, // Created some time ago
+        userId,
+        type: goalType,
+        targetValue: goalData.targetValue,
+        unit: goalData.unit,
+        startDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(), // 25 days ago
+        endDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days from now
+        status: GoalStatus.COMPLETED,
+        progress: 100
+      },
+      goalType: goalType,
+      achievedValue: goalData.achievedValue,
+      targetValue: goalData.targetValue,
+      daysToAchieve: 25, // Took 25 days to achieve
+      isEarlyCompletion: true // Completed before end date
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        achievementStreak: 3, // Third goal achieved in a row
+        difficulty: 'medium'
+      }
+    }
+  );
+};
 
-  /**
-   * Valid preventive recommendation insight
-   */
-  validPreventiveRecommendation: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.recommendation,
-      insightType: HealthInsightType.PREVENTIVE_RECOMMENDATION,
-      title: 'Hydration Reminder',
-      description: 'Based on your activity level and the current weather, consider increasing your water intake.',
-      relatedMetricTypes: [HealthMetricType.WATER_INTAKE, HealthMetricType.STEPS],
-      confidenceScore: 70,
-      generatedAt: new Date().toISOString(),
-      userAcknowledged: false,
-    } as HealthInsightData,
-  }),
+// Collection of health goal events
+export const healthGoalEvents = [
+  createHealthGoalCreatedEvent(GoalType.STEPS),
+  createHealthGoalCreatedEvent(GoalType.WEIGHT),
+  createHealthGoalCreatedEvent(GoalType.SLEEP),
+  createHealthGoalUpdatedEvent(GoalType.STEPS, 50),
+  createHealthGoalUpdatedEvent(GoalType.WEIGHT, 75),
+  createHealthGoalUpdatedEvent(GoalType.SLEEP, 90),
+  createHealthGoalAchievedEvent(GoalType.STEPS),
+  createHealthGoalAchievedEvent(GoalType.WEIGHT),
+  createHealthGoalAchievedEvent(GoalType.SLEEP)
+];
 
-  /**
-   * Valid goal suggestion insight
-   */
-  validGoalSuggestion: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.suggestion,
-      insightType: HealthInsightType.GOAL_SUGGESTION,
-      title: 'New Step Goal Suggestion',
-      description: 'You\'ve been consistently exceeding your current step goal. Consider setting a more challenging target.',
-      relatedMetricTypes: [HealthMetricType.STEPS],
-      confidenceScore: 90,
-      generatedAt: new Date().toISOString(),
-      userAcknowledged: false,
-    } as HealthInsightData,
-  }),
+// ===== DEVICE CONNECTION EVENTS FIXTURES =====
 
-  /**
-   * Valid health risk assessment insight with high confidence
-   */
-  validRiskAssessmentHighConfidence: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.risk,
-      insightType: HealthInsightType.HEALTH_RISK_ASSESSMENT,
-      title: 'Blood Pressure Risk Assessment',
-      description: 'Your blood pressure readings have been consistently elevated. This may increase your risk of cardiovascular issues.',
-      relatedMetricTypes: [HealthMetricType.BLOOD_PRESSURE],
-      confidenceScore: 80,
-      generatedAt: new Date().toISOString(),
-      userAcknowledged: false,
-    } as HealthInsightData,
-  }),
-
-  /**
-   * Valid acknowledged insight
-   */
-  validAcknowledgedInsight: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.anomaly,
-      insightType: HealthInsightType.ANOMALY_DETECTION,
-      title: 'Unusual Heart Rate Pattern Detected',
-      description: 'We noticed your heart rate has been elevated during rest for the past 3 days.',
-      relatedMetricTypes: [HealthMetricType.HEART_RATE],
-      confidenceScore: 85,
-      generatedAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-      userAcknowledged: true,
-    } as HealthInsightData,
-  }),
-
-  /**
-   * Invalid insight with missing required fields
-   */
-  invalidMissingFields: (): Partial<HealthInsightGeneratedEventDto> => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      // Missing insightId and insightType
-      title: 'Incomplete Insight',
-      description: 'This insight is missing required fields.',
-      confidenceScore: 50,
-    } as Partial<HealthInsightData>,
-  }),
-
-  /**
-   * Invalid insight with confidence score outside valid range
-   */
-  invalidConfidenceScore: (): HealthInsightGeneratedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.standard),
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: {
-      insightId: TEST_INSIGHT_IDS.anomaly,
-      insightType: HealthInsightType.ANOMALY_DETECTION,
-      title: 'Invalid Confidence Score',
-      description: 'This insight has an invalid confidence score.',
-      confidenceScore: 120, // Invalid: over 100%
-      generatedAt: new Date().toISOString(),
-    } as HealthInsightData,
-  }),
-
-  /**
-   * Batch of multiple valid insights for testing bulk processing
-   */
-  batchValidInsights: (): HealthInsightGeneratedEventDto[] => [
-    healthInsightGeneratedFixtures.validAnomalyHighConfidence(),
-    healthInsightGeneratedFixtures.validTrendMediumConfidence(),
-    healthInsightGeneratedFixtures.validPreventiveRecommendation(),
-    healthInsightGeneratedFixtures.validGoalSuggestion(),
-    healthInsightGeneratedFixtures.validRiskAssessmentHighConfidence(),
-  ],
+/**
+ * Creates a health device connected event fixture
+ * @param deviceType Type of device
+ * @param userId Optional user ID
+ * @returns BaseEvent with device connected payload
+ */
+export const createHealthDeviceConnectedEvent = (
+  deviceType = DeviceType.SMARTWATCH,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthDeviceConnectedPayload> => {
+  const deviceId = `device_${Date.now()}`;
+  
+  return createEvent<IHealthDeviceConnectedPayload>(
+    HealthEventType.DEVICE_CONNECTED,
+    SOURCE,
+    {
+      deviceConnection: {
+        id: `connection_${Date.now()}`,
+        userId,
+        deviceId,
+        deviceType,
+        connectionDate: new Date().toISOString(),
+        lastSyncDate: new Date().toISOString(),
+        status: 'connected',
+        permissions: ['read_metrics', 'write_metrics']
+      },
+      deviceId,
+      deviceType,
+      connectionDate: new Date().toISOString(),
+      isFirstConnection: true
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceModel: deviceType === DeviceType.SMARTWATCH ? 'Garmin Forerunner 945' :
+                     deviceType === DeviceType.BLOOD_PRESSURE_MONITOR ? 'Omron X5' :
+                     deviceType === DeviceType.GLUCOSE_MONITOR ? 'Dexcom G6' :
+                     'Withings Body+',
+        connectionMethod: 'bluetooth'
+      }
+    }
+  );
 };
 
 /**
- * Generates a set of device synchronized event fixtures for testing.
- * 
- * @returns An object containing various device synchronized event fixtures
+ * Creates a health device synced event fixture
+ * @param deviceType Type of device
+ * @param successful Whether the sync was successful
+ * @param userId Optional user ID
+ * @returns BaseEvent with device synced payload
  */
-export const deviceSynchronizedFixtures = {
-  /**
-   * Valid successful smartwatch synchronization
-   */
-  validSmartwatchSuccessful: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-      deviceType: DeviceType.SMARTWATCH,
-      deviceName: 'Apple Watch Series 7',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true,
-      dataPointsCount: 245,
-      metricTypes: [
-        HealthMetricType.HEART_RATE,
-        HealthMetricType.STEPS,
-        HealthMetricType.SLEEP,
-        HealthMetricType.OXYGEN_SATURATION,
-      ],
-    } as DeviceSyncData,
-  }),
+export const createHealthDeviceSyncedEvent = (
+  deviceType = DeviceType.SMARTWATCH,
+  successful = true,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthDeviceSyncedPayload> => {
+  const deviceId = `device_${Date.now() - 1000000}`; // Device connected some time ago
+  
+  // Define metrics based on device type
+  const metricTypes = {
+    [DeviceType.SMARTWATCH]: [MetricType.HEART_RATE, MetricType.STEPS, MetricType.SLEEP],
+    [DeviceType.BLOOD_PRESSURE_MONITOR]: [MetricType.BLOOD_PRESSURE],
+    [DeviceType.GLUCOSE_MONITOR]: [MetricType.BLOOD_GLUCOSE],
+    [DeviceType.SMART_SCALE]: [MetricType.WEIGHT]
+  }[deviceType];
+  
+  return createEvent<IHealthDeviceSyncedPayload>(
+    HealthEventType.DEVICE_SYNCED,
+    SOURCE,
+    {
+      deviceConnection: {
+        id: `connection_${Date.now() - 1000000}`,
+        userId,
+        deviceId,
+        deviceType,
+        connectionDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // Connected 7 days ago
+        lastSyncDate: new Date().toISOString(),
+        status: 'connected',
+        permissions: ['read_metrics', 'write_metrics']
+      },
+      deviceId,
+      deviceType,
+      syncDate: new Date().toISOString(),
+      metricsCount: successful ? deviceType === DeviceType.SMARTWATCH ? 24 : 1 : 0,
+      metricTypes,
+      syncSuccessful: successful,
+      errorMessage: successful ? undefined : 'Connection timeout'
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        deviceModel: deviceType === DeviceType.SMARTWATCH ? 'Garmin Forerunner 945' :
+                     deviceType === DeviceType.BLOOD_PRESSURE_MONITOR ? 'Omron X5' :
+                     deviceType === DeviceType.GLUCOSE_MONITOR ? 'Dexcom G6' :
+                     'Withings Body+',
+        batteryLevel: successful ? 75 : 5, // Low battery might be reason for failure
+        syncDuration: successful ? 12.5 : 30.0 // Seconds
+      }
+    }
+  );
+};
 
-  /**
-   * Valid successful blood pressure monitor synchronization
-   */
-  validBloodPressureMonitorSuccessful: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.bloodPressureMonitor,
-      deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
-      deviceName: 'Omron X5',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true,
-      dataPointsCount: 12,
-      metricTypes: [HealthMetricType.BLOOD_PRESSURE],
-    } as DeviceSyncData,
-  }),
+// Collection of device connection events
+export const healthDeviceEvents = [
+  createHealthDeviceConnectedEvent(DeviceType.SMARTWATCH),
+  createHealthDeviceConnectedEvent(DeviceType.BLOOD_PRESSURE_MONITOR),
+  createHealthDeviceConnectedEvent(DeviceType.GLUCOSE_MONITOR),
+  createHealthDeviceConnectedEvent(DeviceType.SMART_SCALE),
+  createHealthDeviceSyncedEvent(DeviceType.SMARTWATCH, true),
+  createHealthDeviceSyncedEvent(DeviceType.BLOOD_PRESSURE_MONITOR, true),
+  createHealthDeviceSyncedEvent(DeviceType.GLUCOSE_MONITOR, true),
+  createHealthDeviceSyncedEvent(DeviceType.SMART_SCALE, true),
+  createHealthDeviceSyncedEvent(DeviceType.SMARTWATCH, false) // Failed sync
+];
 
-  /**
-   * Valid successful glucose monitor synchronization
-   */
-  validGlucoseMonitorSuccessful: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.glucoseMonitor,
-      deviceType: DeviceType.GLUCOSE_MONITOR,
-      deviceName: 'FreeStyle Libre',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true,
-      dataPointsCount: 96,
-      metricTypes: [HealthMetricType.BLOOD_GLUCOSE],
-    } as DeviceSyncData,
-  }),
+// ===== HEALTH INSIGHT EVENTS FIXTURES =====
 
-  /**
-   * Valid successful scale synchronization
-   */
-  validScaleSuccessful: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.scale,
-      deviceType: DeviceType.SCALE,
-      deviceName: 'Withings Body+',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true,
-      dataPointsCount: 1,
-      metricTypes: [HealthMetricType.WEIGHT],
-    } as DeviceSyncData,
-  }),
+/**
+ * Creates a health insight generated event fixture
+ * @param insightType Type of health insight
+ * @param severity Severity level of the insight
+ * @param userId Optional user ID
+ * @returns BaseEvent with health insight payload
+ */
+export const createHealthInsightGeneratedEvent = (
+  insightType = 'TREND_ANALYSIS',
+  severity: 'low' | 'medium' | 'high' = 'medium',
+  userId = USER_IDS[0]
+): BaseEvent<IHealthInsightGeneratedPayload> => {
+  // Define insight data based on type
+  const insightData = {
+    'TREND_ANALYSIS': {
+      description: 'Your heart rate has been trending higher than normal',
+      explanation: 'Over the past 2 weeks, your resting heart rate has increased by 8 bpm on average.',
+      recommendations: ['Consider reducing caffeine intake', 'Increase daily physical activity', 'Practice relaxation techniques'],
+      relatedMetrics: [MetricType.HEART_RATE]
+    },
+    'CORRELATION': {
+      description: 'Sleep duration appears to affect your next-day step count',
+      explanation: 'Analysis shows that when you sleep less than 7 hours, your step count the following day is 20% lower on average.',
+      recommendations: ['Aim for 7-8 hours of sleep consistently', 'Establish a regular sleep schedule'],
+      relatedMetrics: [MetricType.SLEEP, MetricType.STEPS]
+    },
+    'ANOMALY_DETECTION': {
+      description: 'Unusual blood pressure reading detected',
+      explanation: 'Your latest blood pressure reading of 145/95 mmHg is significantly higher than your 3-month average of 125/82 mmHg.',
+      recommendations: ['Retake your blood pressure after resting for 5 minutes', 'Consult with your healthcare provider if readings remain elevated'],
+      relatedMetrics: [MetricType.BLOOD_PRESSURE]
+    },
+    'GOAL_RECOMMENDATION': {
+      description: 'New step goal recommendation based on your activity',
+      explanation: 'Based on your consistent achievement of your current step goal, we recommend increasing your daily target.',
+      recommendations: ['Consider increasing your daily step goal to 12,000 steps', 'Try to add a 15-minute walk during your lunch break'],
+      relatedMetrics: [MetricType.STEPS]
+    },
+    'HEALTH_RISK': {
+      description: 'Potential blood glucose management issue detected',
+      explanation: 'Your blood glucose readings have shown increased variability over the past week, with 3 readings above your target range.',
+      recommendations: ['Monitor your carbohydrate intake more closely', 'Check your blood glucose more frequently', 'Consult with your healthcare provider'],
+      relatedMetrics: [MetricType.BLOOD_GLUCOSE]
+    }
+  }[insightType];
 
-  /**
-   * Valid failed smartwatch synchronization
-   */
-  validSmartwatchFailed: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-      deviceType: DeviceType.SMARTWATCH,
-      deviceName: 'Apple Watch Series 7',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: false,
-      errorMessage: 'Bluetooth connection lost during sync',
-    } as DeviceSyncData,
-  }),
-
-  /**
-   * Valid failed blood pressure monitor synchronization
-   */
-  validBloodPressureMonitorFailed: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.bloodPressureMonitor,
-      deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
-      deviceName: 'Omron X5',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: false,
-      errorMessage: 'Device battery too low for data transfer',
-    } as DeviceSyncData,
-  }),
-
-  /**
-   * Invalid device sync with missing required fields
-   */
-  invalidMissingFields: (): Partial<DeviceSynchronizedEventDto> => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      // Missing deviceId and deviceType
-      deviceName: 'Incomplete Device Data',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true,
-    } as Partial<DeviceSyncData>,
-  }),
-
-  /**
-   * Invalid device sync with inconsistent success/error state
-   */
-  invalidInconsistentState: (): DeviceSynchronizedEventDto => ({
-    ...createBaseEvent(TEST_USER_IDS.withDevices),
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: {
-      deviceId: TEST_DEVICE_IDS.smartwatch,
-      deviceType: DeviceType.SMARTWATCH,
-      deviceName: 'Apple Watch Series 7',
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: true, // Success flag is true
-      errorMessage: 'But there is an error message', // Inconsistent with success flag
-    } as DeviceSyncData,
-  }),
-
-  /**
-   * Batch of multiple valid device syncs for testing bulk processing
-   */
-  batchValidDeviceSyncs: (): DeviceSynchronizedEventDto[] => [
-    deviceSynchronizedFixtures.validSmartwatchSuccessful(),
-    deviceSynchronizedFixtures.validBloodPressureMonitorSuccessful(),
-    deviceSynchronizedFixtures.validGlucoseMonitorSuccessful(),
-    deviceSynchronizedFixtures.validScaleSuccessful(),
-    deviceSynchronizedFixtures.validSmartwatchFailed(),
-  ],
+  return createEvent<IHealthInsightGeneratedPayload>(
+    HealthEventType.INSIGHT_GENERATED,
+    SOURCE,
+    {
+      insightId: `insight_${Date.now()}`,
+      insightType,
+      generationDate: new Date().toISOString(),
+      relatedMetrics: insightData.relatedMetrics,
+      severity,
+      description: insightData.description,
+      explanation: insightData.explanation,
+      recommendations: insightData.recommendations
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        analysisTimeframe: '14d', // 14 days of data analyzed
+        confidenceScore: severity === 'high' ? 0.92 : severity === 'medium' ? 0.78 : 0.65,
+        dataPointsAnalyzed: 142
+      }
+    }
+  );
 };
 
 /**
- * Combined export of all health event fixtures for easier importing
- * 
- * @example
- * import { healthEventFixtures } from './health-events.fixtures';
- * 
- * const heartRateEvent = healthEventFixtures.metrics.validHeartRate();
- * const goalEvent = healthEventFixtures.goals.validStepsGoalComplete();
+ * Creates a health check completed event fixture
+ * @param score Health score (0-100)
+ * @param userId Optional user ID
+ * @returns BaseEvent with health check completed payload
  */
-export const healthEventFixtures = {
-  metrics: healthMetricRecordedFixtures,
-  goals: healthGoalAchievedFixtures,
-  insights: healthInsightGeneratedFixtures,
-  devices: deviceSynchronizedFixtures,
+export const createHealthCheckCompletedEvent = (
+  score = 85,
+  userId = USER_IDS[0]
+): BaseEvent<IHealthCheckCompletedPayload> => {
+  // Generate recommendations based on score
+  const recommendations = [];
+  if (score < 90) recommendations.push('Increase daily physical activity');
+  if (score < 80) recommendations.push('Improve sleep habits');
+  if (score < 70) recommendations.push('Consider dietary improvements');
+  if (score < 60) recommendations.push('Schedule a check-up with your healthcare provider');
+  
+  return createEvent<IHealthCheckCompletedPayload>(
+    HealthEventType.HEALTH_CHECK_COMPLETED,
+    SOURCE,
+    {
+      checkId: `check_${Date.now()}`,
+      completionDate: new Date().toISOString(),
+      score,
+      recommendations: recommendations.length > 0 ? recommendations : ['Maintain your current healthy habits']
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        checkType: 'comprehensive',
+        timeToComplete: 240, // Seconds
+        questionsAnswered: 25
+      }
+    }
+  );
 };
+
+/**
+ * Creates a medical record added event fixture
+ * @param recordType Type of medical record
+ * @param userId Optional user ID
+ * @returns BaseEvent with medical record added payload
+ */
+export const createMedicalRecordAddedEvent = (
+  recordType = 'MEDICATION',
+  userId = USER_IDS[0]
+): BaseEvent<IHealthMedicalRecordAddedPayload> => {
+  return createEvent<IHealthMedicalRecordAddedPayload>(
+    HealthEventType.MEDICAL_RECORD_ADDED,
+    SOURCE,
+    {
+      medicalRecord: {
+        id: `record_${Date.now()}`,
+        userId,
+        type: recordType,
+        date: new Date().toISOString(),
+        provider: 'Dr. Smith',
+        notes: 'Regular check-up, all vitals normal',
+        attachments: []
+      },
+      recordId: `record_${Date.now()}`,
+      recordType,
+      recordDate: new Date().toISOString(),
+      provider: 'Dr. Smith'
+    },
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`,
+        source: 'manual_entry',
+        hasAttachments: false
+      }
+    }
+  );
+};
+
+// Collection of health insight events
+export const healthInsightEvents = [
+  createHealthInsightGeneratedEvent('TREND_ANALYSIS', 'medium'),
+  createHealthInsightGeneratedEvent('CORRELATION', 'low'),
+  createHealthInsightGeneratedEvent('ANOMALY_DETECTION', 'high'),
+  createHealthInsightGeneratedEvent('GOAL_RECOMMENDATION', 'low'),
+  createHealthInsightGeneratedEvent('HEALTH_RISK', 'high'),
+  createHealthCheckCompletedEvent(85),
+  createHealthCheckCompletedEvent(65),
+  createMedicalRecordAddedEvent('MEDICATION'),
+  createMedicalRecordAddedEvent('ALLERGY')
+];
+
+// ===== COMBINED HEALTH EVENTS COLLECTION =====
+
+/**
+ * Complete collection of all health event fixtures
+ */
+export const healthEvents = [
+  ...healthMetricRecordedEvents,
+  ...healthGoalEvents,
+  ...healthDeviceEvents,
+  ...healthInsightEvents
+];
+
+/**
+ * Creates a custom health event with specified parameters
+ * @param type Health event type
+ * @param payload Event payload
+ * @param userId User ID
+ * @returns Custom health event
+ */
+export function createCustomHealthEvent<T>(
+  type: HealthEventType,
+  payload: T,
+  userId = USER_IDS[0]
+): BaseEvent<T> {
+  return createEvent<T>(
+    type,
+    SOURCE,
+    payload,
+    {
+      userId,
+      journey: JourneyType.HEALTH,
+      version: VERSION,
+      metadata: {
+        correlationId: `corr-${Date.now()}`
+      }
+    }
+  );
+}
