@@ -31,8 +31,37 @@ export { retryWithBackoff, RetryOptions, RetryableOperation };
 export * from './circuit-breaker';
 
 // Named re-exports for backward compatibility
-import { CircuitBreaker, CircuitBreakerOptions, CircuitState } from './circuit-breaker';
-export { CircuitBreaker, CircuitBreakerOptions, CircuitState };
+import { 
+  CircuitBreaker, 
+  CircuitBreakerOptions, 
+  CircuitState,
+  CircuitOpenError,
+  createCircuitBreaker,
+  createCriticalCircuitBreaker,
+  createNonCriticalCircuitBreaker,
+  cachedDataFallback,
+  defaultValueFallback,
+  emptyResultFallback,
+  rethrowWithContextFallback,
+  FallbackFunction,
+  CircuitMetrics
+} from './circuit-breaker';
+
+export { 
+  CircuitBreaker, 
+  CircuitBreakerOptions, 
+  CircuitState,
+  CircuitOpenError,
+  createCircuitBreaker,
+  createCriticalCircuitBreaker,
+  createNonCriticalCircuitBreaker,
+  cachedDataFallback,
+  defaultValueFallback,
+  emptyResultFallback,
+  rethrowWithContextFallback,
+  FallbackFunction,
+  CircuitMetrics
+};
 
 // ===================================================================
 // Error Formatting Utilities
