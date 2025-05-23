@@ -1,265 +1,538 @@
-/**
- * Mock service configurations for tracing tests
- * 
- * This file provides mock configuration objects for different services used in tracing tests,
- * including service names, configuration options, and environment-specific settings.
- * These configurations are essential for testing tracer initialization with different service
- * parameters and ensuring the correct tracer configuration across different environments.
- */
-
-import { DiagLogLevel } from '@opentelemetry/api';
-import { OTLPExporterNodeConfigBase } from '@opentelemetry/exporter-trace-otlp-http';
+import { TracingOptions } from '../../src/interfaces/tracing-options.interface';
 
 /**
- * Base interface for service configuration
+ * Mock service configurations for tracing tests.
+ * These configurations provide realistic service settings for different environments
+ * and journey contexts to test tracer initialization and configuration.
  */
-export interface ServiceConfig {
+
+/**
+ * Base configuration for development environment
+ * Uses console exporter with high sampling rate for debugging
+ */
+const developmentBaseConfig: Partial<TracingOptions> = {
   service: {
-    name: string;
-    version: string;
-    environment: string;
-  };
-  tracing: {
-    enabled: boolean;
-    sampler: {
-      type: 'always_on' | 'always_off' | 'traceidratio' | 'parentbased_traceidratio';
-      ratio?: number;
-    };
-    exporter: {
-      type: 'otlp' | 'console' | 'zipkin' | 'jaeger';
-      endpoint?: string;
-      options?: Partial<OTLPExporterNodeConfigBase>;
-    };
-    logLevel: DiagLogLevel;
-    batchSpanProcessorConfig?: {
-      maxQueueSize?: number;
-      maxExportBatchSize?: number;
-      scheduledDelayMillis?: number;
-      exportTimeoutMillis?: number;
-    };
-  };
-}
+    environment: 'development',
+    version: '1.0.0',
+  },
+  sampling: {
+    rate: 1.0, // Sample all traces in development
+    alwaysSampleErrors: true,
+  },
+  exporter: {
+    type: 'console',
+    console: {
+      prettyPrint: true,
+    },
+  },
+  batch: {
+    maxExportBatchSize: 100,
+    scheduledDelayMillis: 1000,
+    maxQueueSize: 500,
+  },
+  debug: true,
+  disabled: false,
+};
 
 /**
- * Environment-specific configurations
+ * Base configuration for staging environment
+ * Uses OTLP exporter with moderate sampling rate for testing
  */
-const environments = {
+const stagingBaseConfig: Partial<TracingOptions> = {
+  service: {
+    environment: 'staging',
+    version: '1.0.0',
+  },
+  sampling: {
+    rate: 0.5, // Sample 50% of traces in staging
+    alwaysSampleErrors: true,
+    alwaysSamplePaths: [
+      '/api/health/metrics',
+      '/api/care/appointments',
+      '/api/plan/claims',
+    ],
+  },
+  exporter: {
+    type: 'otlp',
+    otlp: {
+      protocol: 'http/protobuf',
+      endpoint: 'http://otel-collector.staging.austa.internal:4318/v1/traces',
+      headers: {
+        'x-austa-environment': 'staging',
+      },
+      timeoutMillis: 5000,
+      compression: 'gzip',
+      maxRetries: 3,
+    },
+  },
+  batch: {
+    maxExportBatchSize: 256,
+    scheduledDelayMillis: 3000,
+    maxQueueSize: 1024,
+  },
+  debug: false,
+  disabled: false,
+};
+
+/**
+ * Base configuration for production environment
+ * Uses OTLP exporter with lower sampling rate for performance
+ */
+const productionBaseConfig: Partial<TracingOptions> = {
+  service: {
+    environment: 'production',
+    version: '1.0.0',
+  },
+  sampling: {
+    rate: 0.1, // Sample 10% of traces in production
+    alwaysSampleErrors: true,
+    alwaysSamplePaths: [
+      '/api/health/metrics',
+      '/api/care/appointments',
+      '/api/plan/claims',
+      '/api/auth/login',
+      '/api/gamification/achievements',
+    ],
+  },
+  exporter: {
+    type: 'otlp',
+    otlp: {
+      protocol: 'grpc',
+      endpoint: 'http://otel-collector.production.austa.internal:4317',
+      headers: {
+        'x-austa-environment': 'production',
+      },
+      timeoutMillis: 10000,
+      compression: 'gzip',
+      maxRetries: 5,
+      initialBackoffMillis: 1000,
+      maxBackoffMillis: 5000,
+      maxConcurrentExports: 2,
+    },
+  },
+  batch: {
+    maxExportBatchSize: 512,
+    scheduledDelayMillis: 5000,
+    maxQueueSize: 2048,
+  },
+  debug: false,
+  disabled: false,
+};
+
+/**
+ * Health Journey Service configurations for different environments
+ */
+export const healthServiceConfig: Record<string, TracingOptions> = {
   development: {
-    sampler: {
-      type: 'always_on' as const,
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-health-service',
+      journey: 'health',
     },
-    exporter: {
-      type: 'console' as const,
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'health-dev-1',
+      'deployment.environment': 'development',
     },
-    logLevel: DiagLogLevel.DEBUG,
-    batchSpanProcessorConfig: {
-      maxQueueSize: 100,
-      maxExportBatchSize: 10,
-      scheduledDelayMillis: 500,
-      exportTimeoutMillis: 3000,
+    journeyConfig: {
+      health: {
+        includeMetrics: true,
+        includeDeviceInfo: true,
+      },
     },
   },
   staging: {
-    sampler: {
-      type: 'parentbased_traceidratio' as const,
-      ratio: 0.5,
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-health-service',
+      journey: 'health',
     },
-    exporter: {
-      type: 'otlp' as const,
-      endpoint: 'http://otel-collector:4318/v1/traces',
-      options: {
-        headers: {},
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'health-staging-1',
+      'deployment.environment': 'staging',
+    },
+    journeyConfig: {
+      health: {
+        includeMetrics: true,
+        includeDeviceInfo: true,
       },
-    },
-    logLevel: DiagLogLevel.INFO,
-    batchSpanProcessorConfig: {
-      maxQueueSize: 1000,
-      maxExportBatchSize: 100,
-      scheduledDelayMillis: 1000,
-      exportTimeoutMillis: 5000,
     },
   },
   production: {
-    sampler: {
-      type: 'parentbased_traceidratio' as const,
-      ratio: 0.1,
-    },
-    exporter: {
-      type: 'otlp' as const,
-      endpoint: 'https://otel-collector.austa.internal:4318/v1/traces',
-      options: {
-        headers: {
-          'X-Tenant-ID': 'austa-production',
-        },
-      },
-    },
-    logLevel: DiagLogLevel.WARN,
-    batchSpanProcessorConfig: {
-      maxQueueSize: 2000,
-      maxExportBatchSize: 200,
-      scheduledDelayMillis: 5000,
-      exportTimeoutMillis: 10000,
-    },
-  },
-};
-
-/**
- * Creates a service configuration with the specified parameters
- * 
- * @param serviceName The name of the service
- * @param serviceVersion The version of the service
- * @param environment The deployment environment (development, staging, production)
- * @returns A complete service configuration object
- */
-const createServiceConfig = (
-  serviceName: string,
-  serviceVersion: string,
-  environment: 'development' | 'staging' | 'production'
-): ServiceConfig => {
-  return {
+    ...productionBaseConfig as TracingOptions,
     service: {
-      name: serviceName,
-      version: serviceVersion,
-      environment,
+      ...productionBaseConfig.service,
+      name: 'austa-health-service',
+      journey: 'health',
     },
-    tracing: {
-      enabled: true,
-      ...environments[environment],
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'health-prod-1',
+      'deployment.environment': 'production',
     },
-  };
-};
-
-/**
- * API Gateway service configuration for different environments
- */
-export const apiGatewayConfig = {
-  development: createServiceConfig('austa-api-gateway', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-api-gateway', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-api-gateway', '1.0.0', 'production'),
-};
-
-/**
- * Auth Service configuration for different environments
- */
-export const authServiceConfig = {
-  development: createServiceConfig('austa-auth-service', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-auth-service', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-auth-service', '1.0.0', 'production'),
-};
-
-/**
- * Health Journey service configuration for different environments
- */
-export const healthServiceConfig = {
-  development: createServiceConfig('austa-health-service', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-health-service', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-health-service', '1.0.0', 'production'),
-};
-
-/**
- * Care Journey service configuration for different environments
- */
-export const careServiceConfig = {
-  development: createServiceConfig('austa-care-service', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-care-service', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-care-service', '1.0.0', 'production'),
-};
-
-/**
- * Plan Journey service configuration for different environments
- */
-export const planServiceConfig = {
-  development: createServiceConfig('austa-plan-service', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-plan-service', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-plan-service', '1.0.0', 'production'),
-};
-
-/**
- * Gamification Engine service configuration for different environments
- */
-export const gamificationEngineConfig = {
-  development: createServiceConfig('austa-gamification-engine', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-gamification-engine', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-gamification-engine', '1.0.0', 'production'),
-};
-
-/**
- * Notification Service configuration for different environments
- */
-export const notificationServiceConfig = {
-  development: createServiceConfig('austa-notification-service', '1.0.0', 'development'),
-  staging: createServiceConfig('austa-notification-service', '1.0.0', 'staging'),
-  production: createServiceConfig('austa-notification-service', '1.0.0', 'production'),
-};
-
-/**
- * Custom service configuration with specific sampling and exporter settings
- * Used for testing custom configurations
- */
-export const customServiceConfig: ServiceConfig = {
-  service: {
-    name: 'austa-custom-service',
-    version: '1.0.0',
-    environment: 'development',
-  },
-  tracing: {
-    enabled: true,
-    sampler: {
-      type: 'traceidratio',
-      ratio: 0.25,
-    },
-    exporter: {
-      type: 'otlp',
-      endpoint: 'http://custom-collector:4318/v1/traces',
-      options: {
-        headers: {
-          'X-Custom-Header': 'custom-value',
-        },
-        timeoutMillis: 15000,
+    journeyConfig: {
+      health: {
+        includeMetrics: true,
+        includeDeviceInfo: true,
       },
     },
-    logLevel: DiagLogLevel.INFO,
-    batchSpanProcessorConfig: {
-      maxQueueSize: 500,
-      maxExportBatchSize: 50,
-      scheduledDelayMillis: 2000,
-      exportTimeoutMillis: 8000,
-    },
   },
 };
 
 /**
- * Disabled tracing configuration for testing disabled state
+ * Care Journey Service configurations for different environments
  */
-export const disabledTracingConfig: ServiceConfig = {
-  service: {
-    name: 'austa-disabled-tracing',
-    version: '1.0.0',
-    environment: 'production',
+export const careServiceConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-care-service',
+      journey: 'care',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'care-dev-1',
+      'deployment.environment': 'development',
+    },
+    journeyConfig: {
+      care: {
+        includeAppointments: true,
+        includeProviders: true,
+      },
+    },
   },
-  tracing: {
-    enabled: false,
-    sampler: {
-      type: 'always_off',
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-care-service',
+      journey: 'care',
     },
-    exporter: {
-      type: 'console',
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'care-staging-1',
+      'deployment.environment': 'staging',
     },
-    logLevel: DiagLogLevel.ERROR,
+    journeyConfig: {
+      care: {
+        includeAppointments: true,
+        includeProviders: true,
+      },
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-care-service',
+      journey: 'care',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'care-prod-1',
+      'deployment.environment': 'production',
+    },
+    journeyConfig: {
+      care: {
+        includeAppointments: true,
+        includeProviders: true,
+      },
+    },
   },
 };
 
 /**
- * Collection of all service configurations for easy access
+ * Plan Journey Service configurations for different environments
+ */
+export const planServiceConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-plan-service',
+      journey: 'plan',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'plan-dev-1',
+      'deployment.environment': 'development',
+    },
+    journeyConfig: {
+      plan: {
+        includeClaims: true,
+        includeBenefits: true,
+      },
+    },
+  },
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-plan-service',
+      journey: 'plan',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'plan-staging-1',
+      'deployment.environment': 'staging',
+    },
+    journeyConfig: {
+      plan: {
+        includeClaims: true,
+        includeBenefits: true,
+      },
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-plan-service',
+      journey: 'plan',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.journey',
+      'service.instance.id': 'plan-prod-1',
+      'deployment.environment': 'production',
+    },
+    journeyConfig: {
+      plan: {
+        includeClaims: true,
+        includeBenefits: true,
+      },
+    },
+  },
+};
+
+/**
+ * Auth Service configurations for different environments
+ */
+export const authServiceConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-auth-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'auth-dev-1',
+      'deployment.environment': 'development',
+    },
+  },
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-auth-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'auth-staging-1',
+      'deployment.environment': 'staging',
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-auth-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'auth-prod-1',
+      'deployment.environment': 'production',
+    },
+  },
+};
+
+/**
+ * API Gateway configurations for different environments
+ */
+export const apiGatewayConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-api-gateway',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gateway-dev-1',
+      'deployment.environment': 'development',
+    },
+  },
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-api-gateway',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gateway-staging-1',
+      'deployment.environment': 'staging',
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-api-gateway',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gateway-prod-1',
+      'deployment.environment': 'production',
+    },
+  },
+};
+
+/**
+ * Gamification Engine configurations for different environments
+ */
+export const gamificationEngineConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-gamification-engine',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gamification-dev-1',
+      'deployment.environment': 'development',
+    },
+  },
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-gamification-engine',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gamification-staging-1',
+      'deployment.environment': 'staging',
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-gamification-engine',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'gamification-prod-1',
+      'deployment.environment': 'production',
+    },
+  },
+};
+
+/**
+ * Notification Service configurations for different environments
+ */
+export const notificationServiceConfig: Record<string, TracingOptions> = {
+  development: {
+    ...developmentBaseConfig as TracingOptions,
+    service: {
+      ...developmentBaseConfig.service,
+      name: 'austa-notification-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'notification-dev-1',
+      'deployment.environment': 'development',
+    },
+  },
+  staging: {
+    ...stagingBaseConfig as TracingOptions,
+    service: {
+      ...stagingBaseConfig.service,
+      name: 'austa-notification-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'notification-staging-1',
+      'deployment.environment': 'staging',
+    },
+  },
+  production: {
+    ...productionBaseConfig as TracingOptions,
+    service: {
+      ...productionBaseConfig.service,
+      name: 'austa-notification-service',
+      journey: 'shared',
+    },
+    resourceAttributes: {
+      'service.namespace': 'austa.core',
+      'service.instance.id': 'notification-prod-1',
+      'deployment.environment': 'production',
+    },
+  },
+};
+
+/**
+ * Mock configuration with disabled tracing for testing disabled state
+ */
+export const disabledTracingConfig: TracingOptions = {
+  ...developmentBaseConfig as TracingOptions,
+  service: {
+    ...developmentBaseConfig.service,
+    name: 'austa-disabled-service',
+    journey: 'shared',
+  },
+  disabled: true,
+};
+
+/**
+ * Mock configuration with invalid exporter for testing error handling
+ */
+export const invalidExporterConfig: TracingOptions = {
+  ...developmentBaseConfig as TracingOptions,
+  service: {
+    ...developmentBaseConfig.service,
+    name: 'austa-invalid-service',
+    journey: 'shared',
+  },
+  exporter: {
+    type: 'otlp',
+    otlp: {
+      protocol: 'http/protobuf',
+      endpoint: 'http://non-existent-endpoint:4318/v1/traces',
+      timeoutMillis: 100, // Very short timeout to trigger errors quickly
+      maxRetries: 1,
+    },
+  },
+};
+
+/**
+ * Collection of all service configurations for easy access in tests
  */
 export const allServiceConfigs = {
+  health: healthServiceConfig,
+  care: careServiceConfig,
+  plan: planServiceConfig,
+  auth: authServiceConfig,
   apiGateway: apiGatewayConfig,
-  authService: authServiceConfig,
-  healthService: healthServiceConfig,
-  careService: careServiceConfig,
-  planService: planServiceConfig,
-  gamificationEngine: gamificationEngineConfig,
-  notificationService: notificationServiceConfig,
-  customService: customServiceConfig,
-  disabledTracing: disabledTracingConfig,
+  gamification: gamificationEngineConfig,
+  notification: notificationServiceConfig,
+  disabled: { test: disabledTracingConfig },
+  invalid: { test: invalidExporterConfig },
 };
