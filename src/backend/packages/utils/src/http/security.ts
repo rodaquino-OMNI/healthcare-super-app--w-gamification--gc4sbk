@@ -1,310 +1,414 @@
 /**
- * @file security.ts
+ * @file HTTP Security Utilities
  * @description Provides SSRF (Server-Side Request Forgery) protection utilities for HTTP clients.
- * This module implements request validation against private IP ranges, localhost, and other restricted targets.
  */
 
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { Logger } from '@austa/logging';
 import { URL } from 'url';
-import { isIP } from 'net';
+import * as net from 'net';
+import * as dns from 'dns';
+
+// Initialize logger
+const logger = new Logger({ service: 'http-security' });
 
 /**
- * Configuration options for the SSRF protection
+ * IPv4 address ranges that should be blocked to prevent SSRF attacks
+ * Based on IANA IPv4 Special-Purpose Address Registry
+ * @see https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml
+ */
+const BLOCKED_IPV4_RANGES = [
+  // This network (RFC 1122)
+  '0.0.0.0/8',
+  
+  // Private networks (RFC 1918)
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  
+  // Localhost (RFC 1122)
+  '127.0.0.0/8',
+  
+  // Link-local (RFC 3927)
+  '169.254.0.0/16',
+  
+  // IETF Protocol Assignments (RFC 6890)
+  '192.0.0.0/24',
+  
+  // TEST-NET-1 (RFC 5737)
+  '192.0.2.0/24',
+  
+  // 6to4 Relay Anycast (RFC 3068)
+  '192.88.99.0/24',
+  
+  // Network Interconnect Device Benchmark Testing (RFC 2544)
+  '198.18.0.0/15',
+  
+  // TEST-NET-2 (RFC 5737)
+  '198.51.100.0/24',
+  
+  // TEST-NET-3 (RFC 5737)
+  '203.0.113.0/24',
+  
+  // Reserved for future use (RFC 1112)
+  '240.0.0.0/4',
+  
+  // Broadcast (RFC 919)
+  '255.255.255.255/32'
+];
+
+/**
+ * IPv6 address ranges that should be blocked to prevent SSRF attacks
+ * Based on IANA IPv6 Special-Purpose Address Registry
+ * @see https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
+ */
+const BLOCKED_IPV6_RANGES = [
+  // Localhost (RFC 4291)
+  '::1/128',
+  
+  // Unspecified address (RFC 4291)
+  '::/128',
+  
+  // IPv4-mapped addresses (RFC 4291)
+  '::ffff:0:0/96',
+  
+  // Discard prefix (RFC 6666)
+  '100::/64',
+  
+  // Unique Local Addresses (RFC 4193)
+  'fc00::/7',
+  
+  // Link-local addresses (RFC 4291)
+  'fe80::/10',
+  
+  // Site-local addresses - deprecated but still used (RFC 3879)
+  'fec0::/10',
+  
+  // Multicast addresses (RFC 4291)
+  'ff00::/8'
+];
+
+/**
+ * Configuration options for SSRF protection
  */
 export interface SSRFProtectionOptions {
   /**
-   * Whether to block requests to private IP ranges
-   * @default true
+   * IPv4 address ranges to block
+   * @default BLOCKED_IPV4_RANGES
    */
-  blockPrivateIPs?: boolean;
+  blockedIPv4Ranges?: string[];
   
   /**
-   * Whether to block requests to localhost
-   * @default true
+   * IPv6 address ranges to block
+   * @default BLOCKED_IPV6_RANGES
    */
-  blockLocalhost?: boolean;
+  blockedIPv6Ranges?: string[];
   
   /**
-   * Whether to block requests to link-local addresses
-   * @default true
+   * Whether to allow requests to localhost
+   * @default false
    */
-  blockLinkLocal?: boolean;
+  allowLocalhost?: boolean;
   
   /**
-   * Whether to block requests to .local domains
-   * @default true
+   * Whether to allow requests to private networks
+   * @default false
    */
-  blockDotLocal?: boolean;
+  allowPrivateNetworks?: boolean;
   
   /**
-   * Custom IP ranges to block in CIDR notation (e.g., '192.168.0.0/16')
+   * Additional hostnames to allow (bypasses IP validation)
    * @default []
    */
-  customBlockedRanges?: string[];
+  allowedHostnames?: string[];
   
   /**
-   * Allowed hosts that bypass SSRF protection
-   * @default []
-   */
-  allowedHosts?: string[];
-  
-  /**
-   * Whether to log security violations
+   * Whether to enable detailed logging for security violations
    * @default true
    */
-  logViolations?: boolean;
+  enableDetailedLogging?: boolean;
+  
+  /**
+   * Whether to throw an error when a security violation is detected
+   * @default true
+   */
+  throwOnViolation?: boolean;
 }
 
 /**
  * Default SSRF protection options
  */
-const defaultOptions: SSRFProtectionOptions = {
-  blockPrivateIPs: true,
-  blockLocalhost: true,
-  blockLinkLocal: true,
-  blockDotLocal: true,
-  customBlockedRanges: [],
-  allowedHosts: [],
-  logViolations: true
+const DEFAULT_SSRF_OPTIONS: SSRFProtectionOptions = {
+  blockedIPv4Ranges: BLOCKED_IPV4_RANGES,
+  blockedIPv6Ranges: BLOCKED_IPV6_RANGES,
+  allowLocalhost: false,
+  allowPrivateNetworks: false,
+  allowedHostnames: [],
+  enableDetailedLogging: true,
+  throwOnViolation: true
 };
 
 /**
- * Error thrown when a security violation is detected
- */
-export class SSRFDetectionError extends Error {
-  constructor(message: string, public readonly url: string, public readonly violationType: string) {
-    super(message);
-    this.name = 'SSRFDetectionError';
-    
-    // Ensures proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, SSRFDetectionError.prototype);
-  }
-}
-
-/**
  * Checks if an IPv4 address is within a CIDR range
- * @param ip - The IP address to check
- * @param cidr - The CIDR range (e.g., '192.168.0.0/16')
- * @returns Whether the IP is in the CIDR range
+ * 
+ * @param ip - The IPv4 address to check
+ * @param cidr - The CIDR range to check against
+ * @returns Whether the IP is within the CIDR range
  */
-export function isIPv4InCIDR(ip: string, cidr: string): boolean {
+function isIPv4InCIDR(ip: string, cidr: string): boolean {
   const [range, bits = '32'] = cidr.split('/');
-  const mask = ~(2 ** (32 - parseInt(bits, 10)) - 1);
+  const mask = ~(2 ** (32 - parseInt(bits)) - 1);
   
-  const ipInt = ip.split('.').reduce((sum, octet) => (sum << 8) + parseInt(octet, 10), 0);
-  const rangeInt = range.split('.').reduce((sum, octet) => (sum << 8) + parseInt(octet, 10), 0);
+  // Convert IP addresses to integers for comparison
+  const ipInt = ip.split('.')
+    .reduce((sum, octet) => (sum << 8) + parseInt(octet, 10), 0) >>> 0;
+  
+  const rangeInt = range.split('.')
+    .reduce((sum, octet) => (sum << 8) + parseInt(octet, 10), 0) >>> 0;
   
   return (ipInt & mask) === (rangeInt & mask);
 }
 
 /**
  * Checks if an IPv6 address is within a CIDR range
+ * 
  * @param ip - The IPv6 address to check
- * @param cidr - The CIDR range (e.g., '2001:db8::/32')
- * @returns Whether the IP is in the CIDR range
+ * @param cidr - The CIDR range to check against
+ * @returns Whether the IP is within the CIDR range
  */
-export function isIPv6InCIDR(ip: string, cidr: string): boolean {
-  // Convert IPv6 address to binary representation
-  function ipv6ToBinary(addr: string): bigint {
-    // Expand :: notation and pad each segment to 4 characters
-    const expanded = addr.includes('::')
-      ? addr.replace('::', ':' + '0000:'.repeat(8 - addr.split(':').filter(Boolean).length) + ':')
-      : addr;
-    
-    // Convert each hexadecimal segment to a number and combine into a binary representation
-    return expanded
-      .split(':')
-      .filter(Boolean)
-      .reduce((acc, segment) => (acc << 16n) | BigInt(parseInt(segment, 16)), 0n);
+function isIPv6InCIDR(ip: string, cidr: string): boolean {
+  // Handle IPv4-mapped IPv6 addresses
+  if (ip.startsWith('::ffff:')) {
+    const ipv4Part = ip.substring(7);
+    if (net.isIPv4(ipv4Part)) {
+      // Check if the IPv4 part is in any of the blocked IPv4 ranges
+      return BLOCKED_IPV4_RANGES.some(range => isIPv4InCIDR(ipv4Part, range));
+    }
   }
   
-  const [range, bits = '128'] = cidr.split('/');
-  const prefixLength = parseInt(bits, 10);
-  const mask = ~((1n << (128n - BigInt(prefixLength))) - 1n);
+  const [rangeText, bitsText] = cidr.split('/');
+  const bits = parseInt(bitsText, 10);
   
-  const ipBinary = ipv6ToBinary(ip);
-  const rangeBinary = ipv6ToBinary(range);
+  // Convert IP addresses to normalized form for comparison
+  const normalizedIP = normalizeIPv6(ip);
+  const normalizedRange = normalizeIPv6(rangeText);
   
-  return (ipBinary & mask) === (rangeBinary & mask);
+  // Compare the first 'bits' bits of the addresses
+  for (let i = 0; i < bits; i += 16) {
+    const remainingBits = Math.min(16, bits - i);
+    const pos = Math.floor(i / 16);
+    
+    const mask = 0xffff - ((1 << (16 - remainingBits)) - 1);
+    
+    const ipBlock = parseInt(normalizedIP.split(':')[pos], 16);
+    const rangeBlock = parseInt(normalizedRange.split(':')[pos], 16);
+    
+    if ((ipBlock & mask) !== (rangeBlock & mask)) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
- * Predefined IPv4 private address ranges
+ * Normalizes an IPv6 address to its full form
+ * 
+ * @param ip - The IPv6 address to normalize
+ * @returns The normalized IPv6 address
  */
-const PRIVATE_IPV4_RANGES = [
-  '10.0.0.0/8',      // Private network
-  '172.16.0.0/12',   // Private network
-  '192.168.0.0/16',  // Private network
-  '127.0.0.0/8',     // Localhost
-  '169.254.0.0/16',  // Link-local
-  '0.0.0.0/8',       // Current network
-  '100.64.0.0/10',   // Shared address space
-  '192.0.0.0/24',    // IETF Protocol Assignments
-  '192.0.2.0/24',    // TEST-NET-1
-  '198.18.0.0/15',   // Network benchmark tests
-  '198.51.100.0/24', // TEST-NET-2
-  '203.0.113.0/24',  // TEST-NET-3
-  '224.0.0.0/4',     // Multicast
-  '240.0.0.0/4',     // Reserved
-];
-
-/**
- * Predefined IPv6 private address ranges
- */
-const PRIVATE_IPV6_RANGES = [
-  '::/128',          // Unspecified address
-  '::1/128',         // Localhost
-  'fe80::/10',       // Link-local
-  'fc00::/7',        // Unique local address
-  'ff00::/8',        // Multicast
-  '2001:db8::/32',   // Documentation
-  '2001:10::/28',    // ORCHID
-  '2001:20::/28',    // ORCHIDv2
-];
-
-/**
- * Checks if a hostname is a private or restricted address
- * @param hostname - The hostname to check
- * @param options - SSRF protection options
- * @returns Whether the hostname is restricted
- */
-export function isRestrictedHostname(hostname: string, options: SSRFProtectionOptions = defaultOptions): boolean {
-  // Check if hostname is in allowed hosts list
-  if (options.allowedHosts?.includes(hostname)) {
-    return false;
+function normalizeIPv6(ip: string): string {
+  // Handle the empty group case (::)
+  if (ip.includes('::')) {
+    const parts = ip.split('::');
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    const middle = Array(missing).fill('0000');
+    const full = [...left, ...middle, ...right];
+    return full.map(part => part.padStart(4, '0')).join(':');
   }
   
-  // Check for localhost
-  if (options.blockLocalhost && (
-    hostname === 'localhost' ||
-    hostname === '::1' ||
-    hostname === '0:0:0:0:0:0:0:1'
-  )) {
+  // Already full form, just ensure 4 digits per group
+  return ip.split(':').map(part => part.padStart(4, '0')).join(':');
+}
+
+/**
+ * Checks if a hostname or IP address is allowed based on SSRF protection rules
+ * 
+ * @param hostname - The hostname or IP address to check
+ * @param options - SSRF protection options
+ * @returns Whether the hostname or IP is allowed
+ */
+async function isAllowedTarget(hostname: string, options: SSRFProtectionOptions): Promise<boolean> {
+  // Check if hostname is in the allowed list
+  if (options.allowedHostnames?.includes(hostname)) {
     return true;
   }
   
-  // Check for .local domain
-  if (options.blockDotLocal && hostname.endsWith('.local')) {
+  // Allow localhost if configured
+  if (options.allowLocalhost && 
+      (hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1')) {
     return true;
   }
   
   // Check if hostname is an IP address
-  const ipVersion = isIP(hostname);
-  if (ipVersion === 0) {
-    // Not an IP address
-    return false;
-  }
-  
-  // Check IPv4 private ranges
-  if (ipVersion === 4 && options.blockPrivateIPs) {
-    for (const range of PRIVATE_IPV4_RANGES) {
-      if (isIPv4InCIDR(hostname, range)) {
+  if (net.isIP(hostname)) {
+    // For IPv4
+    if (net.isIPv4(hostname)) {
+      // Allow private networks if configured
+      if (options.allowPrivateNetworks) {
         return true;
       }
-    }
-  }
-  
-  // Check IPv6 private ranges
-  if (ipVersion === 6 && options.blockPrivateIPs) {
-    for (const range of PRIVATE_IPV6_RANGES) {
-      if (isIPv6InCIDR(hostname, range)) {
-        return true;
+      
+      // Check against blocked IPv4 ranges
+      for (const range of options.blockedIPv4Ranges || []) {
+        if (isIPv4InCIDR(hostname, range)) {
+          return false;
+        }
       }
     }
-  }
-  
-  // Check custom blocked ranges
-  if (options.customBlockedRanges?.length) {
-    for (const range of options.customBlockedRanges) {
-      if (
-        (ipVersion === 4 && range.includes('.') && isIPv4InCIDR(hostname, range)) ||
-        (ipVersion === 6 && range.includes(':') && isIPv6InCIDR(hostname, range))
-      ) {
+    // For IPv6
+    else if (net.isIPv6(hostname)) {
+      // Allow private networks if configured
+      if (options.allowPrivateNetworks) {
         return true;
       }
+      
+      // Check against blocked IPv6 ranges
+      for (const range of options.blockedIPv6Ranges || []) {
+        if (isIPv6InCIDR(hostname, range)) {
+          return false;
+        }
+      }
     }
-  }
-  
-  return false;
-}
-
-/**
- * Validates a URL against SSRF vulnerabilities
- * @param urlString - The URL to validate
- * @param baseUrl - Optional base URL for relative URLs
- * @param options - SSRF protection options
- * @throws {SSRFDetectionError} If the URL is restricted
- */
-export function validateUrlAgainstSSRF(
-  urlString: string,
-  baseUrl?: string,
-  options: SSRFProtectionOptions = defaultOptions
-): void {
-  try {
-    const url = new URL(urlString, baseUrl);
-    const hostname = url.hostname;
     
-    if (isRestrictedHostname(hostname, options)) {
-      const violationType = hostname === 'localhost' || hostname === '::1' 
-        ? 'localhost' 
-        : hostname.endsWith('.local')
-          ? 'local-domain'
-          : 'private-ip';
-      
-      const errorMessage = `SSRF Protection: Blocked request to restricted target: ${hostname}`;
-      
-      if (options.logViolations) {
-        console.warn(`[Security Warning] ${errorMessage} (${violationType})`);
+    return true;
+  }
+  
+  // For hostnames, resolve to IP addresses and check each one
+  try {
+    const addresses = await new Promise<string[]>((resolve, reject) => {
+      dns.resolve(hostname, (err, addresses) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(addresses);
+        }
+      });
+    });
+    
+    // If any resolved IP is blocked, consider the hostname blocked
+    for (const address of addresses) {
+      if (!await isAllowedTarget(address, options)) {
+        return false;
       }
-      
-      throw new SSRFDetectionError(errorMessage, urlString, violationType);
     }
+    
+    return true;
   } catch (error) {
-    if (error instanceof SSRFDetectionError) {
-      throw error;
+    // DNS resolution error, log and allow by default
+    if (options.enableDetailedLogging) {
+      logger.warn(`Failed to resolve hostname: ${hostname}`, { error });
     }
-    // If there's an error parsing the URL, it's likely invalid
-    throw new Error(`Invalid URL: ${urlString}`);
+    return true;
   }
 }
 
 /**
- * Creates a URL validator function that can be used with HTTP clients
- * @param options - SSRF protection options
- * @returns A function that validates URLs against SSRF vulnerabilities
- */
-export function createUrlValidator(options: SSRFProtectionOptions = defaultOptions): (
-  url: string,
-  baseUrl?: string
-) => void {
-  return (url: string, baseUrl?: string) => validateUrlAgainstSSRF(url, baseUrl, options);
-}
-
-/**
- * Creates a secure HTTP client configuration with SSRF protection
- * This function is intended to be used with various HTTP clients like axios, fetch, etc.
+ * Creates a secure HTTP client with SSRF protection
  * 
  * @param options - SSRF protection options
- * @returns An object with utility functions for HTTP client security
+ * @returns A configured Axios instance with SSRF protection
  */
-export function createSecureHttpClient(options: SSRFProtectionOptions = defaultOptions) {
-  const mergedOptions = { ...defaultOptions, ...options };
-  
-  return {
-    /**
-     * Validates a URL against SSRF vulnerabilities
-     */
-    validateUrl: (url: string, baseUrl?: string) => validateUrlAgainstSSRF(url, baseUrl, mergedOptions),
-    
-    /**
-     * Checks if a hostname is restricted
-     */
-    isRestrictedHost: (hostname: string) => isRestrictedHostname(hostname, mergedOptions),
-    
-    /**
-     * The current security options
-     */
-    options: mergedOptions,
+export function createSecureHttpClient(options: SSRFProtectionOptions = {}): AxiosInstance {
+  const mergedOptions: SSRFProtectionOptions = {
+    ...DEFAULT_SSRF_OPTIONS,
+    ...options
   };
+  
+  const instance = axios.create();
+  
+  // Add request interceptor to block private IP ranges
+  instance.interceptors.request.use(async (config) => {
+    if (!config.url) return config;
+    
+    try {
+      const url = new URL(config.url, config.baseURL);
+      const hostname = url.hostname;
+      
+      // Check if the hostname is allowed
+      const isAllowed = await isAllowedTarget(hostname, mergedOptions);
+      
+      if (!isAllowed) {
+        const errorMessage = `SSRF Protection: Blocked request to restricted target: ${hostname}`;
+        
+        if (mergedOptions.enableDetailedLogging) {
+          logger.error(errorMessage, {
+            url: config.url,
+            baseURL: config.baseURL,
+            hostname,
+            method: config.method,
+            headers: config.headers
+          });
+        }
+        
+        if (mergedOptions.throwOnViolation) {
+          throw new Error(errorMessage);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('SSRF Protection')) {
+        throw error;
+      }
+      
+      // If there's an error parsing the URL, log and continue with the request
+      if (mergedOptions.enableDetailedLogging) {
+        logger.warn(`Error validating URL for SSRF protection: ${config.url}`, {
+          error: error instanceof Error ? error.message : String(error),
+          url: config.url,
+          baseURL: config.baseURL
+        });
+      }
+    }
+    
+    return config;
+  });
+
+  return instance;
+}
+
+/**
+ * Creates a secure HTTP client with environment-specific SSRF protection
+ * 
+ * @returns A configured Axios instance with environment-specific SSRF protection
+ */
+export function createEnvironmentAwareSecureHttpClient(): AxiosInstance {
+  const environment = process.env.NODE_ENV || 'development';
+  
+  // In development, allow localhost for easier testing
+  if (environment === 'development') {
+    return createSecureHttpClient({
+      allowLocalhost: true,
+      enableDetailedLogging: true
+    });
+  }
+  
+  // In test environment, allow localhost and private networks
+  if (environment === 'test') {
+    return createSecureHttpClient({
+      allowLocalhost: true,
+      allowPrivateNetworks: true,
+      enableDetailedLogging: false
+    });
+  }
+  
+  // In production, use strict settings
+  return createSecureHttpClient({
+    allowLocalhost: false,
+    allowPrivateNetworks: false,
+    enableDetailedLogging: true
+  });
 }
 
 export default createSecureHttpClient;
