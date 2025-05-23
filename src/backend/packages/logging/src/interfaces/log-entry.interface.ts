@@ -1,7 +1,6 @@
 /**
- * Interface representing a log entry before it is formatted by a formatter.
- * This interface includes all necessary fields for comprehensive logging,
- * including message, level, timestamp, context, trace IDs, and journey information.
+ * Interface representing the structure of a log entry before it is formatted.
+ * This provides a standardized format for all log entries across the AUSTA SuperApp.
  */
 export interface LogEntry {
   /**
@@ -20,14 +19,19 @@ export interface LogEntry {
   timestamp: Date;
 
   /**
-   * The service that generated the log
+   * The name of the service generating the log
    */
-  service: string;
+  serviceName?: string;
 
   /**
-   * Additional context information
+   * The context where the log was generated (e.g., class name, function name)
    */
-  context?: Record<string, any>;
+  context?: string;
+
+  /**
+   * Additional contextual information as key-value pairs
+   */
+  contextData?: Record<string, any>;
 
   /**
    * Unique identifier for the request
@@ -35,17 +39,32 @@ export interface LogEntry {
   requestId?: string;
 
   /**
-   * Identifier of the user associated with the log
+   * Unique identifier for the user
    */
   userId?: string;
 
   /**
-   * Unique identifier for distributed tracing
+   * Unique identifier for the user session
+   */
+  sessionId?: string;
+
+  /**
+   * IP address of the client
+   */
+  clientIp?: string;
+
+  /**
+   * User agent of the client
+   */
+  userAgent?: string;
+
+  /**
+   * Unique identifier for the trace (for distributed tracing)
    */
   traceId?: string;
 
   /**
-   * Identifier for a specific operation within a trace
+   * Unique identifier for the span within a trace
    */
   spanId?: string;
 
@@ -55,19 +74,19 @@ export interface LogEntry {
   parentSpanId?: string;
 
   /**
-   * The journey associated with the log
+   * The journey context (health, care, plan)
    */
-  journey?: JourneyType;
+  journey?: JourneyContext;
 
   /**
-   * Additional journey-specific context information
+   * Error object if the log is for an error
    */
-  journeyContext?: JourneyContext;
+  error?: ErrorInfo;
 
   /**
-   * Structured error object with details about any error
+   * Additional metadata as key-value pairs
    */
-  error?: ErrorObject;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -82,99 +101,43 @@ export enum LogLevel {
 }
 
 /**
- * Enum representing the available journey types
- */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  CROSS_JOURNEY = 'cross_journey'
-}
-
-/**
  * Interface representing journey-specific context information
  */
 export interface JourneyContext {
   /**
-   * The journey ID
+   * The type of journey (health, care, plan)
    */
-  journeyId?: string;
+  type: JourneyType;
 
   /**
-   * The journey step or action
+   * Journey-specific identifier (e.g., appointment ID, claim ID, health record ID)
    */
-  step?: string;
+  resourceId?: string;
 
   /**
-   * Health journey specific context
+   * The specific action being performed within the journey
    */
-  health?: {
-    /**
-     * The health metric type
-     */
-    metricType?: string;
-
-    /**
-     * The device ID
-     */
-    deviceId?: string;
-
-    /**
-     * The goal ID
-     */
-    goalId?: string;
-  };
+  action?: string;
 
   /**
-   * Care journey specific context
+   * Additional journey-specific data
    */
-  care?: {
-    /**
-     * The appointment ID
-     */
-    appointmentId?: string;
-
-    /**
-     * The provider ID
-     */
-    providerId?: string;
-
-    /**
-     * The telemedicine session ID
-     */
-    sessionId?: string;
-
-    /**
-     * The medication ID
-     */
-    medicationId?: string;
-  };
-
-  /**
-   * Plan journey specific context
-   */
-  plan?: {
-    /**
-     * The plan ID
-     */
-    planId?: string;
-
-    /**
-     * The claim ID
-     */
-    claimId?: string;
-
-    /**
-     * The benefit ID
-     */
-    benefitId?: string;
-  };
+  data?: Record<string, any>;
 }
 
 /**
- * Interface representing a structured error object
+ * Enum representing the available journey types
  */
-export interface ErrorObject {
+export enum JourneyType {
+  HEALTH = 'health',  // "Minha Saúde"
+  CARE = 'care',      // "Cuidar-me Agora"
+  PLAN = 'plan'       // "Meu Plano & Benefícios"
+}
+
+/**
+ * Interface representing structured error information
+ */
+export interface ErrorInfo {
   /**
    * The error message
    */
@@ -183,35 +146,35 @@ export interface ErrorObject {
   /**
    * The error name or type
    */
-  name: string;
+  name?: string;
 
   /**
-   * The error stack trace
-   */
-  stack?: string;
-
-  /**
-   * The error code
+   * Error code (if available)
    */
   code?: string | number;
 
   /**
-   * The HTTP status code associated with the error
+   * Stack trace as a string
    */
-  statusCode?: number;
+  stack?: string;
 
   /**
-   * Whether the error is operational (expected) or programmatic (unexpected)
+   * Original error object
    */
-  isOperational?: boolean;
+  originalError?: any;
 
   /**
-   * Additional error details
+   * Whether this is a transient error that might resolve on retry
    */
-  details?: Record<string, any>;
+  isTransient?: boolean;
 
   /**
-   * The original error that caused this error
+   * Whether this error was caused by a client issue (vs. system issue)
    */
-  cause?: ErrorObject;
+  isClientError?: boolean;
+
+  /**
+   * Whether this error was caused by an external system
+   */
+  isExternalError?: boolean;
 }
