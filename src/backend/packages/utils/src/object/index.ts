@@ -9,7 +9,6 @@ export {
   omit,
   mapValues,
   filterKeys,
-  deepClone,
   merge,
   groupBy,
   flatten
