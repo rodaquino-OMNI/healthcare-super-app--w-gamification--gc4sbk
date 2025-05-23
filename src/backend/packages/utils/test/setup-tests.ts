@@ -1,9 +1,12 @@
 /**
- * Global test setup file for the utils package
+ * Global test setup file for the @austa/utils package
  * 
- * This file configures the testing environment for all tests in the utils package.
- * It sets up mocks for external dependencies, defines custom matchers, and ensures
- * consistent test behavior across all test suites while preventing test pollution.
+ * This file configures the testing environment for all utility tests, including:
+ * - Mocking external dependencies (axios, date-fns)
+ * - Setting up test environment variables
+ * - Defining custom Jest matchers for utility-specific assertions
+ * - Initializing test data and ensuring consistent test behavior
+ * - Preventing test pollution by cleaning up resources between tests
  */
 
 import axios from 'axios';
@@ -12,91 +15,175 @@ import { ptBR, enUS } from 'date-fns/locale';
 
 // Mock axios
 jest.mock('axios');
-export const mockedAxios = axios as jest.Mocked<typeof axios>;
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-// Mock date-fns functions
+// Fixed test date to ensure consistent date-based tests
+const TEST_DATE = new Date('2025-05-23T12:00:00Z');
+
+// Mock date-fns functions that depend on the current date
 jest.mock('date-fns', () => {
   const actual = jest.requireActual('date-fns');
+  
   return {
     ...actual,
-    // Allow overriding specific functions in tests
-    format: jest.fn(actual.format),
-    parse: jest.fn(actual.parse),
-    isValid: jest.fn(actual.isValid),
-    addDays: jest.fn(actual.addDays),
-    addMonths: jest.fn(actual.addMonths),
-    addYears: jest.fn(actual.addYears),
-    subDays: jest.fn(actual.subDays),
-    subMonths: jest.fn(actual.subMonths),
-    subYears: jest.fn(actual.subYears),
-    differenceInDays: jest.fn(actual.differenceInDays),
-    differenceInMonths: jest.fn(actual.differenceInMonths),
-    differenceInYears: jest.fn(actual.differenceInYears),
-    startOfDay: jest.fn(actual.startOfDay),
-    endOfDay: jest.fn(actual.endOfDay),
-    startOfWeek: jest.fn(actual.startOfWeek),
-    endOfWeek: jest.fn(actual.endOfWeek),
-    startOfMonth: jest.fn(actual.startOfMonth),
-    endOfMonth: jest.fn(actual.endOfMonth),
-    startOfYear: jest.fn(actual.startOfYear),
-    endOfYear: jest.fn(actual.endOfYear),
-    isSameDay: jest.fn(actual.isSameDay),
-    isBefore: jest.fn(actual.isBefore),
-    isAfter: jest.fn(actual.isAfter)
+    // Return a fixed date for functions that use the current date when no date is provided
+    startOfDay: jest.fn((date = TEST_DATE) => actual.startOfDay(date)),
+    endOfDay: jest.fn((date = TEST_DATE) => actual.endOfDay(date)),
+    startOfWeek: jest.fn((date = TEST_DATE, options) => actual.startOfWeek(date, options)),
+    endOfWeek: jest.fn((date = TEST_DATE, options) => actual.endOfWeek(date, options)),
+    startOfMonth: jest.fn((date = TEST_DATE) => actual.startOfMonth(date)),
+    endOfMonth: jest.fn((date = TEST_DATE) => actual.endOfMonth(date)),
+    startOfYear: jest.fn((date = TEST_DATE) => actual.startOfYear(date)),
+    endOfYear: jest.fn((date = TEST_DATE) => actual.endOfYear(date)),
+    // Mock the current date for relative time calculations
+    differenceInDays: jest.fn((dateLeft, dateRight) => {
+      if (dateLeft === undefined) {
+        return actual.differenceInDays(TEST_DATE, dateRight);
+      }
+      return actual.differenceInDays(dateLeft, dateRight);
+    }),
+    differenceInMonths: jest.fn((dateLeft, dateRight) => {
+      if (dateLeft === undefined) {
+        return actual.differenceInMonths(TEST_DATE, dateRight);
+      }
+      return actual.differenceInMonths(dateLeft, dateRight);
+    }),
+    differenceInYears: jest.fn((dateLeft, dateRight) => {
+      if (dateLeft === undefined) {
+        return actual.differenceInYears(TEST_DATE, dateRight);
+      }
+      return actual.differenceInYears(dateLeft, dateRight);
+    }),
   };
 });
 
-// Mock date-fns locales
-jest.mock('date-fns/locale', () => ({
-  ptBR: {},
-  enUS: {}
-}));
+// Mock environment variables
+process.env = {
+  ...process.env,
+  NODE_ENV: 'test',
+  // Journey-specific environment variables
+  HEALTH_JOURNEY_API_URL: 'https://health-api.test.austa.local',
+  CARE_JOURNEY_API_URL: 'https://care-api.test.austa.local',
+  PLAN_JOURNEY_API_URL: 'https://plan-api.test.austa.local',
+  // Authentication variables
+  AUTH_SECRET: 'test-auth-secret',
+  AUTH_TOKEN_EXPIRY: '1h',
+  // Database connection variables
+  DATABASE_URL: 'postgresql://test:test@localhost:5432/test_db',
+  // Feature flags
+  FEATURE_GAMIFICATION: 'true',
+  FEATURE_NOTIFICATIONS: 'true',
+  // Logging
+  LOG_LEVEL: 'error',
+};
 
-// Set up environment variables for testing
-process.env.NODE_ENV = 'test';
-
-// Define custom matchers for string utilities
-expect.extend({
-  /**
-   * Custom matcher to check if a string is capitalized
-   */
-  toBeCapitalized(received: string) {
-    const pass = received.charAt(0) === received.charAt(0).toUpperCase() && 
-                 received.slice(1) === received.slice(1).toLowerCase();
-    
-    if (pass) {
-      return {
-        message: () => `Expected "${received}" not to be capitalized`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected "${received}" to be capitalized`,
-        pass: false
-      };
-    }
+// Global test data
+global.__TEST_DATA__ = {
+  // Test users for different journeys
+  users: {
+    health: { id: 'health-user-1', name: 'Health User', email: 'health@example.com' },
+    care: { id: 'care-user-1', name: 'Care User', email: 'care@example.com' },
+    plan: { id: 'plan-user-1', name: 'Plan User', email: 'plan@example.com' },
   },
+  // Test dates for consistent date testing
+  dates: {
+    today: TEST_DATE,
+    yesterday: dateFns.subDays(TEST_DATE, 1),
+    tomorrow: dateFns.addDays(TEST_DATE, 1),
+    lastWeek: dateFns.subDays(TEST_DATE, 7),
+    nextWeek: dateFns.addDays(TEST_DATE, 7),
+    lastMonth: dateFns.subMonths(TEST_DATE, 1),
+    nextMonth: dateFns.addMonths(TEST_DATE, 1),
+  },
+  // Common test values
+  values: {
+    validCPF: '52998224725', // Valid CPF for testing
+    invalidCPF: '11111111111', // Invalid CPF (all same digits)
+    validEmail: 'test@austa.com.br',
+    invalidEmail: 'not-an-email',
+    validURL: 'https://austa.com.br',
+    invalidURL: 'not-a-url',
+  },
+};
 
-  /**
-   * Custom matcher to check if a string is a valid CPF
-   */
+// Add custom matchers for utility-specific assertions
+expect.extend({
+  // String utility matchers
+  toBeCapitalized(received: string) {
+    const firstChar = received.charAt(0);
+    const pass = firstChar === firstChar.toUpperCase() && received.slice(1) === received.slice(1).toLowerCase();
+    return {
+      pass,
+      message: () => pass
+        ? `Expected "${received}" not to be properly capitalized`
+        : `Expected "${received}" to be properly capitalized`,
+    };
+  },
+  
+  // Date utility matchers
+  toBeValidDate(received: any) {
+    const isValid = received instanceof Date && !isNaN(received.getTime());
+    return {
+      pass: isValid,
+      message: () => isValid
+        ? `Expected ${received} not to be a valid Date`
+        : `Expected ${received} to be a valid Date`,
+    };
+  },
+  
+  toBeWithinDateRange(received: Date, range: { start: Date; end: Date }) {
+    const timestamp = received.getTime();
+    const pass = timestamp >= range.start.getTime() && timestamp <= range.end.getTime();
+    return {
+      pass,
+      message: () => pass
+        ? `Expected ${received} not to be within range ${range.start} - ${range.end}`
+        : `Expected ${received} to be within range ${range.start} - ${range.end}`,
+    };
+  },
+  
+  // Object utility matchers
+  toHaveExactProperties(received: object, properties: string[]) {
+    const receivedKeys = Object.keys(received).sort();
+    const expectedKeys = [...properties].sort();
+    const pass = JSON.stringify(receivedKeys) === JSON.stringify(expectedKeys);
+    return {
+      pass,
+      message: () => pass
+        ? `Expected object not to have exactly these properties: ${expectedKeys.join(', ')}`
+        : `Expected object to have exactly these properties: ${expectedKeys.join(', ')}\nReceived: ${receivedKeys.join(', ')}`,
+    };
+  },
+  
+  // Array utility matchers
+  toBeArrayOfType(received: any[], type: string) {
+    const pass = Array.isArray(received) && received.every(item => typeof item === type);
+    return {
+      pass,
+      message: () => pass
+        ? `Expected array not to contain only items of type "${type}"`
+        : `Expected array to contain only items of type "${type}"`,
+    };
+  },
+  
+  // Validation utility matchers
   toBeValidCPF(received: string) {
-    // Remove non-digit characters
+    // CPF validation algorithm
     const cleanCPF = received.replace(/\D/g, '');
     
     // CPF must have 11 digits
     if (cleanCPF.length !== 11) {
       return {
+        pass: false,
         message: () => `Expected "${received}" to be a valid CPF, but it doesn't have 11 digits`,
-        pass: false
       };
     }
     
     // Check if all digits are the same (invalid CPF)
     if (/^(\d)\1+$/.test(cleanCPF)) {
       return {
-        message: () => `Expected "${received}" to be a valid CPF, but all digits are the same`,
-        pass: false
+        pass: false,
+        message: () => `Expected "${received}" to be a valid CPF, but it has all digits the same`,
       };
     }
     
@@ -122,173 +209,87 @@ expect.extend({
       parseInt(cleanCPF.charAt(10)) === digit2
     );
     
-    if (pass) {
-      return {
-        message: () => `Expected "${received}" not to be a valid CPF`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected "${received}" to be a valid CPF`,
-        pass: false
-      };
-    }
-  },
-
-  /**
-   * Custom matcher to check if a string is truncated to a specific length
-   */
-  toBeTruncated(received: string, length: number) {
-    const pass = received.length <= length || 
-                (received.length === length + 3 && received.endsWith('...'));
-    
-    if (pass) {
-      return {
-        message: () => `Expected "${received}" not to be truncated to ${length} characters`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected "${received}" to be truncated to ${length} characters`,
-        pass: false
-      };
-    }
-  }
-});
-
-// Define custom matchers for date utilities
-expect.extend({
-  /**
-   * Custom matcher to check if a value is a valid date
-   */
-  toBeValidDate(received: any) {
-    const pass = received !== null && 
-                received !== undefined && 
-                !isNaN(new Date(received).getTime());
-    
-    if (pass) {
-      return {
-        message: () => `Expected ${received} not to be a valid date`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected ${received} to be a valid date`,
-        pass: false
-      };
-    }
-  },
-
-  /**
-   * Custom matcher to check if a date is formatted according to a specific format
-   */
-  toBeFormattedAs(received: string, format: string) {
-    // This is a simplified check - in a real implementation, you would use date-fns
-    // to parse the string and check if it matches the format
-    const formatRegexMap: Record<string, RegExp> = {
-      'dd/MM/yyyy': /^\d{2}\/\d{2}\/\d{4}$/,
-      'HH:mm': /^\d{2}:\d{2}$/,
-      'dd/MM/yyyy HH:mm': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/
+    return {
+      pass,
+      message: () => pass
+        ? `Expected "${received}" not to be a valid CPF`
+        : `Expected "${received}" to be a valid CPF`,
     };
-    
-    const regex = formatRegexMap[format] || new RegExp(format);
-    const pass = regex.test(received);
-    
-    if (pass) {
-      return {
-        message: () => `Expected "${received}" not to be formatted as "${format}"`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected "${received}" to be formatted as "${format}"`,
-        pass: false
-      };
-    }
   },
-
-  /**
-   * Custom matcher to check if a date is within a specific range
-   */
-  toBeWithinDateRange(received: Date, startDate: Date, endDate: Date) {
-    const receivedTime = received.getTime();
-    const startTime = startDate.getTime();
-    const endTime = endDate.getTime();
-    
-    const pass = receivedTime >= startTime && receivedTime <= endTime;
-    
-    if (pass) {
-      return {
-        message: () => `Expected ${received} not to be within range ${startDate} to ${endDate}`,
-        pass: true
-      };
-    } else {
-      return {
-        message: () => `Expected ${received} to be within range ${startDate} to ${endDate}`,
-        pass: false
-      };
-    }
-  }
 });
 
-// Set up global test data
-global.__TEST_DATA__ = {
-  dates: {
-    validDate: new Date('2023-01-01'),
-    invalidDate: new Date('invalid-date'),
-    today: new Date(),
-    yesterday: new Date(new Date().setDate(new Date().getDate() - 1)),
-    tomorrow: new Date(new Date().setDate(new Date().getDate() + 1))
-  },
-  strings: {
-    validCPF: '529.982.247-25',
-    invalidCPF: '111.111.111-11',
-    longText: 'This is a very long text that should be truncated in some tests'
+// Extend TypeScript interfaces for custom matchers
+declare global {
+  namespace jest {
+    interface Matchers<R> {
+      // String utility matchers
+      toBeCapitalized(): R;
+      
+      // Date utility matchers
+      toBeValidDate(): R;
+      toBeWithinDateRange(range: { start: Date; end: Date }): R;
+      
+      // Object utility matchers
+      toHaveExactProperties(properties: string[]): R;
+      
+      // Array utility matchers
+      toBeArrayOfType(type: string): R;
+      
+      // Validation utility matchers
+      toBeValidCPF(): R;
+    }
   }
-};
+  
+  // Global test data interface
+  interface Global {
+    __TEST_DATA__: {
+      users: {
+        health: { id: string; name: string; email: string };
+        care: { id: string; name: string; email: string };
+        plan: { id: string; name: string; email: string };
+      };
+      dates: {
+        today: Date;
+        yesterday: Date;
+        tomorrow: Date;
+        lastWeek: Date;
+        nextWeek: Date;
+        lastMonth: Date;
+        nextMonth: Date;
+      };
+      values: {
+        validCPF: string;
+        invalidCPF: string;
+        validEmail: string;
+        invalidEmail: string;
+        validURL: string;
+        invalidURL: string;
+      };
+    };
+  }
+}
 
-// Clean up after each test
+// Reset mocks between tests to prevent test pollution
 beforeEach(() => {
-  // Reset all mocks before each test
+  // Reset all mocks
   jest.clearAllMocks();
+  
+  // Reset axios mock
+  mockedAxios.get.mockReset();
+  mockedAxios.post.mockReset();
+  mockedAxios.put.mockReset();
+  mockedAxios.delete.mockReset();
+  mockedAxios.patch.mockReset();
+  
+  // Default axios mock implementation
+  mockedAxios.get.mockResolvedValue({ data: {} });
+  mockedAxios.post.mockResolvedValue({ data: {} });
+  mockedAxios.put.mockResolvedValue({ data: {} });
+  mockedAxios.delete.mockResolvedValue({ data: {} });
+  mockedAxios.patch.mockResolvedValue({ data: {} });
 });
 
 // Clean up after all tests
 afterAll(() => {
-  // Clean up any resources that might persist between test runs
   jest.restoreAllMocks();
 });
-
-// TypeScript declarations for custom matchers
-declare global {
-  // Add global test data type
-  var __TEST_DATA__: {
-    dates: {
-      validDate: Date;
-      invalidDate: Date;
-      today: Date;
-      yesterday: Date;
-      tomorrow: Date;
-    };
-    strings: {
-      validCPF: string;
-      invalidCPF: string;
-      longText: string;
-    };
-  };
-
-  // Extend Jest's expect
-  namespace jest {
-    interface Matchers<R> {
-      // String matchers
-      toBeCapitalized(): R;
-      toBeValidCPF(): R;
-      toBeTruncated(length: number): R;
-      
-      // Date matchers
-      toBeValidDate(): R;
-      toBeFormattedAs(format: string): R;
-      toBeWithinDateRange(startDate: Date, endDate: Date): R;
-    }
-  }
-}
