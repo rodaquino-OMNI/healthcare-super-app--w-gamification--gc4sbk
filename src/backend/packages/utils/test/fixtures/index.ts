@@ -2,79 +2,94 @@
  * @file Central export point for all test fixtures used in the utils package tests.
  * 
  * This barrel file provides a single import point for all test fixtures, organized by utility category.
- * It enables consistent and simplified importing of fixtures across all test files while maintaining
- * proper TypeScript typing for improved developer experience.
+ * It simplifies test implementation by allowing developers to import all needed fixtures through a
+ * single import statement, while maintaining proper TypeScript typing and documentation.
  * 
  * @example
- * // Import all fixtures from a specific category
- * import { arrayFixtures } from '@austa/utils/test/fixtures';
+ * // Import all fixtures
+ * import * as fixtures from '@austa/utils/test/fixtures';
  * 
- * // Import specific fixtures directly
- * import { basicArrays, sortArrays } from '@austa/utils/test/fixtures';
+ * // Use specific fixture categories
+ * import { arrayFixtures, dateFixtures } from '@austa/utils/test/fixtures';
  * 
- * // Import from a specific category with destructuring
- * import { dateFixtures } from '@austa/utils/test/fixtures';
- * const { formatFixtures, parseFixtures } = dateFixtures;
+ * // Import specific fixture types directly
+ * import { basicArrays, formatDateFixtures } from '@austa/utils/test/fixtures';
  */
 
-// Array fixtures
-export * from './array';
+// Re-export all fixtures from subdirectories
+
+/**
+ * Array utility test fixtures for testing array manipulation functions.
+ * Includes fixtures for basic arrays, filtering, mapping, sorting, and edge cases.
+ */
 export * as arrayFixtures from './array';
+export * from './array';
 
-// Date fixtures
-export * from './date';
+/**
+ * Date utility test fixtures for testing date manipulation, formatting, parsing, and validation.
+ * Includes fixtures for various date formats, timezones, and locale-specific scenarios.
+ */
 export * as dateFixtures from './date';
+export * from './date';
 
-// Environment fixtures
-export * from './env';
+/**
+ * Environment utility test fixtures for testing environment variable handling.
+ * Includes mock environments, validation cases, and transformation scenarios.
+ */
 export * as envFixtures from './env';
+export * from './env';
 
-// HTTP fixtures
-export * from './http';
+/**
+ * HTTP utility test fixtures for testing HTTP client functionality.
+ * Includes request/response objects, headers, URLs, and error scenarios.
+ */
 export * as httpFixtures from './http';
+export * from './http';
 
-// Object fixtures
-export * from './object';
+/**
+ * Object utility test fixtures for testing object manipulation functions.
+ * Includes fixtures for object transformation, comparison, and property access.
+ */
 export * as objectFixtures from './object';
+export * from './object';
 
-// String fixtures
-export * from './string';
+/**
+ * String utility test fixtures for testing string manipulation and validation.
+ * Includes fixtures for formatting, validation, and special string handling like CPF validation.
+ */
 export * as stringFixtures from './string';
+export * from './string';
 
-// Type fixtures
-export * from './type';
+/**
+ * Type utility test fixtures for testing type guards, assertions, and conversions.
+ * Includes fixtures for type checking, validation, and transformation.
+ */
 export * as typeFixtures from './type';
+export * from './type';
 
-// Validation fixtures
-export * from './validation';
+/**
+ * Validation utility test fixtures for testing input validation functions.
+ * Includes fixtures for various validation scenarios including journey-specific validation,
+ * input sanitization, configuration validation, and data format validation.
+ */
 export * as validationFixtures from './validation';
+export * from './validation';
 
 /**
- * Comprehensive collection of all test fixtures organized by utility category.
- * This object provides a structured way to access all fixtures when needed as a group.
+ * All test fixtures combined into a single namespace for convenience.
+ * This allows importing all fixtures as a single object when needed.
+ * 
+ * @example
+ * import { allFixtures } from '@austa/utils/test/fixtures';
+ * const { arrayFixtures, dateFixtures } = allFixtures;
  */
-export const fixtures = {
-  array: arrayFixtures,
-  date: dateFixtures,
-  env: envFixtures,
-  http: httpFixtures,
-  object: objectFixtures,
-  string: stringFixtures,
-  type: typeFixtures,
-  validation: validationFixtures
+export const allFixtures = {
+  arrayFixtures,
+  dateFixtures,
+  envFixtures,
+  httpFixtures,
+  objectFixtures,
+  stringFixtures,
+  typeFixtures,
+  validationFixtures,
 };
-
-/**
- * @typedef {Object} FixtureCollection
- * @property {typeof arrayFixtures} array - Array manipulation test fixtures
- * @property {typeof dateFixtures} date - Date handling test fixtures
- * @property {typeof envFixtures} env - Environment variable test fixtures
- * @property {typeof httpFixtures} http - HTTP request/response test fixtures
- * @property {typeof objectFixtures} object - Object manipulation test fixtures
- * @property {typeof stringFixtures} string - String manipulation test fixtures
- * @property {typeof typeFixtures} type - Type checking and conversion test fixtures
- * @property {typeof validationFixtures} validation - Input validation test fixtures
- */
-
-// Type declaration for the fixtures object to improve IDE support
-export type FixtureCollection = typeof fixtures;
