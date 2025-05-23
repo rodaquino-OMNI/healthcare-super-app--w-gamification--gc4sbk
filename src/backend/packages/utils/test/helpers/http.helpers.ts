@@ -1,692 +1,1024 @@
 /**
- * HTTP Test Helpers
- * 
- * This module provides test helper functions for HTTP utilities, including mock Axios instances,
- * request/response simulators, and SSRF testing utilities. These helpers facilitate testing of
- * HTTP client creation, security validation, and service-to-service communication across all
- * journey services.
+ * @file HTTP Test Helpers
+ * @description Provides test helper functions for HTTP utilities, including mock Axios instances,
+ * request/response simulators, and SSRF testing utilities.
  */
 
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { jest } from '@jest/globals';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import { HttpClientError, HttpErrorType, RetryConfig } from '../../src/http/client';
+import { JourneyType } from '../../src/http/internal';
+import { SSRFProtectionOptions } from '../../src/http/security';
+import { v4 as uuidv4 } from 'uuid';
 
-// Types for the mock helpers
-export interface MockAxiosInstanceOptions {
-  baseURL?: string;
-  defaultHeaders?: Record<string, string>;
-  defaultResponseData?: any;
-  defaultStatus?: number;
-  defaultStatusText?: string;
-  interceptors?: boolean;
-  throwNetworkError?: boolean;
-  throwTimeoutError?: boolean;
-}
-
-export interface MockRequestConfig {
-  url: string;
-  method?: string;
-  headers?: Record<string, string>;
+/**
+ * Mock response configuration for simulating HTTP responses
+ */
+export interface MockResponseConfig {
+  /** HTTP status code */
+  status?: number;
+  /** Response data */
   data?: any;
-  params?: Record<string, any>;
-}
-
-export interface MockJourneyConfig {
-  journeyType: 'health' | 'care' | 'plan';
-  correlationId?: string;
-  userId?: string;
-  sessionId?: string;
-  customHeaders?: Record<string, string>;
+  /** Response headers */
+  headers?: Record<string, string>;
+  /** Delay in milliseconds before responding */
+  delay?: number;
+  /** Whether the request should fail with an error */
+  shouldFail?: boolean;
+  /** Error to throw if shouldFail is true */
+  error?: Error | AxiosError;
 }
 
 /**
- * ==========================================
- * Mock Axios Factory
- * ==========================================
+ * Default mock response configuration
  */
+export const DEFAULT_MOCK_RESPONSE: MockResponseConfig = {
+  status: 200,
+  data: {},
+  headers: { 'content-type': 'application/json' },
+  delay: 0,
+  shouldFail: false
+};
 
 /**
  * Creates a mock Axios instance with configurable response behavior
  * 
- * @param options Configuration options for the mock Axios instance
- * @returns A mocked Axios instance for testing
+ * @param mockResponses - Map of URL patterns to mock responses
+ * @param defaultResponse - Default response for unmatched URLs
+ * @returns A mock Axios instance
+ * 
+ * @example
+ * ```typescript
+ * const mockAxios = createMockAxios({
+ *   '/api/users': { status: 200, data: [{ id: 1, name: 'John' }] },
+ *   '/api/error': { status: 500, shouldFail: true }
+ * });
+ * 
+ * const response = await mockAxios.get('/api/users');
+ * expect(response.data).toEqual([{ id: 1, name: 'John' }]);
+ * ```
  */
-export const createMockAxiosInstance = (options: MockAxiosInstanceOptions = {}): jest.Mocked<AxiosInstance> => {
-  const {
-    baseURL = 'https://api.example.com',
-    defaultHeaders = { 'Content-Type': 'application/json' },
-    defaultResponseData = {},
-    defaultStatus = 200,
-    defaultStatusText = 'OK',
-    interceptors = true,
-    throwNetworkError = false,
-    throwTimeoutError = false
-  } = options;
+export function createMockAxios(
+  mockResponses: Record<string, MockResponseConfig> = {},
+  defaultResponse: MockResponseConfig = DEFAULT_MOCK_RESPONSE
+): AxiosInstance {
+  // Create a new Axios instance
+  const instance = axios.create();
 
-  // Create a mock response
-  const mockResponse: AxiosResponse = {
-    data: defaultResponseData,
-    status: defaultStatus,
-    statusText: defaultStatusText,
-    headers: {},
-    config: { headers: defaultHeaders } as AxiosRequestConfig
+  // Track interceptors for cleanup
+  const interceptors: { request: number[]; response: number[] } = {
+    request: [],
+    response: []
   };
 
-  // Create the mock instance
-  const mockAxios = {
-    defaults: {
-      baseURL,
-      headers: { common: { ...defaultHeaders } }
-    },
-    interceptors: {
-      request: {
-        use: jest.fn(),
-        eject: jest.fn(),
-        handlers: []
-      },
-      response: {
-        use: jest.fn(),
-        eject: jest.fn(),
-        handlers: []
+  // Mock the request method
+  const mockRequest = jest.fn().mockImplementation(
+    async (config: AxiosRequestConfig): Promise<AxiosResponse> => {
+      const url = config.url || '';
+      
+      // Find matching mock response
+      let mockResponse: MockResponseConfig = { ...defaultResponse };
+      
+      // Check for exact match first
+      if (mockResponses[url]) {
+        mockResponse = { ...defaultResponse, ...mockResponses[url] };
+      } else {
+        // Check for pattern matches
+        for (const pattern in mockResponses) {
+          if (new RegExp(pattern).test(url)) {
+            mockResponse = { ...defaultResponse, ...mockResponses[pattern] };
+            break;
+          }
+        }
       }
-    },
-    get: jest.fn(),
-    post: jest.fn(),
-    put: jest.fn(),
-    patch: jest.fn(),
-    delete: jest.fn(),
-    head: jest.fn(),
-    options: jest.fn(),
-    request: jest.fn(),
-    create: jest.fn().mockReturnThis(),
-    getUri: jest.fn(),
-    isCancel: jest.fn(),
-    isAxiosError: jest.fn(),
-    all: jest.fn(),
-    spread: jest.fn()
-  } as unknown as jest.Mocked<AxiosInstance>;
 
-  // Configure default behavior for HTTP methods
-  if (throwNetworkError) {
-    const networkError = new Error('Network Error');
-    mockAxios.get.mockRejectedValue(networkError);
-    mockAxios.post.mockRejectedValue(networkError);
-    mockAxios.put.mockRejectedValue(networkError);
-    mockAxios.patch.mockRejectedValue(networkError);
-    mockAxios.delete.mockRejectedValue(networkError);
-    mockAxios.head.mockRejectedValue(networkError);
-    mockAxios.options.mockRejectedValue(networkError);
-    mockAxios.request.mockRejectedValue(networkError);
-  } else if (throwTimeoutError) {
-    const timeoutError = createMockAxiosError({
-      code: 'ECONNABORTED',
-      message: 'timeout of 30000ms exceeded',
-      config: { timeout: 30000 } as AxiosRequestConfig
+      // Apply delay if specified
+      if (mockResponse.delay && mockResponse.delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, mockResponse.delay));
+      }
+
+      // If shouldFail is true, throw an error
+      if (mockResponse.shouldFail) {
+        if (mockResponse.error) {
+          throw mockResponse.error;
+        } else {
+          const error = new Error('Request failed') as AxiosError;
+          error.isAxiosError = true;
+          error.config = config;
+          error.response = {
+            data: { message: 'Error response' },
+            status: mockResponse.status || 500,
+            statusText: 'Error',
+            headers: mockResponse.headers || {},
+            config
+          };
+          throw error;
+        }
+      }
+
+      // Return successful response
+      return {
+        data: mockResponse.data,
+        status: mockResponse.status || 200,
+        statusText: mockResponse.status === 200 ? 'OK' : 'Custom Status',
+        headers: mockResponse.headers || {},
+        config
+      };
+    }
+  );
+
+  // Mock all HTTP methods
+  ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].forEach(method => {
+    instance[method] = jest.fn().mockImplementation(
+      (url: string, configOrData?: any, config?: AxiosRequestConfig) => {
+        const requestConfig: AxiosRequestConfig = {
+          url,
+          method: method.toUpperCase() as any
+        };
+
+        // Handle different parameter patterns for different methods
+        if (method === 'get' || method === 'delete' || method === 'head' || method === 'options') {
+          Object.assign(requestConfig, configOrData);
+        } else {
+          requestConfig.data = configOrData;
+          Object.assign(requestConfig, config);
+        }
+
+        return mockRequest(requestConfig);
+      }
+    );
+  });
+
+  // Mock request method
+  instance.request = mockRequest;
+
+  // Add helper methods for testing
+  (instance as any).mockClear = () => {
+    mockRequest.mockClear();
+    Object.keys(instance).forEach(key => {
+      if (typeof instance[key] === 'function' && instance[key].mockClear) {
+        instance[key].mockClear();
+      }
     });
-    mockAxios.get.mockRejectedValue(timeoutError);
-    mockAxios.post.mockRejectedValue(timeoutError);
-    mockAxios.put.mockRejectedValue(timeoutError);
-    mockAxios.patch.mockRejectedValue(timeoutError);
-    mockAxios.delete.mockRejectedValue(timeoutError);
-    mockAxios.head.mockRejectedValue(timeoutError);
-    mockAxios.options.mockRejectedValue(timeoutError);
-    mockAxios.request.mockRejectedValue(timeoutError);
-  } else {
-    mockAxios.get.mockResolvedValue(mockResponse);
-    mockAxios.post.mockResolvedValue(mockResponse);
-    mockAxios.put.mockResolvedValue(mockResponse);
-    mockAxios.patch.mockResolvedValue(mockResponse);
-    mockAxios.delete.mockResolvedValue(mockResponse);
-    mockAxios.head.mockResolvedValue(mockResponse);
-    mockAxios.options.mockResolvedValue(mockResponse);
-    mockAxios.request.mockResolvedValue(mockResponse);
-  }
+  };
 
-  return mockAxios;
-};
+  // Add method to update mock responses
+  (instance as any).updateMockResponses = (newResponses: Record<string, MockResponseConfig>) => {
+    Object.assign(mockResponses, newResponses);
+  };
+
+  // Add method to reset interceptors
+  (instance as any).resetInterceptors = () => {
+    interceptors.request.forEach(id => instance.interceptors.request.eject(id));
+    interceptors.response.forEach(id => instance.interceptors.response.eject(id));
+    interceptors.request = [];
+    interceptors.response = [];
+  };
+
+  // Track interceptors
+  const originalRequestUse = instance.interceptors.request.use;
+  instance.interceptors.request.use = function(...args) {
+    const id = originalRequestUse.apply(this, args);
+    interceptors.request.push(id);
+    return id;
+  };
+
+  const originalResponseUse = instance.interceptors.response.use;
+  instance.interceptors.response.use = function(...args) {
+    const id = originalResponseUse.apply(this, args);
+    interceptors.response.push(id);
+    return id;
+  };
+
+  return instance;
+}
 
 /**
- * Creates a mock Axios error response
+ * Creates a mock HTTP client error for testing error handling
  * 
- * @param options Error configuration options
- * @returns A mocked Axios error for testing
+ * @param options - Error options
+ * @returns A HttpClientError instance
+ * 
+ * @example
+ * ```typescript
+ * const error = createMockHttpClientError({
+ *   type: HttpErrorType.SERVER_ERROR,
+ *   status: 500,
+ *   url: '/api/users'
+ * });
+ * 
+ * expect(error.type).toBe(HttpErrorType.SERVER_ERROR);
+ * expect(error.status).toBe(500);
+ * ```
  */
-export const createMockAxiosError = (options: {
+export function createMockHttpClientError(options: {
+  message?: string;
+  type?: HttpErrorType;
+  status?: number;
+  code?: string;
+  requestId?: string;
+  url?: string;
+  method?: string;
+  response?: any;
+} = {}): HttpClientError {
+  return new HttpClientError({
+    message: options.message || 'Mock HTTP error',
+    type: options.type || HttpErrorType.UNKNOWN_ERROR,
+    status: options.status,
+    code: options.code,
+    requestId: options.requestId || uuidv4(),
+    url: options.url || '/api/mock',
+    method: options.method || 'GET',
+    response: options.response
+  });
+}
+
+/**
+ * Creates a mock Axios error for testing error handling
+ * 
+ * @param options - Error options
+ * @returns An AxiosError instance
+ * 
+ * @example
+ * ```typescript
+ * const error = createMockAxiosError({
+ *   status: 404,
+ *   url: '/api/users/999',
+ *   message: 'User not found'
+ * });
+ * 
+ * expect(error.response.status).toBe(404);
+ * ```
+ */
+export function createMockAxiosError(options: {
   status?: number;
   statusText?: string;
   data?: any;
-  code?: string;
+  headers?: Record<string, string>;
+  url?: string;
+  method?: string;
   message?: string;
-  config?: AxiosRequestConfig;
-}): AxiosError => {
-  const {
-    status = 500,
-    statusText = 'Internal Server Error',
-    data = { message: 'An error occurred' },
-    code = 'ERR_BAD_RESPONSE',
-    message = 'Request failed with status code 500',
-    config = { url: 'https://api.example.com/test', method: 'get' }
-  } = options;
+  code?: string;
+} = {}): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: options.url || '/api/mock',
+    method: (options.method || 'GET').toUpperCase() as any
+  };
 
-  const error = new Error(message) as AxiosError;
+  const error = new Error(options.message || 'Request failed') as AxiosError;
   error.isAxiosError = true;
   error.config = config;
-  error.code = code;
-  error.response = {
-    data,
-    status,
-    statusText,
-    headers: {},
-    config
-  };
-  error.toJSON = () => ({
-    message,
-    name: 'AxiosError',
-    code,
-    status,
-    config
-  });
+  error.code = options.code;
+
+  if (options.status) {
+    error.response = {
+      data: options.data || { message: options.message || 'Error response' },
+      status: options.status,
+      statusText: options.statusText || 'Error',
+      headers: options.headers || { 'content-type': 'application/json' },
+      config
+    };
+  }
 
   return error;
-};
+}
 
 /**
- * Mocks Axios interceptors for testing request/response interception
+ * Creates a request interceptor for testing
  * 
- * @param mockAxios The mock Axios instance to configure interceptors for
- * @param requestInterceptor Optional request interceptor function
- * @param responseInterceptor Optional response interceptor function
- * @param requestErrorInterceptor Optional request error interceptor function
- * @param responseErrorInterceptor Optional response error interceptor function
- */
-export const mockAxiosInterceptors = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  requestInterceptor?: (config: AxiosRequestConfig) => AxiosRequestConfig | Promise<AxiosRequestConfig>,
-  responseInterceptor?: (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>,
-  requestErrorInterceptor?: (error: any) => any,
-  responseErrorInterceptor?: (error: any) => any
-): void => {
-  // Mock request interceptor
-  if (requestInterceptor || requestErrorInterceptor) {
-    mockAxios.interceptors.request.use.mockImplementation((onFulfilled, onRejected) => {
-      const id = Math.random();
-      mockAxios.interceptors.request.handlers.push({
-        fulfilled: onFulfilled || ((config) => config),
-        rejected: onRejected || ((error) => Promise.reject(error)),
-        id
-      });
-      return id;
-    });
-  }
-
-  // Mock response interceptor
-  if (responseInterceptor || responseErrorInterceptor) {
-    mockAxios.interceptors.response.use.mockImplementation((onFulfilled, onRejected) => {
-      const id = Math.random();
-      mockAxios.interceptors.response.handlers.push({
-        fulfilled: onFulfilled || ((response) => response),
-        rejected: onRejected || ((error) => Promise.reject(error)),
-        id
-      });
-      return id;
-    });
-  }
-
-  // Implement the interceptor execution logic
-  const originalGet = mockAxios.get.getMockImplementation();
-  mockAxios.get.mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
-    let mergedConfig = { ...config, url, method: 'get' } as AxiosRequestConfig;
-    
-    // Apply request interceptors
-    for (const handler of mockAxios.interceptors.request.handlers) {
-      try {
-        mergedConfig = await handler.fulfilled(mergedConfig);
-      } catch (error) {
-        for (const errorHandler of mockAxios.interceptors.request.handlers) {
-          if (errorHandler.rejected) {
-            try {
-              await errorHandler.rejected(error);
-            } catch (e) {
-              // Continue with the next error handler
-            }
-          }
-        }
-        throw error;
-      }
-    }
-
-    // Execute the original request
-    try {
-      const response = await originalGet!(url, mergedConfig);
-      
-      // Apply response interceptors
-      let interceptedResponse = response;
-      for (const handler of mockAxios.interceptors.response.handlers) {
-        interceptedResponse = await handler.fulfilled(interceptedResponse);
-      }
-      
-      return interceptedResponse;
-    } catch (error) {
-      // Apply response error interceptors
-      for (const handler of mockAxios.interceptors.response.handlers) {
-        if (handler.rejected) {
-          try {
-            return await handler.rejected(error);
-          } catch (e) {
-            // Continue with the next error handler
-            error = e;
-          }
-        }
-      }
-      throw error;
-    }
-  });
-
-  // Implement similar logic for other HTTP methods if needed
-};
-
-/**
- * ==========================================
- * SSRF Testing Utilities
- * ==========================================
- */
-
-/**
- * Creates a mock request with a specific URL for testing SSRF protection
+ * @param callback - Function to call when intercepting a request
+ * @returns A request interceptor function
  * 
- * @param url The URL to use in the mock request
- * @param method The HTTP method to use (default: 'get')
- * @param headers Optional headers to include
- * @returns A mock request configuration for testing
+ * @example
+ * ```typescript
+ * const requestInterceptor = createRequestInterceptor(config => {
+ *   expect(config.headers['X-API-Key']).toBe('test-key');
+ *   return config;
+ * });
+ * 
+ * axios.interceptors.request.use(requestInterceptor);
+ * ```
  */
-export const createMockRequestWithUrl = (
-  url: string,
-  method: string = 'get',
-  headers: Record<string, string> = {}
-): MockRequestConfig => {
+export function createRequestInterceptor(
+  callback: (config: AxiosRequestConfig) => AxiosRequestConfig | Promise<AxiosRequestConfig>
+) {
+  return (config: AxiosRequestConfig) => {
+    return callback(config);
+  };
+}
+
+/**
+ * Creates a response interceptor for testing
+ * 
+ * @param onFulfilled - Function to call when a response is successful
+ * @param onRejected - Function to call when a response fails
+ * @returns A response interceptor object
+ * 
+ * @example
+ * ```typescript
+ * const responseInterceptor = createResponseInterceptor(
+ *   response => {
+ *     expect(response.status).toBe(200);
+ *     return response;
+ *   },
+ *   error => {
+ *     expect(error.response.status).toBe(404);
+ *     return Promise.reject(error);
+ *   }
+ * );
+ * 
+ * axios.interceptors.response.use(
+ *   responseInterceptor.onFulfilled,
+ *   responseInterceptor.onRejected
+ * );
+ * ```
+ */
+export function createResponseInterceptor(
+  onFulfilled?: (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>,
+  onRejected?: (error: any) => any
+) {
   return {
-    url,
-    method,
+    onFulfilled: onFulfilled || (response => response),
+    onRejected: onRejected || (error => Promise.reject(error))
+  };
+}
+
+/**
+ * Creates a mock retry configuration for testing retry logic
+ * 
+ * @param options - Retry configuration options
+ * @returns A RetryConfig object
+ * 
+ * @example
+ * ```typescript
+ * const retryConfig = createMockRetryConfig({
+ *   maxRetries: 5,
+ *   retryStatusCodes: [500, 503]
+ * });
+ * 
+ * expect(retryConfig.maxRetries).toBe(5);
+ * ```
+ */
+export function createMockRetryConfig(options: Partial<RetryConfig> = {}): RetryConfig {
+  return {
+    maxRetries: options.maxRetries ?? 3,
+    initialDelayMs: options.initialDelayMs ?? 100,
+    backoffFactor: options.backoffFactor ?? 2,
+    maxDelayMs: options.maxDelayMs ?? 5000,
+    retryStatusCodes: options.retryStatusCodes ?? [408, 429, 500, 502, 503, 504],
+    retryErrorTypes: options.retryErrorTypes ?? [
+      HttpErrorType.NETWORK_ERROR,
+      HttpErrorType.TIMEOUT_ERROR,
+      HttpErrorType.SERVER_ERROR
+    ]
+  };
+}
+
+/**
+ * Creates a mock SSRF protection options object for testing
+ * 
+ * @param options - SSRF protection options
+ * @returns An SSRFProtectionOptions object
+ * 
+ * @example
+ * ```typescript
+ * const ssrfOptions = createMockSsrfOptions({
+ *   allowLocalhost: true,
+ *   allowedHostnames: ['trusted-service.internal']
+ * });
+ * 
+ * expect(ssrfOptions.allowLocalhost).toBe(true);
+ * ```
+ */
+export function createMockSsrfOptions(options: Partial<SSRFProtectionOptions> = {}): SSRFProtectionOptions {
+  return {
+    blockedIPv4Ranges: options.blockedIPv4Ranges ?? [
+      '10.0.0.0/8',
+      '172.16.0.0/12',
+      '192.168.0.0/16',
+      '127.0.0.0/8'
+    ],
+    blockedIPv6Ranges: options.blockedIPv6Ranges ?? [
+      '::1/128',
+      'fc00::/7',
+      'fe80::/10'
+    ],
+    allowLocalhost: options.allowLocalhost ?? false,
+    allowPrivateNetworks: options.allowPrivateNetworks ?? false,
+    allowedHostnames: options.allowedHostnames ?? [],
+    enableDetailedLogging: options.enableDetailedLogging ?? true,
+    throwOnViolation: options.throwOnViolation ?? true
+  };
+}
+
+/**
+ * Creates a mock URL for testing SSRF protection
+ * 
+ * @param type - Type of URL to create
+ * @returns A URL string
+ * 
+ * @example
+ * ```typescript
+ * const privateUrl = createMockUrl('private-ipv4');
+ * const publicUrl = createMockUrl('public');
+ * 
+ * expect(privateUrl).toContain('192.168');
+ * expect(publicUrl).toContain('example.com');
+ * ```
+ */
+export function createMockUrl(type: 'localhost' | 'private-ipv4' | 'private-ipv6' | 'public' | 'malformed'): string {
+  switch (type) {
+    case 'localhost':
+      return 'http://localhost:3000/api';
+    case 'private-ipv4':
+      return 'http://192.168.1.1/api';
+    case 'private-ipv6':
+      return 'http://[fc00::1]/api';
+    case 'public':
+      return 'https://example.com/api';
+    case 'malformed':
+      return 'http://invalid-url:not-a-port/api';
+    default:
+      return 'https://example.com/api';
+  }
+}
+
+/**
+ * Creates a mock journey context for testing internal API clients
+ * 
+ * @param journey - Journey type
+ * @param userId - User ID
+ * @param correlationId - Correlation ID for distributed tracing
+ * @returns A journey context object
+ * 
+ * @example
+ * ```typescript
+ * const context = createMockJourneyContext('health', '123');
+ * 
+ * expect(context.journey).toBe('health');
+ * expect(context.userId).toBe('123');
+ * ```
+ */
+export function createMockJourneyContext(journey: JourneyType = 'common', userId?: string, correlationId?: string) {
+  return {
+    journey,
+    userId: userId || `user-${uuidv4().slice(0, 8)}`,
+    correlationId: correlationId || uuidv4(),
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Creates a mock service-to-service request for testing internal API clients
+ * 
+ * @param options - Request options
+ * @returns An AxiosRequestConfig object
+ * 
+ * @example
+ * ```typescript
+ * const request = createMockServiceRequest({
+ *   journey: 'health',
+ *   endpoint: '/metrics/user/123'
+ * });
+ * 
+ * expect(request.headers['X-Journey-Context']).toBe('health');
+ * ```
+ */
+export function createMockServiceRequest(options: {
+  journey?: JourneyType;
+  endpoint?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  data?: any;
+  params?: Record<string, any>;
+} = {}): AxiosRequestConfig {
+  const journey = options.journey || 'common';
+  const correlationId = uuidv4();
+  
+  return {
+    url: options.endpoint || '/api/mock',
+    method: (options.method || 'GET').toUpperCase() as any,
     headers: {
       'Content-Type': 'application/json',
-      ...headers
-    }
+      'X-Journey-Context': journey,
+      'X-Correlation-ID': correlationId,
+      ...options.headers
+    },
+    data: options.data,
+    params: options.params
   };
-};
+}
 
 /**
- * Returns a list of IP ranges that should be blocked by SSRF protection
+ * Creates a mock service-to-service response for testing internal API clients
  * 
- * @returns An array of IP ranges that should be blocked
- */
-export const getBlockedIpRanges = (): string[] => {
-  return [
-    // Private IPv4 ranges
-    '10.0.0.0/8',
-    '172.16.0.0/12',
-    '192.168.0.0/16',
-    '127.0.0.0/8',
-    // Link-local addresses
-    '169.254.0.0/16',
-    // Private IPv6 ranges
-    'fc00::/7',
-    'fe80::/10',
-    // Loopback
-    '::1/128'
-  ];
-};
-
-/**
- * Returns a list of domains that should be blocked by SSRF protection
+ * @param options - Response options
+ * @returns An AxiosResponse object
  * 
- * @returns An array of domains that should be blocked
- */
-export const getBlockedDomains = (): string[] => {
-  return [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    '::1',
-    '.local',
-    '.internal',
-    '.localhost',
-    'example.test',
-    'example.invalid',
-    'example.localhost'
-  ];
-};
-
-/**
- * ==========================================
- * Request/Response Simulators
- * ==========================================
- */
-
-/**
- * Simulates a successful HTTP request
+ * @example
+ * ```typescript
+ * const response = createMockServiceResponse({
+ *   journey: 'health',
+ *   data: { metrics: [{ type: 'steps', value: 10000 }] }
+ * });
  * 
- * @param mockAxios The mock Axios instance to configure
- * @param url The URL to simulate a request to
- * @param responseData The data to include in the response
- * @param status The HTTP status code to return (default: 200)
- * @param headers Optional response headers
+ * expect(response.headers['x-journey-context']).toBe('health');
+ * ```
  */
-export const simulateSuccessfulRequest = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  url: string,
-  responseData: any,
-  status: number = 200,
-  headers: Record<string, string> = {}
-): void => {
-  const response: AxiosResponse = {
-    data: responseData,
-    status,
-    statusText: status === 200 ? 'OK' : 'Success',
-    headers,
-    config: { url, method: 'get', headers: {} } as AxiosRequestConfig
-  };
-
-  mockAxios.get.mockImplementation((requestUrl) => {
-    if (requestUrl === url) {
-      return Promise.resolve(response);
-    }
-    return Promise.reject(createMockAxiosError({
-      status: 404,
-      statusText: 'Not Found',
-      message: `Request failed with status code 404: ${requestUrl} not found`
-    }));
-  });
-};
-
-/**
- * Simulates a failed HTTP request with different error types
- * 
- * @param mockAxios The mock Axios instance to configure
- * @param url The URL to simulate a request to
- * @param errorType The type of error to simulate ('client', 'server', 'network', 'timeout')
- * @param status The HTTP status code to return (default based on errorType)
- * @param errorData Optional error data to include in the response
- */
-export const simulateFailedRequest = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  url: string,
-  errorType: 'client' | 'server' | 'network' | 'timeout',
-  status?: number,
-  errorData: any = { message: 'An error occurred' }
-): void => {
-  let error: AxiosError;
-
-  switch (errorType) {
-    case 'client':
-      error = createMockAxiosError({
-        status: status || 400,
-        statusText: 'Bad Request',
-        data: errorData,
-        message: `Request failed with status code ${status || 400}`,
-        config: { url, method: 'get' }
-      });
-      break;
-    case 'server':
-      error = createMockAxiosError({
-        status: status || 500,
-        statusText: 'Internal Server Error',
-        data: errorData,
-        message: `Request failed with status code ${status || 500}`,
-        config: { url, method: 'get' }
-      });
-      break;
-    case 'network':
-      error = new Error('Network Error') as AxiosError;
-      error.isAxiosError = true;
-      error.config = { url, method: 'get' } as AxiosRequestConfig;
-      error.code = 'ERR_NETWORK';
-      break;
-    case 'timeout':
-      error = createMockAxiosError({
-        code: 'ECONNABORTED',
-        message: 'timeout of 30000ms exceeded',
-        config: { url, method: 'get', timeout: 30000 }
-      });
-      break;
-    default:
-      error = createMockAxiosError({
-        status: status || 500,
-        data: errorData,
-        config: { url, method: 'get' }
-      });
-  }
-
-  mockAxios.get.mockImplementation((requestUrl) => {
-    if (requestUrl === url) {
-      return Promise.reject(error);
-    }
-    return Promise.resolve({
-      data: {},
-      status: 200,
-      statusText: 'OK',
-      headers: {},
-      config: { url: requestUrl, method: 'get' } as AxiosRequestConfig
-    });
-  });
-};
-
-/**
- * Simulates a network error
- * 
- * @param mockAxios The mock Axios instance to configure
- * @param url Optional specific URL to fail (if not provided, all requests will fail)
- */
-export const simulateNetworkError = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  url?: string
-): void => {
-  const networkError = new Error('Network Error') as AxiosError;
-  networkError.isAxiosError = true;
-  networkError.code = 'ERR_NETWORK';
-  networkError.config = { url: url || 'https://api.example.com', method: 'get' } as AxiosRequestConfig;
-
-  if (url) {
-    mockAxios.get.mockImplementation((requestUrl) => {
-      if (requestUrl === url) {
-        return Promise.reject(networkError);
-      }
-      return Promise.resolve({
-        data: {},
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        config: { url: requestUrl, method: 'get' } as AxiosRequestConfig
-      });
-    });
-  } else {
-    mockAxios.get.mockRejectedValue(networkError);
-    mockAxios.post.mockRejectedValue(networkError);
-    mockAxios.put.mockRejectedValue(networkError);
-    mockAxios.patch.mockRejectedValue(networkError);
-    mockAxios.delete.mockRejectedValue(networkError);
-  }
-};
-
-/**
- * Simulates a timeout error
- * 
- * @param mockAxios The mock Axios instance to configure
- * @param url Optional specific URL to timeout (if not provided, all requests will timeout)
- * @param timeoutMs The timeout duration in milliseconds
- */
-export const simulateTimeoutError = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  url?: string,
-  timeoutMs: number = 30000
-): void => {
-  const timeoutError = createMockAxiosError({
-    code: 'ECONNABORTED',
-    message: `timeout of ${timeoutMs}ms exceeded`,
-    config: { timeout: timeoutMs } as AxiosRequestConfig
-  });
-
-  if (url) {
-    mockAxios.get.mockImplementation((requestUrl) => {
-      if (requestUrl === url) {
-        return Promise.reject(timeoutError);
-      }
-      return Promise.resolve({
-        data: {},
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        config: { url: requestUrl, method: 'get' } as AxiosRequestConfig
-      });
-    });
-  } else {
-    mockAxios.get.mockRejectedValue(timeoutError);
-    mockAxios.post.mockRejectedValue(timeoutError);
-    mockAxios.put.mockRejectedValue(timeoutError);
-    mockAxios.patch.mockRejectedValue(timeoutError);
-    mockAxios.delete.mockRejectedValue(timeoutError);
-  }
-};
-
-/**
- * ==========================================
- * Service-to-Service Communication Testing
- * ==========================================
- */
-
-/**
- * Creates a mock internal API client for testing service-to-service communication
- * 
- * @param journeyConfig Journey-specific configuration
- * @param baseURL The base URL for the internal API
- * @returns A mocked Axios instance configured for internal API communication
- */
-export const createMockInternalApiClient = (
-  journeyConfig: MockJourneyConfig,
-  baseURL: string = 'https://internal-api.austa.local'
-): jest.Mocked<AxiosInstance> => {
-  const { journeyType, correlationId, userId, sessionId, customHeaders } = journeyConfig;
+export function createMockServiceResponse(options: {
+  journey?: JourneyType;
+  status?: number;
+  data?: any;
+  headers?: Record<string, string>;
+  config?: AxiosRequestConfig;
+} = {}): AxiosResponse {
+  const journey = options.journey || 'common';
+  const correlationId = uuidv4();
+  const requestConfig = options.config || createMockServiceRequest({ journey });
   
-  // Create standard headers for internal communication
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-Journey-Type': journeyType,
-    'X-Correlation-ID': correlationId || `test-correlation-${Date.now()}`,
-    'X-User-ID': userId || 'test-user-id',
-    'X-Session-ID': sessionId || `test-session-${Date.now()}`,
-    ...customHeaders
+  return {
+    data: options.data || {},
+    status: options.status || 200,
+    statusText: options.status === 200 ? 'OK' : 'Custom Status',
+    headers: {
+      'content-type': 'application/json',
+      'x-journey-context': journey,
+      'x-correlation-id': correlationId,
+      ...options.headers
+    },
+    config: requestConfig
   };
-
-  // Create the mock instance with the appropriate configuration
-  const mockAxios = createMockAxiosInstance({
-    baseURL,
-    defaultHeaders: headers,
-    interceptors: true
-  });
-
-  // Add journey-specific behavior if needed
-  switch (journeyType) {
-    case 'health':
-      // Add health journey specific behavior
-      break;
-    case 'care':
-      // Add care journey specific behavior
-      break;
-    case 'plan':
-      // Add plan journey specific behavior
-      break;
-  }
-
-  return mockAxios;
-};
+}
 
 /**
- * Creates mock journey-specific configuration for internal API clients
+ * Creates a mock HTTP client factory for testing
  * 
- * @param journeyType The type of journey ('health', 'care', 'plan')
- * @returns Journey-specific configuration for testing
+ * @param mockResponses - Map of URL patterns to mock responses
+ * @returns A factory function that creates mock HTTP clients
+ * 
+ * @example
+ * ```typescript
+ * const mockClientFactory = createMockHttpClientFactory({
+ *   '/api/users': { status: 200, data: [{ id: 1, name: 'John' }] }
+ * });
+ * 
+ * const client = mockClientFactory();
+ * const response = await client.get('/api/users');
+ * 
+ * expect(response.data).toEqual([{ id: 1, name: 'John' }]);
+ * ```
  */
-export const mockJourneySpecificConfig = (
-  journeyType: 'health' | 'care' | 'plan'
-): MockJourneyConfig => {
-  const correlationId = `test-correlation-${journeyType}-${Date.now()}`;
-  const userId = `test-user-${journeyType}`;
-  const sessionId = `test-session-${journeyType}-${Date.now()}`;
-  
-  const config: MockJourneyConfig = {
-    journeyType,
-    correlationId,
-    userId,
-    sessionId,
-    customHeaders: {}
+export function createMockHttpClientFactory(
+  mockResponses: Record<string, MockResponseConfig> = {}
+) {
+  return (config: any = {}) => {
+    const mockAxios = createMockAxios(mockResponses);
+    
+    // Add any interceptors from the config
+    if (config.enableSsrfProtection) {
+      mockAxios.interceptors.request.use(createRequestInterceptor(reqConfig => {
+        if (!reqConfig.url) return reqConfig;
+        
+        try {
+          const url = new URL(reqConfig.url, reqConfig.baseURL);
+          const hostname = url.hostname;
+          
+          // Simulate SSRF protection
+          if (
+            /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.|0\.0\.0\.0|localhost)/.test(hostname) ||
+            hostname === '::1' ||
+            hostname === 'fe80::' ||
+            hostname.endsWith('.local')
+          ) {
+            throw new Error('SSRF Protection: Blocked request to private or local network');
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('SSRF Protection')) {
+            throw error;
+          }
+        }
+        
+        return reqConfig;
+      }));
+    }
+    
+    // Add retry logic if enabled
+    if (config.retry) {
+      const retryConfig = { ...createMockRetryConfig(), ...config.retry };
+      
+      mockAxios.interceptors.response.use(undefined, async (error: AxiosError) => {
+        if (!error.config) return Promise.reject(error);
+        
+        // Get current retry attempt from config or initialize to 0
+        const currentRetryAttempt = (error.config as any).retryAttempt || 0;
+        
+        // Check if we should retry based on status
+        const shouldRetry = error.response?.status && 
+          retryConfig.retryStatusCodes.includes(error.response.status) &&
+          currentRetryAttempt < retryConfig.maxRetries;
+        
+        if (shouldRetry) {
+          // Increment retry attempt counter
+          (error.config as any).retryAttempt = currentRetryAttempt + 1;
+          
+          // Retry the request
+          return mockAxios(error.config);
+        }
+        
+        return Promise.reject(error);
+      });
+    }
+    
+    return mockAxios;
   };
-
-  // Add journey-specific headers
-  switch (journeyType) {
-    case 'health':
-      config.customHeaders = {
-        'X-Health-Device-ID': 'test-device-id',
-        'X-Health-Metric-Type': 'steps'
-      };
-      break;
-    case 'care':
-      config.customHeaders = {
-        'X-Care-Provider-ID': 'test-provider-id',
-        'X-Care-Appointment-ID': 'test-appointment-id'
-      };
-      break;
-    case 'plan':
-      config.customHeaders = {
-        'X-Plan-ID': 'test-plan-id',
-        'X-Plan-Member-ID': 'test-member-id'
-      };
-      break;
-  }
-
-  return config;
-};
+}
 
 /**
- * Verifies that trace headers are correctly propagated in requests
+ * Creates a test utility for validating SSRF protection
  * 
- * @param mockAxios The mock Axios instance to verify
- * @param expectedHeaders The expected headers that should be present
- * @returns Boolean indicating whether all expected headers are present
+ * @returns An object with methods for testing SSRF protection
+ * 
+ * @example
+ * ```typescript
+ * const ssrfTester = createSsrfTester();
+ * 
+ * // Test that a request to a private IP is blocked
+ * await ssrfTester.expectBlocked(() => {
+ *   return axios.get('http://192.168.1.1/api');
+ * });
+ * 
+ * // Test that a request to a public domain is allowed
+ * await ssrfTester.expectAllowed(() => {
+ *   return axios.get('https://example.com/api');
+ * });
+ * ```
  */
-export const verifyTraceHeaders = (
-  mockAxios: jest.Mocked<AxiosInstance>,
-  expectedHeaders: string[] = ['X-Correlation-ID', 'X-Journey-Type', 'X-User-ID', 'X-Session-ID']
-): boolean => {
-  // Get the most recent call to any HTTP method
-  const getMockCalls = mockAxios.get.mock.calls;
-  const postMockCalls = mockAxios.post.mock.calls;
-  const putMockCalls = mockAxios.put.mock.calls;
-  const patchMockCalls = mockAxios.patch.mock.calls;
-  const deleteMockCalls = mockAxios.delete.mock.calls;
+export function createSsrfTester() {
+  return {
+    /**
+     * Expects a request to be blocked by SSRF protection
+     * 
+     * @param requestFn - Function that makes the HTTP request
+     * @param errorMessagePattern - Expected error message pattern
+     */
+    expectBlocked: async (requestFn: () => Promise<any>, errorMessagePattern = /SSRF Protection/) => {
+      try {
+        await requestFn();
+        throw new Error('Expected request to be blocked by SSRF protection, but it succeeded');
+      } catch (error) {
+        if (error instanceof Error) {
+          if (!errorMessagePattern.test(error.message)) {
+            throw new Error(
+              `Expected error message to match ${errorMessagePattern}, but got: ${error.message}`
+            );
+          }
+          // Success - request was blocked as expected
+        } else {
+          throw new Error('Expected error to be an Error instance');
+        }
+      }
+    },
+    
+    /**
+     * Expects a request to be allowed (not blocked by SSRF protection)
+     * 
+     * @param requestFn - Function that makes the HTTP request
+     */
+    expectAllowed: async (requestFn: () => Promise<any>) => {
+      try {
+        await requestFn();
+        // Success - request was allowed as expected
+      } catch (error) {
+        if (error instanceof Error && /SSRF Protection/.test(error.message)) {
+          throw new Error(
+            `Expected request to be allowed, but it was blocked by SSRF protection: ${error.message}`
+          );
+        }
+        // If it's some other error, re-throw it
+        throw error;
+      }
+    },
+    
+    /**
+     * Creates a set of test URLs for SSRF testing
+     * 
+     * @returns An object with various test URLs
+     */
+    createTestUrls: () => ({
+      localhost: 'http://localhost:3000/api',
+      loopback: 'http://127.0.0.1:8080/api',
+      privateIPv4: 'http://192.168.1.1/api',
+      privateIPv6: 'http://[fc00::1]/api',
+      linkLocal: 'http://169.254.169.254/api', // AWS metadata service
+      publicDomain: 'https://example.com/api',
+      allowedCustom: 'https://allowed-service.example.com/api'
+    })
+  };
+}
 
-  // Find the most recent call with a config object
-  const allCalls = [
-    ...getMockCalls,
-    ...postMockCalls,
-    ...putMockCalls,
-    ...patchMockCalls,
-    ...deleteMockCalls
-  ];
-
-  if (allCalls.length === 0) {
-    return false;
-  }
-
-  // Find the first call with a config object that has headers
-  for (const call of allCalls) {
-    const config = call.find(arg => arg && typeof arg === 'object' && arg.headers);
-    if (config && config.headers) {
-      // Check if all expected headers are present
-      return expectedHeaders.every(header => {
-        return Object.keys(config.headers).some(key => 
-          key.toLowerCase() === header.toLowerCase() && config.headers[key]
+/**
+ * Creates a test utility for validating retry behavior
+ * 
+ * @returns An object with methods for testing retry logic
+ * 
+ * @example
+ * ```typescript
+ * const retryTester = createRetryTester();
+ * 
+ * // Test that a request is retried the expected number of times
+ * await retryTester.testRetryCount({
+ *   requestFn: () => client.get('/api/flaky'),
+ *   expectedRetries: 3,
+ *   mockResponses: [
+ *     { status: 503 }, // First attempt fails
+ *     { status: 503 }, // Second attempt fails
+ *     { status: 503 }, // Third attempt fails
+ *     { status: 200, data: { success: true } } // Fourth attempt succeeds
+ *   ]
+ * });
+ * ```
+ */
+export function createRetryTester() {
+  return {
+    /**
+     * Tests that a request is retried the expected number of times
+     * 
+     * @param options - Test options
+     */
+    testRetryCount: async (options: {
+      requestFn: () => Promise<any>;
+      expectedRetries: number;
+      mockResponses: MockResponseConfig[];
+      onRetry?: (attempt: number) => void;
+    }) => {
+      const { requestFn, expectedRetries, mockResponses, onRetry } = options;
+      
+      let attemptCount = 0;
+      
+      // Create a mock axios instance that tracks retry attempts
+      const originalAxios = axios.create;
+      axios.create = jest.fn().mockImplementation(() => {
+        const instance = originalAxios();
+        
+        // Mock the request method
+        instance.request = jest.fn().mockImplementation(async (config: AxiosRequestConfig) => {
+          const currentAttempt = attemptCount++;
+          const mockResponse = mockResponses[currentAttempt] || mockResponses[mockResponses.length - 1];
+          
+          if (onRetry && currentAttempt > 0) {
+            onRetry(currentAttempt);
+          }
+          
+          if (mockResponse.shouldFail || (mockResponse.status && mockResponse.status >= 400)) {
+            const error = new Error('Request failed') as AxiosError;
+            error.isAxiosError = true;
+            error.config = config;
+            error.response = {
+              data: mockResponse.data || { message: 'Error response' },
+              status: mockResponse.status || 500,
+              statusText: 'Error',
+              headers: mockResponse.headers || {},
+              config
+            };
+            throw error;
+          }
+          
+          return {
+            data: mockResponse.data || {},
+            status: mockResponse.status || 200,
+            statusText: mockResponse.status === 200 ? 'OK' : 'Custom Status',
+            headers: mockResponse.headers || {},
+            config
+          };
+        });
+        
+        // Mock all HTTP methods to use the request method
+        ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].forEach(method => {
+          instance[method] = jest.fn().mockImplementation(
+            (url: string, configOrData?: any, config?: AxiosRequestConfig) => {
+              const requestConfig: AxiosRequestConfig = {
+                url,
+                method: method.toUpperCase() as any
+              };
+              
+              if (method === 'get' || method === 'delete' || method === 'head' || method === 'options') {
+                Object.assign(requestConfig, configOrData);
+              } else {
+                requestConfig.data = configOrData;
+                Object.assign(requestConfig, config);
+              }
+              
+              return instance.request(requestConfig);
+            }
+          );
+        });
+        
+        return instance;
+      });
+      
+      try {
+        // Execute the request function
+        await requestFn();
+        
+        // Verify the number of attempts
+        if (attemptCount !== expectedRetries + 1) {
+          throw new Error(
+            `Expected ${expectedRetries} retries (${expectedRetries + 1} total attempts), but got ${attemptCount} attempts`
+          );
+        }
+      } finally {
+        // Restore original axios.create
+        axios.create = originalAxios;
+      }
+    },
+    
+    /**
+     * Creates a mock client that simulates retry behavior
+     * 
+     * @param options - Client options
+     */
+    createMockRetryClient: (options: {
+      maxRetries?: number;
+      responses?: MockResponseConfig[];
+      onRetry?: (attempt: number) => void;
+    } = {}) => {
+      const { maxRetries = 3, responses = [], onRetry } = options;
+      let attemptCount = 0;
+      
+      const mockAxios = createMockAxios();
+      
+      // Override request method to simulate retries
+      mockAxios.request = jest.fn().mockImplementation(async (config: AxiosRequestConfig) => {
+        const currentAttempt = attemptCount++;
+        const mockResponse = responses[currentAttempt] || responses[responses.length - 1] || DEFAULT_MOCK_RESPONSE;
+        
+        if (onRetry && currentAttempt > 0) {
+          onRetry(currentAttempt);
+        }
+        
+        // If this is a retry attempt and we haven't exceeded max retries
+        if (currentAttempt > 0 && currentAttempt <= maxRetries) {
+          if (mockResponse.shouldFail || (mockResponse.status && mockResponse.status >= 400)) {
+            const error = new Error('Request failed') as AxiosError;
+            error.isAxiosError = true;
+            error.config = config;
+            error.response = {
+              data: mockResponse.data || { message: 'Error response' },
+              status: mockResponse.status || 500,
+              statusText: 'Error',
+              headers: mockResponse.headers || {},
+              config
+            };
+            throw error;
+          }
+        }
+        
+        return {
+          data: mockResponse.data || {},
+          status: mockResponse.status || 200,
+          statusText: mockResponse.status === 200 ? 'OK' : 'Custom Status',
+          headers: mockResponse.headers || {},
+          config
+        };
+      });
+      
+      // Update HTTP method implementations to use the new request method
+      ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].forEach(method => {
+        mockAxios[method] = jest.fn().mockImplementation(
+          (url: string, configOrData?: any, config?: AxiosRequestConfig) => {
+            const requestConfig: AxiosRequestConfig = {
+              url,
+              method: method.toUpperCase() as any
+            };
+            
+            if (method === 'get' || method === 'delete' || method === 'head' || method === 'options') {
+              Object.assign(requestConfig, configOrData);
+            } else {
+              requestConfig.data = configOrData;
+              Object.assign(requestConfig, config);
+            }
+            
+            return mockAxios.request(requestConfig);
+          }
         );
       });
+      
+      return mockAxios;
     }
-  }
+  };
+}
 
-  return false;
-};
+/**
+ * Creates a test utility for validating service-to-service communication
+ * 
+ * @returns An object with methods for testing service communication
+ * 
+ * @example
+ * ```typescript
+ * const serviceTester = createServiceCommunicationTester();
+ * 
+ * // Test that a request includes the correct journey context
+ * await serviceTester.testJourneyContext({
+ *   requestFn: () => client.get('/api/health/metrics'),
+ *   expectedJourney: 'health'
+ * });
+ * ```
+ */
+export function createServiceCommunicationTester() {
+  return {
+    /**
+     * Tests that a request includes the correct journey context
+     * 
+     * @param options - Test options
+     */
+    testJourneyContext: async (options: {
+      requestFn: () => Promise<any>;
+      expectedJourney: JourneyType;
+      expectedHeaders?: Record<string, string>;
+    }) => {
+      const { requestFn, expectedJourney, expectedHeaders = {} } = options;
+      
+      // Create a mock axios instance that validates headers
+      const originalAxios = axios.create;
+      axios.create = jest.fn().mockImplementation(() => {
+        const instance = originalAxios();
+        
+        // Add request interceptor to validate headers
+        instance.interceptors.request.use(config => {
+          // Check journey context header
+          const journeyContext = config.headers?.['X-Journey-Context'];
+          if (journeyContext !== expectedJourney) {
+            throw new Error(
+              `Expected X-Journey-Context header to be '${expectedJourney}', but got '${journeyContext}'`
+            );
+          }
+          
+          // Check correlation ID header
+          const correlationId = config.headers?.['X-Correlation-ID'];
+          if (!correlationId) {
+            throw new Error('Expected X-Correlation-ID header to be present');
+          }
+          
+          // Check additional expected headers
+          for (const [key, value] of Object.entries(expectedHeaders)) {
+            const headerValue = config.headers?.[key];
+            if (headerValue !== value) {
+              throw new Error(
+                `Expected ${key} header to be '${value}', but got '${headerValue}'`
+              );
+            }
+          }
+          
+          return config;
+        });
+        
+        // Mock successful response
+        instance.request = jest.fn().mockResolvedValue({
+          data: {},
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            'content-type': 'application/json',
+            'x-journey-context': expectedJourney,
+            'x-correlation-id': uuidv4()
+          },
+          config: {}
+        });
+        
+        return instance;
+      });
+      
+      try {
+        // Execute the request function
+        await requestFn();
+      } finally {
+        // Restore original axios.create
+        axios.create = originalAxios;
+      }
+    },
+    
+    /**
+     * Creates a mock service client for testing service communication
+     * 
+     * @param options - Client options
+     */
+    createMockServiceClient: (options: {
+      journey?: JourneyType;
+      baseURL?: string;
+      responses?: Record<string, MockResponseConfig>;
+    } = {}) => {
+      const { journey = 'common', baseURL = 'http://mock-service', responses = {} } = options;
+      
+      const mockAxios = createMockAxios(responses);
+      
+      // Set default headers for all requests
+      mockAxios.defaults.baseURL = baseURL;
+      mockAxios.defaults.headers.common = {
+        'Content-Type': 'application/json',
+        'X-Journey-Context': journey,
+        'X-Correlation-ID': uuidv4()
+      };
+      
+      return mockAxios;
+    }
+  };
+}
