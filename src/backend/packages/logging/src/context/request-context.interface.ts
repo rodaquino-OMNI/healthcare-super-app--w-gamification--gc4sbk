@@ -1,182 +1,242 @@
 /**
- * @file Request Context Interface
- * @description Defines the RequestContext interface that extends the base LoggingContext
- * to capture HTTP request-specific information for structured logging.
+ * Interface for HTTP request-specific logging context in the AUSTA SuperApp.
+ * Extends the base LoggingContext to capture request-specific information
+ * for structured logging and request monitoring.
  */
 
 import { LoggingContext } from './context.interface';
 
 /**
- * Enum representing HTTP methods for requests.
- */
-export enum HttpMethod {
-  /** HTTP GET method */
-  GET = 'GET',
-  /** HTTP POST method */
-  POST = 'POST',
-  /** HTTP PUT method */
-  PUT = 'PUT',
-  /** HTTP DELETE method */
-  DELETE = 'DELETE',
-  /** HTTP PATCH method */
-  PATCH = 'PATCH',
-  /** HTTP HEAD method */
-  HEAD = 'HEAD',
-  /** HTTP OPTIONS method */
-  OPTIONS = 'OPTIONS',
-  /** HTTP TRACE method */
-  TRACE = 'TRACE',
-  /** HTTP CONNECT method */
-  CONNECT = 'CONNECT',
-}
-
-/**
- * Interface for HTTP request headers with sanitization.
- * Sensitive headers like Authorization are redacted by default.
- */
-export interface SanitizedHeaders {
-  /** Content type of the request */
-  'content-type'?: string;
-  /** Accept header specifying expected response format */
-  accept?: string;
-  /** User agent string identifying the client */
-  'user-agent'?: string;
-  /** Referer header indicating the origin of the request */
-  referer?: string;
-  /** Origin header for CORS requests */
-  origin?: string;
-  /** Host header specifying the domain name of the server */
-  host?: string;
-  /** Authorization header (redacted for security) */
-  authorization?: string;
-  /** Other headers */
-  [key: string]: string | undefined;
-}
-
-/**
- * Interface for HTTP response information.
- */
-export interface ResponseInfo {
-  /** HTTP status code of the response */
-  statusCode: number;
-  /** Status message corresponding to the status code */
-  statusMessage?: string;
-  /** Content type of the response */
-  contentType?: string;
-  /** Size of the response in bytes */
-  contentLength?: number;
-  /** Time taken to generate the response (in milliseconds) */
-  responseTime?: number;
-}
-
-/**
- * RequestContext interface that extends the base LoggingContext to capture
- * HTTP request-specific information for structured logging.
- * 
- * This interface provides critical context for request-related logs, enabling
- * proper debugging, monitoring, and analysis of API usage and performance.
+ * Interface representing HTTP request-specific context information for logging.
+ * This interface captures request details such as request ID, IP address, HTTP method,
+ * URL, path, and user agent that provide critical context for request-related logs.
  */
 export interface RequestContext extends LoggingContext {
-  /** Unique identifier for the request */
+  /**
+   * Unique identifier for the request
+   * Used to correlate logs from the same request
+   * Note: This overrides the requestId in the base LoggingContext
+   * to make it a required field in RequestContext
+   */
   requestId: string;
-  
-  /** IP address of the client making the request */
+
+  /**
+   * IP address of the client making the request
+   * Used for geolocation and security analysis
+   */
   ipAddress?: string;
-  
-  /** HTTP method of the request */
-  method: HttpMethod | string;
-  
-  /** Full URL of the request */
+
+  /**
+   * HTTP method of the request (GET, POST, PUT, DELETE, etc.)
+   * Indicates the type of operation being performed
+   */
+  method?: string;
+
+  /**
+   * Full URL of the request
+   * Provides the complete context of the requested resource
+   */
   url?: string;
-  
-  /** Path component of the URL */
+
+  /**
+   * Path portion of the URL
+   * More concise than the full URL when query parameters aren't relevant
+   */
   path?: string;
-  
-  /** Query parameters as key-value pairs */
-  query?: Record<string, string | string[]>;
-  
-  /** Route parameters from path variables */
-  params?: Record<string, string>;
-  
-  /** User agent string identifying the client */
+
+  /**
+   * Query parameters from the URL
+   * Parsed and sanitized for sensitive information
+   */
+  query?: Record<string, any>;
+
+  /**
+   * User agent string from the request headers
+   * Provides information about the client's browser or application
+   */
   userAgent?: string;
-  
-  /** Sanitized request headers with sensitive information redacted */
-  headers?: SanitizedHeaders;
-  
-  /** Sanitized request body with sensitive information redacted */
+
+  /**
+   * HTTP status code of the response
+   * Indicates the outcome of the request
+   */
+  statusCode?: number;
+
+  /**
+   * Duration of the request processing in milliseconds
+   * Used for performance monitoring and optimization
+   */
+  duration?: number;
+
+  /**
+   * Size of the request body in bytes
+   * Useful for monitoring data transfer and detecting anomalies
+   */
+  requestSize?: number;
+
+  /**
+   * Size of the response body in bytes
+   * Useful for monitoring data transfer and detecting anomalies
+   */
+  responseSize?: number;
+
+  /**
+   * Request body parameters (for POST, PUT, etc.)
+   * Sanitized to remove sensitive information
+   */
   body?: Record<string, any>;
-  
-  /** Information about the response to this request */
-  response?: ResponseInfo;
-  
-  /** API version being accessed */
-  apiVersion?: string;
-  
-  /** Name of the API endpoint or controller handling the request */
-  endpoint?: string;
-  
-  /** Name of the specific operation being performed */
-  operation?: string;
-  
-  /** Rate limiting information */
+
+  /**
+   * HTTP headers from the request
+   * Sanitized to remove sensitive information
+   */
+  headers?: Record<string, string>;
+
+  /**
+   * Route pattern that matched the request
+   * More generic than the path, shows the route template
+   * Example: '/users/:id' instead of '/users/123'
+   */
+  routePattern?: string;
+
+  /**
+   * Route parameters extracted from the URL
+   * Example: { id: '123' } for route '/users/:id' and path '/users/123'
+   */
+  routeParams?: Record<string, string>;
+
+  /**
+   * Name of the controller handling the request
+   * Useful for identifying the responsible component
+   */
+  controller?: string;
+
+  /**
+   * Name of the action/method handling the request
+   * Identifies the specific handler within the controller
+   */
+  action?: string;
+
+  /**
+   * Indicates if the request is an API call
+   * Distinguishes between API requests and page views
+   */
+  isApi?: boolean;
+
+  /**
+   * Indicates if the request is from a mobile device
+   * Useful for analyzing mobile vs. desktop usage patterns
+   */
+  isMobile?: boolean;
+
+  /**
+   * Referrer URL if available
+   * Indicates where the request originated from
+   */
+  referrer?: string;
+
+  /**
+   * Information about rate limiting for the request
+   * Useful for monitoring API usage and preventing abuse
+   */
   rateLimit?: {
-    /** Current rate limit for the client */
+    /**
+     * Maximum number of requests allowed in the time window
+     */
     limit?: number;
-    /** Remaining requests allowed in the current window */
+    
+    /**
+     * Number of requests remaining in the current time window
+     */
     remaining?: number;
-    /** Time when the rate limit resets */
+    
+    /**
+     * Time in seconds until the rate limit resets
+     */
     reset?: number;
   };
-  
-  /** Request timing information */
-  timing?: {
-    /** Timestamp when the request was received */
-    receivedAt: string;
-    /** Time spent in middleware (in milliseconds) */
-    middlewareDuration?: number;
-    /** Time spent in the handler (in milliseconds) */
-    handlerDuration?: number;
-    /** Total request processing time (in milliseconds) */
-    totalDuration?: number;
+
+  /**
+   * Error information if the request resulted in an error
+   * Provides context for troubleshooting failed requests
+   */
+  error?: {
+    /**
+     * Error message
+     */
+    message?: string;
+    
+    /**
+     * Error code or type
+     */
+    code?: string;
+    
+    /**
+     * Error stack trace (sanitized for production)
+     */
+    stack?: string;
+    
+    /**
+     * Additional error details
+     */
+    details?: Record<string, any>;
   };
-  
-  /** Information about the client making the request */
-  client?: {
-    /** Type of client (browser, mobile app, API client) */
+
+  /**
+   * Journey context for the request
+   * Indicates which journey (Health, Care, Plan) the request belongs to
+   */
+  journey?: {
+    /**
+     * Journey type (Health, Care, Plan)
+     */
     type?: string;
-    /** Client application identifier */
-    appId?: string;
-    /** Client version */
-    version?: string;
-    /** Device information */
-    device?: {
-      /** Type of device (mobile, tablet, desktop) */
-      type?: string;
-      /** Operating system of the device */
-      os?: string;
-      /** Browser information if applicable */
-      browser?: string;
-    };
+    
+    /**
+     * Specific section or feature within the journey
+     */
+    section?: string;
+    
+    /**
+     * Action being performed within the journey
+     */
+    action?: string;
   };
-  
-  /** Information about the journey context of this request */
-  journeyInfo?: {
-    /** The journey type related to this request */
-    journeyType?: string;
-    /** The specific journey action being performed */
-    journeyAction?: string;
-    /** Journey-specific context for this request */
-    journeyContext?: Record<string, any>;
+
+  /**
+   * Performance metrics for the request
+   * Detailed timing information for performance analysis
+   */
+  performance?: {
+    /**
+     * Time spent in database operations
+     */
+    dbTime?: number;
+    
+    /**
+     * Time spent in external API calls
+     */
+    externalApiTime?: number;
+    
+    /**
+     * Time spent in rendering templates
+     */
+    renderTime?: number;
+    
+    /**
+     * Time spent in business logic
+     */
+    processingTime?: number;
+    
+    /**
+     * Additional performance metrics
+     */
+    [key: string]: number | undefined;
   };
-  
-  /** Business transaction information for this request */
-  transaction?: {
-    /** Unique identifier for the business transaction */
-    transactionId?: string;
-    /** Type of business transaction */
-    transactionType?: string;
-    /** Current step in a multi-step transaction */
-    transactionStep?: string;
-  };
+
+  /**
+   * Additional request-specific data as key-value pairs
+   * Can contain any request-specific context that doesn't fit in other properties
+   */
+  requestData?: Record<string, any>;
 }
