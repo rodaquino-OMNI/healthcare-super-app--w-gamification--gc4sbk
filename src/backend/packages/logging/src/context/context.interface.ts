@@ -1,83 +1,117 @@
 /**
- * Base interface for all logging context types in the AUSTA SuperApp.
- * Defines common properties that are shared across all context types.
+ * Base interface for logging context in the AUSTA SuperApp.
+ * Defines the common properties that all logging contexts should have,
+ * establishing the foundation for structured, context-enriched logging
+ * throughout the application.
  */
 
 /**
- * Base interface for all logging context types.
- * This interface establishes the foundation for structured, context-enriched
- * logging throughout the application.
+ * Interface representing the base logging context that all other context types extend.
+ * This interface specifies common context properties like correlation IDs, timestamps,
+ * and service information that are essential for proper log aggregation and analysis.
  */
 export interface LoggingContext {
   /**
-   * Unique identifier for the request
-   * Used to correlate logs from the same request
-   */
-  requestId?: string;
-
-  /**
-   * Unique identifier for correlation across services
-   * Used to track a request as it flows through multiple services
+   * Unique identifier for correlating logs, traces, and metrics across services.
+   * This ID is propagated across service boundaries to enable end-to-end tracing
+   * and is essential for distributed systems observability.
    */
   correlationId?: string;
 
   /**
-   * Unique identifier for the user
-   * Used to associate logs with a specific user
+   * Unique identifier for the request that generated this log.
+   * Used to group logs from the same request together.
+   */
+  requestId?: string;
+
+  /**
+   * Unique identifier for the user associated with this log.
+   * Used to track user activity and troubleshoot user-specific issues.
    */
   userId?: string;
 
   /**
-   * Unique identifier for the user session
-   * Used to group logs from the same user session
+   * Unique identifier for tracking business transactions across services.
+   * A transaction may span multiple requests and services but represents
+   * a single logical operation from a business perspective.
+   */
+  transactionId?: string;
+
+  /**
+   * Unique identifier for the user's session.
+   * Used to group logs from the same user session together.
    */
   sessionId?: string;
 
   /**
-   * The name of the service generating the log
-   * Identifies which service is the source of the log
+   * Name of the service generating the log.
+   * Examples: 'auth-service', 'health-service', 'care-service', 'plan-service'
    */
   serviceName?: string;
 
   /**
-   * The specific component within the service
-   * Provides more granular context about the log source
+   * Name of the specific component within the service generating the log.
+   * Examples: 'AuthController', 'HealthMetricsRepository', 'AppointmentService'
    */
   component?: string;
 
   /**
-   * The environment where the log was generated
-   * (e.g., development, staging, production)
+   * Deployment environment where the log was generated.
+   * Examples: 'development', 'staging', 'production'
    */
   environment?: string;
 
   /**
-   * Timestamp when the context was created
-   * Useful for measuring duration of operations
+   * Version of the service generating the log.
+   * Useful for tracking which version of the code produced a particular log.
    */
-  timestamp?: Date;
+  serviceVersion?: string;
 
   /**
-   * Unique identifier for the trace (for distributed tracing)
-   * Used to correlate logs with traces in observability systems
+   * Hostname of the server generating the log.
+   * Useful for identifying specific instances in a distributed system.
+   */
+  hostname?: string;
+
+  /**
+   * Timestamp when the log was created.
+   * Stored as ISO 8601 string or Date object depending on the formatter.
+   */
+  timestamp?: Date | string;
+
+  /**
+   * Trace ID for distributed tracing systems (like OpenTelemetry).
+   * Used to correlate logs with distributed traces for detailed request flow analysis.
    */
   traceId?: string;
 
   /**
-   * Unique identifier for the span within a trace
-   * Provides more granular context within a trace
+   * Span ID for the current operation in distributed tracing systems.
+   * Represents a single operation within a trace.
    */
   spanId?: string;
 
   /**
-   * Identifier of the parent span
-   * Establishes the hierarchy of spans within a trace
+   * Indicates if this is a sampled trace in distributed tracing systems.
+   * Affects whether detailed trace information is collected.
    */
-  parentSpanId?: string;
+  traceSampled?: boolean;
 
   /**
-   * Additional metadata as key-value pairs
-   * Can contain any context-specific data that doesn't fit in other properties
+   * Additional tags or labels for the log.
+   * Used for filtering and categorizing logs beyond the standard fields.
+   */
+  tags?: string[];
+
+  /**
+   * Additional metadata as key-value pairs.
+   * Can contain any context-specific information that doesn't fit in other properties.
    */
   metadata?: Record<string, any>;
+
+  /**
+   * Extensibility point for additional context properties.
+   * Allows adding custom properties without modifying the interface.
+   */
+  [key: string]: any;
 }
