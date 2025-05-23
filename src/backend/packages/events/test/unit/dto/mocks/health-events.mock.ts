@@ -1,520 +1,391 @@
 /**
- * @file health-events.mock.ts
+ * @file Health Events Mock Data
  * @description Provides standardized mock data for Health journey events with appropriate payloads and metadata.
- * Each mock object conforms to the ProcessEventDto structure with proper type, userId, journey, and data properties.
  * These mocks enable consistent and reliable testing of Health journey event processing, validation, and error handling.
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import { HealthMetricType, HealthGoalType, DeviceType } from '../../../../src/dto/health-event.dto';
+import { JourneyType, HealthEventType, MetricType, GoalType, GoalStatus, DeviceType, ConnectionStatus } from '@austa/interfaces/journey/health';
 
 /**
- * Base interface for all event DTOs in the system
+ * Mock data for HEALTH_METRIC_RECORDED events
+ * Used for testing health metric recording event processing
  */
-export interface ProcessEventDto {
-  type: string;
-  userId: string;
-  journey: string;
-  data: any;
-  timestamp?: string;
-  metadata?: Record<string, any>;
-}
-
-/**
- * Mock user IDs for consistent testing
- */
-export const MOCK_USER_IDS = {
-  DEFAULT: '550e8400-e29b-41d4-a716-446655440000',
-  PREMIUM: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-  NEW_USER: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
-};
-
-/**
- * Mock health metric recorded event for heart rate
- */
-export const mockHeartRateEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.HEART_RATE,
-    value: 72,
-    unit: 'bpm',
-    recordedAt: new Date().toISOString(),
-    notes: 'Resting heart rate',
-    deviceId: 'device-123',
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health metric recorded event for blood pressure
- */
-export const mockBloodPressureEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.BLOOD_PRESSURE,
-    value: 120, // Systolic value
-    secondaryValue: 80, // Diastolic value
-    unit: 'mmHg',
-    recordedAt: new Date().toISOString(),
-    notes: 'Morning measurement',
-    deviceId: 'device-456',
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health metric recorded event for steps
- */
-export const mockStepsEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.PREMIUM,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.STEPS,
-    value: 8500,
-    unit: 'steps',
-    recordedAt: new Date().toISOString(),
-    notes: 'Daily step count',
-    deviceId: 'device-789',
-  },
-  metadata: {
-    source: 'smartwatch',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health metric recorded event for weight
- */
-export const mockWeightEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.NEW_USER,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.WEIGHT,
-    value: 70.5,
-    unit: 'kg',
-    recordedAt: new Date().toISOString(),
-    notes: 'Morning weight',
-    deviceId: 'device-101',
-  },
-  metadata: {
-    source: 'smart-scale',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health metric recorded event for blood glucose
- */
-export const mockBloodGlucoseEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.BLOOD_GLUCOSE,
-    value: 95,
-    unit: 'mg/dL',
-    recordedAt: new Date().toISOString(),
-    notes: 'Fasting blood glucose',
-    deviceId: 'device-202',
-  },
-  metadata: {
-    source: 'glucose-monitor',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health metric recorded event for sleep
- */
-export const mockSleepEvent: ProcessEventDto = {
-  type: 'HEALTH_METRIC_RECORDED',
-  userId: MOCK_USER_IDS.PREMIUM,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    metricType: HealthMetricType.SLEEP,
-    value: 7.5,
-    unit: 'hours',
-    recordedAt: new Date().toISOString(),
-    notes: 'Last night sleep duration',
-    deviceId: 'device-303',
-  },
-  metadata: {
-    source: 'sleep-tracker',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health goal achieved event for steps target
- */
-export const mockStepsGoalAchievedEvent: ProcessEventDto = {
-  type: 'HEALTH_GOAL_ACHIEVED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.STEPS_TARGET,
-    description: 'Daily 10,000 steps goal',
-    targetValue: 10000,
-    unit: 'steps',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100,
-  },
-  metadata: {
-    source: 'gamification-engine',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health goal achieved event for weight target
- */
-export const mockWeightGoalAchievedEvent: ProcessEventDto = {
-  type: 'HEALTH_GOAL_ACHIEVED',
-  userId: MOCK_USER_IDS.PREMIUM,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.WEIGHT_TARGET,
-    description: 'Weight loss goal of 5kg',
-    targetValue: 68,
-    unit: 'kg',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100,
-  },
-  metadata: {
-    source: 'gamification-engine',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health goal achieved event for sleep duration
- */
-export const mockSleepGoalAchievedEvent: ProcessEventDto = {
-  type: 'HEALTH_GOAL_ACHIEVED',
-  userId: MOCK_USER_IDS.NEW_USER,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.SLEEP_DURATION,
-    description: 'Sleep 8 hours per night for a week',
-    targetValue: 8,
-    unit: 'hours',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100,
-  },
-  metadata: {
-    source: 'gamification-engine',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock health goal achieved event for activity frequency
- */
-export const mockActivityGoalAchievedEvent: ProcessEventDto = {
-  type: 'HEALTH_GOAL_ACHIEVED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.ACTIVITY_FREQUENCY,
-    description: 'Exercise 3 times per week',
-    targetValue: 3,
-    unit: 'sessions',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100,
-  },
-  metadata: {
-    source: 'gamification-engine',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock device synced event for fitness tracker
- */
-export const mockFitnessTrackerSyncedEvent: ProcessEventDto = {
-  type: 'DEVICE_SYNCHRONIZED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    deviceId: 'device-123',
-    deviceType: DeviceType.FITNESS_TRACKER,
-    deviceName: 'Fitbit Charge 5',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 24,
-    metricTypes: [
-      HealthMetricType.STEPS,
-      HealthMetricType.HEART_RATE,
-      HealthMetricType.SLEEP,
-    ],
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock device synced event for smartwatch
- */
-export const mockSmartwatchSyncedEvent: ProcessEventDto = {
-  type: 'DEVICE_SYNCHRONIZED',
-  userId: MOCK_USER_IDS.PREMIUM,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    deviceId: 'device-456',
-    deviceType: DeviceType.SMARTWATCH,
-    deviceName: 'Apple Watch Series 7',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 48,
-    metricTypes: [
-      HealthMetricType.STEPS,
-      HealthMetricType.HEART_RATE,
-      HealthMetricType.SLEEP,
-      HealthMetricType.CALORIES,
-    ],
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock device synced event for blood pressure monitor
- */
-export const mockBloodPressureMonitorSyncedEvent: ProcessEventDto = {
-  type: 'DEVICE_SYNCHRONIZED',
-  userId: MOCK_USER_IDS.NEW_USER,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    deviceId: 'device-789',
-    deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
-    deviceName: 'Omron X5',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 5,
-    metricTypes: [HealthMetricType.BLOOD_PRESSURE],
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Mock device synced event with failure
- */
-export const mockDeviceSyncFailedEvent: ProcessEventDto = {
-  type: 'DEVICE_SYNCHRONIZED',
-  userId: MOCK_USER_IDS.DEFAULT,
-  journey: 'health',
-  timestamp: new Date().toISOString(),
-  data: {
-    deviceId: 'device-101',
-    deviceType: DeviceType.GLUCOSE_MONITOR,
-    deviceName: 'Dexcom G6',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: false,
-    errorMessage: 'Connection timeout after 30 seconds',
-  },
-  metadata: {
-    source: 'mobile-app',
-    version: '1.0.0',
-    correlationId: uuidv4(),
-  },
-};
-
-/**
- * Collection of all health metric events for easy access
- */
-export const healthMetricEvents = {
-  heartRate: mockHeartRateEvent,
-  bloodPressure: mockBloodPressureEvent,
-  steps: mockStepsEvent,
-  weight: mockWeightEvent,
-  bloodGlucose: mockBloodGlucoseEvent,
-  sleep: mockSleepEvent,
-};
-
-/**
- * Collection of all health goal achieved events for easy access
- */
-export const healthGoalAchievedEvents = {
-  steps: mockStepsGoalAchievedEvent,
-  weight: mockWeightGoalAchievedEvent,
-  sleep: mockSleepGoalAchievedEvent,
-  activity: mockActivityGoalAchievedEvent,
-};
-
-/**
- * Collection of all device synced events for easy access
- */
-export const deviceSyncedEvents = {
-  fitnessTracker: mockFitnessTrackerSyncedEvent,
-  smartwatch: mockSmartwatchSyncedEvent,
-  bloodPressureMonitor: mockBloodPressureMonitorSyncedEvent,
-  failed: mockDeviceSyncFailedEvent,
-};
-
-/**
- * Factory function to create a custom health metric event
- * 
- * @param userId User ID for the event
- * @param metricType Type of health metric
- * @param value Metric value
- * @param unit Measurement unit
- * @returns A customized health metric event
- */
-export function createHealthMetricEvent(
-  userId: string,
-  metricType: HealthMetricType,
-  value: number,
-  unit: string
-): ProcessEventDto {
-  return {
-    type: 'HEALTH_METRIC_RECORDED',
-    userId,
-    journey: 'health',
-    timestamp: new Date().toISOString(),
+export const healthMetricRecordedMocks = {
+  // Heart rate metric recording
+  heartRate: {
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T14:32:17.123Z',
     data: {
-      metricType,
-      value,
-      unit,
-      recordedAt: new Date().toISOString(),
-    },
-    metadata: {
-      source: 'test',
-      version: '1.0.0',
-      correlationId: uuidv4(),
-    },
-  };
-}
+      metricType: MetricType.HEART_RATE,
+      value: 72,
+      unit: 'bpm',
+      source: 'DEVICE',
+      deviceId: 'device-123456',
+      notes: 'Resting heart rate',
+      isAbnormal: false
+    }
+  },
 
-/**
- * Factory function to create a custom health goal achieved event
- * 
- * @param userId User ID for the event
- * @param goalType Type of health goal
- * @param description Goal description
- * @param targetValue Target value for the goal
- * @param unit Measurement unit
- * @returns A customized health goal achieved event
- */
-export function createHealthGoalAchievedEvent(
-  userId: string,
-  goalType: HealthGoalType,
-  description: string,
-  targetValue: number,
-  unit: string
-): ProcessEventDto {
-  return {
-    type: 'HEALTH_GOAL_ACHIEVED',
-    userId,
-    journey: 'health',
-    timestamp: new Date().toISOString(),
+  // Blood pressure metric recording
+  bloodPressure: {
+    id: '550e8400-e29b-41d4-a716-446655440001',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T14:35:22.456Z',
     data: {
-      goalId: uuidv4(),
-      goalType,
-      description,
-      targetValue,
-      unit,
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100,
-    },
-    metadata: {
-      source: 'test',
-      version: '1.0.0',
-      correlationId: uuidv4(),
-    },
-  };
-}
+      metricType: MetricType.BLOOD_PRESSURE,
+      value: 120, // Systolic
+      secondaryValue: 80, // Diastolic
+      unit: 'mmHg',
+      source: 'MANUAL',
+      notes: 'Morning measurement',
+      isAbnormal: false
+    }
+  },
 
-/**
- * Factory function to create a custom device synced event
- * 
- * @param userId User ID for the event
- * @param deviceType Type of device
- * @param deviceName Name of the device
- * @param successful Whether the sync was successful
- * @param metricTypes Types of metrics synced (optional)
- * @returns A customized device synced event
- */
-export function createDeviceSyncedEvent(
-  userId: string,
-  deviceType: DeviceType,
-  deviceName: string,
-  successful: boolean,
-  metricTypes?: HealthMetricType[]
-): ProcessEventDto {
-  const baseEvent: ProcessEventDto = {
-    type: 'DEVICE_SYNCHRONIZED',
-    userId,
-    journey: 'health',
-    timestamp: new Date().toISOString(),
+  // Steps metric recording
+  steps: {
+    id: '550e8400-e29b-41d4-a716-446655440002',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T20:15:10.789Z',
     data: {
-      deviceId: `device-${uuidv4().substring(0, 8)}`,
-      deviceType,
-      deviceName,
-      syncedAt: new Date().toISOString(),
-      syncSuccessful: successful,
-    },
-    metadata: {
-      source: 'test',
-      version: '1.0.0',
-      correlationId: uuidv4(),
-    },
-  };
+      metricType: MetricType.STEPS,
+      value: 8547,
+      unit: 'steps',
+      source: 'DEVICE',
+      deviceId: 'device-123456',
+      notes: 'Daily step count',
+      isAbnormal: false
+    }
+  },
 
-  if (successful && metricTypes) {
-    baseEvent.data.dataPointsCount = Math.floor(Math.random() * 50) + 1;
-    baseEvent.data.metricTypes = metricTypes;
-  } else if (!successful) {
-    baseEvent.data.errorMessage = 'Sync failed during testing';
+  // Weight metric recording
+  weight: {
+    id: '550e8400-e29b-41d4-a716-446655440003',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T08:05:33.123Z',
+    data: {
+      metricType: MetricType.WEIGHT,
+      value: 75.5,
+      unit: 'kg',
+      source: 'DEVICE',
+      deviceId: 'device-789012',
+      notes: 'Morning weight',
+      isAbnormal: false
+    }
+  },
+
+  // Blood glucose metric recording
+  bloodGlucose: {
+    id: '550e8400-e29b-41d4-a716-446655440004',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T12:30:45.678Z',
+    data: {
+      metricType: MetricType.BLOOD_GLUCOSE,
+      value: 95,
+      unit: 'mg/dL',
+      source: 'MANUAL',
+      notes: 'Before lunch',
+      isAbnormal: false
+    }
+  },
+
+  // Sleep metric recording
+  sleep: {
+    id: '550e8400-e29b-41d4-a716-446655440005',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T08:00:00.000Z',
+    data: {
+      metricType: MetricType.SLEEP,
+      value: 7.5,
+      unit: 'hours',
+      source: 'DEVICE',
+      deviceId: 'device-123456',
+      notes: 'Last night sleep duration',
+      sleepQuality: 'GOOD',
+      deepSleepDuration: 2.3,
+      remSleepDuration: 1.8,
+      lightSleepDuration: 3.4,
+      isAbnormal: false
+    }
+  },
+
+  // Invalid metric (for testing validation)
+  invalid: {
+    id: '550e8400-e29b-41d4-a716-446655440006',
+    type: HealthEventType.METRIC_RECORDED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T14:32:17.123Z',
+    data: {
+      metricType: 'INVALID_TYPE', // Invalid metric type
+      value: -10, // Invalid negative value
+      unit: '', // Missing unit
+      source: 'UNKNOWN', // Invalid source
+      isAbnormal: true
+    }
   }
+};
 
-  return baseEvent;
-}
+/**
+ * Mock data for HEALTH_GOAL_ACHIEVED events
+ * Used for testing goal achievement event processing
+ */
+export const healthGoalAchievedMocks = {
+  // Steps goal achievement
+  stepsGoal: {
+    id: '660e8400-e29b-41d4-a716-446655440000',
+    type: HealthEventType.GOAL_ACHIEVED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T21:00:00.000Z',
+    data: {
+      goalId: '770e8400-e29b-41d4-a716-446655440000',
+      goalType: GoalType.STEPS,
+      title: 'Daily 10,000 Steps',
+      targetValue: 10000,
+      achievedValue: 10234,
+      unit: 'steps',
+      status: GoalStatus.COMPLETED,
+      description: 'Complete 10,000 steps daily',
+      daysToAchieve: 1,
+      isEarlyCompletion: true
+    }
+  },
+
+  // Weight loss goal achievement
+  weightGoal: {
+    id: '660e8400-e29b-41d4-a716-446655440001',
+    type: HealthEventType.GOAL_ACHIEVED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-30T08:15:00.000Z',
+    data: {
+      goalId: '770e8400-e29b-41d4-a716-446655440001',
+      goalType: GoalType.WEIGHT,
+      title: 'Weight Loss Goal',
+      targetValue: 70,
+      achievedValue: 69.8,
+      unit: 'kg',
+      status: GoalStatus.COMPLETED,
+      description: 'Reach target weight of 70kg',
+      daysToAchieve: 45,
+      isEarlyCompletion: false
+    }
+  },
+
+  // Sleep duration goal achievement
+  sleepGoal: {
+    id: '660e8400-e29b-41d4-a716-446655440002',
+    type: HealthEventType.GOAL_ACHIEVED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-22T08:00:00.000Z',
+    data: {
+      goalId: '770e8400-e29b-41d4-a716-446655440002',
+      goalType: GoalType.SLEEP,
+      title: 'Healthy Sleep Schedule',
+      targetValue: 8,
+      achievedValue: 8.2,
+      unit: 'hours',
+      status: GoalStatus.COMPLETED,
+      description: 'Sleep at least 8 hours per night for a week',
+      daysToAchieve: 7,
+      isEarlyCompletion: false
+    }
+  },
+
+  // Blood pressure goal achievement
+  bloodPressureGoal: {
+    id: '660e8400-e29b-41d4-a716-446655440003',
+    type: HealthEventType.GOAL_ACHIEVED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-05-15T14:30:00.000Z',
+    data: {
+      goalId: '770e8400-e29b-41d4-a716-446655440003',
+      goalType: GoalType.BLOOD_PRESSURE,
+      title: 'Healthy Blood Pressure',
+      targetValue: 120, // Systolic target
+      secondaryTargetValue: 80, // Diastolic target
+      achievedValue: 118, // Achieved systolic
+      secondaryAchievedValue: 78, // Achieved diastolic
+      unit: 'mmHg',
+      status: GoalStatus.COMPLETED,
+      description: 'Maintain healthy blood pressure for 30 days',
+      daysToAchieve: 30,
+      isEarlyCompletion: false
+    }
+  },
+
+  // Invalid goal achievement (for testing validation)
+  invalid: {
+    id: '660e8400-e29b-41d4-a716-446655440004',
+    type: HealthEventType.GOAL_ACHIEVED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T21:00:00.000Z',
+    data: {
+      goalId: 'invalid-id', // Invalid UUID format
+      goalType: 'INVALID_TYPE', // Invalid goal type
+      title: '', // Empty title
+      targetValue: -100, // Invalid negative target
+      achievedValue: 0,
+      unit: '',
+      status: 'UNKNOWN' // Invalid status
+    }
+  }
+};
+
+/**
+ * Mock data for HEALTH_DEVICE_SYNCED events
+ * Used for testing device synchronization event processing
+ */
+export const deviceSyncedMocks = {
+  // Smartwatch sync
+  smartwatch: {
+    id: '880e8400-e29b-41d4-a716-446655440000',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T20:30:00.000Z',
+    data: {
+      connectionId: '990e8400-e29b-41d4-a716-446655440000',
+      deviceType: DeviceType.SMARTWATCH,
+      deviceId: 'device-123456',
+      status: ConnectionStatus.CONNECTED,
+      syncTimestamp: '2023-04-15T20:30:00.000Z',
+      metricsCount: 3,
+      metricTypes: [MetricType.HEART_RATE, MetricType.STEPS, MetricType.SLEEP],
+      syncDuration: 12.5,
+      syncSuccessful: true
+    }
+  },
+
+  // Blood pressure monitor sync
+  bloodPressureMonitor: {
+    id: '880e8400-e29b-41d4-a716-446655440001',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T14:45:00.000Z',
+    data: {
+      connectionId: '990e8400-e29b-41d4-a716-446655440001',
+      deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
+      deviceId: 'device-789012',
+      status: ConnectionStatus.CONNECTED,
+      syncTimestamp: '2023-04-15T14:45:00.000Z',
+      metricsCount: 1,
+      metricTypes: [MetricType.BLOOD_PRESSURE],
+      syncDuration: 5.2,
+      syncSuccessful: true
+    }
+  },
+
+  // Smart scale sync
+  smartScale: {
+    id: '880e8400-e29b-41d4-a716-446655440002',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T08:10:00.000Z',
+    data: {
+      connectionId: '990e8400-e29b-41d4-a716-446655440002',
+      deviceType: DeviceType.SMART_SCALE,
+      deviceId: 'device-345678',
+      status: ConnectionStatus.CONNECTED,
+      syncTimestamp: '2023-04-15T08:10:00.000Z',
+      metricsCount: 1,
+      metricTypes: [MetricType.WEIGHT],
+      syncDuration: 3.8,
+      syncSuccessful: true
+    }
+  },
+
+  // Glucose monitor sync
+  glucoseMonitor: {
+    id: '880e8400-e29b-41d4-a716-446655440003',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T12:35:00.000Z',
+    data: {
+      connectionId: '990e8400-e29b-41d4-a716-446655440003',
+      deviceType: DeviceType.GLUCOSE_MONITOR,
+      deviceId: 'device-901234',
+      status: ConnectionStatus.CONNECTED,
+      syncTimestamp: '2023-04-15T12:35:00.000Z',
+      metricsCount: 1,
+      metricTypes: [MetricType.BLOOD_GLUCOSE],
+      syncDuration: 4.1,
+      syncSuccessful: true
+    }
+  },
+
+  // Failed sync (for testing error handling)
+  failed: {
+    id: '880e8400-e29b-41d4-a716-446655440004',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T18:20:00.000Z',
+    data: {
+      connectionId: '990e8400-e29b-41d4-a716-446655440004',
+      deviceType: DeviceType.SMARTWATCH,
+      deviceId: 'device-123456',
+      status: ConnectionStatus.ERROR,
+      syncTimestamp: '2023-04-15T18:20:00.000Z',
+      metricsCount: 0,
+      metricTypes: [],
+      syncDuration: 30.0,
+      syncSuccessful: false,
+      errorMessage: 'Connection timeout after 30 seconds'
+    }
+  },
+
+  // Invalid device sync (for testing validation)
+  invalid: {
+    id: '880e8400-e29b-41d4-a716-446655440005',
+    type: HealthEventType.DEVICE_SYNCED,
+    userId: '123e4567-e89b-12d3-a456-426614174000',
+    journey: JourneyType.HEALTH,
+    timestamp: '2023-04-15T20:30:00.000Z',
+    data: {
+      connectionId: 'invalid-id', // Invalid UUID format
+      deviceType: 'UNKNOWN_DEVICE', // Invalid device type
+      deviceId: '',
+      status: 'INVALID_STATUS', // Invalid status
+      syncTimestamp: 'not-a-date', // Invalid timestamp
+      metricsCount: -1, // Invalid count
+      metricTypes: ['INVALID_TYPE'], // Invalid metric type
+      syncDuration: -5, // Invalid duration
+      syncSuccessful: null // Invalid boolean
+    }
+  }
+};
+
+/**
+ * Combined export of all health event mocks
+ */
+export const healthEventMocks = {
+  metricRecorded: healthMetricRecordedMocks,
+  goalAchieved: healthGoalAchievedMocks,
+  deviceSynced: deviceSyncedMocks
+};
+
+/**
+ * Default export for easier importing
+ */
+export default healthEventMocks;
