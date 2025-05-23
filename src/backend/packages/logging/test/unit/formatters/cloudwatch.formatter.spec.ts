@@ -1,425 +1,569 @@
 import { CloudWatchFormatter } from '../../../src/formatters/cloudwatch.formatter';
-import { JsonFormatter } from '../../../src/formatters/json.formatter';
-import { LogEntry } from '../../../src/formatters/formatter.interface';
+import { LogEntry, JourneyType } from '../../../src/interfaces/log-entry.interface';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
 
 describe('CloudWatchFormatter', () => {
   let formatter: CloudWatchFormatter;
-  let originalEnv: NodeJS.ProcessEnv;
-
+  const mockRegion = 'us-west-2';
+  const mockAccountId = '123456789012';
+  
   beforeEach(() => {
-    // Save original environment variables
-    originalEnv = { ...process.env };
-    
-    // Set up test environment variables
-    process.env.NODE_ENV = 'test';
-    process.env.AWS_REGION = 'us-west-2';
-    
-    formatter = new CloudWatchFormatter();
+    // Create a new formatter instance before each test
+    formatter = new CloudWatchFormatter(mockRegion, mockAccountId);
   });
 
-  afterEach(() => {
-    // Restore original environment variables
-    process.env = originalEnv;
-  });
+  describe('constructor', () => {
+    it('should use provided region and accountId', () => {
+      const customFormatter = new CloudWatchFormatter('eu-west-1', '987654321098');
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(customFormatter.format(entry));
+      
+      expect(result['@aws'].region).toBe('eu-west-1');
+      expect(result['@aws'].accountId).toBe('987654321098');
+    });
 
-  it('should be an instance of JsonFormatter', () => {
-    expect(formatter).toBeInstanceOf(JsonFormatter);
+    it('should use default values when region and accountId are not provided', () => {
+      // Save original env vars
+      const originalRegion = process.env.AWS_REGION;
+      const originalAccountId = process.env.AWS_ACCOUNT_ID;
+      
+      // Set env vars for test
+      process.env.AWS_REGION = 'eu-central-1';
+      process.env.AWS_ACCOUNT_ID = '111222333444';
+      
+      const defaultFormatter = new CloudWatchFormatter();
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(defaultFormatter.format(entry));
+      
+      expect(result['@aws'].region).toBe('eu-central-1');
+      expect(result['@aws'].accountId).toBe('111222333444');
+      
+      // Restore original env vars
+      process.env.AWS_REGION = originalRegion;
+      process.env.AWS_ACCOUNT_ID = originalAccountId;
+    });
+
+    it('should use fallback values when env vars are not set', () => {
+      // Save original env vars
+      const originalRegion = process.env.AWS_REGION;
+      const originalAccountId = process.env.AWS_ACCOUNT_ID;
+      
+      // Unset env vars for test
+      delete process.env.AWS_REGION;
+      delete process.env.AWS_ACCOUNT_ID;
+      
+      const defaultFormatter = new CloudWatchFormatter();
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(defaultFormatter.format(entry));
+      
+      expect(result['@aws'].region).toBe('us-east-1'); // Default fallback
+      expect(result['@aws'].accountId).toBe(''); // Default fallback
+      
+      // Restore original env vars
+      process.env.AWS_REGION = originalRegion;
+      process.env.AWS_ACCOUNT_ID = originalAccountId;
+    });
   });
 
   describe('format', () => {
-    it('should add AWS-specific metadata fields', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
+    it('should format basic log entry with CloudWatch-specific fields', () => {
+      const timestamp = new Date('2023-01-01T12:00:00Z');
+      const entry: LogEntry = {
         message: 'Test message',
-        context: {
-          service: 'test-service',
-          journey: 'health',
-        },
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.aws).toBeDefined();
-      expect(result.aws.service).toBe('test-service');
-      expect(result.aws.environment).toBe('test');
-      expect(result.aws.region).toBe('us-west-2');
-      expect(result.aws.journey).toBe('health');
-    });
-
-    it('should use default values for AWS metadata when not provided', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'Test message',
-        context: {},
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.aws).toBeDefined();
-      expect(result.aws.service).toBe('austa-service');
-      expect(result.aws.environment).toBe('test');
-      expect(result.aws.region).toBe('us-west-2');
-      expect(result.aws.journey).toBe('unknown');
-    });
-
-    it('should format timestamp as ISO string for CloudWatch indexing', () => {
-      // Arrange
-      const testDate = new Date('2023-01-01T12:00:00Z');
-      const entry: Partial<LogEntry> = {
-        timestamp: testDate,
-        level: 'INFO' as any,
-        message: 'Test message',
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.timestamp).toBe(testDate.toISOString());
-    });
-
-    it('should handle undefined timestamp by using current time', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        level: 'INFO' as any,
-        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp,
+        serviceName: 'test-service'
       };
       
-      // Mock Date.now() to return a fixed timestamp
-      const mockNow = 1672574400000; // 2023-01-01T12:00:00Z
-      jest.spyOn(Date, 'now').mockImplementation(() => mockNow);
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.timestamp).toBe(new Date(mockNow).toISOString());
+      const result = JSON.parse(formatter.format(entry));
       
-      // Restore Date.now
-      jest.restoreAllMocks();
+      // Verify CloudWatch-specific fields
+      expect(result['@timestamp']).toBe(timestamp.toISOString());
+      expect(result['@message']).toBe('Test message');
+      expect(result['@level']).toBe('INFO');
+      expect(result['@aws']).toEqual({
+        region: mockRegion,
+        accountId: mockAccountId,
+        service: 'test-service'
+      });
     });
 
-    it('should add log level as a top-level field for easier filtering', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'ERROR' as any,
-        message: 'Test error message',
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.logLevel).toBe('ERROR');
-    });
-  });
-
-  describe('error formatting', () => {
-    it('should format Error objects for CloudWatch error detection', () => {
-      // Arrange
-      const testError = new Error('Test error');
-      testError.name = 'TestError';
-      testError.stack = 'Error: Test error\n    at Test.testMethod (/path/to/file.ts:123:45)';
-      
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'ERROR' as any,
-        message: 'Error occurred',
-        error: testError,
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.error).toBeDefined();
-      expect(result.error.message).toBe('Test error');
-      expect(result.error.name).toBe('TestError');
-      expect(result.error.stack).toBeDefined();
-    });
-
-    it('should handle string errors', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'ERROR' as any,
-        message: 'Error occurred',
-        error: 'String error message',
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.error).toBe('String error message');
-    });
-
-    it('should handle custom error objects with additional fields', () => {
-      // Arrange
-      const customError = {
-        message: 'Custom error',
-        name: 'CustomError',
-        code: 'CUSTOM_ERROR_CODE',
-        statusCode: 400,
-        details: { field: 'username', issue: 'required' },
-        journey: 'health',
+    it('should use default service name when not provided', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
       };
       
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'ERROR' as any,
-        message: 'Error occurred',
-        error: customError,
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.error).toBeDefined();
-      expect(result.error.message).toBe('Custom error');
-      expect(result.error.name).toBe('CustomError');
-      expect(result.error.code).toBe('CUSTOM_ERROR_CODE');
-      expect(result.error.statusCode).toBe(400);
-      expect(result.error.details).toEqual({ field: 'username', issue: 'required' });
-      expect(result.error.journey).toBe('health');
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@aws'].service).toBe('austa-superapp');
     });
 
-    it('should handle null or undefined errors', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'No error',
-        error: null,
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.error).toBeNull();
+    it('should format all log levels correctly', () => {
+      const levels = [
+        { level: LogLevel.DEBUG, expected: 'DEBUG' },
+        { level: LogLevel.INFO, expected: 'INFO' },
+        { level: LogLevel.WARN, expected: 'WARN' },
+        { level: LogLevel.ERROR, expected: 'ERROR' },
+        { level: LogLevel.FATAL, expected: 'FATAL' }
+      ];
+      
+      for (const { level, expected } of levels) {
+        const entry: LogEntry = {
+          message: 'Test message',
+          level,
+          timestamp: new Date('2023-01-01T12:00:00Z')
+        };
+        
+        const result = JSON.parse(formatter.format(entry));
+        
+        expect(result['@level']).toBe(expected);
+      }
     });
   });
 
   describe('request context formatting', () => {
-    it('should format request context in a CloudWatch-friendly format', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
+    it('should format request context correctly', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
         timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'Request processed',
-        context: {
-          request: {
-            id: 'req-123',
-            method: 'POST',
-            path: '/api/health/metrics',
-            userId: 'user-456',
-            duration: 123.45,
-            additionalField: 'value',
-          },
-        },
+        requestId: 'req-123',
+        userId: 'user-456',
+        sessionId: 'session-789',
+        clientIp: '192.168.1.1',
+        userAgent: 'Mozilla/5.0'
       };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.request).toBeDefined();
-      expect(result.request.id).toBe('req-123');
-      expect(result.request.method).toBe('POST');
-      expect(result.request.path).toBe('/api/health/metrics');
-      expect(result.request.userId).toBe('user-456');
-      expect(result.request.duration).toBe(123.45);
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@request']).toEqual({
+        id: 'req-123',
+        userId: 'user-456',
+        sessionId: 'session-789',
+        clientIp: '192.168.1.1',
+        userAgent: 'Mozilla/5.0'
+      });
     });
 
-    it('should handle missing request fields', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'Request processed',
-        context: {
-          request: {
-            id: 'req-123',
-            // Other fields missing
-          },
-        },
+    it('should not include @request field when no request data is present', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
       };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@request']).toBeUndefined();
+    });
 
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.request).toBeDefined();
-      expect(result.request.id).toBe('req-123');
-      expect(result.request.method).toBeUndefined();
-      expect(result.request.path).toBeUndefined();
-      expect(result.request.userId).toBeUndefined();
-      expect(result.request.duration).toBeUndefined();
+    it('should include partial request data when only some fields are present', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        requestId: 'req-123',
+        // Only requestId is provided
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@request']).toEqual({
+        id: 'req-123'
+      });
+      expect(result['@request'].userId).toBeUndefined();
+      expect(result['@request'].sessionId).toBeUndefined();
     });
   });
 
   describe('trace context formatting', () => {
-    it('should format trace context for distributed tracing correlation', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'Operation traced',
-        context: {
-          trace: {
-            id: 'trace-123',
-            spanId: 'span-456',
-            parentSpanId: 'parent-span-789',
-            additionalField: 'value',
-          },
-        },
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.trace).toBeDefined();
-      expect(result.trace.id).toBe('trace-123');
-      expect(result.trace.spanId).toBe('span-456');
-      expect(result.trace.parentSpanId).toBe('parent-span-789');
-    });
-
-    it('should handle missing trace fields', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
-        message: 'Operation traced',
-        context: {
-          trace: {
-            id: 'trace-123',
-            // Other fields missing
-          },
-        },
-      };
-
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
-
-      // Assert
-      expect(result.trace).toBeDefined();
-      expect(result.trace.id).toBe('trace-123');
-      expect(result.trace.spanId).toBeUndefined();
-      expect(result.trace.parentSpanId).toBeUndefined();
-    });
-  });
-
-  describe('integration with JsonFormatter', () => {
-    it('should preserve JsonFormatter functionality', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'INFO' as any,
+    it('should format trace context correctly', () => {
+      const entry: LogEntry = {
         message: 'Test message',
-        metadata: {
-          customField: 'customValue',
-          nestedObject: {
-            nestedField: 'nestedValue',
-          },
-        },
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        traceId: 'trace-123',
+        spanId: 'span-456',
+        parentSpanId: 'parent-789'
       };
-
-      // Create both formatters for comparison
-      const cloudWatchFormatter = new CloudWatchFormatter();
-      const jsonFormatter = new JsonFormatter();
       
-      // Mock the JsonFormatter.format method to verify it's called
-      const jsonFormatSpy = jest.spyOn(JsonFormatter.prototype, 'format');
-
-      // Act
-      const result = JSON.parse(cloudWatchFormatter.format(entry as LogEntry));
-
-      // Assert
-      expect(jsonFormatSpy).toHaveBeenCalled();
-      expect(result.message).toBe('Test message');
-      expect(result.metadata).toBeDefined();
-      expect(result.metadata.customField).toBe('customValue');
-      expect(result.metadata.nestedObject.nestedField).toBe('nestedValue');
+      const result = JSON.parse(formatter.format(entry));
       
-      // Restore the spy
-      jsonFormatSpy.mockRestore();
+      expect(result['@trace']).toEqual({
+        traceId: 'trace-123',
+        spanId: 'span-456',
+        parentSpanId: 'parent-789'
+      });
+    });
+
+    it('should not include @trace field when no trace data is present', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@trace']).toBeUndefined();
+    });
+
+    it('should include partial trace data when only some fields are present', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        traceId: 'trace-123',
+        // Only traceId is provided
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@trace']).toEqual({
+        traceId: 'trace-123'
+      });
+      expect(result['@trace'].spanId).toBeUndefined();
+      expect(result['@trace'].parentSpanId).toBeUndefined();
     });
   });
 
-  describe('CloudWatch Logs Insights query compatibility', () => {
-    it('should structure logs for optimal CloudWatch Logs Insights filtering', () => {
-      // Arrange
-      const entry: Partial<LogEntry> = {
+  describe('journey context formatting', () => {
+    it('should format basic journey context correctly', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
         timestamp: new Date('2023-01-01T12:00:00Z'),
-        level: 'ERROR' as any,
-        message: 'Database connection failed',
-        context: {
-          service: 'database-service',
-          journey: 'health',
-          request: {
-            id: 'req-123',
-            method: 'GET',
-            path: '/api/health/metrics',
-            userId: 'user-456',
-            duration: 1500,
-          },
-          trace: {
-            id: 'trace-123',
-            spanId: 'span-456',
-          },
-        },
-        error: {
-          message: 'Connection refused',
-          name: 'ConnectionError',
-          code: 'ECONNREFUSED',
-          statusCode: 500,
-        },
+        journey: {
+          type: JourneyType.HEALTH,
+          resourceId: 'health-123',
+          action: 'view-metrics'
+        }
       };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@journey']).toEqual({
+        type: JourneyType.HEALTH,
+        resourceId: 'health-123',
+        action: 'view-metrics'
+      });
+    });
 
-      // Act
-      const result = JSON.parse(formatter.format(entry as LogEntry));
+    it('should not include @journey field when no journey data is present', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@journey']).toBeUndefined();
+    });
 
-      // Assert - Verify fields are structured for CloudWatch Logs Insights queries
+    it('should format health journey-specific fields correctly', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        journey: {
+          type: JourneyType.HEALTH,
+          resourceId: 'health-123',
+          action: 'update-metric',
+          data: {
+            metricId: 'metric-123',
+            goalId: 'goal-456',
+            deviceId: 'device-789',
+            value: 75,
+            unit: 'bpm'
+          }
+        }
+      };
       
-      // These fields should be at the top level for direct filtering
-      expect(result.logLevel).toBe('ERROR');
-      expect(result.timestamp).toBe('2023-01-01T12:00:00.000Z');
-      expect(result.message).toBe('Database connection failed');
+      const result = JSON.parse(formatter.format(entry));
       
-      // AWS metadata should be structured for filtering
-      expect(result.aws.service).toBe('database-service');
-      expect(result.aws.journey).toBe('health');
-      expect(result.aws.environment).toBe('test');
-      expect(result.aws.region).toBe('us-west-2');
+      expect(result['@journey'].type).toBe(JourneyType.HEALTH);
+      expect(result['@journey'].metricId).toBe('metric-123');
+      expect(result['@journey'].goalId).toBe('goal-456');
+      expect(result['@journey'].deviceId).toBe('device-789');
+      expect(result['@journey'].data).toEqual({
+        metricId: 'metric-123',
+        goalId: 'goal-456',
+        deviceId: 'device-789',
+        value: 75,
+        unit: 'bpm'
+      });
+    });
+
+    it('should format care journey-specific fields correctly', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        journey: {
+          type: JourneyType.CARE,
+          resourceId: 'care-123',
+          action: 'book-appointment',
+          data: {
+            appointmentId: 'appt-123',
+            providerId: 'provider-456',
+            medicationId: 'med-789',
+            date: '2023-02-01',
+            time: '14:30'
+          }
+        }
+      };
       
-      // Request context should be structured for filtering
-      expect(result.request.id).toBe('req-123');
-      expect(result.request.method).toBe('GET');
-      expect(result.request.path).toBe('/api/health/metrics');
-      expect(result.request.userId).toBe('user-456');
-      expect(result.request.duration).toBe(1500);
+      const result = JSON.parse(formatter.format(entry));
       
-      // Trace context should be structured for filtering
-      expect(result.trace.id).toBe('trace-123');
-      expect(result.trace.spanId).toBe('span-456');
+      expect(result['@journey'].type).toBe(JourneyType.CARE);
+      expect(result['@journey'].appointmentId).toBe('appt-123');
+      expect(result['@journey'].providerId).toBe('provider-456');
+      expect(result['@journey'].medicationId).toBe('med-789');
+      expect(result['@journey'].data).toEqual({
+        appointmentId: 'appt-123',
+        providerId: 'provider-456',
+        medicationId: 'med-789',
+        date: '2023-02-01',
+        time: '14:30'
+      });
+    });
+
+    it('should format plan journey-specific fields correctly', () => {
+      const entry: LogEntry = {
+        message: 'Test message',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        journey: {
+          type: JourneyType.PLAN,
+          resourceId: 'plan-123',
+          action: 'submit-claim',
+          data: {
+            planId: 'plan-123',
+            benefitId: 'benefit-456',
+            claimId: 'claim-789',
+            amount: 150.75,
+            status: 'submitted'
+          }
+        }
+      };
       
-      // Error should be structured for filtering
-      expect(result.error.message).toBe('Connection refused');
-      expect(result.error.name).toBe('ConnectionError');
-      expect(result.error.code).toBe('ECONNREFUSED');
-      expect(result.error.statusCode).toBe(500);
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@journey'].type).toBe(JourneyType.PLAN);
+      expect(result['@journey'].planId).toBe('plan-123');
+      expect(result['@journey'].benefitId).toBe('benefit-456');
+      expect(result['@journey'].claimId).toBe('claim-789');
+      expect(result['@journey'].data).toEqual({
+        planId: 'plan-123',
+        benefitId: 'benefit-456',
+        claimId: 'claim-789',
+        amount: 150.75,
+        status: 'submitted'
+      });
+    });
+  });
+
+  describe('error formatting', () => {
+    it('should format basic error information correctly', () => {
+      const entry: LogEntry = {
+        message: 'An error occurred',
+        level: LogLevel.ERROR,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        error: {
+          message: 'Something went wrong',
+          name: 'TestError',
+          code: 'ERR_TEST_FAILURE'
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@error']).toEqual({
+        message: 'Something went wrong',
+        name: 'TestError',
+        code: 'ERR_TEST_FAILURE'
+      });
+    });
+
+    it('should use default error name when not provided', () => {
+      const entry: LogEntry = {
+        message: 'An error occurred',
+        level: LogLevel.ERROR,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        error: {
+          message: 'Something went wrong'
+          // No name provided
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@error'].name).toBe('Error');
+    });
+
+    it('should format stack trace correctly', () => {
+      const stackTrace = 'Error: Something went wrong\n    at Test.method (/app/test.js:10:15)\n    at process._tickCallback (internal/process/next_tick.js:68:7)';
+      const entry: LogEntry = {
+        message: 'An error occurred',
+        level: LogLevel.ERROR,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        error: {
+          message: 'Something went wrong',
+          name: 'TestError',
+          stack: stackTrace
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      // Verify that newlines are replaced with \r\n for CloudWatch
+      expect(result['@error'].stack).toBe(stackTrace.replace(/\n/g, '\r\n'));
+    });
+
+    it('should include error classification fields when provided', () => {
+      const entry: LogEntry = {
+        message: 'An error occurred',
+        level: LogLevel.ERROR,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        error: {
+          message: 'Something went wrong',
+          name: 'TestError',
+          isTransient: true,
+          isClientError: false,
+          isExternalError: true
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@error'].isTransient).toBe(true);
+      expect(result['@error'].isClientError).toBe(false);
+      expect(result['@error'].isExternalError).toBe(true);
+    });
+
+    it('should not include error classification fields when not provided', () => {
+      const entry: LogEntry = {
+        message: 'An error occurred',
+        level: LogLevel.ERROR,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        error: {
+          message: 'Something went wrong',
+          name: 'TestError'
+          // No classification fields
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      expect(result['@error'].isTransient).toBeUndefined();
+      expect(result['@error'].isClientError).toBeUndefined();
+      expect(result['@error'].isExternalError).toBeUndefined();
+    });
+  });
+
+  describe('CloudWatch Logs Insights compatibility', () => {
+    it('should format logs for optimal CloudWatch Logs Insights querying', () => {
+      const timestamp = new Date('2023-01-01T12:00:00Z');
+      const entry: LogEntry = {
+        message: 'Test message for CloudWatch Logs Insights',
+        level: LogLevel.INFO,
+        timestamp,
+        serviceName: 'test-service',
+        requestId: 'req-123',
+        userId: 'user-456',
+        traceId: 'trace-123',
+        journey: {
+          type: JourneyType.HEALTH,
+          resourceId: 'health-123',
+          action: 'view-metrics'
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      // Verify CloudWatch Logs Insights optimized fields (with @ prefix)
+      expect(result['@timestamp']).toBe(timestamp.toISOString());
+      expect(result['@message']).toBe('Test message for CloudWatch Logs Insights');
+      expect(result['@level']).toBe('INFO');
+      expect(result['@aws']).toBeDefined();
+      expect(result['@request']).toBeDefined();
+      expect(result['@trace']).toBeDefined();
+      expect(result['@journey']).toBeDefined();
+      
+      // Verify nested fields are properly structured for querying
+      expect(result['@aws'].region).toBe(mockRegion);
+      expect(result['@request'].id).toBe('req-123');
+      expect(result['@trace'].traceId).toBe('trace-123');
+      expect(result['@journey'].type).toBe(JourneyType.HEALTH);
+    });
+
+    it('should format complex nested objects for CloudWatch Logs Insights querying', () => {
+      const entry: LogEntry = {
+        message: 'Complex object test',
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z'),
+        contextData: {
+          nestedObject: {
+            level1: {
+              level2: {
+                level3: 'deep value'
+              }
+            },
+            array: [1, 2, { key: 'value' }]
+          }
+        },
+        journey: {
+          type: JourneyType.HEALTH,
+          data: {
+            complexMetric: {
+              values: [75, 80, 85],
+              average: 80,
+              metadata: {
+                source: 'device',
+                reliability: 'high'
+              }
+            }
+          }
+        }
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      // Verify complex nested objects are properly formatted
+      expect(result['@journey'].data.complexMetric.values).toEqual([75, 80, 85]);
+      expect(result['@journey'].data.complexMetric.metadata.reliability).toBe('high');
+    });
+
+    it('should handle special characters in log messages for CloudWatch compatibility', () => {
+      const specialCharsMessage = 'Special chars: \n\r\t\b\f\'\"\\';  
+      const entry: LogEntry = {
+        message: specialCharsMessage,
+        level: LogLevel.INFO,
+        timestamp: new Date('2023-01-01T12:00:00Z')
+      };
+      
+      const result = JSON.parse(formatter.format(entry));
+      
+      // Verify special characters are properly escaped in JSON
+      expect(result['@message']).toBe(specialCharsMessage);
     });
   });
 });
