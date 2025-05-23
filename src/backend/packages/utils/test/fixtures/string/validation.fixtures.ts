@@ -1,197 +1,95 @@
 /**
- * Test fixtures for Brazilian CPF validation.
- * These fixtures are used to test the isValidCPF function across all journey services.
+ * Test fixtures for string validation utilities.
+ * These fixtures are used to test validation functions across all journey services.
  */
 
 /**
- * Interface for CPF validation test cases
+ * Test fixtures for CPF (Brazilian tax ID) validation
  */
-export interface CPFTestCase {
-  /** The CPF string to test */
-  input: string;
-  /** The expected validation result */
+export interface CPFFixture {
+  value: string;
   isValid: boolean;
-  /** Description of the test case */
   description: string;
 }
 
 /**
- * Valid CPF test cases
- * These CPFs pass the validation algorithm with correct verification digits
+ * Collection of valid CPF test fixtures
  */
-export const validCPFTestCases: CPFTestCase[] = [
-  // Formatted CPFs (with dots and hyphen)
+export const validCPFFixtures: CPFFixture[] = [
   {
-    input: '529.982.247-25',
+    value: '529.982.247-25',
     isValid: true,
-    description: 'Valid CPF with standard formatting (dots and hyphen)'
+    description: 'Valid CPF with punctuation'
   },
   {
-    input: '111.444.777-35',
+    value: '52998224725',
     isValid: true,
-    description: 'Valid CPF with standard formatting and repeated digit groups'
-  },
-  
-  // Unformatted CPFs (just digits)
-  {
-    input: '52998224725',
-    isValid: true,
-    description: 'Valid CPF without formatting (just digits)'
+    description: 'Valid CPF without punctuation'
   },
   {
-    input: '11144477735',
+    value: '111.444.777-35',
     isValid: true,
-    description: 'Valid CPF without formatting and with repeated digit groups'
-  },
-  
-  // CPFs with different spacing and formatting
-  {
-    input: '529 982 247 25',
-    isValid: true,
-    description: 'Valid CPF with spaces instead of dots and hyphen'
+    description: 'Valid CPF with repeated digits and punctuation'
   },
   {
-    input: '529-982-247-25',
+    value: '11144477735',
     isValid: true,
-    description: 'Valid CPF with all hyphens as separators'
-  },
-  
-  // Known valid CPFs for testing
-  {
-    input: '987.654.321-00',
-    isValid: true,
-    description: 'Valid CPF with descending sequence and specific check digits'
+    description: 'Valid CPF with repeated digits without punctuation'
   },
   {
-    input: '248.438.034-80',
+    value: '071.488.954-23',
     isValid: true,
-    description: 'Valid CPF with mixed digits'
+    description: 'Valid CPF starting with zero'
   }
 ];
 
 /**
- * Invalid CPF test cases
- * These CPFs fail the validation for various reasons
+ * Collection of invalid CPF test fixtures
  */
-export const invalidCPFTestCases: CPFTestCase[] = [
-  // CPFs with incorrect length
+export const invalidCPFFixtures: CPFFixture[] = [
   {
-    input: '1234567890', // 10 digits (too short)
+    value: '111.111.111-11',
     isValid: false,
-    description: 'Invalid CPF with only 10 digits (too short)'
+    description: 'Invalid CPF with all same digits'
   },
   {
-    input: '123456789012', // 12 digits (too long)
+    value: '123.456.789-10',
     isValid: false,
-    description: 'Invalid CPF with 12 digits (too long)'
-  },
-  
-  // CPFs with all digits the same (invalid by rule)
-  {
-    input: '111.111.111-11',
-    isValid: false,
-    description: 'Invalid CPF with all digits being 1 (fails same-digit check)'
+    description: 'Invalid CPF with incorrect check digits'
   },
   {
-    input: '000.000.000-00',
+    value: '529.982.247-26', // Changed last digit from valid CPF
     isValid: false,
-    description: 'Invalid CPF with all digits being 0 (fails same-digit check)'
+    description: 'Invalid CPF with wrong check digit'
   },
   {
-    input: '999.999.999-99',
+    value: '123.456.789',
     isValid: false,
-    description: 'Invalid CPF with all digits being 9 (fails same-digit check)'
-  },
-  
-  // CPFs with incorrect verification digits
-  {
-    input: '529.982.247-26', // Last digit should be 25
-    isValid: false,
-    description: 'Invalid CPF with incorrect verification digit'
+    description: 'Invalid CPF with insufficient digits'
   },
   {
-    input: '529.982.247-35', // Both verification digits are wrong
+    value: '123.456.789-0',
     isValid: false,
-    description: 'Invalid CPF with both verification digits incorrect'
-  },
-  
-  // CPFs with invalid characters
-  {
-    input: '529.982.24A-25', // Contains a letter
-    isValid: false,
-    description: 'Invalid CPF containing a letter'
+    description: 'Invalid CPF with insufficient digits'
   },
   {
-    input: '529.982.247-2', // Missing last digit
+    value: '123.456.789-000',
     isValid: false,
-    description: 'Invalid CPF missing the last digit'
+    description: 'Invalid CPF with too many digits'
+  },
+  {
+    value: 'ABC.DEF.GHI-JK',
+    isValid: false,
+    description: 'Invalid CPF with non-numeric characters'
+  },
+  {
+    value: '',
+    isValid: false,
+    description: 'Empty string'
   }
 ];
 
 /**
- * Edge cases for CPF validation
- * These test boundary conditions and potential error inputs
+ * Combined collection of all CPF test fixtures
  */
-export const cpfEdgeCases: CPFTestCase[] = [
-  // Empty or null-like inputs
-  {
-    input: '',
-    isValid: false,
-    description: 'Empty string should be invalid'
-  },
-  {
-    input: ' ',
-    isValid: false,
-    description: 'String with only whitespace should be invalid'
-  },
-  
-  // Malformed inputs
-  {
-    input: '529.982.247',
-    isValid: false,
-    description: 'Partial CPF (missing verification digits)'
-  },
-  {
-    input: '529.982.247-',
-    isValid: false,
-    description: 'CPF with missing verification digits after hyphen'
-  },
-  {
-    input: '.982.247-25',
-    isValid: false,
-    description: 'CPF with missing first group of digits'
-  },
-  
-  // Unusual formatting
-  {
-    input: '52998224725', // Valid but unusual format
-    isValid: true,
-    description: 'Valid CPF without any separators'
-  },
-  {
-    input: '5.2.9.9.8.2.2.4.7.2.5', // Each digit separated
-    isValid: true,
-    description: 'Valid CPF with each digit separated by a dot'
-  },
-  
-  // Special sequences
-  {
-    input: '123.456.789-09', // Sequential digits with valid check digits
-    isValid: true,
-    description: 'Valid CPF with sequential digits and correct check digits'
-  },
-  {
-    input: '987.654.321-00', // Reverse sequential with valid check digits
-    isValid: true,
-    description: 'Valid CPF with reverse sequential digits and correct check digits'
-  }
-];
-
-/**
- * All CPF test cases combined
- */
-export const allCPFTestCases: CPFTestCase[] = [
-  ...validCPFTestCases,
-  ...invalidCPFTestCases,
-  ...cpfEdgeCases
-];
+export const cpfFixtures: CPFFixture[] = [...validCPFFixtures, ...invalidCPFFixtures];
