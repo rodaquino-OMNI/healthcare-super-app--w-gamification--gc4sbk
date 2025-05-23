@@ -1,9 +1,11 @@
 /**
  * Date Validation Utilities
  * 
- * Provides comprehensive date validation functions for ensuring date integrity
- * across all backend services. These utilities are essential for appointment scheduling,
- * health records, insurance claims, and any date-dependent functionality.
+ * This module provides comprehensive date validation utilities for ensuring date integrity
+ * across all backend services. It includes validation for date ranges, future/past dates,
+ * business days, and handling timezone-specific validation.
+ * 
+ * @module date.validator
  */
 
 import {
@@ -12,197 +14,28 @@ import {
   isAfter,
   isSameDay,
   isWeekend,
+  isWithinInterval,
+  parseISO,
+  addDays,
+  subDays,
   differenceInDays,
   differenceInMonths,
   differenceInYears,
-  addDays,
-  parseISO,
+  setHours,
+  setMinutes,
+  setSeconds,
+  setMilliseconds,
   startOfDay,
-  endOfDay
+  endOfDay,
+  format
 } from 'date-fns';
-import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
+import { zonedTimeToUtc, utcToZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 /**
- * Type guard for Date objects
- * Checks if a value is a valid Date object
- * 
- * @param value - The value to check
- * @returns True if the value is a valid Date object, false otherwise
+ * Brazilian holidays for the current year
+ * This should be updated annually or retrieved from an API
  */
-export const isDateObject = (value: any): value is Date => {
-  return value instanceof Date && isValid(value);
-};
-
-/**
- * Enhanced type guard for date values
- * Checks if a value is a valid date (Date object, ISO string, or timestamp)
- * with improved type narrowing
- * 
- * @param value - The value to check
- * @returns True if the value is a valid date, false otherwise
- */
-export const isValidDate = (value: any): boolean => {
-  if (value === null || value === undefined) {
-    return false;
-  }
-  
-  // Check if it's a Date object
-  if (value instanceof Date) {
-    return isValid(value);
-  }
-  
-  // Check if it's a string that can be parsed as a date
-  if (typeof value === 'string') {
-    try {
-      const dateObj = parseISO(value);
-      return isValid(dateObj);
-    } catch {
-      return false;
-    }
-  }
-  
-  // Check if it's a number (timestamp)
-  if (typeof value === 'number') {
-    try {
-      const dateObj = new Date(value);
-      return isValid(dateObj) && !isNaN(dateObj.getTime());
-    } catch {
-      return false;
-    }
-  }
-  
-  return false;
-};
-
-/**
- * Normalizes a date value to a Date object
- * 
- * @param date - The date value to normalize (Date object, ISO string, or timestamp)
- * @returns A Date object or null if the input is invalid
- */
-export const normalizeDate = (date: Date | string | number): Date | null => {
-  if (!isValidDate(date)) {
-    return null;
-  }
-  
-  if (date instanceof Date) {
-    return date;
-  }
-  
-  if (typeof date === 'string') {
-    return parseISO(date);
-  }
-  
-  return new Date(date);
-};
-
-/**
- * Checks if a date is within a specified range with enhanced range handling
- * 
- * @param date - The date to check
- * @param startDate - The start date of the range
- * @param endDate - The end date of the range
- * @param options - Options for range comparison
- * @returns True if the date is within the range, false otherwise
- */
-export const isDateInRange = (
-  date: Date | string | number,
-  startDate: Date | string | number,
-  endDate: Date | string | number,
-  options: { inclusive?: boolean } = { inclusive: true }
-): boolean => {
-  const dateObj = normalizeDate(date);
-  const startDateObj = normalizeDate(startDate);
-  const endDateObj = normalizeDate(endDate);
-  
-  if (!dateObj || !startDateObj || !endDateObj) {
-    return false;
-  }
-  
-  if (options.inclusive) {
-    const isAfterOrEqualStart = isAfter(dateObj, startDateObj) || isSameDay(dateObj, startDateObj);
-    const isBeforeOrEqualEnd = isBefore(dateObj, endDateObj) || isSameDay(dateObj, endDateObj);
-    return isAfterOrEqualStart && isBeforeOrEqualEnd;
-  } else {
-    return isAfter(dateObj, startDateObj) && isBefore(dateObj, endDateObj);
-  }
-};
-
-/**
- * Checks if a date is in the future
- * 
- * @param date - The date to check
- * @param options - Options for future date validation
- * @returns True if the date is in the future, false otherwise
- */
-export const isFutureDate = (
-  date: Date | string | number,
-  options: { threshold?: number; thresholdUnit?: 'days' | 'months' | 'years'; referenceDate?: Date } = {}
-): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return false;
-  }
-  
-  const referenceDate = options.referenceDate || new Date();
-  
-  // If no threshold is specified, simply check if the date is in the future
-  if (!options.threshold) {
-    return isAfter(dateObj, referenceDate);
-  }
-  
-  // Apply threshold based on the specified unit
-  switch (options.thresholdUnit || 'days') {
-    case 'days':
-      return differenceInDays(dateObj, referenceDate) > options.threshold;
-    case 'months':
-      return differenceInMonths(dateObj, referenceDate) > options.threshold;
-    case 'years':
-      return differenceInYears(dateObj, referenceDate) > options.threshold;
-    default:
-      return isAfter(dateObj, referenceDate);
-  }
-};
-
-/**
- * Checks if a date is in the past
- * 
- * @param date - The date to check
- * @param options - Options for past date validation
- * @returns True if the date is in the past, false otherwise
- */
-export const isPastDate = (
-  date: Date | string | number,
-  options: { threshold?: number; thresholdUnit?: 'days' | 'months' | 'years'; referenceDate?: Date } = {}
-): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return false;
-  }
-  
-  const referenceDate = options.referenceDate || new Date();
-  
-  // If no threshold is specified, simply check if the date is in the past
-  if (!options.threshold) {
-    return isBefore(dateObj, referenceDate);
-  }
-  
-  // Apply threshold based on the specified unit
-  switch (options.thresholdUnit || 'days') {
-    case 'days':
-      return differenceInDays(referenceDate, dateObj) > options.threshold;
-    case 'months':
-      return differenceInMonths(referenceDate, dateObj) > options.threshold;
-    case 'years':
-      return differenceInYears(referenceDate, dateObj) > options.threshold;
-    default:
-      return isBefore(dateObj, referenceDate);
-  }
-};
-
-// Brazilian holidays for 2023-2024
-const BRAZILIAN_HOLIDAYS_2023_2024 = [
-  // 2023 Holidays
+const BRAZILIAN_HOLIDAYS_2023 = [
   new Date(2023, 0, 1),  // New Year's Day
   new Date(2023, 1, 20), // Carnival Monday
   new Date(2023, 1, 21), // Carnival Tuesday
@@ -216,8 +49,10 @@ const BRAZILIAN_HOLIDAYS_2023_2024 = [
   new Date(2023, 10, 2), // All Souls' Day
   new Date(2023, 10, 15), // Republic Proclamation Day
   new Date(2023, 11, 25), // Christmas Day
-  
-  // 2024 Holidays
+];
+
+// Add 2024 holidays
+const BRAZILIAN_HOLIDAYS_2024 = [
   new Date(2024, 0, 1),  // New Year's Day
   new Date(2024, 1, 12), // Carnival Monday
   new Date(2024, 1, 13), // Carnival Tuesday
@@ -230,27 +65,273 @@ const BRAZILIAN_HOLIDAYS_2023_2024 = [
   new Date(2024, 9, 12), // Our Lady of Aparecida
   new Date(2024, 10, 2), // All Souls' Day
   new Date(2024, 10, 15), // Republic Proclamation Day
-  new Date(2024, 10, 20), // National Day of Zumbi and Black Consciousness (new in 2024)
   new Date(2024, 11, 25), // Christmas Day
 ];
 
+// Combine holidays
+const BRAZILIAN_HOLIDAYS = [...BRAZILIAN_HOLIDAYS_2023, ...BRAZILIAN_HOLIDAYS_2024];
+
 /**
- * Checks if a date is a Brazilian holiday
- * 
- * @param date - The date to check
- * @returns True if the date is a Brazilian holiday, false otherwise
+ * Journey-specific date constraints
  */
-export const isBrazilianHoliday = (date: Date | string | number): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return false;
-  }
-  
-  return BRAZILIAN_HOLIDAYS_2023_2024.some(holiday => isSameDay(holiday, dateObj));
+interface JourneyDateConstraints {
+  minDate?: Date;
+  maxDate?: Date;
+  allowWeekends?: boolean;
+  allowHolidays?: boolean;
+  timeRestrictions?: {
+    minHour?: number;
+    maxHour?: number;
+    minMinute?: number;
+    maxMinute?: number;
+  };
+}
+
+/**
+ * Default journey constraints
+ */
+const DEFAULT_JOURNEY_CONSTRAINTS: Record<string, JourneyDateConstraints> = {
+  health: {
+    minDate: new Date(1900, 0, 1),
+    maxDate: new Date(new Date().getFullYear() + 1, 11, 31),
+    allowWeekends: true,
+    allowHolidays: true,
+  },
+  care: {
+    minDate: new Date(),
+    maxDate: new Date(new Date().getFullYear() + 1, 11, 31),
+    allowWeekends: false,
+    allowHolidays: false,
+    timeRestrictions: {
+      minHour: 8,
+      maxHour: 18,
+      minMinute: 0,
+      maxMinute: 30,
+    },
+  },
+  plan: {
+    minDate: new Date(new Date().getFullYear() - 5, 0, 1),
+    maxDate: new Date(),
+    allowWeekends: false,
+    allowHolidays: false,
+  },
 };
 
 /**
- * Checks if a date is a business day (not a weekend or holiday)
+ * Type guard for Date objects
+ * @param value - The value to check
+ * @returns True if the value is a Date object
+ */
+const isDateObject = (value: any): value is Date => {
+  return value instanceof Date;
+};
+
+/**
+ * Normalizes a date input to a Date object
+ * 
+ * @param date - The date to normalize (Date, string, or number)
+ * @returns A Date object or null if invalid
+ */
+export const normalizeDate = (date: Date | string | number): Date | null => {
+  if (date === null || date === undefined) {
+    return null;
+  }
+  
+  if (isDateObject(date)) {
+    return date;
+  }
+  
+  if (typeof date === 'string') {
+    try {
+      // Try to parse as ISO string first
+      const parsedDate = parseISO(date);
+      if (isValid(parsedDate)) {
+        return parsedDate;
+      }
+      
+      // If not valid ISO, try as timestamp
+      const timestampDate = new Date(date);
+      return isValid(timestampDate) ? timestampDate : null;
+    } catch (error) {
+      return null;
+    }
+  }
+  
+  if (typeof date === 'number') {
+    try {
+      const timestampDate = new Date(date);
+      return isValid(timestampDate) ? timestampDate : null;
+    } catch (error) {
+      return null;
+    }
+  }
+  
+  return null;
+};
+
+/**
+ * Checks if a date is valid
+ * Enhanced version with improved type narrowing and validation
+ * 
+ * @param date - The date to validate (Date, string, or number)
+ * @returns True if the date is valid, false otherwise
+ */
+export const isValidDate = (date: any): boolean => {
+  if (date === null || date === undefined) {
+    return false;
+  }
+  
+  const normalizedDate = normalizeDate(date);
+  return normalizedDate !== null;
+};
+
+/**
+ * Checks if a date is within a specified range
+ * Enhanced version with better range handling and validation
+ * 
+ * @param date - The date to check
+ * @param startDate - The start date of the range
+ * @param endDate - The end date of the range
+ * @param options - Options for range validation
+ * @returns True if the date is within the range, false otherwise
+ */
+export const isDateInRange = (
+  date: Date | string | number,
+  startDate: Date | string | number,
+  endDate: Date | string | number,
+  options: { inclusive?: boolean } = { inclusive: true }
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  const normalizedStartDate = normalizeDate(startDate);
+  const normalizedEndDate = normalizeDate(endDate);
+  
+  if (!normalizedDate || !normalizedStartDate || !normalizedEndDate) {
+    return false;
+  }
+  
+  if (options.inclusive) {
+    return isWithinInterval(normalizedDate, {
+      start: normalizedStartDate,
+      end: normalizedEndDate
+    });
+  } else {
+    return (
+      isAfter(normalizedDate, normalizedStartDate) &&
+      isBefore(normalizedDate, normalizedEndDate)
+    );
+  }
+};
+
+/**
+ * Checks if a date is in the future
+ * 
+ * @param date - The date to check
+ * @param options - Options for future date validation
+ * @returns True if the date is in the future, false otherwise
+ */
+export const isFutureDate = (
+  date: Date | string | number,
+  options: {
+    referenceDate?: Date;
+    minDaysInFuture?: number;
+    maxDaysInFuture?: number;
+    inclusive?: boolean;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  const referenceDate = options.referenceDate || new Date();
+  const startOfReferenceDay = startOfDay(referenceDate);
+  
+  // Check if date is in the future
+  if (options.inclusive) {
+    if (isBefore(normalizedDate, startOfReferenceDay)) {
+      return false;
+    }
+  } else {
+    if (!isAfter(normalizedDate, referenceDate)) {
+      return false;
+    }
+  }
+  
+  // Check minimum days in future constraint
+  if (options.minDaysInFuture !== undefined) {
+    const minFutureDate = addDays(startOfReferenceDay, options.minDaysInFuture);
+    if (isBefore(normalizedDate, minFutureDate)) {
+      return false;
+    }
+  }
+  
+  // Check maximum days in future constraint
+  if (options.maxDaysInFuture !== undefined) {
+    const maxFutureDate = addDays(startOfReferenceDay, options.maxDaysInFuture);
+    if (isAfter(normalizedDate, endOfDay(maxFutureDate))) {
+      return false;
+    }
+  }
+  
+  return true;
+};
+
+/**
+ * Checks if a date is in the past
+ * 
+ * @param date - The date to check
+ * @param options - Options for past date validation
+ * @returns True if the date is in the past, false otherwise
+ */
+export const isPastDate = (
+  date: Date | string | number,
+  options: {
+    referenceDate?: Date;
+    minDaysInPast?: number;
+    maxDaysInPast?: number;
+    inclusive?: boolean;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  const referenceDate = options.referenceDate || new Date();
+  const startOfReferenceDay = startOfDay(referenceDate);
+  
+  // Check if date is in the past
+  if (options.inclusive) {
+    if (isAfter(normalizedDate, startOfReferenceDay)) {
+      return false;
+    }
+  } else {
+    if (!isBefore(normalizedDate, referenceDate)) {
+      return false;
+    }
+  }
+  
+  // Check minimum days in past constraint
+  if (options.minDaysInPast !== undefined) {
+    const minPastDate = subDays(startOfReferenceDay, options.minDaysInPast);
+    if (isAfter(normalizedDate, minPastDate)) {
+      return false;
+    }
+  }
+  
+  // Check maximum days in past constraint
+  if (options.maxDaysInPast !== undefined) {
+    const maxPastDate = subDays(startOfReferenceDay, options.maxDaysInPast);
+    if (isBefore(normalizedDate, startOfDay(maxPastDate))) {
+      return false;
+    }
+  }
+  
+  return true;
+};
+
+/**
+ * Checks if a date is a business day (not a weekend or holiday in Brazil)
  * 
  * @param date - The date to check
  * @param options - Options for business day validation
@@ -258,307 +339,586 @@ export const isBrazilianHoliday = (date: Date | string | number): boolean => {
  */
 export const isBusinessDay = (
   date: Date | string | number,
-  options: { countryCode?: string; timezone?: string } = { countryCode: 'BR' }
+  options: {
+    includeHolidays?: boolean;
+    customHolidays?: Date[];
+    region?: string;
+  } = { includeHolidays: true, region: 'BR' }
 ): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
     return false;
-  }
-  
-  // Apply timezone if specified
-  let adjustedDate = dateObj;
-  if (options.timezone) {
-    adjustedDate = utcToZonedTime(dateObj, options.timezone);
   }
   
   // Check if it's a weekend
-  if (isWeekend(adjustedDate)) {
+  if (isWeekend(normalizedDate)) {
     return false;
   }
   
-  // Check if it's a holiday based on country code
-  if (options.countryCode === 'BR') {
-    return !isBrazilianHoliday(adjustedDate);
+  // Skip holiday check if not required
+  if (!options.includeHolidays) {
+    return true;
   }
   
-  // For other countries, only check weekends
-  return true;
+  // Combine default and custom holidays
+  const holidays = options.region === 'BR' 
+    ? [...BRAZILIAN_HOLIDAYS, ...(options.customHolidays || [])]
+    : options.customHolidays || [];
+  
+  // Check if it's a holiday
+  return !holidays.some(holiday => isSameDay(normalizedDate!, holiday));
 };
 
 /**
- * Checks if a date is valid for a specific journey context
+ * Validates a date according to journey-specific constraints
  * 
- * @param date - The date to check
+ * @param date - The date to validate
  * @param journeyId - The journey identifier (health, care, plan)
- * @param options - Options for journey-specific validation
- * @returns True if the date is valid for the journey, false otherwise
+ * @param options - Additional validation options
+ * @returns True if the date is valid for the specified journey, false otherwise
  */
 export const isValidJourneyDate = (
   date: Date | string | number,
   journeyId: string,
-  options: { 
-    maxFutureDays?: number; 
-    maxPastDays?: number; 
-    businessDaysOnly?: boolean;
+  options: {
+    customConstraints?: JourneyDateConstraints;
+    referenceDate?: Date;
     timezone?: string;
   } = {}
 ): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
     return false;
   }
   
-  // Apply timezone if specified
-  let adjustedDate = dateObj;
-  if (options.timezone) {
-    adjustedDate = utcToZonedTime(dateObj, options.timezone);
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  const referenceDate = options.referenceDate || new Date();
+  const journeyKey = journeyId.toLowerCase();
+  
+  // Convert to the specified timezone if provided
+  const dateInTimezone = timezone ? utcToZonedTime(normalizedDate, timezone) : normalizedDate;
+  const referenceDateInTimezone = timezone ? utcToZonedTime(referenceDate, timezone) : referenceDate;
+  
+  // Get journey constraints (custom or default)
+  const constraints = options.customConstraints || 
+    DEFAULT_JOURNEY_CONSTRAINTS[journeyKey] || 
+    DEFAULT_JOURNEY_CONSTRAINTS.health; // Fallback to health constraints
+  
+  // Check date range
+  if (constraints.minDate) {
+    const minDateInTimezone = timezone ? utcToZonedTime(constraints.minDate, timezone) : constraints.minDate;
+    if (isBefore(dateInTimezone, minDateInTimezone)) {
+      return false;
+    }
   }
   
-  const now = options.timezone ? utcToZonedTime(new Date(), options.timezone) : new Date();
-  
-  // Journey-specific validations
-  switch (journeyId.toLowerCase()) {
-    case 'health':
-      // Health journey: Allow past dates for health records, but limit future dates
-      if (options.maxFutureDays && differenceInDays(adjustedDate, now) > options.maxFutureDays) {
-        return false;
-      }
-      return true;
-      
-    case 'care':
-      // Care journey: Only allow business days for appointments, limit both past and future
-      if (options.businessDaysOnly && !isBusinessDay(adjustedDate, { countryCode: 'BR', timezone: options.timezone })) {
-        return false;
-      }
-      if (options.maxPastDays && differenceInDays(now, adjustedDate) > options.maxPastDays) {
-        return false;
-      }
-      if (options.maxFutureDays && differenceInDays(adjustedDate, now) > options.maxFutureDays) {
-        return false;
-      }
-      return true;
-      
-    case 'plan':
-      // Plan journey: Allow past dates for claims, but limit how far in the past
-      if (options.maxPastDays && differenceInDays(now, adjustedDate) > options.maxPastDays) {
-        return false;
-      }
-      return true;
-      
-    default:
-      // Default validation
-      return isValidDate(adjustedDate);
+  if (constraints.maxDate) {
+    const maxDateInTimezone = timezone ? utcToZonedTime(constraints.maxDate, timezone) : constraints.maxDate;
+    if (isAfter(dateInTimezone, maxDateInTimezone)) {
+      return false;
+    }
   }
-};
-
-/**
- * Validates a date range for a specific journey context
- * 
- * @param startDate - The start date of the range
- * @param endDate - The end date of the range
- * @param journeyId - The journey identifier (health, care, plan)
- * @param options - Options for journey-specific range validation
- * @returns True if the date range is valid for the journey, false otherwise
- */
-export const isValidJourneyDateRange = (
-  startDate: Date | string | number,
-  endDate: Date | string | number,
-  journeyId: string,
-  options: { 
-    maxRangeDays?: number; 
-    businessDaysOnly?: boolean;
-    timezone?: string;
-  } = {}
-): boolean => {
-  const startDateObj = normalizeDate(startDate);
-  const endDateObj = normalizeDate(endDate);
   
-  if (!startDateObj || !endDateObj) {
+  // Check weekend restriction
+  if (!constraints.allowWeekends && isWeekend(dateInTimezone)) {
     return false;
   }
   
-  // Apply timezone if specified
-  let adjustedStartDate = startDateObj;
-  let adjustedEndDate = endDateObj;
-  if (options.timezone) {
-    adjustedStartDate = utcToZonedTime(startDateObj, options.timezone);
-    adjustedEndDate = utcToZonedTime(endDateObj, options.timezone);
-  }
-  
-  // Check if start date is before end date
-  if (!isBefore(adjustedStartDate, adjustedEndDate)) {
+  // Check holiday restriction
+  if (!constraints.allowHolidays && !isBusinessDay(dateInTimezone, { region: 'BR' })) {
     return false;
   }
   
-  // Check if both dates are valid for the journey
-  if (!isValidJourneyDate(adjustedStartDate, journeyId, options) || 
-      !isValidJourneyDate(adjustedEndDate, journeyId, options)) {
-    return false;
-  }
-  
-  // Check if the range doesn't exceed the maximum allowed days
-  if (options.maxRangeDays && 
-      differenceInDays(adjustedEndDate, adjustedStartDate) > options.maxRangeDays) {
-    return false;
-  }
-  
-  return true;
-};
-
-/**
- * Validates a date in a specific timezone
- * 
- * @param date - The date to validate
- * @param timezone - The timezone to validate the date in
- * @param options - Additional validation options
- * @returns True if the date is valid in the specified timezone, false otherwise
- */
-export const isValidDateInTimezone = (
-  date: Date | string | number,
-  timezone: string,
-  options: { 
-    businessDay?: boolean; 
-    minDate?: Date | string | number;
-    maxDate?: Date | string | number;
-  } = {}
-): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return false;
-  }
-  
-  try {
-    // Convert to the specified timezone
-    const zonedDate = utcToZonedTime(dateObj, timezone);
+  // Check time restrictions if specified
+  if (constraints.timeRestrictions) {
+    const { minHour, maxHour, minMinute, maxMinute } = constraints.timeRestrictions;
+    const hours = dateInTimezone.getHours();
+    const minutes = dateInTimezone.getMinutes();
     
-    // Check if it's a business day if required
-    if (options.businessDay && !isBusinessDay(zonedDate, { timezone })) {
+    if (minHour !== undefined && hours < minHour) {
       return false;
     }
     
-    // Check min date if specified
-    if (options.minDate) {
-      const minDateObj = normalizeDate(options.minDate);
-      if (minDateObj && isBefore(zonedDate, utcToZonedTime(minDateObj, timezone))) {
-        return false;
-      }
+    if (maxHour !== undefined && hours > maxHour) {
+      return false;
     }
     
-    // Check max date if specified
-    if (options.maxDate) {
-      const maxDateObj = normalizeDate(options.maxDate);
-      if (maxDateObj && isAfter(zonedDate, utcToZonedTime(maxDateObj, timezone))) {
-        return false;
-      }
+    if (minMinute !== undefined && hours === minHour && minutes < minMinute) {
+      return false;
     }
     
-    return true;
-  } catch (error) {
-    // Invalid timezone or other error
-    return false;
-  }
-};
-
-/**
- * Gets the next valid business day from a given date
- * 
- * @param date - The starting date
- * @param options - Options for finding the next business day
- * @returns The next valid business day or null if not found within maxAttempts
- */
-export const getNextBusinessDay = (
-  date: Date | string | number,
-  options: { 
-    countryCode?: string; 
-    timezone?: string; 
-    skipToday?: boolean;
-    maxAttempts?: number;
-  } = { countryCode: 'BR', skipToday: false, maxAttempts: 10 }
-): Date | null => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return null;
-  }
-  
-  // Apply timezone if specified
-  let currentDate = dateObj;
-  if (options.timezone) {
-    currentDate = utcToZonedTime(dateObj, options.timezone);
-  }
-  
-  // Skip today if required
-  if (options.skipToday) {
-    currentDate = addDays(currentDate, 1);
-  }
-  
-  let attempts = 0;
-  const maxAttempts = options.maxAttempts || 10;
-  
-  while (attempts < maxAttempts) {
-    if (isBusinessDay(currentDate, { 
-      countryCode: options.countryCode || 'BR',
-      timezone: options.timezone
-    })) {
-      // Convert back to UTC if timezone was applied
-      return options.timezone ? zonedTimeToUtc(currentDate, options.timezone) : currentDate;
+    if (maxMinute !== undefined && hours === maxHour && minutes > maxMinute) {
+      return false;
     }
-    
-    currentDate = addDays(currentDate, 1);
-    attempts++;
   }
   
-  return null; // No valid business day found within maxAttempts
-};
-
-/**
- * Checks if a date is within business hours
- * 
- * @param date - The date to check
- * @param options - Options for business hours validation
- * @returns True if the date is within business hours, false otherwise
- */
-export const isWithinBusinessHours = (
-  date: Date | string | number,
-  options: { 
-    timezone?: string;
-    startHour?: number;
-    endHour?: number;
-    startMinute?: number;
-    endMinute?: number;
-  } = { startHour: 9, endHour: 17, startMinute: 0, endMinute: 0 }
-): boolean => {
-  const dateObj = normalizeDate(date);
-  if (!dateObj) {
-    return false;
-  }
-  
-  // Apply timezone if specified
-  let adjustedDate = dateObj;
-  if (options.timezone) {
-    adjustedDate = utcToZonedTime(dateObj, options.timezone);
-  }
-  
-  // Check if it's a business day
-  if (!isBusinessDay(adjustedDate, { timezone: options.timezone })) {
-    return false;
-  }
-  
-  const hours = adjustedDate.getHours();
-  const minutes = adjustedDate.getMinutes();
-  
-  const startHour = options.startHour ?? 9;
-  const endHour = options.endHour ?? 17;
-  const startMinute = options.startMinute ?? 0;
-  const endMinute = options.endMinute ?? 0;
-  
-  // Check if time is within business hours
-  if (hours < startHour || (hours === startHour && minutes < startMinute)) {
-    return false;
-  }
-  
-  if (hours > endHour || (hours === endHour && minutes > endMinute)) {
-    return false;
+  // Journey-specific additional validations
+  switch (journeyKey) {
+    case 'health':
+      // Health journey might have specific validations
+      // For example, certain health metrics might have specific time constraints
+      break;
+      
+    case 'care':
+      // Care journey might have specific validations
+      // For example, appointments might need to be scheduled in advance
+      break;
+      
+    case 'plan':
+      // Plan journey might have specific validations
+      // For example, claims might need to be filed within a certain timeframe
+      break;
   }
   
   return true;
+};
+
+/**
+ * Validates a date with timezone consideration
+ * 
+ * @param date - The date to validate
+ * @param options - Options for timezone validation
+ * @returns True if the date is valid in the specified timezone, false otherwise
+ */
+export const isValidDateWithTimezone = (
+  date: Date | string | number,
+  options: {
+    timezone?: string;
+    businessHoursOnly?: boolean;
+    minHour?: number;
+    maxHour?: number;
+    allowWeekends?: boolean;
+    allowHolidays?: boolean;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  // Default to São Paulo timezone if not specified
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  
+  // Convert to the specified timezone
+  const zonedDate = utcToZonedTime(normalizedDate, timezone);
+  
+  // Check business hours if required
+  if (options.businessHoursOnly) {
+    const hours = zonedDate.getHours();
+    const minHour = options.minHour !== undefined ? options.minHour : 8; // Default business hours: 8 AM
+    const maxHour = options.maxHour !== undefined ? options.maxHour : 18; // Default business hours: 6 PM
+    
+    if (hours < minHour || hours >= maxHour) {
+      return false;
+    }
+  }
+  
+  // Check weekend restriction
+  if (options.allowWeekends === false && isWeekend(zonedDate)) {
+    return false;
+  }
+  
+  // Check holiday restriction (using the timezone's region)
+  if (options.allowHolidays === false) {
+    // Extract region from timezone (simplified approach)
+    const region = timezone.includes('America') ? 'BR' : 
+                  timezone.includes('Europe') ? 'EU' : 'GLOBAL';
+    
+    if (!isBusinessDay(zonedDate, { region })) {
+      return false;
+    }
+  }
+  
+  return true;
+};
+
+/**
+ * Validates a date range
+ * 
+ * @param startDate - The start date of the range
+ * @param endDate - The end date of the range
+ * @param options - Options for date range validation
+ * @returns True if the date range is valid, false otherwise
+ */
+export const isValidDateRange = (
+  startDate: Date | string | number,
+  endDate: Date | string | number,
+  options: {
+    maxRangeDays?: number;
+    minRangeDays?: number;
+    allowSameDay?: boolean;
+    journeyId?: string;
+  } = {}
+): boolean => {
+  const normalizedStartDate = normalizeDate(startDate);
+  const normalizedEndDate = normalizeDate(endDate);
+  
+  if (!normalizedStartDate || !normalizedEndDate) {
+    return false;
+  }
+  
+  // Check if end date is after start date (or same day if allowed)
+  if (isBefore(normalizedEndDate, normalizedStartDate)) {
+    return false;
+  }
+  
+  if (!options.allowSameDay && isSameDay(normalizedStartDate, normalizedEndDate)) {
+    return false;
+  }
+  
+  // Calculate range in days
+  const rangeDays = differenceInDays(normalizedEndDate, normalizedStartDate);
+  
+  // Check minimum range constraint
+  if (options.minRangeDays !== undefined && rangeDays < options.minRangeDays) {
+    return false;
+  }
+  
+  // Check maximum range constraint
+  if (options.maxRangeDays !== undefined && rangeDays > options.maxRangeDays) {
+    return false;
+  }
+  
+  // Check journey-specific constraints if specified
+  if (options.journeyId) {
+    return (
+      isValidJourneyDate(normalizedStartDate, options.journeyId) &&
+      isValidJourneyDate(normalizedEndDate, options.journeyId)
+    );
+  }
+  
+  return true;
+};
+
+/**
+ * Validates a date for appointment scheduling
+ * Specialized validator for the care journey
+ * 
+ * @param date - The date to validate
+ * @param options - Options for appointment date validation
+ * @returns True if the date is valid for an appointment, false otherwise
+ */
+export const isValidAppointmentDate = (
+  date: Date | string | number,
+  options: {
+    minDaysInFuture?: number;
+    maxDaysInFuture?: number;
+    allowWeekends?: boolean;
+    allowHolidays?: boolean;
+    timeSlotMinutes?: number;
+    timezone?: string;
+    providerTimeZone?: string;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  // Default options for appointment scheduling
+  const minDaysInFuture = options.minDaysInFuture !== undefined ? options.minDaysInFuture : 1;
+  const maxDaysInFuture = options.maxDaysInFuture !== undefined ? options.maxDaysInFuture : 60;
+  const allowWeekends = options.allowWeekends !== undefined ? options.allowWeekends : false;
+  const allowHolidays = options.allowHolidays !== undefined ? options.allowHolidays : false;
+  const timeSlotMinutes = options.timeSlotMinutes !== undefined ? options.timeSlotMinutes : 30;
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  
+  // Convert to the specified timezone if provided
+  const dateInTimezone = timezone ? utcToZonedTime(normalizedDate, timezone) : normalizedDate;
+  const nowInTimezone = timezone ? utcToZonedTime(new Date(), timezone) : new Date();
+  
+  // Check if date is in the future within allowed range
+  const minFutureDate = addDays(startOfDay(nowInTimezone), minDaysInFuture);
+  const maxFutureDate = addDays(startOfDay(nowInTimezone), maxDaysInFuture);
+  
+  if (isBefore(dateInTimezone, minFutureDate) || isAfter(dateInTimezone, maxFutureDate)) {
+    return false;
+  }
+  
+  // Check weekend restriction
+  if (!allowWeekends && isWeekend(dateInTimezone)) {
+    return false;
+  }
+  
+  // Check holiday restriction
+  if (!allowHolidays && !isBusinessDay(dateInTimezone, { region: 'BR' })) {
+    return false;
+  }
+  
+  // Check if time is aligned with time slots
+  const minutes = dateInTimezone.getMinutes();
+  if (minutes % timeSlotMinutes !== 0) {
+    return false;
+  }
+  
+  // If provider timezone is different, check if it's within business hours in provider's timezone
+  if (options.providerTimeZone && options.providerTimeZone !== timezone) {
+    const dateInProviderTimezone = utcToZonedTime(normalizedDate, options.providerTimeZone);
+    
+    // Check if it's a business day in provider's timezone
+    if (!allowWeekends && isWeekend(dateInProviderTimezone)) {
+      return false;
+    }
+    
+    if (!allowHolidays && !isBusinessDay(dateInProviderTimezone, { 
+      region: options.providerTimeZone.includes('America') ? 'BR' : 'GLOBAL' 
+    })) {
+      return false;
+    }
+    
+    // Check if it's within business hours in provider's timezone
+    const providerHours = dateInProviderTimezone.getHours();
+    if (providerHours < 8 || providerHours >= 18) { // Default business hours: 8 AM - 6 PM
+      return false;
+    }
+  }
+  
+  // Use care journey constraints
+  return isValidJourneyDate(normalizedDate, 'care', {
+    customConstraints: timezone ? {
+      minDate: minFutureDate,
+      maxDate: maxFutureDate,
+      allowWeekends,
+      allowHolidays,
+      timeRestrictions: {
+        minHour: 8,
+        maxHour: 18,
+        minMinute: 0,
+        maxMinute: 30,
+      },
+    } : undefined
+  });
+};
+
+/**
+ * Validates a date for health metrics recording
+ * Specialized validator for the health journey
+ * 
+ * @param date - The date to validate
+ * @param options - Options for health metric date validation
+ * @returns True if the date is valid for a health metric, false otherwise
+ */
+export const isValidHealthMetricDate = (
+  date: Date | string | number,
+  options: {
+    maxDaysInPast?: number;
+    allowFutureDates?: boolean;
+    metricType?: string;
+    timezone?: string;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  // Default options for health metrics
+  const maxDaysInPast = options.maxDaysInPast !== undefined ? options.maxDaysInPast : 30;
+  const allowFutureDates = options.allowFutureDates !== undefined ? options.allowFutureDates : false;
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  
+  // Convert to the specified timezone if provided
+  const dateInTimezone = timezone ? utcToZonedTime(normalizedDate, timezone) : normalizedDate;
+  const nowInTimezone = timezone ? utcToZonedTime(new Date(), timezone) : new Date();
+  
+  // Check if date is not in the future (unless allowed)
+  if (!allowFutureDates && isAfter(dateInTimezone, nowInTimezone)) {
+    return false;
+  }
+  
+  // Check if date is not too far in the past
+  if (maxDaysInPast > 0) {
+    const oldestAllowedDate = subDays(startOfDay(nowInTimezone), maxDaysInPast);
+    if (isBefore(dateInTimezone, oldestAllowedDate)) {
+      return false;
+    }
+  }
+  
+  // Apply metric-specific validation if needed
+  if (options.metricType) {
+    switch (options.metricType.toLowerCase()) {
+      case 'weight':
+      case 'blood_pressure':
+      case 'blood_glucose':
+        // These metrics typically allow recording once per day
+        // Check if there's already a record for this day (would require database check)
+        // This is a placeholder for actual implementation
+        break;
+        
+      case 'heart_rate':
+      case 'oxygen_saturation':
+        // These metrics can be recorded multiple times per day
+        // No additional validation needed
+        break;
+        
+      case 'sleep':
+        // Sleep data should be for the previous night
+        // This is a placeholder for actual implementation
+        break;
+    }
+  }
+  
+  // Use health journey constraints
+  return isValidJourneyDate(normalizedDate, 'health', {
+    customConstraints: timezone ? {
+      // Adjust constraints based on timezone if needed
+      minDate: new Date(1900, 0, 1),
+      maxDate: nowInTimezone,
+      allowWeekends: true,
+      allowHolidays: true,
+    } : undefined
+  });
+};
+
+/**
+ * Validates a date for insurance claims
+ * Specialized validator for the plan journey
+ * 
+ * @param date - The date to validate
+ * @param options - Options for claim date validation
+ * @returns True if the date is valid for an insurance claim, false otherwise
+ */
+export const isValidClaimDate = (
+  date: Date | string | number,
+  options: {
+    maxDaysInPast?: number;
+    allowFutureDates?: boolean;
+    claimType?: string;
+    timezone?: string;
+  } = {}
+): boolean => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  // Default options for insurance claims
+  const maxDaysInPast = options.maxDaysInPast !== undefined ? options.maxDaysInPast : 90; // Typically 90 days to file a claim
+  const allowFutureDates = options.allowFutureDates !== undefined ? options.allowFutureDates : false;
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  
+  // Convert to the specified timezone if provided
+  const dateInTimezone = timezone ? utcToZonedTime(normalizedDate, timezone) : normalizedDate;
+  const nowInTimezone = timezone ? utcToZonedTime(new Date(), timezone) : new Date();
+  
+  // Check if date is not in the future (unless allowed)
+  if (!allowFutureDates && isAfter(dateInTimezone, nowInTimezone)) {
+    return false;
+  }
+  
+  // Check if date is not too far in the past
+  if (maxDaysInPast > 0) {
+    const oldestAllowedDate = subDays(startOfDay(nowInTimezone), maxDaysInPast);
+    if (isBefore(dateInTimezone, oldestAllowedDate)) {
+      return false;
+    }
+  }
+  
+  // Apply claim-specific validation if needed
+  if (options.claimType) {
+    switch (options.claimType.toLowerCase()) {
+      case 'medical':
+        // Medical claims might have different time limits
+        // This is a placeholder for actual implementation
+        break;
+        
+      case 'dental':
+        // Dental claims might have different time limits
+        // This is a placeholder for actual implementation
+        break;
+        
+      case 'pharmacy':
+        // Pharmacy claims might have different time limits
+        // This is a placeholder for actual implementation
+        break;
+    }
+  }
+  
+  // Check if it's a business day (claims typically need to be filed on business days)
+  if (!isBusinessDay(dateInTimezone, { region: 'BR' })) {
+    // Allow the claim date to be on a non-business day, but note that processing will begin on next business day
+    // This is just a validation, not a restriction
+  }
+  
+  // Use plan journey constraints
+  return isValidJourneyDate(normalizedDate, 'plan', {
+    customConstraints: timezone ? {
+      minDate: new Date(new Date().getFullYear() - 5, 0, 1), // Claims typically allowed up to 5 years in the past
+      maxDate: allowFutureDates ? undefined : nowInTimezone,
+      allowWeekends: true, // Allow weekend dates for claim events (but processing happens on business days)
+      allowHolidays: true, // Allow holiday dates for claim events (but processing happens on business days)
+    } : undefined
+  });
+};
+
+/**
+ * Formats a date according to the specified format and timezone
+ * 
+ * @param date - The date to format
+ * @param timezone - The timezone to use for formatting
+ * @param formatStr - The format string to use
+ * @param locale - The locale to use for formatting
+ * @returns Formatted date string in the specified timezone
+ */
+export const formatDateInTimezone = (
+  date: Date | string | number,
+  timezone: string,
+  formatStr: string,
+  locale: { code: string; [key: string]: any } = { code: 'pt-BR' }
+): string => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return '';
+  }
+  
+  try {
+    return formatInTimeZone(normalizedDate, timezone, formatStr, { locale });
+  } catch (error) {
+    // Fallback to basic formatting if timezone formatting fails
+    return format(normalizedDate, formatStr);
+  }
+};
+
+/**
+ * Formats a date according to journey-specific requirements
+ * 
+ * @param date - The date to format
+ * @param journeyId - The journey identifier (health, care, plan)
+ * @param options - Options for formatting
+ * @returns Journey-specific formatted date
+ */
+export const formatJourneyDate = (
+  date: Date | string | number,
+  journeyId: string,
+  options: {
+    locale?: { code: string; [key: string]: any };
+    timezone?: string;
+  } = {}
+): string => {
+  const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    return '';
+  }
+  
+  const locale = options.locale || { code: 'pt-BR' };
+  const timezone = options.timezone || 'America/Sao_Paulo';
+  
+  // Journey-specific formats
+  switch (journeyId.toLowerCase()) {
+    case 'health':
+      // Health journey uses detailed format with time for metrics
+      return formatDateInTimezone(normalizedDate, timezone, 'dd/MM/yyyy HH:mm', locale);
+      
+    case 'care':
+      // Care journey uses appointment-friendly format
+      return formatDateInTimezone(normalizedDate, timezone, 'EEE, dd MMM yyyy', locale);
+      
+    case 'plan':
+      // Plan journey uses formal date format for claims and documents
+      return formatDateInTimezone(normalizedDate, timezone, 'dd/MM/yyyy', locale);
+      
+    default:
+      // Default format
+      return formatDateInTimezone(normalizedDate, timezone, 'dd/MM/yyyy', locale);
+  }
 };
