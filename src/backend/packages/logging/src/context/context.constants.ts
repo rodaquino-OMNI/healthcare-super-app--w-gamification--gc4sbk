@@ -16,13 +16,40 @@ export enum JourneyType {
 }
 
 /**
+ * Keys used for context properties in structured logs.
+ * These keys are used consistently across all services to ensure
+ * that logs can be properly filtered and analyzed.
+ */
+export const CONTEXT_KEYS = {
+  REQUEST_ID: 'requestId',
+  CORRELATION_ID: 'correlationId',
+  USER_ID: 'userId',
+  JOURNEY_TYPE: 'journeyType',
+  SERVICE_NAME: 'serviceName',
+  COMPONENT: 'component',
+  TRANSACTION_ID: 'transactionId',
+  SESSION_ID: 'sessionId',
+  ENVIRONMENT: 'environment',
+};
+
+/**
+ * Default values for context fields when not explicitly provided.
+ */
+export const DEFAULT_CONTEXT_VALUES = {
+  journeyType: 'unknown',
+  serviceName: 'unknown-service',
+  component: 'unknown-component',
+  environment: 'development',
+};
+
+/**
  * Namespace for context-related constants to avoid naming collisions.
+ * @deprecated Use CONTEXT_KEYS and DEFAULT_CONTEXT_VALUES instead
  */
 export namespace LogContext {
   /**
    * Keys used for context properties in structured logs.
-   * These keys are used consistently across all services to ensure
-   * that logs can be properly filtered and analyzed.
+   * @deprecated Use CONTEXT_KEYS instead
    */
   export enum Keys {
     REQUEST_ID = 'requestId',
@@ -38,6 +65,7 @@ export namespace LogContext {
 
   /**
    * Default values for context fields when not explicitly provided.
+   * @deprecated Use DEFAULT_CONTEXT_VALUES instead
    */
   export const Defaults = {
     JOURNEY_TYPE: 'unknown',
@@ -59,6 +87,11 @@ export enum LogLevel {
   ERROR = 'error',
   FATAL = 'fatal',
 }
+
+/**
+ * Export log levels as a constant for use in index.ts
+ */
+export const LOG_LEVELS = LogLevel;
 
 /**
  * Constants related to log formatting and structure.
