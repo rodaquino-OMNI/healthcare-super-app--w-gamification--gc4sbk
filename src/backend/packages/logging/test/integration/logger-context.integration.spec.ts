@@ -1,750 +1,636 @@
-/**
- * @file logger-context.integration.spec.ts
- * @description Integration tests for the LoggerService context management functionality.
- * These tests verify the correct interaction between LoggerService and the context management system.
- */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { LoggerService } from '../../src/logger.service';
+import { LoggerModule } from '../../src/logger.module';
 import { ContextManager } from '../../src/context/context-manager';
+import { JourneyType } from '../../src/interfaces/log-entry.interface';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { LoggingContext } from '../../src/context/context.interface';
-import { JourneyContext } from '../../src/context/journey-context.interface';
-import { UserContext } from '../../src/context/user-context.interface';
-import { RequestContext } from '../../src/context/request-context.interface';
-import { Transport } from '../../src/interfaces/transport.interface';
-import { LoggerConfig } from '../../src/interfaces/log-config.interface';
+import { TracingService } from '@austa/tracing';
 
 /**
- * Mock implementation of the TracingService for testing
+ * Mock implementation of the TracingService for testing purposes.
  */
-class MockTracingService {
-  private traceId = '1234567890abcdef1234567890abcdef';
-  private spanId = '1234567890abcdef';
+class MockTracingService implements TracingService {
+  private traceId = 'test-trace-id';
+  private spanId = 'test-span-id';
+  private parentSpanId = 'test-parent-span-id';
 
-  getCurrentTraceContext() {
-    return { traceId: this.traceId, spanId: this.spanId };
+  getCurrentTraceId(): string {
+    return this.traceId;
   }
 
-  createSpan(name: string) {
-    return { name, id: '0987654321fedcba0987654321fedcba' };
+  getCurrentSpanId(): string {
+    return this.spanId;
   }
 
-  endSpan() {
-    // No-op for testing
+  getParentSpanId(): string {
+    return this.parentSpanId;
   }
 
-  setTraceId(traceId: string) {
+  setTraceId(traceId: string): void {
     this.traceId = traceId;
   }
 
-  setSpanId(spanId: string) {
+  setSpanId(spanId: string): void {
     this.spanId = spanId;
+  }
+
+  setParentSpanId(parentSpanId: string): void {
+    this.parentSpanId = parentSpanId;
   }
 }
 
 /**
- * Mock implementation of Transport for capturing log output
+ * Mock transport for capturing log entries during tests.
  */
-class MockTransport implements Transport {
+class TestTransport {
   public logs: any[] = [];
 
-  initialize(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  write(logEntry: any): void {
-    this.logs.push(logEntry);
-  }
-
-  close(): Promise<void> {
-    return Promise.resolve();
+  write(formattedLog: string, level: LogLevel): void {
+    try {
+      this.logs.push(JSON.parse(formattedLog));
+    } catch (e) {
+      this.logs.push({ message: formattedLog, level });
+    }
   }
 
   clear(): void {
     this.logs = [];
   }
-
-  getLastLog(): any {
-    return this.logs[this.logs.length - 1];
-  }
-
-  getLogs(): any[] {
-    return this.logs;
-  }
 }
 
 describe('LoggerService Context Integration', () => {
   let loggerService: LoggerService;
+  let tracingService: MockTracingService;
+  let testTransport: TestTransport;
   let contextManager: ContextManager;
-  let mockTracingService: MockTracingService;
-  let mockTransport: MockTransport;
-  let module: TestingModule;
 
   beforeEach(async () => {
-    mockTracingService = new MockTracingService();
-    mockTransport = new MockTransport();
+    testTransport = new TestTransport();
+    tracingService = new MockTracingService();
 
-    const loggerConfig: LoggerConfig = {
-      serviceName: 'test-service',
-      environment: 'test',
-      appVersion: '1.0.0',
-      logLevel: LogLevel.DEBUG,
-      transports: [{ type: 'custom', transport: mockTransport }],
-    };
-
-    module = await Test.createTestingModule({
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        LoggerModule.forRoot({
+          serviceName: 'test-service',
+          logLevel: 'debug',
+          formatter: 'json',
+          transports: ['console']
+        })
+      ],
       providers: [
         {
-          provide: LoggerConfig,
-          useValue: loggerConfig,
-        },
-        {
-          provide: 'TracingService',
-          useValue: mockTracingService,
-        },
-        LoggerService,
-      ],
+          provide: TracingService,
+          useValue: tracingService
+        }
+      ]
     }).compile();
 
     loggerService = module.get<LoggerService>(LoggerService);
-    contextManager = new ContextManager({ tracingService: mockTracingService });
+    contextManager = new ContextManager({ tracingService });
+
+    // Replace the transports with our test transport
+    (loggerService as any).transports = [testTransport];
+    
+    // Clear logs before each test
+    testTransport.clear();
   });
 
   afterEach(() => {
-    mockTransport.clear();
+    testTransport.clear();
   });
 
-  describe('Journey Context Integration', () => {
-    it('should include journey context in log entries', () => {
-      // Create a journey context
-      const journeyContext: JourneyContext = {
-        journeyType: 'health',
-        journeyState: { step: 'metrics-input' },
-        journeyMetadata: { startedAt: new Date().toISOString() },
-        correlationId: 'journey-correlation-id',
-      } as JourneyContext;
-
-      // Log with journey context
-      loggerService.logWithJourneyContext(
-        LogLevel.INFO,
-        'Health metrics recorded',
-        journeyContext
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.journeyType).toBe('health');
-      expect(logEntry.journeyState).toEqual({ step: 'metrics-input' });
-      expect(logEntry.journeyMetadata).toBeDefined();
-      expect(logEntry.correlationId).toBe('journey-correlation-id');
+  describe('Basic Context Enrichment', () => {
+    it('should include service name in logs', () => {
+      loggerService.log('Test message');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.serviceName).toBe('test-service');
     });
 
-    it('should create a journey-specific logger that includes context in all logs', () => {
-      // Create a journey context
-      const journeyContext: JourneyContext = {
-        journeyType: 'care',
-        journeyState: { step: 'appointment-booking' },
-        correlationId: 'care-journey-id',
-      } as JourneyContext;
-
-      // Create a journey-specific logger
-      const journeyLogger = loggerService.createJourneyLogger(journeyContext);
-
-      // Log using the journey logger
-      journeyLogger.log('Appointment booked');
-      journeyLogger.error('Booking failed', new Error('Provider unavailable'));
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(2);
-
-      // Check first log
-      expect(logs[0].journeyType).toBe('care');
-      expect(logs[0].journeyState).toEqual({ step: 'appointment-booking' });
-      expect(logs[0].correlationId).toBe('care-journey-id');
-      expect(logs[0].message).toBe('Appointment booked');
-
-      // Check second log
-      expect(logs[1].journeyType).toBe('care');
-      expect(logs[1].journeyState).toEqual({ step: 'appointment-booking' });
-      expect(logs[1].correlationId).toBe('care-journey-id');
-      expect(logs[1].message).toBe('Booking failed');
-      expect(logs[1].error).toBeDefined();
-      expect(logs[1].error.message).toBe('Provider unavailable');
+    it('should include trace information in logs', () => {
+      loggerService.log('Test message with trace');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].traceId).toBe('test-trace-id');
+      expect(testTransport.logs[0].spanId).toBe('test-span-id');
     });
 
-    it('should support all three journey types', () => {
-      // Test each journey type
-      const journeyTypes: Array<'health' | 'care' | 'plan'> = ['health', 'care', 'plan'];
-
-      journeyTypes.forEach(journeyType => {
-        const journeyContext: JourneyContext = {
-          journeyType,
-          correlationId: `${journeyType}-journey-id`,
-        } as JourneyContext;
-
-        loggerService.logWithJourneyContext(
-          LogLevel.INFO,
-          `${journeyType} journey event`,
-          journeyContext
-        );
-      });
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(3);
-
-      // Check each journey type
-      journeyTypes.forEach((journeyType, index) => {
-        expect(logs[index].journeyType).toBe(journeyType);
-        expect(logs[index].correlationId).toBe(`${journeyType}-journey-id`);
-        expect(logs[index].message).toBe(`${journeyType} journey event`);
-      });
+    it('should include timestamp in logs', () => {
+      loggerService.log('Test message with timestamp');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].timestamp).toBeDefined();
+      expect(new Date(testTransport.logs[0].timestamp).getTime()).toBeLessThanOrEqual(Date.now());
     });
   });
 
-  describe('User Context Propagation', () => {
-    it('should include user context in log entries', () => {
-      // Create a user context
-      const userContext: UserContext = {
+  describe('Journey Context', () => {
+    it('should include journey context in logs', () => {
+      const journeyLogger = loggerService.withJourneyContext({
+        journeyType: JourneyType.HEALTH,
+        resourceId: 'health-record-123'
+      });
+
+      journeyLogger.log('Health journey log');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[0].context.resourceId).toBe('health-record-123');
+    });
+
+    it('should use journey-specific helper methods', () => {
+      loggerService.forHealthJourney({ resourceId: 'health-metric-456' }).log('Health metric updated');
+      loggerService.forCareJourney({ resourceId: 'appointment-789' }).log('Appointment scheduled');
+      loggerService.forPlanJourney({ resourceId: 'claim-101' }).log('Claim submitted');
+      
+      expect(testTransport.logs.length).toBe(3);
+      
+      expect(testTransport.logs[0].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[0].context.resourceId).toBe('health-metric-456');
+      expect(testTransport.logs[0].message).toBe('Health metric updated');
+      
+      expect(testTransport.logs[1].context.journeyType).toBe(JourneyType.CARE);
+      expect(testTransport.logs[1].context.resourceId).toBe('appointment-789');
+      expect(testTransport.logs[1].message).toBe('Appointment scheduled');
+      
+      expect(testTransport.logs[2].context.journeyType).toBe(JourneyType.PLAN);
+      expect(testTransport.logs[2].context.resourceId).toBe('claim-101');
+      expect(testTransport.logs[2].message).toBe('Claim submitted');
+    });
+
+    it('should maintain journey context across multiple log calls', () => {
+      const healthLogger = loggerService.forHealthJourney({ resourceId: 'health-goal-123' });
+      
+      healthLogger.log('Goal created');
+      healthLogger.warn('Goal target may be unrealistic');
+      healthLogger.error('Failed to sync goal with wearable device');
+      
+      expect(testTransport.logs.length).toBe(3);
+      testTransport.logs.forEach(log => {
+        expect(log.context.journeyType).toBe(JourneyType.HEALTH);
+        expect(log.context.resourceId).toBe('health-goal-123');
+      });
+      
+      expect(testTransport.logs[0].level).toBe(LogLevel.INFO);
+      expect(testTransport.logs[1].level).toBe(LogLevel.WARN);
+      expect(testTransport.logs[2].level).toBe(LogLevel.ERROR);
+    });
+  });
+
+  describe('User Context', () => {
+    it('should include user context in logs', () => {
+      const userLogger = loggerService.withUserContext({
         userId: 'user-123',
-        isAuthenticated: true,
-        roles: ['patient'],
-        correlationId: 'user-correlation-id',
-      } as UserContext;
+        sessionId: 'session-456',
+        roles: ['patient']
+      });
 
-      // Log with user context
-      loggerService.logWithUserContext(
-        LogLevel.INFO,
-        'User profile updated',
-        userContext
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.userId).toBe('user-123');
-      expect(logEntry.isAuthenticated).toBe(true);
-      expect(logEntry.roles).toEqual(['patient']);
-      expect(logEntry.correlationId).toBe('user-correlation-id');
+      userLogger.log('User action logged');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.userId).toBe('user-123');
+      expect(testTransport.logs[0].context.sessionId).toBe('session-456');
+      expect(testTransport.logs[0].context.roles).toContain('patient');
     });
 
-    it('should create a user-specific logger that includes context in all logs', () => {
-      // Create a user context
-      const userContext: UserContext = {
-        userId: 'user-456',
-        isAuthenticated: true,
-        roles: ['provider'],
-        correlationId: 'provider-correlation-id',
-      } as UserContext;
-
-      // Create a user-specific logger
-      const userLogger = loggerService.createUserLogger(userContext);
-
-      // Log using the user logger
-      userLogger.log('Provider logged in');
-      userLogger.warn('Unusual login pattern detected');
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(2);
-
-      // Check first log
-      expect(logs[0].userId).toBe('user-456');
-      expect(logs[0].isAuthenticated).toBe(true);
-      expect(logs[0].roles).toEqual(['provider']);
-      expect(logs[0].correlationId).toBe('provider-correlation-id');
-      expect(logs[0].message).toBe('Provider logged in');
-
-      // Check second log
-      expect(logs[1].userId).toBe('user-456');
-      expect(logs[1].isAuthenticated).toBe(true);
-      expect(logs[1].roles).toEqual(['provider']);
-      expect(logs[1].correlationId).toBe('provider-correlation-id');
-      expect(logs[1].message).toBe('Unusual login pattern detected');
-    });
-
-    it('should propagate user context across async operations', async () => {
-      // Create a user context
-      const userContext: UserContext = {
+    it('should maintain user context across multiple log calls', () => {
+      const userLogger = loggerService.withUserContext({
         userId: 'user-789',
-        isAuthenticated: true,
-        correlationId: 'async-correlation-id',
-      } as UserContext;
-
-      // Create a user-specific logger
-      const userLogger = loggerService.createUserLogger(userContext);
-
-      // Simulate async operation
-      const asyncOperation = async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        userLogger.log('Async operation completed');
-      };
-
-      // Execute async operation
-      await asyncOperation();
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.userId).toBe('user-789');
-      expect(logEntry.isAuthenticated).toBe(true);
-      expect(logEntry.correlationId).toBe('async-correlation-id');
-      expect(logEntry.message).toBe('Async operation completed');
+        isAuthenticated: true
+      });
+      
+      userLogger.log('User logged in');
+      userLogger.log('User viewed dashboard');
+      userLogger.log('User logged out');
+      
+      expect(testTransport.logs.length).toBe(3);
+      testTransport.logs.forEach(log => {
+        expect(log.context.userId).toBe('user-789');
+        expect(log.context.isAuthenticated).toBe(true);
+      });
     });
   });
 
-  describe('Request Context Extraction', () => {
-    it('should include request context in log entries', () => {
-      // Create a request context
-      const requestContext: RequestContext = {
+  describe('Request Context', () => {
+    it('should include request context in logs', () => {
+      const requestLogger = loggerService.withRequestContext({
         requestId: 'req-123',
         method: 'GET',
-        url: 'https://api.austa.health/users/profile',
-        ip: '192.168.1.1',
-        userAgent: 'Mozilla/5.0',
-        correlationId: 'request-correlation-id',
-      } as RequestContext;
+        url: '/api/health/metrics',
+        clientIp: '192.168.1.1',
+        userAgent: 'Mozilla/5.0'
+      });
 
-      // Log with request context
-      loggerService.logWithRequestContext(
-        LogLevel.INFO,
-        'API request received',
-        requestContext
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.requestId).toBe('req-123');
-      expect(logEntry.method).toBe('GET');
-      expect(logEntry.url).toBe('https://api.austa.health/users/profile');
-      expect(logEntry.ip).toBe('192.168.1.1');
-      expect(logEntry.userAgent).toBe('Mozilla/5.0');
-      expect(logEntry.correlationId).toBe('request-correlation-id');
+      requestLogger.log('API request received');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.requestId).toBe('req-123');
+      expect(testTransport.logs[0].context.method).toBe('GET');
+      expect(testTransport.logs[0].context.url).toBe('/api/health/metrics');
+      expect(testTransport.logs[0].context.clientIp).toBe('192.168.1.1');
+      expect(testTransport.logs[0].context.userAgent).toBe('Mozilla/5.0');
     });
 
-    it('should create a request-specific logger that includes context in all logs', () => {
-      // Create a request context
-      const requestContext: RequestContext = {
-        requestId: 'req-456',
+    it('should sanitize sensitive information in request context', () => {
+      const requestContext = contextManager.extractContextFromRequest({
+        id: 'req-456',
         method: 'POST',
-        url: 'https://api.austa.health/appointments',
-        correlationId: 'appointment-correlation-id',
-      } as RequestContext;
+        url: '/api/auth/login',
+        headers: {
+          'authorization': 'Bearer token123',
+          'user-agent': 'Mozilla/5.0',
+          'content-type': 'application/json'
+        },
+        body: {
+          username: 'testuser',
+          password: 'secret123'
+        }
+      });
 
-      // Create a request-specific logger
-      const requestLogger = loggerService.createRequestLogger(requestContext);
-
-      // Log using the request logger
-      requestLogger.log('Processing appointment request');
-      requestLogger.debug('Validating appointment data');
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(2);
-
-      // Check first log
-      expect(logs[0].requestId).toBe('req-456');
-      expect(logs[0].method).toBe('POST');
-      expect(logs[0].url).toBe('https://api.austa.health/appointments');
-      expect(logs[0].correlationId).toBe('appointment-correlation-id');
-      expect(logs[0].message).toBe('Processing appointment request');
-
-      // Check second log
-      expect(logs[1].requestId).toBe('req-456');
-      expect(logs[1].method).toBe('POST');
-      expect(logs[1].url).toBe('https://api.austa.health/appointments');
-      expect(logs[1].correlationId).toBe('appointment-correlation-id');
-      expect(logs[1].message).toBe('Validating appointment data');
+      const requestLogger = loggerService.withRequestContext(requestContext);
+      requestLogger.log('Login attempt');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.requestId).toBe('req-456');
+      expect(testTransport.logs[0].context.headers.authorization).toBe('[REDACTED]');
+      expect(testTransport.logs[0].context.headers['content-type']).toBe('application/json');
+      
+      // Body should not be included by default for security reasons
+      expect(testTransport.logs[0].context.body).toBeUndefined();
     });
+  });
 
-    it('should sanitize sensitive information from request context', () => {
-      // Create a request context with sensitive information
-      const requestContext: RequestContext = {
+  describe('Context Merging', () => {
+    it('should properly merge multiple context types', () => {
+      // Create a logger with user context
+      const userLogger = loggerService.withUserContext({
+        userId: 'user-123',
+        roles: ['patient']
+      });
+      
+      // Add journey context
+      const journeyUserLogger = userLogger.withJourneyContext({
+        journeyType: JourneyType.CARE,
+        resourceId: 'appointment-456'
+      });
+      
+      // Add request context
+      const fullContextLogger = journeyUserLogger.withRequestContext({
         requestId: 'req-789',
         method: 'POST',
-        url: 'https://api.austa.health/auth/login',
-        params: {
-          username: 'testuser',
-          password: 'supersecret', // Sensitive
-          rememberMe: true,
-        },
-        headers: {
-          'authorization': 'Bearer token123', // Sensitive
-          'content-type': 'application/json',
-          'user-agent': 'Mozilla/5.0',
-        },
-        correlationId: 'login-correlation-id',
-      } as RequestContext;
-
-      // Create a context manager to handle sanitization
-      const sanitizedContext = contextManager.createRequestContext(requestContext);
-
-      // Log with sanitized request context
-      loggerService.logWithRequestContext(
-        LogLevel.INFO,
-        'Login attempt',
-        sanitizedContext
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.requestId).toBe('req-789');
-      expect(logEntry.method).toBe('POST');
-      expect(logEntry.url).toBe('https://api.austa.health/auth/login');
+        url: '/api/care/appointments'
+      });
       
-      // Verify sensitive data is sanitized
-      if (logEntry.params) {
-        expect(logEntry.params.username).toBe('testuser');
-        expect(logEntry.params.password).not.toBe('supersecret');
-        expect(logEntry.params.rememberMe).toBe(true);
+      fullContextLogger.log('Appointment created');
+      
+      expect(testTransport.logs.length).toBe(1);
+      const logContext = testTransport.logs[0].context;
+      
+      // User context should be present
+      expect(logContext.userId).toBe('user-123');
+      expect(logContext.roles).toContain('patient');
+      
+      // Journey context should be present
+      expect(logContext.journeyType).toBe(JourneyType.CARE);
+      expect(logContext.resourceId).toBe('appointment-456');
+      
+      // Request context should be present
+      expect(logContext.requestId).toBe('req-789');
+      expect(logContext.method).toBe('POST');
+      expect(logContext.url).toBe('/api/care/appointments');
+    });
+
+    it('should override properties when merging contexts', () => {
+      // Create a logger with a context containing a property
+      const loggerA = loggerService.withContext({ property: 'original value' });
+      
+      // Create a new logger that overrides the property
+      const loggerB = loggerA.withContext({ property: 'new value' });
+      
+      loggerA.log('Log with original value');
+      loggerB.log('Log with new value');
+      
+      expect(testTransport.logs.length).toBe(2);
+      expect(testTransport.logs[0].context.property).toBe('original value');
+      expect(testTransport.logs[1].context.property).toBe('new value');
+    });
+
+    it('should merge metadata from different contexts', () => {
+      // Create a logger with metadata
+      const loggerA = loggerService.withContext({ 
+        metadata: { source: 'system', feature: 'authentication' } 
+      });
+      
+      // Create a new logger with additional metadata
+      const loggerB = loggerA.withContext({ 
+        metadata: { action: 'login', result: 'success' } 
+      });
+      
+      loggerB.log('User authenticated');
+      
+      expect(testTransport.logs.length).toBe(1);
+      expect(testTransport.logs[0].context.metadata.source).toBe('system');
+      expect(testTransport.logs[0].context.metadata.feature).toBe('authentication');
+      expect(testTransport.logs[0].context.metadata.action).toBe('login');
+      expect(testTransport.logs[0].context.metadata.result).toBe('success');
+    });
+  });
+
+  describe('Async Context Propagation', () => {
+    it('should maintain context across async operations', async () => {
+      const journeyLogger = loggerService.forHealthJourney({ resourceId: 'health-metric-123' });
+      
+      journeyLogger.log('Before async operation');
+      
+      await new Promise<void>(resolve => {
+        setTimeout(() => {
+          journeyLogger.log('During async operation');
+          resolve();
+        }, 10);
+      });
+      
+      journeyLogger.log('After async operation');
+      
+      expect(testTransport.logs.length).toBe(3);
+      testTransport.logs.forEach(log => {
+        expect(log.context.journeyType).toBe(JourneyType.HEALTH);
+        expect(log.context.resourceId).toBe('health-metric-123');
+      });
+    });
+
+    it('should maintain context in Promise chains', async () => {
+      const userLogger = loggerService.withUserContext({ userId: 'user-123' });
+      
+      await Promise.resolve()
+        .then(() => {
+          userLogger.log('First promise step');
+          return 'next';
+        })
+        .then(value => {
+          userLogger.log(`Second promise step: ${value}`);
+          return 'final';
+        })
+        .then(value => {
+          userLogger.log(`Final promise step: ${value}`);
+        });
+      
+      expect(testTransport.logs.length).toBe(3);
+      testTransport.logs.forEach(log => {
+        expect(log.context.userId).toBe('user-123');
+      });
+      
+      expect(testTransport.logs[0].message).toBe('First promise step');
+      expect(testTransport.logs[1].message).toBe('Second promise step: next');
+      expect(testTransport.logs[2].message).toBe('Final promise step: final');
+    });
+
+    it('should maintain context with async/await', async () => {
+      const requestLogger = loggerService.withRequestContext({ requestId: 'req-123' });
+      
+      async function nestedAsyncFunction() {
+        requestLogger.log('Inside nested async function');
+        await new Promise(resolve => setTimeout(resolve, 10));
+        requestLogger.log('After await in nested function');
+        return 'done';
       }
       
-      if (logEntry.headers) {
-        expect(logEntry.headers['authorization']).not.toBe('Bearer token123');
-        expect(logEntry.headers['content-type']).toBe('application/json');
-        expect(logEntry.headers['user-agent']).toBe('Mozilla/5.0');
+      requestLogger.log('Before calling async function');
+      const result = await nestedAsyncFunction();
+      requestLogger.log(`After async function with result: ${result}`);
+      
+      expect(testTransport.logs.length).toBe(4);
+      testTransport.logs.forEach(log => {
+        expect(log.context.requestId).toBe('req-123');
+      });
+    });
+  });
+
+  describe('Nested Operations', () => {
+    it('should handle nested logger instances correctly', () => {
+      // Create a base logger with user context
+      const userLogger = loggerService.withUserContext({ userId: 'user-123' });
+      userLogger.log('User context log');
+      
+      // Create a nested logger with journey context
+      const journeyLogger = userLogger.withJourneyContext({ 
+        journeyType: JourneyType.HEALTH,
+        resourceId: 'health-goal-456'
+      });
+      journeyLogger.log('Journey context log');
+      
+      // Create a further nested logger with request context
+      const requestLogger = journeyLogger.withRequestContext({ 
+        requestId: 'req-789',
+        method: 'PUT'
+      });
+      requestLogger.log('Request context log');
+      
+      // Original loggers should maintain their own contexts
+      userLogger.log('Another user context log');
+      journeyLogger.log('Another journey context log');
+      
+      expect(testTransport.logs.length).toBe(5);
+      
+      // First log: user context only
+      expect(testTransport.logs[0].context.userId).toBe('user-123');
+      expect(testTransport.logs[0].context.journeyType).toBeUndefined();
+      expect(testTransport.logs[0].context.requestId).toBeUndefined();
+      
+      // Second log: user + journey context
+      expect(testTransport.logs[1].context.userId).toBe('user-123');
+      expect(testTransport.logs[1].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[1].context.requestId).toBeUndefined();
+      
+      // Third log: user + journey + request context
+      expect(testTransport.logs[2].context.userId).toBe('user-123');
+      expect(testTransport.logs[2].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[2].context.requestId).toBe('req-789');
+      
+      // Fourth log: user context only (again)
+      expect(testTransport.logs[3].context.userId).toBe('user-123');
+      expect(testTransport.logs[3].context.journeyType).toBeUndefined();
+      expect(testTransport.logs[3].context.requestId).toBeUndefined();
+      
+      // Fifth log: user + journey context (again)
+      expect(testTransport.logs[4].context.userId).toBe('user-123');
+      expect(testTransport.logs[4].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[4].context.requestId).toBeUndefined();
+    });
+
+    it('should handle child loggers with inheritance', () => {
+      const parentLogger = loggerService.withContext({ component: 'parent' });
+      const childLogger = parentLogger.child('child');
+      
+      parentLogger.log('Parent log');
+      childLogger.log('Child log');
+      
+      expect(testTransport.logs.length).toBe(2);
+      expect(testTransport.logs[0].context.component).toBe('parent');
+      expect(testTransport.logs[0].context.childName).toBeUndefined();
+      
+      expect(testTransport.logs[1].context.component).toBe('parent');
+      expect(testTransport.logs[1].context.childName).toBe('child');
+    });
+
+    it('should handle deeply nested operations', () => {
+      function level1() {
+        const l1Logger = loggerService.withContext({ level: 1 });
+        l1Logger.log('Level 1');
+        level2(l1Logger);
       }
+      
+      function level2(parentLogger: any) {
+        const l2Logger = parentLogger.withContext({ level: 2 });
+        l2Logger.log('Level 2');
+        level3(l2Logger);
+      }
+      
+      function level3(parentLogger: any) {
+        const l3Logger = parentLogger.withContext({ level: 3 });
+        l3Logger.log('Level 3');
+      }
+      
+      level1();
+      
+      expect(testTransport.logs.length).toBe(3);
+      
+      expect(testTransport.logs[0].context.level).toBe(1);
+      
+      expect(testTransport.logs[1].context.level).toBe(2);
+      
+      expect(testTransport.logs[2].context.level).toBe(3);
     });
   });
 
-  describe('Context Inheritance in Nested Operations', () => {
-    it('should properly merge multiple context types', () => {
-      // Create different context types
-      const userContext: UserContext = {
-        userId: 'user-123',
-        isAuthenticated: true,
-        correlationId: 'user-correlation-id',
-      } as UserContext;
-
-      const journeyContext: JourneyContext = {
-        journeyType: 'health',
-        journeyState: { step: 'metrics-input' },
-        correlationId: 'journey-correlation-id', // This should override user correlationId
-      } as JourneyContext;
-
-      const requestContext: RequestContext = {
-        requestId: 'req-123',
-        method: 'POST',
-        url: 'https://api.austa.health/metrics',
-        // No correlationId, should use journey's
-      } as RequestContext;
-
-      // Log with combined contexts
-      loggerService.logWithCombinedContext(
-        LogLevel.INFO,
-        'Health metrics submitted',
-        [userContext, journeyContext, requestContext]
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
+  describe('Context Isolation', () => {
+    it('should maintain context isolation between different logger instances', () => {
+      const healthLogger = loggerService.forHealthJourney();
+      const careLogger = loggerService.forCareJourney();
+      const planLogger = loggerService.forPlanJourney();
       
-      // User context properties
-      expect(logEntry.userId).toBe('user-123');
-      expect(logEntry.isAuthenticated).toBe(true);
+      healthLogger.log('Health journey log');
+      careLogger.log('Care journey log');
+      planLogger.log('Plan journey log');
       
-      // Journey context properties
-      expect(logEntry.journeyType).toBe('health');
-      expect(logEntry.journeyState).toEqual({ step: 'metrics-input' });
-      
-      // Request context properties
-      expect(logEntry.requestId).toBe('req-123');
-      expect(logEntry.method).toBe('POST');
-      expect(logEntry.url).toBe('https://api.austa.health/metrics');
-      
-      // Correlation ID should come from journey context (last one wins)
-      expect(logEntry.correlationId).toBe('journey-correlation-id');
+      expect(testTransport.logs.length).toBe(3);
+      expect(testTransport.logs[0].context.journeyType).toBe(JourneyType.HEALTH);
+      expect(testTransport.logs[1].context.journeyType).toBe(JourneyType.CARE);
+      expect(testTransport.logs[2].context.journeyType).toBe(JourneyType.PLAN);
     });
 
-    it('should maintain context in nested function calls', () => {
-      // Create a user context
-      const userContext: UserContext = {
-        userId: 'user-123',
-        isAuthenticated: true,
-        correlationId: 'nested-correlation-id',
-      } as UserContext;
-
-      // Create a user-specific logger
-      const userLogger = loggerService.createUserLogger(userContext);
-
-      // Define nested functions
-      const level3Function = () => {
-        userLogger.log('Level 3 function executed');
-      };
-
-      const level2Function = () => {
-        userLogger.log('Level 2 function executed');
-        level3Function();
-      };
-
-      const level1Function = () => {
-        userLogger.log('Level 1 function executed');
-        level2Function();
-      };
-
-      // Execute nested functions
-      level1Function();
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(3);
-
-      // All logs should have the same user context
-      logs.forEach(log => {
-        expect(log.userId).toBe('user-123');
-        expect(log.isAuthenticated).toBe(true);
-        expect(log.correlationId).toBe('nested-correlation-id');
-      });
-
-      // Check log messages in order
-      expect(logs[0].message).toBe('Level 1 function executed');
-      expect(logs[1].message).toBe('Level 2 function executed');
-      expect(logs[2].message).toBe('Level 3 function executed');
+    it('should maintain context isolation in concurrent operations', async () => {
+      const userA = loggerService.withUserContext({ userId: 'user-A' });
+      const userB = loggerService.withUserContext({ userId: 'user-B' });
+      
+      // Simulate concurrent operations
+      await Promise.all([
+        new Promise<void>(resolve => {
+          setTimeout(() => {
+            userA.log('User A operation');
+            resolve();
+          }, Math.random() * 10);
+        }),
+        new Promise<void>(resolve => {
+          setTimeout(() => {
+            userB.log('User B operation');
+            resolve();
+          }, Math.random() * 10);
+        })
+      ]);
+      
+      expect(testTransport.logs.length).toBe(2);
+      
+      // Find logs by message
+      const userALog = testTransport.logs.find(log => log.message === 'User A operation');
+      const userBLog = testTransport.logs.find(log => log.message === 'User B operation');
+      
+      expect(userALog).toBeDefined();
+      expect(userBLog).toBeDefined();
+      expect(userALog?.context.userId).toBe('user-A');
+      expect(userBLog?.context.userId).toBe('user-B');
     });
 
-    it('should preserve context across async boundaries', async () => {
-      // Create contexts
-      const userContext: UserContext = {
-        userId: 'user-456',
-        isAuthenticated: true,
-      } as UserContext;
-
-      const journeyContext: JourneyContext = {
-        journeyType: 'care',
-        journeyState: { step: 'provider-search' },
-        correlationId: 'async-journey-id',
-      } as JourneyContext;
-
-      // Create combined logger
-      const combinedLogger = loggerService.createContextLogger(
-        contextManager.mergeContexts(userContext, journeyContext)
-      );
-
-      // Define async functions
-      const asyncLevel2 = async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        combinedLogger.log('Async level 2 executed');
-      };
-
-      const asyncLevel1 = async () => {
-        combinedLogger.log('Async level 1 starting');
-        await asyncLevel2();
-        combinedLogger.log('Async level 1 completed');
-      };
-
-      // Execute async functions
-      await asyncLevel1();
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(3);
-
-      // All logs should have the same combined context
-      logs.forEach(log => {
-        expect(log.userId).toBe('user-456');
-        expect(log.isAuthenticated).toBe(true);
-        expect(log.journeyType).toBe('care');
-        expect(log.journeyState).toEqual({ step: 'provider-search' });
-        expect(log.correlationId).toBe('async-journey-id');
-      });
-
-      // Check log messages in order
-      expect(logs[0].message).toBe('Async level 1 starting');
-      expect(logs[1].message).toBe('Async level 2 executed');
-      expect(logs[2].message).toBe('Async level 1 completed');
+    it('should maintain context isolation when contexts change', () => {
+      // Create a logger with initial context
+      const initialLogger = loggerService.withContext({ version: '1.0' });
+      
+      // Store a reference to the initial logger
+      const storedLogger = initialLogger;
+      
+      // Create a new logger with updated context
+      const updatedLogger = loggerService.withContext({ version: '2.0' });
+      
+      // Both loggers should maintain their separate contexts
+      initialLogger.log('Initial logger');
+      updatedLogger.log('Updated logger');
+      storedLogger.log('Stored logger reference');
+      
+      expect(testTransport.logs.length).toBe(3);
+      expect(testTransport.logs[0].context.version).toBe('1.0');
+      expect(testTransport.logs[1].context.version).toBe('2.0');
+      expect(testTransport.logs[2].context.version).toBe('1.0'); // Should match initial logger
     });
   });
 
-  describe('Context Isolation Between Concurrent Operations', () => {
-    it('should maintain separate contexts for concurrent operations', async () => {
-      // Create different user contexts
-      const userContext1: UserContext = {
-        userId: 'user-1',
-        isAuthenticated: true,
-        correlationId: 'concurrent-id-1',
-      } as UserContext;
+  describe('Trace Context Integration', () => {
+    it('should update trace context when tracing service changes', () => {
+      // Initial log with default trace ID
+      loggerService.log('Initial trace');
+      
+      // Change the trace ID in the tracing service
+      tracingService.setTraceId('new-trace-id');
+      tracingService.setSpanId('new-span-id');
+      
+      // Create a new logger with current trace context
+      const tracedLogger = loggerService.withCurrentTraceContext();
+      tracedLogger.log('Updated trace');
+      
+      expect(testTransport.logs.length).toBe(2);
+      expect(testTransport.logs[0].traceId).toBe('test-trace-id');
+      expect(testTransport.logs[0].spanId).toBe('test-span-id');
+      
+      expect(testTransport.logs[1].traceId).toBe('new-trace-id');
+      expect(testTransport.logs[1].spanId).toBe('new-span-id');
+    });
 
-      const userContext2: UserContext = {
-        userId: 'user-2',
-        isAuthenticated: true,
-        correlationId: 'concurrent-id-2',
-      } as UserContext;
-
-      // Create user-specific loggers
-      const userLogger1 = loggerService.createUserLogger(userContext1);
-      const userLogger2 = loggerService.createUserLogger(userContext2);
-
-      // Define concurrent operations
-      const operation1 = async () => {
-        userLogger1.log('Operation 1 starting');
-        await new Promise(resolve => setTimeout(resolve, 15));
-        userLogger1.log('Operation 1 completed');
-      };
-
-      const operation2 = async () => {
-        userLogger2.log('Operation 2 starting');
-        await new Promise(resolve => setTimeout(resolve, 10));
-        userLogger2.log('Operation 2 completed');
-      };
-
-      // Execute operations concurrently
-      await Promise.all([operation1(), operation2()]);
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(4);
-
-      // Filter logs by user ID
-      const user1Logs = logs.filter(log => log.userId === 'user-1');
-      const user2Logs = logs.filter(log => log.userId === 'user-2');
-
-      // Check user 1 logs
-      expect(user1Logs.length).toBe(2);
-      expect(user1Logs[0].message).toBe('Operation 1 starting');
-      expect(user1Logs[1].message).toBe('Operation 1 completed');
-      user1Logs.forEach(log => {
-        expect(log.correlationId).toBe('concurrent-id-1');
+    it('should handle trace context in async operations', async () => {
+      // Set initial trace context
+      tracingService.setTraceId('trace-1');
+      const logger1 = loggerService.withCurrentTraceContext();
+      
+      // Start an async operation with the first trace context
+      const operation1 = new Promise<void>(resolve => {
+        setTimeout(() => {
+          logger1.log('Operation 1');
+          resolve();
+        }, 10);
       });
-
-      // Check user 2 logs
-      expect(user2Logs.length).toBe(2);
-      expect(user2Logs[0].message).toBe('Operation 2 starting');
-      expect(user2Logs[1].message).toBe('Operation 2 completed');
-      user2Logs.forEach(log => {
-        expect(log.correlationId).toBe('concurrent-id-2');
+      
+      // Change trace context for a second operation
+      tracingService.setTraceId('trace-2');
+      const logger2 = loggerService.withCurrentTraceContext();
+      
+      // Start a second async operation with the new trace context
+      const operation2 = new Promise<void>(resolve => {
+        setTimeout(() => {
+          logger2.log('Operation 2');
+          resolve();
+        }, 5);
       });
-    });
-
-    it('should not leak context between different logger instances', () => {
-      // Create different journey contexts
-      const healthJourneyContext: JourneyContext = {
-        journeyType: 'health',
-        correlationId: 'health-journey-id',
-      } as JourneyContext;
-
-      const careJourneyContext: JourneyContext = {
-        journeyType: 'care',
-        correlationId: 'care-journey-id',
-      } as JourneyContext;
-
-      // Create journey-specific loggers
-      const healthLogger = loggerService.createJourneyLogger(healthJourneyContext);
-      const careLogger = loggerService.createJourneyLogger(careJourneyContext);
-
-      // Log with both loggers
-      healthLogger.log('Health journey event');
-      careLogger.log('Care journey event');
-      healthLogger.log('Another health event');
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(3);
-
-      // Check health journey logs
-      const healthLogs = logs.filter(log => log.journeyType === 'health');
-      expect(healthLogs.length).toBe(2);
-      healthLogs.forEach(log => {
-        expect(log.correlationId).toBe('health-journey-id');
-      });
-
-      // Check care journey logs
-      const careLogs = logs.filter(log => log.journeyType === 'care');
-      expect(careLogs.length).toBe(1);
-      expect(careLogs[0].correlationId).toBe('care-journey-id');
-    });
-
-    it('should handle context changes without affecting other contexts', () => {
-      // Create initial journey context
-      const initialJourneyContext: JourneyContext = {
-        journeyType: 'health',
-        journeyState: { step: 'initial' },
-        correlationId: 'journey-id',
-      } as JourneyContext;
-
-      // Create journey logger
-      const journeyLogger = loggerService.createJourneyLogger(initialJourneyContext);
-
-      // Log with initial context
-      journeyLogger.log('Initial journey state');
-
-      // Create modified context
-      const modifiedJourneyContext: JourneyContext = {
-        ...initialJourneyContext,
-        journeyState: { step: 'modified' },
-      };
-
-      // Create new logger with modified context
-      const modifiedLogger = loggerService.createJourneyLogger(modifiedJourneyContext);
-
-      // Log with both loggers
-      journeyLogger.log('Using original context');
-      modifiedLogger.log('Using modified context');
-
-      // Verify log entries
-      const logs = mockTransport.getLogs();
-      expect(logs.length).toBe(3);
-
-      // Check initial log
-      expect(logs[0].journeyState).toEqual({ step: 'initial' });
-      expect(logs[0].message).toBe('Initial journey state');
-
-      // Check original context log
-      expect(logs[1].journeyState).toEqual({ step: 'initial' });
-      expect(logs[1].message).toBe('Using original context');
-
-      // Check modified context log
-      expect(logs[2].journeyState).toEqual({ step: 'modified' });
-      expect(logs[2].message).toBe('Using modified context');
-    });
-  });
-
-  describe('Tracing Integration', () => {
-    it('should include trace context in log entries', () => {
-      // Set specific trace IDs
-      mockTracingService.setTraceId('abcdef1234567890abcdef1234567890');
-      mockTracingService.setSpanId('abcdef1234567890');
-
-      // Log a message
-      loggerService.log('Operation with tracing');
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.traceId).toBe('abcdef1234567890abcdef1234567890');
-      expect(logEntry.spanId).toBe('abcdef1234567890');
-    });
-
-    it('should maintain trace context with journey context', () => {
-      // Set specific trace IDs
-      mockTracingService.setTraceId('trace-123');
-      mockTracingService.setSpanId('span-456');
-
-      // Create journey context
-      const journeyContext: JourneyContext = {
-        journeyType: 'plan',
-        correlationId: 'plan-journey-id',
-      } as JourneyContext;
-
-      // Log with journey context
-      loggerService.logWithJourneyContext(
-        LogLevel.INFO,
-        'Plan selection',
-        journeyContext
-      );
-
-      // Verify log entry
-      const logEntry = mockTransport.getLastLog();
-      expect(logEntry).toBeDefined();
-      expect(logEntry.journeyType).toBe('plan');
-      expect(logEntry.correlationId).toBe('plan-journey-id');
-      expect(logEntry.traceId).toBe('trace-123');
-      expect(logEntry.spanId).toBe('span-456');
+      
+      // Wait for both operations to complete
+      await Promise.all([operation1, operation2]);
+      
+      expect(testTransport.logs.length).toBe(2);
+      
+      // Find logs by message
+      const log1 = testTransport.logs.find(log => log.message === 'Operation 1');
+      const log2 = testTransport.logs.find(log => log.message === 'Operation 2');
+      
+      expect(log1).toBeDefined();
+      expect(log2).toBeDefined();
+      expect(log1?.traceId).toBe('trace-1');
+      expect(log2?.traceId).toBe('trace-2');
     });
   });
 });
