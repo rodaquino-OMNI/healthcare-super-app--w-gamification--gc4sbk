@@ -1,362 +1,337 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-
-// Interfaces
-import { Transport } from '../interfaces/transport.interface';
-import { LoggerConfig, TransportConfig, TransportType } from '../interfaces/log-config.interface';
-import { LogLevel } from '../interfaces/log-level.enum';
-import { Formatter } from '../formatters/formatter.interface';
-
-// Formatters
-import { JsonFormatter } from '../formatters/json.formatter';
-import { TextFormatter } from '../formatters/text.formatter';
-import { CloudWatchFormatter } from '../formatters/cloudwatch.formatter';
-
-// Transports
-import { ConsoleTransport } from './console.transport';
-import { FileTransport } from './file.transport';
-import { CloudWatchTransport } from './cloudwatch.transport';
+import { Injectable } from '@nestjs/common';
 
 /**
- * Factory responsible for creating and configuring transport instances
- * based on application configuration.
- * 
- * This factory handles the creation of multiple transports, configuration validation,
- * and proper initialization with appropriate formatters.
- *
- * The factory supports three types of transports:
- * - Console: For local development and debugging
- * - File: For persistent local logging
- * - CloudWatch: For centralized log aggregation in AWS
- *
- * Each transport is configured with an appropriate formatter based on its type and configuration.
+ * Transport types supported by the logging system
+ */
+export enum TransportType {
+  CONSOLE = 'console',
+  FILE = 'file',
+  CLOUDWATCH = 'cloudwatch',
+}
+
+/**
+ * Base configuration for all transports
+ */
+export interface TransportConfig {
+  type: TransportType;
+  level?: string;
+  enabled?: boolean;
+  formatter?: string;
+}
+
+/**
+ * Console transport specific configuration
+ */
+export interface ConsoleTransportConfig extends TransportConfig {
+  type: TransportType.CONSOLE;
+  colorize?: boolean;
+  prettyPrint?: boolean;
+}
+
+/**
+ * File transport specific configuration
+ */
+export interface FileTransportConfig extends TransportConfig {
+  type: TransportType.FILE;
+  filename: string;
+  dirname?: string;
+  maxSize?: string;
+  maxFiles?: number;
+  compress?: boolean;
+}
+
+/**
+ * CloudWatch transport specific configuration
+ */
+export interface CloudWatchTransportConfig extends TransportConfig {
+  type: TransportType.CLOUDWATCH;
+  logGroupName: string;
+  logStreamName: string;
+  awsRegion?: string;
+  awsAccessKeyId?: string;
+  awsSecretAccessKey?: string;
+  retentionInDays?: number;
+  batchSize?: number;
+  retryCount?: number;
+  retryDelay?: number;
+}
+
+/**
+ * Union type for all transport configurations
+ */
+export type AnyTransportConfig = ConsoleTransportConfig | FileTransportConfig | CloudWatchTransportConfig;
+
+/**
+ * Interface for the Transport implementations
+ */
+export interface Transport {
+  /**
+   * Initialize the transport
+   */
+  initialize(): Promise<void>;
+  
+  /**
+   * Write a log entry to the transport
+   * @param entry The formatted log entry to write
+   */
+  write(entry: any): Promise<void>;
+  
+  /**
+   * Close the transport and clean up resources
+   */
+  close(): Promise<void>;
+}
+
+/**
+ * Interface for the Formatter implementations
+ */
+export interface Formatter {
+  /**
+   * Format a log entry
+   * @param entry The log entry to format
+   */
+  format(entry: any): any;
+}
+
+/**
+ * Factory for creating transport instances based on configuration
  */
 @Injectable()
 export class TransportFactory {
-  private readonly logger = new Logger(TransportFactory.name);
-  
   /**
-   * Creates a new TransportFactory instance
-   * 
-   * @param configService - NestJS ConfigService for accessing environment variables
+   * Create transport instances based on configuration
+   * @param configs Array of transport configurations
+   * @param formatters Map of formatter instances by name
+   * @returns Array of initialized transport instances
    */
-  constructor(private readonly configService: ConfigService) {}
+  async createTransports(configs: AnyTransportConfig[], formatters: Map<string, Formatter>): Promise<Transport[]> {
+    if (!configs || !Array.isArray(configs) || configs.length === 0) {
+      throw new Error('Invalid transport configuration: configs must be a non-empty array');
+    }
 
-  /**
-   * Creates transport instances based on the provided logger configuration
-   * 
-   * @param config - The logger configuration containing transport settings
-   * @returns An array of configured Transport instances
-   * @throws Error if transport configuration is invalid
-   */
-  createTransports(config: LoggerConfig): Transport[] {
-    if (!config.transports || config.transports.length === 0) {
-      this.logger.warn('No transports specified in configuration, using default console transport');
-      // Default to console transport if none specified
-      return [this.createConsoleTransport({ type: TransportType.CONSOLE })]; 
+    if (!formatters || !(formatters instanceof Map) || formatters.size === 0) {
+      throw new Error('Invalid formatters: formatters must be a non-empty Map');
     }
 
     const transports: Transport[] = [];
-    
-    for (const transportConfig of config.transports) {
+
+    for (const config of configs) {
       try {
-        const transport = this.createTransport(transportConfig);
-        transports.push(transport);
-        this.logger.log(`Created ${transportConfig.type} transport successfully`);
-      } catch (error) {
-        // Log error but don't throw to prevent logger initialization failure
-        this.logger.error(
-          `Failed to create ${transportConfig.type} transport: ${error.message}`,
-          error.stack
-        );
-        
-        // If all transports fail, we need at least one fallback
-        if (transports.length === 0 && config.transports.length === 1) {
-          this.logger.warn('Creating fallback console transport to ensure logging continues');
-          transports.push(this.createConsoleTransport({ type: TransportType.CONSOLE }));
+        // Skip disabled transports
+        if (config.enabled === false) {
+          continue;
         }
+
+        const transport = await this.createTransport(config, formatters);
+        if (transport) {
+          await transport.initialize();
+          transports.push(transport);
+        }
+      } catch (error) {
+        console.error(`Failed to create transport: ${error.message}`);
+        // Continue with other transports if one fails
       }
     }
-    
+
+    if (transports.length === 0) {
+      throw new Error('No valid transports could be created from the provided configuration');
+    }
+
     return transports;
   }
 
   /**
-   * Creates a specific transport based on its type
-   * 
-   * @param config - Configuration for the transport
-   * @returns The configured transport instance
-   * @throws Error if transport type is unsupported or configuration is invalid
+   * Create a single transport instance based on configuration
+   * @param config Transport configuration
+   * @param formatters Map of formatter instances by name
+   * @returns Transport instance
    */
-  private createTransport(config: TransportConfig): Transport {
+  private async createTransport(config: AnyTransportConfig, formatters: Map<string, Formatter>): Promise<Transport> {
     this.validateTransportConfig(config);
 
-    // Apply environment-specific overrides
-    const environmentAdjustedConfig = this.applyEnvironmentOverrides(config);
-    
-    switch (environmentAdjustedConfig.type) {
+    // Get the formatter for this transport
+    const formatter = this.getFormatter(config, formatters);
+
+    switch (config.type) {
       case TransportType.CONSOLE:
-        return this.createConsoleTransport(environmentAdjustedConfig);
+        return this.createConsoleTransport(config as ConsoleTransportConfig, formatter);
       case TransportType.FILE:
-        return this.createFileTransport(environmentAdjustedConfig);
+        return this.createFileTransport(config as FileTransportConfig, formatter);
       case TransportType.CLOUDWATCH:
-        return this.createCloudWatchTransport(environmentAdjustedConfig);
+        return this.createCloudWatchTransport(config as CloudWatchTransportConfig, formatter);
       default:
-        throw new Error(`Unsupported transport type: ${environmentAdjustedConfig.type}`);
+        throw new Error(`Unsupported transport type: ${config.type}`);
     }
   }
 
   /**
-   * Applies environment-specific overrides to transport configuration
-   * 
-   * @param config - The base transport configuration
-   * @returns The adjusted configuration with environment overrides applied
+   * Validate transport configuration
+   * @param config Transport configuration to validate
    */
-  private applyEnvironmentOverrides(config: TransportConfig): TransportConfig {
-    const env = this.configService.get<string>('NODE_ENV') || 'development';
-    const adjustedConfig = { ...config };
-    
-    // Apply environment-specific adjustments
-    switch (env) {
-      case 'development':
-        // In development, ensure console output is human-readable
-        if (config.type === TransportType.CONSOLE && adjustedConfig.useJsonFormat === undefined) {
-          adjustedConfig.useJsonFormat = false;
-          adjustedConfig.colorize = true;
-        }
-        // Set more verbose logging in development
-        if (!adjustedConfig.level) {
-          adjustedConfig.level = LogLevel.DEBUG;
-        }
-        break;
-        
-      case 'production':
-        // In production, ensure CloudWatch transport is properly configured
-        if (config.type === TransportType.CLOUDWATCH) {
-          // Use application name in log group if not specified
-          if (!adjustedConfig.logGroupName) {
-            const appName = this.configService.get<string>('APP_NAME') || 'austa-app';
-            adjustedConfig.logGroupName = `/aws/austa/${appName}`;
-          }
-        }
-        // Set appropriate log level for production
-        if (!adjustedConfig.level) {
-          adjustedConfig.level = LogLevel.INFO;
-        }
-        break;
-        
-      case 'test':
-        // In test environment, disable certain transports
-        if (config.type === TransportType.CLOUDWATCH) {
-          // Override with console transport for testing
-          return {
-            type: TransportType.CONSOLE,
-            level: LogLevel.ERROR, // Only log errors in tests
-            useJsonFormat: false,
-            colorize: true
-          };
-        }
-        break;
-    }
-    
-    return adjustedConfig;
-  }
-
-  /**
-   * Validates transport configuration
-   * 
-   * @param config - The transport configuration to validate
-   * @throws Error if configuration is invalid
-   */
-  private validateTransportConfig(config: TransportConfig): void {
+  private validateTransportConfig(config: AnyTransportConfig): void {
     if (!config) {
-      throw new Error('Transport configuration is required');
+      throw new Error('Transport configuration cannot be null or undefined');
     }
 
     if (!config.type) {
-      throw new Error('Transport type is required');
+      throw new Error('Transport configuration must specify a type');
     }
 
-    // Validate log level if specified
-    if (config.level !== undefined && !(config.level in LogLevel)) {
-      throw new Error(`Invalid log level: ${config.level}`);
-    }
-
-    // Validate specific transport configurations
+    // Validate type-specific configuration
     switch (config.type) {
       case TransportType.FILE:
-        if (!config.filename) {
-          throw new Error('Filename is required for file transport');
-        }
-        if (config.maxSize && typeof config.maxSize === 'string') {
-          // Validate maxSize format (e.g., '10m', '1g')
-          if (!config.maxSize.match(/^\d+[kmg]$/i)) {
-            throw new Error('Invalid maxSize format. Use format like "10m" or "1g"');
-          }
-        }
-        if (config.maxFiles && typeof config.maxFiles === 'number' && config.maxFiles < 1) {
-          throw new Error('maxFiles must be at least 1');
-        }
+        this.validateFileTransportConfig(config as FileTransportConfig);
         break;
-        
       case TransportType.CLOUDWATCH:
-        if (!config.logGroupName) {
-          throw new Error('Log group name is required for CloudWatch transport');
-        }
-        if (config.batchSize && (typeof config.batchSize !== 'number' || config.batchSize < 1 || config.batchSize > 10000)) {
-          throw new Error('batchSize must be between 1 and 10000');
-        }
-        if (config.retryCount && (typeof config.retryCount !== 'number' || config.retryCount < 0)) {
-          throw new Error('retryCount must be a non-negative number');
-        }
+        this.validateCloudWatchTransportConfig(config as CloudWatchTransportConfig);
         break;
-    }
-  }
-
-  /**
-   * Creates a console transport instance
-   * 
-   * @param config - Console transport configuration
-   * @returns Configured ConsoleTransport instance
-   */
-  private createConsoleTransport(config: TransportConfig): ConsoleTransport {
-    const formatter = this.createFormatter(config);
-
-    return new ConsoleTransport({
-      formatter,
-      colorize: config.colorize !== false, // Default to true if not specified
-      level: config.level || LogLevel.INFO,
-    });
-  }
-
-  /**
-   * Creates a file transport instance
-   * 
-   * @param config - File transport configuration
-   * @returns Configured FileTransport instance
-   */
-  private createFileTransport(config: TransportConfig): FileTransport {
-    // File transport always uses JSON formatter for machine readability
-    // Override any formatter setting for file transport
-    const formatter = new JsonFormatter();
-
-    return new FileTransport({
-      formatter,
-      filename: config.filename!,
-      maxSize: config.maxSize || '10m',
-      maxFiles: config.maxFiles || 5,
-      compress: config.compress !== false, // Default to true if not specified
-      level: config.level || LogLevel.INFO,
-      // Add additional file transport options
-      tailable: config.tailable !== false, // Default to true if not specified
-      eol: config.eol || '\n',
-      // Ensure directory exists
-      createDirectory: config.createDirectory !== false, // Default to true if not specified
-    });
-  }
-
-  /**
-   * Creates a CloudWatch transport instance
-   * 
-   * @param config - CloudWatch transport configuration
-   * @returns Configured CloudWatchTransport instance
-   * @throws Error if required AWS configuration is missing
-   */
-  private createCloudWatchTransport(config: TransportConfig): CloudWatchTransport {
-    // CloudWatch transport uses specialized CloudWatch formatter
-    // Override any formatter setting for CloudWatch transport
-    const formatter = new CloudWatchFormatter();
-
-    // Get AWS region from environment if not specified in config
-    const region = config.region || this.configService.get<string>('AWS_REGION');
-    
-    if (!region) {
-      throw new Error('AWS region is required for CloudWatch transport');
-    }
-
-    // Get application environment for tagging
-    const env = this.configService.get<string>('NODE_ENV') || 'development';
-    const appName = this.configService.get<string>('APP_NAME') || 'austa-app';
-    
-    // Create CloudWatch transport with proper configuration
-    return new CloudWatchTransport({
-      formatter,
-      logGroupName: config.logGroupName!,
-      logStreamName: config.logStreamName || this.getDefaultLogStreamName(),
-      region,
-      batchSize: config.batchSize || 1000,
-      retryCount: config.retryCount || 3,
-      level: config.level || LogLevel.INFO,
-      awsAccessKeyId: config.awsAccessKeyId || this.configService.get<string>('AWS_ACCESS_KEY_ID'),
-      awsSecretAccessKey: config.awsSecretAccessKey || this.configService.get<string>('AWS_SECRET_ACCESS_KEY'),
-      // Add additional CloudWatch options
-      tags: {
-        Environment: env,
-        Application: appName,
-        Service: config.serviceName || this.configService.get<string>('SERVICE_NAME') || 'unknown',
-        ...(config.tags || {})
-      },
-      // Configure retention policy based on environment
-      retentionInDays: config.retentionInDays || this.getDefaultRetentionDays(env),
-      // Add throttling protection
-      throttleInterval: config.throttleInterval || 1000,
-      // Add error handling options
-      handleExceptions: config.handleExceptions !== false, // Default to true if not specified
-    });
-  }
-
-  /**
-   * Creates the appropriate formatter based on transport configuration
-   * 
-   * @param config - Transport configuration
-   * @returns Configured formatter instance
-   */
-  private createFormatter(config: TransportConfig): Formatter {
-    // Determine which formatter to use based on configuration
-    if (config.type === TransportType.CLOUDWATCH) {
-      // CloudWatch always uses CloudWatch formatter
-      return new CloudWatchFormatter();
-    }
-    
-    if (config.useJsonFormat) {
-      return new JsonFormatter();
-    }
-    
-    // Default to text formatter for human readability
-    return new TextFormatter();
-  }
-
-  /**
-   * Determines the default log retention period based on environment
-   * 
-   * @param env - The application environment
-   * @returns The number of days to retain logs
-   */
-  private getDefaultRetentionDays(env: string): number {
-    switch (env) {
-      case 'production':
-        return 90; // 90 days retention for production
-      case 'staging':
-        return 30; // 30 days retention for staging
-      case 'development':
-        return 7;  // 7 days retention for development
+      case TransportType.CONSOLE:
+        // No specific validation needed for console transport
+        break;
       default:
-        return 1;  // 1 day retention for other environments
+        throw new Error(`Unsupported transport type: ${config.type}`);
     }
   }
 
   /**
-   * Generates a default log stream name based on environment and instance information
-   * 
-   * @returns Default log stream name
+   * Validate file transport configuration
+   * @param config File transport configuration to validate
    */
-  private getDefaultLogStreamName(): string {
-    const env = this.configService.get<string>('NODE_ENV') || 'development';
-    const appName = this.configService.get<string>('APP_NAME') || 'austa-app';
-    const instanceId = this.configService.get<string>('INSTANCE_ID') || 'default';
-    const serviceName = this.configService.get<string>('SERVICE_NAME') || 'app';
-    
-    // Format: app-service-env-instance-date
-    return `${appName}-${serviceName}-${env}-${instanceId}-${new Date().toISOString().split('T')[0]}`;
+  private validateFileTransportConfig(config: FileTransportConfig): void {
+    if (!config.filename) {
+      throw new Error('File transport configuration must specify a filename');
+    }
+  }
+
+  /**
+   * Validate CloudWatch transport configuration
+   * @param config CloudWatch transport configuration to validate
+   */
+  private validateCloudWatchTransportConfig(config: CloudWatchTransportConfig): void {
+    if (!config.logGroupName) {
+      throw new Error('CloudWatch transport configuration must specify a logGroupName');
+    }
+
+    if (!config.logStreamName) {
+      throw new Error('CloudWatch transport configuration must specify a logStreamName');
+    }
+  }
+
+  /**
+   * Get the formatter for a transport
+   * @param config Transport configuration
+   * @param formatters Map of formatter instances by name
+   * @returns Formatter instance
+   */
+  private getFormatter(config: AnyTransportConfig, formatters: Map<string, Formatter>): Formatter {
+    // Default formatter based on transport type
+    let formatterName = 'json';
+
+    // Use console-specific formatter for console transport in development
+    if (config.type === TransportType.CONSOLE && process.env.NODE_ENV !== 'production') {
+      formatterName = 'text';
+    }
+
+    // Use CloudWatch-specific formatter for CloudWatch transport
+    if (config.type === TransportType.CLOUDWATCH) {
+      formatterName = 'cloudwatch';
+    }
+
+    // Override with configured formatter if specified
+    if (config.formatter) {
+      formatterName = config.formatter;
+    }
+
+    const formatter = formatters.get(formatterName);
+    if (!formatter) {
+      throw new Error(`Formatter not found: ${formatterName}`);
+    }
+
+    return formatter;
+  }
+
+  /**
+   * Create a console transport
+   * @param config Console transport configuration
+   * @param formatter Formatter instance
+   * @returns Console transport instance
+   */
+  private async createConsoleTransport(config: ConsoleTransportConfig, formatter: Formatter): Promise<Transport> {
+    // Dynamically import the console transport to avoid circular dependencies
+    const { ConsoleTransport } = await import('./console.transport');
+    return new ConsoleTransport(config, formatter);
+  }
+
+  /**
+   * Create a file transport
+   * @param config File transport configuration
+   * @param formatter Formatter instance
+   * @returns File transport instance
+   */
+  private async createFileTransport(config: FileTransportConfig, formatter: Formatter): Promise<Transport> {
+    // Dynamically import the file transport to avoid circular dependencies
+    const { FileTransport } = await import('./file.transport');
+    return new FileTransport(config, formatter);
+  }
+
+  /**
+   * Create a CloudWatch transport
+   * @param config CloudWatch transport configuration
+   * @param formatter Formatter instance
+   * @returns CloudWatch transport instance
+   */
+  private async createCloudWatchTransport(config: CloudWatchTransportConfig, formatter: Formatter): Promise<Transport> {
+    // Dynamically import the CloudWatch transport to avoid circular dependencies
+    const { CloudWatchTransport } = await import('./cloudwatch.transport');
+    return new CloudWatchTransport(config, formatter);
+  }
+
+  /**
+   * Create environment-specific transport configurations
+   * @param env Environment name (development, test, production)
+   * @param serviceName Name of the service for logging context
+   * @returns Array of transport configurations
+   */
+  static createDefaultTransportConfigs(env: string, serviceName: string): AnyTransportConfig[] {
+    const configs: AnyTransportConfig[] = [];
+
+    // Console transport for all environments
+    configs.push({
+      type: TransportType.CONSOLE,
+      enabled: true,
+      colorize: env !== 'production',
+      prettyPrint: env !== 'production',
+      formatter: env === 'production' ? 'json' : 'text',
+    });
+
+    // File transport for all environments
+    configs.push({
+      type: TransportType.FILE,
+      enabled: true,
+      filename: `${serviceName}.log`,
+      dirname: 'logs',
+      maxSize: '10m',
+      maxFiles: 5,
+      compress: true,
+      formatter: 'json',
+    });
+
+    // CloudWatch transport only for production
+    if (env === 'production') {
+      configs.push({
+        type: TransportType.CLOUDWATCH,
+        enabled: true,
+        logGroupName: `/austa/${serviceName}`,
+        logStreamName: `${serviceName}-${new Date().toISOString().split('T')[0]}`,
+        awsRegion: process.env.AWS_REGION || 'us-east-1',
+        retentionInDays: 30,
+        batchSize: 100,
+        retryCount: 3,
+        retryDelay: 1000,
+        formatter: 'cloudwatch',
+      });
+    }
+
+    return configs;
   }
 }
