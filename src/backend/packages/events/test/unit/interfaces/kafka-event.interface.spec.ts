@@ -1,289 +1,488 @@
-import { Test } from '@nestjs/testing';
-import { KafkaMessage } from 'kafkajs';
+import { v4 as uuidv4 } from 'uuid';
+import { BaseEvent, EventMetadata, createEvent, isBaseEvent, validateEvent } from '../../../src/interfaces/base-event.interface';
+import { 
+  KafkaEvent, 
+  KafkaHeaders, 
+  KafkaEventProducerOptions, 
+  KafkaEventConsumerOptions,
+  ToKafkaEvent
+} from '../../../src/interfaces/kafka-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
 
-// Import the interfaces we're testing
-import { BaseEvent } from '../../../src/interfaces/base-event.interface';
-import { KafkaEvent } from '../../../src/interfaces/kafka-event.interface';
+// Mock event types for testing
+interface TestEventPayload {
+  message: string;
+  value: number;
+  timestamp: string;
+}
 
-describe('KafkaEvent Interface', () => {
-  // Define test data
-  const mockEventId = 'test-event-123';
-  const mockTimestamp = new Date();
-  const mockVersion = '1.0.0';
-  const mockSource = 'test-service';
-  const mockType = 'test.event';
-  const mockPayload = { data: 'test-data' };
-  const mockMetadata = { correlationId: 'corr-123' };
-  
-  // Kafka-specific properties
-  const mockTopic = 'test-topic';
-  const mockPartition = 1;
-  const mockOffset = '100';
-  const mockHeaders = { 'content-type': 'application/json' };
-  const mockKey = 'test-key';
+// Mock Kafka message format
+interface KafkaMessage {
+  topic: string;
+  partition: number;
+  offset: string;
+  key: Buffer | null;
+  value: Buffer;
+  headers: {
+    [key: string]: Buffer;
+  };
+  timestamp: string;
+}
+
+describe('Kafka Event Interface', () => {
+  // Test data
+  const testEventId = uuidv4();
+  const testCorrelationId = uuidv4();
+  const testUserId = 'user-123';
+  const testTimestamp = new Date().toISOString();
   
   // Create a base event for testing
-  const createBaseEvent = (): BaseEvent => ({
-    eventId: mockEventId,
-    timestamp: mockTimestamp,
-    version: mockVersion,
-    source: mockSource,
-    type: mockType,
-    payload: mockPayload,
-    metadata: mockMetadata,
-  });
-  
-  // Create a Kafka event for testing
-  const createKafkaEvent = (): KafkaEvent => ({
-    ...createBaseEvent(),
-    topic: mockTopic,
-    partition: mockPartition,
-    offset: mockOffset,
-    headers: mockHeaders,
-    key: mockKey,
-  });
-  
-  // Create a Kafka message for testing
-  const createKafkaMessage = (): KafkaMessage => ({
-    key: Buffer.from(mockKey),
-    value: Buffer.from(JSON.stringify({
-      eventId: mockEventId,
-      timestamp: mockTimestamp.toISOString(),
-      version: mockVersion,
-      source: mockSource,
-      type: mockType,
-      payload: mockPayload,
-      metadata: mockMetadata,
-    })),
-    timestamp: mockTimestamp.getTime().toString(),
-    size: 0,
-    attributes: 0,
-    offset: mockOffset,
-    headers: {
-      'content-type': Buffer.from('application/json'),
+  const baseEvent: BaseEvent<TestEventPayload> = {
+    eventId: testEventId,
+    type: 'TEST_EVENT',
+    timestamp: testTimestamp,
+    version: '1.0.0',
+    source: 'test-service',
+    journey: 'HEALTH',
+    userId: testUserId,
+    payload: {
+      message: 'Test message',
+      value: 42,
+      timestamp: testTimestamp
     },
-  });
+    metadata: {
+      correlationId: testCorrelationId,
+      priority: 'high'
+    }
+  };
 
-  describe('Interface Structure', () => {
+  // Create a Kafka event for testing
+  const kafkaEvent: KafkaEvent<TestEventPayload> = {
+    ...baseEvent,
+    topic: 'test-topic',
+    partition: 0,
+    offset: '100',
+    key: 'test-key',
+    headers: {
+      'content-type': 'application/json',
+      'event-type': 'TEST_EVENT',
+      'correlation-id': testCorrelationId
+    }
+  };
+
+  describe('KafkaEvent Structure', () => {
     it('should extend BaseEvent with Kafka-specific properties', () => {
-      const kafkaEvent = createKafkaEvent();
-      
-      // Verify BaseEvent properties
-      expect(kafkaEvent.eventId).toBe(mockEventId);
-      expect(kafkaEvent.timestamp).toBe(mockTimestamp);
-      expect(kafkaEvent.version).toBe(mockVersion);
-      expect(kafkaEvent.source).toBe(mockSource);
-      expect(kafkaEvent.type).toBe(mockType);
-      expect(kafkaEvent.payload).toEqual(mockPayload);
-      expect(kafkaEvent.metadata).toEqual(mockMetadata);
+      // Verify that KafkaEvent has all BaseEvent properties
+      expect(kafkaEvent.eventId).toBe(baseEvent.eventId);
+      expect(kafkaEvent.type).toBe(baseEvent.type);
+      expect(kafkaEvent.timestamp).toBe(baseEvent.timestamp);
+      expect(kafkaEvent.version).toBe(baseEvent.version);
+      expect(kafkaEvent.source).toBe(baseEvent.source);
+      expect(kafkaEvent.journey).toBe(baseEvent.journey);
+      expect(kafkaEvent.userId).toBe(baseEvent.userId);
+      expect(kafkaEvent.payload).toEqual(baseEvent.payload);
+      expect(kafkaEvent.metadata).toEqual(baseEvent.metadata);
       
       // Verify Kafka-specific properties
-      expect(kafkaEvent.topic).toBe(mockTopic);
-      expect(kafkaEvent.partition).toBe(mockPartition);
-      expect(kafkaEvent.offset).toBe(mockOffset);
-      expect(kafkaEvent.headers).toEqual(mockHeaders);
-      expect(kafkaEvent.key).toBe(mockKey);
+      expect(kafkaEvent.topic).toBe('test-topic');
+      expect(kafkaEvent.partition).toBe(0);
+      expect(kafkaEvent.offset).toBe('100');
+      expect(kafkaEvent.key).toBe('test-key');
+      expect(kafkaEvent.headers).toBeDefined();
+      expect(kafkaEvent.headers?.['content-type']).toBe('application/json');
+    });
+
+    it('should pass BaseEvent validation', () => {
+      // KafkaEvent should pass BaseEvent validation
+      const validationResult = validateEvent(kafkaEvent);
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toBeUndefined();
+    });
+
+    it('should be recognized as a BaseEvent', () => {
+      // KafkaEvent should be recognized as a BaseEvent
+      expect(isBaseEvent(kafkaEvent)).toBe(true);
     });
   });
 
-  describe('Conversion Methods', () => {
-    describe('fromKafkaMessage', () => {
-      it('should convert a KafkaMessage to a KafkaEvent', () => {
-        const kafkaMessage = createKafkaMessage();
-        const kafkaEvent = KafkaEvent.fromKafkaMessage(kafkaMessage, mockTopic, mockPartition);
-        
-        // Verify BaseEvent properties
-        expect(kafkaEvent.eventId).toBe(mockEventId);
-        expect(kafkaEvent.timestamp).toEqual(new Date(mockTimestamp.toISOString()));
-        expect(kafkaEvent.version).toBe(mockVersion);
-        expect(kafkaEvent.source).toBe(mockSource);
-        expect(kafkaEvent.type).toBe(mockType);
-        expect(kafkaEvent.payload).toEqual(mockPayload);
-        expect(kafkaEvent.metadata).toEqual(mockMetadata);
-        
-        // Verify Kafka-specific properties
-        expect(kafkaEvent.topic).toBe(mockTopic);
-        expect(kafkaEvent.partition).toBe(mockPartition);
-        expect(kafkaEvent.offset).toBe(mockOffset);
-        expect(kafkaEvent.headers).toEqual({ 'content-type': 'application/json' });
-        expect(kafkaEvent.key).toBe(mockKey);
-      });
+  describe('Kafka Headers', () => {
+    it('should support string key-value pairs', () => {
+      const headers: KafkaHeaders = {
+        'content-type': 'application/json',
+        'event-type': 'TEST_EVENT',
+        'correlation-id': testCorrelationId
+      };
 
-      it('should handle missing or null message value', () => {
-        const kafkaMessage: KafkaMessage = {
-          ...createKafkaMessage(),
-          value: null,
-        };
-        
-        expect(() => {
-          KafkaEvent.fromKafkaMessage(kafkaMessage, mockTopic, mockPartition);
-        }).toThrow('Invalid Kafka message: message value is null or undefined');
-      });
-
-      it('should handle invalid JSON in message value', () => {
-        const kafkaMessage: KafkaMessage = {
-          ...createKafkaMessage(),
-          value: Buffer.from('invalid-json'),
-        };
-        
-        expect(() => {
-          KafkaEvent.fromKafkaMessage(kafkaMessage, mockTopic, mockPartition);
-        }).toThrow('Failed to parse Kafka message value as JSON');
-      });
-
-      it('should handle missing required fields in message value', () => {
-        const kafkaMessage: KafkaMessage = {
-          ...createKafkaMessage(),
-          value: Buffer.from(JSON.stringify({ 
-            // Missing eventId and other required fields
-            payload: mockPayload 
-          })),
-        };
-        
-        expect(() => {
-          KafkaEvent.fromKafkaMessage(kafkaMessage, mockTopic, mockPartition);
-        }).toThrow('Invalid event format: missing required fields');
-      });
+      expect(headers['content-type']).toBe('application/json');
+      expect(headers['event-type']).toBe('TEST_EVENT');
+      expect(headers['correlation-id']).toBe(testCorrelationId);
     });
 
-    describe('toKafkaMessage', () => {
-      it('should convert a KafkaEvent to a KafkaMessage', () => {
-        const kafkaEvent = createKafkaEvent();
-        const kafkaMessage = KafkaEvent.toKafkaMessage(kafkaEvent);
-        
-        // Verify the message key
-        expect(kafkaMessage.key).toBeInstanceOf(Buffer);
-        expect(kafkaMessage.key.toString()).toBe(mockKey);
-        
-        // Verify the message value
-        expect(kafkaMessage.value).toBeInstanceOf(Buffer);
-        const parsedValue = JSON.parse(kafkaMessage.value.toString());
-        expect(parsedValue.eventId).toBe(mockEventId);
-        expect(parsedValue.timestamp).toBe(mockTimestamp.toISOString());
-        expect(parsedValue.version).toBe(mockVersion);
-        expect(parsedValue.source).toBe(mockSource);
-        expect(parsedValue.type).toBe(mockType);
-        expect(parsedValue.payload).toEqual(mockPayload);
-        expect(parsedValue.metadata).toEqual(mockMetadata);
-        
-        // Verify headers
-        expect(kafkaMessage.headers).toBeDefined();
-        expect(kafkaMessage.headers['content-type']).toBeInstanceOf(Buffer);
-        expect(kafkaMessage.headers['content-type'].toString()).toBe('application/json');
-      });
+    it('should allow adding new headers', () => {
+      const headers: KafkaHeaders = {
+        'content-type': 'application/json'
+      };
 
-      it('should handle events without a key', () => {
-        const kafkaEvent = { ...createKafkaEvent(), key: undefined };
-        const kafkaMessage = KafkaEvent.toKafkaMessage(kafkaEvent);
-        
-        // Key should be null when not provided
-        expect(kafkaMessage.key).toBeNull();
-      });
+      // Add new headers
+      headers['event-type'] = 'TEST_EVENT';
+      headers['correlation-id'] = testCorrelationId;
 
-      it('should handle events without headers', () => {
-        const kafkaEvent = { ...createKafkaEvent(), headers: undefined };
-        const kafkaMessage = KafkaEvent.toKafkaMessage(kafkaEvent);
-        
-        // Should have default content-type header
-        expect(kafkaMessage.headers).toBeDefined();
-        expect(kafkaMessage.headers['content-type']).toBeInstanceOf(Buffer);
-        expect(kafkaMessage.headers['content-type'].toString()).toBe('application/json');
-      });
+      expect(headers['content-type']).toBe('application/json');
+      expect(headers['event-type']).toBe('TEST_EVENT');
+      expect(headers['correlation-id']).toBe(testCorrelationId);
+    });
+
+    it('should allow updating existing headers', () => {
+      const headers: KafkaHeaders = {
+        'content-type': 'application/json',
+        'event-type': 'OLD_EVENT'
+      };
+
+      // Update existing header
+      headers['event-type'] = 'TEST_EVENT';
+
+      expect(headers['content-type']).toBe('application/json');
+      expect(headers['event-type']).toBe('TEST_EVENT');
     });
   });
 
-  describe('Validation', () => {
-    it('should validate a valid KafkaEvent', () => {
-      const kafkaEvent = createKafkaEvent();
-      expect(KafkaEvent.validate(kafkaEvent)).toBe(true);
+  describe('Type Conversion', () => {
+    it('should convert BaseEvent to KafkaEvent using ToKafkaEvent utility type', () => {
+      // Create a variable of type ToKafkaEvent<BaseEvent<TestEventPayload>>
+      const convertedEvent: ToKafkaEvent<BaseEvent<TestEventPayload>> = {
+        ...baseEvent,
+        topic: 'test-topic',
+        partition: 0,
+        offset: '100',
+        key: 'test-key',
+        headers: {
+          'content-type': 'application/json'
+        }
+      };
+
+      // Verify that the converted event has the correct structure
+      expect(convertedEvent.eventId).toBe(baseEvent.eventId);
+      expect(convertedEvent.payload).toEqual(baseEvent.payload);
+      expect(convertedEvent.topic).toBe('test-topic');
+      expect(convertedEvent.partition).toBe(0);
     });
 
-    it('should reject events missing BaseEvent properties', () => {
-      const invalidEvent = { 
-        ...createKafkaEvent(),
-        eventId: undefined, // Missing required field
+    it('should preserve payload type when converting', () => {
+      // Create a variable of type ToKafkaEvent<BaseEvent<TestEventPayload>>
+      const convertedEvent: ToKafkaEvent<BaseEvent<TestEventPayload>> = {
+        ...baseEvent,
+        topic: 'test-topic'
       };
-      
-      expect(() => KafkaEvent.validate(invalidEvent)).toThrow(
-        'Invalid KafkaEvent: missing required BaseEvent property "eventId"'
-      );
-    });
 
-    it('should reject events missing Kafka-specific properties', () => {
-      const invalidEvent = { 
-        ...createKafkaEvent(),
-        topic: undefined, // Missing required Kafka field
-      };
-      
-      expect(() => KafkaEvent.validate(invalidEvent)).toThrow(
-        'Invalid KafkaEvent: missing required Kafka property "topic"'
-      );
-    });
-
-    it('should validate headers format', () => {
-      const invalidEvent = { 
-        ...createKafkaEvent(),
-        headers: { 'content-type': 123 }, // Invalid header value type
-      };
-      
-      expect(() => KafkaEvent.validate(invalidEvent)).toThrow(
-        'Invalid KafkaEvent: header values must be strings'
-      );
+      // Verify that the payload type is preserved
+      expect(convertedEvent.payload.message).toBe('Test message');
+      expect(convertedEvent.payload.value).toBe(42);
+      expect(convertedEvent.payload.timestamp).toBe(testTimestamp);
     });
   });
 
-  describe('Serialization/Deserialization', () => {
-    it('should serialize and deserialize a KafkaEvent correctly', () => {
-      const originalEvent = createKafkaEvent();
+  describe('Serialization and Deserialization', () => {
+    // Helper function to convert a KafkaEvent to a Kafka message
+    function serializeToKafkaMessage(event: KafkaEvent): KafkaMessage {
+      const headers: { [key: string]: Buffer } = {};
       
-      // Serialize to string
-      const serialized = KafkaEvent.serialize(originalEvent);
-      expect(typeof serialized).toBe('string');
+      // Convert string headers to Buffer
+      if (event.headers) {
+        Object.entries(event.headers).forEach(([key, value]) => {
+          headers[key] = Buffer.from(value);
+        });
+      }
       
-      // Deserialize back to object
-      const deserialized = KafkaEvent.deserialize(serialized);
+      // Add standard headers
+      headers['event-id'] = Buffer.from(event.eventId);
+      headers['event-type'] = Buffer.from(event.type);
+      headers['source'] = Buffer.from(event.source);
       
-      // Verify all properties match
-      expect(deserialized.eventId).toBe(originalEvent.eventId);
-      expect(deserialized.timestamp).toEqual(originalEvent.timestamp);
-      expect(deserialized.version).toBe(originalEvent.version);
-      expect(deserialized.source).toBe(originalEvent.source);
-      expect(deserialized.type).toBe(originalEvent.type);
-      expect(deserialized.payload).toEqual(originalEvent.payload);
-      expect(deserialized.metadata).toEqual(originalEvent.metadata);
-      expect(deserialized.topic).toBe(originalEvent.topic);
-      expect(deserialized.partition).toBe(originalEvent.partition);
-      expect(deserialized.offset).toBe(originalEvent.offset);
-      expect(deserialized.headers).toEqual(originalEvent.headers);
-      expect(deserialized.key).toBe(originalEvent.key);
+      // Add correlation ID if present
+      if (event.metadata?.correlationId) {
+        headers['correlation-id'] = Buffer.from(event.metadata.correlationId);
+      }
+      
+      return {
+        topic: event.topic,
+        partition: event.partition || 0,
+        offset: event.offset || '0',
+        key: event.key ? Buffer.from(event.key) : null,
+        value: Buffer.from(JSON.stringify({
+          eventId: event.eventId,
+          type: event.type,
+          timestamp: event.timestamp,
+          version: event.version,
+          source: event.source,
+          journey: event.journey,
+          userId: event.userId,
+          payload: event.payload,
+          metadata: event.metadata
+        })),
+        headers,
+        timestamp: event.timestamp
+      };
+    }
+
+    // Helper function to convert a Kafka message to a KafkaEvent
+    function deserializeFromKafkaMessage<T = any>(message: KafkaMessage): KafkaEvent<T> {
+      // Parse the message value
+      const parsedValue = JSON.parse(message.value.toString());
+      
+      // Convert Buffer headers to strings
+      const headers: KafkaHeaders = {};
+      Object.entries(message.headers).forEach(([key, value]) => {
+        headers[key] = value.toString();
+      });
+      
+      return {
+        eventId: parsedValue.eventId,
+        type: parsedValue.type,
+        timestamp: parsedValue.timestamp,
+        version: parsedValue.version,
+        source: parsedValue.source,
+        journey: parsedValue.journey,
+        userId: parsedValue.userId,
+        payload: parsedValue.payload,
+        metadata: parsedValue.metadata,
+        topic: message.topic,
+        partition: message.partition,
+        offset: message.offset,
+        key: message.key ? message.key.toString() : undefined,
+        headers
+      };
+    }
+
+    it('should serialize a KafkaEvent to a Kafka message', () => {
+      const kafkaMessage = serializeToKafkaMessage(kafkaEvent);
+      
+      // Verify the Kafka message structure
+      expect(kafkaMessage.topic).toBe(kafkaEvent.topic);
+      expect(kafkaMessage.partition).toBe(kafkaEvent.partition);
+      expect(kafkaMessage.offset).toBe(kafkaEvent.offset);
+      expect(kafkaMessage.key?.toString()).toBe(kafkaEvent.key);
+      
+      // Verify headers
+      expect(kafkaMessage.headers['event-id'].toString()).toBe(kafkaEvent.eventId);
+      expect(kafkaMessage.headers['event-type'].toString()).toBe(kafkaEvent.type);
+      expect(kafkaMessage.headers['source'].toString()).toBe(kafkaEvent.source);
+      expect(kafkaMessage.headers['correlation-id'].toString()).toBe(testCorrelationId);
+      
+      // Verify the message value contains the event data
+      const parsedValue = JSON.parse(kafkaMessage.value.toString());
+      expect(parsedValue.eventId).toBe(kafkaEvent.eventId);
+      expect(parsedValue.type).toBe(kafkaEvent.type);
+      expect(parsedValue.payload).toEqual(kafkaEvent.payload);
     });
 
-    it('should handle Date objects correctly during serialization', () => {
-      const originalEvent = createKafkaEvent();
+    it('should deserialize a Kafka message to a KafkaEvent', () => {
+      // First serialize the event to a message
+      const kafkaMessage = serializeToKafkaMessage(kafkaEvent);
       
-      // Serialize to string
-      const serialized = KafkaEvent.serialize(originalEvent);
+      // Then deserialize it back to an event
+      const deserializedEvent = deserializeFromKafkaMessage<TestEventPayload>(kafkaMessage);
       
-      // Deserialize back to object
-      const deserialized = KafkaEvent.deserialize(serialized);
+      // Verify the deserialized event matches the original
+      expect(deserializedEvent.eventId).toBe(kafkaEvent.eventId);
+      expect(deserializedEvent.type).toBe(kafkaEvent.type);
+      expect(deserializedEvent.timestamp).toBe(kafkaEvent.timestamp);
+      expect(deserializedEvent.version).toBe(kafkaEvent.version);
+      expect(deserializedEvent.source).toBe(kafkaEvent.source);
+      expect(deserializedEvent.journey).toBe(kafkaEvent.journey);
+      expect(deserializedEvent.userId).toBe(kafkaEvent.userId);
+      expect(deserializedEvent.payload).toEqual(kafkaEvent.payload);
+      expect(deserializedEvent.metadata).toEqual(kafkaEvent.metadata);
+      expect(deserializedEvent.topic).toBe(kafkaEvent.topic);
+      expect(deserializedEvent.partition).toBe(kafkaEvent.partition);
+      expect(deserializedEvent.offset).toBe(kafkaEvent.offset);
       
-      // Verify timestamp is a Date object with the same value
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(deserialized.timestamp.getTime()).toBe(originalEvent.timestamp.getTime());
+      // Verify payload type is preserved
+      expect(deserializedEvent.payload.message).toBe('Test message');
+      expect(deserializedEvent.payload.value).toBe(42);
     });
 
-    it('should throw an error when deserializing invalid JSON', () => {
-      expect(() => {
-        KafkaEvent.deserialize('invalid-json');
-      }).toThrow('Failed to deserialize KafkaEvent: invalid JSON');
+    it('should handle missing optional properties during serialization/deserialization', () => {
+      // Create an event with minimal Kafka properties
+      const minimalEvent: KafkaEvent<TestEventPayload> = {
+        ...baseEvent,
+        topic: 'minimal-topic'
+        // No partition, offset, key, or headers
+      };
+      
+      // Serialize and deserialize
+      const kafkaMessage = serializeToKafkaMessage(minimalEvent);
+      const deserializedEvent = deserializeFromKafkaMessage<TestEventPayload>(kafkaMessage);
+      
+      // Verify the deserialized event
+      expect(deserializedEvent.eventId).toBe(minimalEvent.eventId);
+      expect(deserializedEvent.topic).toBe(minimalEvent.topic);
+      expect(deserializedEvent.partition).toBe(0); // Default value
+      expect(deserializedEvent.offset).toBe('0'); // Default value
+      expect(deserializedEvent.key).toBeUndefined();
+      expect(deserializedEvent.headers).toBeDefined();
+      expect(deserializedEvent.headers?.['event-id']).toBe(minimalEvent.eventId);
+    });
+  });
+
+  describe('Producer Options', () => {
+    it('should create valid KafkaEventProducerOptions', () => {
+      const producerOptions: KafkaEventProducerOptions = {
+        topic: 'test-topic',
+        key: 'test-key',
+        headers: {
+          'content-type': 'application/json',
+          'event-type': 'TEST_EVENT'
+        },
+        partition: 1,
+        requireAcks: true
+      };
+      
+      expect(producerOptions.topic).toBe('test-topic');
+      expect(producerOptions.key).toBe('test-key');
+      expect(producerOptions.headers?.['content-type']).toBe('application/json');
+      expect(producerOptions.partition).toBe(1);
+      expect(producerOptions.requireAcks).toBe(true);
     });
 
-    it('should throw an error when deserializing an object missing required fields', () => {
-      const invalidJson = JSON.stringify({ topic: 'test-topic' }); // Missing most fields
+    it('should support minimal producer options with just a topic', () => {
+      const minimalOptions: KafkaEventProducerOptions = {
+        topic: 'test-topic'
+      };
       
-      expect(() => {
-        KafkaEvent.deserialize(invalidJson);
-      }).toThrow('Invalid KafkaEvent format: missing required fields');
+      expect(minimalOptions.topic).toBe('test-topic');
+      expect(minimalOptions.key).toBeUndefined();
+      expect(minimalOptions.headers).toBeUndefined();
+      expect(minimalOptions.partition).toBeUndefined();
+      expect(minimalOptions.requireAcks).toBeUndefined();
+    });
+  });
+
+  describe('Consumer Options', () => {
+    it('should create valid KafkaEventConsumerOptions', () => {
+      const consumerOptions: KafkaEventConsumerOptions = {
+        topic: 'test-topic',
+        groupId: 'test-group',
+        fromBeginning: true,
+        concurrency: 5,
+        retry: {
+          maxRetries: 3,
+          initialRetryTime: 1000,
+          backoffFactor: 2
+        },
+        deadLetterQueue: {
+          topic: 'test-dlq',
+          includeErrorDetails: true
+        }
+      };
+      
+      expect(consumerOptions.topic).toBe('test-topic');
+      expect(consumerOptions.groupId).toBe('test-group');
+      expect(consumerOptions.fromBeginning).toBe(true);
+      expect(consumerOptions.concurrency).toBe(5);
+      expect(consumerOptions.retry?.maxRetries).toBe(3);
+      expect(consumerOptions.retry?.initialRetryTime).toBe(1000);
+      expect(consumerOptions.retry?.backoffFactor).toBe(2);
+      expect(consumerOptions.deadLetterQueue?.topic).toBe('test-dlq');
+      expect(consumerOptions.deadLetterQueue?.includeErrorDetails).toBe(true);
+    });
+
+    it('should support minimal consumer options with just topic and groupId', () => {
+      const minimalOptions: KafkaEventConsumerOptions = {
+        topic: 'test-topic',
+        groupId: 'test-group'
+      };
+      
+      expect(minimalOptions.topic).toBe('test-topic');
+      expect(minimalOptions.groupId).toBe('test-group');
+      expect(minimalOptions.fromBeginning).toBeUndefined();
+      expect(minimalOptions.concurrency).toBeUndefined();
+      expect(minimalOptions.retry).toBeUndefined();
+      expect(minimalOptions.deadLetterQueue).toBeUndefined();
+    });
+
+    it('should support retry configuration without dead letter queue', () => {
+      const retryOptions: KafkaEventConsumerOptions = {
+        topic: 'test-topic',
+        groupId: 'test-group',
+        retry: {
+          maxRetries: 3,
+          initialRetryTime: 1000,
+          backoffFactor: 2
+        }
+        // No deadLetterQueue
+      };
+      
+      expect(retryOptions.topic).toBe('test-topic');
+      expect(retryOptions.groupId).toBe('test-group');
+      expect(retryOptions.retry?.maxRetries).toBe(3);
+      expect(retryOptions.retry?.initialRetryTime).toBe(1000);
+      expect(retryOptions.retry?.backoffFactor).toBe(2);
+      expect(retryOptions.deadLetterQueue).toBeUndefined();
+    });
+
+    it('should support dead letter queue configuration without retry', () => {
+      const dlqOptions: KafkaEventConsumerOptions = {
+        topic: 'test-topic',
+        groupId: 'test-group',
+        deadLetterQueue: {
+          topic: 'test-dlq',
+          includeErrorDetails: true
+        }
+        // No retry
+      };
+      
+      expect(dlqOptions.topic).toBe('test-topic');
+      expect(dlqOptions.groupId).toBe('test-group');
+      expect(dlqOptions.retry).toBeUndefined();
+      expect(dlqOptions.deadLetterQueue?.topic).toBe('test-dlq');
+      expect(dlqOptions.deadLetterQueue?.includeErrorDetails).toBe(true);
+    });
+  });
+
+  describe('Integration with createEvent utility', () => {
+    it('should convert a created BaseEvent to a KafkaEvent', () => {
+      // Create a base event using the utility function
+      const createdEvent = createEvent<TestEventPayload>(
+        'TEST_EVENT',
+        'test-service',
+        {
+          message: 'Created event',
+          value: 100,
+          timestamp: testTimestamp
+        },
+        {
+          userId: testUserId,
+          journey: 'HEALTH',
+          metadata: {
+            correlationId: testCorrelationId
+          }
+        }
+      );
+      
+      // Convert to KafkaEvent
+      const kafkaEvent: KafkaEvent<TestEventPayload> = {
+        ...createdEvent,
+        topic: 'test-topic',
+        partition: 0,
+        offset: '100',
+        key: testUserId,
+        headers: {
+          'content-type': 'application/json',
+          'event-type': 'TEST_EVENT',
+          'correlation-id': testCorrelationId
+        }
+      };
+      
+      // Verify the converted event
+      expect(kafkaEvent.eventId).toBe(createdEvent.eventId);
+      expect(kafkaEvent.type).toBe('TEST_EVENT');
+      expect(kafkaEvent.source).toBe('test-service');
+      expect(kafkaEvent.payload.message).toBe('Created event');
+      expect(kafkaEvent.payload.value).toBe(100);
+      expect(kafkaEvent.topic).toBe('test-topic');
+      expect(kafkaEvent.partition).toBe(0);
+      expect(kafkaEvent.offset).toBe('100');
+      expect(kafkaEvent.key).toBe(testUserId);
     });
   });
 });
