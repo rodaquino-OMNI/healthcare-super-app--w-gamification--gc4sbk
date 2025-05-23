@@ -5,260 +5,267 @@
  * including valid CPFs with different formatting, invalid CPFs with format errors,
  * checksum failures, and edge cases.
  * 
- * These fixtures are used to test the isValidCPF utility function across all journey
- * services that handle Brazilian user data.
+ * These fixtures are critical for ensuring the isValidCPF utility properly validates
+ * identifiers across all journey services handling Brazilian user data.
  */
 
 /**
- * Interface for CPF test cases
+ * Interface for CPF test case
  */
 export interface CPFTestCase {
-  /** The CPF string to test */
-  cpf: string;
+  /** The CPF value to test */
+  value: string;
   /** Description of the test case */
   description: string;
-  /** Expected validation result */
-  isValid: boolean;
 }
 
 /**
- * Valid CPF test cases with different formatting options
+ * Interface for CPF test fixture set
  */
-export const validCPFs: CPFTestCase[] = [
+export interface CPFFixtureSet {
+  /** Name of the fixture set */
+  name: string;
+  /** Description of the fixture set */
+  description: string;
+  /** Test cases in this fixture set */
+  cases: CPFTestCase[];
+}
+
+/**
+ * Valid CPF test fixtures with proper formatting (xxx.xxx.xxx-xx)
+ */
+export const VALID_FORMATTED_CPFS: CPFTestCase[] = [
   {
-    cpf: '529.982.247-25',
-    description: 'Valid CPF with standard formatting (xxx.xxx.xxx-xx)',
-    isValid: true
+    value: '529.982.247-25',
+    description: 'Valid CPF with standard formatting',
   },
   {
-    cpf: '52998224725',
-    description: 'Valid CPF with no formatting (xxxxxxxxxxx)',
-    isValid: true
+    value: '100.954.020-90',
+    description: 'Valid CPF with standard formatting',
   },
   {
-    cpf: '529982247-25',
-    description: 'Valid CPF with partial formatting (xxxxxxxxx-xx)',
-    isValid: true
-  },
-  {
-    cpf: '529.982.24725',
-    description: 'Valid CPF with partial formatting (xxx.xxx.xxxxx)',
-    isValid: true
-  },
-  {
-    cpf: '529.98224725',
-    description: 'Valid CPF with partial formatting (xxx.xxxxxxxx)',
-    isValid: true
-  },
-  {
-    cpf: '074.815.686-40',
-    description: 'Another valid CPF with standard formatting',
-    isValid: true
-  },
-  {
-    cpf: '07481568640',
-    description: 'Another valid CPF with no formatting',
-    isValid: true
-  },
-  {
-    cpf: '987.654.321-00',
-    description: 'Valid CPF with sequential digits',
-    isValid: true
-  },
-  {
-    cpf: '98765432100',
-    description: 'Valid CPF with sequential digits and no formatting',
-    isValid: true
+    value: '074.534.930-47',
+    description: 'Valid CPF with standard formatting',
   },
 ];
 
 /**
- * Invalid CPF test cases with format errors
+ * Valid CPF test fixtures without any formatting (xxxxxxxxxxx)
  */
-export const invalidFormatCPFs: CPFTestCase[] = [
+export const VALID_UNFORMATTED_CPFS: CPFTestCase[] = [
   {
-    cpf: '123.456.789',
-    description: 'CPF with too few digits (9 digits)',
-    isValid: false
+    value: '52998224725',
+    description: 'Valid CPF without formatting',
   },
   {
-    cpf: '123.456.789-0',
-    description: 'CPF with too few digits (10 digits)',
-    isValid: false
+    value: '10095402090',
+    description: 'Valid CPF without formatting',
   },
   {
-    cpf: '123.456.789-012',
-    description: 'CPF with too many digits (12 digits)',
-    isValid: false
-  },
-  {
-    cpf: '12345678901234',
-    description: 'CPF with too many digits (14 digits)',
-    isValid: false
-  },
-  {
-    cpf: '123.456.789-AB',
-    description: 'CPF with non-numeric characters',
-    isValid: false
-  },
-  {
-    cpf: 'ABC.DEF.GHI-JK',
-    description: 'CPF with all non-numeric characters',
-    isValid: false
-  },
-  {
-    cpf: '123 456 789 00',
-    description: 'CPF with spaces instead of proper formatting',
-    isValid: false
+    value: '07453493047',
+    description: 'Valid CPF without formatting',
   },
 ];
 
 /**
- * Invalid CPF test cases with checksum failures
+ * Valid CPF test fixtures with partial formatting
  */
-export const invalidChecksumCPFs: CPFTestCase[] = [
+export const VALID_PARTIALLY_FORMATTED_CPFS: CPFTestCase[] = [
   {
-    cpf: '529.982.247-26', // Changed last digit from 25 to 26
-    description: 'CPF with invalid second check digit',
-    isValid: false
+    value: '529.98224725',
+    description: 'Valid CPF with partial formatting (first dot only)',
   },
   {
-    cpf: '529.982.248-25', // Changed digit before check digits
-    description: 'CPF with invalid first check digit',
-    isValid: false
+    value: '529982.24725',
+    description: 'Valid CPF with partial formatting (second dot only)',
   },
   {
-    cpf: '123.456.789-10', // Random invalid CPF
-    description: 'CPF with invalid check digits',
-    isValid: false
+    value: '52998224725-',
+    description: 'Valid CPF with partial formatting (hyphen only)',
   },
   {
-    cpf: '987.654.321-01', // Changed valid CPF check digits
-    description: 'Valid sequence with invalid check digits',
-    isValid: false
+    value: '529.982.24725',
+    description: 'Valid CPF with partial formatting (dots but no hyphen)',
+  },
+  {
+    value: '52998224-25',
+    description: 'Valid CPF with partial formatting (hyphen but no dots)',
   },
 ];
 
 /**
- * Invalid CPF test cases with repeating digits (all same digits)
+ * Invalid CPF test fixtures with incorrect length
  */
-export const repeatingDigitCPFs: CPFTestCase[] = [
+export const INVALID_LENGTH_CPFS: CPFTestCase[] = [
   {
-    cpf: '111.111.111-11',
-    description: 'CPF with all digits as 1',
-    isValid: false
+    value: '5299822472',
+    description: 'Invalid CPF with only 10 digits (too short)',
   },
   {
-    cpf: '222.222.222-22',
-    description: 'CPF with all digits as 2',
-    isValid: false
+    value: '529.982.247-2',
+    description: 'Invalid CPF with only 10 digits and formatting (too short)',
   },
   {
-    cpf: '333.333.333-33',
-    description: 'CPF with all digits as 3',
-    isValid: false
+    value: '529982247256',
+    description: 'Invalid CPF with 12 digits (too long)',
   },
   {
-    cpf: '444.444.444-44',
-    description: 'CPF with all digits as 4',
-    isValid: false
+    value: '529.982.247-256',
+    description: 'Invalid CPF with 12 digits and formatting (too long)',
   },
   {
-    cpf: '555.555.555-55',
-    description: 'CPF with all digits as 5',
-    isValid: false
+    value: '',
+    description: 'Invalid CPF with empty string',
+  },
+];
+
+/**
+ * Invalid CPF test fixtures with all digits the same (known invalid pattern)
+ */
+export const INVALID_SAME_DIGITS_CPFS: CPFTestCase[] = [
+  {
+    value: '00000000000',
+    description: 'Invalid CPF with all zeros',
   },
   {
-    cpf: '666.666.666-66',
-    description: 'CPF with all digits as 6',
-    isValid: false
+    value: '11111111111',
+    description: 'Invalid CPF with all ones',
   },
   {
-    cpf: '777.777.777-77',
-    description: 'CPF with all digits as 7',
-    isValid: false
+    value: '22222222222',
+    description: 'Invalid CPF with all twos',
   },
   {
-    cpf: '888.888.888-88',
-    description: 'CPF with all digits as 8',
-    isValid: false
+    value: '33333333333',
+    description: 'Invalid CPF with all threes',
   },
   {
-    cpf: '999.999.999-99',
-    description: 'CPF with all digits as 9',
-    isValid: false
+    value: '44444444444',
+    description: 'Invalid CPF with all fours',
   },
   {
-    cpf: '000.000.000-00',
-    description: 'CPF with all digits as 0',
-    isValid: false
+    value: '55555555555',
+    description: 'Invalid CPF with all fives',
   },
   {
-    cpf: '11111111111',
-    description: 'CPF with all digits as 1 (no formatting)',
-    isValid: false
+    value: '66666666666',
+    description: 'Invalid CPF with all sixes',
   },
+  {
+    value: '77777777777',
+    description: 'Invalid CPF with all sevens',
+  },
+  {
+    value: '88888888888',
+    description: 'Invalid CPF with all eights',
+  },
+  {
+    value: '99999999999',
+    description: 'Invalid CPF with all nines',
+  },
+  {
+    value: '000.000.000-00',
+    description: 'Invalid CPF with all zeros (formatted)',
+  },
+  {
+    value: '111.111.111-11',
+    description: 'Invalid CPF with all ones (formatted)',
+  },
+];
+
+/**
+ * Invalid CPF test fixtures with incorrect check digits
+ */
+export const INVALID_CHECKSUM_CPFS: CPFTestCase[] = [
+  {
+    value: '529.982.247-26', // Changed last digit from 25 to 26
+    description: 'Invalid CPF with incorrect second check digit',
+  },
+  {
+    value: '529.982.247-15', // Changed first check digit from 2 to 1
+    description: 'Invalid CPF with incorrect first check digit',
+  },
+  {
+    value: '529.982.247-35', // Changed both check digits
+    description: 'Invalid CPF with both check digits incorrect',
+  },
+  {
+    value: '52998224726', // Unformatted with incorrect check digit
+    description: 'Invalid unformatted CPF with incorrect check digit',
+  },
+];
+
+/**
+ * Invalid CPF test fixtures with invalid characters
+ */
+export const INVALID_CHARACTER_CPFS: CPFTestCase[] = [
+  {
+    value: '529.982.247-2A',
+    description: 'Invalid CPF with letter character',
+  },
+  {
+    value: '529.982.247@25',
+    description: 'Invalid CPF with special character',
+  },
+  {
+    value: '529,982,247-25', // Using commas instead of dots
+    description: 'Invalid CPF with incorrect separator characters',
+  },
+  {
+    value: '529.982.247 25', // Space instead of hyphen
+    description: 'Invalid CPF with space instead of hyphen',
+  },
+];
+
+/**
+ * Complete set of valid CPF test fixtures
+ */
+export const VALID_CPF_FIXTURES: CPFFixtureSet = {
+  name: 'Valid CPFs',
+  description: 'Collection of valid CPF numbers with various formatting styles',
+  cases: [
+    ...VALID_FORMATTED_CPFS,
+    ...VALID_UNFORMATTED_CPFS,
+    ...VALID_PARTIALLY_FORMATTED_CPFS,
+  ],
+};
+
+/**
+ * Complete set of invalid CPF test fixtures
+ */
+export const INVALID_CPF_FIXTURES: CPFFixtureSet = {
+  name: 'Invalid CPFs',
+  description: 'Collection of invalid CPF numbers with various error conditions',
+  cases: [
+    ...INVALID_LENGTH_CPFS,
+    ...INVALID_SAME_DIGITS_CPFS,
+    ...INVALID_CHECKSUM_CPFS,
+    ...INVALID_CHARACTER_CPFS,
+  ],
+};
+
+/**
+ * All CPF test fixtures combined
+ */
+export const ALL_CPF_FIXTURES: CPFFixtureSet[] = [
+  VALID_CPF_FIXTURES,
+  INVALID_CPF_FIXTURES,
 ];
 
 /**
  * Edge cases for CPF validation
  */
-export const edgeCaseCPFs: CPFTestCase[] = [
+export const CPF_EDGE_CASES: CPFTestCase[] = [
   {
-    cpf: '',
-    description: 'Empty string',
-    isValid: false
+    value: ' ',
+    description: 'CPF with only whitespace',
   },
   {
-    cpf: '   ',
-    description: 'String with only spaces',
-    isValid: false
+    value: '   529.982.247-25   ',
+    description: 'Valid CPF with surrounding whitespace',
   },
   {
-    cpf: '...-',
-    description: 'String with only formatting characters',
-    isValid: false
-  },
-  {
-    cpf: '123.456',
-    description: 'Partial CPF (less than half)',
-    isValid: false
+    value: '529. 982. 247- 25',
+    description: 'CPF with extra spaces between formatting characters',
   },
 ];
-
-/**
- * All CPF test cases combined
- */
-export const allCPFTestCases: CPFTestCase[] = [
-  ...validCPFs,
-  ...invalidFormatCPFs,
-  ...invalidChecksumCPFs,
-  ...repeatingDigitCPFs,
-  ...edgeCaseCPFs
-];
-
-/**
- * Get all valid CPF test cases
- * @returns Array of valid CPF test cases
- */
-export const getValidCPFTestCases = (): CPFTestCase[] => validCPFs;
-
-/**
- * Get all invalid CPF test cases
- * @returns Array of invalid CPF test cases
- */
-export const getInvalidCPFTestCases = (): CPFTestCase[] => [
-  ...invalidFormatCPFs,
-  ...invalidChecksumCPFs,
-  ...repeatingDigitCPFs,
-  ...edgeCaseCPFs
-];
-
-/**
- * Get test cases by expected validation result
- * @param isValid Whether to return valid or invalid test cases
- * @returns Array of CPF test cases filtered by expected validation result
- */
-export const getCPFTestCasesByValidity = (isValid: boolean): CPFTestCase[] => {
-  return allCPFTestCases.filter(testCase => testCase.isValid === isValid);
-};
