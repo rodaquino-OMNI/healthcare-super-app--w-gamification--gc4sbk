@@ -1,711 +1,782 @@
-import { describe, expect, it, jest } from '@jest/globals';
-import { BaseError } from '@austa/errors';
-import { ErrorType } from '@austa/errors/types';
-import { HttpStatus } from '@nestjs/common';
-import { 
-  EventError,
-  EventValidationError,
-  EventSchemaError,
-  EventProcessingError,
-  EventDeliveryError,
-  EventRetryableError,
-  EventDeadLetterError,
-  JourneyEventError
-} from '../../../src/errors';
-import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY } from '../../../src/constants/errors.constants';
-import { EventMetadataDto, EventOriginDto } from '../../../src/dto/event-metadata.dto';
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
+import { ErrorType } from '@austa/errors';
+import {
+  EventException,
+  EventErrorCategory,
+  EventProcessingStage,
+  EventErrorContext,
+  EventValidationException,
+  EventDeserializationException,
+  EventSchemaVersionException,
+  EventProcessingException,
+  EventPublishingException,
+  EventPersistenceException,
+  EventHandlerNotFoundException,
+  EventMaxRetriesExceededException,
+  HealthEventException,
+  CareEventException,
+  PlanEventException
+} from '../../../src/errors/event-errors';
+import { BaseEvent } from '../../../src/interfaces/base-event.interface';
 
 describe('Event Errors', () => {
-  // Helper function to create event metadata for testing
-  const createTestMetadata = (eventType: EventType, journey: string = 'health') => {
-    const origin = new EventOriginDto();
-    origin.service = `${journey}-service`;
-    origin.component = 'test-component';
-    
-    const metadata = new EventMetadataDto();
-    metadata.eventId = '123e4567-e89b-12d3-a456-426614174000';
-    metadata.correlationId = '123e4567-e89b-12d3-a456-426614174001';
-    metadata.origin = origin;
-    metadata.timestamp = new Date();
-    
-    return { eventType, metadata };
+  // Mock event for testing
+  const mockEvent: BaseEvent = {
+    eventId: 'test-event-123',
+    type: 'TEST_EVENT',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    version: '1.0.0',
+    source: 'test-service',
+    journey: 'health',
+    userId: 'user-123',
+    payload: { test: 'data' },
+    metadata: {
+      correlationId: 'corr-123',
+      retryCount: 2
+    }
   };
 
-  describe('EventError', () => {
-    it('should extend BaseError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
-      );
-      
-      expect(error).toBeInstanceOf(BaseError);
-      expect(error).toBeInstanceOf(EventError);
-    });
+  // Mock event context for testing
+  const mockEventContext: EventErrorContext = {
+    eventId: 'test-event-123',
+    eventType: 'TEST_EVENT',
+    eventSource: 'test-service',
+    processingStage: EventProcessingStage.PROCESSING,
+    journey: 'health',
+    userId: 'user-123',
+    retryCount: 2,
+    metadata: {
+      correlationId: 'corr-123'
+    }
+  };
 
-    it('should store event type and metadata', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
+  describe('EventException (Base Class)', () => {
+    it('should create an instance with all properties', () => {
+      const error = new EventException(
+        'Test error message',
+        ErrorType.TECHNICAL,
+        'TEST_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext,
+        { additionalInfo: 'test' },
+        new Error('Original error')
       );
-      
-      expect(error.eventType).toBe(eventType);
-      expect(error.eventMetadata).toBe(metadata);
-    });
 
-    it('should use TECHNICAL error type by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
-      );
-      
+      expect(error).toBeInstanceOf(EventException);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe('Test error message');
       expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('TEST_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.eventContext).toEqual(mockEventContext);
+      expect(error.details).toEqual({ additionalInfo: 'test' });
+      expect(error.cause).toBeInstanceOf(Error);
+      expect(error.cause?.message).toBe('Original error');
     });
 
-    it('should allow overriding the error type', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata,
-        undefined,
-        undefined,
-        ErrorType.EXTERNAL
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventException.fromEvent(
+        mockEvent,
+        'Error from event',
+        ErrorType.TECHNICAL,
+        'EVENT_ERROR',
+        EventErrorCategory.TRANSIENT,
+        EventProcessingStage.PROCESSING,
+        { additionalInfo: 'test' },
+        new Error('Original error')
       );
-      
-      expect(error.type).toBe(ErrorType.EXTERNAL);
+
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Error from event');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('EVENT_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.eventContext).toEqual({
+        eventId: mockEvent.eventId,
+        eventType: mockEvent.type,
+        eventSource: mockEvent.source,
+        processingStage: EventProcessingStage.PROCESSING,
+        journey: mockEvent.journey,
+        userId: mockEvent.userId,
+        metadata: mockEvent.metadata
+      });
+      expect(error.details).toEqual({ additionalInfo: 'test' });
+      expect(error.cause).toBeInstanceOf(Error);
     });
 
-    it('should include event context in serialized output when includeContext is true', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
+    it('should correctly serialize to JSON with event context', () => {
+      const error = new EventException(
+        'Test error message',
+        ErrorType.TECHNICAL,
+        'TEST_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext
       );
-      
-      const json = error.toJSON(true);
-      
-      expect(json.error.context).toBeDefined();
-      expect(json.error.context.eventType).toBe(eventType);
-      expect(json.error.context.eventId).toBe(metadata.eventId);
-      expect(json.error.context.correlationId).toBe(metadata.correlationId);
+
+      const json = error.toJSON();
+      expect(json).toHaveProperty('error');
+      expect(json.error).toHaveProperty('message', 'Test error message');
+      expect(json.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(json.error).toHaveProperty('code', 'TEST_ERROR');
+      expect(json.error).toHaveProperty('category', EventErrorCategory.TRANSIENT);
+      expect(json.error).toHaveProperty('eventContext', mockEventContext);
     });
 
-    it('should include event context in log format', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
+    it('should correctly identify retriable errors', () => {
+      const transientError = new EventException(
+        'Transient error',
+        ErrorType.TECHNICAL,
+        'TRANSIENT_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext
       );
-      
-      const logFormat = error.toLogFormat();
-      
-      expect(logFormat.eventContext).toBeDefined();
-      expect(logFormat.eventContext.eventType).toBe(eventType);
-      expect(logFormat.eventContext.eventId).toBe(metadata.eventId);
-      expect(logFormat.eventContext.service).toBe(metadata.origin.service);
-    });
 
-    it('should extract journey from event type', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
+      const retriableError = new EventException(
+        'Retriable error',
+        ErrorType.TECHNICAL,
+        'RETRIABLE_ERROR',
+        EventErrorCategory.RETRIABLE,
+        mockEventContext
       );
-      
-      expect(error.getJourney()).toBe('health');
-    });
 
-    it('should extract journey from event metadata if available', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.CARE_APPOINTMENT_BOOKED, 'care');
-      const error = new EventError(
-        'Event processing failed',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        eventType,
-        metadata
+      const permanentError = new EventException(
+        'Permanent error',
+        ErrorType.TECHNICAL,
+        'PERMANENT_ERROR',
+        EventErrorCategory.PERMANENT,
+        mockEventContext
       );
-      
-      expect(error.getJourney()).toBe('care');
-    });
 
-    it('should determine if error is retryable based on error code', () => {
-      // Retryable error
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const retryableError = new EventError(
-        'Connection temporarily unavailable',
-        ERROR_CODES.PRODUCER_CONNECTION_FAILED,
-        eventType,
-        metadata
+      const manualError = new EventException(
+        'Manual error',
+        ErrorType.TECHNICAL,
+        'MANUAL_ERROR',
+        EventErrorCategory.MANUAL,
+        mockEventContext
       );
-      
-      // Non-retryable error
-      const nonRetryableError = new EventError(
-        'Schema validation failed',
-        ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-        eventType,
-        metadata
-      );
-      
-      expect(retryableError.isRetryable()).toBe(true);
-      expect(nonRetryableError.isRetryable()).toBe(false);
+
+      expect(transientError.isRetriable()).toBe(true);
+      expect(retriableError.isRetriable()).toBe(true);
+      expect(permanentError.isRetriable()).toBe(false);
+      expect(manualError.isRetriable()).toBe(false);
     });
   });
 
-  describe('EventValidationError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const validationErrors = [
-        { property: 'value', constraints: { min: 'value must be greater than 0' } }
-      ];
-      
-      const error = new EventValidationError(
-        'Event validation failed',
-        eventType,
-        metadata,
-        validationErrors
+  describe('EventValidationException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventValidationException(
+        'Validation error',
+        'VALIDATION_ERROR',
+        mockEventContext,
+        { field: 'test', constraint: 'required' }
       );
-      
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventValidationError);
-    });
 
-    it('should use VALIDATION error type', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const validationErrors = [
-        { property: 'value', constraints: { min: 'value must be greater than 0' } }
-      ];
-      
-      const error = new EventValidationError(
-        'Event validation failed',
-        eventType,
-        metadata,
-        validationErrors
-      );
-      
+      expect(error).toBeInstanceOf(EventValidationException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Validation error');
       expect(error.type).toBe(ErrorType.VALIDATION);
+      expect(error.code).toBe('VALIDATION_ERROR');
+      expect(error.category).toBe(EventErrorCategory.PERMANENT);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.VALIDATION);
+      expect(error.details).toEqual({ field: 'test', constraint: 'required' });
     });
 
-    it('should store validation errors in details', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const validationErrors = [
-        { property: 'value', constraints: { min: 'value must be greater than 0' } }
-      ];
-      
-      const error = new EventValidationError(
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventValidationException.fromEvent(
+        mockEvent,
         'Event validation failed',
-        eventType,
-        metadata,
-        validationErrors
+        { field: 'test', constraint: 'required' }
       );
-      
-      expect(error.details).toEqual({ validationErrors });
+
+      expect(error).toBeInstanceOf(EventValidationException);
+      expect(error.message).toBe('Event validation failed');
+      expect(error.code).toBe('EVENT_VALIDATION_ERROR');
+      expect(error.category).toBe(EventErrorCategory.PERMANENT);
+      expect(error.eventContext).toHaveProperty('eventId', mockEvent.eventId);
+      expect(error.eventContext).toHaveProperty('eventType', mockEvent.type);
+      expect(error.eventContext).toHaveProperty('processingStage', EventProcessingStage.VALIDATION);
+    });
+  });
+
+  describe('EventDeserializationException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventDeserializationException(
+        'Deserialization error',
+        'DESERIALIZATION_ERROR',
+        mockEventContext,
+        { rawData: '{malformed json}' }
+      );
+
+      expect(error).toBeInstanceOf(EventDeserializationException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Deserialization error');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('DESERIALIZATION_ERROR');
+      expect(error.category).toBe(EventErrorCategory.PERMANENT);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.DESERIALIZATION);
     });
 
-    it('should use SCHEMA_VALIDATION_FAILED error code', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const validationErrors = [
-        { property: 'value', constraints: { min: 'value must be greater than 0' } }
+    it('should create an instance with partial context', () => {
+      const partialContext = {
+        eventType: 'PARTIAL_EVENT',
+        eventSource: 'unknown-source'
+      };
+
+      const error = EventDeserializationException.withPartialContext(
+        partialContext,
+        'Could not deserialize event',
+        { rawData: '{malformed json}' }
+      );
+
+      expect(error).toBeInstanceOf(EventDeserializationException);
+      expect(error.message).toBe('Could not deserialize event');
+      expect(error.eventContext).toHaveProperty('eventType', 'PARTIAL_EVENT');
+      expect(error.eventContext).toHaveProperty('eventSource', 'unknown-source');
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.DESERIALIZATION);
+    });
+  });
+
+  describe('EventSchemaVersionException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventSchemaVersionException(
+        'Schema version mismatch',
+        'SCHEMA_VERSION_ERROR',
+        mockEventContext,
+        { expectedVersion: '2.0.0', actualVersion: '1.0.0' }
+      );
+
+      expect(error).toBeInstanceOf(EventSchemaVersionException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Schema version mismatch');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('SCHEMA_VERSION_ERROR');
+      expect(error.category).toBe(EventErrorCategory.PERMANENT);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.VALIDATION);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventSchemaVersionException.fromEvent(
+        mockEvent,
+        '2.0.0',
+        '1.0.0'
+      );
+
+      expect(error).toBeInstanceOf(EventSchemaVersionException);
+      expect(error.message).toContain('Expected 2.0.0, got 1.0.0');
+      expect(error.code).toBe('EVENT_SCHEMA_VERSION_ERROR');
+      expect(error.details).toEqual({
+        expectedVersion: '2.0.0',
+        actualVersion: '1.0.0',
+        migrationRequired: true
+      });
+    });
+  });
+
+  describe('EventProcessingException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventProcessingException(
+        'Processing error',
+        'PROCESSING_ERROR',
+        EventErrorCategory.RETRIABLE,
+        mockEventContext,
+        { processingStep: 'data-transformation' }
+      );
+
+      expect(error).toBeInstanceOf(EventProcessingException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Processing error');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('PROCESSING_ERROR');
+      expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.PROCESSING);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventProcessingException.fromEvent(
+        mockEvent,
+        'Failed to process event',
+        EventErrorCategory.TRANSIENT,
+        { processingStep: 'data-transformation' }
+      );
+
+      expect(error).toBeInstanceOf(EventProcessingException);
+      expect(error.message).toBe('Failed to process event');
+      expect(error.code).toBe('EVENT_PROCESSING_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.eventContext).toHaveProperty('retryCount', 2);
+    });
+  });
+
+  describe('EventPublishingException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventPublishingException(
+        'Publishing error',
+        'PUBLISHING_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext,
+        { destination: 'kafka-topic' }
+      );
+
+      expect(error).toBeInstanceOf(EventPublishingException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Publishing error');
+      expect(error.type).toBe(ErrorType.EXTERNAL);
+      expect(error.code).toBe('PUBLISHING_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.PUBLISHING);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventPublishingException.fromEvent(
+        mockEvent,
+        'kafka-topic',
+        'Failed to publish event'
+      );
+
+      expect(error).toBeInstanceOf(EventPublishingException);
+      expect(error.message).toBe('Failed to publish event');
+      expect(error.code).toBe('EVENT_PUBLISHING_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.details).toHaveProperty('destination', 'kafka-topic');
+      expect(error.details).toHaveProperty('timestamp');
+    });
+
+    it('should use default message if none provided', () => {
+      const error = EventPublishingException.fromEvent(
+        mockEvent,
+        'kafka-topic',
+        ''
+      );
+
+      expect(error.message).toBe('Failed to publish event to kafka-topic');
+    });
+  });
+
+  describe('EventPersistenceException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventPersistenceException(
+        'Persistence error',
+        'PERSISTENCE_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext,
+        { storageTarget: 'database' }
+      );
+
+      expect(error).toBeInstanceOf(EventPersistenceException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Persistence error');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('PERSISTENCE_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.PERSISTENCE);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventPersistenceException.fromEvent(
+        mockEvent,
+        'events_table',
+        'Failed to persist event'
+      );
+
+      expect(error).toBeInstanceOf(EventPersistenceException);
+      expect(error.message).toBe('Failed to persist event');
+      expect(error.code).toBe('EVENT_PERSISTENCE_ERROR');
+      expect(error.category).toBe(EventErrorCategory.TRANSIENT);
+      expect(error.details).toHaveProperty('storageTarget', 'events_table');
+      expect(error.details).toHaveProperty('timestamp');
+    });
+
+    it('should use default message if none provided', () => {
+      const error = EventPersistenceException.fromEvent(
+        mockEvent,
+        'events_table',
+        ''
+      );
+
+      expect(error.message).toBe('Failed to persist event to events_table');
+    });
+
+    it('should correctly identify constraint violations', () => {
+      const constraintError1 = new EventPersistenceException(
+        'Constraint violation',
+        'CONSTRAINT_ERROR',
+        EventErrorCategory.PERMANENT,
+        mockEventContext,
+        { storageTarget: 'database' },
+        new Error('duplicate key value violates unique constraint')
+      );
+
+      const constraintError2 = new EventPersistenceException(
+        'Constraint violation',
+        'CONSTRAINT_ERROR',
+        EventErrorCategory.PERMANENT,
+        mockEventContext,
+        { storageTarget: 'database' },
+        new Error('foreign key constraint fails')
+      );
+
+      const nonConstraintError = new EventPersistenceException(
+        'Other error',
+        'OTHER_ERROR',
+        EventErrorCategory.TRANSIENT,
+        mockEventContext,
+        { storageTarget: 'database' },
+        new Error('connection timeout')
+      );
+
+      expect(constraintError1.isConstraintViolation()).toBe(true);
+      expect(constraintError2.isConstraintViolation()).toBe(true);
+      expect(nonConstraintError.isConstraintViolation()).toBe(false);
+    });
+  });
+
+  describe('EventHandlerNotFoundException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventHandlerNotFoundException(
+        'Handler not found',
+        'HANDLER_NOT_FOUND',
+        mockEventContext,
+        { availableHandlers: ['handler1', 'handler2'] }
+      );
+
+      expect(error).toBeInstanceOf(EventHandlerNotFoundException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Handler not found');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('HANDLER_NOT_FOUND');
+      expect(error.category).toBe(EventErrorCategory.MANUAL);
+      expect(error.eventContext.processingStage).toBe(EventProcessingStage.PROCESSING);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const error = EventHandlerNotFoundException.fromEvent(mockEvent);
+
+      expect(error).toBeInstanceOf(EventHandlerNotFoundException);
+      expect(error.message).toContain('No handler found for event type: TEST_EVENT');
+      expect(error.code).toBe('EVENT_HANDLER_NOT_FOUND');
+      expect(error.category).toBe(EventErrorCategory.MANUAL);
+      expect(error.details).toHaveProperty('availableHandlers');
+    });
+  });
+
+  describe('EventMaxRetriesExceededException', () => {
+    it('should create an instance with correct defaults', () => {
+      const error = new EventMaxRetriesExceededException(
+        'Max retries exceeded',
+        'MAX_RETRIES_EXCEEDED',
+        mockEventContext,
+        { maxRetries: 5, retryCount: 5 }
+      );
+
+      expect(error).toBeInstanceOf(EventMaxRetriesExceededException);
+      expect(error).toBeInstanceOf(EventException);
+      expect(error.message).toBe('Max retries exceeded');
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.code).toBe('MAX_RETRIES_EXCEEDED');
+      expect(error.category).toBe(EventErrorCategory.MANUAL);
+    });
+
+    it('should create an instance from an event using fromEvent', () => {
+      const lastError = new Error('Last processing error');
+      const error = EventMaxRetriesExceededException.fromEvent(
+        mockEvent,
+        5,
+        lastError
+      );
+
+      expect(error).toBeInstanceOf(EventMaxRetriesExceededException);
+      expect(error.message).toContain('Maximum retry count (5) exceeded');
+      expect(error.code).toBe('EVENT_MAX_RETRIES_EXCEEDED');
+      expect(error.category).toBe(EventErrorCategory.MANUAL);
+      expect(error.details).toEqual({
+        maxRetries: 5,
+        retryCount: 2,
+        lastErrorMessage: 'Last processing error',
+        lastErrorStack: lastError.stack,
+        movedToDLQ: true
+      });
+      expect(error.cause).toBe(lastError);
+    });
+  });
+
+  describe('Journey-specific Exceptions', () => {
+    describe('HealthEventException', () => {
+      it('should create an instance with correct defaults', () => {
+        const error = new HealthEventException(
+          'Health event error',
+          'HEALTH_ERROR',
+          EventErrorCategory.RETRIABLE,
+          mockEventContext,
+          { healthMetric: 'heart-rate' }
+        );
+
+        expect(error).toBeInstanceOf(HealthEventException);
+        expect(error).toBeInstanceOf(EventException);
+        expect(error.message).toBe('Health event error');
+        expect(error.type).toBe(ErrorType.BUSINESS);
+        expect(error.code).toBe('HEALTH_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('health');
+      });
+
+      it('should create an instance from an event using fromEvent', () => {
+        const error = HealthEventException.fromEvent(
+          mockEvent,
+          'Failed to process health metric',
+          'HEALTH_METRIC_ERROR',
+          EventErrorCategory.RETRIABLE,
+          { healthMetric: 'heart-rate' }
+        );
+
+        expect(error).toBeInstanceOf(HealthEventException);
+        expect(error.message).toBe('Failed to process health metric');
+        expect(error.code).toBe('HEALTH_METRIC_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('health');
+        expect(error.details).toEqual({ healthMetric: 'heart-rate' });
+      });
+
+      it('should use default code and category if not provided', () => {
+        const error = HealthEventException.fromEvent(
+          mockEvent,
+          'Health event error'
+        );
+
+        expect(error.code).toBe('HEALTH_EVENT_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+      });
+    });
+
+    describe('CareEventException', () => {
+      it('should create an instance with correct defaults', () => {
+        const careContext = { ...mockEventContext, journey: 'care' };
+        const error = new CareEventException(
+          'Care event error',
+          'CARE_ERROR',
+          EventErrorCategory.RETRIABLE,
+          careContext,
+          { appointmentId: 'appt-123' }
+        );
+
+        expect(error).toBeInstanceOf(CareEventException);
+        expect(error).toBeInstanceOf(EventException);
+        expect(error.message).toBe('Care event error');
+        expect(error.type).toBe(ErrorType.BUSINESS);
+        expect(error.code).toBe('CARE_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('care');
+      });
+
+      it('should create an instance from an event using fromEvent', () => {
+        const careEvent = { ...mockEvent, journey: 'care' };
+        const error = CareEventException.fromEvent(
+          careEvent,
+          'Failed to process appointment',
+          'APPOINTMENT_ERROR',
+          EventErrorCategory.RETRIABLE,
+          { appointmentId: 'appt-123' }
+        );
+
+        expect(error).toBeInstanceOf(CareEventException);
+        expect(error.message).toBe('Failed to process appointment');
+        expect(error.code).toBe('APPOINTMENT_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('care');
+        expect(error.details).toEqual({ appointmentId: 'appt-123' });
+      });
+
+      it('should use default code and category if not provided', () => {
+        const careEvent = { ...mockEvent, journey: 'care' };
+        const error = CareEventException.fromEvent(
+          careEvent,
+          'Care event error'
+        );
+
+        expect(error.code).toBe('CARE_EVENT_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+      });
+    });
+
+    describe('PlanEventException', () => {
+      it('should create an instance with correct defaults', () => {
+        const planContext = { ...mockEventContext, journey: 'plan' };
+        const error = new PlanEventException(
+          'Plan event error',
+          'PLAN_ERROR',
+          EventErrorCategory.RETRIABLE,
+          planContext,
+          { claimId: 'claim-123' }
+        );
+
+        expect(error).toBeInstanceOf(PlanEventException);
+        expect(error).toBeInstanceOf(EventException);
+        expect(error.message).toBe('Plan event error');
+        expect(error.type).toBe(ErrorType.BUSINESS);
+        expect(error.code).toBe('PLAN_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('plan');
+      });
+
+      it('should create an instance from an event using fromEvent', () => {
+        const planEvent = { ...mockEvent, journey: 'plan' };
+        const error = PlanEventException.fromEvent(
+          planEvent,
+          'Failed to process claim',
+          'CLAIM_ERROR',
+          EventErrorCategory.RETRIABLE,
+          { claimId: 'claim-123' }
+        );
+
+        expect(error).toBeInstanceOf(PlanEventException);
+        expect(error.message).toBe('Failed to process claim');
+        expect(error.code).toBe('CLAIM_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+        expect(error.eventContext.journey).toBe('plan');
+        expect(error.details).toEqual({ claimId: 'claim-123' });
+      });
+
+      it('should use default code and category if not provided', () => {
+        const planEvent = { ...mockEvent, journey: 'plan' };
+        const error = PlanEventException.fromEvent(
+          planEvent,
+          'Plan event error'
+        );
+
+        expect(error.code).toBe('PLAN_EVENT_ERROR');
+        expect(error.category).toBe(EventErrorCategory.RETRIABLE);
+      });
+    });
+  });
+
+  describe('Error Classification and Retry Behavior', () => {
+    it('should correctly classify errors for retry decisions', () => {
+      // Create errors with different categories
+      const errors = [
+        new EventValidationException('Validation error', undefined, mockEventContext),
+        new EventDeserializationException('Deserialization error', undefined, mockEventContext),
+        new EventSchemaVersionException('Schema version error', undefined, mockEventContext),
+        new EventProcessingException('Processing error', undefined, EventErrorCategory.RETRIABLE, mockEventContext),
+        new EventPublishingException('Publishing error', undefined, EventErrorCategory.TRANSIENT, mockEventContext),
+        new EventPersistenceException('Persistence error', undefined, EventErrorCategory.TRANSIENT, mockEventContext),
+        new EventHandlerNotFoundException('Handler not found', undefined, mockEventContext),
+        new EventMaxRetriesExceededException('Max retries exceeded', undefined, mockEventContext),
+        new HealthEventException('Health error', undefined, EventErrorCategory.RETRIABLE, mockEventContext),
+        new CareEventException('Care error', undefined, EventErrorCategory.PERMANENT, mockEventContext),
+        new PlanEventException('Plan error', undefined, EventErrorCategory.MANUAL, mockEventContext)
       ];
-      
-      const error = new EventValidationError(
-        'Event validation failed',
-        eventType,
-        metadata,
-        validationErrors
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
-    });
 
-    it('should not be retryable', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const validationErrors = [
-        { property: 'value', constraints: { min: 'value must be greater than 0' } }
+      // Expected retry decisions
+      const expectedRetriable = [
+        false, // EventValidationException (PERMANENT)
+        false, // EventDeserializationException (PERMANENT)
+        false, // EventSchemaVersionException (PERMANENT)
+        true,  // EventProcessingException (RETRIABLE)
+        true,  // EventPublishingException (TRANSIENT)
+        true,  // EventPersistenceException (TRANSIENT)
+        false, // EventHandlerNotFoundException (MANUAL)
+        false, // EventMaxRetriesExceededException (MANUAL)
+        true,  // HealthEventException (RETRIABLE)
+        false, // CareEventException (PERMANENT)
+        false  // PlanEventException (MANUAL)
       ];
-      
-      const error = new EventValidationError(
-        'Event validation failed',
-        eventType,
-        metadata,
-        validationErrors
-      );
-      
-      expect(error.isRetryable()).toBe(false);
+
+      // Verify each error's retry decision
+      errors.forEach((error, index) => {
+        expect(error.isRetriable()).toBe(expectedRetriable[index]);
+      });
+    });
+
+    it('should maintain proper error inheritance hierarchy', () => {
+      // Create one instance of each error type
+      const errors = [
+        new EventValidationException('Validation error', undefined, mockEventContext),
+        new EventDeserializationException('Deserialization error', undefined, mockEventContext),
+        new EventSchemaVersionException('Schema version error', undefined, mockEventContext),
+        new EventProcessingException('Processing error', undefined, EventErrorCategory.RETRIABLE, mockEventContext),
+        new EventPublishingException('Publishing error', undefined, EventErrorCategory.TRANSIENT, mockEventContext),
+        new EventPersistenceException('Persistence error', undefined, EventErrorCategory.TRANSIENT, mockEventContext),
+        new EventHandlerNotFoundException('Handler not found', undefined, mockEventContext),
+        new EventMaxRetriesExceededException('Max retries exceeded', undefined, mockEventContext),
+        new HealthEventException('Health error', undefined, EventErrorCategory.RETRIABLE, mockEventContext),
+        new CareEventException('Care error', undefined, EventErrorCategory.RETRIABLE, mockEventContext),
+        new PlanEventException('Plan error', undefined, EventErrorCategory.RETRIABLE, mockEventContext)
+      ];
+
+      // Verify each error is an instance of EventException and Error
+      errors.forEach(error => {
+        expect(error).toBeInstanceOf(EventException);
+        expect(error).toBeInstanceOf(Error);
+      });
+
+      // Verify journey-specific errors
+      expect(errors[8]).toBeInstanceOf(HealthEventException);
+      expect(errors[9]).toBeInstanceOf(CareEventException);
+      expect(errors[10]).toBeInstanceOf(PlanEventException);
     });
   });
 
-  describe('EventSchemaError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventSchemaError(
-        'Schema not found for event type',
-        eventType,
-        metadata
+  describe('Error Metadata and Context', () => {
+    it('should include all required metadata fields for troubleshooting', () => {
+      // Create an error with complete context
+      const error = EventProcessingException.fromEvent(
+        mockEvent,
+        'Processing failed',
+        EventErrorCategory.RETRIABLE,
+        {
+          processingStep: 'data-transformation',
+          processingTime: 1234,
+          processorId: 'processor-123'
+        }
       );
+
+      // Verify JSON representation includes all context
+      const json = error.toJSON();
       
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventSchemaError);
+      // Check error basics
+      expect(json.error).toHaveProperty('message', 'Processing failed');
+      expect(json.error).toHaveProperty('code', 'EVENT_PROCESSING_ERROR');
+      expect(json.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(json.error).toHaveProperty('category', EventErrorCategory.RETRIABLE);
+      
+      // Check event context
+      expect(json.error.eventContext).toHaveProperty('eventId', mockEvent.eventId);
+      expect(json.error.eventContext).toHaveProperty('eventType', mockEvent.type);
+      expect(json.error.eventContext).toHaveProperty('eventSource', mockEvent.source);
+      expect(json.error.eventContext).toHaveProperty('processingStage', EventProcessingStage.PROCESSING);
+      expect(json.error.eventContext).toHaveProperty('journey', mockEvent.journey);
+      expect(json.error.eventContext).toHaveProperty('userId', mockEvent.userId);
+      expect(json.error.eventContext).toHaveProperty('retryCount', 2);
+      
+      // Check details
+      expect(json.error).toHaveProperty('details');
+      expect(json.error.details).toHaveProperty('processingStep', 'data-transformation');
+      expect(json.error.details).toHaveProperty('processingTime', 1234);
+      expect(json.error.details).toHaveProperty('processorId', 'processor-123');
     });
 
-    it('should use SCHEMA_NOT_FOUND error code by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventSchemaError(
-        'Schema not found for event type',
-        eventType,
-        metadata
-      );
+    it('should format error context consistently across all error types', () => {
+      // Create different error types with the same context
+      const validationError = new EventValidationException('Validation error', undefined, mockEventContext);
+      const processingError = new EventProcessingException('Processing error', undefined, EventErrorCategory.RETRIABLE, mockEventContext);
+      const publishingError = new EventPublishingException('Publishing error', undefined, EventErrorCategory.TRANSIENT, mockEventContext);
       
-      expect(error.code).toBe(ERROR_CODES.SCHEMA_NOT_FOUND);
-    });
-
-    it('should allow custom error code', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventSchemaError(
-        'Schema validation error',
-        eventType,
-        metadata,
-        undefined,
-        ERROR_CODES.SCHEMA_VALIDATION_ERROR
-      );
+      // Get JSON representations
+      const validationJson = validationError.toJSON();
+      const processingJson = processingError.toJSON();
+      const publishingJson = publishingError.toJSON();
       
-      expect(error.code).toBe(ERROR_CODES.SCHEMA_VALIDATION_ERROR);
-    });
-
-    it('should not be retryable', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventSchemaError(
-        'Schema not found for event type',
-        eventType,
-        metadata
-      );
+      // Verify common context fields are consistent
+      expect(validationJson.error.eventContext.eventId).toBe(mockEventContext.eventId);
+      expect(processingJson.error.eventContext.eventId).toBe(mockEventContext.eventId);
+      expect(publishingJson.error.eventContext.eventId).toBe(mockEventContext.eventId);
       
-      expect(error.isRetryable()).toBe(false);
-    });
-  });
-
-  describe('EventProcessingError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
+      expect(validationJson.error.eventContext.eventType).toBe(mockEventContext.eventType);
+      expect(processingJson.error.eventContext.eventType).toBe(mockEventContext.eventType);
+      expect(publishingJson.error.eventContext.eventType).toBe(mockEventContext.eventType);
       
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventProcessingError);
-    });
-
-    it('should use CONSUMER_PROCESSING_FAILED error code by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.CONSUMER_PROCESSING_FAILED);
-    });
-
-    it('should be retryable by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      expect(error.isRetryable()).toBe(true);
-    });
-
-    it('should allow setting retryable flag explicitly', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata,
-        undefined,
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        false // not retryable
-      );
-      
-      expect(error.isRetryable()).toBe(false);
-    });
-
-    it('should include processing context in details if provided', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const processingContext = { 
-        processorId: 'health-processor',
-        processingStage: 'validation',
-        attemptNumber: 2
-      };
-      
-      const error = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata,
-        processingContext
-      );
-      
-      expect(error.details).toEqual(processingContext);
-    });
-  });
-
-  describe('EventDeliveryError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventDeliveryError(
-        'Failed to deliver event',
-        eventType,
-        metadata
-      );
-      
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventDeliveryError);
-    });
-
-    it('should use PRODUCER_SEND_FAILED error code by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventDeliveryError(
-        'Failed to deliver event',
-        eventType,
-        metadata
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.PRODUCER_SEND_FAILED);
-    });
-
-    it('should be retryable by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventDeliveryError(
-        'Failed to deliver event',
-        eventType,
-        metadata
-      );
-      
-      expect(error.isRetryable()).toBe(true);
-    });
-
-    it('should include delivery context in details if provided', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const deliveryContext = { 
-        topic: 'health.events',
-        partition: 0,
-        attemptNumber: 2
-      };
-      
-      const error = new EventDeliveryError(
-        'Failed to deliver event',
-        eventType,
-        metadata,
-        deliveryContext
-      );
-      
-      expect(error.details).toEqual(deliveryContext);
-    });
-  });
-
-  describe('EventRetryableError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        { attemptNumber: 2, maxAttempts: 5 }
-      );
-      
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventRetryableError);
-    });
-
-    it('should always be retryable', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        { attemptNumber: 2, maxAttempts: 5 }
-      );
-      
-      expect(error.isRetryable()).toBe(true);
-    });
-
-    it('should store retry information in details', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const retryInfo = { 
-        attemptNumber: 2, 
-        maxAttempts: 5,
-        nextRetryDelayMs: 1000
-      };
-      
-      const error = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        retryInfo
-      );
-      
-      expect(error.details).toEqual(retryInfo);
-    });
-
-    it('should use RETRY_FAILED error code by default', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        { attemptNumber: 2, maxAttempts: 5 }
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.RETRY_FAILED);
-    });
-
-    it('should allow custom error code', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        { attemptNumber: 2, maxAttempts: 5 },
-        ERROR_CODES.PRODUCER_CONNECTION_FAILED
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.PRODUCER_CONNECTION_FAILED);
-    });
-
-    it('should provide information about retry exhaustion', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      
-      // Not exhausted
-      const notExhausted = new EventRetryableError(
-        'Temporary failure, will retry',
-        eventType,
-        metadata,
-        { attemptNumber: 2, maxAttempts: 5 }
-      );
-      
-      // Exhausted
-      const exhausted = new EventRetryableError(
-        'Retry attempts exhausted',
-        eventType,
-        metadata,
-        { attemptNumber: 5, maxAttempts: 5 }
-      );
-      
-      expect(notExhausted.isRetryExhausted()).toBe(false);
-      expect(exhausted.isRetryExhausted()).toBe(true);
-    });
-  });
-
-  describe('EventDeadLetterError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const originalError = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      const error = new EventDeadLetterError(
-        'Failed to send to dead-letter queue',
-        eventType,
-        metadata,
-        originalError
-      );
-      
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(EventDeadLetterError);
-    });
-
-    it('should use DLQ_SEND_FAILED error code', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const originalError = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      const error = new EventDeadLetterError(
-        'Failed to send to dead-letter queue',
-        eventType,
-        metadata,
-        originalError
-      );
-      
-      expect(error.code).toBe(ERROR_CODES.DLQ_SEND_FAILED);
-    });
-
-    it('should store original error as cause', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const originalError = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      const error = new EventDeadLetterError(
-        'Failed to send to dead-letter queue',
-        eventType,
-        metadata,
-        originalError
-      );
-      
-      expect(error.cause).toBe(originalError);
-    });
-
-    it('should not be retryable', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const originalError = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata
-      );
-      
-      const error = new EventDeadLetterError(
-        'Failed to send to dead-letter queue',
-        eventType,
-        metadata,
-        originalError
-      );
-      
-      expect(error.isRetryable()).toBe(false);
-    });
-
-    it('should include original error details in log format', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const originalError = new EventProcessingError(
-        'Failed to process event',
-        eventType,
-        metadata,
-        { processorId: 'health-processor' }
-      );
-      
-      const error = new EventDeadLetterError(
-        'Failed to send to dead-letter queue',
-        eventType,
-        metadata,
-        originalError
-      );
-      
-      const logFormat = error.toLogFormat();
-      
-      expect(logFormat.originalError).toBeDefined();
-      expect(logFormat.originalError.code).toBe(originalError.code);
-      expect(logFormat.originalError.message).toBe(originalError.message);
-      expect(logFormat.originalError.details).toEqual(originalError.details);
-    });
-  });
-
-  describe('JourneyEventError', () => {
-    it('should extend EventError', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new JourneyEventError(
-        'Health journey processing error',
-        'health',
-        eventType,
-        metadata
-      );
-      
-      expect(error).toBeInstanceOf(EventError);
-      expect(error).toBeInstanceOf(JourneyEventError);
-    });
-
-    it('should store journey information', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new JourneyEventError(
-        'Health journey processing error',
-        'health',
-        eventType,
-        metadata
-      );
-      
-      expect(error.journey).toBe('health');
-    });
-
-    it('should override getJourney() to return the stored journey', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED, 'care');
-      const error = new JourneyEventError(
-        'Health journey processing error',
-        'health', // Explicitly set journey to 'health'
-        eventType,
-        metadata
-      );
-      
-      // Should return the explicitly set journey, not the one from metadata
-      expect(error.getJourney()).toBe('health');
-    });
-
-    it('should include journey in context', () => {
-      const { eventType, metadata } = createTestMetadata(EventType.HEALTH_METRIC_RECORDED);
-      const error = new JourneyEventError(
-        'Health journey processing error',
-        'health',
-        eventType,
-        metadata
-      );
-      
-      const json = error.toJSON(true);
-      
-      expect(json.error.context.journey).toBe('health');
-    });
-
-    it('should create journey-specific error for health journey', () => {
-      const { eventType, metadata } = createTestMetadata(JourneyEvents.Health.METRIC_RECORDED);
-      const error = new JourneyEventError(
-        'Health metric processing error',
-        'health',
-        eventType,
-        metadata,
-        { metricType: 'heart_rate', value: 75 }
-      );
-      
-      expect(error.journey).toBe('health');
-      expect(error.details).toEqual({ metricType: 'heart_rate', value: 75 });
-    });
-
-    it('should create journey-specific error for care journey', () => {
-      const { eventType, metadata } = createTestMetadata(JourneyEvents.Care.APPOINTMENT_BOOKED, 'care');
-      const error = new JourneyEventError(
-        'Care appointment processing error',
-        'care',
-        eventType,
-        metadata,
-        { appointmentId: '12345', providerId: 'provider-123' }
-      );
-      
-      expect(error.journey).toBe('care');
-      expect(error.details).toEqual({ appointmentId: '12345', providerId: 'provider-123' });
-    });
-
-    it('should create journey-specific error for plan journey', () => {
-      const { eventType, metadata } = createTestMetadata(JourneyEvents.Plan.CLAIM_SUBMITTED, 'plan');
-      const error = new JourneyEventError(
-        'Plan claim processing error',
-        'plan',
-        eventType,
-        metadata,
-        { claimId: '12345', amount: 100.50 }
-      );
-      
-      expect(error.journey).toBe('plan');
-      expect(error.details).toEqual({ claimId: '12345', amount: 100.50 });
+      // Verify processing stage is set correctly for each error type
+      expect(validationJson.error.eventContext.processingStage).toBe(EventProcessingStage.VALIDATION);
+      expect(processingJson.error.eventContext.processingStage).toBe(EventProcessingStage.PROCESSING);
+      expect(publishingJson.error.eventContext.processingStage).toBe(EventProcessingStage.PUBLISHING);
     });
   });
 });
