@@ -146,9 +146,27 @@ export {
 
 export {
   // Assertion fixtures
-  assertionErrorMessages,
-  validAssertionInputs,
-  invalidAssertionInputs
+  TestEnum,
+  TestClass,
+  ChildTestClass,
+  TestDiscriminatedUnion,
+  definedFixtures,
+  typeFixtures,
+  stringFixtures,
+  numberFixtures,
+  booleanFixtures,
+  dateFixtures,
+  arrayFixtures,
+  objectFixtures,
+  enumFixtures,
+  patternFixtures,
+  emailFixtures,
+  urlFixtures,
+  conditionFixtures,
+  oneOfFixtures,
+  instanceFixtures,
+  neverFixtures,
+  assertionFixtures
 } from './assertion-fixtures';
 
 export {
