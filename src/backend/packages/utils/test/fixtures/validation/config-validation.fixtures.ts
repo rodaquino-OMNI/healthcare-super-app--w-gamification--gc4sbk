@@ -6,7 +6,7 @@
  * ensuring they fail safely when misconfigured.
  */
 
-// Common interfaces for configuration objects
+// Common types for configuration objects
 export interface DatabaseConfig {
   url?: string;
   host?: string;
@@ -18,17 +18,6 @@ export interface DatabaseConfig {
   ssl?: boolean;
   poolSize?: number;
   maxConnections?: number;
-}
-
-export interface AuthConfig {
-  jwtSecret?: string;
-  jwtExpiration?: string | number;
-  refreshTokenSecret?: string;
-  refreshTokenExpiration?: string | number;
-  mfaEnabled?: boolean;
-  mfaIssuer?: string;
-  mfaExpirySeconds?: number;
-  oauthProviders?: Record<string, any>;
 }
 
 export interface ApiConfig {
@@ -51,331 +40,379 @@ export interface MessagingConfig {
 }
 
 export interface MonitoringConfig {
-  logLevel?: string;
+  enabled?: boolean;
+  level?: string;
   format?: string;
   destination?: string;
   filename?: string;
   sentryDsn?: string;
-  metricsEnabled?: boolean;
-  metricsPort?: number;
-}
-
-export interface FeatureFlagsConfig {
-  [key: string]: boolean;
 }
 
 /**
- * Valid configuration fixtures for different service types
+ * Database Configuration Fixtures
  */
-export const validConfigurations = {
-  /**
-   * Valid database configurations for different environments
-   */
-  database: {
-    /**
-     * Valid PostgreSQL configuration with URL
-     */
-    postgresWithUrl: {
-      url: 'postgresql://username:password@localhost:5432/database',
-      ssl: true,
+export const databaseFixtures = {
+  // Valid configurations
+  valid: {
+    postgresql: {
+      url: 'postgresql://user:password@localhost:5432/db',
+      ssl: false,
       poolSize: 20,
     } as DatabaseConfig,
-
-    /**
-     * Valid PostgreSQL configuration with individual parameters
-     */
-    postgresWithParams: {
+    
+    postgresqlWithHost: {
       host: 'localhost',
       port: 5432,
-      username: 'dbuser',
-      password: 'dbpassword',
-      database: 'austa_health',
-      schema: 'health',
-      ssl: true,
-      poolSize: 10,
+      username: 'user',
+      password: 'password',
+      database: 'db',
+      schema: 'public',
+      ssl: false,
+      poolSize: 20,
     } as DatabaseConfig,
-
-    /**
-     * Valid Redis configuration
-     */
-    redis: {
-      url: 'redis://localhost:6379/0',
-      password: 'redispassword',
-      tls: false,
-    },
-
-    /**
-     * Minimal valid database configuration
-     */
-    minimal: {
-      url: 'postgresql://username:password@localhost:5432/database',
-    } as DatabaseConfig,
-
-    /**
-     * Production database configuration
-     */
+    
     production: {
-      url: 'postgresql://username:password@prod-db.austa.com.br:5432/database',
+      url: 'postgresql://user:password@prod-db.example.com:5432/db',
       ssl: true,
       poolSize: 50,
       maxConnections: 100,
     } as DatabaseConfig,
   },
-
-  /**
-   * Valid authentication configurations
-   */
-  auth: {
-    /**
-     * Complete JWT configuration
-     */
-    complete: {
-      jwtSecret: 'very-secure-jwt-secret-key-for-testing',
-      jwtExpiration: '1h',
-      refreshTokenSecret: 'very-secure-refresh-token-secret-key-for-testing',
-      refreshTokenExpiration: '7d',
-      mfaEnabled: true,
-      mfaIssuer: 'AUSTA SuperApp',
-      mfaExpirySeconds: 300,
-      oauthProviders: {
-        google: {
-          clientId: 'google-client-id',
-          clientSecret: 'google-client-secret',
-          redirectUrl: 'https://app.austa.com.br/auth/google/callback',
-        },
-        facebook: {
-          clientId: 'facebook-client-id',
-          clientSecret: 'facebook-client-secret',
-          redirectUrl: 'https://app.austa.com.br/auth/facebook/callback',
-        },
-      },
-    } as AuthConfig,
-
-    /**
-     * Minimal JWT configuration
-     */
-    minimal: {
-      jwtSecret: 'jwt-secret-key',
-      refreshTokenSecret: 'refresh-token-secret-key',
-    } as AuthConfig,
-
-    /**
-     * JWT configuration with numeric expiration
-     */
-    numericExpiration: {
-      jwtSecret: 'jwt-secret-key',
-      jwtExpiration: 3600, // 1 hour in seconds
-      refreshTokenSecret: 'refresh-token-secret-key',
-      refreshTokenExpiration: 604800, // 7 days in seconds
-    } as AuthConfig,
+  
+  // Invalid configurations
+  invalid: {
+    missingRequired: {
+      // Missing url or host+username+password+database
+      ssl: true,
+      poolSize: 20,
+    } as DatabaseConfig,
+    
+    incompleteCredentials: {
+      host: 'localhost',
+      port: 5432,
+      // Missing username
+      password: 'password',
+      database: 'db',
+    } as DatabaseConfig,
+    
+    invalidPort: {
+      url: 'postgresql://user:password@localhost:invalid/db',
+    } as DatabaseConfig,
+    
+    invalidPoolSize: {
+      url: 'postgresql://user:password@localhost:5432/db',
+      poolSize: -5, // Negative pool size
+    } as DatabaseConfig,
+    
+    conflictingConnection: {
+      // Both url and host provided (conflicting)
+      url: 'postgresql://user:password@localhost:5432/db',
+      host: 'another-host',
+      port: 5432,
+      username: 'user',
+      password: 'password',
+      database: 'db',
+    } as DatabaseConfig,
   },
+  
+  // Edge cases
+  edge: {
+    minimalValid: {
+      url: 'postgresql://localhost/db',
+    } as DatabaseConfig,
+    
+    extremePoolSize: {
+      url: 'postgresql://user:password@localhost:5432/db',
+      poolSize: 1000, // Extremely large pool size
+    } as DatabaseConfig,
+    
+    emptyPassword: {
+      host: 'localhost',
+      port: 5432,
+      username: 'user',
+      password: '', // Empty password
+      database: 'db',
+    } as DatabaseConfig,
+  },
+};
 
-  /**
-   * Valid API configurations
-   */
-  api: {
-    /**
-     * Complete external API configuration
-     */
-    complete: {
-      baseUrl: 'https://api.external-service.com/v1',
-      apiKey: 'external-api-key',
-      timeout: 10000,
+/**
+ * API Configuration Fixtures
+ */
+export const apiFixtures = {
+  // Valid configurations
+  valid: {
+    standard: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      timeout: 5000,
       retries: 3,
       rateLimit: {
         windowMs: 60000,
         maxRequests: 100,
       },
     } as ApiConfig,
-
-    /**
-     * Minimal API configuration
-     */
+    
     minimal: {
-      baseUrl: 'https://api.external-service.com/v1',
-      apiKey: 'external-api-key',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
     } as ApiConfig,
-
-    /**
-     * Insurance API configuration
-     */
-    insurance: {
-      baseUrl: 'https://api.insurance-provider.com/v2',
-      apiKey: 'insurance-api-key',
-      timeout: 15000,
-      retries: 2,
+    
+    highPerformance: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      timeout: 10000,
+      retries: 5,
       rateLimit: {
         windowMs: 60000,
-        maxRequests: 50,
+        maxRequests: 1000,
       },
     } as ApiConfig,
-
-    /**
-     * Healthcare API configuration (FHIR)
-     */
-    healthcare: {
-      baseUrl: 'https://fhir.healthcare-provider.com/r4',
-      apiKey: 'healthcare-api-key',
-      timeout: 20000,
-      retries: 3,
+  },
+  
+  // Invalid configurations
+  invalid: {
+    missingBaseUrl: {
+      apiKey: 'valid-api-key',
+      timeout: 5000,
+    } as ApiConfig,
+    
+    missingApiKey: {
+      baseUrl: 'https://api.example.com/v1',
+      timeout: 5000,
+    } as ApiConfig,
+    
+    invalidUrl: {
+      baseUrl: 'not-a-valid-url',
+      apiKey: 'valid-api-key',
+    } as ApiConfig,
+    
+    invalidTimeout: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      timeout: -1000, // Negative timeout
+    } as ApiConfig,
+    
+    invalidRetries: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      retries: 10, // Too many retries
     } as ApiConfig,
   },
+  
+  // Edge cases
+  edge: {
+    zeroTimeout: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      timeout: 0, // Zero timeout
+    } as ApiConfig,
+    
+    zeroRetries: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      retries: 0, // Zero retries
+    } as ApiConfig,
+    
+    extremeRateLimit: {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'valid-api-key',
+      rateLimit: {
+        windowMs: 1, // Very small window
+        maxRequests: 10000, // Very high request limit
+      },
+    } as ApiConfig,
+  },
+};
 
-  /**
-   * Valid messaging configurations
-   */
-  messaging: {
-    /**
-     * Complete Kafka configuration
-     */
+/**
+ * Messaging Configuration Fixtures
+ */
+export const messagingFixtures = {
+  // Valid configurations
+  valid: {
     kafka: {
       brokers: 'kafka-1:9092,kafka-2:9092,kafka-3:9092',
-      groupId: 'austa-service',
-      clientId: 'austa-service-client',
-      ssl: true,
-      topics: {
-        healthEvents: 'health.events',
-        careEvents: 'care.events',
-        planEvents: 'plan.events',
-        userEvents: 'user.events',
-        gameEvents: 'game.events',
-      },
-    } as MessagingConfig,
-
-    /**
-     * Minimal Kafka configuration
-     */
-    minimal: {
-      brokers: 'localhost:9092',
-      groupId: 'austa-service',
-      clientId: 'austa-service-client',
-    } as MessagingConfig,
-
-    /**
-     * Development Kafka configuration
-     */
-    development: {
-      brokers: 'localhost:9092',
-      groupId: 'austa-service-dev',
-      clientId: 'austa-service-client-dev',
+      groupId: 'test-group',
+      clientId: 'test-client',
       ssl: false,
       topics: {
-        healthEvents: 'health.events.dev',
-        careEvents: 'care.events.dev',
-        planEvents: 'plan.events.dev',
-        userEvents: 'user.events.dev',
-        gameEvents: 'game.events.dev',
+        health: 'health.events',
+        care: 'care.events',
+        plan: 'plan.events',
+      },
+    } as MessagingConfig,
+    
+    minimal: {
+      brokers: 'kafka:9092',
+      groupId: 'test-group',
+    } as MessagingConfig,
+    
+    production: {
+      brokers: 'kafka-prod-1.example.com:9092,kafka-prod-2.example.com:9092',
+      groupId: 'prod-group',
+      clientId: 'prod-client',
+      ssl: true,
+      topics: {
+        health: 'prod.health.events',
+        care: 'prod.care.events',
+        plan: 'prod.plan.events',
+        user: 'prod.user.events',
+        game: 'prod.game.events',
       },
     } as MessagingConfig,
   },
+  
+  // Invalid configurations
+  invalid: {
+    missingBrokers: {
+      groupId: 'test-group',
+      clientId: 'test-client',
+    } as MessagingConfig,
+    
+    invalidBrokers: {
+      brokers: '', // Empty brokers string
+      groupId: 'test-group',
+    } as MessagingConfig,
+    
+    missingGroupId: {
+      brokers: 'kafka:9092',
+      // Missing groupId
+    } as MessagingConfig,
+  },
+  
+  // Edge cases
+  edge: {
+    singleBroker: {
+      brokers: 'localhost:9092',
+      groupId: 'test-group',
+    } as MessagingConfig,
+    
+    manyBrokers: {
+      brokers: Array(10).fill('kafka:9092').join(','), // 10 identical brokers
+      groupId: 'test-group',
+    } as MessagingConfig,
+    
+    emptyTopics: {
+      brokers: 'kafka:9092',
+      groupId: 'test-group',
+      topics: {}, // Empty topics object
+    } as MessagingConfig,
+  },
+};
 
-  /**
-   * Valid monitoring configurations
-   */
-  monitoring: {
-    /**
-     * Complete monitoring configuration
-     */
-    complete: {
-      logLevel: 'info',
+/**
+ * Monitoring Configuration Fixtures
+ */
+export const monitoringFixtures = {
+  // Valid configurations
+  valid: {
+    standard: {
+      enabled: true,
+      level: 'info',
       format: 'json',
       destination: 'stdout',
-      sentryDsn: 'https://sentry-key@sentry.io/project',
-      metricsEnabled: true,
-      metricsPort: 9090,
     } as MonitoringConfig,
-
-    /**
-     * Minimal monitoring configuration
-     */
-    minimal: {
-      logLevel: 'info',
+    
+    file: {
+      enabled: true,
+      level: 'debug',
+      format: 'pretty',
+      destination: 'file',
+      filename: '/var/log/app.log',
     } as MonitoringConfig,
-
-    /**
-     * File-based logging configuration
-     */
-    fileLogging: {
-      logLevel: 'debug',
+    
+    production: {
+      enabled: true,
+      level: 'warn',
+      format: 'json',
+      destination: 'stdout',
+      sentryDsn: 'https://example@sentry.io/123',
+    } as MonitoringConfig,
+  },
+  
+  // Invalid configurations
+  invalid: {
+    invalidLevel: {
+      enabled: true,
+      level: 'trace', // Invalid level
+      format: 'json',
+    } as MonitoringConfig,
+    
+    invalidFormat: {
+      enabled: true,
+      level: 'info',
+      format: 'xml', // Invalid format
+    } as MonitoringConfig,
+    
+    missingFilename: {
+      enabled: true,
+      level: 'info',
       format: 'json',
       destination: 'file',
-      filename: '/var/log/austa/service.log',
+      // Missing filename when destination is file
     } as MonitoringConfig,
-
-    /**
-     * Production monitoring configuration
-     */
-    production: {
-      logLevel: 'warn',
+    
+    invalidSentryDsn: {
+      enabled: true,
+      level: 'error',
+      sentryDsn: 'not-a-valid-dsn',
+    } as MonitoringConfig,
+  },
+  
+  // Edge cases
+  edge: {
+    disabled: {
+      enabled: false,
+      // Other fields don't matter when disabled
+    } as MonitoringConfig,
+    
+    minimalValid: {
+      level: 'info',
+    } as MonitoringConfig,
+    
+    allOptions: {
+      enabled: true,
+      level: 'debug',
       format: 'json',
-      destination: 'stdout',
-      sentryDsn: 'https://sentry-key@sentry.io/project',
-      metricsEnabled: true,
-      metricsPort: 9090,
+      destination: 'file',
+      filename: '/var/log/app.log',
+      sentryDsn: 'https://example@sentry.io/123',
     } as MonitoringConfig,
   },
+};
 
-  /**
-   * Valid feature flag configurations
-   */
-  featureFlags: {
-    /**
-     * All features enabled
-     */
-    allEnabled: {
-      enableQuests: true,
-      enableRewards: true,
-      enableLevels: true,
-      enableLeaderboards: true,
-      enableNotifications: true,
-      enableAntiCheat: true,
-    } as FeatureFlagsConfig,
+/**
+ * Service-specific Configuration Fixtures
+ */
 
-    /**
-     * Minimal features enabled
-     */
+// Auth Service Configuration Fixtures
+export const authServiceFixtures = {
+  valid: {
     minimal: {
-      enableQuests: true,
-      enableRewards: false,
-      enableLevels: false,
-      enableLeaderboards: false,
-      enableNotifications: true,
-      enableAntiCheat: false,
-    } as FeatureFlagsConfig,
-
-    /**
-     * Development feature flags
-     */
-    development: {
-      enableQuests: true,
-      enableRewards: true,
-      enableLevels: true,
-      enableLeaderboards: true,
-      enableNotifications: true,
-      enableAntiCheat: false, // Disabled for easier testing
-      enableDebugMode: true, // Development-only flag
-    } as FeatureFlagsConfig,
-  },
-
-  /**
-   * Valid service-specific configurations
-   */
-  services: {
-    /**
-     * Valid Auth Service configuration
-     */
-    authService: {
       PORT: 3000,
       HOST: 'localhost',
       NODE_ENV: 'development',
-      AUTH_JWT_SECRET: 'very-secure-jwt-secret-key-for-testing',
+      AUTH_JWT_SECRET: 'jwt-secret',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
+    },
+    complete: {
+      PORT: 3000,
+      HOST: 'localhost',
+      NODE_ENV: 'production',
+      AUTH_JWT_SECRET: 'jwt-secret',
       AUTH_JWT_EXPIRATION: '1h',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
       AUTH_REFRESH_TOKEN_EXPIRATION: '7d',
-      AUTH_REFRESH_TOKEN_SECRET: 'very-secure-refresh-token-secret-key-for-testing',
       OAUTH_GOOGLE_CLIENT_ID: 'google-client-id',
       OAUTH_GOOGLE_CLIENT_SECRET: 'google-client-secret',
       OAUTH_FACEBOOK_CLIENT_ID: 'facebook-client-id',
       OAUTH_FACEBOOK_CLIENT_SECRET: 'facebook-client-secret',
+      OAUTH_APPLE_CLIENT_ID: 'apple-client-id',
+      OAUTH_APPLE_CLIENT_SECRET: 'apple-client-secret',
+      OAUTH_REDIRECT_URL: 'https://app.austa.com.br/auth/callback',
       MFA_ENABLED: true,
       MFA_ISSUER: 'AUSTA SuperApp',
       MFA_EXPIRY_SECONDS: 300,
@@ -386,64 +423,141 @@ export const validConfigurations = {
       PASSWORD_REQUIRE_LOWERCASE: true,
       PASSWORD_REQUIRE_NUMBER: true,
       PASSWORD_REQUIRE_SYMBOL: true,
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/auth',
-      REDIS_URL: 'redis://localhost:6379/0',
+      PASSWORD_HISTORY_COUNT: 5,
+      PASSWORD_MAX_AGE_DAYS: 90,
+      ACCOUNT_LOCKOUT_MAX_ATTEMPTS: 5,
+      ACCOUNT_LOCKOUT_DURATION_MINUTES: 30,
+      ACCOUNT_LOCKOUT_RESET_ATTEMPTS_AFTER_MINUTES: 15,
+      BIOMETRIC_AUTHENTICATION_ENABLED: true,
+      BIOMETRIC_DEVICE_KEY_EXPIRATION_DAYS: 90,
+      SESSION_ABSOLUTE_TIMEOUT_HOURS: 12,
+      SESSION_IDLE_TIMEOUT_MINUTES: 30,
+      SESSION_MAX_CONCURRENT: 5,
+      RATE_LIMIT_LOGIN_MAX: 10,
+      RATE_LIMIT_LOGIN_WINDOW_MINUTES: 5,
+      RATE_LIMIT_REGISTER_MAX: 5,
+      RATE_LIMIT_REGISTER_WINDOW_MINUTES: 60,
+      RATE_LIMIT_FORGOT_PASSWORD_MAX: 5,
+      RATE_LIMIT_FORGOT_PASSWORD_WINDOW_MINUTES: 60,
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
       LOG_LEVEL: 'info',
+      SENTRY_DSN: 'https://example@sentry.io/auth',
+      GDPR_ENABLED: true,
+      LGPD_ENABLED: true,
+      DATA_RETENTION_DAYS: 730,
+      REQUIRE_EMAIL_VERIFICATION: true,
+      EMAIL_VERIFICATION_EXPIRY_HOURS: 24,
+      REQUIRE_STRONG_PASSWORD: true,
     },
+  },
+  invalid: {
+    missingRequired: {
+      PORT: 3000,
+      HOST: 'localhost',
+      NODE_ENV: 'development',
+      // Missing AUTH_JWT_SECRET
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      // Missing DATABASE_URL
+      REDIS_URL: 'redis://localhost:6379',
+    },
+    invalidEnvironment: {
+      PORT: 3000,
+      HOST: 'localhost',
+      NODE_ENV: 'invalid-env', // Invalid environment
+      AUTH_JWT_SECRET: 'jwt-secret',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
+    },
+    invalidMfaConfig: {
+      PORT: 3000,
+      HOST: 'localhost',
+      NODE_ENV: 'development',
+      AUTH_JWT_SECRET: 'jwt-secret',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
+      MFA_ENABLED: true,
+      MFA_SMS_PROVIDER: 'twilio',
+      // Missing MFA_SMS_PROVIDER_API_KEY when provider is twilio
+    },
+  },
+  edge: {
+    allDefaults: {
+      AUTH_JWT_SECRET: 'jwt-secret',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
+      // All other values use defaults
+    },
+    customMfaProvider: {
+      PORT: 3000,
+      HOST: 'localhost',
+      NODE_ENV: 'development',
+      AUTH_JWT_SECRET: 'jwt-secret',
+      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/auth',
+      REDIS_URL: 'redis://localhost:6379',
+      MFA_ENABLED: true,
+      MFA_SMS_PROVIDER: 'custom', // Custom provider doesn't require API key
+    },
+  },
+};
 
-    /**
-     * Valid Plan Service configuration
-     */
-    planService: {
+// Plan Service Configuration Fixtures
+export const planServiceFixtures = {
+  valid: {
+    minimal: {
       server: {
-        port: 3002,
+        port: 3000,
         host: 'localhost',
-        cors: {
-          origin: ['https://app.austa.com.br', /\.austa\.com\.br$/],
-          credentials: true,
-        },
-        timeout: 30000,
       },
       database: {
-        url: 'postgresql://username:password@localhost:5432/plan',
-        schema: 'plan',
-        ssl: true,
-        poolSize: 20,
+        url: 'postgresql://user:password@localhost:5432/plan',
+        database: 'plan',
       },
       insuranceApi: {
-        baseUrl: 'https://api.insurance-provider.com/v2',
+        baseUrl: 'https://insurance-api.example.com',
         apiKey: 'insurance-api-key',
-        timeout: 10000,
-        retries: 3,
-        rateLimit: {
-          windowMs: 60000,
-          maxRequests: 100,
-        },
       },
       claims: {
         supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
-        maxDocumentSize: 10 * 1024 * 1024,
+        maxDocumentSize: 10485760,
         maxDocumentsPerClaim: 5,
         autoApprovalThreshold: 100,
         processingTimeEstimate: {
           standard: 3,
           express: 1,
         },
-        retentionPeriod: 7 * 365,
+        retentionPeriod: 2555,
       },
       storage: {
         provider: 's3',
         s3: {
           bucket: 'austa-plan-documents',
           region: 'sa-east-1',
-          accessKeyId: 'aws-access-key',
-          secretAccessKey: 'aws-secret-key',
+          accessKeyId: 'access-key',
+          secretAccessKey: 'secret-key',
           pathPrefix: 'plan',
+        },
+      },
+      costSimulator: {
+        currency: 'BRL',
+        procedureCatalog: {
+          source: 'database',
+          refreshInterval: 86400,
+        },
+        coverageDefaults: {
+          consultations: 80,
+          examinations: 70,
+          procedures: 60,
+          emergencies: 90,
         },
       },
       gamification: {
         enabled: true,
-        eventEndpoint: 'http://gamification-engine:3005/events',
+        eventEndpoint: 'http://gamification-engine:3000/events',
         timeout: 5000,
         events: {
           claimSubmitted: 'CLAIM_SUBMITTED',
@@ -454,7 +568,7 @@ export const validConfigurations = {
       },
       notifications: {
         enabled: true,
-        serviceEndpoint: 'http://notification-service:3006/notifications',
+        serviceEndpoint: 'http://notification-service:3000',
         timeout: 5000,
         templates: {
           claimStatus: 'plan-claim-status',
@@ -462,38 +576,255 @@ export const validConfigurations = {
           benefitExpiration: 'plan-benefit-expiration',
         },
       },
-      logging: {
-        level: 'info',
-        format: 'json',
-        destination: 'stdout',
+    },
+  },
+  invalid: {
+    missingServer: {
+      // Missing server config
+      database: {
+        url: 'postgresql://user:password@localhost:5432/plan',
+        database: 'plan',
+      },
+      insuranceApi: {
+        baseUrl: 'https://insurance-api.example.com',
+        apiKey: 'insurance-api-key',
+      },
+      claims: {
+        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        maxDocumentSize: 10485760,
+        maxDocumentsPerClaim: 5,
+        autoApprovalThreshold: 100,
+        processingTimeEstimate: {
+          standard: 3,
+          express: 1,
+        },
+        retentionPeriod: 2555,
+      },
+      storage: {
+        provider: 's3',
+        s3: {
+          bucket: 'austa-plan-documents',
+          region: 'sa-east-1',
+          accessKeyId: 'access-key',
+          secretAccessKey: 'secret-key',
+          pathPrefix: 'plan',
+        },
+      },
+      gamification: {
+        enabled: true,
+        eventEndpoint: 'http://gamification-engine:3000/events',
+      },
+      notifications: {
+        enabled: true,
+        serviceEndpoint: 'http://notification-service:3000',
       },
     },
+    conflictingDatabaseConfig: {
+      server: {
+        port: 3000,
+        host: 'localhost',
+      },
+      database: {
+        // Both url and host provided (conflicting)
+        url: 'postgresql://user:password@localhost:5432/plan',
+        host: 'db-host',
+        port: 5432,
+        username: 'user',
+        password: 'password',
+        database: 'plan',
+      },
+      insuranceApi: {
+        baseUrl: 'https://insurance-api.example.com',
+        apiKey: 'insurance-api-key',
+      },
+      claims: {
+        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        maxDocumentSize: 10485760,
+        maxDocumentsPerClaim: 5,
+        autoApprovalThreshold: 100,
+        processingTimeEstimate: {
+          standard: 3,
+          express: 1,
+        },
+        retentionPeriod: 2555,
+      },
+      storage: {
+        provider: 's3',
+        s3: {
+          bucket: 'austa-plan-documents',
+          region: 'sa-east-1',
+          accessKeyId: 'access-key',
+          secretAccessKey: 'secret-key',
+          pathPrefix: 'plan',
+        },
+      },
+      gamification: {
+        enabled: true,
+        eventEndpoint: 'http://gamification-engine:3000/events',
+      },
+      notifications: {
+        enabled: true,
+        serviceEndpoint: 'http://notification-service:3000',
+      },
+    },
+    missingStorageConfig: {
+      server: {
+        port: 3000,
+        host: 'localhost',
+      },
+      database: {
+        url: 'postgresql://user:password@localhost:5432/plan',
+        database: 'plan',
+      },
+      insuranceApi: {
+        baseUrl: 'https://insurance-api.example.com',
+        apiKey: 'insurance-api-key',
+      },
+      claims: {
+        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        maxDocumentSize: 10485760,
+        maxDocumentsPerClaim: 5,
+        autoApprovalThreshold: 100,
+        processingTimeEstimate: {
+          standard: 3,
+          express: 1,
+        },
+        retentionPeriod: 2555,
+      },
+      storage: {
+        provider: 's3',
+        // Missing s3 config when provider is s3
+      },
+      gamification: {
+        enabled: true,
+        eventEndpoint: 'http://gamification-engine:3000/events',
+      },
+      notifications: {
+        enabled: true,
+        serviceEndpoint: 'http://notification-service:3000',
+      },
+    },
+  },
+  edge: {
+    localStorageProvider: {
+      server: {
+        port: 3000,
+        host: 'localhost',
+      },
+      database: {
+        url: 'postgresql://user:password@localhost:5432/plan',
+        database: 'plan',
+      },
+      insuranceApi: {
+        baseUrl: 'https://insurance-api.example.com',
+        apiKey: 'insurance-api-key',
+      },
+      claims: {
+        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        maxDocumentSize: 10485760,
+        maxDocumentsPerClaim: 5,
+        autoApprovalThreshold: 100,
+        processingTimeEstimate: {
+          standard: 3,
+          express: 1,
+        },
+        retentionPeriod: 2555,
+      },
+      storage: {
+        provider: 'local',
+        local: {
+          directory: '/tmp/plan-documents',
+        },
+      },
+      gamification: {
+        enabled: true,
+        eventEndpoint: 'http://gamification-engine:3000/events',
+      },
+      notifications: {
+        enabled: true,
+        serviceEndpoint: 'http://notification-service:3000',
+      },
+    },
+    gamificationDisabled: {
+      server: {
+        port: 3000,
+        host: 'localhost',
+      },
+      database: {
+        url: 'postgresql://user:password@localhost:5432/plan',
+        database: 'plan',
+      },
+      insuranceApi: {
+        baseUrl: 'https://insurance-api.example.com',
+        apiKey: 'insurance-api-key',
+      },
+      claims: {
+        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        maxDocumentSize: 10485760,
+        maxDocumentsPerClaim: 5,
+        autoApprovalThreshold: 100,
+        processingTimeEstimate: {
+          standard: 3,
+          express: 1,
+        },
+        retentionPeriod: 2555,
+      },
+      storage: {
+        provider: 's3',
+        s3: {
+          bucket: 'austa-plan-documents',
+          region: 'sa-east-1',
+          accessKeyId: 'access-key',
+          secretAccessKey: 'secret-key',
+          pathPrefix: 'plan',
+        },
+      },
+      gamification: {
+        enabled: false, // Gamification disabled
+        // eventEndpoint not required when disabled
+      },
+      notifications: {
+        enabled: true,
+        serviceEndpoint: 'http://notification-service:3000',
+      },
+    },
+  },
+};
 
-    /**
-     * Valid Gamification Engine configuration
-     */
-    gamificationEngine: {
+// Gamification Engine Configuration Fixtures
+export const gamificationFixtures = {
+  valid: {
+    minimal: {
       NODE_ENV: 'development',
-      PORT: 3005,
+      PORT: 3000,
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+    },
+    complete: {
+      NODE_ENV: 'production',
+      PORT: 3000,
       HOST: '0.0.0.0',
       LOG_LEVEL: 'info',
       SERVICE_NAME: 'gamification-engine',
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/gamification',
-      DATABASE_SSL: false,
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      DATABASE_SSL: true,
       DATABASE_MAX_CONNECTIONS: 20,
-      REDIS_URL: 'redis://localhost:6379/0',
-      REDIS_PASSWORD: 'redispassword',
-      REDIS_TLS: false,
-      KAFKA_BROKERS: 'localhost:9092',
+      REDIS_URL: 'redis://localhost:6379',
+      REDIS_PASSWORD: 'redis-password',
+      REDIS_TLS: true,
+      KAFKA_BROKERS: 'kafka-1:9092,kafka-2:9092',
       KAFKA_GROUP_ID: 'gamification-engine',
       KAFKA_CLIENT_ID: 'gamification-engine',
-      KAFKA_SSL: false,
+      KAFKA_SSL: true,
       HEALTH_EVENTS_TOPIC: 'health.events',
       CARE_EVENTS_TOPIC: 'care.events',
       PLAN_EVENTS_TOPIC: 'plan.events',
       USER_EVENTS_TOPIC: 'user.events',
       GAME_EVENTS_TOPIC: 'game.events',
-      JWT_SECRET: 'jwt-secret-key',
+      JWT_SECRET: 'jwt-secret',
       JWT_EXPIRATION: 3600,
       ACHIEVEMENT_NOTIFICATION_ENABLED: true,
       DEFAULT_POINTS_EXPIRY_DAYS: 365,
@@ -509,10 +840,10 @@ export const validConfigurations = {
       RATE_LIMIT_ENABLED: true,
       RATE_LIMIT_WINDOW_MS: 60000,
       RATE_LIMIT_MAX_REQUESTS: 1000,
-      NOTIFICATION_SERVICE_URL: 'http://notification-service:3006',
+      NOTIFICATION_SERVICE_URL: 'http://notification-service:3000',
       ENABLE_METRICS: true,
       METRICS_PORT: 9090,
-      SENTRY_DSN: 'https://sentry-key@sentry.io/project',
+      SENTRY_DSN: 'https://example@sentry.io/gamification',
       CACHE_TTL: 300,
       ENABLE_QUESTS: true,
       ENABLE_REWARDS: true,
@@ -526,612 +857,187 @@ export const validConfigurations = {
       MAINTENANCE_MESSAGE: 'Gamification system under maintenance',
     },
   },
-};
-
-/**
- * Invalid configuration fixtures for testing error handling
- */
-export const invalidConfigurations = {
-  /**
-   * Invalid database configurations
-   */
-  database: {
-    /**
-     * Missing required URL and host parameters
-     */
+  invalid: {
     missingRequired: {
-      port: 5432,
-      username: 'dbuser',
-      password: 'dbpassword',
-      database: 'austa_health',
-    } as DatabaseConfig,
-
-    /**
-     * Invalid port number
-     */
-    invalidPort: {
-      url: 'postgresql://username:password@localhost:70000/database',
-    } as DatabaseConfig,
-
-    /**
-     * Conflicting parameters (both URL and individual parameters)
-     */
-    conflictingParams: {
-      url: 'postgresql://username:password@localhost:5432/database',
-      host: 'another-host',
-      port: 5432,
-      username: 'another-user',
-      password: 'another-password',
-      database: 'another-database',
-    } as DatabaseConfig,
-
-    /**
-     * Invalid connection pool size
-     */
-    invalidPoolSize: {
-      url: 'postgresql://username:password@localhost:5432/database',
-      poolSize: -10,
-    } as DatabaseConfig,
-
-    /**
-     * Missing database name with individual parameters
-     */
-    missingDatabaseName: {
-      host: 'localhost',
-      port: 5432,
-      username: 'dbuser',
-      password: 'dbpassword',
-    } as DatabaseConfig,
-  },
-
-  /**
-   * Invalid authentication configurations
-   */
-  auth: {
-    /**
-     * Missing JWT secret
-     */
-    missingJwtSecret: {
-      jwtExpiration: '1h',
-      refreshTokenSecret: 'refresh-token-secret-key',
-      refreshTokenExpiration: '7d',
-    } as AuthConfig,
-
-    /**
-     * Missing refresh token secret
-     */
-    missingRefreshSecret: {
-      jwtSecret: 'jwt-secret-key',
-      jwtExpiration: '1h',
-    } as AuthConfig,
-
-    /**
-     * Invalid JWT expiration format
-     */
-    invalidExpirationFormat: {
-      jwtSecret: 'jwt-secret-key',
-      jwtExpiration: 'invalid-format',
-      refreshTokenSecret: 'refresh-token-secret-key',
-      refreshTokenExpiration: '7d',
-    } as AuthConfig,
-
-    /**
-     * Invalid MFA configuration
-     */
-    invalidMfaConfig: {
-      jwtSecret: 'jwt-secret-key',
-      refreshTokenSecret: 'refresh-token-secret-key',
-      mfaEnabled: true,
-      mfaExpirySeconds: -10, // Negative value
-    } as AuthConfig,
-
-    /**
-     * Missing SMS provider API key when SMS provider is specified
-     */
-    missingSmsProviderKey: {
-      jwtSecret: 'jwt-secret-key',
-      refreshTokenSecret: 'refresh-token-secret-key',
-      mfaEnabled: true,
-      mfaIssuer: 'AUSTA SuperApp',
-      mfaExpirySeconds: 300,
-      mfaSmsProvider: 'twilio',
-      // Missing mfaSmsProviderApiKey
-    },
-  },
-
-  /**
-   * Invalid API configurations
-   */
-  api: {
-    /**
-     * Missing required base URL
-     */
-    missingBaseUrl: {
-      apiKey: 'api-key',
-      timeout: 10000,
-      retries: 3,
-    } as ApiConfig,
-
-    /**
-     * Missing required API key
-     */
-    missingApiKey: {
-      baseUrl: 'https://api.external-service.com/v1',
-      timeout: 10000,
-      retries: 3,
-    } as ApiConfig,
-
-    /**
-     * Invalid timeout value
-     */
-    invalidTimeout: {
-      baseUrl: 'https://api.external-service.com/v1',
-      apiKey: 'api-key',
-      timeout: -5000, // Negative timeout
-      retries: 3,
-    } as ApiConfig,
-
-    /**
-     * Invalid retry count
-     */
-    invalidRetryCount: {
-      baseUrl: 'https://api.external-service.com/v1',
-      apiKey: 'api-key',
-      timeout: 10000,
-      retries: 10, // Exceeds maximum allowed retries
-    } as ApiConfig,
-
-    /**
-     * Invalid rate limit configuration
-     */
-    invalidRateLimit: {
-      baseUrl: 'https://api.external-service.com/v1',
-      apiKey: 'api-key',
-      rateLimit: {
-        windowMs: -60000, // Negative window
-        maxRequests: 0, // Zero requests
-      },
-    } as ApiConfig,
-  },
-
-  /**
-   * Invalid messaging configurations
-   */
-  messaging: {
-    /**
-     * Missing required brokers
-     */
-    missingBrokers: {
-      groupId: 'austa-service',
-      clientId: 'austa-service-client',
-      ssl: true,
-    } as MessagingConfig,
-
-    /**
-     * Invalid topic name format
-     */
-    invalidTopicFormat: {
-      brokers: 'kafka-1:9092,kafka-2:9092',
-      groupId: 'austa-service',
-      clientId: 'austa-service-client',
-      topics: {
-        healthEvents: 'invalid topic name with spaces',
-      },
-    } as MessagingConfig,
-
-    /**
-     * Empty brokers string
-     */
-    emptyBrokers: {
-      brokers: '',
-      groupId: 'austa-service',
-      clientId: 'austa-service-client',
-    } as MessagingConfig,
-  },
-
-  /**
-   * Invalid monitoring configurations
-   */
-  monitoring: {
-    /**
-     * Invalid log level
-     */
-    invalidLogLevel: {
-      logLevel: 'trace', // Not in allowed values
-      format: 'json',
-      destination: 'stdout',
-    } as MonitoringConfig,
-
-    /**
-     * Missing filename for file destination
-     */
-    missingFilename: {
-      logLevel: 'info',
-      format: 'json',
-      destination: 'file',
-      // Missing filename
-    } as MonitoringConfig,
-
-    /**
-     * Invalid Sentry DSN format
-     */
-    invalidSentryDsn: {
-      logLevel: 'info',
-      format: 'json',
-      destination: 'stdout',
-      sentryDsn: 'invalid-sentry-dsn',
-    } as MonitoringConfig,
-
-    /**
-     * Invalid metrics port
-     */
-    invalidMetricsPort: {
-      logLevel: 'info',
-      metricsEnabled: true,
-      metricsPort: 70000, // Port out of range
-    } as MonitoringConfig,
-  },
-
-  /**
-   * Invalid service-specific configurations
-   */
-  services: {
-    /**
-     * Invalid Auth Service configuration
-     */
-    authService: {
+      NODE_ENV: 'development',
       PORT: 3000,
-      HOST: 'localhost',
-      NODE_ENV: 'development',
-      // Missing AUTH_JWT_SECRET
-      AUTH_JWT_EXPIRATION: '1h',
-      // Missing AUTH_REFRESH_TOKEN_SECRET
-      AUTH_REFRESH_TOKEN_EXPIRATION: '7d',
-      MFA_ENABLED: true,
-      MFA_SMS_PROVIDER: 'twilio',
-      // Missing MFA_SMS_PROVIDER_API_KEY when MFA_SMS_PROVIDER is specified
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/auth',
-      // Missing REDIS_URL
-    },
-
-    /**
-     * Invalid Plan Service configuration
-     */
-    planService: {
-      server: {
-        port: 3002,
-        host: 'localhost',
-        timeout: 30000,
-      },
-      database: {
-        // Missing both url and host
-        schema: 'plan',
-        ssl: true,
-        poolSize: 20,
-      },
-      insuranceApi: {
-        // Missing baseUrl
-        apiKey: 'insurance-api-key',
-        timeout: 10000,
-        retries: 3,
-      },
-      claims: {
-        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
-        maxDocumentSize: 10 * 1024 * 1024,
-        maxDocumentsPerClaim: 5,
-      },
-      storage: {
-        provider: 's3',
-        // Missing s3 configuration when provider is s3
-      },
-      gamification: {
-        enabled: true,
-        // Missing eventEndpoint
-        timeout: 5000,
-      },
-      notifications: {
-        enabled: true,
-        // Missing serviceEndpoint
-        timeout: 5000,
-      },
-    },
-
-    /**
-     * Invalid Gamification Engine configuration
-     */
-    gamificationEngine: {
-      NODE_ENV: 'development',
-      PORT: 3005,
       HOST: '0.0.0.0',
-      LOG_LEVEL: 'info',
-      SERVICE_NAME: 'gamification-engine',
       // Missing DATABASE_URL
-      DATABASE_SSL: false,
-      DATABASE_MAX_CONNECTIONS: 20,
-      // Missing REDIS_URL
-      KAFKA_BROKERS: 'localhost:9092',
-      KAFKA_GROUP_ID: 'gamification-engine',
-      KAFKA_CLIENT_ID: 'gamification-engine',
-      KAFKA_SSL: false,
-      // Missing JWT_SECRET
-      JWT_EXPIRATION: 3600,
-      ACHIEVEMENT_NOTIFICATION_ENABLED: true,
-      // Missing NOTIFICATION_SERVICE_URL when ACHIEVEMENT_NOTIFICATION_ENABLED is true
-      EVENT_BATCH_SIZE: 100,
-      ENABLE_LEADERBOARDS: true,
-      LEADERBOARD_UPDATE_INTERVAL_MS: 60000,
-      ACHIEVEMENT_RULES_PATH: './config/rules',
-      MAX_ACHIEVEMENTS_PER_USER: 1000,
-      POINTS_PRECISION: 2,
-      HEALTH_JOURNEY_ENABLED: true,
-      CARE_JOURNEY_ENABLED: true,
-      PLAN_JOURNEY_ENABLED: true,
-      RATE_LIMIT_ENABLED: true,
-      RATE_LIMIT_WINDOW_MS: 60000,
-      RATE_LIMIT_MAX_REQUESTS: 1000,
-      ENABLE_METRICS: true,
-      METRICS_PORT: 9090,
-      CACHE_TTL: 300,
-      ENABLE_QUESTS: true,
-      ENABLE_REWARDS: true,
-      ENABLE_LEVELS: true,
-      EVENT_PROCESSOR_CONCURRENCY: 10,
-      RULE_EVALUATION_TIMEOUT_MS: 5000,
-      MAX_EVENT_QUEUE_SIZE: 10000,
-      ANTI_CHEAT_ENABLED: true,
-      MAX_EVENTS_PER_USER_PER_MINUTE: 100,
-      MAINTENANCE_MODE: false,
+      REDIS_URL: 'redis://localhost:6379',
+      // Missing KAFKA_BROKERS
+      JWT_SECRET: 'jwt-secret',
     },
-  },
-};
-
-/**
- * Edge case configuration fixtures
- */
-export const edgeCaseConfigurations = {
-  /**
-   * Minimal valid configurations (only required fields)
-   */
-  minimal: {
-    /**
-     * Minimal Auth Service configuration
-     */
-    authService: {
-      AUTH_JWT_SECRET: 'jwt-secret-key',
-      AUTH_REFRESH_TOKEN_SECRET: 'refresh-token-secret-key',
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/auth',
-      REDIS_URL: 'redis://localhost:6379/0',
-    },
-
-    /**
-     * Minimal Plan Service configuration
-     */
-    planService: {
-      server: {
-        port: 3002,
-        host: 'localhost',
-      },
-      database: {
-        url: 'postgresql://username:password@localhost:5432/plan',
-      },
-      insuranceApi: {
-        baseUrl: 'https://api.insurance-provider.com/v2',
-        apiKey: 'insurance-api-key',
-      },
-      claims: {
-        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
-      },
-      storage: {
-        provider: 's3',
-        s3: {
-          bucket: 'austa-plan-documents',
-          region: 'sa-east-1',
-        },
-      },
-      gamification: {
-        enabled: true,
-        eventEndpoint: 'http://gamification-engine:3005/events',
-      },
-      notifications: {
-        enabled: true,
-        serviceEndpoint: 'http://notification-service:3006/notifications',
-      },
-    },
-
-    /**
-     * Minimal Gamification Engine configuration
-     */
-    gamificationEngine: {
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/gamification',
-      REDIS_URL: 'redis://localhost:6379/0',
-      KAFKA_BROKERS: 'localhost:9092',
-      JWT_SECRET: 'jwt-secret-key',
-      NOTIFICATION_SERVICE_URL: 'http://notification-service:3006',
-    },
-  },
-
-  /**
-   * Partially valid configurations (some valid, some invalid fields)
-   */
-  partiallyValid: {
-    /**
-     * Auth Service with some valid and some invalid fields
-     */
-    authService: {
+    invalidEnvironment: {
+      NODE_ENV: 'invalid-env', // Invalid environment
       PORT: 3000,
-      HOST: 'localhost',
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+    },
+    missingNotificationUrl: {
       NODE_ENV: 'development',
-      AUTH_JWT_SECRET: 'jwt-secret-key',
-      AUTH_JWT_EXPIRATION: '1h',
-      // Missing AUTH_REFRESH_TOKEN_SECRET (required)
-      AUTH_REFRESH_TOKEN_EXPIRATION: '7d',
-      MFA_ENABLED: true,
-      MFA_ISSUER: 'AUSTA SuperApp',
-      MFA_EXPIRY_SECONDS: 300,
-      MFA_SMS_PROVIDER: 'twilio',
-      MFA_SMS_PROVIDER_API_KEY: 'twilio-api-key',
-      DATABASE_URL: 'postgresql://username:password@localhost:5432/auth',
-      // Missing REDIS_URL (required)
-      LOG_LEVEL: 'info',
-    },
-
-    /**
-     * Plan Service with some valid and some invalid fields
-     */
-    planService: {
-      server: {
-        port: 3002,
-        host: 'localhost',
-        cors: {
-          origin: ['https://app.austa.com.br', /\.austa\.com\.br$/],
-          credentials: true,
-        },
-        timeout: 30000,
-      },
-      database: {
-        // Missing url or host+username+password+database (required)
-        schema: 'plan',
-        ssl: true,
-        poolSize: 20,
-      },
-      insuranceApi: {
-        baseUrl: 'https://api.insurance-provider.com/v2',
-        apiKey: 'insurance-api-key',
-        timeout: 10000,
-        retries: 3,
-      },
-      claims: {
-        supportedDocumentTypes: ['pdf', 'jpg', 'jpeg', 'png'],
-        maxDocumentSize: 10 * 1024 * 1024,
-        maxDocumentsPerClaim: 5,
-      },
-      storage: {
-        provider: 's3',
-        s3: {
-          bucket: 'austa-plan-documents',
-          region: 'sa-east-1',
-          // Missing accessKeyId and secretAccessKey (not required if using IAM roles)
-        },
-      },
-      gamification: {
-        enabled: true,
-        eventEndpoint: 'http://gamification-engine:3005/events',
-        timeout: 5000,
-      },
-      notifications: {
-        enabled: true,
-        serviceEndpoint: 'http://notification-service:3006/notifications',
-        timeout: 5000,
-      },
-    },
-  },
-
-  /**
-   * Environment-specific configurations
-   */
-  environmentSpecific: {
-    /**
-     * Development environment configuration
-     */
-    development: {
-      NODE_ENV: 'development',
-      LOG_LEVEL: 'debug',
-      DATABASE_SSL: false,
-      KAFKA_SSL: false,
-      REDIS_TLS: false,
-      ENABLE_DEBUG_MODE: true,
-      ANTI_CHEAT_ENABLED: false, // Disabled for easier testing
-    },
-
-    /**
-     * Production environment configuration
-     */
-    production: {
-      NODE_ENV: 'production',
-      LOG_LEVEL: 'warn',
-      DATABASE_SSL: true,
-      KAFKA_SSL: true,
-      REDIS_TLS: true,
-      ENABLE_DEBUG_MODE: false,
-      ANTI_CHEAT_ENABLED: true,
-      RATE_LIMIT_ENABLED: true,
-      RATE_LIMIT_WINDOW_MS: 60000,
-      RATE_LIMIT_MAX_REQUESTS: 1000,
-    },
-
-    /**
-     * Testing environment configuration
-     */
-    testing: {
-      NODE_ENV: 'test',
-      LOG_LEVEL: 'debug',
-      DATABASE_SSL: false,
-      KAFKA_SSL: false,
-      REDIS_TLS: false,
-      ENABLE_DEBUG_MODE: true,
-      ANTI_CHEAT_ENABLED: false,
-      RATE_LIMIT_ENABLED: false,
-    },
-
-    /**
-     * Staging environment configuration
-     */
-    staging: {
-      NODE_ENV: 'staging',
-      LOG_LEVEL: 'info',
-      DATABASE_SSL: true,
-      KAFKA_SSL: true,
-      REDIS_TLS: true,
-      ENABLE_DEBUG_MODE: false,
-      ANTI_CHEAT_ENABLED: true,
-      RATE_LIMIT_ENABLED: true,
-    },
-  },
-
-  /**
-   * Configurations with conflicting settings
-   */
-  conflictingSettings: {
-    /**
-     * Conflicting database configuration (both URL and individual parameters)
-     */
-    databaseConflict: {
-      url: 'postgresql://username:password@localhost:5432/database',
-      host: 'another-host',
-      port: 5432,
-      username: 'another-user',
-      password: 'another-password',
-      database: 'another-database',
-    } as DatabaseConfig,
-
-    /**
-     * Conflicting storage provider configuration
-     */
-    storageProviderConflict: {
-      provider: 's3',
-      s3: {
-        bucket: 'austa-plan-documents',
-        region: 'sa-east-1',
-      },
-      local: {
-        directory: '/var/data/documents',
-      },
-    },
-
-    /**
-     * Conflicting feature flags
-     */
-    featureFlagConflict: {
-      enableLeaderboards: true,
-      enableLevels: false, // Leaderboards require levels to be enabled
-    } as FeatureFlagsConfig,
-
-    /**
-     * Conflicting notification settings
-     */
-    notificationConflict: {
+      PORT: 3000,
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
       ACHIEVEMENT_NOTIFICATION_ENABLED: true,
       // Missing NOTIFICATION_SERVICE_URL when notifications are enabled
     },
+    invalidBatchSize: {
+      NODE_ENV: 'development',
+      PORT: 3000,
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+      EVENT_BATCH_SIZE: 2000, // Exceeds maximum of 1000
+    },
+  },
+  edge: {
+    allDefaults: {
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+      // All other values use defaults
+    },
+    notificationsDisabled: {
+      NODE_ENV: 'development',
+      PORT: 3000,
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+      ACHIEVEMENT_NOTIFICATION_ENABLED: false,
+      // NOTIFICATION_SERVICE_URL not required when notifications disabled
+    },
+    maintenanceMode: {
+      NODE_ENV: 'development',
+      PORT: 3000,
+      HOST: '0.0.0.0',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/gamification',
+      REDIS_URL: 'redis://localhost:6379',
+      KAFKA_BROKERS: 'kafka:9092',
+      JWT_SECRET: 'jwt-secret',
+      MAINTENANCE_MODE: true,
+      MAINTENANCE_MESSAGE: 'System under scheduled maintenance',
+    },
+  },
+};
+
+/**
+ * Environment-specific Configuration Fixtures
+ */
+export const environmentFixtures = {
+  development: {
+    NODE_ENV: 'development',
+    LOG_LEVEL: 'debug',
+    DATABASE_SSL: false,
+    KAFKA_SSL: false,
+    REDIS_TLS: false,
+  },
+  staging: {
+    NODE_ENV: 'staging',
+    LOG_LEVEL: 'info',
+    DATABASE_SSL: true,
+    KAFKA_SSL: true,
+    REDIS_TLS: true,
+  },
+  production: {
+    NODE_ENV: 'production',
+    LOG_LEVEL: 'warn',
+    DATABASE_SSL: true,
+    KAFKA_SSL: true,
+    REDIS_TLS: true,
+  },
+  test: {
+    NODE_ENV: 'test',
+    LOG_LEVEL: 'error',
+    DATABASE_SSL: false,
+    KAFKA_SSL: false,
+    REDIS_TLS: false,
+  },
+};
+
+/**
+ * Feature Flag Configuration Fixtures
+ */
+export const featureFlagFixtures = {
+  allEnabled: {
+    ENABLE_QUESTS: true,
+    ENABLE_REWARDS: true,
+    ENABLE_LEVELS: true,
+    ENABLE_LEADERBOARDS: true,
+    ENABLE_METRICS: true,
+    RATE_LIMIT_ENABLED: true,
+    ANTI_CHEAT_ENABLED: true,
+    MFA_ENABLED: true,
+    BIOMETRIC_AUTHENTICATION_ENABLED: true,
+    GDPR_ENABLED: true,
+    LGPD_ENABLED: true,
+    REQUIRE_EMAIL_VERIFICATION: true,
+    REQUIRE_STRONG_PASSWORD: true,
+  },
+  allDisabled: {
+    ENABLE_QUESTS: false,
+    ENABLE_REWARDS: false,
+    ENABLE_LEVELS: false,
+    ENABLE_LEADERBOARDS: false,
+    ENABLE_METRICS: false,
+    RATE_LIMIT_ENABLED: false,
+    ANTI_CHEAT_ENABLED: false,
+    MFA_ENABLED: false,
+    BIOMETRIC_AUTHENTICATION_ENABLED: false,
+    GDPR_ENABLED: false,
+    LGPD_ENABLED: false,
+    REQUIRE_EMAIL_VERIFICATION: false,
+    REQUIRE_STRONG_PASSWORD: false,
+  },
+  mixed: {
+    ENABLE_QUESTS: true,
+    ENABLE_REWARDS: true,
+    ENABLE_LEVELS: false,
+    ENABLE_LEADERBOARDS: true,
+    ENABLE_METRICS: true,
+    RATE_LIMIT_ENABLED: true,
+    ANTI_CHEAT_ENABLED: false,
+    MFA_ENABLED: true,
+    BIOMETRIC_AUTHENTICATION_ENABLED: false,
+    GDPR_ENABLED: true,
+    LGPD_ENABLED: true,
+    REQUIRE_EMAIL_VERIFICATION: false,
+    REQUIRE_STRONG_PASSWORD: true,
+  },
+};
+
+/**
+ * Combined Service Configuration Fixtures
+ */
+export const combinedServiceFixtures = {
+  // Valid configurations for all services
+  valid: {
+    auth: authServiceFixtures.valid.minimal,
+    plan: planServiceFixtures.valid.minimal,
+    gamification: gamificationFixtures.valid.minimal,
+  },
+  
+  // Invalid configurations for all services
+  invalid: {
+    auth: authServiceFixtures.invalid.missingRequired,
+    plan: planServiceFixtures.invalid.missingServer,
+    gamification: gamificationFixtures.invalid.missingRequired,
+  },
+  
+  // Edge case configurations for all services
+  edge: {
+    auth: authServiceFixtures.edge.allDefaults,
+    plan: planServiceFixtures.edge.gamificationDisabled,
+    gamification: gamificationFixtures.edge.maintenanceMode,
   },
 };
