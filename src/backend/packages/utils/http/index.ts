@@ -1,62 +1,45 @@
 /**
- * @file HTTP utilities barrel export file
- * @description Provides a unified public API for all HTTP utilities in the @austa/utils/http package.
- * This file re-exports all functions and types from the individual utility files with a clean interface
- * that enables importing multiple utilities with a single import statement.
+ * @austa/utils/http
+ * 
+ * This module provides a comprehensive set of HTTP utilities for making secure
+ * and reliable HTTP requests across the AUSTA SuperApp microservices architecture.
+ * 
+ * @module @austa/utils/http
  */
 
-/**
- * Secure Axios utilities for creating HTTP clients with SSRF protections
- * @module secure-axios
- */
-export { 
-  createSecureAxios,
-  createInternalApiClient
-} from './secure-axios';
+// Core HTTP client functionality
+export * from '../src/http/client';
+
+// Security utilities for SSRF protection
+export * from '../src/http/security';
+
+// Internal service-to-service communication
+export * from '../src/http/internal';
+
+// Retry mechanisms for failed requests
+export * from '../src/http/retry';
+
+// Circuit breaker pattern implementation
+export * from '../src/http/circuit-breaker';
+
+// Request helpers (headers, params, etc.)
+export * from '../src/http/request-helpers';
+
+// Response helpers (parsing, validation, etc.)
+export * from '../src/http/response-helpers';
 
 /**
- * Retry mechanism utilities for HTTP requests with exponential backoff
- * @module retry
+ * Re-exports all HTTP utilities with a clean, organized interface.
+ * This barrel file enables importing multiple utilities with a single import statement:
+ * 
+ * ```typescript
+ * import { createHttpClient, createSecureHttpClient, withRetry } from '@austa/utils/http';
+ * ```
+ * 
+ * @example
+ * // Create a secure HTTP client with retry logic
+ * const client = withRetry(createSecureHttpClient('https://api.example.com'));
+ * 
+ * // Make a request with the client
+ * const response = await client.get('/users');
  */
-export {
-  createRetryableAxios,
-  retryRequest,
-  DEFAULT_RETRY_POLICY,
-  AGGRESSIVE_RETRY_POLICY,
-  MINIMAL_RETRY_POLICY
-} from './retry';
-
-/**
- * Circuit breaker pattern implementation for preventing cascading failures
- * @module circuit-breaker
- */
-export {
-  createCircuitBreakerAxios,
-  CLOSED,
-  OPEN,
-  HALF_OPEN
-} from './circuit-breaker';
-
-/**
- * Request helper utilities for standardizing HTTP request operations
- * @module request-helpers
- */
-export {
-  addAuthHeader,
-  addJourneyContext,
-  sanitizeRequestUrl,
-  validateRequestParams,
-  logRequest
-} from './request-helpers';
-
-/**
- * Response helper utilities for standardizing HTTP response processing
- * @module response-helpers
- */
-export {
-  parseErrorResponse,
-  extractPaginationData,
-  validateResponseSchema,
-  sanitizeResponseData,
-  logResponse
-} from './response-helpers';
