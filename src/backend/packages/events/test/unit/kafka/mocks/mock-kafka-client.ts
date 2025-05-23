@@ -1,741 +1,1470 @@
 /**
- * Mock implementation of the KafkaJS client for unit testing.
- * 
+ * @file mock-kafka-client.ts
+ * @description Mock implementation of the KafkaJS client for unit testing.
  * This mock simulates the behavior of a real Kafka client without requiring an actual Kafka connection,
- * allowing tests to run in isolation. It implements the core Kafka client interface, including
- * connect/disconnect methods and factories for producers and consumers.
+ * allowing tests to run in isolation.
  */
 
-import { 
-  Kafka, 
-  KafkaConfig, 
-  Producer, 
-  Consumer, 
-  ConsumerConfig, 
-  ProducerConfig,
-  Admin,
-  AdminConfig,
-  TopicMessages,
-  RecordMetadata,
-  EachMessagePayload,
-  EachBatchPayload,
-  ConsumerRunConfig,
-  ConsumerSubscribeTopics,
-  Message,
-  IHeaders,
-  KafkaMessage
-} from 'kafkajs';
+import { Admin, Consumer, Kafka, Producer } from 'kafkajs';
+import { EventEmitter } from 'events';
 
 /**
- * Interfaces for tracking method calls
+ * Interface for configuring the mock Kafka client behavior
  */
-export interface MethodCall {
-  method: string;
-  args: any[];
-  timestamp: number;
-}
-
-export interface MockCallHistory {
-  calls: MethodCall[];
-  connectCalls: number;
-  disconnectCalls: number;
-}
-
-/**
- * Interface for configuring mock responses
- */
-export interface MockResponse {
-  success: boolean;
-  error?: Error;
-  data?: any;
-}
-
-/**
- * Interface for configuring mock producer responses
- */
-export interface MockProducerConfig {
-  connect?: MockResponse;
-  disconnect?: MockResponse;
-  send?: MockResponse;
-}
-
-/**
- * Interface for configuring mock consumer responses
- */
-export interface MockConsumerConfig {
-  connect?: MockResponse;
-  disconnect?: MockResponse;
-  subscribe?: MockResponse;
-  run?: MockResponse;
-}
-
-/**
- * Interface for configuring mock admin responses
- */
-export interface MockAdminConfig {
-  connect?: MockResponse;
-  disconnect?: MockResponse;
-  createTopics?: MockResponse;
-  deleteTopics?: MockResponse;
-  fetchTopicMetadata?: MockResponse;
-}
-
-/**
- * Interface for configuring the mock Kafka client
- */
-export interface MockKafkaConfig {
-  producer?: MockProducerConfig;
-  consumer?: MockConsumerConfig;
-  admin?: MockAdminConfig;
-}
-
-/**
- * In-memory message store for simulating message production and consumption
- */
-export class MessageStore {
-  private messages: Map<string, KafkaMessage[]> = new Map();
+export interface MockKafkaClientConfig {
+  /**
+   * Whether connect operations should succeed
+   * @default true
+   */
+  shouldConnectSucceed?: boolean;
 
   /**
-   * Add a message to a topic
+   * Whether disconnect operations should succeed
+   * @default true
    */
-  addMessage(topic: string, message: Message): void {
-    if (!this.messages.has(topic)) {
-      this.messages.set(topic, []);
+  shouldDisconnectSucceed?: boolean;
+
+  /**
+   * Whether producer send operations should succeed
+   * @default true
+   */
+  shouldProducerSendSucceed?: boolean;
+
+  /**
+   * Whether consumer subscribe operations should succeed
+   * @default true
+   */
+  shouldConsumerSubscribeSucceed?: boolean;
+
+  /**
+   * Whether consumer run operations should succeed
+   * @default true
+   */
+  shouldConsumerRunSucceed?: boolean;
+
+  /**
+   * Whether admin operations should succeed
+   * @default true
+   */
+  shouldAdminOperationsSucceed?: boolean;
+
+  /**
+   * Delay in milliseconds before operations complete
+   * @default 0
+   */
+  operationDelay?: number;
+
+  /**
+   * Error to throw when operations fail
+   * @default new Error('Mock operation failed')
+   */
+  errorToThrow?: Error;
+}
+
+/**
+ * Mock implementation of the KafkaJS client for unit testing
+ */
+export class MockKafkaClient extends EventEmitter implements Kafka {
+  /**
+   * The client ID
+   */
+  private readonly clientId: string;
+
+  /**
+   * The broker list
+   */
+  private readonly brokers: string[];
+
+  /**
+   * Configuration for the mock behavior
+   */
+  private config: MockKafkaClientConfig;
+
+  /**
+   * Whether the client is connected
+   */
+  private connected = false;
+
+  /**
+   * Track calls to methods for assertions
+   */
+  public readonly calls: {
+    connect: number;
+    disconnect: number;
+    producer: number;
+    consumer: number;
+    admin: number;
+  } = {
+    connect: 0,
+    disconnect: 0,
+    producer: 0,
+    consumer: 0,
+    admin: 0,
+  };
+
+  /**
+   * Creates a new MockKafkaClient instance
+   * 
+   * @param options - The client options
+   * @param mockConfig - Configuration for the mock behavior
+   */
+  constructor(
+    options: { clientId: string; brokers: string[] },
+    mockConfig: MockKafkaClientConfig = {}
+  ) {
+    super();
+    this.clientId = options.clientId;
+    this.brokers = options.brokers;
+    this.config = {
+      shouldConnectSucceed: true,
+      shouldDisconnectSucceed: true,
+      shouldProducerSendSucceed: true,
+      shouldConsumerSubscribeSucceed: true,
+      shouldConsumerRunSucceed: true,
+      shouldAdminOperationsSucceed: true,
+      operationDelay: 0,
+      errorToThrow: new Error('Mock operation failed'),
+      ...mockConfig,
+    };
+  }
+
+  /**
+   * Updates the mock configuration
+   * 
+   * @param config - New configuration options
+   */
+  public updateMockConfig(config: Partial<MockKafkaClientConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  /**
+   * Creates a producer instance
+   * 
+   * @param options - Producer options
+   * @returns A mock producer instance
+   */
+  public producer(options: any = {}): Producer {
+    this.calls.producer++;
+    return new MockProducer(this, options, this.config);
+  }
+
+  /**
+   * Creates a consumer instance
+   * 
+   * @param options - Consumer options
+   * @returns A mock consumer instance
+   */
+  public consumer(options: { groupId: string }): Consumer {
+    this.calls.consumer++;
+    return new MockConsumer(this, options, this.config);
+  }
+
+  /**
+   * Creates an admin client instance
+   * 
+   * @param options - Admin client options
+   * @returns A mock admin client instance
+   */
+  public admin(options: any = {}): Admin {
+    this.calls.admin++;
+    return new MockAdmin(this, options, this.config);
+  }
+
+  /**
+   * Connects the client to the Kafka broker
+   * 
+   * @returns A promise that resolves when connected
+   */
+  public async connect(): Promise<void> {
+    this.calls.connect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
     }
 
-    const kafkaMessage: KafkaMessage = {
-      key: message.key ? Buffer.from(message.key) : null,
-      value: message.value ? Buffer.from(message.value) : null,
-      timestamp: Date.now().toString(),
-      size: 0,
-      attributes: 0,
-      offset: this.messages.get(topic)!.length.toString(),
-      headers: message.headers as IHeaders || {}
+    if (!this.config.shouldConnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = true;
+    this.emit('connect');
+  }
+
+  /**
+   * Disconnects the client from the Kafka broker
+   * 
+   * @returns A promise that resolves when disconnected
+   */
+  public async disconnect(): Promise<void> {
+    this.calls.disconnect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldDisconnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = false;
+    this.emit('disconnect');
+  }
+
+  /**
+   * Checks if the client is connected
+   * 
+   * @returns True if connected, false otherwise
+   */
+  public isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Gets the client ID
+   * 
+   * @returns The client ID
+   */
+  public getClientId(): string {
+    return this.clientId;
+  }
+
+  /**
+   * Gets the broker list
+   * 
+   * @returns The broker list
+   */
+  public getBrokers(): string[] {
+    return [...this.brokers];
+  }
+
+  /**
+   * Gets the logger instance (not implemented in mock)
+   */
+  public logger(): any {
+    return {
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+      setLogLevel: jest.fn(),
     };
-
-    this.messages.get(topic)!.push(kafkaMessage);
-  }
-
-  /**
-   * Get all messages for a topic
-   */
-  getMessages(topic: string): KafkaMessage[] {
-    return this.messages.get(topic) || [];
-  }
-
-  /**
-   * Clear all messages
-   */
-  clear(): void {
-    this.messages.clear();
-  }
-
-  /**
-   * Clear messages for a specific topic
-   */
-  clearTopic(topic: string): void {
-    this.messages.delete(topic);
   }
 }
 
 /**
  * Mock implementation of the KafkaJS Producer
  */
-export class MockProducer implements Producer {
-  private config: ProducerConfig;
-  private mockConfig: MockProducerConfig;
-  private messageStore: MessageStore;
-  public callHistory: MockCallHistory = {
-    calls: [],
-    connectCalls: 0,
-    disconnectCalls: 0
+export class MockProducer extends EventEmitter implements Producer {
+  /**
+   * The parent Kafka client
+   */
+  private readonly client: MockKafkaClient;
+
+  /**
+   * The producer options
+   */
+  private readonly options: any;
+
+  /**
+   * Configuration for the mock behavior
+   */
+  private config: MockKafkaClientConfig;
+
+  /**
+   * Whether the producer is connected
+   */
+  private connected = false;
+
+  /**
+   * Track calls to methods for assertions
+   */
+  public readonly calls: {
+    connect: number;
+    disconnect: number;
+    send: number;
+    sendBatch: number;
+    transaction: number;
+  } = {
+    connect: 0,
+    disconnect: 0,
+    send: 0,
+    sendBatch: 0,
+    transaction: 0,
   };
 
-  constructor(config: ProducerConfig, mockConfig: MockProducerConfig = {}, messageStore: MessageStore) {
+  /**
+   * Messages sent by this producer
+   */
+  public readonly sentMessages: Array<{
+    topic: string;
+    messages: any[];
+    partition?: number;
+    acks?: number;
+    timeout?: number;
+    compression?: any;
+  }> = [];
+
+  /**
+   * Creates a new MockProducer instance
+   * 
+   * @param client - The parent Kafka client
+   * @param options - Producer options
+   * @param config - Configuration for the mock behavior
+   */
+  constructor(
+    client: MockKafkaClient,
+    options: any,
+    config: MockKafkaClientConfig
+  ) {
+    super();
+    this.client = client;
+    this.options = options;
     this.config = config;
-    this.mockConfig = mockConfig;
-    this.messageStore = messageStore;
   }
 
   /**
-   * Track method calls for testing assertions
+   * Connects the producer to the Kafka broker
+   * 
+   * @returns A promise that resolves when connected
    */
-  private trackMethodCall(method: string, args: any[] = []): void {
-    this.callHistory.calls.push({
-      method,
-      args,
-      timestamp: Date.now()
-    });
-  }
-
-  /**
-   * Connect to the Kafka broker (mock implementation)
-   */
-  async connect(): Promise<void> {
-    this.trackMethodCall('connect');
-    this.callHistory.connectCalls++;
-
-    if (this.mockConfig.connect?.success === false) {
-      throw this.mockConfig.connect.error || new Error('Mock connect error');
-    }
-  }
-
-  /**
-   * Disconnect from the Kafka broker (mock implementation)
-   */
-  async disconnect(): Promise<void> {
-    this.trackMethodCall('disconnect');
-    this.callHistory.disconnectCalls++;
-
-    if (this.mockConfig.disconnect?.success === false) {
-      throw this.mockConfig.disconnect.error || new Error('Mock disconnect error');
-    }
-  }
-
-  /**
-   * Send messages to a topic (mock implementation)
-   */
-  async send({
-    topic,
-    messages,
-    acks,
-    timeout,
-    compression
-  }: TopicMessages): Promise<RecordMetadata[]> {
-    this.trackMethodCall('send', [{ topic, messages, acks, timeout, compression }]);
-
-    if (this.mockConfig.send?.success === false) {
-      throw this.mockConfig.send.error || new Error('Mock send error');
+  public async connect(): Promise<void> {
+    this.calls.connect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
     }
 
-    // Store messages in the message store
-    for (const message of messages) {
-      this.messageStore.addMessage(topic, message);
+    if (!this.config.shouldConnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = true;
+    this.emit('connect');
+  }
+
+  /**
+   * Disconnects the producer from the Kafka broker
+   * 
+   * @returns A promise that resolves when disconnected
+   */
+  public async disconnect(): Promise<void> {
+    this.calls.disconnect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldDisconnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = false;
+    this.emit('disconnect');
+  }
+
+  /**
+   * Sends messages to a Kafka topic
+   * 
+   * @param record - The record to send
+   * @returns A promise that resolves with the record metadata
+   */
+  public async send(record: {
+    topic: string;
+    messages: any[];
+    partition?: number;
+    acks?: number;
+    timeout?: number;
+    compression?: any;
+  }): Promise<any> {
+    this.calls.send++;
+    this.sentMessages.push({ ...record });
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldProducerSendSucceed) {
+      throw this.config.errorToThrow;
     }
 
     // Return mock record metadata
-    return messages.map((_, index) => ({
-      topicName: topic,
+    return {
+      topicName: record.topic,
+      partition: record.partition || 0,
+      errorCode: 0,
+      baseOffset: '0',
+      logAppendTime: '-1',
+      logStartOffset: '0',
+    };
+  }
+
+  /**
+   * Sends a batch of messages to Kafka topics
+   * 
+   * @param records - The records to send
+   * @returns A promise that resolves with the batch metadata
+   */
+  public async sendBatch(records: {
+    topicMessages: Array<{
+      topic: string;
+      messages: any[];
+    }>;
+    acks?: number;
+    timeout?: number;
+    compression?: any;
+  }): Promise<any> {
+    this.calls.sendBatch++;
+    
+    for (const topicMessage of records.topicMessages) {
+      this.sentMessages.push({
+        topic: topicMessage.topic,
+        messages: topicMessage.messages,
+        acks: records.acks,
+        timeout: records.timeout,
+        compression: records.compression,
+      });
+    }
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldProducerSendSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    // Return mock batch metadata
+    return records.topicMessages.map(topicMessage => ({
+      topicName: topicMessage.topic,
       partition: 0,
       errorCode: 0,
-      baseOffset: index.toString(),
+      baseOffset: '0',
       logAppendTime: '-1',
-      logStartOffset: '0'
+      logStartOffset: '0',
     }));
   }
 
   /**
-   * Send messages to multiple topics (mock implementation)
+   * Creates a transaction
+   * 
+   * @returns A promise that resolves with a transaction object
    */
-  async sendBatch({
-    topicMessages,
-    acks,
-    timeout,
-    compression
-  }: {
-    topicMessages: TopicMessages[];
-    acks?: number;
-    timeout?: number;
-    compression?: any;
-  }): Promise<RecordMetadata[]> {
-    this.trackMethodCall('sendBatch', [{ topicMessages, acks, timeout, compression }]);
-
-    if (this.mockConfig.send?.success === false) {
-      throw this.mockConfig.send.error || new Error('Mock sendBatch error');
+  public async transaction(): Promise<any> {
+    this.calls.transaction++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
     }
 
-    const allMetadata: RecordMetadata[] = [];
-
-    for (const { topic, messages } of topicMessages) {
-      // Store messages in the message store
-      for (const message of messages) {
-        this.messageStore.addMessage(topic, message);
-      }
-
-      // Add mock record metadata
-      const metadata = messages.map((_, index) => ({
-        topicName: topic,
-        partition: 0,
-        errorCode: 0,
-        baseOffset: index.toString(),
-        logAppendTime: '-1',
-        logStartOffset: '0'
-      }));
-
-      allMetadata.push(...metadata);
+    if (!this.config.shouldProducerSendSucceed) {
+      throw this.config.errorToThrow;
     }
 
-    return allMetadata;
+    // Return mock transaction
+    return {
+      send: jest.fn().mockResolvedValue({}),
+      sendBatch: jest.fn().mockResolvedValue([]),
+      commit: jest.fn().mockResolvedValue(undefined),
+      abort: jest.fn().mockResolvedValue(undefined),
+      isActive: jest.fn().mockReturnValue(true),
+    };
   }
 
   /**
-   * Transaction methods (minimal implementation)
+   * Checks if the producer is connected
+   * 
+   * @returns True if connected, false otherwise
    */
-  transaction = () => {
-    this.trackMethodCall('transaction');
-    return {
-      send: async () => [],
-      sendBatch: async () => [],
-      commit: async () => {},
-      abort: async () => {},
-      isActive: () => false
-    };
-  };
+  public isConnected(): boolean {
+    return this.connected;
+  }
 
   /**
-   * Events (minimal implementation)
+   * Gets the logger instance (not implemented in mock)
    */
-  events = {
-    connect: () => {},
-    disconnect: () => {},
-    request: () => {},
-    requestTimeout: () => {},
-    requestQueueSize: () => {}
-  };
+  public logger(): any {
+    return {
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+      setLogLevel: jest.fn(),
+    };
+  }
 
-  on(): void {}
-  off(): void {}
-  logger(): void {}
+  /**
+   * Gets the events instance (not implemented in mock)
+   */
+  public events(): any {
+    return {};
+  }
 }
 
 /**
  * Mock implementation of the KafkaJS Consumer
  */
-export class MockConsumer implements Consumer {
-  private config: ConsumerConfig;
-  private mockConfig: MockConsumerConfig;
-  private messageStore: MessageStore;
+export class MockConsumer extends EventEmitter implements Consumer {
+  /**
+   * The parent Kafka client
+   */
+  private readonly client: MockKafkaClient;
+
+  /**
+   * The consumer options
+   */
+  private readonly options: { groupId: string };
+
+  /**
+   * Configuration for the mock behavior
+   */
+  private config: MockKafkaClientConfig;
+
+  /**
+   * Whether the consumer is connected
+   */
+  private connected = false;
+
+  /**
+   * Whether the consumer is running
+   */
+  private running = false;
+
+  /**
+   * Topics the consumer is subscribed to
+   */
   private subscribedTopics: string[] = [];
-  private runConfig: ConsumerRunConfig | null = null;
-  private isRunning = false;
-  public callHistory: MockCallHistory = {
-    calls: [],
-    connectCalls: 0,
-    disconnectCalls: 0
+
+  /**
+   * Track calls to methods for assertions
+   */
+  public readonly calls: {
+    connect: number;
+    disconnect: number;
+    subscribe: number;
+    run: number;
+    stop: number;
+    pause: number;
+    resume: number;
+    seek: number;
+    describeGroup: number;
+    commitOffsets: number;
+  } = {
+    connect: 0,
+    disconnect: 0,
+    subscribe: 0,
+    run: 0,
+    stop: 0,
+    pause: 0,
+    resume: 0,
+    seek: 0,
+    describeGroup: 0,
+    commitOffsets: 0,
   };
 
-  constructor(config: ConsumerConfig, mockConfig: MockConsumerConfig = {}, messageStore: MessageStore) {
+  /**
+   * Message handler function
+   */
+  private messageHandler: ((payload: any) => Promise<void>) | null = null;
+
+  /**
+   * Batch message handler function
+   */
+  private batchMessageHandler: ((payload: any) => Promise<void>) | null = null;
+
+  /**
+   * Creates a new MockConsumer instance
+   * 
+   * @param client - The parent Kafka client
+   * @param options - Consumer options
+   * @param config - Configuration for the mock behavior
+   */
+  constructor(
+    client: MockKafkaClient,
+    options: { groupId: string },
+    config: MockKafkaClientConfig
+  ) {
+    super();
+    this.client = client;
+    this.options = options;
     this.config = config;
-    this.mockConfig = mockConfig;
-    this.messageStore = messageStore;
   }
 
   /**
-   * Track method calls for testing assertions
+   * Connects the consumer to the Kafka broker
+   * 
+   * @returns A promise that resolves when connected
    */
-  private trackMethodCall(method: string, args: any[] = []): void {
-    this.callHistory.calls.push({
-      method,
-      args,
-      timestamp: Date.now()
+  public async connect(): Promise<void> {
+    this.calls.connect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldConnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = true;
+    this.emit('connect');
+  }
+
+  /**
+   * Disconnects the consumer from the Kafka broker
+   * 
+   * @returns A promise that resolves when disconnected
+   */
+  public async disconnect(): Promise<void> {
+    this.calls.disconnect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldDisconnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = false;
+    this.running = false;
+    this.emit('disconnect');
+  }
+
+  /**
+   * Subscribes to Kafka topics
+   * 
+   * @param subscription - Subscription options
+   * @returns A promise that resolves when subscribed
+   */
+  public async subscribe(subscription: {
+    topic: string | RegExp;
+    fromBeginning?: boolean;
+  }): Promise<void> {
+    this.calls.subscribe++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldConsumerSubscribeSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    const topic = subscription.topic instanceof RegExp
+      ? subscription.topic.source
+      : subscription.topic;
+    
+    this.subscribedTopics.push(topic);
+  }
+
+  /**
+   * Runs the consumer with the specified handler
+   * 
+   * @param options - Run options
+   * @returns A promise that resolves when the consumer is running
+   */
+  public async run(options: {
+    eachMessage?: (payload: any) => Promise<void>;
+    eachBatch?: (payload: any) => Promise<void>;
+  }): Promise<void> {
+    this.calls.run++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldConsumerRunSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.running = true;
+    this.messageHandler = options.eachMessage || null;
+    this.batchMessageHandler = options.eachBatch || null;
+    this.emit('run');
+  }
+
+  /**
+   * Stops the consumer
+   * 
+   * @returns A promise that resolves when the consumer is stopped
+   */
+  public async stop(): Promise<void> {
+    this.calls.stop++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    this.running = false;
+    this.emit('stop');
+  }
+
+  /**
+   * Pauses consumption from specific topics/partitions
+   * 
+   * @param topicPartitions - Topics/partitions to pause
+   * @returns A promise that resolves when consumption is paused
+   */
+  public async pause(topicPartitions: Array<{ topic: string; partitions?: number[] }>): Promise<void> {
+    this.calls.pause++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    this.emit('pause', topicPartitions);
+  }
+
+  /**
+   * Resumes consumption from specific topics/partitions
+   * 
+   * @param topicPartitions - Topics/partitions to resume
+   * @returns A promise that resolves when consumption is resumed
+   */
+  public async resume(topicPartitions: Array<{ topic: string; partitions?: number[] }>): Promise<void> {
+    this.calls.resume++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    this.emit('resume', topicPartitions);
+  }
+
+  /**
+   * Seeks to a specific offset in a partition
+   * 
+   * @param topic - The topic to seek in
+   * @param partition - The partition to seek in
+   * @param offset - The offset to seek to
+   * @returns A promise that resolves when the seek is complete
+   */
+  public async seek({
+    topic,
+    partition,
+    offset,
+  }: {
+    topic: string;
+    partition: number;
+    offset: string;
+  }): Promise<void> {
+    this.calls.seek++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    this.emit('seek', { topic, partition, offset });
+  }
+
+  /**
+   * Describes the consumer group
+   * 
+   * @returns A promise that resolves with the group description
+   */
+  public async describeGroup(): Promise<any> {
+    this.calls.describeGroup++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    return {
+      groupId: this.options.groupId,
+      members: [],
+    };
+  }
+
+  /**
+   * Commits offsets for consumed messages
+   * 
+   * @param topicPartitions - Topics/partitions to commit
+   * @returns A promise that resolves when offsets are committed
+   */
+  public async commitOffsets(topicPartitions: Array<{
+    topic: string;
+    partition: number;
+    offset: string;
+  }>): Promise<void> {
+    this.calls.commitOffsets++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    this.emit('commitOffsets', topicPartitions);
+  }
+
+  /**
+   * Checks if the consumer is connected
+   * 
+   * @returns True if connected, false otherwise
+   */
+  public isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Checks if the consumer is running
+   * 
+   * @returns True if running, false otherwise
+   */
+  public isRunning(): boolean {
+    return this.running;
+  }
+
+  /**
+   * Gets the subscribed topics
+   * 
+   * @returns The subscribed topics
+   */
+  public getSubscribedTopics(): string[] {
+    return [...this.subscribedTopics];
+  }
+
+  /**
+   * Gets the consumer group ID
+   * 
+   * @returns The consumer group ID
+   */
+  public getGroupId(): string {
+    return this.options.groupId;
+  }
+
+  /**
+   * Simulates receiving a message
+   * 
+   * @param topic - The topic the message is from
+   * @param partition - The partition the message is from
+   * @param message - The message content
+   * @returns A promise that resolves when the message is processed
+   */
+  public async simulateMessageReceived(
+    topic: string,
+    partition: number,
+    message: {
+      key?: Buffer | string | null;
+      value: Buffer | string | null;
+      headers?: Record<string, string | Buffer>;
+      timestamp?: string;
+      offset?: string;
+    }
+  ): Promise<void> {
+    if (!this.running || !this.messageHandler) {
+      throw new Error('Consumer is not running or no message handler is registered');
+    }
+
+    if (!this.subscribedTopics.includes(topic)) {
+      throw new Error(`Consumer is not subscribed to topic: ${topic}`);
+    }
+
+    await this.messageHandler({
+      topic,
+      partition,
+      message: {
+        key: message.key || null,
+        value: message.value,
+        headers: message.headers || {},
+        timestamp: message.timestamp || Date.now().toString(),
+        offset: message.offset || '0',
+        size: 0,
+        attributes: 0,
+      },
     });
   }
 
   /**
-   * Connect to the Kafka broker (mock implementation)
+   * Simulates receiving a batch of messages
+   * 
+   * @param topic - The topic the messages are from
+   * @param partition - The partition the messages are from
+   * @param messages - The message contents
+   * @returns A promise that resolves when the messages are processed
    */
-  async connect(): Promise<void> {
-    this.trackMethodCall('connect');
-    this.callHistory.connectCalls++;
-
-    if (this.mockConfig.connect?.success === false) {
-      throw this.mockConfig.connect.error || new Error('Mock connect error');
-    }
-  }
-
-  /**
-   * Disconnect from the Kafka broker (mock implementation)
-   */
-  async disconnect(): Promise<void> {
-    this.trackMethodCall('disconnect');
-    this.callHistory.disconnectCalls++;
-    this.isRunning = false;
-
-    if (this.mockConfig.disconnect?.success === false) {
-      throw this.mockConfig.disconnect.error || new Error('Mock disconnect error');
-    }
-  }
-
-  /**
-   * Subscribe to topics (mock implementation)
-   */
-  async subscribe({ topics, fromBeginning }: ConsumerSubscribeTopics): Promise<void> {
-    this.trackMethodCall('subscribe', [{ topics, fromBeginning }]);
-
-    if (this.mockConfig.subscribe?.success === false) {
-      throw this.mockConfig.subscribe.error || new Error('Mock subscribe error');
-    }
-
-    // Store subscribed topics
-    if (Array.isArray(topics)) {
-      this.subscribedTopics = topics;
-    } else if (typeof topics === 'string') {
-      this.subscribedTopics = [topics];
-    } else if (topics instanceof RegExp) {
-      // For RegExp, we can't determine the actual topics without a real broker
-      // In a real test, you would need to explicitly provide the topics that match the pattern
-      this.subscribedTopics = [];
-    }
-  }
-
-  /**
-   * Run the consumer (mock implementation)
-   */
-  async run(config: ConsumerRunConfig): Promise<void> {
-    this.trackMethodCall('run', [config]);
-
-    if (this.mockConfig.run?.success === false) {
-      throw this.mockConfig.run.error || new Error('Mock run error');
-    }
-
-    this.runConfig = config;
-    this.isRunning = true;
-
-    // Process existing messages for subscribed topics
-    if (config.eachMessage && this.subscribedTopics.length > 0) {
-      for (const topic of this.subscribedTopics) {
-        const messages = this.messageStore.getMessages(topic);
-        
-        for (const message of messages) {
-          const payload: EachMessagePayload = {
-            topic,
-            partition: 0,
-            message
-          };
-
-          try {
-            await config.eachMessage(payload);
-          } catch (error) {
-            console.error(`Error processing message: ${error}`);
-          }
-        }
-      }
-    } else if (config.eachBatch && this.subscribedTopics.length > 0) {
-      for (const topic of this.subscribedTopics) {
-        const messages = this.messageStore.getMessages(topic);
-        
-        if (messages.length > 0) {
-          const payload: EachBatchPayload = {
-            batch: {
-              topic,
-              partition: 0,
-              messages,
-              isEmpty: () => messages.length === 0,
-              firstOffset: () => messages[0]?.offset || '0',
-              lastOffset: () => messages[messages.length - 1]?.offset || '0',
-              offsetLag: () => 0,
-              offsetLagLow: () => 0,
-              highWatermark: '0'
-            },
-            resolveOffset: () => {},
-            heartbeat: async () => {},
-            commitOffsetsIfNecessary: async () => {},
-            uncommittedOffsets: () => ({ topics: [] }),
-            isRunning: () => this.isRunning,
-            isStale: () => false
-          };
-
-          try {
-            await config.eachBatch(payload);
-          } catch (error) {
-            console.error(`Error processing batch: ${error}`);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Stop the consumer (mock implementation)
-   */
-  async stop(): Promise<void> {
-    this.trackMethodCall('stop');
-    this.isRunning = false;
-  }
-
-  /**
-   * Seek to a specific offset (mock implementation)
-   */
-  async seek({ topic, partition, offset }: { topic: string; partition: number; offset: string }): Promise<void> {
-    this.trackMethodCall('seek', [{ topic, partition, offset }]);
-  }
-
-  /**
-   * Pause consuming from specific topics/partitions (mock implementation)
-   */
-  async pause(topics: Array<{ topic: string; partitions?: number[] }>): Promise<void> {
-    this.trackMethodCall('pause', [topics]);
-  }
-
-  /**
-   * Resume consuming from specific topics/partitions (mock implementation)
-   */
-  async resume(topics: Array<{ topic: string; partitions?: number[] }>): Promise<void> {
-    this.trackMethodCall('resume', [topics]);
-  }
-
-  /**
-   * Commit offsets (mock implementation)
-   */
-  async commitOffsets(
-    offsets: Array<{ topic: string; partition: number; offset: string }>
+  public async simulateBatchMessagesReceived(
+    topic: string,
+    partition: number,
+    messages: Array<{
+      key?: Buffer | string | null;
+      value: Buffer | string | null;
+      headers?: Record<string, string | Buffer>;
+      timestamp?: string;
+      offset?: string;
+    }>
   ): Promise<void> {
-    this.trackMethodCall('commitOffsets', [offsets]);
+    if (!this.running || !this.batchMessageHandler) {
+      throw new Error('Consumer is not running or no batch message handler is registered');
+    }
+
+    if (!this.subscribedTopics.includes(topic)) {
+      throw new Error(`Consumer is not subscribed to topic: ${topic}`);
+    }
+
+    await this.batchMessageHandler({
+      batch: {
+        topic,
+        partition,
+        highWatermark: '100',
+        messages: messages.map((msg, index) => ({
+          key: msg.key || null,
+          value: msg.value,
+          headers: msg.headers || {},
+          timestamp: msg.timestamp || Date.now().toString(),
+          offset: msg.offset || index.toString(),
+          size: 0,
+          attributes: 0,
+        })),
+      },
+      resolveOffset: jest.fn(),
+      heartbeat: jest.fn(),
+      commitOffsetsIfNecessary: jest.fn(),
+      uncommittedOffsets: jest.fn().mockReturnValue({}),
+      isRunning: jest.fn().mockReturnValue(this.running),
+      isStale: jest.fn().mockReturnValue(false),
+    });
   }
 
   /**
-   * Events (minimal implementation)
+   * Gets the logger instance (not implemented in mock)
    */
-  events = {
-    connect: () => {},
-    disconnect: () => {},
-    request: () => {},
-    requestTimeout: () => {},
-    requestQueueSize: () => {},
-    group: {
-      join: () => {},
-      leave: () => {},
-      start: () => {}
-    },
-    fetch: () => {},
-    start: () => {},
-    stop: () => {},
-    crash: () => {},
-    heartbeat: () => {},
-    commitOffsets: () => {},
-    offsetsToCommit: () => {},
-    rebalancing: () => {},
-    rebalance: {
-      start: () => {},
-      end: () => {},
-      error: () => {}
-    }
-  };
+  public logger(): any {
+    return {
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+      setLogLevel: jest.fn(),
+    };
+  }
 
-  on(): void {}
-  off(): void {}
-  logger(): void {}
+  /**
+   * Gets the events instance (not implemented in mock)
+   */
+  public events(): any {
+    return {};
+  }
 }
 
 /**
- * Mock implementation of the KafkaJS Admin
+ * Mock implementation of the KafkaJS Admin client
  */
-export class MockAdmin implements Admin {
-  private config: AdminConfig;
-  private mockConfig: MockAdminConfig;
-  public callHistory: MockCallHistory = {
-    calls: [],
-    connectCalls: 0,
-    disconnectCalls: 0
+export class MockAdmin extends EventEmitter implements Admin {
+  /**
+   * The parent Kafka client
+   */
+  private readonly client: MockKafkaClient;
+
+  /**
+   * The admin options
+   */
+  private readonly options: any;
+
+  /**
+   * Configuration for the mock behavior
+   */
+  private config: MockKafkaClientConfig;
+
+  /**
+   * Whether the admin client is connected
+   */
+  private connected = false;
+
+  /**
+   * Track calls to methods for assertions
+   */
+  public readonly calls: {
+    connect: number;
+    disconnect: number;
+    createTopics: number;
+    deleteTopics: number;
+    createPartitions: number;
+    fetchTopicMetadata: number;
+    fetchOffsets: number;
+    fetchTopicOffsets: number;
+    fetchTopicOffsetsByTimestamp: number;
+    setOffsets: number;
+    resetOffsets: number;
+    describeGroups: number;
+    deleteGroups: number;
+    listGroups: number;
+  } = {
+    connect: 0,
+    disconnect: 0,
+    createTopics: 0,
+    deleteTopics: 0,
+    createPartitions: 0,
+    fetchTopicMetadata: 0,
+    fetchOffsets: 0,
+    fetchTopicOffsets: 0,
+    fetchTopicOffsetsByTimestamp: 0,
+    setOffsets: 0,
+    resetOffsets: 0,
+    describeGroups: 0,
+    deleteGroups: 0,
+    listGroups: 0,
   };
 
-  constructor(config: AdminConfig, mockConfig: MockAdminConfig = {}) {
+  /**
+   * Topics created by this admin client
+   */
+  public readonly createdTopics: Array<{
+    topic: string;
+    numPartitions?: number;
+    replicationFactor?: number;
+    configEntries?: Array<{ name: string; value: string }>;
+  }> = [];
+
+  /**
+   * Topics deleted by this admin client
+   */
+  public readonly deletedTopics: string[] = [];
+
+  /**
+   * Creates a new MockAdmin instance
+   * 
+   * @param client - The parent Kafka client
+   * @param options - Admin options
+   * @param config - Configuration for the mock behavior
+   */
+  constructor(
+    client: MockKafkaClient,
+    options: any,
+    config: MockKafkaClientConfig
+  ) {
+    super();
+    this.client = client;
+    this.options = options;
     this.config = config;
-    this.mockConfig = mockConfig;
   }
 
   /**
-   * Track method calls for testing assertions
+   * Connects the admin client to the Kafka broker
+   * 
+   * @returns A promise that resolves when connected
    */
-  private trackMethodCall(method: string, args: any[] = []): void {
-    this.callHistory.calls.push({
-      method,
-      args,
-      timestamp: Date.now()
-    });
-  }
-
-  /**
-   * Connect to the Kafka broker (mock implementation)
-   */
-  async connect(): Promise<void> {
-    this.trackMethodCall('connect');
-    this.callHistory.connectCalls++;
-
-    if (this.mockConfig.connect?.success === false) {
-      throw this.mockConfig.connect.error || new Error('Mock connect error');
+  public async connect(): Promise<void> {
+    this.calls.connect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
     }
-  }
 
-  /**
-   * Disconnect from the Kafka broker (mock implementation)
-   */
-  async disconnect(): Promise<void> {
-    this.trackMethodCall('disconnect');
-    this.callHistory.disconnectCalls++;
-
-    if (this.mockConfig.disconnect?.success === false) {
-      throw this.mockConfig.disconnect.error || new Error('Mock disconnect error');
+    if (!this.config.shouldConnectSucceed) {
+      throw this.config.errorToThrow;
     }
+
+    this.connected = true;
+    this.emit('connect');
   }
 
   /**
-   * Create topics (mock implementation)
+   * Disconnects the admin client from the Kafka broker
+   * 
+   * @returns A promise that resolves when disconnected
    */
-  async createTopics({
-    topics,
-    waitForLeaders = true,
-    timeout
-  }: {
-    topics: Array<{ topic: string; numPartitions?: number; replicationFactor?: number; replicaAssignment?: any[] }>,
-    waitForLeaders?: boolean,
-    timeout?: number
+  public async disconnect(): Promise<void> {
+    this.calls.disconnect++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldDisconnectSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    this.connected = false;
+    this.emit('disconnect');
+  }
+
+  /**
+   * Creates Kafka topics
+   * 
+   * @param options - Topic creation options
+   * @returns A promise that resolves when topics are created
+   */
+  public async createTopics(options: {
+    topics: Array<{
+      topic: string;
+      numPartitions?: number;
+      replicationFactor?: number;
+      configEntries?: Array<{ name: string; value: string }>;
+    }>;
+    timeout?: number;
+    validateOnly?: boolean;
   }): Promise<boolean> {
-    this.trackMethodCall('createTopics', [{ topics, waitForLeaders, timeout }]);
+    this.calls.createTopics++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
 
-    if (this.mockConfig.createTopics?.success === false) {
-      throw this.mockConfig.createTopics.error || new Error('Mock createTopics error');
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    for (const topic of options.topics) {
+      this.createdTopics.push({ ...topic });
     }
 
     return true;
   }
 
   /**
-   * Delete topics (mock implementation)
+   * Deletes Kafka topics
+   * 
+   * @param options - Topic deletion options
+   * @returns A promise that resolves when topics are deleted
    */
-  async deleteTopics({
-    topics,
-    timeout
-  }: {
-    topics: string[],
-    timeout?: number
+  public async deleteTopics(options: {
+    topics: string[];
+    timeout?: number;
   }): Promise<void> {
-    this.trackMethodCall('deleteTopics', [{ topics, timeout }]);
+    this.calls.deleteTopics++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
 
-    if (this.mockConfig.deleteTopics?.success === false) {
-      throw this.mockConfig.deleteTopics.error || new Error('Mock deleteTopics error');
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    for (const topic of options.topics) {
+      this.deletedTopics.push(topic);
     }
   }
 
   /**
-   * Fetch topic metadata (mock implementation)
+   * Creates partitions for topics
+   * 
+   * @param options - Partition creation options
+   * @returns A promise that resolves when partitions are created
    */
-  async fetchTopicMetadata({
-    topics = [],
-    timeout
-  }: {
-    topics?: string[],
-    timeout?: number
-  } = {}): Promise<{
-    topics: Array<{
-      name: string,
-      partitions: Array<{
-        partitionId: number,
-        leader: number,
-        replicas: number[],
-        isr: number[]
-      }>
-    }>
-  }> {
-    this.trackMethodCall('fetchTopicMetadata', [{ topics, timeout }]);
-
-    if (this.mockConfig.fetchTopicMetadata?.success === false) {
-      throw this.mockConfig.fetchTopicMetadata.error || new Error('Mock fetchTopicMetadata error');
+  public async createPartitions(options: {
+    topicPartitions: Array<{
+      topic: string;
+      count: number;
+    }>;
+    timeout?: number;
+    validateOnly?: boolean;
+  }): Promise<boolean> {
+    this.calls.createPartitions++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
     }
 
-    // Return mock topic metadata
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return true;
+  }
+
+  /**
+   * Fetches topic metadata
+   * 
+   * @param options - Metadata fetch options
+   * @returns A promise that resolves with the topic metadata
+   */
+  public async fetchTopicMetadata(options?: {
+    topics?: string[];
+  }): Promise<{
+    topics: Array<{
+      name: string;
+      partitions: Array<{
+        partitionId: number;
+        leader: number;
+        replicas: number[];
+        isr: number[];
+        offlineReplicas: number[];
+      }>;
+    }>;
+  }> {
+    this.calls.fetchTopicMetadata++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    const topics = options?.topics || this.createdTopics.map(t => t.topic);
+
     return {
       topics: topics.map(topic => ({
         name: topic,
-        partitions: [
-          {
-            partitionId: 0,
-            leader: 0,
-            replicas: [0],
-            isr: [0]
-          }
-        ]
-      }))
+        partitions: Array.from({ length: 1 }, (_, i) => ({
+          partitionId: i,
+          leader: 0,
+          replicas: [0],
+          isr: [0],
+          offlineReplicas: [],
+        })),
+      })),
     };
   }
 
   /**
-   * Events (minimal implementation)
+   * Fetches consumer group offsets
+   * 
+   * @param options - Offset fetch options
+   * @returns A promise that resolves with the consumer group offsets
    */
-  events = {
-    connect: () => {},
-    disconnect: () => {},
-    request: () => {},
-    requestTimeout: () => {},
-    requestQueueSize: () => {}
-  };
+  public async fetchOffsets(options: {
+    groupId: string;
+    topics: string[];
+  }): Promise<Array<{
+    topic: string;
+    partitions: Array<{
+      partition: number;
+      offset: string;
+      metadata: string | null;
+    }>;
+  }>> {
+    this.calls.fetchOffsets++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
 
-  on(): void {}
-  off(): void {}
-  logger(): void {}
-}
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
 
-/**
- * Mock implementation of the KafkaJS client
- */
-export class MockKafka implements Kafka {
-  private config: KafkaConfig;
-  private mockConfig: MockKafkaConfig;
-  private messageStore: MessageStore = new MessageStore();
-  public callHistory: MockCallHistory = {
-    calls: [],
-    connectCalls: 0,
-    disconnectCalls: 0
-  };
-
-  constructor(config: KafkaConfig, mockConfig: MockKafkaConfig = {}) {
-    this.config = config;
-    this.mockConfig = mockConfig;
+    return options.topics.map(topic => ({
+      topic,
+      partitions: [{
+        partition: 0,
+        offset: '0',
+        metadata: null,
+      }],
+    }));
   }
 
   /**
-   * Track method calls for testing assertions
+   * Fetches topic offsets
+   * 
+   * @param options - Topic offset fetch options
+   * @returns A promise that resolves with the topic offsets
    */
-  private trackMethodCall(method: string, args: any[] = []): void {
-    this.callHistory.calls.push({
-      method,
-      args,
-      timestamp: Date.now()
-    });
+  public async fetchTopicOffsets(topic: string): Promise<Array<{
+    partition: number;
+    offset: string;
+    high: string;
+    low: string;
+  }>> {
+    this.calls.fetchTopicOffsets++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return [{
+      partition: 0,
+      offset: '0',
+      high: '0',
+      low: '0',
+    }];
   }
 
   /**
-   * Create a producer (mock implementation)
+   * Fetches topic offsets by timestamp
+   * 
+   * @param options - Topic offset fetch options
+   * @returns A promise that resolves with the topic offsets
    */
-  producer(config: ProducerConfig = {}): Producer {
-    this.trackMethodCall('producer', [config]);
-    return new MockProducer(config, this.mockConfig.producer, this.messageStore);
+  public async fetchTopicOffsetsByTimestamp(
+    topic: string,
+    timestamp: number
+  ): Promise<Array<{
+    partition: number;
+    offset: string;
+  }>> {
+    this.calls.fetchTopicOffsetsByTimestamp++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return [{
+      partition: 0,
+      offset: '0',
+    }];
   }
 
   /**
-   * Create a consumer (mock implementation)
+   * Sets consumer group offsets
+   * 
+   * @param options - Offset set options
+   * @returns A promise that resolves when offsets are set
    */
-  consumer(config: ConsumerConfig): Consumer {
-    this.trackMethodCall('consumer', [config]);
-    return new MockConsumer(config, this.mockConfig.consumer, this.messageStore);
+  public async setOffsets(options: {
+    groupId: string;
+    topic: string;
+    partitions: Array<{
+      partition: number;
+      offset: string;
+    }>;
+  }): Promise<void> {
+    this.calls.setOffsets++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
   }
 
   /**
-   * Create an admin client (mock implementation)
+   * Resets consumer group offsets
+   * 
+   * @param options - Offset reset options
+   * @returns A promise that resolves when offsets are reset
    */
-  admin(config: AdminConfig = {}): Admin {
-    this.trackMethodCall('admin', [config]);
-    return new MockAdmin(config, this.mockConfig.admin);
+  public async resetOffsets(options: {
+    groupId: string;
+    topic: string;
+    earliest?: boolean;
+    latest?: boolean;
+  }): Promise<void> {
+    this.calls.resetOffsets++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
   }
 
   /**
-   * Get the message store for testing
+   * Describes consumer groups
+   * 
+   * @param options - Group description options
+   * @returns A promise that resolves with the consumer group descriptions
    */
-  getMessageStore(): MessageStore {
-    return this.messageStore;
+  public async describeGroups(options: {
+    groupIds: string[];
+  }): Promise<Array<{
+    groupId: string;
+    members: Array<{
+      memberId: string;
+      clientId: string;
+      clientHost: string;
+      memberMetadata: Buffer;
+      memberAssignment: Buffer;
+    }>;
+    protocol: string;
+    protocolType: string;
+    state: string;
+  }>> {
+    this.calls.describeGroups++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return options.groupIds.map(groupId => ({
+      groupId,
+      members: [],
+      protocol: '',
+      protocolType: '',
+      state: 'Stable',
+    }));
   }
 
   /**
-   * Clear all messages from the message store
+   * Deletes consumer groups
+   * 
+   * @param options - Group deletion options
+   * @returns A promise that resolves when groups are deleted
    */
-  clearMessages(): void {
-    this.messageStore.clear();
+  public async deleteGroups(options: {
+    groupIds: string[];
+  }): Promise<{
+    groupIds: string[];
+    errorCodes: number[];
+  }> {
+    this.calls.deleteGroups++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return {
+      groupIds: options.groupIds,
+      errorCodes: options.groupIds.map(() => 0),
+    };
   }
 
   /**
-   * Clear messages for a specific topic
+   * Lists consumer groups
+   * 
+   * @returns A promise that resolves with the consumer group list
    */
-  clearTopicMessages(topic: string): void {
-    this.messageStore.clearTopic(topic);
+  public async listGroups(): Promise<{
+    groups: Array<{
+      groupId: string;
+      protocolType: string;
+    }>;
+  }> {
+    this.calls.listGroups++;
+    
+    if (this.config.operationDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.operationDelay));
+    }
+
+    if (!this.config.shouldAdminOperationsSucceed) {
+      throw this.config.errorToThrow;
+    }
+
+    return {
+      groups: [],
+    };
+  }
+
+  /**
+   * Checks if the admin client is connected
+   * 
+   * @returns True if connected, false otherwise
+   */
+  public isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Gets the logger instance (not implemented in mock)
+   */
+  public logger(): any {
+    return {
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+      setLogLevel: jest.fn(),
+    };
   }
 }
