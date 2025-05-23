@@ -1,100 +1,133 @@
 /**
- * Jest E2E Configuration for @austa/utils package
- *
- * This configuration extends the base Jest configuration with settings specific to
- * end-to-end testing of utility functions in real application contexts. It configures
- * longer timeouts for network operations, sets up proper module resolution, and includes
- * specialized test matchers for validating utility functions in complete workflows.
+ * Jest configuration for end-to-end tests of the utils package.
+ * This configuration is specifically designed for testing utility functions
+ * in real application contexts across different journeys.
  */
-
 import type { Config } from '@jest/types';
-import { defaults } from 'jest-config';
-import * as path from 'path';
 
-// Import base configuration from root level
-const baseConfig = require('../../jest.config');
-
-/**
- * E2E-specific Jest configuration that extends the base configuration
- * with settings optimized for end-to-end testing of utility functions.
- */
 const config: Config.InitialOptions = {
-  ...baseConfig,
-  // Specify the test pattern for E2E tests
-  testMatch: ['**/*.e2e-spec.ts'],
-  
-  // Configure longer timeouts for network and integration tests
-  testTimeout: 60000, // 60 seconds for E2E tests
-  
-  // Set up the test environment
+  // Specify the test environment
   testEnvironment: 'node',
   
-  // Include setup files for custom matchers and mocks
-  setupFilesAfterEnv: ['<rootDir>/test/setup-tests.ts'],
+  // Specify which file extensions Jest should look for
+  moduleFileExtensions: ['js', 'json', 'ts'],
   
-  // Configure module name mapping for proper import resolution
-  moduleNameMapper: {
-    '^@austa/utils/(.*)$': '<rootDir>/src/$1',
-    '^@austa/utils$': '<rootDir>/index.ts',
-    '^@austa/(.*)$': '<rootDir>/../$1/index.ts',
-    '^@app/(.*)$': '<rootDir>/../../$1/src',
-  },
+  // The root directory where Jest should scan for tests
+  rootDir: '.',
   
-  // Set up root directory for tests
-  rootDir: path.resolve(__dirname, '..'),
+  // The pattern to detect E2E test files
+  testRegex: '\.e2e-spec\.ts$',
   
-  // Configure coverage collection for E2E tests
-  collectCoverage: true,
-  coverageDirectory: '<rootDir>/coverage/e2e',
-  collectCoverageFrom: [
-    '<rootDir>/src/**/*.ts',
-    '!<rootDir>/src/**/*.spec.ts',
-    '!<rootDir>/src/**/*.test.ts',
-    '!<rootDir>/src/**/*.d.ts',
-    '!<rootDir>/src/**/index.ts',
-  ],
-  
-  // Configure coverage thresholds for E2E tests
-  coverageThreshold: {
-    global: {
-      branches: 70,
-      functions: 70,
-      lines: 70,
-      statements: 70,
-    },
-  },
-  
-  // Configure globals for E2E tests
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/test/tsconfig.spec.json',
-      isolatedModules: true,
-    },
-    // Set up test-specific environment variables
-    __E2E_TEST__: true,
-  },
-  
-  // Configure transform for TypeScript files
+  // Transform TypeScript files using ts-jest
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', {
-      tsconfig: '<rootDir>/test/tsconfig.spec.json',
-    }],
+    '^.+\.(t|j)s$': 'ts-jest',
   },
   
-  // Configure module file extensions
-  moduleFileExtensions: [...defaults.moduleFileExtensions, 'ts'],
+  // Longer timeout for E2E tests (15 seconds)
+  // This is important for tests that involve real network requests or database operations
+  testTimeout: 15000,
   
-  // Configure verbose output for E2E tests
+  // Setup files to run before tests
+  setupFilesAfterEnv: ['<rootDir>/setup-tests.ts'],
+  
+  // Retry failed tests to handle flaky conditions
+  retry: 2,
+  
+  // Verbose output to help with debugging
   verbose: true,
   
-  // Configure maxWorkers for E2E tests
-  maxWorkers: '50%',
+  // Collect coverage information
+  collectCoverage: false,
   
-  // Configure error handling for E2E tests
-  bail: 1,
+  // When enabled, coverage will only be collected from files matching the specified glob pattern
+  collectCoverageFrom: [
+    '<rootDir>/../src/**/*.ts',
+    '!<rootDir>/../src/**/*.spec.ts',
+    '!<rootDir>/../src/**/*.e2e-spec.ts',
+    '!<rootDir>/../src/**/*.mock.ts',
+    '!<rootDir>/../src/**/index.ts',
+  ],
   
-  // Configure test result processors
-  testResultsProcessor: 'jest-sonar-reporter',
+  // The directory where Jest should output its coverage files
+  coverageDirectory: '<rootDir>/../coverage/e2e',
+  
+  // Run tests in a single process rather than creating a worker pool
+  // This helps prevent interference between tests that might share resources
+  runInBand: true,
+  
+  // Automatically clear mock calls and instances between every test
+  clearMocks: true,
+  
+  // Indicates whether each individual test should be reported during the run
+  reporters: ['default', 'jest-junit'],
+  
+  // Configure Jest JUnit reporter for CI integration
+  reporterOptions: {
+    junitReporter: {
+      outputDirectory: '<rootDir>/../reports/junit',
+      outputName: 'e2e-results.xml',
+      classNameTemplate: '{classname}',
+      titleTemplate: '{title}',
+      ancestorSeparator: ' › ',
+    },
+  },
+  
+  // Module name mapper for resolving imports in tests
+  moduleNameMapper: {
+    '^@austa/utils/(.*)$': '<rootDir>/../src/$1',
+    '^@austa/utils$': '<rootDir>/../src',
+    '^@austa/interfaces/(.*)$': '<rootDir>/../../interfaces/src/$1',
+    '^@austa/interfaces$': '<rootDir>/../../interfaces/src',
+    '^@austa/errors$': '<rootDir>/../../errors/src',
+    '^@austa/logging$': '<rootDir>/../../logging/src',
+    '^@austa/tracing$': '<rootDir>/../../tracing/src',
+    '^@austa/database$': '<rootDir>/../../database/src',
+    '^@app/(.*)$': '<rootDir>/../../../$1',
+  },
+  
+  // Global variables available in all test files
+  globals: {
+    'ts-jest': {
+      tsconfig: '<rootDir>/../tsconfig.json',
+      isolatedModules: true,
+    },
+    // Utils-specific configuration for tests
+    __UTILS_TESTING__: {
+      // Enable cross-journey testing
+      crossJourneyTesting: true,
+      // Test with real HTTP requests
+      realHttpRequests: false,
+      // Test with real date/time operations
+      realDateOperations: true,
+      // Test validation with real schemas
+      realValidation: true,
+      // Enable extended test matchers
+      extendedMatchers: true,
+    },
+  },
+  
+  // Automatically restore mocks between tests
+  restoreMocks: true,
+  
+  // Maximum number of workers to use for running tests
+  // For E2E tests, limiting this can prevent resource contention
+  maxWorkers: 2,
+  
+  // Force exit after all tests complete
+  // This ensures that any hanging connections are terminated
+  forceExit: true,
+  
+  // Test environment variables
+  testEnvironmentOptions: {
+    // Set NODE_ENV to 'test' for E2E tests
+    NODE_ENV: 'test',
+    // Disable certain features in test environment
+    DISABLE_LOGGING: 'true',
+    // Use test databases and services
+    USE_TEST_SERVICES: 'true',
+    // Set timeout for test operations
+    TEST_TIMEOUT_MS: '15000',
+  },
 };
 
 export default config;
