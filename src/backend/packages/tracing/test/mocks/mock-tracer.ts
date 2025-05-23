@@ -1,428 +1,180 @@
-import { 
-  Context, 
-  Span, 
-  SpanContext, 
-  SpanKind, 
-  SpanOptions, 
-  SpanStatus, 
-  SpanStatusCode, 
-  Tracer, 
-  trace 
-} from '@opentelemetry/api';
-import { DEFAULT_SPAN_NAME } from '../../src/constants/defaults';
+import { Context, Span, SpanContext, SpanKind, SpanOptions, Tracer, trace } from '@opentelemetry/api';
 
 /**
- * Mock implementation of an OpenTelemetry Span for testing purposes.
- * This class simulates the behavior of a real span without requiring actual telemetry infrastructure.
+ * MockSpan represents a span created by the MockTracer for testing purposes.
+ * It implements the basic functionality of an OpenTelemetry Span.
  */
 export class MockSpan implements Span {
   private _name: string;
   private _context: SpanContext;
   private _startTime: number;
-  private _endTime?: number;
-  private _attributes: Record<string, any> = {};
-  private _events: Array<{ name: string; attributes?: Record<string, any>; timestamp: number }> = [];
-  private _status: SpanStatus = { code: SpanStatusCode.UNSET };
+  private _endTime: number | undefined;
+  private _attributes: Record<string, unknown> = {};
+  private _events: Array<{ name: string, attributes?: Record<string, unknown>, timestamp?: number }> = [];
+  private _status: { code: number, message?: string } = { code: 0 };
   private _recording: boolean = true;
-  private _parent?: SpanContext;
-  private _kind: SpanKind;
 
-  /**
-   * Creates a new MockSpan instance.
-   * 
-   * @param name The name of the span
-   * @param options Optional configuration for the span
-   */
-  constructor(name: string, options?: SpanOptions) {
-    this._name = name || DEFAULT_SPAN_NAME;
+  constructor(name: string, spanContext?: SpanContext, kind?: SpanKind, parentSpanId?: string) {
+    this._name = name;
     this._startTime = Date.now();
-    this._kind = options?.kind || SpanKind.INTERNAL;
-    this._parent = options?.parent ? this._extractSpanContext(options.parent) : undefined;
     
-    // Generate a random trace ID and span ID for testing
-    const traceId = this._generateRandomHexString(32);
-    const spanId = this._generateRandomHexString(16);
-    
-    this._context = {
-      traceId,
-      spanId,
+    // Create a mock span context if none is provided
+    this._context = spanContext || {
+      traceId: generateMockId(32),
+      spanId: generateMockId(16),
       traceFlags: 1, // Sampled
       isRemote: false,
     };
-
-    // Add attributes from options
-    if (options?.attributes) {
-      Object.entries(options.attributes).forEach(([key, value]) => {
-        this.setAttribute(key, value);
-      });
-    }
   }
 
-  /**
-   * Extracts a SpanContext from a Context or SpanContext object.
-   * 
-   * @param contextOrSpan The Context or SpanContext to extract from
-   * @returns The extracted SpanContext or undefined
-   */
-  private _extractSpanContext(contextOrSpan: Context | SpanContext): SpanContext | undefined {
-    if ('traceId' in contextOrSpan && 'spanId' in contextOrSpan) {
-      return contextOrSpan as SpanContext;
-    }
-    
-    const spanContext = trace.getSpanContext(contextOrSpan as Context);
-    return spanContext;
-  }
-
-  /**
-   * Generates a random hexadecimal string of the specified length.
-   * 
-   * @param length The length of the string to generate
-   * @returns A random hexadecimal string
-   */
-  private _generateRandomHexString(length: number): string {
-    let result = '';
-    const characters = '0123456789abcdef';
-    
-    for (let i = 0; i < length; i++) {
-      result += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    
-    return result;
-  }
-
-  /**
-   * Gets the span context associated with this span.
-   * 
-   * @returns The span context
-   */
+  // Required Span interface methods
   spanContext(): SpanContext {
     return this._context;
   }
 
-  /**
-   * Sets an attribute on the span.
-   * 
-   * @param key The attribute key
-   * @param value The attribute value
-   * @returns This span for chaining
-   */
-  setAttribute(key: string, value: any): this {
-    if (this._recording) {
-      this._attributes[key] = value;
-    }
+  setAttribute(key: string, value: unknown): this {
+    this._attributes[key] = value;
     return this;
   }
 
-  /**
-   * Sets multiple attributes on the span.
-   * 
-   * @param attributes The attributes to set
-   * @returns This span for chaining
-   */
-  setAttributes(attributes: Record<string, any>): this {
-    if (this._recording) {
-      Object.entries(attributes).forEach(([key, value]) => {
-        this.setAttribute(key, value);
+  setAttributes(attributes: Record<string, unknown>): this {
+    Object.assign(this._attributes, attributes);
+    return this;
+  }
+
+  addEvent(name: string, attributesOrStartTime?: Record<string, unknown> | number, startTime?: number): this {
+    if (typeof attributesOrStartTime === 'number') {
+      this._events.push({ name, timestamp: attributesOrStartTime });
+    } else {
+      this._events.push({ 
+        name, 
+        attributes: attributesOrStartTime,
+        timestamp: startTime || Date.now() 
       });
     }
     return this;
   }
 
-  /**
-   * Adds an event to the span.
-   * 
-   * @param name The name of the event
-   * @param attributesOrStartTime Optional attributes or start time for the event
-   * @param startTime Optional start time for the event
-   * @returns This span for chaining
-   */
-  addEvent(name: string, attributesOrStartTime?: Record<string, any> | number, startTime?: number): this {
-    if (!this._recording) {
-      return this;
-    }
-
-    let attributes: Record<string, any> | undefined;
-    let timestamp: number;
-
-    if (typeof attributesOrStartTime === 'number') {
-      timestamp = attributesOrStartTime;
-    } else {
-      attributes = attributesOrStartTime;
-      timestamp = startTime || Date.now();
-    }
-
-    this._events.push({
-      name,
-      attributes,
-      timestamp,
-    });
-
+  setStatus(code: number, message?: string): this {
+    this._status = { code, message };
     return this;
   }
 
-  /**
-   * Sets the status of the span.
-   * 
-   * @param status The status to set
-   * @returns This span for chaining
-   */
-  setStatus(status: SpanStatus): this {
-    if (this._recording) {
-      this._status = status;
-    }
-    return this;
-  }
-
-  /**
-   * Updates the span name.
-   * 
-   * @param name The new name for the span
-   * @returns This span for chaining
-   */
   updateName(name: string): this {
-    if (this._recording) {
-      this._name = name;
-    }
+    this._name = name;
     return this;
   }
 
-  /**
-   * Ends the span.
-   * 
-   * @param endTime Optional end time for the span
-   */
   end(endTime?: number): void {
-    if (this._recording) {
-      this._endTime = endTime || Date.now();
-      this._recording = false;
-    }
+    this._endTime = endTime || Date.now();
+    this._recording = false;
   }
 
-  /**
-   * Checks if the span is recording.
-   * 
-   * @returns True if the span is recording, false otherwise
-   */
   isRecording(): boolean {
     return this._recording;
   }
 
-  /**
-   * Records an exception as an event on the span.
-   * 
-   * @param exception The exception to record
-   * @param time Optional time for the event
-   * @returns This span for chaining
-   */
-  recordException(exception: Error, time?: number): this {
-    if (!this._recording) {
-      return this;
-    }
-
-    const attributes: Record<string, any> = {
+  recordException(exception: Error, time?: number): void {
+    this.addEvent('exception', {
       'exception.type': exception.name,
       'exception.message': exception.message,
-    };
-
-    if (exception.stack) {
-      attributes['exception.stacktrace'] = exception.stack;
-    }
-
-    return this.addEvent('exception', attributes, time);
+      'exception.stacktrace': exception.stack,
+    }, time);
   }
 
-  /**
-   * Gets the name of the span.
-   * 
-   * @returns The span name
-   */
-  getName(): string {
+  // Additional methods for testing
+  get name(): string {
     return this._name;
   }
 
-  /**
-   * Gets the attributes of the span.
-   * 
-   * @returns The span attributes
-   */
-  getAttributes(): Record<string, any> {
+  get attributes(): Record<string, unknown> {
     return { ...this._attributes };
   }
 
-  /**
-   * Gets the events recorded on the span.
-   * 
-   * @returns The span events
-   */
-  getEvents(): Array<{ name: string; attributes?: Record<string, any>; timestamp: number }> {
+  get events(): Array<{ name: string, attributes?: Record<string, unknown>, timestamp?: number }> {
     return [...this._events];
   }
 
-  /**
-   * Gets the status of the span.
-   * 
-   * @returns The span status
-   */
-  getStatus(): SpanStatus {
+  get status(): { code: number, message?: string } {
     return { ...this._status };
   }
 
-  /**
-   * Gets the parent span context.
-   * 
-   * @returns The parent span context or undefined
-   */
-  getParent(): SpanContext | undefined {
-    return this._parent;
-  }
-
-  /**
-   * Gets the kind of the span.
-   * 
-   * @returns The span kind
-   */
-  getKind(): SpanKind {
-    return this._kind;
-  }
-
-  /**
-   * Gets the start time of the span.
-   * 
-   * @returns The start time in milliseconds
-   */
-  getStartTime(): number {
-    return this._startTime;
-  }
-
-  /**
-   * Gets the end time of the span.
-   * 
-   * @returns The end time in milliseconds or undefined if the span is still active
-   */
-  getEndTime(): number | undefined {
-    return this._endTime;
-  }
-
-  /**
-   * Gets the duration of the span.
-   * 
-   * @returns The duration in milliseconds or undefined if the span is still active
-   */
-  getDuration(): number | undefined {
-    if (!this._endTime) {
-      return undefined;
-    }
+  get duration(): number | undefined {
+    if (!this._endTime) return undefined;
     return this._endTime - this._startTime;
   }
 }
 
 /**
- * Mock implementation of an OpenTelemetry Tracer for testing purposes.
- * This class simulates the behavior of a real tracer without requiring actual telemetry infrastructure.
+ * MockTracer implements the OpenTelemetry Tracer interface for testing purposes.
+ * It provides functionality to create spans and track them for verification in tests.
  */
 export class MockTracer implements Tracer {
   private _spans: MockSpan[] = [];
-  private _currentSpan?: MockSpan;
-  private _name: string;
+  private _currentSpan: MockSpan | undefined;
+  private _instrumentationName: string;
+  private _instrumentationVersion?: string;
 
-  /**
-   * Creates a new MockTracer instance.
-   * 
-   * @param name The name of the tracer
-   */
-  constructor(name: string = 'mock-tracer') {
-    this._name = name;
+  constructor(instrumentationName: string, instrumentationVersion?: string) {
+    this._instrumentationName = instrumentationName;
+    this._instrumentationVersion = instrumentationVersion;
   }
 
   /**
-   * Starts a new span.
-   * 
+   * Creates and starts a new Span.
    * @param name The name of the span
-   * @param options Optional configuration for the span
-   * @returns The created span
+   * @param options Options for creating the span
+   * @param context The context to use for the span
+   * @returns A new MockSpan instance
    */
-  startSpan(name: string, options?: SpanOptions): MockSpan {
-    const span = new MockSpan(name, options);
+  startSpan(name: string, options?: SpanOptions, context?: Context): MockSpan {
+    const span = new MockSpan(name);
     this._spans.push(span);
     this._currentSpan = span;
     return span;
   }
 
   /**
-   * Gets the current active span.
-   * 
-   * @returns The current span or undefined if no span is active
+   * Gets the currently active span from the context.
+   * @param context The context to get the current span from
+   * @returns The current span or undefined if none exists
    */
-  getCurrentSpan(): MockSpan | undefined {
+  getCurrentSpan(context?: Context): MockSpan | undefined {
     return this._currentSpan;
   }
 
   /**
-   * Gets all spans created by this tracer.
-   * 
-   * @returns Array of all spans
+   * Executes the given function within the context of a new span.
+   * @param name The name of the span
+   * @param fn The function to execute within the span
+   * @param context The parent context
+   * @returns The result of the function execution
+   */
+  startActiveSpan<T>(name: string, fn: (span: MockSpan) => T): T;
+  startActiveSpan<T>(name: string, options: SpanOptions, fn: (span: MockSpan) => T): T;
+  startActiveSpan<T>(name: string, optionsOrFn: SpanOptions | ((span: MockSpan) => T), fnOrUndefined?: (span: MockSpan) => T): T {
+    const fn = typeof optionsOrFn === 'function' ? optionsOrFn : fnOrUndefined as (span: MockSpan) => T;
+    const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
+    
+    const span = this.startSpan(name, options);
+    try {
+      return fn(span);
+    } finally {
+      span.end();
+    }
+  }
+
+  /**
+   * Returns all spans created by this tracer.
+   * Useful for assertions in tests.
    */
   getSpans(): MockSpan[] {
     return [...this._spans];
   }
 
   /**
-   * Gets spans by name.
-   * 
-   * @param name The name of the spans to get
-   * @returns Array of spans with the specified name
-   */
-  getSpansByName(name: string): MockSpan[] {
-    return this._spans.filter(span => span.getName() === name);
-  }
-
-  /**
-   * Gets spans by attribute.
-   * 
-   * @param key The attribute key to filter by
-   * @param value Optional attribute value to filter by
-   * @returns Array of spans with the specified attribute
-   */
-  getSpansByAttribute(key: string, value?: any): MockSpan[] {
-    return this._spans.filter(span => {
-      const attributes = span.getAttributes();
-      if (value === undefined) {
-        return key in attributes;
-      }
-      return attributes[key] === value;
-    });
-  }
-
-  /**
-   * Gets spans by status.
-   * 
-   * @param statusCode The status code to filter by
-   * @returns Array of spans with the specified status
-   */
-  getSpansByStatus(statusCode: SpanStatusCode): MockSpan[] {
-    return this._spans.filter(span => span.getStatus().code === statusCode);
-  }
-
-  /**
-   * Gets active spans (spans that are still recording).
-   * 
-   * @returns Array of active spans
-   */
-  getActiveSpans(): MockSpan[] {
-    return this._spans.filter(span => span.isRecording());
-  }
-
-  /**
-   * Gets completed spans (spans that are no longer recording).
-   * 
-   * @returns Array of completed spans
-   */
-  getCompletedSpans(): MockSpan[] {
-    return this._spans.filter(span => !span.isRecording());
-  }
-
-  /**
-   * Clears all spans from the tracer.
+   * Clears all spans tracked by this tracer.
+   * Useful for resetting state between tests.
    */
   clearSpans(): void {
     this._spans = [];
@@ -430,21 +182,40 @@ export class MockTracer implements Tracer {
   }
 
   /**
-   * Gets the name of the tracer.
-   * 
-   * @returns The tracer name
+   * Returns the instrumentation name for this tracer.
    */
-  getName(): string {
-    return this._name;
+  get instrumentationName(): string {
+    return this._instrumentationName;
+  }
+
+  /**
+   * Returns the instrumentation version for this tracer.
+   */
+  get instrumentationVersion(): string | undefined {
+    return this._instrumentationVersion;
   }
 }
 
 /**
- * Creates a new MockTracer instance.
- * 
- * @param name Optional name for the tracer
+ * Helper function to generate mock IDs for trace and span IDs.
+ * @param length The length of the ID to generate
+ * @returns A hexadecimal string of the specified length
+ */
+function generateMockId(length: number): string {
+  let result = '';
+  const characters = '0123456789abcdef';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+/**
+ * Creates a mock tracer for testing purposes.
+ * @param name The instrumentation name for the tracer
+ * @param version Optional instrumentation version
  * @returns A new MockTracer instance
  */
-export function createMockTracer(name?: string): MockTracer {
-  return new MockTracer(name);
+export function createMockTracer(name: string = 'mock-tracer', version?: string): MockTracer {
+  return new MockTracer(name, version);
 }

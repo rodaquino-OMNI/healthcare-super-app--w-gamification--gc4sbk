@@ -1,156 +1,328 @@
 import { Injectable, LoggerService as NestLoggerService, Scope } from '@nestjs/common';
 import { TracingService } from '@austa/tracing';
 import { LogLevel } from './interfaces/log-level.enum';
+import { LogEntry } from './interfaces/log-entry.interface';
+import { Logger } from './interfaces/logger.interface';
+import { LoggerConfig } from './interfaces/log-config.interface';
 import { Transport } from './interfaces/transport.interface';
 import { TransportFactory } from './transports/transport-factory';
-import { LoggerConfig } from './interfaces/log-config.interface';
-import { ContextManager } from './context/context-manager';
+import { Formatter } from './formatters/formatter.interface';
+import { JsonFormatter } from './formatters/json.formatter';
+import { TextFormatter } from './formatters/text.formatter';
+import { CloudWatchFormatter } from './formatters/cloudwatch.formatter';
 import { LoggingContext } from './context/context.interface';
 import { JourneyContext } from './context/journey-context.interface';
 import { UserContext } from './context/user-context.interface';
 import { RequestContext } from './context/request-context.interface';
+import { ContextManager } from './context/context-manager';
+import { JourneyType } from './context/context.constants';
+import * as formatUtils from './utils/format.utils';
+import * as levelUtils from './utils/level.utils';
+import * as contextUtils from './utils/context.utils';
+import * as traceUtils from './utils/trace-correlation.utils';
+import * as sanitizationUtils from './utils/sanitization.utils';
 
 /**
  * Enhanced logger service for the AUSTA SuperApp.
- * Provides a centralized and consistent way to handle structured logging across all backend services.
- * Features context-enrichment, distributed tracing correlation, and configurable transports.
+ * 
+ * Provides a centralized and consistent way to handle logging across all backend services.
+ * Features include:
+ * - Context-enriched logs (request ID, user ID, journey)
+ * - Integration with distributed tracing for correlation IDs
+ * - Standardized JSON log format
+ * - Configurable log transports (Console, File, CloudWatch)
+ * - Journey-specific logging contexts
+ * - Log level filtering
+ * - Structured error logging
  */
 @Injectable({ scope: Scope.DEFAULT })
-export class LoggerService implements NestLoggerService {
-  private readonly transports: Transport[] = [];
+export class LoggerService implements NestLoggerService, Logger {
   private readonly contextManager: ContextManager;
+  private readonly transports: Transport[] = [];
+  private readonly formatter: Formatter;
   private readonly defaultContext: LoggingContext;
   private readonly logLevel: LogLevel;
+  private readonly serviceName: string;
 
   /**
-   * Initializes the LoggerService with the provided configuration and dependencies.
+   * Initializes the LoggerService with the provided configuration.
    * 
    * @param config - Configuration options for the logger
-   * @param tracingService - Service for distributed tracing integration
+   * @param tracingService - Optional TracingService for distributed tracing correlation
    */
   constructor(
-    private readonly config: LoggerConfig,
+    private readonly config: LoggerConfig = {},
     private readonly tracingService?: TracingService,
   ) {
-    this.logLevel = config.logLevel || LogLevel.INFO;
+    this.serviceName = config.serviceName || 'austa-service';
+    this.logLevel = levelUtils.parseLogLevel(config.logLevel || 'INFO');
     this.contextManager = new ContextManager(tracingService);
     this.defaultContext = this.createDefaultContext();
-    this.initializeTransports();
+    this.formatter = this.createFormatter(config.formatter || 'json');
+    this.transports = this.createTransports(config.transports || ['console']);
   }
 
   /**
-   * Creates the default context for all log entries.
-   * This includes service name, environment, and application version.
+   * Creates the default logging context with service information.
    */
   private createDefaultContext(): LoggingContext {
     return {
-      serviceName: this.config.serviceName || 'unknown-service',
-      environment: this.config.environment || 'development',
-      appVersion: this.config.appVersion || '0.0.0',
+      serviceName: this.serviceName,
+      environment: process.env.NODE_ENV || 'development',
+      correlationId: this.tracingService?.getCurrentTraceId() || '',
       timestamp: new Date().toISOString(),
     };
   }
 
   /**
-   * Initializes the configured log transports.
-   * Uses the TransportFactory to create transport instances based on configuration.
+   * Creates the appropriate formatter based on the configuration.
    */
-  private initializeTransports(): void {
-    if (!this.config.transports || this.config.transports.length === 0) {
-      // Default to console transport if none specified
-      this.transports.push(TransportFactory.createConsoleTransport());
-      return;
-    }
-
-    for (const transportConfig of this.config.transports) {
-      try {
-        const transport = TransportFactory.createTransport(transportConfig);
-        this.transports.push(transport);
-      } catch (error) {
-        // Log transport initialization error to console as fallback
-        console.error(`Failed to initialize transport: ${error.message}`);
-      }
-    }
-
-    // Ensure at least one transport is available
-    if (this.transports.length === 0) {
-      this.transports.push(TransportFactory.createConsoleTransport());
+  private createFormatter(formatterType: string): Formatter {
+    switch (formatterType.toLowerCase()) {
+      case 'json':
+        return new JsonFormatter();
+      case 'text':
+        return new TextFormatter();
+      case 'cloudwatch':
+        return new CloudWatchFormatter();
+      default:
+        return new JsonFormatter();
     }
   }
 
   /**
-   * Writes a log entry to all configured transports.
+   * Creates the configured transports for log delivery.
+   */
+  private createTransports(transportTypes: string[]): Transport[] {
+    const factory = new TransportFactory();
+    return transportTypes.map(type => factory.createTransport(type, this.config));
+  }
+
+  /**
+   * Logs a message with the DEBUG level.
+   * 
+   * @param message - The message to log
+   * @param context - Optional context for the log (string or object)
+   */
+  debug(message: string, context?: string | object): void {
+    this.logWithLevel(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * Logs a message with the VERBOSE level.
+   * 
+   * @param message - The message to log
+   * @param context - Optional context for the log (string or object)
+   */
+  verbose(message: string, context?: string | object): void {
+    this.logWithLevel(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * Logs a message with the INFO level.
+   * 
+   * @param message - The message to log
+   * @param context - Optional context for the log (string or object)
+   */
+  log(message: string, context?: string | object): void {
+    this.logWithLevel(LogLevel.INFO, message, context);
+  }
+
+  /**
+   * Logs a message with the WARN level.
+   * 
+   * @param message - The message to log
+   * @param context - Optional context for the log (string or object)
+   */
+  warn(message: string, context?: string | object): void {
+    this.logWithLevel(LogLevel.WARN, message, context);
+  }
+
+  /**
+   * Logs a message with the ERROR level.
+   * 
+   * @param message - The message to log
+   * @param trace - Optional stack trace or error object
+   * @param context - Optional context for the log (string or object)
+   */
+  error(message: string, trace?: string | Error, context?: string | object): void {
+    const errorContext = trace instanceof Error 
+      ? { error: formatUtils.formatError(trace) } 
+      : trace 
+        ? { stack: trace } 
+        : {};
+    
+    this.logWithLevel(
+      LogLevel.ERROR, 
+      message, 
+      context, 
+      errorContext
+    );
+  }
+
+  /**
+   * Logs a message with the FATAL level.
+   * 
+   * @param message - The message to log
+   * @param trace - Optional stack trace or error object
+   * @param context - Optional context for the log (string or object)
+   */
+  fatal(message: string, trace?: string | Error, context?: string | object): void {
+    const errorContext = trace instanceof Error 
+      ? { error: formatUtils.formatError(trace) } 
+      : trace 
+        ? { stack: trace } 
+        : {};
+    
+    this.logWithLevel(
+      LogLevel.FATAL, 
+      message, 
+      context, 
+      errorContext
+    );
+  }
+
+  /**
+   * Logs a message with the specified level and context.
    * 
    * @param level - The log level
-   * @param message - The log message
-   * @param context - Optional context object or string
-   * @param error - Optional error object
-   * @param additionalContext - Optional additional context to merge
+   * @param message - The message to log
+   * @param contextInput - Optional context for the log (string or object)
+   * @param additionalContext - Additional context to merge
    */
-  private writeLog(
-    level: LogLevel,
-    message: string,
-    context?: string | object,
-    error?: Error,
-    additionalContext?: LoggingContext,
+  private logWithLevel(
+    level: LogLevel, 
+    message: string, 
+    contextInput?: string | object,
+    additionalContext: Record<string, any> = {}
   ): void {
-    // Skip if log level is below configured level
-    if (level < this.logLevel) {
+    // Skip if log level is not enabled
+    if (!levelUtils.shouldLog(level, this.logLevel)) {
       return;
     }
 
     // Process context
-    let contextStr = typeof context === 'string' ? context : undefined;
-    let contextObj = typeof context === 'object' ? context : {};
+    const context = typeof contextInput === 'string' 
+      ? { context: contextInput } 
+      : contextInput || {};
 
-    // Create log entry context by merging contexts
-    const logContext = this.contextManager.mergeContexts(
-      this.defaultContext,
-      additionalContext || {},
-      { context: contextObj },
-    );
+    // Create log entry
+    const logEntry: LogEntry = {
+      level,
+      message: sanitizationUtils.sanitizeMessage(message),
+      timestamp: new Date().toISOString(),
+      context: this.contextManager.mergeContexts(
+        this.defaultContext,
+        context as Record<string, any>,
+        additionalContext
+      ),
+    };
 
     // Add trace correlation if available
     if (this.tracingService) {
-      const traceContext = this.tracingService.getCurrentTraceContext();
-      Object.assign(logContext, { traceId: traceContext.traceId, spanId: traceContext.spanId });
+      logEntry.traceId = this.tracingService.getCurrentTraceId();
+      logEntry.spanId = this.tracingService.getCurrentSpanId();
     }
 
-    // Create the log entry
-    const logEntry = {
-      level,
-      message,
-      timestamp: new Date().toISOString(),
-      context: contextStr,
-      error: error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      } : undefined,
-      ...logContext,
-    };
-
-    // Write to all transports
-    for (const transport of this.transports) {
-      try {
-        transport.write(logEntry);
-      } catch (transportError) {
-        // Fallback to console if transport fails
-        console.error(`Transport error: ${transportError.message}`);
-        console.error('Original log entry:', logEntry);
-      }
-    }
+    // Format and write to all transports
+    const formattedLog = this.formatter.format(logEntry);
+    this.transports.forEach(transport => {
+      transport.write(formattedLog, level);
+    });
   }
 
   /**
-   * Creates a new logger instance with the provided context.
-   * Useful for creating loggers for specific components or requests.
+   * Creates a new logger instance with the specified request context.
    * 
-   * @param context - The context to attach to all logs from this logger
+   * @param requestContext - The request context to attach to logs
+   * @returns A new logger instance with the request context
    */
-  createContextLogger(context: LoggingContext): LoggerService {
-    const childConfig = { ...this.config };
-    const childLogger = new LoggerService(childConfig, this.tracingService);
+  withRequestContext(requestContext: RequestContext): Logger {
+    const childLogger = new LoggerService(this.config, this.tracingService);
+    childLogger['defaultContext'] = this.contextManager.mergeContexts(
+      this.defaultContext,
+      requestContext
+    );
+    return childLogger;
+  }
+
+  /**
+   * Creates a new logger instance with the specified user context.
+   * 
+   * @param userContext - The user context to attach to logs
+   * @returns A new logger instance with the user context
+   */
+  withUserContext(userContext: UserContext): Logger {
+    const childLogger = new LoggerService(this.config, this.tracingService);
+    childLogger['defaultContext'] = this.contextManager.mergeContexts(
+      this.defaultContext,
+      userContext
+    );
+    return childLogger;
+  }
+
+  /**
+   * Creates a new logger instance with the specified journey context.
+   * 
+   * @param journeyContext - The journey context to attach to logs
+   * @returns A new logger instance with the journey context
+   */
+  withJourneyContext(journeyContext: JourneyContext): Logger {
+    const childLogger = new LoggerService(this.config, this.tracingService);
+    childLogger['defaultContext'] = this.contextManager.mergeContexts(
+      this.defaultContext,
+      journeyContext
+    );
+    return childLogger;
+  }
+
+  /**
+   * Creates a new logger instance for the Health journey.
+   * 
+   * @param additionalContext - Additional context to include
+   * @returns A new logger instance with Health journey context
+   */
+  forHealthJourney(additionalContext: Record<string, any> = {}): Logger {
+    return this.withJourneyContext({
+      journeyType: JourneyType.HEALTH,
+      ...additionalContext
+    });
+  }
+
+  /**
+   * Creates a new logger instance for the Care journey.
+   * 
+   * @param additionalContext - Additional context to include
+   * @returns A new logger instance with Care journey context
+   */
+  forCareJourney(additionalContext: Record<string, any> = {}): Logger {
+    return this.withJourneyContext({
+      journeyType: JourneyType.CARE,
+      ...additionalContext
+    });
+  }
+
+  /**
+   * Creates a new logger instance for the Plan journey.
+   * 
+   * @param additionalContext - Additional context to include
+   * @returns A new logger instance with Plan journey context
+   */
+  forPlanJourney(additionalContext: Record<string, any> = {}): Logger {
+    return this.withJourneyContext({
+      journeyType: JourneyType.PLAN,
+      ...additionalContext
+    });
+  }
+
+  /**
+   * Creates a new logger instance with a combined context.
+   * 
+   * @param context - The context to attach to logs
+   * @returns A new logger instance with the combined context
+   */
+  withContext(context: Record<string, any>): Logger {
+    const childLogger = new LoggerService(this.config, this.tracingService);
     childLogger['defaultContext'] = this.contextManager.mergeContexts(
       this.defaultContext,
       context
@@ -159,189 +331,26 @@ export class LoggerService implements NestLoggerService {
   }
 
   /**
-   * Creates a new logger instance with journey-specific context.
+   * Creates a child logger with a specific name.
    * 
-   * @param journeyContext - The journey context to attach to all logs
+   * @param name - The name for the child logger
+   * @returns A new logger instance with the specified name
    */
-  createJourneyLogger(journeyContext: JourneyContext): LoggerService {
-    return this.createContextLogger(journeyContext);
+  child(name: string): Logger {
+    return this.withContext({ childName: name });
   }
 
   /**
-   * Creates a new logger instance with user-specific context.
+   * Attaches the current trace context to the logger.
    * 
-   * @param userContext - The user context to attach to all logs
+   * @returns A new logger instance with the current trace context
    */
-  createUserLogger(userContext: UserContext): LoggerService {
-    return this.createContextLogger(userContext);
-  }
-
-  /**
-   * Creates a new logger instance with request-specific context.
-   * 
-   * @param requestContext - The request context to attach to all logs
-   */
-  createRequestLogger(requestContext: RequestContext): LoggerService {
-    return this.createContextLogger(requestContext);
-  }
-
-  /**
-   * Logs a message with the INFO level.
-   * 
-   * @param message - The message to log
-   * @param context - Optional context for the log
-   */
-  log(message: any, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    this.writeLog(LogLevel.INFO, formattedMessage, context);
-  }
-
-  /**
-   * Logs a message with the ERROR level.
-   * 
-   * @param message - The message to log
-   * @param trace - Optional stack trace or error object
-   * @param context - Optional context for the log
-   */
-  error(message: any, trace?: string | Error, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    const error = trace instanceof Error ? trace : new Error(trace as string);
-    this.writeLog(LogLevel.ERROR, formattedMessage, context, error);
-  }
-
-  /**
-   * Logs a message with the WARN level.
-   * 
-   * @param message - The message to log
-   * @param context - Optional context for the log
-   */
-  warn(message: any, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    this.writeLog(LogLevel.WARN, formattedMessage, context);
-  }
-
-  /**
-   * Logs a message with the DEBUG level.
-   * 
-   * @param message - The message to log
-   * @param context - Optional context for the log
-   */
-  debug(message: any, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    this.writeLog(LogLevel.DEBUG, formattedMessage, context);
-  }
-
-  /**
-   * Logs a message with the VERBOSE level (maps to DEBUG).
-   * 
-   * @param message - The message to log
-   * @param context - Optional context for the log
-   */
-  verbose(message: any, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    this.writeLog(LogLevel.DEBUG, formattedMessage, context);
-  }
-
-  /**
-   * Logs a message with the FATAL level.
-   * 
-   * @param message - The message to log
-   * @param error - Optional error object
-   * @param context - Optional context for the log
-   */
-  fatal(message: any, error?: Error, context?: string | object): void {
-    const formattedMessage = this.formatMessage(message);
-    this.writeLog(LogLevel.FATAL, formattedMessage, context, error);
-  }
-
-  /**
-   * Formats a message for logging, handling various input types.
-   * 
-   * @param message - The message to format
-   */
-  private formatMessage(message: any): string {
-    if (typeof message === 'string') {
-      return message;
+  withCurrentTraceContext(): Logger {
+    if (!this.tracingService) {
+      return this;
     }
-    if (message instanceof Error) {
-      return message.message;
-    }
-    if (typeof message === 'object') {
-      try {
-        return JSON.stringify(message);
-      } catch (e) {
-        return '[Object]';
-      }
-    }
-    return String(message);
-  }
 
-  /**
-   * Logs a message with journey-specific context.
-   * 
-   * @param level - The log level
-   * @param message - The message to log
-   * @param journeyContext - The journey context
-   * @param error - Optional error object
-   */
-  logWithJourneyContext(
-    level: LogLevel,
-    message: string,
-    journeyContext: JourneyContext,
-    error?: Error,
-  ): void {
-    this.writeLog(level, message, undefined, error, journeyContext);
-  }
-
-  /**
-   * Logs a message with user-specific context.
-   * 
-   * @param level - The log level
-   * @param message - The message to log
-   * @param userContext - The user context
-   * @param error - Optional error object
-   */
-  logWithUserContext(
-    level: LogLevel,
-    message: string,
-    userContext: UserContext,
-    error?: Error,
-  ): void {
-    this.writeLog(level, message, undefined, error, userContext);
-  }
-
-  /**
-   * Logs a message with request-specific context.
-   * 
-   * @param level - The log level
-   * @param message - The message to log
-   * @param requestContext - The request context
-   * @param error - Optional error object
-   */
-  logWithRequestContext(
-    level: LogLevel,
-    message: string,
-    requestContext: RequestContext,
-    error?: Error,
-  ): void {
-    this.writeLog(level, message, undefined, error, requestContext);
-  }
-
-  /**
-   * Logs a message with combined contexts.
-   * 
-   * @param level - The log level
-   * @param message - The message to log
-   * @param contexts - Array of contexts to combine
-   * @param error - Optional error object
-   */
-  logWithCombinedContext(
-    level: LogLevel,
-    message: string,
-    contexts: LoggingContext[],
-    error?: Error,
-  ): void {
-    const combinedContext = this.contextManager.mergeContexts(...contexts);
-    this.writeLog(level, message, undefined, error, combinedContext);
+    const traceContext = traceUtils.createTraceContext(this.tracingService);
+    return this.withContext(traceContext);
   }
 }

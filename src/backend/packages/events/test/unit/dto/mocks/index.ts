@@ -1,82 +1,110 @@
 /**
- * @file Barrel file that exports all event mock data and utilities from the mock files.
- * 
- * This file provides a centralized access point for test fixtures, making tests more
- * readable and maintainable while ensuring consistent mock usage across the test suite.
+ * @file index.ts
+ * @description Centralized export point for all event mock data and utilities.
+ * This barrel file provides a clean API to access all available mock data through
+ * a single import statement, making tests more readable and maintainable while
+ * ensuring consistent mock usage across the test suite.
  */
 
-// Export all factory functions for generating custom mock data
+// Export factory functions for generating custom mock data
 export * from './event-factory';
 
-// Export all valid events for positive test scenarios
-export * from './valid-events.mock';
+// Export all valid event mocks
+export * as validEvents from './valid-events.mock';
 
-// Export all invalid events for testing error handling
-export * from './invalid-events.mock';
+// Export all invalid event mocks
+export * as invalidEvents from './invalid-events.mock';
 
-// Export journey-specific events
-export * from './health-events.mock';
-export * from './care-events.mock';
-export * from './plan-events.mock';
+// Export journey-specific event mocks
+export * as healthEvents from './health-events.mock';
+export * as careEvents from './care-events.mock';
+export * as planEvents from './plan-events.mock';
 
-// Export common events that apply across multiple journeys
-export * from './common-events.mock';
+// Export common cross-journey event mocks
+export * as commonEvents from './common-events.mock';
 
-// Re-export categorized events for cleaner imports
+// Re-export specific named events for cleaner imports
 
-// By validation status
-export { 
-  validEvents,
-  validHealthEvents,
-  validCareEvents,
-  validPlanEvents,
-  validCommonEvents,
-} from './valid-events.mock';
-
+// Health journey named exports
 export {
-  invalidEvents,
-  invalidHealthEvents,
-  invalidCareEvents,
-  invalidPlanEvents,
-  eventsWithMissingFields,
-  eventsWithInvalidTypes,
-} from './invalid-events.mock';
-
-// By journey
-export {
-  healthMetricRecordedEvents,
-  goalAchievedEvents,
-  deviceSyncedEvents,
+  validHealthMetricEvent,
+  validGoalAchievedEvent,
+  validDeviceSyncedEvent,
+  healthMetricFactory,
+  healthGoalFactory,
 } from './health-events.mock';
 
+// Care journey named exports
 export {
-  appointmentBookedEvents,
-  medicationTakenEvents,
-  telemedicineSessionEvents,
-  carePlanProgressEvents,
+  validAppointmentBookedEvent,
+  validMedicationTakenEvent,
+  validTelemedicineSessionEvent,
+  appointmentFactory,
+  medicationFactory,
 } from './care-events.mock';
 
+// Plan journey named exports
 export {
-  claimSubmittedEvents,
-  benefitUsedEvents,
-  planSelectedEvents,
-  rewardRedeemedEvents,
+  validClaimSubmittedEvent,
+  validBenefitUsedEvent,
+  validPlanSelectedEvent,
+  claimFactory,
+  benefitFactory,
 } from './plan-events.mock';
 
+// Common events named exports
 export {
-  userProfileEvents,
-  achievementEvents,
-  systemNotificationEvents,
-  rewardEvents,
+  validUserProfileEvent,
+  validAchievementUnlockedEvent,
+  validSystemNotificationEvent,
+  validRewardRedeemedEvent,
+  profileFactory,
+  achievementFactory,
 } from './common-events.mock';
 
-// Factory function exports for generating custom mock data
+// Invalid events named exports
 export {
-  createMockEvent,
-  createValidEvent,
-  createInvalidEvent,
-  createHealthEvent,
-  createCareEvent,
-  createPlanEvent,
-  createCommonEvent,
-} from './event-factory';
+  invalidEventNoType,
+  invalidEventNoUserId,
+  invalidEventNoJourney,
+  invalidEventMalformedData,
+  invalidEventWrongJourney,
+} from './invalid-events.mock';
+
+// Categorized exports by journey
+export const journeyEvents = {
+  health: healthEvents,
+  care: careEvents,
+  plan: planEvents,
+  common: commonEvents,
+};
+
+// Categorized exports by validation status
+export const eventsByValidation = {
+  valid: validEvents,
+  invalid: invalidEvents,
+};
+
+// Factory function exports
+export const factories = {
+  // Health journey factories
+  healthMetric: healthEvents.healthMetricFactory,
+  healthGoal: healthEvents.healthGoalFactory,
+  deviceSync: healthEvents.deviceSyncFactory,
+  
+  // Care journey factories
+  appointment: careEvents.appointmentFactory,
+  medication: careEvents.medicationFactory,
+  telemedicine: careEvents.telemedicineFactory,
+  
+  // Plan journey factories
+  claim: planEvents.claimFactory,
+  benefit: planEvents.benefitFactory,
+  plan: planEvents.planFactory,
+  
+  // Common factories
+  profile: commonEvents.profileFactory,
+  achievement: commonEvents.achievementFactory,
+  notification: commonEvents.notificationFactory,
+  reward: commonEvents.rewardFactory,
+};

@@ -1,407 +1,375 @@
 /**
- * @file transport.mock.ts
+ * @file Transport Mock
  * @description Mock implementations of transport interfaces for testing logging components
  * that depend on transports. Provides configurable transports that track write calls and
  * can simulate success or failure.
+ *
+ * @module @austa/logging/test/mocks
  */
 
-import { 
-  LogEntry, 
-  LogBatch, 
-  Transport, 
-  TransportConfig,
-  TransportType,
-  ConsoleTransportConfig,
-  FileTransportConfig,
-  CloudWatchTransportConfig
-} from '../../src/interfaces';
-import { LogLevel } from '../../src/interfaces/log-level.enum';
+import { LogEntry, Transport, TransportConfig, WriteResult } from '../../src/interfaces';
 
 /**
- * Configuration options for the mock transport
+ * Configuration options for mock transports.
+ * Extends the standard TransportConfig with additional options for testing.
  */
-export interface MockTransportOptions {
+export interface MockTransportConfig extends TransportConfig {
   /**
-   * Whether the transport should simulate failures
+   * Whether the transport should simulate a failure during write operations.
    * @default false
    */
-  shouldFail?: boolean;
+  simulateWriteFailure?: boolean;
 
   /**
-   * Delay in milliseconds before resolving/rejecting operations
+   * Whether the transport should simulate a failure during initialization.
+   * @default false
+   */
+  simulateInitFailure?: boolean;
+
+  /**
+   * Whether the transport should simulate a failure during close.
+   * @default false
+   */
+  simulateCloseFailure?: boolean;
+
+  /**
+   * Whether the transport should simulate a failure during flush.
+   * @default false
+   */
+  simulateFlushFailure?: boolean;
+
+  /**
+   * Whether the transport should simulate an unhealthy state.
+   * @default false
+   */
+  simulateUnhealthy?: boolean;
+
+  /**
+   * Delay in milliseconds to simulate for async operations.
    * @default 0
    */
-  delay?: number;
-
-  /**
-   * Error to throw when shouldFail is true
-   * @default new Error('Mock transport failure')
-   */
-  error?: Error;
-
-  /**
-   * Initial active state of the transport
-   * @default true
-   */
-  active?: boolean;
-
-  /**
-   * Minimum log level for the transport
-   * @default LogLevel.DEBUG
-   */
-  level?: LogLevel;
+  simulatedDelay?: number;
 }
 
 /**
- * Base mock implementation of the Transport interface for testing
+ * Base mock transport implementation for testing.
+ * Tracks calls to all methods and allows configuring success/failure scenarios.
  */
 export class MockTransport implements Transport {
-  public readonly id: string;
-  public readonly type: string;
-  public readonly level: LogLevel;
-  public active: boolean;
-
   /**
-   * Tracks calls to the initialize method
+   * The name of the transport.
    */
-  public initializeCalls: { config: TransportConfig }[] = [];
+  readonly name: string;
 
   /**
-   * Tracks calls to the write method
+   * The configuration of the transport.
    */
-  public writeCalls: { entry: LogEntry }[] = [];
+  readonly config: MockTransportConfig;
 
   /**
-   * Tracks calls to the writeBatch method
+   * Tracks calls to the initialize method.
    */
-  public writeBatchCalls: { batch: LogBatch }[] = [];
+  initializeCalls: number = 0;
 
   /**
-   * Tracks calls to the flush method
+   * Tracks calls to the write method.
    */
-  public flushCalls: number = 0;
+  writeCalls: number = 0;
 
   /**
-   * Tracks calls to the close method
+   * Tracks calls to the writeBatch method.
    */
-  public closeCalls: number = 0;
+  writeBatchCalls: number = 0;
 
   /**
-   * Tracks calls to the handleError method
+   * Tracks calls to the flush method.
    */
-  public handleErrorCalls: { error: Error; context?: Record<string, any> }[] = [];
+  flushCalls: number = 0;
 
   /**
-   * Options for controlling the mock behavior
+   * Tracks calls to the close method.
    */
-  private options: Required<MockTransportOptions>;
+  closeCalls: number = 0;
 
   /**
-   * Creates a new MockTransport instance
+   * Tracks calls to the isHealthy method.
+   */
+  isHealthyCalls: number = 0;
+
+  /**
+   * Stores all log entries written to this transport.
+   */
+  writtenEntries: LogEntry[] = [];
+
+  /**
+   * Stores all batches of log entries written to this transport.
+   */
+  writtenBatches: LogEntry[][] = [];
+
+  /**
+   * Whether the transport has been initialized.
+   */
+  private _initialized: boolean = false;
+
+  /**
+   * Whether the transport has been closed.
+   */
+  private _closed: boolean = false;
+
+  /**
+   * Creates a new MockTransport instance.
    * 
-   * @param id Unique identifier for the transport
-   * @param type Transport type identifier
-   * @param options Options for controlling the mock behavior
+   * @param config The configuration for the transport.
    */
-  constructor(id: string, type: string, options: MockTransportOptions = {}) {
-    this.id = id;
-    this.type = type;
-    this.options = {
-      shouldFail: options.shouldFail ?? false,
-      delay: options.delay ?? 0,
-      error: options.error ?? new Error('Mock transport failure'),
-      active: options.active ?? true,
-      level: options.level ?? LogLevel.DEBUG
+  constructor(config: MockTransportConfig) {
+    this.name = config.name;
+    this.config = {
+      ...config,
+      simulateWriteFailure: config.simulateWriteFailure ?? false,
+      simulateInitFailure: config.simulateInitFailure ?? false,
+      simulateCloseFailure: config.simulateCloseFailure ?? false,
+      simulateFlushFailure: config.simulateFlushFailure ?? false,
+      simulateUnhealthy: config.simulateUnhealthy ?? false,
+      simulatedDelay: config.simulatedDelay ?? 0
     };
-    this.active = this.options.active;
-    this.level = this.options.level;
   }
 
   /**
-   * Updates the mock options
+   * Initializes the transport.
+   * Tracks calls and can simulate failures based on configuration.
    * 
-   * @param options New options to apply
+   * @returns A promise that resolves when initialization is complete.
+   * @throws If initialization fails or is configured to simulate failure.
    */
-  public updateOptions(options: Partial<MockTransportOptions>): void {
-    this.options = {
-      ...this.options,
-      ...options
+  async initialize(): Promise<void> {
+    this.initializeCalls++;
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    if (this.config.simulateInitFailure) {
+      throw new Error(`Simulated initialization failure for transport: ${this.name}`);
+    }
+
+    this._initialized = true;
+  }
+
+  /**
+   * Writes a single log entry to the transport.
+   * Tracks calls and entries, and can simulate failures based on configuration.
+   * 
+   * @param entry The log entry to write.
+   * @returns A promise that resolves with the result of the write operation.
+   */
+  async write(entry: LogEntry): Promise<WriteResult> {
+    this.writeCalls++;
+    this.writtenEntries.push({ ...entry });
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    if (this.config.simulateWriteFailure) {
+      const error = new Error(`Simulated write failure for transport: ${this.name}`);
+      return {
+        success: false,
+        entriesWritten: 0,
+        error
+      };
+    }
+
+    return {
+      success: true,
+      entriesWritten: 1,
+      metadata: { transportName: this.name }
     };
-    
-    // Update active state if provided
-    if (options.active !== undefined) {
-      this.active = options.active;
+  }
+
+  /**
+   * Writes multiple log entries to the transport in a batch.
+   * Tracks calls and entries, and can simulate failures based on configuration.
+   * 
+   * @param entries The log entries to write.
+   * @returns A promise that resolves with the result of the batch write operation.
+   */
+  async writeBatch(entries: LogEntry[]): Promise<WriteResult> {
+    this.writeBatchCalls++;
+    this.writtenBatches.push([...entries]);
+    entries.forEach(entry => this.writtenEntries.push({ ...entry }));
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    if (this.config.simulateWriteFailure) {
+      const error = new Error(`Simulated batch write failure for transport: ${this.name}`);
+      return {
+        success: false,
+        entriesWritten: 0,
+        error
+      };
+    }
+
+    return {
+      success: true,
+      entriesWritten: entries.length,
+      metadata: { transportName: this.name, batchSize: entries.length }
+    };
+  }
+
+  /**
+   * Flushes any buffered log entries to the transport destination.
+   * Tracks calls and can simulate failures based on configuration.
+   * 
+   * @returns A promise that resolves when all buffered entries have been written.
+   * @throws If flush fails or is configured to simulate failure.
+   */
+  async flush(): Promise<void> {
+    this.flushCalls++;
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    if (this.config.simulateFlushFailure) {
+      throw new Error(`Simulated flush failure for transport: ${this.name}`);
     }
   }
 
   /**
-   * Resets all call tracking
+   * Closes the transport, releasing any resources it holds.
+   * Tracks calls and can simulate failures based on configuration.
+   * 
+   * @returns A promise that resolves when the transport has been closed.
+   * @throws If close fails or is configured to simulate failure.
    */
-  public reset(): void {
-    this.initializeCalls = [];
-    this.writeCalls = [];
-    this.writeBatchCalls = [];
+  async close(): Promise<void> {
+    this.closeCalls++;
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    if (this.config.simulateCloseFailure) {
+      throw new Error(`Simulated close failure for transport: ${this.name}`);
+    }
+
+    this._closed = true;
+  }
+
+  /**
+   * Checks if the transport is healthy and able to write log entries.
+   * Tracks calls and can simulate unhealthy state based on configuration.
+   * 
+   * @returns A promise that resolves with true if the transport is healthy, false otherwise.
+   */
+  async isHealthy(): Promise<boolean> {
+    this.isHealthyCalls++;
+
+    if (this.config.simulatedDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedDelay));
+    }
+
+    return !this.config.simulateUnhealthy && this._initialized && !this._closed;
+  }
+
+  /**
+   * Resets all tracking counters and stored entries.
+   * Useful for clearing state between tests.
+   */
+  reset(): void {
+    this.initializeCalls = 0;
+    this.writeCalls = 0;
+    this.writeBatchCalls = 0;
     this.flushCalls = 0;
     this.closeCalls = 0;
-    this.handleErrorCalls = [];
-  }
-
-  /**
-   * Simulates an asynchronous operation with configurable delay and failure
-   * 
-   * @param callback Function to execute after delay
-   * @returns Promise that resolves or rejects based on shouldFail option
-   */
-  private async simulateOperation<T>(callback: () => T): Promise<T> {
-    if (this.options.delay > 0) {
-      await new Promise(resolve => setTimeout(resolve, this.options.delay));
-    }
-
-    if (this.options.shouldFail) {
-      throw this.options.error;
-    }
-
-    return callback();
-  }
-
-  /**
-   * Initializes the transport with the provided configuration
-   * 
-   * @param config Transport configuration
-   * @returns Promise that resolves when initialization is complete
-   * @throws Error if initialization fails and shouldFail is true
-   */
-  public async initialize(config: TransportConfig): Promise<void> {
-    this.initializeCalls.push({ config });
-    return this.simulateOperation(() => {
-      // Implementation would normally set up the transport based on config
-      return undefined;
-    });
-  }
-
-  /**
-   * Writes a single log entry to the transport destination
-   * 
-   * @param entry Log entry to write
-   * @returns Promise that resolves when the write is complete
-   * @throws Error if the write operation fails and shouldFail is true
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    this.writeCalls.push({ entry });
-    return this.simulateOperation(() => {
-      // Implementation would normally write the entry to the destination
-      return undefined;
-    });
-  }
-
-  /**
-   * Writes a batch of log entries to the transport destination
-   * 
-   * @param batch Batch of log entries to write
-   * @returns Promise that resolves when all entries in the batch are written
-   * @throws Error if the batch write operation fails and shouldFail is true
-   */
-  public async writeBatch(batch: LogBatch): Promise<void> {
-    this.writeBatchCalls.push({ batch });
-    return this.simulateOperation(() => {
-      // Implementation would normally write all entries in the batch
-      // Call the callback if provided
-      if (batch.callback) {
-        if (this.options.shouldFail) {
-          batch.callback(this.options.error);
-        } else {
-          batch.callback();
-        }
-      }
-      return undefined;
-    });
-  }
-
-  /**
-   * Flushes any buffered log entries to ensure they are written
-   * 
-   * @returns Promise that resolves when all buffered entries are written
-   * @throws Error if the flush operation fails and shouldFail is true
-   */
-  public async flush(): Promise<void> {
-    this.flushCalls++;
-    return this.simulateOperation(() => {
-      // Implementation would normally flush any buffered entries
-      return undefined;
-    });
-  }
-
-  /**
-   * Closes the transport and releases any resources
-   * 
-   * @returns Promise that resolves when the transport is closed
-   * @throws Error if the close operation fails and shouldFail is true
-   */
-  public async close(): Promise<void> {
-    this.closeCalls++;
-    return this.simulateOperation(() => {
-      this.active = false;
-      return undefined;
-    });
-  }
-
-  /**
-   * Checks if a log entry should be processed by this transport
-   * based on its level and other criteria
-   * 
-   * @param entry Log entry to check
-   * @returns True if the entry should be processed, false otherwise
-   */
-  public shouldProcess(entry: LogEntry): boolean {
-    return this.active && entry.level >= this.level;
-  }
-
-  /**
-   * Handles transport-specific errors
-   * 
-   * @param error Error that occurred during transport operations
-   * @param context Additional context about the operation that failed
-   * @returns Promise that resolves when error handling is complete
-   * @throws Error if the error handling fails and shouldFail is true
-   */
-  public async handleError(error: Error, context?: Record<string, any>): Promise<void> {
-    this.handleErrorCalls.push({ error, context });
-    return this.simulateOperation(() => {
-      // Implementation would normally handle the error appropriately
-      return undefined;
-    });
+    this.isHealthyCalls = 0;
+    this.writtenEntries = [];
+    this.writtenBatches = [];
+    this._initialized = false;
+    this._closed = false;
   }
 }
 
 /**
- * Mock implementation of the console transport for testing
+ * Mock implementation of a console transport for testing.
+ * Extends the base MockTransport with console-specific behavior.
  */
 export class MockConsoleTransport extends MockTransport {
   /**
-   * Console-specific configuration
-   */
-  public consoleConfig: ConsoleTransportConfig | undefined;
-
-  /**
-   * Creates a new MockConsoleTransport instance
+   * Creates a new MockConsoleTransport instance.
    * 
-   * @param id Unique identifier for the transport
-   * @param options Options for controlling the mock behavior
+   * @param config The configuration for the transport.
    */
-  constructor(id: string = 'mock-console', options: MockTransportOptions = {}) {
-    super(id, TransportType.CONSOLE, options);
-  }
-
-  /**
-   * Initializes the console transport with the provided configuration
-   * 
-   * @param config Transport configuration
-   * @returns Promise that resolves when initialization is complete
-   * @throws Error if initialization fails and shouldFail is true
-   */
-  public async initialize(config: TransportConfig): Promise<void> {
-    this.consoleConfig = config.console;
-    return super.initialize(config);
+  constructor(config: MockTransportConfig = { name: 'mock-console' }) {
+    super({
+      ...config,
+      name: config.name || 'mock-console'
+    });
   }
 }
 
 /**
- * Mock implementation of the file transport for testing
+ * Mock implementation of a file transport for testing.
+ * Extends the base MockTransport with file-specific behavior.
  */
 export class MockFileTransport extends MockTransport {
   /**
-   * File-specific configuration
+   * The simulated file path where logs would be written.
    */
-  public fileConfig: FileTransportConfig | undefined;
+  readonly filePath: string;
 
   /**
-   * Creates a new MockFileTransport instance
+   * Creates a new MockFileTransport instance.
    * 
-   * @param id Unique identifier for the transport
-   * @param options Options for controlling the mock behavior
+   * @param config The configuration for the transport.
+   * @param filePath The simulated file path where logs would be written.
    */
-  constructor(id: string = 'mock-file', options: MockTransportOptions = {}) {
-    super(id, TransportType.FILE, options);
-  }
-
-  /**
-   * Initializes the file transport with the provided configuration
-   * 
-   * @param config Transport configuration
-   * @returns Promise that resolves when initialization is complete
-   * @throws Error if initialization fails and shouldFail is true
-   */
-  public async initialize(config: TransportConfig): Promise<void> {
-    this.fileConfig = config.file;
-    return super.initialize(config);
+  constructor(
+    config: MockTransportConfig = { name: 'mock-file' },
+    filePath: string = '/var/log/austa/mock.log'
+  ) {
+    super({
+      ...config,
+      name: config.name || 'mock-file'
+    });
+    this.filePath = filePath;
   }
 }
 
 /**
- * Mock implementation of the CloudWatch transport for testing
+ * Mock implementation of a CloudWatch transport for testing.
+ * Extends the base MockTransport with CloudWatch-specific behavior.
  */
 export class MockCloudWatchTransport extends MockTransport {
   /**
-   * CloudWatch-specific configuration
+   * The simulated CloudWatch log group.
    */
-  public cloudWatchConfig: CloudWatchTransportConfig | undefined;
+  readonly logGroup: string;
 
   /**
-   * Creates a new MockCloudWatchTransport instance
-   * 
-   * @param id Unique identifier for the transport
-   * @param options Options for controlling the mock behavior
+   * The simulated CloudWatch log stream.
    */
-  constructor(id: string = 'mock-cloudwatch', options: MockTransportOptions = {}) {
-    super(id, TransportType.CLOUDWATCH, options);
-  }
+  readonly logStream: string;
 
   /**
-   * Initializes the CloudWatch transport with the provided configuration
+   * Creates a new MockCloudWatchTransport instance.
    * 
-   * @param config Transport configuration
-   * @returns Promise that resolves when initialization is complete
-   * @throws Error if initialization fails and shouldFail is true
+   * @param config The configuration for the transport.
+   * @param logGroup The simulated CloudWatch log group.
+   * @param logStream The simulated CloudWatch log stream.
    */
-  public async initialize(config: TransportConfig): Promise<void> {
-    this.cloudWatchConfig = config.cloudWatch;
-    return super.initialize(config);
-  }
-
-  /**
-   * Writes a batch of log entries to CloudWatch
-   * Overrides the base implementation to handle CloudWatch-specific behavior
-   * 
-   * @param batch Batch of log entries to write
-   * @returns Promise that resolves when all entries in the batch are written
-   * @throws Error if the batch write operation fails and shouldFail is true
-   */
-  public async writeBatch(batch: LogBatch): Promise<void> {
-    // CloudWatch has specific batch size limits, so we would normally
-    // handle that here in a real implementation
-    return super.writeBatch(batch);
-  }
-}
-
-/**
- * Creates a mock transport factory for testing
- * 
- * @param type Transport type to create
- * @param options Options for controlling the mock behavior
- * @returns A new mock transport instance of the specified type
- */
-export function createMockTransport(
-  type: TransportType,
-  options: MockTransportOptions = {}
-): MockTransport {
-  switch (type) {
-    case TransportType.CONSOLE:
-      return new MockConsoleTransport(`mock-console-${Date.now()}`, options);
-    case TransportType.FILE:
-      return new MockFileTransport(`mock-file-${Date.now()}`, options);
-    case TransportType.CLOUDWATCH:
-      return new MockCloudWatchTransport(`mock-cloudwatch-${Date.now()}`, options);
-    default:
-      return new MockTransport(`mock-${type}-${Date.now()}`, type, options);
+  constructor(
+    config: MockTransportConfig = { name: 'mock-cloudwatch' },
+    logGroup: string = '/aws/austa/mock',
+    logStream: string = 'mock-stream'
+  ) {
+    super({
+      ...config,
+      name: config.name || 'mock-cloudwatch'
+    });
+    this.logGroup = logGroup;
+    this.logStream = logStream;
   }
 }

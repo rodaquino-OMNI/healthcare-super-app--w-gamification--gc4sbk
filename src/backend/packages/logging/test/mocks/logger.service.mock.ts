@@ -1,240 +1,562 @@
-import { LoggerService as NestLoggerService } from '@nestjs/common';
-
 /**
- * Log level enum for the AUSTA SuperApp logging system.
+ * @file Mock Logger Service
+ * @description Mock implementation of the LoggerService for testing components that depend on logging functionality.
+ * Provides a simplified logger with tracking of logged messages at different levels and configurable behavior.
+ *
+ * @module @austa/logging/test/mocks
  */
-export enum LogLevel {
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal',
-  VERBOSE = 'verbose',
-}
+
+import { LoggerService } from '@nestjs/common';
+import { Logger, LogContext } from '../../src/interfaces/logger.interface';
+import { LogLevel, LogLevelString, LogLevelUtils } from '../../src/interfaces/log-level.enum';
+import { JourneyType, JourneyContext, ErrorInfo } from '../../src/interfaces/log-entry.interface';
 
 /**
- * Interface representing a logged message with its level and context.
+ * Interface representing a logged message for testing verification
  */
 export interface LoggedMessage {
+  /** The log level */
   level: LogLevel;
+  /** The log level as a string */
+  levelString: LogLevelString;
+  /** The message content */
   message: string;
-  context?: any;
-  trace?: any;
+  /** Optional trace information (for error logs) */
+  trace?: string | Error;
+  /** Optional context information */
+  context?: string | LogContext;
+  /** Journey information if applicable */
+  journey?: {
+    type: JourneyType;
+    resourceId?: string;
+  };
+  /** Timestamp when the log was created */
   timestamp: Date;
-  journeyId?: string;
-  requestId?: string;
-  userId?: string;
 }
 
 /**
- * Mock implementation of the LoggerService for testing purposes.
- * Provides tracking of logged messages and context-aware logging methods.
+ * Mock implementation of the Logger interface for testing.
+ * Tracks all logged messages and provides methods to inspect and reset them.
  */
-export class LoggerServiceMock implements NestLoggerService {
+export class MockLoggerService implements Logger {
+  /** Stores all logged messages for inspection */
   private messages: LoggedMessage[] = [];
+  
+  /** Current log level */
+  private currentLogLevel: LogLevel = LogLevel.DEBUG;
+  
+  /** Current context */
+  private currentContext: LogContext = {};
 
   /**
-   * Logs a message with the INFO level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  log(message: string, context?: any): void {
-    this.addLoggedMessage(LogLevel.INFO, message, context);
-  }
-
-  /**
-   * Logs a message with the ERROR level.
-   * @param message The message to log
-   * @param trace Optional stack trace or error object
-   * @param context Optional context for the log
-   */
-  error(message: string, trace?: any, context?: any): void {
-    this.addLoggedMessage(LogLevel.ERROR, message, context, trace);
-  }
-
-  /**
-   * Logs a message with the WARN level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  warn(message: string, context?: any): void {
-    this.addLoggedMessage(LogLevel.WARN, message, context);
-  }
-
-  /**
-   * Logs a message with the DEBUG level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  debug(message: string, context?: any): void {
-    this.addLoggedMessage(LogLevel.DEBUG, message, context);
-  }
-
-  /**
-   * Logs a message with the VERBOSE level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  verbose(message: string, context?: any): void {
-    this.addLoggedMessage(LogLevel.VERBOSE, message, context);
-  }
-
-  /**
-   * Logs a message with the FATAL level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  fatal(message: string, context?: any): void {
-    this.addLoggedMessage(LogLevel.FATAL, message, context);
-  }
-
-  /**
-   * Logs a message with journey context.
-   * @param journeyId The journey identifier
-   * @param level The log level
-   * @param message The message to log
-   * @param context Optional additional context
-   */
-  logWithJourney(journeyId: string, level: LogLevel, message: string, context?: any): void {
-    this.addLoggedMessage(level, message, context, undefined, journeyId);
-  }
-
-  /**
-   * Logs a message with request context.
-   * @param requestId The request identifier
-   * @param level The log level
-   * @param message The message to log
-   * @param context Optional additional context
-   */
-  logWithRequest(requestId: string, level: LogLevel, message: string, context?: any): void {
-    this.addLoggedMessage(level, message, context, undefined, undefined, requestId);
-  }
-
-  /**
-   * Logs a message with user context.
-   * @param userId The user identifier
-   * @param level The log level
-   * @param message The message to log
-   * @param context Optional additional context
-   */
-  logWithUser(userId: string, level: LogLevel, message: string, context?: any): void {
-    this.addLoggedMessage(level, message, context, undefined, undefined, undefined, userId);
-  }
-
-  /**
-   * Logs a message with complete context (journey, request, and user).
-   * @param journeyId The journey identifier
-   * @param requestId The request identifier
-   * @param userId The user identifier
-   * @param level The log level
-   * @param message The message to log
-   * @param context Optional additional context
-   */
-  logWithContext(
-    journeyId: string,
-    requestId: string,
-    userId: string,
-    level: LogLevel,
-    message: string,
-    context?: any
-  ): void {
-    this.addLoggedMessage(level, message, context, undefined, journeyId, requestId, userId);
-  }
-
-  /**
-   * Adds a logged message to the internal messages array.
-   */
-  private addLoggedMessage(
-    level: LogLevel,
-    message: string,
-    context?: any,
-    trace?: any,
-    journeyId?: string,
-    requestId?: string,
-    userId?: string
-  ): void {
-    this.messages.push({
-      level,
-      message,
-      context,
-      trace,
-      timestamp: new Date(),
-      journeyId,
-      requestId,
-      userId,
-    });
-  }
-
-  /**
-   * Gets all logged messages.
-   * @returns Array of logged messages
+   * Gets all logged messages
    */
   getMessages(): LoggedMessage[] {
     return [...this.messages];
   }
 
   /**
-   * Gets messages of a specific log level.
+   * Gets messages filtered by log level
    * @param level The log level to filter by
-   * @returns Array of logged messages with the specified level
    */
   getMessagesByLevel(level: LogLevel): LoggedMessage[] {
-    return this.messages.filter((msg) => msg.level === level);
+    return this.messages.filter(msg => msg.level === level);
   }
 
   /**
-   * Gets messages containing a specific string.
-   * @param text The text to search for in messages
-   * @returns Array of logged messages containing the specified text
+   * Gets messages filtered by journey type
+   * @param journeyType The journey type to filter by
    */
-  getMessagesByText(text: string): LoggedMessage[] {
-    return this.messages.filter((msg) => msg.message.includes(text));
+  getMessagesByJourney(journeyType: JourneyType): LoggedMessage[] {
+    return this.messages.filter(msg => msg.journey?.type === journeyType);
   }
 
   /**
-   * Gets messages for a specific journey.
-   * @param journeyId The journey identifier to filter by
-   * @returns Array of logged messages for the specified journey
+   * Gets messages filtered by content
+   * @param substring The substring to search for in messages
    */
-  getMessagesByJourney(journeyId: string): LoggedMessage[] {
-    return this.messages.filter((msg) => msg.journeyId === journeyId);
+  getMessagesByContent(substring: string): LoggedMessage[] {
+    return this.messages.filter(msg => msg.message.includes(substring));
   }
 
   /**
-   * Gets messages for a specific request.
-   * @param requestId The request identifier to filter by
-   * @returns Array of logged messages for the specified request
-   */
-  getMessagesByRequest(requestId: string): LoggedMessage[] {
-    return this.messages.filter((msg) => msg.requestId === requestId);
-  }
-
-  /**
-   * Gets messages for a specific user.
-   * @param userId The user identifier to filter by
-   * @returns Array of logged messages for the specified user
-   */
-  getMessagesByUser(userId: string): LoggedMessage[] {
-    return this.messages.filter((msg) => msg.userId === userId);
-  }
-
-  /**
-   * Checks if a specific message was logged.
-   * @param level The log level to check
-   * @param messageText The message text to check for
-   * @returns True if the message was logged, false otherwise
-   */
-  hasLoggedMessage(level: LogLevel, messageText: string): boolean {
-    return this.messages.some(
-      (msg) => msg.level === level && msg.message.includes(messageText)
-    );
-  }
-
-  /**
-   * Clears all logged messages.
-   * Useful for resetting the mock between tests.
+   * Clears all logged messages
    */
   reset(): void {
     this.messages = [];
+    this.currentContext = {};
+  }
+
+  /**
+   * Gets the current log level of the logger
+   */
+  getLogLevel(): LogLevel {
+    return this.currentLogLevel;
+  }
+
+  /**
+   * Sets the log level of the logger
+   * @param level The log level to set
+   */
+  setLogLevel(level: LogLevel): void {
+    this.currentLogLevel = level;
+  }
+
+  /**
+   * Checks if a specific log level is enabled
+   * @param level The log level to check
+   */
+  isLevelEnabled(level: LogLevel): boolean {
+    return LogLevelUtils.isEnabled(level, this.currentLogLevel);
+  }
+
+  /**
+   * Creates a child logger with inherited configuration and additional context
+   * @param context Additional context for the child logger
+   */
+  createChildLogger(context: LogContext): Logger {
+    const childLogger = new MockLoggerService();
+    childLogger.setLogLevel(this.currentLogLevel);
+    childLogger.setContext({ ...this.currentContext, ...context });
+    return childLogger;
+  }
+
+  /**
+   * Sets the context for subsequent log entries
+   * @param context The context to set
+   */
+  setContext(context: LogContext): void {
+    this.currentContext = { ...context };
+  }
+
+  /**
+   * Adds context to the current logger context
+   * @param context Additional context to add
+   */
+  addContext(context: LogContext): void {
+    this.currentContext = { ...this.currentContext, ...context };
+  }
+
+  /**
+   * Clears the current context
+   */
+  clearContext(): void {
+    this.currentContext = {};
+  }
+
+  /**
+   * Gets the current context
+   */
+  getContext(): LogContext {
+    return { ...this.currentContext };
+  }
+
+  /**
+   * Logs a message with the DEBUG level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  debug(message: string, context?: string | LogContext): void {
+    this.logWithLevel(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * Logs a message with the INFO level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  log(message: string, context?: string | LogContext): void {
+    this.logWithLevel(LogLevel.INFO, message, context);
+  }
+
+  /**
+   * Logs a message with the INFO level (alias for log)
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  info(message: string, context?: string | LogContext): void {
+    this.log(message, context);
+  }
+
+  /**
+   * Logs a message with the WARN level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  warn(message: string, context?: string | LogContext): void {
+    this.logWithLevel(LogLevel.WARN, message, context);
+  }
+
+  /**
+   * Logs a message with the ERROR level
+   * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param context Optional context for the log
+   */
+  error(message: string, trace?: string | Error, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(LogLevel.ERROR)) return;
+
+    this.messages.push({
+      level: LogLevel.ERROR,
+      levelString: LogLevelUtils.toString(LogLevel.ERROR),
+      message,
+      trace,
+      context: typeof context === 'string' ? { context } : context,
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a message with the FATAL level
+   * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param context Optional context for the log
+   */
+  fatal(message: string, trace?: string | Error, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(LogLevel.FATAL)) return;
+
+    this.messages.push({
+      level: LogLevel.FATAL,
+      levelString: LogLevelUtils.toString(LogLevel.FATAL),
+      message,
+      trace,
+      context: typeof context === 'string' ? { context } : context,
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a structured error with the ERROR level
+   * @param error The error object or message
+   * @param context Optional context for the log
+   */
+  logError(error: Error | string, context?: string | LogContext): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.error(message, trace, context);
+  }
+
+  /**
+   * Logs a structured error with the FATAL level
+   * @param error The error object or message
+   * @param context Optional context for the log
+   */
+  logFatal(error: Error | string, context?: string | LogContext): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.fatal(message, trace, context);
+  }
+
+  /**
+   * Logs a message with the DEBUG level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  debugHealth(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.DEBUG, JourneyType.HEALTH, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the INFO level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  logHealth(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.INFO, JourneyType.HEALTH, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the WARN level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  warnHealth(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.WARN, JourneyType.HEALTH, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the ERROR level in the Health journey context
+   * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  errorHealth(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(LogLevel.ERROR)) return;
+
+    this.messages.push({
+      level: LogLevel.ERROR,
+      levelString: LogLevelUtils.toString(LogLevel.ERROR),
+      message,
+      trace,
+      context: typeof context === 'string' ? { context } : context,
+      journey: {
+        type: JourneyType.HEALTH,
+        resourceId
+      },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a structured error with the ERROR level in the Health journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  logErrorHealth(error: Error | string, resourceId?: string, context?: string | LogContext): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorHealth(message, trace, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the DEBUG level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  debugCare(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.DEBUG, JourneyType.CARE, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the INFO level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  logCare(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.INFO, JourneyType.CARE, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the WARN level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  warnCare(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.WARN, JourneyType.CARE, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the ERROR level in the Care journey context
+   * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  errorCare(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(LogLevel.ERROR)) return;
+
+    this.messages.push({
+      level: LogLevel.ERROR,
+      levelString: LogLevelUtils.toString(LogLevel.ERROR),
+      message,
+      trace,
+      context: typeof context === 'string' ? { context } : context,
+      journey: {
+        type: JourneyType.CARE,
+        resourceId
+      },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a structured error with the ERROR level in the Care journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  logErrorCare(error: Error | string, resourceId?: string, context?: string | LogContext): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorCare(message, trace, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the DEBUG level in the Plan journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  debugPlan(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.DEBUG, JourneyType.PLAN, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the INFO level in the Plan journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  logPlan(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.INFO, JourneyType.PLAN, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the WARN level in the Plan journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  warnPlan(message: string, resourceId?: string, context?: string | LogContext): void {
+    this.logWithJourney(LogLevel.WARN, JourneyType.PLAN, message, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the ERROR level in the Plan journey context
+   * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  errorPlan(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(LogLevel.ERROR)) return;
+
+    this.messages.push({
+      level: LogLevel.ERROR,
+      levelString: LogLevelUtils.toString(LogLevel.ERROR),
+      message,
+      trace,
+      context: typeof context === 'string' ? { context } : context,
+      journey: {
+        type: JourneyType.PLAN,
+        resourceId
+      },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a structured error with the ERROR level in the Plan journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  logErrorPlan(error: Error | string, resourceId?: string, context?: string | LogContext): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorPlan(message, trace, resourceId, context);
+  }
+
+  /**
+   * Logs a message with the specified level
+   * @param level The log level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  logWithLevel(level: LogLevel, message: string, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(level)) return;
+
+    this.messages.push({
+      level,
+      levelString: LogLevelUtils.toString(level),
+      message,
+      context: typeof context === 'string' ? { context } : context,
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Logs a message with the specified level and journey context
+   * @param level The log level
+   * @param journeyType The journey type
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the journey
+   * @param context Optional additional context for the log
+   */
+  logWithJourney(level: LogLevel, journeyType: JourneyType, message: string, resourceId?: string, context?: string | LogContext): void {
+    if (!this.isLevelEnabled(level)) return;
+
+    this.messages.push({
+      level,
+      levelString: LogLevelUtils.toString(level),
+      message,
+      context: typeof context === 'string' ? { context } : context,
+      journey: {
+        type: journeyType,
+        resourceId
+      },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Starts a timer and returns a function that, when called, logs the elapsed time
+   * @param label Label for the timer
+   * @param level Log level to use when logging the elapsed time
+   * @param context Optional context for the log
+   * @returns A function that, when called, logs the elapsed time
+   */
+  startTimer(label: string, level: LogLevel = LogLevel.INFO, context?: string | LogContext): () => void {
+    const start = Date.now();
+    return () => {
+      const elapsed = Date.now() - start;
+      this.logWithLevel(level, `${label}: ${elapsed}ms`, context);
+    };
+  }
+
+  /**
+   * Logs the start of an operation and returns a function that, when called, logs the end of the operation
+   * @param operation Name of the operation
+   * @param context Optional context for the log
+   * @returns A function that, when called, logs the end of the operation
+   */
+  logOperation(operation: string, context?: string | LogContext): (result?: string) => void {
+    this.log(`Started operation: ${operation}`, context);
+    const timer = this.startTimer(`Operation ${operation} completed`, LogLevel.INFO, context);
+    return (result?: string) => {
+      timer();
+      if (result) {
+        this.log(`Operation ${operation} result: ${result}`, context);
+      }
+    };
+  }
+
+  /**
+   * Logs the start of an operation in the specified journey context and returns a function that, when called, logs the end of the operation
+   * @param journeyType The journey type
+   * @param operation Name of the operation
+   * @param resourceId Optional resource ID within the journey
+   * @param context Optional additional context for the log
+   * @returns A function that, when called, logs the end of the operation
+   */
+  logJourneyOperation(journeyType: JourneyType, operation: string, resourceId?: string, context?: string | LogContext): (result?: string) => void {
+    this.logWithJourney(LogLevel.INFO, journeyType, `Started operation: ${operation}`, resourceId, context);
+    const start = Date.now();
+    return (result?: string) => {
+      const elapsed = Date.now() - start;
+      this.logWithJourney(
+        LogLevel.INFO,
+        journeyType,
+        `Operation ${operation} completed in ${elapsed}ms${result ? `: ${result}` : ''}`,
+        resourceId,
+        context
+      );
+    };
+  }
+
+  /**
+   * Flushes any buffered log entries
+   * @returns A promise that resolves when all buffered entries have been written
+   */
+  async flush(): Promise<void> {
+    // Mock implementation - nothing to flush
+    return Promise.resolve();
+  }
+
+  /**
+   * NestJS verbose method (alias for debug)
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  verbose(message: string, context?: string): void {
+    this.debug(message, context);
   }
 }

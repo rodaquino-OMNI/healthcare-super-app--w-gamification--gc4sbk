@@ -1,552 +1,748 @@
-/**
- * @file plan-event.dto.spec.ts
- * @description Unit tests for the PlanEventDto class that validate plan journey-specific event structures.
- * Tests verify correct validation of claim submission, benefit utilization, plan selection/comparison,
- * and reward redemption events, ensuring proper payload structure and field validation.
- *
- * @module events/test/unit/dto
- */
-
-import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { EventType } from '../../../src/dto/event-types.enum';
+import { validate } from 'class-validator';
+import { v4 as uuidv4 } from 'uuid';
+
 import {
   PlanEventDto,
-  PlanClaimSubmittedEventDto,
-  PlanBenefitUtilizedEventDto,
-  PlanSelectedEventDto,
-  PlanRewardRedeemedEventDto,
-  ClaimData,
-  BenefitData,
-  PlanSelectionData,
-  RewardRedemptionData
+  ClaimSubmissionEventDto,
+  ClaimSubmissionDataDto,
+  ClaimStatusUpdateEventDto,
+  ClaimStatusUpdateDataDto,
+  BenefitUtilizationEventDto,
+  BenefitUtilizationDataDto,
+  PlanSelectionEventDto,
+  PlanSelectionDataDto,
+  PlanComparisonEventDto,
+  PlanComparisonDataDto,
+  RewardRedemptionEventDto,
+  RewardRedemptionDataDto,
+  CurrencyAmountDto,
+  DocumentReferenceDto,
+  ClaimStatus,
+  ClaimType,
+  BenefitType,
+  PlanType
 } from '../../../src/dto/plan-event.dto';
-
-/**
- * Helper function to create a valid claim data object
- */
-function createValidClaimData(): ClaimData {
-  return {
-    claimId: '123e4567-e89b-12d3-a456-426614174000',
-    claimType: 'medical',
-    providerId: '123e4567-e89b-12d3-a456-426614174001',
-    serviceDate: new Date().toISOString(),
-    amount: 150.75,
-    submittedAt: new Date().toISOString(),
-    description: 'Annual physical examination',
-    receiptUrls: ['https://storage.austa.com.br/receipts/123456.pdf']
-  };
-}
-
-/**
- * Helper function to create a valid benefit data object
- */
-function createValidBenefitData(): BenefitData {
-  return {
-    benefitId: '123e4567-e89b-12d3-a456-426614174002',
-    benefitType: 'wellness',
-    providerId: '123e4567-e89b-12d3-a456-426614174003',
-    utilizationDate: new Date().toISOString(),
-    savingsAmount: 75.50,
-    description: 'Gym membership discount',
-    isEligible: true
-  };
-}
-
-/**
- * Helper function to create a valid plan selection data object
- */
-function createValidPlanSelectionData(): PlanSelectionData {
-  return {
-    planId: '123e4567-e89b-12d3-a456-426614174004',
-    planType: 'health',
-    coverageLevel: 'family',
-    premium: 350.00,
-    startDate: new Date().toISOString(),
-    selectedAt: new Date().toISOString(),
-    previousPlanId: '123e4567-e89b-12d3-a456-426614174005'
-  };
-}
-
-/**
- * Helper function to create a valid reward redemption data object
- */
-function createValidRewardRedemptionData(): RewardRedemptionData {
-  return {
-    rewardId: '123e4567-e89b-12d3-a456-426614174006',
-    rewardType: 'gift_card',
-    pointsRedeemed: 1000,
-    value: 50.00,
-    redeemedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
-  };
-}
+import { EventType } from '../../../src/dto/event-types.enum';
+import { validateDto, createPlanEventData } from './test-utils';
 
 describe('PlanEventDto', () => {
-  describe('Base validation', () => {
-    it('should validate that journey is "plan"', async () => {
-      // Create a plan event with incorrect journey
-      const eventDto = plainToInstance(PlanEventDto, {
+  describe('Base PlanEventDto', () => {
+    it('should validate a valid plan event', async () => {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'health', // Incorrect journey
-        timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('equals');
-      expect(errors[0].constraints.equals).toContain('journey must be plan');
-    });
-
-    it('should validate that type is a valid plan event type', async () => {
-      // Create a plan event with incorrect type
-      const eventDto = plainToInstance(PlanEventDto, {
-        type: EventType.HEALTH_METRIC_RECORDED, // Incorrect type for plan journey
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      });
+        data: {
+          claimId: 'claim_12345',
+          claimType: ClaimType.MEDICAL,
+          amount: { amount: '150.75', currency: 'BRL' },
+          serviceDate: new Date().toISOString(),
+          providerId: 'provider_789',
+          providerName: 'Clínica São Paulo'
+        }
+      };
+      const dto = plainToInstance(PlanEventDto, eventData);
 
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('isIn');
-      expect(errors[0].constraints.isIn).toContain('type must be a valid plan event type');
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
 
-    it('should validate that userId is a valid UUID', async () => {
-      // Create a plan event with invalid userId
-      const eventDto = plainToInstance(PlanEventDto, {
+    it('should enforce journey to be "plan"', async () => {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: 'invalid-uuid',
-        journey: 'plan',
+        userId: uuidv4(),
+        journey: 'health', // Invalid journey for PlanEventDto
         timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      });
+        data: {}
+      };
+      const dto = plainToInstance(PlanEventDto, eventData);
 
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('isUuid');
-      expect(errors[0].constraints.isUuid).toContain('userId must be a valid UUID');
-    });
+      // Act
+      const result = await validateDto(dto);
 
-    it('should validate that timestamp is a valid ISO date string', async () => {
-      // Create a plan event with invalid timestamp
-      const eventDto = plainToInstance(PlanEventDto, {
-        type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: 'invalid-date',
-        data: createValidClaimData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('isDateString');
-      expect(errors[0].constraints.isDateString).toContain('timestamp must be a valid ISO date string');
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('journey')).toBe(true);
     });
   });
 
-  describe('PlanClaimSubmittedEventDto', () => {
+  describe('CurrencyAmountDto', () => {
+    it('should validate a valid currency amount', async () => {
+      // Arrange
+      const currencyData = {
+        amount: '150.75',
+        currency: 'BRL'
+      };
+      const dto = plainToInstance(CurrencyAmountDto, currencyData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject negative amounts', async () => {
+      // Arrange
+      const currencyData = {
+        amount: '-150.75',
+        currency: 'BRL'
+      };
+      const dto = plainToInstance(CurrencyAmountDto, currencyData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('amount')).toBe(true);
+    });
+
+    it('should validate currency code format', async () => {
+      // Arrange
+      const currencyData = {
+        amount: '150.75',
+        currency: 'br' // Invalid currency code (should be 3 uppercase letters)
+      };
+      const dto = plainToInstance(CurrencyAmountDto, currencyData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('currency')).toBe(true);
+    });
+  });
+
+  describe('DocumentReferenceDto', () => {
+    it('should validate a valid document reference', async () => {
+      // Arrange
+      const documentData = {
+        id: 'doc_12345',
+        type: 'receipt',
+        url: 'https://storage.example.com/documents/receipt_12345.pdf'
+      };
+      const dto = plainToInstance(DocumentReferenceDto, documentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate a document reference without optional url', async () => {
+      // Arrange
+      const documentData = {
+        id: 'doc_12345',
+        type: 'receipt'
+      };
+      const dto = plainToInstance(DocumentReferenceDto, documentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject a document reference without required fields', async () => {
+      // Arrange
+      const documentData = {
+        id: 'doc_12345'
+        // Missing 'type' field
+      };
+      const dto = plainToInstance(DocumentReferenceDto, documentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('type')).toBe(true);
+    });
+  });
+
+  describe('ClaimSubmissionEventDto', () => {
     it('should validate a valid claim submission event', async () => {
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate that type is PLAN_CLAIM_SUBMITTED', async () => {
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, {
-        type: EventType.PLAN_BENEFIT_UTILIZED, // Incorrect type
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('equals');
-      expect(errors[0].constraints.equals).toContain('type must be PLAN_CLAIM_SUBMITTED');
-    });
-
-    it('should validate claim data structure', async () => {
-      // Missing required fields in claim data
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, {
-        type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
         data: {
-          // Missing claimId, claimType, and other required fields
-          amount: 150.75
+          claimId: 'claim_12345',
+          claimType: ClaimType.MEDICAL,
+          amount: {
+            amount: '150.75',
+            currency: 'BRL'
+          },
+          serviceDate: new Date().toISOString(),
+          providerId: 'provider_789',
+          providerName: 'Clínica São Paulo',
+          description: 'Annual physical examination',
+          documents: [
+            {
+              id: 'doc_12345',
+              type: 'receipt',
+              url: 'https://storage.example.com/documents/receipt_12345.pdf'
+            }
+          ]
         }
-      });
+      };
+      const dto = plainToInstance(ClaimSubmissionEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Check for nested validation errors in data property
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      expect(dataErrors.children.length).toBeGreaterThan(0);
-      
-      // Verify specific field validations
-      const fieldErrors = dataErrors.children.map(child => child.property);
-      expect(fieldErrors).toContain('claimId');
-      expect(fieldErrors).toContain('claimType');
-      expect(fieldErrors).toContain('providerId');
-      expect(fieldErrors).toContain('serviceDate');
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
 
-    it('should validate claim amount is positive', async () => {
-      const invalidClaimData = createValidClaimData();
-      invalidClaimData.amount = -50.00; // Negative amount
-
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, {
+    it('should reject a claim submission with missing required fields', async () => {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: invalidClaimData
-      });
+        data: {
+          claimId: 'claim_12345',
+          // Missing claimType
+          amount: {
+            amount: '150.75',
+            currency: 'BRL'
+          },
+          // Missing serviceDate
+          providerId: 'provider_789',
+          // Missing providerName
+        }
+      };
+      const dto = plainToInstance(ClaimSubmissionEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Find the nested validation error for amount
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      
-      const amountError = dataErrors.children.find(child => child.property === 'amount');
-      expect(amountError).toBeDefined();
-      expect(amountError.constraints).toHaveProperty('min');
-      expect(amountError.constraints.min).toContain('amount must be a positive number');
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.errorCount).toBeGreaterThan(0);
+    });
+
+    it('should validate claim type enum values', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_CLAIM_SUBMITTED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          claimId: 'claim_12345',
+          claimType: 'invalid_type', // Invalid claim type
+          amount: {
+            amount: '150.75',
+            currency: 'BRL'
+          },
+          serviceDate: new Date().toISOString(),
+          providerId: 'provider_789',
+          providerName: 'Clínica São Paulo'
+        }
+      };
+      const dto = plainToInstance(ClaimSubmissionEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const claimTypeErrors = dataErrors.find(e => e.property === 'claimType');
+      expect(claimTypeErrors).toBeDefined();
     });
   });
 
-  describe('PlanBenefitUtilizedEventDto', () => {
+  describe('ClaimStatusUpdateEventDto', () => {
+    it('should validate a valid claim status update event', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_CLAIM_APPROVED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          claimId: 'claim_12345',
+          previousStatus: ClaimStatus.SUBMITTED,
+          newStatus: ClaimStatus.APPROVED,
+          updateTimestamp: new Date().toISOString(),
+          reason: 'All documentation verified',
+          approvedAmount: {
+            amount: '150.75',
+            currency: 'BRL'
+          }
+        }
+      };
+      const dto = plainToInstance(ClaimStatusUpdateEventDto, eventData);
+
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate status transitions', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_CLAIM_APPROVED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          claimId: 'claim_12345',
+          previousStatus: ClaimStatus.SUBMITTED,
+          newStatus: 'invalid_status', // Invalid status
+          updateTimestamp: new Date().toISOString()
+        }
+      };
+      const dto = plainToInstance(ClaimStatusUpdateEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const statusErrors = dataErrors.find(e => e.property === 'newStatus');
+      expect(statusErrors).toBeDefined();
+    });
+  });
+
+  describe('BenefitUtilizationEventDto', () => {
     it('should validate a valid benefit utilization event', async () => {
-      const eventDto = plainToInstance(PlanBenefitUtilizedEventDto, {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_BENEFIT_UTILIZED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidBenefitData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate that type is PLAN_BENEFIT_UTILIZED', async () => {
-      const eventDto = plainToInstance(PlanBenefitUtilizedEventDto, {
-        type: EventType.PLAN_CLAIM_SUBMITTED, // Incorrect type
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidBenefitData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('equals');
-      expect(errors[0].constraints.equals).toContain('type must be PLAN_BENEFIT_UTILIZED');
-    });
-
-    it('should validate benefit data structure', async () => {
-      // Missing required fields in benefit data
-      const eventDto = plainToInstance(PlanBenefitUtilizedEventDto, {
-        type: EventType.PLAN_BENEFIT_UTILIZED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
         data: {
-          // Missing benefitId, benefitType, and other required fields
-          savingsAmount: 75.50
+          benefitId: 'benefit_456',
+          benefitType: BenefitType.PREVENTIVE_CARE,
+          benefitName: 'Annual Preventive Check-up',
+          utilizationDate: new Date().toISOString(),
+          providerId: 'provider_789',
+          providerName: 'Clínica São Paulo',
+          value: {
+            amount: '150.75',
+            currency: 'BRL'
+          },
+          isFirstUtilization: true,
+          remainingUtilizations: 2
         }
-      });
+      };
+      const dto = plainToInstance(BenefitUtilizationEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Check for nested validation errors in data property
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      expect(dataErrors.children.length).toBeGreaterThan(0);
-      
-      // Verify specific field validations
-      const fieldErrors = dataErrors.children.map(child => child.property);
-      expect(fieldErrors).toContain('benefitId');
-      expect(fieldErrors).toContain('benefitType');
-      expect(fieldErrors).toContain('utilizationDate');
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
 
-    it('should validate benefit type is a valid value', async () => {
-      const invalidBenefitData = createValidBenefitData();
-      invalidBenefitData.benefitType = 'invalid_type'; // Invalid benefit type
-
-      const eventDto = plainToInstance(PlanBenefitUtilizedEventDto, {
+    it('should validate benefit type enum values', async () => {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_BENEFIT_UTILIZED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: invalidBenefitData
-      });
+        data: {
+          benefitId: 'benefit_456',
+          benefitType: 'invalid_type', // Invalid benefit type
+          benefitName: 'Annual Preventive Check-up',
+          utilizationDate: new Date().toISOString()
+        }
+      };
+      const dto = plainToInstance(BenefitUtilizationEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Find the nested validation error for benefitType
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      
-      const typeError = dataErrors.children.find(child => child.property === 'benefitType');
-      expect(typeError).toBeDefined();
-      expect(typeError.constraints).toHaveProperty('isIn');
-      expect(typeError.constraints.isIn).toContain('benefitType must be a valid benefit type');
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const typeErrors = dataErrors.find(e => e.property === 'benefitType');
+      expect(typeErrors).toBeDefined();
+    });
+
+    it('should validate remaining utilizations is not negative', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_BENEFIT_UTILIZED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          benefitId: 'benefit_456',
+          benefitType: BenefitType.PREVENTIVE_CARE,
+          benefitName: 'Annual Preventive Check-up',
+          utilizationDate: new Date().toISOString(),
+          remainingUtilizations: -1 // Invalid negative value
+        }
+      };
+      const dto = plainToInstance(BenefitUtilizationEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const utilizationsErrors = dataErrors.find(e => e.property === 'remainingUtilizations');
+      expect(utilizationsErrors).toBeDefined();
     });
   });
 
-  describe('PlanSelectedEventDto', () => {
+  describe('PlanSelectionEventDto', () => {
     it('should validate a valid plan selection event', async () => {
-      const eventDto = plainToInstance(PlanSelectedEventDto, {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_SELECTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidPlanSelectionData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate that type is PLAN_SELECTED', async () => {
-      const eventDto = plainToInstance(PlanSelectedEventDto, {
-        type: EventType.PLAN_CLAIM_SUBMITTED, // Incorrect type
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidPlanSelectionData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('equals');
-      expect(errors[0].constraints.equals).toContain('type must be PLAN_SELECTED');
-    });
-
-    it('should validate plan selection data structure', async () => {
-      // Missing required fields in plan selection data
-      const eventDto = plainToInstance(PlanSelectedEventDto, {
-        type: EventType.PLAN_SELECTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
         data: {
-          // Missing planId, planType, and other required fields
-          premium: 350.00
+          planId: 'plan_789',
+          planType: PlanType.PPO,
+          planName: 'AUSTA Premium Family Plan',
+          selectionDate: new Date().toISOString(),
+          effectiveDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days in the future
+          previousPlanId: 'plan_456',
+          premium: {
+            amount: '500.00',
+            currency: 'BRL'
+          },
+          coverageLevel: 'family',
+          dependentCount: 3
         }
-      });
+      };
+      const dto = plainToInstance(PlanSelectionEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Check for nested validation errors in data property
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      expect(dataErrors.children.length).toBeGreaterThan(0);
-      
-      // Verify specific field validations
-      const fieldErrors = dataErrors.children.map(child => child.property);
-      expect(fieldErrors).toContain('planId');
-      expect(fieldErrors).toContain('planType');
-      expect(fieldErrors).toContain('coverageLevel');
-      expect(fieldErrors).toContain('startDate');
-      expect(fieldErrors).toContain('selectedAt');
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
 
-    it('should validate coverage level is a valid value', async () => {
-      const invalidPlanData = createValidPlanSelectionData();
-      invalidPlanData.coverageLevel = 'invalid_level'; // Invalid coverage level
-
-      const eventDto = plainToInstance(PlanSelectedEventDto, {
+    it('should validate plan type enum values', async () => {
+      // Arrange
+      const eventData = {
         type: EventType.PLAN_SELECTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: invalidPlanData
-      });
+        data: {
+          planId: 'plan_789',
+          planType: 'invalid_type', // Invalid plan type
+          planName: 'AUSTA Premium Family Plan',
+          selectionDate: new Date().toISOString(),
+          effectiveDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          premium: {
+            amount: '500.00',
+            currency: 'BRL'
+          },
+          coverageLevel: 'family'
+        }
+      };
+      const dto = plainToInstance(PlanSelectionEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Find the nested validation error for coverageLevel
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      
-      const levelError = dataErrors.children.find(child => child.property === 'coverageLevel');
-      expect(levelError).toBeDefined();
-      expect(levelError.constraints).toHaveProperty('isIn');
-      expect(levelError.constraints.isIn).toContain('coverageLevel must be a valid coverage level');
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const typeErrors = dataErrors.find(e => e.property === 'planType');
+      expect(typeErrors).toBeDefined();
+    });
+
+    it('should validate dependent count is not negative', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_SELECTED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          planId: 'plan_789',
+          planType: PlanType.PPO,
+          planName: 'AUSTA Premium Family Plan',
+          selectionDate: new Date().toISOString(),
+          effectiveDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          premium: {
+            amount: '500.00',
+            currency: 'BRL'
+          },
+          coverageLevel: 'family',
+          dependentCount: -1 // Invalid negative value
+        }
+      };
+      const dto = plainToInstance(PlanSelectionEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const countErrors = dataErrors.find(e => e.property === 'dependentCount');
+      expect(countErrors).toBeDefined();
     });
   });
 
-  describe('PlanRewardRedeemedEventDto', () => {
-    it('should validate a valid reward redemption event', async () => {
-      const eventDto = plainToInstance(PlanRewardRedeemedEventDto, {
-        type: EventType.PLAN_REWARD_REDEEMED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidRewardRedemptionData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBe(0);
-    });
-
-    it('should validate that type is PLAN_REWARD_REDEEMED', async () => {
-      const eventDto = plainToInstance(PlanRewardRedeemedEventDto, {
-        type: EventType.PLAN_CLAIM_SUBMITTED, // Incorrect type
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidRewardRedemptionData()
-      });
-
-      const errors = await validate(eventDto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('equals');
-      expect(errors[0].constraints.equals).toContain('type must be PLAN_REWARD_REDEEMED');
-    });
-
-    it('should validate reward redemption data structure', async () => {
-      // Missing required fields in reward redemption data
-      const eventDto = plainToInstance(PlanRewardRedeemedEventDto, {
-        type: EventType.PLAN_REWARD_REDEEMED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+  describe('PlanComparisonEventDto', () => {
+    it('should validate a valid plan comparison event', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_COMPARISON_PERFORMED,
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
         data: {
-          // Missing rewardId, rewardType, and other required fields
-          pointsRedeemed: 1000
+          planIds: ['plan_123', 'plan_456', 'plan_789'],
+          comparisonDate: new Date().toISOString(),
+          criteria: ['premium', 'deductible', 'coverage'],
+          selectedPlanId: 'plan_456',
+          sessionDuration: 300
         }
-      });
+      };
+      const dto = plainToInstance(PlanComparisonEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Check for nested validation errors in data property
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      expect(dataErrors.children.length).toBeGreaterThan(0);
-      
-      // Verify specific field validations
-      const fieldErrors = dataErrors.children.map(child => child.property);
-      expect(fieldErrors).toContain('rewardId');
-      expect(fieldErrors).toContain('rewardType');
-      expect(fieldErrors).toContain('value');
-      expect(fieldErrors).toContain('redeemedAt');
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
 
-    it('should validate points redeemed is a positive integer', async () => {
-      const invalidRewardData = createValidRewardRedemptionData();
-      invalidRewardData.pointsRedeemed = -100; // Negative points
-
-      const eventDto = plainToInstance(PlanRewardRedeemedEventDto, {
-        type: EventType.PLAN_REWARD_REDEEMED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+    it('should validate plan IDs array is not empty', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_COMPARISON_PERFORMED,
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: invalidRewardData
-      });
+        data: {
+          planIds: [], // Empty array
+          comparisonDate: new Date().toISOString()
+        }
+      };
+      const dto = plainToInstance(PlanComparisonEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Find the nested validation error for pointsRedeemed
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      
-      const pointsError = dataErrors.children.find(child => child.property === 'pointsRedeemed');
-      expect(pointsError).toBeDefined();
-      expect(pointsError.constraints).toHaveProperty('min');
-      expect(pointsError.constraints.min).toContain('pointsRedeemed must be a positive number');
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const planIdsErrors = dataErrors.find(e => e.property === 'planIds');
+      expect(planIdsErrors).toBeDefined();
     });
 
-    it('should validate reward type is a valid value', async () => {
-      const invalidRewardData = createValidRewardRedemptionData();
-      invalidRewardData.rewardType = 'invalid_type'; // Invalid reward type
-
-      const eventDto = plainToInstance(PlanRewardRedeemedEventDto, {
-        type: EventType.PLAN_REWARD_REDEEMED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
+    it('should validate session duration is positive', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_COMPARISON_PERFORMED,
+        userId: uuidv4(),
         journey: 'plan',
         timestamp: new Date().toISOString(),
-        data: invalidRewardData
-      });
+        data: {
+          planIds: ['plan_123', 'plan_456', 'plan_789'],
+          comparisonDate: new Date().toISOString(),
+          sessionDuration: -10 // Invalid negative value
+        }
+      };
+      const dto = plainToInstance(PlanComparisonEventDto, eventData);
 
-      const errors = await validate(eventDto, { validationError: { target: false } });
-      expect(errors.length).toBeGreaterThan(0);
-      
-      // Find the nested validation error for rewardType
-      const dataErrors = errors.find(error => error.property === 'data');
-      expect(dataErrors).toBeDefined();
-      
-      const typeError = dataErrors.children.find(child => child.property === 'rewardType');
-      expect(typeError).toBeDefined();
-      expect(typeError.constraints).toHaveProperty('isIn');
-      expect(typeError.constraints.isIn).toContain('rewardType must be a valid reward type');
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const durationErrors = dataErrors.find(e => e.property === 'sessionDuration');
+      expect(durationErrors).toBeDefined();
+    });
+  });
+
+  describe('RewardRedemptionEventDto', () => {
+    it('should validate a valid reward redemption event', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          rewardId: 'reward_123',
+          rewardName: 'Premium Plan Discount',
+          redemptionDate: new Date().toISOString(),
+          pointsSpent: 500,
+          value: {
+            amount: '50.00',
+            currency: 'BRL'
+          },
+          category: 'premium_discount',
+          expirationDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days in the future
+          isApplied: true
+        }
+      };
+      const dto = plainToInstance(RewardRedemptionEventDto, eventData);
+
+      // Act
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate points spent is positive', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          rewardId: 'reward_123',
+          rewardName: 'Premium Plan Discount',
+          redemptionDate: new Date().toISOString(),
+          pointsSpent: 0, // Invalid zero value
+          category: 'premium_discount'
+        }
+      };
+      const dto = plainToInstance(RewardRedemptionEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const pointsErrors = dataErrors.find(e => e.property === 'pointsSpent');
+      expect(pointsErrors).toBeDefined();
+    });
+
+    it('should validate date formats', async () => {
+      // Arrange
+      const eventData = {
+        type: EventType.PLAN_REWARD_REDEEMED,
+        userId: uuidv4(),
+        journey: 'plan',
+        timestamp: new Date().toISOString(),
+        data: {
+          rewardId: 'reward_123',
+          rewardName: 'Premium Plan Discount',
+          redemptionDate: 'invalid-date', // Invalid date format
+          pointsSpent: 500,
+          category: 'premium_discount'
+        }
+      };
+      const dto = plainToInstance(RewardRedemptionEventDto, eventData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      // Check for nested validation errors
+      const dataErrors = result.errors.find(e => e.property === 'data')?.children || [];
+      const dateErrors = dataErrors.find(e => e.property === 'redemptionDate');
+      expect(dateErrors).toBeDefined();
     });
   });
 
   describe('Integration with event processing pipeline', () => {
-    it('should properly transform plain objects to class instances', () => {
-      const plainObject = {
-        type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      };
-
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, plainObject);
+    it('should properly validate plan events in the processing pipeline', async () => {
+      // This test simulates how events would be validated in the actual event processing pipeline
       
-      expect(eventDto).toBeInstanceOf(PlanClaimSubmittedEventDto);
-      expect(eventDto.type).toBe(EventType.PLAN_CLAIM_SUBMITTED);
-      expect(eventDto.journey).toBe('plan');
-      expect(eventDto.userId).toBe('123e4567-e89b-12d3-a456-426614174000');
-      expect(eventDto.data).toBeDefined();
-      expect(eventDto.data.claimId).toBe(plainObject.data.claimId);
-    });
-
-    it('should handle inheritance from BaseEventDto correctly', () => {
-      const plainObject = {
-        type: EventType.PLAN_CLAIM_SUBMITTED,
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'plan',
-        timestamp: new Date().toISOString(),
-        data: createValidClaimData()
-      };
-
-      const eventDto = plainToInstance(PlanClaimSubmittedEventDto, plainObject);
+      // Arrange - Create events of different types
+      const events = [
+        // Claim submission event
+        plainToInstance(ClaimSubmissionEventDto, {
+          type: EventType.PLAN_CLAIM_SUBMITTED,
+          userId: uuidv4(),
+          journey: 'plan',
+          timestamp: new Date().toISOString(),
+          data: {
+            claimId: 'claim_12345',
+            claimType: ClaimType.MEDICAL,
+            amount: { amount: '150.75', currency: 'BRL' },
+            serviceDate: new Date().toISOString(),
+            providerId: 'provider_789',
+            providerName: 'Clínica São Paulo'
+          }
+        }),
+        
+        // Benefit utilization event
+        plainToInstance(BenefitUtilizationEventDto, {
+          type: EventType.PLAN_BENEFIT_UTILIZED,
+          userId: uuidv4(),
+          journey: 'plan',
+          timestamp: new Date().toISOString(),
+          data: {
+            benefitId: 'benefit_456',
+            benefitType: BenefitType.PREVENTIVE_CARE,
+            benefitName: 'Annual Preventive Check-up',
+            utilizationDate: new Date().toISOString()
+          }
+        }),
+        
+        // Plan selection event
+        plainToInstance(PlanSelectionEventDto, {
+          type: EventType.PLAN_SELECTED,
+          userId: uuidv4(),
+          journey: 'plan',
+          timestamp: new Date().toISOString(),
+          data: {
+            planId: 'plan_789',
+            planType: PlanType.PPO,
+            planName: 'AUSTA Premium Family Plan',
+            selectionDate: new Date().toISOString(),
+            effectiveDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            premium: { amount: '500.00', currency: 'BRL' },
+            coverageLevel: 'family'
+          }
+        })
+      ];
       
-      // Check that it inherits from PlanEventDto
-      expect(eventDto).toBeInstanceOf(PlanEventDto);
+      // Act - Validate all events
+      const validationResults = await Promise.all(
+        events.map(event => validate(event, { whitelist: true, forbidNonWhitelisted: true }))
+      );
       
-      // Check that common validation from the base class works
-      expect(eventDto.journey).toBe('plan');
-      expect(eventDto.type).toBe(EventType.PLAN_CLAIM_SUBMITTED);
+      // Assert - All events should be valid
+      validationResults.forEach((errors, index) => {
+        expect(errors.length).toBe(0, `Event at index ${index} has validation errors`);
+      });
     });
   });
 });

@@ -1,442 +1,314 @@
-import {
-  CloudWatchLogsClient,
-  CreateLogGroupCommand,
-  CreateLogStreamCommand,
-  DescribeLogGroupsCommand,
+import { 
+  CloudWatchLogsClient, 
+  PutLogEventsCommand, 
+  CreateLogGroupCommand, 
+  CreateLogStreamCommand, 
   DescribeLogStreamsCommand,
-  PutLogEventsCommand,
-  PutRetentionPolicyCommand,
-  InputLogEvent,
-  ResourceNotFoundException,
-  ThrottlingException,
-  ServiceUnavailableException,
+  PutLogEventsCommandOutput,
+  CreateLogGroupCommandOutput,
+  CreateLogStreamCommandOutput,
+  DescribeLogStreamsCommandOutput,
+  LogStream
 } from '@aws-sdk/client-cloudwatch-logs';
 
 /**
  * Mock implementation of AWS SDK CloudWatch Logs client for testing
  * 
  * This mock allows testing the CloudWatch transport without making real AWS API calls.
- * It tracks calls to various CloudWatch Logs methods and can be configured to return
- * success or error responses for testing different scenarios.
+ * It tracks calls to createLogGroup, createLogStream, and putLogEvents, and can be
+ * configured to return success or failure responses.
  */
 export class MockCloudWatchLogsClient {
   /**
    * Tracks calls to createLogGroup
    */
-  public createLogGroupCalls: Array<{
-    logGroupName: string;
-    tags?: Record<string, string>;
-  }> = [];
-
+  public createLogGroupCalls: CreateLogGroupCommand[] = [];
+  
   /**
    * Tracks calls to createLogStream
    */
-  public createLogStreamCalls: Array<{
-    logGroupName: string;
-    logStreamName: string;
-  }> = [];
-
-  /**
-   * Tracks calls to describeLogGroups
-   */
-  public describeLogGroupsCalls: Array<{
-    logGroupNamePrefix?: string;
-    nextToken?: string;
-    limit?: number;
-  }> = [];
-
-  /**
-   * Tracks calls to describeLogStreams
-   */
-  public describeLogStreamsCalls: Array<{
-    logGroupName: string;
-    logStreamNamePrefix?: string;
-    orderBy?: string;
-    descending?: boolean;
-    nextToken?: string;
-    limit?: number;
-  }> = [];
-
+  public createLogStreamCalls: CreateLogStreamCommand[] = [];
+  
   /**
    * Tracks calls to putLogEvents
    */
-  public putLogEventsCalls: Array<{
-    logGroupName: string;
-    logStreamName: string;
-    logEvents: InputLogEvent[];
-    sequenceToken?: string;
-  }> = [];
-
+  public putLogEventsCalls: PutLogEventsCommand[] = [];
+  
   /**
-   * Tracks calls to putRetentionPolicy
+   * Tracks calls to describeLogStreams
    */
-  public putRetentionPolicyCalls: Array<{
-    logGroupName: string;
-    retentionInDays: number;
-  }> = [];
+  public describeLogStreamsCalls: DescribeLogStreamsCommand[] = [];
 
   /**
-   * Stores all log events sent to putLogEvents for inspection
+   * Log groups that have been created
    */
-  public logEvents: InputLogEvent[] = [];
-
+  public logGroups: Set<string> = new Set();
+  
   /**
-   * Configuration for simulating errors
+   * Log streams that have been created, mapped by log group name
    */
-  private errorConfig: {
-    createLogGroup?: Error;
-    createLogStream?: Error;
-    describeLogGroups?: Error;
-    describeLogStreams?: Error;
-    putLogEvents?: Error;
-    putRetentionPolicy?: Error;
-  } = {};
-
+  public logStreams: Map<string, Set<string>> = new Map();
+  
   /**
-   * Configuration for simulating responses
+   * Log events that have been sent, mapped by log group and stream name
    */
-  private responseConfig: {
-    describeLogGroups?: {
-      logGroups?: Array<{ logGroupName: string }>;
-    };
-    describeLogStreams?: {
-      logStreams?: Array<{ logStreamName: string; uploadSequenceToken?: string }>;
-    };
-    putLogEvents?: {
-      nextSequenceToken?: string;
-    };
-  } = {};
+  public logEvents: Map<string, any[]> = new Map();
 
   /**
-   * Creates a new MockCloudWatchLogsClient instance
+   * Flag to simulate errors for testing error handling
    */
-  constructor() {
-    this.reset();
-  }
-
+  public shouldFail: boolean = false;
+  
   /**
-   * Resets all tracked calls and configurations
+   * Specific operation to fail, if shouldFail is true
+   * If undefined, all operations will fail
    */
-  public reset(): void {
-    this.createLogGroupCalls = [];
-    this.createLogStreamCalls = [];
-    this.describeLogGroupsCalls = [];
-    this.describeLogStreamsCalls = [];
-    this.putLogEventsCalls = [];
-    this.putRetentionPolicyCalls = [];
-    this.logEvents = [];
-    this.errorConfig = {};
-    this.responseConfig = {
-      describeLogGroups: { logGroups: [] },
-      describeLogStreams: { logStreams: [] },
-      putLogEvents: { nextSequenceToken: '49612345678901234567890123456789012345678901234567890' },
-    };
-  }
-
+  public failOperation?: 'createLogGroup' | 'createLogStream' | 'putLogEvents' | 'describeLogStreams';
+  
   /**
-   * Configures the mock to throw an error for a specific command
-   * 
-   * @param command The command to throw an error for
-   * @param error The error to throw
+   * Error to throw when shouldFail is true
    */
-  public mockErrorFor(command: string, error: Error): void {
-    switch (command) {
-      case 'CreateLogGroupCommand':
-        this.errorConfig.createLogGroup = error;
-        break;
-      case 'CreateLogStreamCommand':
-        this.errorConfig.createLogStream = error;
-        break;
-      case 'DescribeLogGroupsCommand':
-        this.errorConfig.describeLogGroups = error;
-        break;
-      case 'DescribeLogStreamsCommand':
-        this.errorConfig.describeLogStreams = error;
-        break;
-      case 'PutLogEventsCommand':
-        this.errorConfig.putLogEvents = error;
-        break;
-      case 'PutRetentionPolicyCommand':
-        this.errorConfig.putRetentionPolicy = error;
-        break;
-      default:
-        throw new Error(`Unknown command: ${command}`);
-    }
-  }
+  public errorToThrow: Error = new Error('Simulated AWS SDK error');
 
   /**
-   * Configures the mock to return a specific response for describeLogGroups
-   * 
-   * @param logGroups The log groups to return
-   */
-  public mockDescribeLogGroupsResponse(logGroups: Array<{ logGroupName: string }>): void {
-    this.responseConfig.describeLogGroups = { logGroups };
-  }
-
-  /**
-   * Configures the mock to return a specific response for describeLogStreams
-   * 
-   * @param logStreams The log streams to return
-   */
-  public mockDescribeLogStreamsResponse(logStreams: Array<{ logStreamName: string; uploadSequenceToken?: string }>): void {
-    this.responseConfig.describeLogStreams = { logStreams };
-  }
-
-  /**
-   * Configures the mock to return a specific sequence token for putLogEvents
-   * 
-   * @param nextSequenceToken The next sequence token to return
-   */
-  public mockPutLogEventsResponse(nextSequenceToken: string): void {
-    this.responseConfig.putLogEvents = { nextSequenceToken };
-  }
-
-  /**
-   * Simulates sending a command to the CloudWatch Logs client
-   * 
+   * Sends a command to the mock client
    * @param command The command to send
-   * @returns The response for the command
+   * @returns The command output
    */
-  public async send(command: any): Promise<any> {
+  async send(command: any): Promise<any> {
     if (command instanceof CreateLogGroupCommand) {
       return this.handleCreateLogGroup(command);
     } else if (command instanceof CreateLogStreamCommand) {
       return this.handleCreateLogStream(command);
-    } else if (command instanceof DescribeLogGroupsCommand) {
-      return this.handleDescribeLogGroups(command);
-    } else if (command instanceof DescribeLogStreamsCommand) {
-      return this.handleDescribeLogStreams(command);
     } else if (command instanceof PutLogEventsCommand) {
       return this.handlePutLogEvents(command);
-    } else if (command instanceof PutRetentionPolicyCommand) {
-      return this.handlePutRetentionPolicy(command);
-    } else {
-      throw new Error(`Unsupported command: ${command.constructor.name}`);
+    } else if (command instanceof DescribeLogStreamsCommand) {
+      return this.handleDescribeLogStreams(command);
     }
-  }
-
-  /**
-   * Handles CreateLogGroupCommand
-   * 
-   * @param command The CreateLogGroupCommand
-   * @returns Empty response
-   */
-  private async handleCreateLogGroup(command: CreateLogGroupCommand): Promise<{}> {
-    const input = command.input;
     
-    this.createLogGroupCalls.push({
-      logGroupName: input.logGroupName!,
-      tags: input.tags,
-    });
-
-    if (this.errorConfig.createLogGroup) {
-      throw this.errorConfig.createLogGroup;
-    }
-
-    return {};
+    throw new Error(`Unsupported command: ${command.constructor.name}`);
   }
 
   /**
-   * Handles CreateLogStreamCommand
-   * 
-   * @param command The CreateLogStreamCommand
-   * @returns Empty response
+   * Handles a CreateLogGroupCommand
+   * @param command The command to handle
+   * @returns The command output
    */
-  private async handleCreateLogStream(command: CreateLogStreamCommand): Promise<{}> {
-    const input = command.input;
+  private handleCreateLogGroup(command: CreateLogGroupCommand): Promise<CreateLogGroupCommandOutput> {
+    this.createLogGroupCalls.push(command);
     
-    this.createLogStreamCalls.push({
-      logGroupName: input.logGroupName!,
-      logStreamName: input.logStreamName!,
-    });
-
-    if (this.errorConfig.createLogStream) {
-      throw this.errorConfig.createLogStream;
+    if (this.shouldFail && (!this.failOperation || this.failOperation === 'createLogGroup')) {
+      return Promise.reject(this.errorToThrow);
     }
-
-    return {};
-  }
-
-  /**
-   * Handles DescribeLogGroupsCommand
-   * 
-   * @param command The DescribeLogGroupsCommand
-   * @returns Response with log groups
-   */
-  private async handleDescribeLogGroups(command: DescribeLogGroupsCommand): Promise<{ logGroups?: Array<{ logGroupName: string }> }> {
-    const input = command.input;
     
-    this.describeLogGroupsCalls.push({
-      logGroupNamePrefix: input.logGroupNamePrefix,
-      nextToken: input.nextToken,
-      limit: input.limit,
-    });
-
-    if (this.errorConfig.describeLogGroups) {
-      throw this.errorConfig.describeLogGroups;
-    }
-
-    return this.responseConfig.describeLogGroups || { logGroups: [] };
-  }
-
-  /**
-   * Handles DescribeLogStreamsCommand
-   * 
-   * @param command The DescribeLogStreamsCommand
-   * @returns Response with log streams
-   */
-  private async handleDescribeLogStreams(command: DescribeLogStreamsCommand): Promise<{ logStreams?: Array<{ logStreamName: string; uploadSequenceToken?: string }> }> {
-    const input = command.input;
+    const logGroupName = command.input.logGroupName!;
     
-    this.describeLogStreamsCalls.push({
-      logGroupName: input.logGroupName!,
-      logStreamNamePrefix: input.logStreamNamePrefix,
-      orderBy: input.orderBy,
-      descending: input.descending,
-      nextToken: input.nextToken,
-      limit: input.limit,
-    });
-
-    if (this.errorConfig.describeLogStreams) {
-      throw this.errorConfig.describeLogStreams;
+    if (this.logGroups.has(logGroupName)) {
+      const error: any = new Error('Log group already exists');
+      error.name = 'ResourceAlreadyExistsException';
+      return Promise.reject(error);
     }
-
-    return this.responseConfig.describeLogStreams || { logStreams: [] };
-  }
-
-  /**
-   * Handles PutLogEventsCommand
-   * 
-   * @param command The PutLogEventsCommand
-   * @returns Response with next sequence token
-   */
-  private async handlePutLogEvents(command: PutLogEventsCommand): Promise<{ nextSequenceToken?: string }> {
-    const input = command.input;
     
-    this.putLogEventsCalls.push({
-      logGroupName: input.logGroupName!,
-      logStreamName: input.logStreamName!,
-      logEvents: input.logEvents!,
-      sequenceToken: input.sequenceToken,
-    });
-
-    // Store log events for inspection
-    this.logEvents.push(...(input.logEvents || []));
-
-    if (this.errorConfig.putLogEvents) {
-      throw this.errorConfig.putLogEvents;
-    }
-
-    return this.responseConfig.putLogEvents || { nextSequenceToken: '49612345678901234567890123456789012345678901234567890' };
-  }
-
-  /**
-   * Handles PutRetentionPolicyCommand
-   * 
-   * @param command The PutRetentionPolicyCommand
-   * @returns Empty response
-   */
-  private async handlePutRetentionPolicy(command: PutRetentionPolicyCommand): Promise<{}> {
-    const input = command.input;
+    this.logGroups.add(logGroupName);
     
-    this.putRetentionPolicyCalls.push({
-      logGroupName: input.logGroupName!,
-      retentionInDays: input.retentionInDays!,
+    return Promise.resolve({
+      $metadata: {
+        httpStatusCode: 200,
+        requestId: 'mock-request-id',
+        attempts: 1,
+        totalRetryDelay: 0
+      }
     });
+  }
 
-    if (this.errorConfig.putRetentionPolicy) {
-      throw this.errorConfig.putRetentionPolicy;
+  /**
+   * Handles a CreateLogStreamCommand
+   * @param command The command to handle
+   * @returns The command output
+   */
+  private handleCreateLogStream(command: CreateLogStreamCommand): Promise<CreateLogStreamCommandOutput> {
+    this.createLogStreamCalls.push(command);
+    
+    if (this.shouldFail && (!this.failOperation || this.failOperation === 'createLogStream')) {
+      return Promise.reject(this.errorToThrow);
     }
-
-    return {};
+    
+    const logGroupName = command.input.logGroupName!;
+    const logStreamName = command.input.logStreamName!;
+    
+    if (!this.logGroups.has(logGroupName)) {
+      const error: any = new Error('Log group does not exist');
+      error.name = 'ResourceNotFoundException';
+      return Promise.reject(error);
+    }
+    
+    if (!this.logStreams.has(logGroupName)) {
+      this.logStreams.set(logGroupName, new Set());
+    }
+    
+    const streams = this.logStreams.get(logGroupName)!;
+    
+    if (streams.has(logStreamName)) {
+      const error: any = new Error('Log stream already exists');
+      error.name = 'ResourceAlreadyExistsException';
+      return Promise.reject(error);
+    }
+    
+    streams.add(logStreamName);
+    
+    return Promise.resolve({
+      $metadata: {
+        httpStatusCode: 200,
+        requestId: 'mock-request-id',
+        attempts: 1,
+        totalRetryDelay: 0
+      }
+    });
   }
 
   /**
-   * Gets all log messages sent to CloudWatch
-   * 
-   * @returns Array of log messages
+   * Handles a PutLogEventsCommand
+   * @param command The command to handle
+   * @returns The command output
    */
-  public getLogMessages(): string[] {
-    return this.logEvents.map(event => event.message || '');
+  private handlePutLogEvents(command: PutLogEventsCommand): Promise<PutLogEventsCommandOutput> {
+    this.putLogEventsCalls.push(command);
+    
+    if (this.shouldFail && (!this.failOperation || this.failOperation === 'putLogEvents')) {
+      return Promise.reject(this.errorToThrow);
+    }
+    
+    const logGroupName = command.input.logGroupName!;
+    const logStreamName = command.input.logStreamName!;
+    const logEvents = command.input.logEvents || [];
+    
+    if (!this.logGroups.has(logGroupName)) {
+      const error: any = new Error('Log group does not exist');
+      error.name = 'ResourceNotFoundException';
+      return Promise.reject(error);
+    }
+    
+    const streams = this.logStreams.get(logGroupName);
+    if (!streams || !streams.has(logStreamName)) {
+      const error: any = new Error('Log stream does not exist');
+      error.name = 'ResourceNotFoundException';
+      return Promise.reject(error);
+    }
+    
+    const key = `${logGroupName}:${logStreamName}`;
+    if (!this.logEvents.has(key)) {
+      this.logEvents.set(key, []);
+    }
+    
+    const events = this.logEvents.get(key)!;
+    events.push(...logEvents);
+    
+    return Promise.resolve({
+      $metadata: {
+        httpStatusCode: 200,
+        requestId: 'mock-request-id',
+        attempts: 1,
+        totalRetryDelay: 0
+      },
+      nextSequenceToken: 'mock-sequence-token'
+    });
   }
 
   /**
-   * Gets all log events sent to CloudWatch
-   * 
-   * @returns Array of log events
+   * Handles a DescribeLogStreamsCommand
+   * @param command The command to handle
+   * @returns The command output
    */
-  public getLogEvents(): InputLogEvent[] {
-    return [...this.logEvents];
+  private handleDescribeLogStreams(command: DescribeLogStreamsCommand): Promise<DescribeLogStreamsCommandOutput> {
+    this.describeLogStreamsCalls.push(command);
+    
+    if (this.shouldFail && (!this.failOperation || this.failOperation === 'describeLogStreams')) {
+      return Promise.reject(this.errorToThrow);
+    }
+    
+    const logGroupName = command.input.logGroupName!;
+    const logStreamNamePrefix = command.input.logStreamNamePrefix;
+    
+    if (!this.logGroups.has(logGroupName)) {
+      const error: any = new Error('Log group does not exist');
+      error.name = 'ResourceNotFoundException';
+      return Promise.reject(error);
+    }
+    
+    const streams = this.logStreams.get(logGroupName) || new Set();
+    let logStreamsList: LogStream[] = [];
+    
+    streams.forEach(streamName => {
+      if (!logStreamNamePrefix || streamName.startsWith(logStreamNamePrefix)) {
+        logStreamsList.push({
+          logStreamName: streamName,
+          creationTime: Date.now(),
+          arn: `arn:aws:logs:us-east-1:123456789012:log-group:${logGroupName}:log-stream:${streamName}`
+        });
+      }
+    });
+    
+    return Promise.resolve({
+      $metadata: {
+        httpStatusCode: 200,
+        requestId: 'mock-request-id',
+        attempts: 1,
+        totalRetryDelay: 0
+      },
+      logStreams: logStreamsList
+    });
   }
 
   /**
-   * Checks if a specific log message was sent to CloudWatch
-   * 
-   * @param message The message to check for
-   * @returns True if the message was sent, false otherwise
+   * Gets all log events for a specific log group and stream
+   * @param logGroupName The log group name
+   * @param logStreamName The log stream name
+   * @returns The log events
    */
-  public hasLogMessage(message: string): boolean {
-    return this.getLogMessages().some(msg => msg === message);
+  getLogEvents(logGroupName: string, logStreamName: string): any[] {
+    const key = `${logGroupName}:${logStreamName}`;
+    return this.logEvents.get(key) || [];
   }
 
   /**
-   * Checks if a log message matching the pattern was sent to CloudWatch
-   * 
-   * @param pattern The pattern to match against
-   * @returns True if a matching message was sent, false otherwise
+   * Gets all log events across all log groups and streams
+   * @returns The log events
    */
-  public hasLogMessageMatching(pattern: RegExp): boolean {
-    return this.getLogMessages().some(msg => pattern.test(msg));
+  getAllLogEvents(): Map<string, any[]> {
+    return this.logEvents;
+  }
+
+  /**
+   * Resets the mock client state
+   */
+  reset(): void {
+    this.createLogGroupCalls = [];
+    this.createLogStreamCalls = [];
+    this.putLogEventsCalls = [];
+    this.describeLogStreamsCalls = [];
+    this.logGroups = new Set();
+    this.logStreams = new Map();
+    this.logEvents = new Map();
+    this.shouldFail = false;
+    this.failOperation = undefined;
+    this.errorToThrow = new Error('Simulated AWS SDK error');
   }
 }
 
 /**
  * Creates a mock CloudWatchLogsClient for testing
- * 
- * @returns A mock CloudWatchLogsClient instance
+ * @returns A mock CloudWatchLogsClient
  */
-export function createMockCloudWatchLogsClient(): { client: CloudWatchLogsClient; mock: MockCloudWatchLogsClient } {
-  const mock = new MockCloudWatchLogsClient();
-  const client = mock as unknown as CloudWatchLogsClient;
-  
-  return { client, mock };
+export function createMockCloudWatchLogsClient(): CloudWatchLogsClient {
+  const mockClient = new MockCloudWatchLogsClient();
+  return mockClient as unknown as CloudWatchLogsClient;
 }
 
 /**
- * Creates a ResourceNotFoundException for testing
- * 
- * @param message The error message
- * @returns A ResourceNotFoundException
+ * Gets the mock client from a CloudWatchLogsClient instance
+ * @param client The CloudWatchLogsClient instance
+ * @returns The mock client
  */
-export function createResourceNotFoundException(message: string): ResourceNotFoundException {
-  return Object.assign(
-    new ResourceNotFoundException({ message }),
-    { message }
-  );
-}
-
-/**
- * Creates a ThrottlingException for testing
- * 
- * @param message The error message
- * @returns A ThrottlingException
- */
-export function createThrottlingException(message: string): ThrottlingException {
-  return Object.assign(
-    new ThrottlingException({ message }),
-    { message }
-  );
-}
-
-/**
- * Creates a ServiceUnavailableException for testing
- * 
- * @param message The error message
- * @returns A ServiceUnavailableException
- */
-export function createServiceUnavailableException(message: string): ServiceUnavailableException {
-  return Object.assign(
-    new ServiceUnavailableException({ message }),
-    { message }
-  );
+export function getMockFromClient(client: CloudWatchLogsClient): MockCloudWatchLogsClient {
+  return client as unknown as MockCloudWatchLogsClient;
 }

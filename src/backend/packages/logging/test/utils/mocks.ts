@@ -1,674 +1,658 @@
 /**
- * @file mocks.ts
- * @description Provides mock implementations of logging dependencies for testing purposes.
- * These mocks allow for isolated testing of logging functionality without requiring
- * actual external logging services or infrastructure.
+ * Provides mock implementations of logging dependencies for isolated testing.
+ * These mocks allow testing of logging functionality without requiring actual
+ * external logging services or infrastructure.
  */
 
-import { EventEmitter } from 'events';
-import { Readable, Writable } from 'stream';
-import {
-  LogLevel,
-  LogLevelString,
-  LogLevelUtils,
-} from '../../src/interfaces/log-level.enum';
-import { Transport, LogEntry, LogBatch } from '../../src/interfaces/transport.interface';
-import { TransportConfig, TransportType } from '../../src/interfaces/log-config.interface';
+import { LogLevel } from '../../src/interfaces/log-level.enum';
+import { LogEntry } from '../../src/interfaces/log-entry.interface';
+import { Transport } from '../../src/interfaces/transport.interface';
 import { Formatter } from '../../src/formatters/formatter.interface';
+import { LoggerConfig } from '../../src/interfaces/log-config.interface';
 
 /**
- * Mock implementation of a log entry for testing
- */
-export const createMockLogEntry = (overrides: Partial<LogEntry> = {}): LogEntry => ({
-  level: LogLevel.INFO,
-  timestamp: new Date(),
-  message: 'Test log message',
-  service: 'test-service',
-  ...overrides,
-});
-
-/**
- * Interface for tracking transport method calls
- */
-export interface TransportMethodCalls {
-  initialize: { config: TransportConfig }[];
-  write: { entry: LogEntry }[];
-  writeBatch: { batch: LogBatch }[];
-  flush: any[];
-  close: any[];
-  handleError: { error: Error; context?: Record<string, any> }[];
-}
-
-/**
- * Base mock transport implementation that tracks method calls
- * and provides configurable behavior for testing
+ * Mock implementation of the Transport interface for testing.
+ * Captures logs in memory for inspection during tests.
  */
 export class MockTransport implements Transport {
-  public readonly id: string;
-  public readonly type: string;
-  public readonly level: LogLevel;
-  public active: boolean = true;
-  public methodCalls: TransportMethodCalls = {
-    initialize: [],
-    write: [],
-    writeBatch: [],
-    flush: [],
-    close: [],
-    handleError: [],
-  };
-  public entries: LogEntry[] = [];
-  public shouldFail: Record<string, boolean> = {};
-  public errorMessage: Record<string, string> = {};
+  public logs: LogEntry[] = [];
+  public initialized = false;
+  public closed = false;
+  public errorOnWrite = false;
+  public errorOnInit = false;
+  public batchSize = 10;
+  public name: string;
 
-  constructor(id: string = 'mock-transport', type: string = 'mock', level: LogLevel = LogLevel.DEBUG) {
-    this.id = id;
-    this.type = type;
-    this.level = level;
-  }
-
-  /**
-   * Configures a method to fail when called
-   */
-  public setMethodToFail(method: keyof TransportMethodCalls, message: string = 'Mock error'): void {
-    this.shouldFail[method] = true;
-    this.errorMessage[method] = message;
-  }
-
-  /**
-   * Configures a method to succeed when called
-   */
-  public setMethodToSucceed(method: keyof TransportMethodCalls): void {
-    this.shouldFail[method] = false;
-  }
-
-  /**
-   * Resets all tracked calls and entries
-   */
-  public reset(): void {
-    this.methodCalls = {
-      initialize: [],
-      write: [],
-      writeBatch: [],
-      flush: [],
-      close: [],
-      handleError: [],
-    };
-    this.entries = [];
-    this.shouldFail = {};
-    this.errorMessage = {};
-  }
-
-  /**
-   * Checks if a method should fail and throws an error if configured to do so
-   */
-  private checkForFailure(method: keyof TransportMethodCalls): void {
-    if (this.shouldFail[method]) {
-      throw new Error(this.errorMessage[method] || `Mock ${method} error`);
-    }
-  }
-
-  /**
-   * Mock implementation of initialize method
-   */
-  public async initialize(config: TransportConfig): Promise<void> {
-    this.methodCalls.initialize.push({ config });
-    this.checkForFailure('initialize');
-  }
-
-  /**
-   * Mock implementation of write method
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    this.methodCalls.write.push({ entry });
-    this.entries.push(entry);
-    this.checkForFailure('write');
-  }
-
-  /**
-   * Mock implementation of writeBatch method
-   */
-  public async writeBatch(batch: LogBatch): Promise<void> {
-    this.methodCalls.writeBatch.push({ batch });
-    this.entries.push(...batch.entries);
-    this.checkForFailure('writeBatch');
-    batch.callback?.();
-  }
-
-  /**
-   * Mock implementation of flush method
-   */
-  public async flush(): Promise<void> {
-    this.methodCalls.flush.push({});
-    this.checkForFailure('flush');
-  }
-
-  /**
-   * Mock implementation of close method
-   */
-  public async close(): Promise<void> {
-    this.methodCalls.close.push({});
-    this.checkForFailure('close');
-  }
-
-  /**
-   * Mock implementation of handleError method
-   */
-  public async handleError(error: Error, context?: Record<string, any>): Promise<void> {
-    this.methodCalls.handleError.push({ error, context });
-    this.checkForFailure('handleError');
-  }
-
-  /**
-   * Mock implementation of shouldProcess method
-   */
-  public shouldProcess(entry: LogEntry): boolean {
-    return LogLevelUtils.isLevelEnabled(entry.level, this.level);
-  }
-}
-
-/**
- * Mock implementation of console transport for testing
- */
-export class MockConsoleTransport extends MockTransport {
-  public readonly console: {
-    log: jest.Mock;
-    info: jest.Mock;
-    warn: jest.Mock;
-    error: jest.Mock;
-    debug: jest.Mock;
-  };
-
-  constructor(id: string = 'mock-console', level: LogLevel = LogLevel.DEBUG) {
-    super(id, TransportType.CONSOLE, level);
-    this.console = {
-      log: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-    };
-  }
-
-  /**
-   * Override write method to call appropriate console method based on log level
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    await super.write(entry);
-    
-    if (!this.shouldFail.write) {
-      const levelString = LogLevelUtils.toString(entry.level).toLowerCase();
-      switch (levelString) {
-        case 'debug':
-          this.console.debug(entry.message, entry);
-          break;
-        case 'info':
-          this.console.info(entry.message, entry);
-          break;
-        case 'warn':
-          this.console.warn(entry.message, entry);
-          break;
-        case 'error':
-        case 'fatal':
-          this.console.error(entry.message, entry);
-          break;
-        default:
-          this.console.log(entry.message, entry);
-      }
-    }
-  }
-}
-
-/**
- * Mock implementation of file transport for testing
- */
-export class MockFileTransport extends MockTransport {
-  public readonly filename: string;
-  public readonly stream: Writable;
-  public readonly fileContents: string[] = [];
-
-  constructor(id: string = 'mock-file', filename: string = 'mock-log.log', level: LogLevel = LogLevel.DEBUG) {
-    super(id, TransportType.FILE, level);
-    this.filename = filename;
-    this.stream = new Writable({
-      write: (chunk, encoding, callback) => {
-        this.fileContents.push(chunk.toString());
-        callback();
-      },
-    });
-  }
-
-  /**
-   * Override write method to write to the mock stream
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    await super.write(entry);
-    
-    if (!this.shouldFail.write) {
-      const logString = JSON.stringify(entry) + '\n';
-      this.stream.write(logString);
-    }
-  }
-
-  /**
-   * Override close method to end the stream
-   */
-  public async close(): Promise<void> {
-    await super.close();
-    
-    if (!this.shouldFail.close) {
-      this.stream.end();
-    }
-  }
-}
-
-/**
- * Mock implementation of CloudWatch transport for testing
- */
-export class MockCloudWatchTransport extends MockTransport {
-  public readonly logGroupName: string;
-  public readonly logStreamName: string;
-  public readonly region: string;
-  public readonly cloudWatchLogs: {
-    createLogGroup: jest.Mock;
-    createLogStream: jest.Mock;
-    putLogEvents: jest.Mock;
-    describeLogStreams: jest.Mock;
-  };
-  public readonly batchSize: number;
-  public readonly flushInterval: number;
-  public readonly buffer: LogEntry[] = [];
-  private flushTimer: NodeJS.Timeout | null = null;
-
-  constructor(
-    id: string = 'mock-cloudwatch',
-    logGroupName: string = 'mock-log-group',
-    logStreamName: string = 'mock-log-stream',
-    region: string = 'us-east-1',
-    level: LogLevel = LogLevel.INFO,
-    batchSize: number = 10,
-    flushInterval: number = 1000
-  ) {
-    super(id, TransportType.CLOUDWATCH, level);
-    this.logGroupName = logGroupName;
-    this.logStreamName = logStreamName;
-    this.region = region;
-    this.batchSize = batchSize;
-    this.flushInterval = flushInterval;
-    
-    this.cloudWatchLogs = {
-      createLogGroup: jest.fn().mockResolvedValue({}),
-      createLogStream: jest.fn().mockResolvedValue({}),
-      putLogEvents: jest.fn().mockResolvedValue({ nextSequenceToken: 'mock-sequence-token' }),
-      describeLogStreams: jest.fn().mockResolvedValue({
-        logStreams: [{ logStreamName, uploadSequenceToken: 'mock-sequence-token' }],
-      }),
-    };
-  }
-
-  /**
-   * Override initialize method to set up CloudWatch-specific initialization
-   */
-  public async initialize(config: TransportConfig): Promise<void> {
-    await super.initialize(config);
-    
-    if (!this.shouldFail.initialize) {
-      await this.cloudWatchLogs.createLogGroup({ logGroupName: this.logGroupName });
-      await this.cloudWatchLogs.createLogStream({
-        logGroupName: this.logGroupName,
-        logStreamName: this.logStreamName,
-      });
-      
-      // Start flush timer
-      this.flushTimer = setInterval(() => this.flush(), this.flushInterval);
-    }
-  }
-
-  /**
-   * Override write method to buffer logs for CloudWatch
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    await super.write(entry);
-    
-    if (!this.shouldFail.write) {
-      this.buffer.push(entry);
-      
-      // Flush if buffer reaches batch size
-      if (this.buffer.length >= this.batchSize) {
-        await this.flush();
-      }
-    }
-  }
-
-  /**
-   * Override flush method to send buffered logs to CloudWatch
-   */
-  public async flush(): Promise<void> {
-    await super.flush();
-    
-    if (!this.shouldFail.flush && this.buffer.length > 0) {
-      const logEvents = this.buffer.map(entry => ({
-        timestamp: entry.timestamp.getTime(),
-        message: JSON.stringify(entry),
-      }));
-      
-      await this.cloudWatchLogs.putLogEvents({
-        logGroupName: this.logGroupName,
-        logStreamName: this.logStreamName,
-        logEvents,
-      });
-      
-      // Clear buffer after successful flush
-      this.buffer.length = 0;
-    }
-  }
-
-  /**
-   * Override close method to clean up resources
-   */
-  public async close(): Promise<void> {
-    await super.close();
-    
-    if (!this.shouldFail.close) {
-      // Clear flush timer
-      if (this.flushTimer) {
-        clearInterval(this.flushTimer);
-        this.flushTimer = null;
-      }
-      
-      // Flush any remaining logs
-      await this.flush();
-    }
-  }
-}
-
-/**
- * Mock implementation of HTTP transport for testing
- */
-export class MockHttpTransport extends MockTransport {
-  public readonly endpoint: string;
-  public readonly httpClient: {
-    post: jest.Mock;
-  };
-  public readonly headers: Record<string, string>;
-
-  constructor(
-    id: string = 'mock-http',
-    endpoint: string = 'https://logs.example.com/ingest',
-    level: LogLevel = LogLevel.INFO,
-    headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  ) {
-    super(id, 'http', level);
-    this.endpoint = endpoint;
-    this.headers = headers;
-    this.httpClient = {
-      post: jest.fn().mockResolvedValue({ status: 200, data: { success: true } }),
-    };
-  }
-
-  /**
-   * Override write method to send logs via HTTP
-   */
-  public async write(entry: LogEntry): Promise<void> {
-    await super.write(entry);
-    
-    if (!this.shouldFail.write) {
-      await this.httpClient.post(this.endpoint, entry, { headers: this.headers });
-    }
-  }
-
-  /**
-   * Override writeBatch method to send logs in batch via HTTP
-   */
-  public async writeBatch(batch: LogBatch): Promise<void> {
-    await super.writeBatch(batch);
-    
-    if (!this.shouldFail.writeBatch) {
-      await this.httpClient.post(this.endpoint, { logs: batch.entries }, { headers: this.headers });
-    }
-  }
-}
-
-/**
- * Interface for tracking formatter method calls
- */
-export interface FormatterMethodCalls {
-  format: { entry: LogEntry }[];
-}
-
-/**
- * Mock implementation of a formatter for testing
- */
-export class MockFormatter implements Formatter {
-  public readonly name: string;
-  public methodCalls: FormatterMethodCalls = {
-    format: [],
-  };
-  public shouldFail: boolean = false;
-  public errorMessage: string = 'Mock formatter error';
-  public formatResult: string | Record<string, any> = '{"mock":"formatted log"}';
-
-  constructor(name: string = 'mock-formatter') {
+  constructor(name = 'MockTransport') {
     this.name = name;
   }
 
   /**
-   * Configures the formatter to fail when called
+   * Initializes the transport
    */
-  public setToFail(message: string = 'Mock formatter error'): void {
-    this.shouldFail = true;
-    this.errorMessage = message;
+  async initialize(): Promise<void> {
+    if (this.errorOnInit) {
+      throw new Error(`Failed to initialize ${this.name}`);
+    }
+    this.initialized = true;
+    return Promise.resolve();
   }
 
   /**
-   * Configures the formatter to succeed when called
+   * Writes a log entry to the transport
+   * @param entry The log entry to write
    */
-  public setToSucceed(result: string | Record<string, any> = '{"mock":"formatted log"}'): void {
-    this.shouldFail = false;
-    this.formatResult = result;
+  async write(entry: LogEntry): Promise<void> {
+    if (this.errorOnWrite) {
+      throw new Error(`Failed to write to ${this.name}`);
+    }
+    this.logs.push({ ...entry });
+    return Promise.resolve();
   }
 
   /**
-   * Resets all tracked calls
+   * Writes multiple log entries to the transport
+   * @param entries The log entries to write
    */
-  public reset(): void {
-    this.methodCalls = {
-      format: [],
+  async writeBatch(entries: LogEntry[]): Promise<void> {
+    if (this.errorOnWrite) {
+      throw new Error(`Failed to write batch to ${this.name}`);
+    }
+    entries.forEach(entry => this.logs.push({ ...entry }));
+    return Promise.resolve();
+  }
+
+  /**
+   * Closes the transport
+   */
+  async close(): Promise<void> {
+    this.closed = true;
+    return Promise.resolve();
+  }
+
+  /**
+   * Clears all captured logs
+   */
+  clear(): void {
+    this.logs = [];
+  }
+
+  /**
+   * Gets logs filtered by level
+   * @param level The log level to filter by
+   */
+  getLogsByLevel(level: LogLevel): LogEntry[] {
+    return this.logs.filter(log => log.level === level);
+  }
+
+  /**
+   * Gets logs containing a specific message substring
+   * @param messageSubstring The substring to search for
+   */
+  getLogsByMessage(messageSubstring: string): LogEntry[] {
+    return this.logs.filter(log => 
+      typeof log.message === 'string' && log.message.includes(messageSubstring)
+    );
+  }
+
+  /**
+   * Gets logs with a specific journey context
+   * @param journeyType The journey type to filter by
+   */
+  getLogsByJourney(journeyType: 'health' | 'care' | 'plan'): LogEntry[] {
+    return this.logs.filter(log => 
+      log.context && 
+      log.context.journey && 
+      log.context.journey.type === journeyType
+    );
+  }
+}
+
+/**
+ * Mock implementation of CloudWatch transport for testing AWS integration.
+ * Simulates CloudWatch-specific behavior and captures logs for inspection.
+ */
+export class MockCloudWatchTransport extends MockTransport {
+  public logGroupName: string;
+  public logStreamName: string;
+  public region: string;
+  public sequenceToken: string;
+  public putLogEventsCallCount = 0;
+  public createLogGroupCallCount = 0;
+  public createLogStreamCallCount = 0;
+
+  constructor(config: {
+    logGroupName?: string;
+    logStreamName?: string;
+    region?: string;
+  } = {}) {
+    super('MockCloudWatchTransport');
+    this.logGroupName = config.logGroupName || '/aws/lambda/test';
+    this.logStreamName = config.logStreamName || 'test-stream';
+    this.region = config.region || 'us-east-1';
+    this.sequenceToken = '49590302748271309279';
+  }
+
+  /**
+   * Simulates creating a CloudWatch log group
+   */
+  async createLogGroup(): Promise<void> {
+    this.createLogGroupCallCount++;
+    return Promise.resolve();
+  }
+
+  /**
+   * Simulates creating a CloudWatch log stream
+   */
+  async createLogStream(): Promise<void> {
+    this.createLogStreamCallCount++;
+    return Promise.resolve();
+  }
+
+  /**
+   * Simulates putting log events to CloudWatch
+   * @param entries The log entries to write
+   */
+  async putLogEvents(entries: LogEntry[]): Promise<void> {
+    this.putLogEventsCallCount++;
+    await this.writeBatch(entries);
+    this.sequenceToken = Math.floor(Math.random() * 10000000000000000000).toString();
+    return Promise.resolve();
+  }
+
+  /**
+   * Gets CloudWatch-specific metadata from logs
+   */
+  getCloudWatchMetadata(): Array<{ timestamp: number, requestId?: string }> {
+    return this.logs.map(log => ({
+      timestamp: log.timestamp instanceof Date ? log.timestamp.getTime() : 0,
+      requestId: log.context?.requestId
+    }));
+  }
+}
+
+/**
+ * Mock implementation of console transport for testing console output.
+ * Captures console output for inspection during tests.
+ */
+export class MockConsoleTransport extends MockTransport {
+  public stdoutLogs: string[] = [];
+  public stderrLogs: string[] = [];
+  public colorEnabled = true;
+  public originalConsoleLog: typeof console.log;
+  public originalConsoleError: typeof console.error;
+  public intercepting = false;
+
+  constructor() {
+    super('MockConsoleTransport');
+    this.originalConsoleLog = console.log;
+    this.originalConsoleError = console.error;
+  }
+
+  /**
+   * Starts intercepting console output
+   */
+  startIntercepting(): void {
+    if (this.intercepting) return;
+    
+    this.intercepting = true;
+    console.log = (...args: any[]) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+      ).join(' ');
+      this.stdoutLogs.push(message);
+    };
+    
+    console.error = (...args: any[]) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+      ).join(' ');
+      this.stderrLogs.push(message);
     };
   }
 
   /**
-   * Mock implementation of format method
+   * Stops intercepting console output
    */
-  public format(entry: LogEntry): string | Record<string, any> {
-    this.methodCalls.format.push({ entry });
+  stopIntercepting(): void {
+    if (!this.intercepting) return;
     
-    if (this.shouldFail) {
-      throw new Error(this.errorMessage);
+    console.log = this.originalConsoleLog;
+    console.error = this.originalConsoleError;
+    this.intercepting = false;
+  }
+
+  /**
+   * Writes a log entry to the console transport
+   * @param entry The log entry to write
+   */
+  async write(entry: LogEntry): Promise<void> {
+    await super.write(entry);
+    
+    const message = typeof entry.message === 'string' 
+      ? entry.message 
+      : JSON.stringify(entry.message);
+    
+    if (entry.level === LogLevel.ERROR || entry.level === LogLevel.FATAL) {
+      this.stderrLogs.push(message);
+    } else {
+      this.stdoutLogs.push(message);
+    }
+    
+    return Promise.resolve();
+  }
+
+  /**
+   * Clears all captured console output
+   */
+  clear(): void {
+    super.clear();
+    this.stdoutLogs = [];
+    this.stderrLogs = [];
+  }
+}
+
+/**
+ * Mock implementation of a writable stream for testing stream-based logging.
+ * Captures written data for inspection during tests.
+ */
+export class MockWritableStream {
+  public chunks: Buffer[] = [];
+  public encoding: BufferEncoding = 'utf8';
+  public closed = false;
+  public errorOnWrite = false;
+  
+  /**
+   * Writes data to the stream
+   * @param chunk The data to write
+   * @param encoding The encoding to use
+   * @param callback The callback to call when done
+   */
+  write(chunk: any, encoding?: BufferEncoding | ((error?: Error) => void), callback?: (error?: Error) => void): boolean {
+    if (this.errorOnWrite) {
+      const error = new Error('Failed to write to stream');
+      if (typeof encoding === 'function') {
+        encoding(error);
+      } else if (callback) {
+        callback(error);
+      }
+      return false;
+    }
+    
+    if (typeof encoding === 'string') {
+      this.encoding = encoding;
+    }
+    
+    if (Buffer.isBuffer(chunk)) {
+      this.chunks.push(chunk);
+    } else if (typeof chunk === 'string') {
+      this.chunks.push(Buffer.from(chunk, this.encoding));
+    } else {
+      this.chunks.push(Buffer.from(String(chunk), this.encoding));
+    }
+    
+    if (typeof encoding === 'function') {
+      encoding();
+    } else if (callback) {
+      callback();
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Ends the stream
+   */
+  end(): void {
+    this.closed = true;
+  }
+  
+  /**
+   * Gets all written data as a string
+   */
+  getContentsAsString(): string {
+    return Buffer.concat(this.chunks).toString(this.encoding);
+  }
+  
+  /**
+   * Gets all written data as a buffer
+   */
+  getContentsAsBuffer(): Buffer {
+    return Buffer.concat(this.chunks);
+  }
+  
+  /**
+   * Gets all written data as JSON objects
+   * Assumes each line is a valid JSON object
+   */
+  getContentsAsJsonObjects(): any[] {
+    const content = this.getContentsAsString();
+    return content
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch (e) {
+          return { parseError: true, rawLine: line };
+        }
+      });
+  }
+  
+  /**
+   * Clears all captured data
+   */
+  clear(): void {
+    this.chunks = [];
+  }
+}
+
+/**
+ * Mock implementation of HTTP transport for testing HTTP request logging.
+ * Simulates HTTP requests and captures logs for inspection.
+ */
+export class MockHttpTransport extends MockTransport {
+  public endpoint: string;
+  public headers: Record<string, string>;
+  public requestCount = 0;
+  public lastRequestBody: any = null;
+  public lastRequestHeaders: Record<string, string> = {};
+  public responseStatus = 200;
+  public responseBody = { success: true };
+  
+  constructor(config: {
+    endpoint?: string;
+    headers?: Record<string, string>;
+  } = {}) {
+    super('MockHttpTransport');
+    this.endpoint = config.endpoint || 'https://logs.example.com/ingest';
+    this.headers = config.headers || { 'Content-Type': 'application/json' };
+  }
+  
+  /**
+   * Simulates sending an HTTP request with log data
+   * @param entry The log entry to send
+   */
+  async write(entry: LogEntry): Promise<void> {
+    await super.write(entry);
+    this.requestCount++;
+    this.lastRequestBody = entry;
+    this.lastRequestHeaders = { ...this.headers };
+    return Promise.resolve();
+  }
+  
+  /**
+   * Simulates sending a batch of log entries in a single HTTP request
+   * @param entries The log entries to send
+   */
+  async writeBatch(entries: LogEntry[]): Promise<void> {
+    await super.writeBatch(entries);
+    this.requestCount++;
+    this.lastRequestBody = entries;
+    this.lastRequestHeaders = { ...this.headers };
+    return Promise.resolve();
+  }
+  
+  /**
+   * Sets the simulated HTTP response
+   * @param status The HTTP status code to return
+   * @param body The response body to return
+   */
+  setResponse(status: number, body: any): void {
+    this.responseStatus = status;
+    this.responseBody = body;
+  }
+  
+  /**
+   * Sets custom headers for HTTP requests
+   * @param headers The headers to set
+   */
+  setHeaders(headers: Record<string, string>): void {
+    this.headers = { ...headers };
+  }
+  
+  /**
+   * Gets information about all HTTP requests made
+   */
+  getRequestInfo(): { count: number, lastBody: any, lastHeaders: Record<string, string> } {
+    return {
+      count: this.requestCount,
+      lastBody: this.lastRequestBody,
+      lastHeaders: this.lastRequestHeaders
+    };
+  }
+}
+
+/**
+ * Mock implementation of the Formatter interface for testing log format transformations.
+ * Provides configurable formatting behavior for testing different format scenarios.
+ */
+export class MockFormatter implements Formatter {
+  public formatCallCount = 0;
+  public lastEntry: LogEntry | null = null;
+  public formatResult: string = '{"mock":"formatted"}';
+  public errorOnFormat = false;
+  public formatImplementation: ((entry: LogEntry) => string) | null = null;
+  
+  /**
+   * Formats a log entry into a string
+   * @param entry The log entry to format
+   */
+  format(entry: LogEntry): string {
+    this.formatCallCount++;
+    this.lastEntry = { ...entry };
+    
+    if (this.errorOnFormat) {
+      throw new Error('Failed to format log entry');
+    }
+    
+    if (this.formatImplementation) {
+      return this.formatImplementation(entry);
     }
     
     return this.formatResult;
   }
-}
-
-/**
- * Mock implementation of JSON formatter for testing
- */
-export class MockJsonFormatter extends MockFormatter {
-  constructor(name: string = 'mock-json-formatter') {
-    super(name);
-    this.formatResult = JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'INFO',
-      message: 'Mock formatted message',
-      context: {},
-    });
-  }
-
+  
   /**
-   * Override format method to return JSON string
+   * Sets a custom format implementation
+   * @param implementation The custom format implementation
    */
-  public format(entry: LogEntry): string {
-    this.methodCalls.format.push({ entry });
-    
-    if (this.shouldFail) {
-      throw new Error(this.errorMessage);
-    }
-    
-    return typeof this.formatResult === 'string'
-      ? this.formatResult
-      : JSON.stringify(this.formatResult);
+  setFormatImplementation(implementation: (entry: LogEntry) => string): void {
+    this.formatImplementation = implementation;
   }
-}
-
-/**
- * Mock implementation of text formatter for testing
- */
-export class MockTextFormatter extends MockFormatter {
-  constructor(name: string = 'mock-text-formatter') {
-    super(name);
-    this.formatResult = '[INFO] 2023-01-01T00:00:00.000Z - Mock formatted message';
-  }
-
+  
   /**
-   * Override format method to return text string
+   * Sets the result to return from format
+   * @param result The result to return
    */
-  public format(entry: LogEntry): string {
-    this.methodCalls.format.push({ entry });
-    
-    if (this.shouldFail) {
-      throw new Error(this.errorMessage);
-    }
-    
-    return typeof this.formatResult === 'string'
-      ? this.formatResult
-      : `[${entry.level}] ${entry.timestamp.toISOString()} - ${entry.message}`;
+  setFormatResult(result: string): void {
+    this.formatResult = result;
+  }
+  
+  /**
+   * Resets the mock formatter state
+   */
+  reset(): void {
+    this.formatCallCount = 0;
+    this.lastEntry = null;
+    this.errorOnFormat = false;
+    this.formatImplementation = null;
+    this.formatResult = '{"mock":"formatted"}';
   }
 }
 
 /**
- * Mock implementation of CloudWatch formatter for testing
+ * Creates a mock logger configuration for testing
+ * @param overrides Configuration overrides
  */
-export class MockCloudWatchFormatter extends MockFormatter {
-  constructor(name: string = 'mock-cloudwatch-formatter') {
-    super(name);
-    this.formatResult = JSON.stringify({
-      timestamp: new Date().getTime(),
-      level: 'INFO',
-      message: 'Mock formatted message',
-      service: 'test-service',
+export function createMockLoggerConfig(overrides: Partial<LoggerConfig> = {}): LoggerConfig {
+  return {
+    level: LogLevel.INFO,
+    transports: ['console'],
+    formatter: 'json',
+    context: {
+      application: 'test-app',
       environment: 'test',
-      awsRegion: 'us-east-1',
+    },
+    cloudwatch: {
+      enabled: false,
+      logGroupName: '/aws/lambda/test',
+      logStreamName: 'test-stream',
+      region: 'us-east-1',
+    },
+    file: {
+      enabled: false,
+      filename: 'logs/test.log',
+      maxSize: '10m',
+      maxFiles: 5,
+    },
+    console: {
+      enabled: true,
+      colorize: true,
+    },
+    http: {
+      enabled: false,
+      endpoint: 'https://logs.example.com/ingest',
+      headers: { 'Content-Type': 'application/json' },
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a mock log entry for testing
+ * @param overrides Log entry overrides
+ */
+export function createMockLogEntry(overrides: Partial<LogEntry> = {}): LogEntry {
+  return {
+    message: 'Test log message',
+    level: LogLevel.INFO,
+    timestamp: new Date(),
+    context: {
+      requestId: '12345-67890-abcdef',
+      userId: 'user-123',
+      journey: {
+        type: 'health',
+        action: 'view-metrics',
+      },
+      application: 'test-app',
+      environment: 'test',
+    },
+    metadata: {},
+    ...overrides,
+  };
+}
+
+/**
+ * Creates journey-specific mock log entries for testing
+ * @param journeyType The journey type
+ * @param count Number of entries to create
+ */
+export function createJourneyMockLogEntries(
+  journeyType: 'health' | 'care' | 'plan',
+  count = 5
+): LogEntry[] {
+  const entries: LogEntry[] = [];
+  
+  const journeyActions: Record<string, string[]> = {
+    health: ['view-metrics', 'record-measurement', 'set-goal', 'sync-device', 'view-insights'],
+    care: ['book-appointment', 'view-providers', 'start-telemedicine', 'check-symptoms', 'view-medications'],
+    plan: ['view-benefits', 'submit-claim', 'check-coverage', 'view-documents', 'update-plan'],
+  };
+  
+  const actions = journeyActions[journeyType] || ['default-action'];
+  
+  for (let i = 0; i < count; i++) {
+    const level = i % 5 === 0 ? LogLevel.ERROR :
+                i % 4 === 0 ? LogLevel.WARN :
+                i % 3 === 0 ? LogLevel.DEBUG :
+                i % 2 === 0 ? LogLevel.VERBOSE : LogLevel.INFO;
+    
+    const action = actions[i % actions.length];
+    
+    entries.push({
+      message: `${journeyType} journey log ${i + 1}`,
+      level,
+      timestamp: new Date(Date.now() - i * 1000), // Staggered timestamps
+      context: {
+        requestId: `req-${journeyType}-${i}`,
+        userId: `user-${100 + i}`,
+        journey: {
+          type: journeyType,
+          action,
+        },
+        application: 'test-app',
+        environment: 'test',
+      },
+      metadata: {
+        testId: i,
+        journeyType,
+      },
     });
   }
-
-  /**
-   * Override format method to return CloudWatch-compatible JSON
-   */
-  public format(entry: LogEntry): string {
-    this.methodCalls.format.push({ entry });
-    
-    if (this.shouldFail) {
-      throw new Error(this.errorMessage);
-    }
-    
-    return typeof this.formatResult === 'string'
-      ? this.formatResult
-      : JSON.stringify({
-          ...this.formatResult,
-          timestamp: entry.timestamp.getTime(),
-          level: entry.level,
-          message: entry.message,
-        });
-  }
+  
+  return entries;
 }
 
 /**
- * Mock implementation of a readable log stream for testing
+ * Creates a mock transport factory for testing
  */
-export class MockLogStream extends Readable {
-  private logs: string[];
-  private currentIndex: number = 0;
-
-  constructor(logs: string[] = []) {
-    super();
-    this.logs = logs;
-  }
-
-  /**
-   * Add a log entry to the stream
-   */
-  public addLog(log: string): void {
-    this.logs.push(log);
-    this.push(log + '\n');
-  }
-
-  /**
-   * Add multiple log entries to the stream
-   */
-  public addLogs(logs: string[]): void {
-    for (const log of logs) {
-      this.addLog(log);
-    }
-  }
-
-  /**
-   * Clear all logs from the stream
-   */
-  public clearLogs(): void {
-    this.logs = [];
-    this.currentIndex = 0;
-  }
-
-  /**
-   * Implementation of _read method required by Readable
-   */
-  _read(size: number): void {
-    if (this.currentIndex >= this.logs.length) {
-      // No more logs to read
-      this.push(null);
-      return;
-    }
-
-    const end = Math.min(this.currentIndex + size, this.logs.length);
-    for (let i = this.currentIndex; i < end; i++) {
-      this.push(this.logs[i] + '\n');
-    }
-    this.currentIndex = end;
-  }
-}
-
-/**
- * Creates a mock event emitter that can be used to simulate events
- * for testing event-based logging functionality
- */
-export class MockLogEventEmitter extends EventEmitter {
-  public readonly events: Record<string, any[]> = {};
-
-  /**
-   * Override emit to track emitted events
-   */
-  public emit(event: string | symbol, ...args: any[]): boolean {
-    const eventName = event.toString();
-    if (!this.events[eventName]) {
-      this.events[eventName] = [];
-    }
-    this.events[eventName].push(args);
-    return super.emit(event, ...args);
-  }
-
-  /**
-   * Get all events of a specific type
-   */
-  public getEvents(event: string): any[] {
-    return this.events[event] || [];
-  }
-
-  /**
-   * Clear all tracked events
-   */
-  public clearEvents(): void {
-    for (const key in this.events) {
-      delete this.events[key];
-    }
-  }
+export function createMockTransportFactory() {
+  const transports: Record<string, MockTransport> = {
+    console: new MockConsoleTransport(),
+    cloudwatch: new MockCloudWatchTransport(),
+    file: new MockTransport('MockFileTransport'),
+    http: new MockHttpTransport(),
+  };
+  
+  return {
+    /**
+     * Gets a transport by name
+     * @param name The transport name
+     */
+    getTransport(name: string): MockTransport {
+      return transports[name] || new MockTransport(`Mock${name}Transport`);
+    },
+    
+    /**
+     * Creates a new transport
+     * @param type The transport type
+     * @param config The transport configuration
+     */
+    createTransport(type: string, config: any = {}): MockTransport {
+      let transport: MockTransport;
+      
+      switch (type) {
+        case 'console':
+          transport = new MockConsoleTransport();
+          break;
+        case 'cloudwatch':
+          transport = new MockCloudWatchTransport(config);
+          break;
+        case 'http':
+          transport = new MockHttpTransport(config);
+          break;
+        case 'file':
+        default:
+          transport = new MockTransport(`Mock${type}Transport`);
+      }
+      
+      transports[type] = transport;
+      return transport;
+    },
+    
+    /**
+     * Gets all created transports
+     */
+    getAllTransports(): Record<string, MockTransport> {
+      return { ...transports };
+    },
+    
+    /**
+     * Clears all transports
+     */
+    clearAll(): void {
+      Object.values(transports).forEach(transport => transport.clear());
+    },
+  };
 }

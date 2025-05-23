@@ -1,715 +1,427 @@
-/**
- * @file Log Contexts Fixture
- * @description Provides sample logging context objects for testing context-aware logging capabilities.
- * Includes request contexts, user contexts, transaction contexts, and journey contexts for comprehensive testing.
- */
-
-import { LoggingContext } from '../../src/context/context.interface';
-import { 
-  HttpMethod, 
-  RequestContext, 
-  SanitizedHeaders, 
-  ResponseInfo 
-} from '../../src/context/request-context.interface';
-import { 
-  AuthenticationStatus, 
-  UserContext, 
-  UserRole, 
-  UserPermission, 
-  UserPreferences 
-} from '../../src/context/user-context.interface';
-import { 
-  JourneyContext, 
-  JourneyType, 
-  JourneyState, 
-  CrossJourneyContext 
-} from '../../src/context/journey-context.interface';
-
-// Common base context properties used across all context types
-const baseContext: LoggingContext = {
-  correlationId: '550e8400-e29b-41d4-a716-446655440000',
-  timestamp: '2023-04-15T14:30:45.123Z',
-  serviceName: 'api-gateway',
-  applicationName: 'austa-superapp',
-  environment: 'test',
-  version: '1.2.3',
-  traceId: 'trace-550e8400-e29b-41d4-a716-446655440000',
-  spanId: 'span-550e8400-e29b-41d4-a716-446655440000',
-};
+import { JourneyType } from '../../src/interfaces/log-entry.interface';
 
 /**
- * Request Context Fixtures
- * Sample HTTP request contexts for testing request-specific logging.
+ * Sample request context objects for testing context-aware logging capabilities.
+ * These objects contain HTTP metadata, IP addresses, and user agents.
  */
 export const requestContexts = {
   /**
-   * Basic GET request context with minimal information
+   * Basic request context with minimal information
    */
-  basicGetRequest: {
-    ...baseContext,
-    requestId: 'req-550e8400-e29b-41d4-a716-446655440000',
-    method: HttpMethod.GET,
-    path: '/api/health/metrics',
-    ipAddress: '192.168.1.100',
-  } as RequestContext,
+  basic: {
+    requestId: '123e4567-e89b-12d3-a456-426614174000',
+    clientIp: '192.168.1.1',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+  },
 
   /**
-   * Comprehensive POST request context with detailed information
+   * Mobile app request context
    */
-  detailedPostRequest: {
-    ...baseContext,
-    requestId: 'req-550e8400-e29b-41d4-a716-446655440001',
-    method: HttpMethod.POST,
-    url: 'https://api.austa.health/api/health/metrics',
-    path: '/api/health/metrics',
-    ipAddress: '192.168.1.101',
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    headers: {
-      'content-type': 'application/json',
-      'accept': 'application/json',
-      'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-      'authorization': 'Bearer [REDACTED]',
-    } as SanitizedHeaders,
-    body: {
-      metricType: 'heart-rate',
-      value: 72,
-      timestamp: '2023-04-15T14:30:40.000Z',
-    },
-    query: {
-      includeHistory: 'true',
-    },
-    params: {
-      userId: '123456',
-    },
-    apiVersion: 'v1',
-    endpoint: 'HealthMetricsController',
-    operation: 'recordMetric',
-    timing: {
-      receivedAt: '2023-04-15T14:30:44.000Z',
-      middlewareDuration: 15,
-      handlerDuration: 85,
-      totalDuration: 100,
-    },
-    client: {
-      type: 'mobile-app',
-      appId: 'com.austa.health.mobile',
-      version: '2.1.0',
-      device: {
-        type: 'mobile',
-        os: 'iOS 14.4',
-        browser: 'Safari',
-      },
-    },
-    journeyInfo: {
-      journeyType: 'health',
-      journeyAction: 'record-metric',
-      journeyContext: {
-        metricType: 'heart-rate',
-        goalId: 'goal-123',
-      },
-    },
-    transaction: {
-      transactionId: 'tx-550e8400-e29b-41d4-a716-446655440000',
-      transactionType: 'health-metric-recording',
-      transactionStep: 'validation',
-    },
-  } as RequestContext,
+  mobileApp: {
+    requestId: '123e4567-e89b-12d3-a456-426614174001',
+    clientIp: '10.0.0.1',
+    userAgent: 'AUSTA-SuperApp/1.0.0 (iPhone; iOS 15.0; Scale/3.00)',
+    appVersion: '1.0.0',
+    deviceModel: 'iPhone 13',
+    osVersion: 'iOS 15.0'
+  },
 
   /**
-   * Failed request context with error response
+   * Web app request context
    */
-  failedRequest: {
-    ...baseContext,
-    requestId: 'req-550e8400-e29b-41d4-a716-446655440002',
-    method: HttpMethod.PUT,
-    path: '/api/health/goals/invalid-id',
-    ipAddress: '192.168.1.102',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    response: {
-      statusCode: 404,
-      statusMessage: 'Not Found',
-      contentType: 'application/json',
-      contentLength: 102,
-      responseTime: 45,
-    } as ResponseInfo,
-    timing: {
-      receivedAt: '2023-04-15T14:31:00.000Z',
-      middlewareDuration: 10,
-      handlerDuration: 35,
-      totalDuration: 45,
-    },
-  } as RequestContext,
+  webApp: {
+    requestId: '123e4567-e89b-12d3-a456-426614174002',
+    clientIp: '172.16.254.1',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36',
+    referrer: 'https://austa-superapp.com/health/dashboard',
+    language: 'pt-BR'
+  },
 
   /**
-   * API Gateway request context with routing information
+   * API request context
    */
-  apiGatewayRequest: {
-    ...baseContext,
-    requestId: 'req-550e8400-e29b-41d4-a716-446655440003',
-    method: HttpMethod.GET,
-    path: '/api/care/appointments',
-    ipAddress: '192.168.1.103',
+  apiRequest: {
+    requestId: '123e4567-e89b-12d3-a456-426614174003',
+    clientIp: '54.240.196.186',
     userAgent: 'PostmanRuntime/7.28.0',
-    headers: {
-      'content-type': 'application/json',
-      'accept': 'application/json',
-      'user-agent': 'PostmanRuntime/7.28.0',
-      'x-api-key': '[REDACTED]',
-    } as SanitizedHeaders,
-    apiVersion: 'v1',
-    endpoint: 'ApiGateway',
-    operation: 'routeRequest',
-    rateLimit: {
-      limit: 100,
-      remaining: 95,
-      reset: 1618495845,
-    },
-  } as RequestContext,
+    method: 'POST',
+    path: '/api/v1/health/metrics',
+    contentType: 'application/json'
+  },
+
+  /**
+   * GraphQL request context
+   */
+  graphqlRequest: {
+    requestId: '123e4567-e89b-12d3-a456-426614174004',
+    clientIp: '54.240.196.187',
+    userAgent: 'Apollo-Client/3.3.0',
+    operationName: 'GetHealthMetrics',
+    operationType: 'query',
+    variables: { userId: '1234', metricType: 'HEART_RATE' }
+  }
 };
 
 /**
- * User Context Fixtures
- * Sample user contexts for testing user-specific logging.
+ * Sample user context objects for testing context-aware logging capabilities.
+ * These objects contain user IDs, roles, and permissions.
  */
 export const userContexts = {
   /**
-   * Basic authenticated user context
+   * Basic user context with minimal information
    */
-  basicAuthenticatedUser: {
-    ...baseContext,
-    userId: 'user-123456',
-    authStatus: AuthenticationStatus.AUTHENTICATED,
-    lastAuthenticatedAt: '2023-04-15T12:30:45.123Z',
-  } as UserContext,
+  basic: {
+    userId: 'usr_123456789',
+    sessionId: 'sess_abcdef123456'
+  },
 
   /**
-   * Comprehensive user context with detailed information
+   * Patient user context
    */
-  detailedUserContext: {
-    ...baseContext,
-    userId: 'user-789012',
-    authStatus: AuthenticationStatus.AUTHENTICATED,
-    lastAuthenticatedAt: '2023-04-15T13:45:22.456Z',
-    authMethod: 'password',
-    roles: [
-      {
-        id: 'role-1',
-        name: 'patient',
-        description: 'Regular patient user',
-        assignedAt: '2023-01-10T10:00:00.000Z',
-      },
-      {
-        id: 'role-2',
-        name: 'premium-member',
-        description: 'Premium membership user',
-        assignedAt: '2023-03-15T14:30:00.000Z',
-      },
-    ] as UserRole[],
-    permissions: [
-      {
-        id: 'perm-1',
-        resource: 'health-metrics',
-        action: 'read',
-      },
-      {
-        id: 'perm-2',
-        resource: 'health-metrics',
-        action: 'write',
-      },
-      {
-        id: 'perm-3',
-        resource: 'appointments',
-        action: 'read',
-      },
-      {
-        id: 'perm-4',
-        resource: 'appointments',
-        action: 'write',
-      },
-    ] as UserPermission[],
-    preferences: {
-      language: 'pt-BR',
-      theme: 'light',
-      notifications: {
-        emailEnabled: true,
-        pushEnabled: true,
-        smsEnabled: false,
-        subscribedTypes: ['appointment-reminder', 'health-alert', 'achievement'],
-      },
-      privacy: {
-        dataSharingEnabled: true,
-        analyticsEnabled: true,
-        personalizationEnabled: true,
-      },
-      journeyPreferences: {
-        health: {
-          defaultMetricView: 'weekly',
-          preferredDevices: ['fitbit', 'apple-health'],
-        },
-        care: {
-          preferredAppointmentType: 'video',
-          reminderTime: 60, // minutes before appointment
-        },
-      },
-    } as UserPreferences,
-    session: {
-      sessionId: 'session-550e8400-e29b-41d4-a716-446655440000',
-      startedAt: '2023-04-15T13:45:00.000Z',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-      device: {
-        type: 'mobile',
-        os: 'iOS 14.4',
-        browser: 'Safari',
-      },
-    },
-    account: {
-      type: 'premium',
-      status: 'active',
-      createdAt: '2022-10-15T09:30:00.000Z',
-      isVerified: true,
-    },
-    journeyHistory: {
-      lastJourney: 'health',
-      lastJourneyTimestamp: '2023-04-15T14:15:30.000Z',
-      journeyInteractionCount: 12,
-    },
-    gamification: {
-      level: 5,
-      xp: 1250,
-      achievements: ['first-metric', 'weekly-streak', 'appointment-master'],
-      activeChallenges: ['daily-steps', 'meditation-week'],
-    },
-  } as UserContext,
+  patient: {
+    userId: 'usr_123456790',
+    sessionId: 'sess_abcdef123457',
+    roles: ['patient'],
+    permissions: ['read:health', 'write:health', 'read:care', 'write:care', 'read:plan'],
+    accountType: 'standard',
+    accountCreatedAt: '2023-01-15T12:00:00Z'
+  },
 
   /**
-   * Unauthenticated user context
+   * Healthcare provider user context
    */
-  unauthenticatedUser: {
-    ...baseContext,
-    userId: 'anonymous',
-    authStatus: AuthenticationStatus.UNAUTHENTICATED,
-    session: {
-      sessionId: 'session-550e8400-e29b-41d4-a716-446655440001',
-      startedAt: '2023-04-15T14:20:00.000Z',
-      ipAddress: '192.168.1.106',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    },
-  } as UserContext,
+  provider: {
+    userId: 'usr_123456791',
+    sessionId: 'sess_abcdef123458',
+    roles: ['provider'],
+    permissions: ['read:health', 'write:health', 'read:care', 'write:care', 'manage:appointments'],
+    providerType: 'physician',
+    specialization: 'cardiology',
+    accountType: 'professional'
+  },
 
   /**
-   * User with failed authentication
+   * Administrator user context
    */
-  failedAuthUser: {
-    ...baseContext,
-    userId: 'user-345678',
-    authStatus: AuthenticationStatus.FAILED,
-    lastAuthenticatedAt: '2023-04-14T18:30:45.123Z', // Last successful auth was yesterday
-    authMethod: 'password',
-    session: {
-      sessionId: 'session-550e8400-e29b-41d4-a716-446655440002',
-      startedAt: '2023-04-15T14:25:00.000Z',
-      ipAddress: '192.168.1.107',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    },
-  } as UserContext,
+  admin: {
+    userId: 'usr_123456792',
+    sessionId: 'sess_abcdef123459',
+    roles: ['admin'],
+    permissions: ['admin:health', 'admin:care', 'admin:plan', 'admin:system'],
+    adminLevel: 'system',
+    departmentId: 'dept_123'
+  },
+
+  /**
+   * Anonymous user context
+   */
+  anonymous: {
+    sessionId: 'sess_abcdef123460',
+    isAnonymous: true,
+    deviceFingerprint: 'fp_789xyz'
+  }
 };
 
 /**
- * Transaction Context Fixtures
- * Sample transaction contexts for testing business transaction tracking.
+ * Sample transaction context objects for testing context-aware logging capabilities.
+ * These objects contain operation IDs and correlation IDs for tracing business operations.
  */
-export interface TransactionContext extends LoggingContext {
-  transactionId: string;
-  operationId?: string;
-  transactionType: string;
-  transactionStatus: string;
-  startTime: string;
-  endTime?: string;
-  duration?: number;
-  sourceSystem?: string;
-  targetSystem?: string;
-  businessProcessId?: string;
-  businessProcessName?: string;
-  businessProcessStep?: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
-  retryCount?: number;
-  maxRetries?: number;
-  metadata?: Record<string, any>;
-  parentTransactionId?: string;
-  childTransactions?: string[];
-  relatedTransactions?: string[];
-  journeyType?: JourneyType;
-}
-
 export const transactionContexts = {
   /**
-   * Basic transaction context
+   * Basic transaction context with minimal information
    */
-  basicTransaction: {
-    ...baseContext,
-    transactionId: 'tx-550e8400-e29b-41d4-a716-446655440000',
-    transactionType: 'health-metric-recording',
-    transactionStatus: 'completed',
-    startTime: '2023-04-15T14:30:40.000Z',
-    endTime: '2023-04-15T14:30:45.123Z',
-    duration: 5123, // milliseconds
-  } as TransactionContext,
+  basic: {
+    traceId: 'trace_123456789',
+    spanId: 'span_123456789',
+    parentSpanId: 'span_123456780'
+  },
 
   /**
-   * Comprehensive transaction context with detailed information
+   * Health metric recording transaction context
    */
-  detailedTransaction: {
-    ...baseContext,
-    transactionId: 'tx-550e8400-e29b-41d4-a716-446655440001',
-    operationId: 'op-550e8400-e29b-41d4-a716-446655440001',
-    transactionType: 'appointment-booking',
-    transactionStatus: 'completed',
-    startTime: '2023-04-15T14:35:00.000Z',
-    endTime: '2023-04-15T14:35:10.456Z',
-    duration: 10456, // milliseconds
-    sourceSystem: 'mobile-app',
-    targetSystem: 'care-service',
-    businessProcessId: 'bp-550e8400-e29b-41d4-a716-446655440001',
-    businessProcessName: 'telemedicine-appointment-booking',
-    businessProcessStep: 'provider-selection',
-    priority: 'high',
-    retryCount: 0,
-    maxRetries: 3,
-    metadata: {
-      appointmentId: 'appt-123456',
-      providerId: 'provider-789',
-      appointmentType: 'video',
-      appointmentTime: '2023-04-20T10:00:00.000Z',
-      specialtyId: 'cardiology',
-    },
-    journeyType: JourneyType.CARE,
-  } as TransactionContext,
+  healthMetricRecording: {
+    traceId: 'trace_123456790',
+    spanId: 'span_123456791',
+    parentSpanId: 'span_123456781',
+    operationName: 'RecordHealthMetric',
+    startTime: '2023-06-15T08:30:00Z',
+    metricType: 'BLOOD_PRESSURE',
+    sourceDevice: 'wearable_123'
+  },
 
   /**
-   * Failed transaction context
+   * Appointment booking transaction context
    */
-  failedTransaction: {
-    ...baseContext,
-    transactionId: 'tx-550e8400-e29b-41d4-a716-446655440002',
-    transactionType: 'claim-submission',
-    transactionStatus: 'failed',
-    startTime: '2023-04-15T14:40:00.000Z',
-    endTime: '2023-04-15T14:40:05.789Z',
-    duration: 5789, // milliseconds
-    sourceSystem: 'web-app',
-    targetSystem: 'plan-service',
-    businessProcessId: 'bp-550e8400-e29b-41d4-a716-446655440002',
-    businessProcessName: 'insurance-claim-submission',
-    businessProcessStep: 'document-validation',
-    priority: 'medium',
-    retryCount: 3,
-    maxRetries: 3,
-    metadata: {
-      claimId: 'claim-123456',
-      errorCode: 'INVALID_DOCUMENT',
-      errorMessage: 'The submitted document is not valid or is missing required information',
-      documentIds: ['doc-123', 'doc-456'],
-    },
-    journeyType: JourneyType.PLAN,
-  } as TransactionContext,
+  appointmentBooking: {
+    traceId: 'trace_123456791',
+    spanId: 'span_123456792',
+    parentSpanId: 'span_123456782',
+    operationName: 'BookAppointment',
+    startTime: '2023-06-15T09:15:00Z',
+    providerId: 'provider_456',
+    appointmentType: 'CONSULTATION'
+  },
 
   /**
-   * Parent-child transaction context
+   * Insurance claim submission transaction context
    */
-  parentTransaction: {
-    ...baseContext,
-    transactionId: 'tx-550e8400-e29b-41d4-a716-446655440003',
-    transactionType: 'health-assessment',
-    transactionStatus: 'in-progress',
-    startTime: '2023-04-15T14:45:00.000Z',
-    sourceSystem: 'mobile-app',
-    targetSystem: 'health-service',
-    businessProcessId: 'bp-550e8400-e29b-41d4-a716-446655440003',
-    businessProcessName: 'comprehensive-health-assessment',
-    businessProcessStep: 'data-collection',
-    priority: 'medium',
-    childTransactions: [
-      'tx-550e8400-e29b-41d4-a716-446655440004',
-      'tx-550e8400-e29b-41d4-a716-446655440005',
-      'tx-550e8400-e29b-41d4-a716-446655440006',
-    ],
-    journeyType: JourneyType.HEALTH,
-  } as TransactionContext,
+  claimSubmission: {
+    traceId: 'trace_123456792',
+    spanId: 'span_123456793',
+    parentSpanId: 'span_123456783',
+    operationName: 'SubmitClaim',
+    startTime: '2023-06-15T10:00:00Z',
+    claimType: 'MEDICAL',
+    insuranceProvider: 'provider_789'
+  },
 
   /**
-   * Child transaction context
+   * Achievement unlocked transaction context
    */
-  childTransaction: {
-    ...baseContext,
-    transactionId: 'tx-550e8400-e29b-41d4-a716-446655440004',
-    transactionType: 'health-metric-retrieval',
-    transactionStatus: 'completed',
-    startTime: '2023-04-15T14:45:05.000Z',
-    endTime: '2023-04-15T14:45:07.123Z',
-    duration: 2123, // milliseconds
-    sourceSystem: 'health-service',
-    targetSystem: 'health-metrics-db',
-    businessProcessId: 'bp-550e8400-e29b-41d4-a716-446655440003',
-    businessProcessName: 'comprehensive-health-assessment',
-    businessProcessStep: 'retrieve-metrics',
-    priority: 'medium',
-    parentTransactionId: 'tx-550e8400-e29b-41d4-a716-446655440003',
-    metadata: {
-      metricTypes: ['heart-rate', 'blood-pressure', 'weight', 'steps'],
-      timeRange: 'last-30-days',
-    },
-    journeyType: JourneyType.HEALTH,
-  } as TransactionContext,
+  achievementUnlocked: {
+    traceId: 'trace_123456793',
+    spanId: 'span_123456794',
+    parentSpanId: 'span_123456784',
+    operationName: 'UnlockAchievement',
+    startTime: '2023-06-15T11:30:00Z',
+    achievementId: 'achievement_123',
+    pointsAwarded: 50
+  }
 };
 
 /**
- * Journey Context Fixtures
- * Sample journey contexts for testing journey-specific logging.
+ * Sample journey context objects for testing context-aware logging capabilities.
+ * These objects contain journey-specific information for the three main journeys.
  */
 export const journeyContexts = {
   /**
-   * Health journey context
+   * Health journey context - "Minha Saúde"
    */
-  healthJourney: {
-    ...baseContext,
-    journeyType: JourneyType.HEALTH,
-    journeyState: {
-      journeySessionId: 'journey-550e8400-e29b-41d4-a716-446655440000',
-      currentStep: 'metrics-dashboard',
-      previousStep: 'login',
-      stepDuration: 15000, // milliseconds
-      metricType: 'heart-rate',
-      viewMode: 'weekly',
-    } as JourneyState,
-    journeyFeatureFlags: {
-      enableMetricGoals: true,
-      enableDeviceSync: true,
-      enableInsights: true,
-    },
-    journeyPerformance: {
-      timeToInteractive: 1200, // milliseconds
-      actionDuration: 350, // milliseconds
-      apiCallCount: 3,
-    },
-    userInteraction: {
-      interactionType: 'tab-selection',
-      interactionTarget: 'heart-rate-tab',
-      interactionResult: 'success',
-      interactionDuration: 150, // milliseconds
-    },
-  } as JourneyContext,
+  health: {
+    type: JourneyType.HEALTH,
+    resourceId: 'health_record_123',
+    action: 'VIEW_METRICS',
+    data: {
+      metricType: 'HEART_RATE',
+      timeRange: 'LAST_WEEK',
+      includeGoals: true
+    }
+  },
 
   /**
-   * Care journey context
+   * Care journey context - "Cuidar-me Agora"
    */
-  careJourney: {
-    ...baseContext,
-    journeyType: JourneyType.CARE,
-    journeyState: {
-      journeySessionId: 'journey-550e8400-e29b-41d4-a716-446655440001',
-      currentStep: 'provider-selection',
-      previousStep: 'specialty-selection',
-      stepDuration: 25000, // milliseconds
-      specialtyId: 'cardiology',
-      appointmentType: 'video',
-    } as JourneyState,
-    journeyFeatureFlags: {
-      enableProviderRatings: true,
-      enableVideoConsultation: true,
-      enableInstantBooking: false,
-    },
-    businessTransaction: {
-      transactionId: 'tx-550e8400-e29b-41d4-a716-446655440001',
-      transactionType: 'appointment-booking',
-      status: 'in-progress',
-      startedAt: '2023-04-15T14:35:00.000Z',
-      updatedAt: '2023-04-15T14:35:30.000Z',
-      metadata: {
-        specialtyId: 'cardiology',
-        appointmentType: 'video',
-      },
-    },
-  } as JourneyContext,
+  care: {
+    type: JourneyType.CARE,
+    resourceId: 'appointment_456',
+    action: 'SCHEDULE_APPOINTMENT',
+    data: {
+      providerId: 'provider_789',
+      appointmentType: 'VIDEO_CONSULTATION',
+      scheduledTime: '2023-06-20T14:30:00Z'
+    }
+  },
 
   /**
-   * Plan journey context
+   * Plan journey context - "Meu Plano & Benefícios"
    */
-  planJourney: {
-    ...baseContext,
-    journeyType: JourneyType.PLAN,
-    journeyState: {
-      journeySessionId: 'journey-550e8400-e29b-41d4-a716-446655440002',
-      currentStep: 'claim-submission',
-      previousStep: 'claim-form',
-      stepDuration: 45000, // milliseconds
-      claimType: 'medical',
-      claimAmount: 250.75,
-    } as JourneyState,
-    journeyFeatureFlags: {
-      enableDigitalClaimSubmission: true,
-      enableClaimTracking: true,
-      enableReimbursementEstimation: true,
-    },
-    businessTransaction: {
-      transactionId: 'tx-550e8400-e29b-41d4-a716-446655440002',
-      transactionType: 'claim-submission',
-      status: 'validation',
-      startedAt: '2023-04-15T14:40:00.000Z',
-      metadata: {
-        claimId: 'claim-123456',
-        claimType: 'medical',
-        claimAmount: 250.75,
-      },
-    },
-  } as JourneyContext,
+  plan: {
+    type: JourneyType.PLAN,
+    resourceId: 'claim_789',
+    action: 'SUBMIT_CLAIM',
+    data: {
+      claimType: 'MEDICATION',
+      amount: 125.50,
+      receiptId: 'receipt_123',
+      coverageId: 'coverage_456'
+    }
+  },
 
   /**
-   * Cross-journey context
+   * Gamification context (cross-journey)
    */
-  crossJourney: {
-    ...baseContext,
-    journeyType: JourneyType.HEALTH,
-    crossJourneyContext: {
-      sourceJourney: JourneyType.HEALTH,
-      targetJourney: JourneyType.CARE,
-      flowId: 'flow-550e8400-e29b-41d4-a716-446655440000',
-      startedAt: '2023-04-15T14:50:00.000Z',
-      metadata: {
-        reason: 'abnormal-heart-rate',
-        metricId: 'metric-123456',
-        recommendedSpecialty: 'cardiology',
-      },
-    } as CrossJourneyContext,
-    journeyState: {
-      journeySessionId: 'journey-550e8400-e29b-41d4-a716-446655440003',
-      currentStep: 'health-alert-details',
-      previousStep: 'metrics-dashboard',
-      stepDuration: 10000, // milliseconds
-      alertId: 'alert-123456',
-      alertSeverity: 'medium',
-    } as JourneyState,
-  } as JourneyContext,
+  gamification: {
+    type: JourneyType.HEALTH, // Primary journey type
+    resourceId: 'achievement_123',
+    action: 'UNLOCK_ACHIEVEMENT',
+    data: {
+      achievementName: 'Health Tracker',
+      pointsAwarded: 50,
+      relatedJourneys: [JourneyType.HEALTH, JourneyType.CARE],
+      level: 2
+    }
+  }
 };
 
 /**
- * Combined Context Fixtures
- * Sample combined contexts for testing context merging.
+ * Sample combined context objects for testing context merging capabilities.
+ * These objects combine request, user, transaction, and journey contexts.
  */
 export const combinedContexts = {
   /**
-   * Request + User context
+   * Health journey combined context
    */
-  requestWithUser: {
-    ...requestContexts.detailedPostRequest,
-    ...userContexts.detailedUserContext,
-    // Override any conflicting properties
-    correlationId: '550e8400-e29b-41d4-a716-446655440010',
-  } as RequestContext & UserContext,
+  healthJourney: {
+    ...requestContexts.mobileApp,
+    ...userContexts.patient,
+    ...transactionContexts.healthMetricRecording,
+    journey: journeyContexts.health,
+    metadata: {
+      featureFlag: 'enhanced_health_metrics',
+      abTestGroup: 'A',
+      appSection: 'health_dashboard'
+    }
+  },
 
   /**
-   * Request + Transaction context
+   * Care journey combined context
    */
-  requestWithTransaction: {
-    ...requestContexts.detailedPostRequest,
-    ...transactionContexts.detailedTransaction,
-    // Override any conflicting properties
-    correlationId: '550e8400-e29b-41d4-a716-446655440011',
-  } as RequestContext & TransactionContext,
+  careJourney: {
+    ...requestContexts.webApp,
+    ...userContexts.patient,
+    ...transactionContexts.appointmentBooking,
+    journey: journeyContexts.care,
+    metadata: {
+      featureFlag: 'telemedicine_v2',
+      abTestGroup: 'B',
+      appSection: 'appointment_booking'
+    }
+  },
 
   /**
-   * User + Journey context
+   * Plan journey combined context
    */
-  userWithJourney: {
-    ...userContexts.detailedUserContext,
-    ...journeyContexts.healthJourney,
-    // Override any conflicting properties
-    correlationId: '550e8400-e29b-41d4-a716-446655440012',
-  } as UserContext & JourneyContext,
+  planJourney: {
+    ...requestContexts.apiRequest,
+    ...userContexts.patient,
+    ...transactionContexts.claimSubmission,
+    journey: journeyContexts.plan,
+    metadata: {
+      featureFlag: 'enhanced_claims',
+      abTestGroup: 'A',
+      appSection: 'claims_submission'
+    }
+  },
 
   /**
-   * Complete context with all types
+   * Provider context in care journey
    */
-  completeContext: {
-    ...requestContexts.detailedPostRequest,
-    ...userContexts.detailedUserContext,
-    ...transactionContexts.detailedTransaction,
-    ...journeyContexts.healthJourney,
-    // Override any conflicting properties
-    correlationId: '550e8400-e29b-41d4-a716-446655440013',
-    journeyType: JourneyType.HEALTH,
-  } as RequestContext & UserContext & TransactionContext & JourneyContext,
+  providerCareJourney: {
+    ...requestContexts.webApp,
+    ...userContexts.provider,
+    ...transactionContexts.appointmentBooking,
+    journey: journeyContexts.care,
+    metadata: {
+      featureFlag: 'provider_dashboard_v2',
+      abTestGroup: 'C',
+      appSection: 'appointment_management'
+    }
+  },
+
+  /**
+   * Admin context with system operations
+   */
+  adminSystemOperations: {
+    ...requestContexts.apiRequest,
+    ...userContexts.admin,
+    ...transactionContexts.basic,
+    metadata: {
+      operationType: 'SYSTEM_CONFIGURATION',
+      targetService: 'auth-service',
+      changeType: 'UPDATE_ROLES'
+    }
+  },
+
+  /**
+   * Cross-journey gamification context
+   */
+  gamificationContext: {
+    ...requestContexts.mobileApp,
+    ...userContexts.patient,
+    ...transactionContexts.achievementUnlocked,
+    journey: journeyContexts.gamification,
+    metadata: {
+      featureFlag: 'gamification_v2',
+      abTestGroup: 'A',
+      appSection: 'achievements'
+    }
+  }
 };
 
 /**
- * Context Serialization Test Cases
- * Sample contexts with special cases for testing serialization.
+ * Sample error context objects for testing error logging capabilities.
+ * These objects contain structured error information for different scenarios.
  */
-export const serializationTestCases = {
+export const errorContexts = {
   /**
-   * Context with circular references
+   * Basic error context
    */
-  circularReference: (() => {
-    const context: any = {
-      ...baseContext,
-      correlationId: '550e8400-e29b-41d4-a716-446655440020',
-      metadata: {
-        name: 'circular-test',
-        value: 42,
-      },
-    };
-    // Create circular reference
-    context.metadata.parent = context;
-    return context;
-  })(),
+  basic: {
+    message: 'An error occurred',
+    name: 'Error',
+    stack: 'Error: An error occurred\n    at Function.Module._load (module.js:271:25)\n    at Module.require (module.js:353:17)\n    at require (internal/module.js:12:17)'
+  },
 
   /**
-   * Context with nested objects and arrays
+   * Database error context
    */
-  deeplyNested: {
-    ...baseContext,
-    correlationId: '550e8400-e29b-41d4-a716-446655440021',
-    metadata: {
-      level1: {
-        level2: {
-          level3: {
-            level4: {
-              level5: {
-                value: 'deeply-nested-value',
-                array: [1, 2, [3, 4, [5, 6, [7, 8]]]],
-              },
-            },
-          },
-        },
-      },
-    },
-  } as LoggingContext,
+  database: {
+    message: 'Database connection failed',
+    name: 'DatabaseError',
+    code: 'ECONNREFUSED',
+    isTransient: true,
+    isClientError: false,
+    isExternalError: false,
+    stack: 'DatabaseError: Database connection failed\n    at PrismaClient.connect (prisma.js:125:23)\n    at HealthService.getMetrics (health.service.ts:45:12)'
+  },
 
   /**
-   * Context with special characters and non-ASCII text
+   * External API error context
    */
-  specialCharacters: {
-    ...baseContext,
-    correlationId: '550e8400-e29b-41d4-a716-446655440022',
-    metadata: {
-      specialChars: '!@#$%^&*()_+{}|:<>?~`-=[]\\;\\\',./',
-      emoji: '😀🚀🔥💯',
-      nonAscii: 'áéíóúñÁÉÍÓÚÑ',
-      html: '<script>alert("test");</script>',
-      json: '{"key": "value"}',
+  externalApi: {
+    message: 'Failed to fetch data from external API',
+    name: 'ExternalApiError',
+    code: 500,
+    isTransient: true,
+    isClientError: false,
+    isExternalError: true,
+    originalError: {
+      status: 500,
+      statusText: 'Internal Server Error',
+      data: { error: 'Service temporarily unavailable' }
     },
-  } as LoggingContext,
+    stack: 'ExternalApiError: Failed to fetch data from external API\n    at FhirService.fetchPatientData (fhir.service.ts:78:19)\n    at HealthService.getPatientRecord (health.service.ts:102:22)'
+  },
 
   /**
-   * Context with very large values
+   * Validation error context
    */
-  largeValues: {
-    ...baseContext,
-    correlationId: '550e8400-e29b-41d4-a716-446655440023',
-    metadata: {
-      largeString: 'A'.repeat(10000),
-      largeArray: Array.from({ length: 1000 }, (_, i) => i),
-      largeObject: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`key${i}`, `value${i}`])),
-    },
-  } as LoggingContext,
+  validation: {
+    message: 'Invalid input data',
+    name: 'ValidationError',
+    code: 'INVALID_INPUT',
+    isTransient: false,
+    isClientError: true,
+    isExternalError: false,
+    details: [
+      { field: 'email', message: 'Must be a valid email address' },
+      { field: 'password', message: 'Must be at least 8 characters long' }
+    ],
+    stack: 'ValidationError: Invalid input data\n    at validateUserInput (validation.ts:34:11)\n    at AuthService.registerUser (auth.service.ts:56:18)'
+  },
+
+  /**
+   * Authorization error context
+   */
+  authorization: {
+    message: 'Insufficient permissions',
+    name: 'AuthorizationError',
+    code: 'FORBIDDEN',
+    isTransient: false,
+    isClientError: true,
+    isExternalError: false,
+    requiredPermissions: ['admin:health'],
+    userPermissions: ['read:health', 'write:health'],
+    stack: 'AuthorizationError: Insufficient permissions\n    at AuthGuard.canActivate (auth.guard.ts:45:15)\n    at HealthController.updateHealthSettings (health.controller.ts:89:23)'
+  }
 };

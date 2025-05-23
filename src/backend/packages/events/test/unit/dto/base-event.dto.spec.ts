@@ -1,298 +1,524 @@
+import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { plainToClass } from 'class-transformer';
+import { v4 as uuidv4 } from 'uuid';
 import { BaseEventDto } from '../../../src/dto/base-event.dto';
+import { EventType } from '../../../src/dto/event-types.enum';
+import {
+  createBaseEventData,
+  createBaseEventDto,
+  createInvalidEvent,
+  createEventWithInvalidValues,
+  validateDto,
+  extractErrorMessages,
+  hasConstraintViolation
+} from './test-utils';
 
 describe('BaseEventDto', () => {
-  // Valid event data for testing
-  const validEventData = {
-    type: 'TEST_EVENT',
-    userId: '123e4567-e89b-12d3-a456-426614174000', // Valid UUID
-    journey: 'health',
-    timestamp: new Date().toISOString(),
-    data: { testKey: 'testValue' }
-  };
-
-  describe('Field validation', () => {
-    it('should validate a correctly formed event', async () => {
+  describe('Validation', () => {
+    it('should validate a valid event', async () => {
       // Arrange
-      const eventDto = plainToClass(BaseEventDto, validEventData);
-      
+      const validEvent = createBaseEventDto();
+
       // Act
-      const errors = await validate(eventDto);
-      
+      const validationResult = await validateDto(validEvent);
+
       // Assert
-      expect(errors.length).toBe(0);
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errorCount).toBe(0);
     });
 
-    it('should require type field', async () => {
+    it('should validate all required fields are present', async () => {
       // Arrange
-      const invalidEvent = { ...validEventData, type: undefined };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('type');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+      const validEventData = createBaseEventData();
+      const requiredFields = ['type', 'userId', 'journey', 'timestamp', 'data'];
+
+      // Test each required field
+      for (const field of requiredFields) {
+        // Act - Remove one required field at a time
+        const invalidEventData = createInvalidEvent(validEventData, [field]);
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty(field)).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, field, 'isNotEmpty')).toBe(true);
+      }
     });
 
-    it('should validate type is a string', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, type: 123 };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('type');
-      expect(errors[0].constraints).toHaveProperty('isString');
+    describe('Type field validation', () => {
+      it('should validate that type is a string', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'type': 123 // Invalid: number instead of string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('type')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'type', 'isString')).toBe(true);
+      });
+
+      it('should validate that type is not empty', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'type': '' // Invalid: empty string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('type')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'type', 'isNotEmpty')).toBe(true);
+      });
+
+      it('should accept valid event types from the EventType enum', async () => {
+        // Arrange
+        const validEventTypes = [
+          EventType.HEALTH_METRIC_RECORDED,
+          EventType.CARE_APPOINTMENT_BOOKED,
+          EventType.PLAN_CLAIM_SUBMITTED,
+          EventType.ACHIEVEMENT_EARNED
+        ];
+
+        for (const type of validEventTypes) {
+          const validEventData = createEventWithInvalidValues(createBaseEventData(), {
+            'type': type
+          });
+          const validEvent = plainToInstance(BaseEventDto, validEventData);
+
+          // Act
+          const validationResult = await validateDto(validEvent);
+
+          // Assert
+          expect(validationResult.isValid).toBe(true);
+        }
+      });
     });
 
-    it('should require userId field', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, userId: undefined };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('userId');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    describe('UserId field validation', () => {
+      it('should validate that userId is a UUID v4', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'userId': 'not-a-uuid' // Invalid: not a UUID
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('userId')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'userId', 'isUuid')).toBe(true);
+      });
+
+      it('should validate that userId is not empty', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'userId': '' // Invalid: empty string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('userId')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'userId', 'isNotEmpty')).toBe(true);
+      });
+
+      it('should accept a valid UUID v4', async () => {
+        // Arrange
+        const validUuid = uuidv4();
+        const validEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'userId': validUuid
+        });
+        const validEvent = plainToInstance(BaseEventDto, validEventData);
+
+        // Act
+        const validationResult = await validateDto(validEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(true);
+      });
     });
 
-    it('should validate userId is a valid UUID', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, userId: 'not-a-uuid' };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('userId');
-      expect(errors[0].constraints).toHaveProperty('isUuid');
+    describe('Journey field validation', () => {
+      it('should validate that journey is a string', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'journey': 123 // Invalid: number instead of string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('journey')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'journey', 'isString')).toBe(true);
+      });
+
+      it('should validate that journey is not empty', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'journey': '' // Invalid: empty string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('journey')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'journey', 'isNotEmpty')).toBe(true);
+      });
+
+      it('should accept valid journey values', async () => {
+        // Arrange
+        const validJourneys = ['health', 'care', 'plan'];
+
+        for (const journey of validJourneys) {
+          const validEventData = createEventWithInvalidValues(createBaseEventData(), {
+            'journey': journey
+          });
+          const validEvent = plainToInstance(BaseEventDto, validEventData);
+
+          // Act
+          const validationResult = await validateDto(validEvent);
+
+          // Assert
+          expect(validationResult.isValid).toBe(true);
+        }
+      });
     });
 
-    it('should require journey field', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, journey: undefined };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('journey');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    describe('Timestamp field validation', () => {
+      it('should validate that timestamp is an ISO-8601 date string', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'timestamp': 'not-a-date' // Invalid: not an ISO-8601 date
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('timestamp')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'timestamp', 'isIso8601')).toBe(true);
+      });
+
+      it('should validate that timestamp is not empty', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'timestamp': '' // Invalid: empty string
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
+
+        // Act
+        const validationResult = await validateDto(invalidEvent);
+
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('timestamp')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'timestamp', 'isNotEmpty')).toBe(true);
+      });
+
+      it('should accept valid ISO-8601 date strings', async () => {
+        // Arrange
+        const validDates = [
+          new Date().toISOString(),
+          '2023-04-15T14:32:17.123Z',
+          '2023-04-15T14:32:17Z',
+          '2023-04-15T14:32:17.123+02:00'
+        ];
+
+        for (const timestamp of validDates) {
+          const validEventData = createEventWithInvalidValues(createBaseEventData(), {
+            'timestamp': timestamp
+          });
+          const validEvent = plainToInstance(BaseEventDto, validEventData);
+
+          // Act
+          const validationResult = await validateDto(validEvent);
+
+          // Assert
+          expect(validationResult.isValid).toBe(true);
+        }
+      });
     });
 
-    it('should validate journey is a string', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, journey: 123 };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('journey');
-      expect(errors[0].constraints).toHaveProperty('isString');
-    });
+    describe('Data field validation', () => {
+      it('should validate that data is an object', async () => {
+        // Arrange
+        const invalidValues = [
+          'string-value',
+          123,
+          true,
+          null,
+          undefined
+        ];
 
-    it('should validate journey is one of the allowed values', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, journey: 'invalid-journey' };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('journey');
-      expect(errors[0].constraints).toHaveProperty('isIn');
-    });
+        for (const invalidValue of invalidValues) {
+          const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+            'data': invalidValue
+          });
+          const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
 
-    it('should require timestamp field', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, timestamp: undefined };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('timestamp');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
-    });
+          // Act
+          const validationResult = await validateDto(invalidEvent);
 
-    it('should validate timestamp is a valid ISO string', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, timestamp: 'not-a-date' };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('timestamp');
-      expect(errors[0].constraints).toHaveProperty('isIso8601');
-    });
+          // Assert
+          expect(validationResult.isValid).toBe(false);
+          expect(validationResult.hasErrorForProperty('data')).toBe(true);
+          if (invalidValue !== undefined && invalidValue !== null) {
+            expect(hasConstraintViolation(validationResult.errors, 'data', 'isObject')).toBe(true);
+          } else {
+            expect(hasConstraintViolation(validationResult.errors, 'data', 'isNotEmpty')).toBe(true);
+          }
+        }
+      });
 
-    it('should require data field', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, data: undefined };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('data');
-      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
-    });
+      it('should validate that data is not empty', async () => {
+        // Arrange
+        const invalidEventData = createEventWithInvalidValues(createBaseEventData(), {
+          'data': {} // Invalid: empty object
+        });
+        const invalidEvent = plainToInstance(BaseEventDto, invalidEventData);
 
-    it('should validate data is an object', async () => {
-      // Arrange
-      const invalidEvent = { ...validEventData, data: 'not-an-object' };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].property).toBe('data');
-      expect(errors[0].constraints).toHaveProperty('isObject');
-    });
+        // Act
+        const validationResult = await validateDto(invalidEvent);
 
-    it('should validate all fields together and return multiple errors', async () => {
-      // Arrange
-      const invalidEvent = {
-        type: 123,
-        userId: 'not-a-uuid',
-        journey: 'invalid-journey',
-        timestamp: 'not-a-date',
-        data: 'not-an-object'
-      };
-      const eventDto = plainToClass(BaseEventDto, invalidEvent);
-      
-      // Act
-      const errors = await validate(eventDto);
-      
-      // Assert
-      expect(errors.length).toBe(5); // One error for each field
-      
-      // Check that we have errors for all fields
-      const errorProperties = errors.map(error => error.property);
-      expect(errorProperties).toContain('type');
-      expect(errorProperties).toContain('userId');
-      expect(errorProperties).toContain('journey');
-      expect(errorProperties).toContain('timestamp');
-      expect(errorProperties).toContain('data');
+        // Assert
+        expect(validationResult.isValid).toBe(false);
+        expect(validationResult.hasErrorForProperty('data')).toBe(true);
+        expect(hasConstraintViolation(validationResult.errors, 'data', 'isNotEmpty')).toBe(true);
+      });
+
+      it('should accept valid data objects', async () => {
+        // Arrange
+        const validDataObjects = [
+          { metricType: 'HEART_RATE', value: 75, unit: 'bpm' },
+          { appointmentId: uuidv4(), providerId: uuidv4(), status: 'scheduled' },
+          { claimId: uuidv4(), amount: 150.00, currency: 'BRL' }
+        ];
+
+        for (const data of validDataObjects) {
+          const validEventData = createEventWithInvalidValues(createBaseEventData(), {
+            'data': data
+          });
+          const validEvent = plainToInstance(BaseEventDto, validEventData);
+
+          // Act
+          const validationResult = await validateDto(validEvent);
+
+          // Assert
+          expect(validationResult.isValid).toBe(true);
+        }
+      });
     });
   });
 
-  describe('Serialization/Deserialization', () => {
-    it('should properly deserialize a plain object to a BaseEventDto', () => {
-      // Arrange & Act
-      const eventDto = plainToClass(BaseEventDto, validEventData);
-      
-      // Assert
-      expect(eventDto).toBeInstanceOf(BaseEventDto);
-      expect(eventDto.type).toBe(validEventData.type);
-      expect(eventDto.userId).toBe(validEventData.userId);
-      expect(eventDto.journey).toBe(validEventData.journey);
-      expect(eventDto.timestamp).toBe(validEventData.timestamp);
-      expect(eventDto.data).toEqual(validEventData.data);
-    });
-
-    it('should maintain data integrity during serialization/deserialization', () => {
+  describe('Serialization and Deserialization', () => {
+    it('should correctly transform a plain object to a BaseEventDto instance', () => {
       // Arrange
-      const eventDto = plainToClass(BaseEventDto, validEventData);
-      
+      const plainObject = createBaseEventData();
+
       // Act
-      const serialized = JSON.stringify(eventDto);
-      const deserialized = plainToClass(BaseEventDto, JSON.parse(serialized));
-      
+      const dtoInstance = plainToInstance(BaseEventDto, plainObject);
+
       // Assert
-      expect(deserialized).toBeInstanceOf(BaseEventDto);
-      expect(deserialized.type).toBe(validEventData.type);
-      expect(deserialized.userId).toBe(validEventData.userId);
-      expect(deserialized.journey).toBe(validEventData.journey);
-      expect(deserialized.timestamp).toBe(validEventData.timestamp);
-      expect(deserialized.data).toEqual(validEventData.data);
+      expect(dtoInstance).toBeInstanceOf(BaseEventDto);
+      expect(dtoInstance.type).toBe(plainObject.type);
+      expect(dtoInstance.userId).toBe(plainObject.userId);
+      expect(dtoInstance.journey).toBe(plainObject.journey);
+      expect(dtoInstance.timestamp).toBe(plainObject.timestamp);
+      expect(dtoInstance.data).toEqual(plainObject.data);
     });
 
-    it('should handle complex nested data objects', () => {
+    it('should maintain data integrity during transformation', () => {
       // Arrange
       const complexData = {
-        type: 'HEALTH_METRIC_RECORDED',
-        userId: '123e4567-e89b-12d3-a456-426614174000',
-        journey: 'health',
-        timestamp: new Date().toISOString(),
-        data: {
-          metricType: 'HEART_RATE',
-          value: 75,
-          unit: 'bpm',
-          device: {
-            id: '987654',
-            name: 'Smartwatch',
-            manufacturer: 'HealthTech',
-            lastSync: new Date().toISOString()
-          },
-          readings: [
-            { time: '08:00', value: 72 },
-            { time: '12:00', value: 78 },
-            { time: '18:00', value: 75 }
-          ]
-        }
+        nestedObject: {
+          property1: 'value1',
+          property2: 123,
+          property3: true
+        },
+        arrayProperty: [1, 2, 3, 4, 5],
+        dateProperty: new Date().toISOString()
       };
-      
+
+      const plainObject = createBaseEventData({
+        data: complexData
+      });
+
       // Act
-      const eventDto = plainToClass(BaseEventDto, complexData);
-      const serialized = JSON.stringify(eventDto);
-      const deserialized = plainToClass(BaseEventDto, JSON.parse(serialized));
-      
+      const dtoInstance = plainToInstance(BaseEventDto, plainObject);
+
       // Assert
-      expect(deserialized.data).toEqual(complexData.data);
-      expect(deserialized.data.metricType).toBe('HEART_RATE');
-      expect(deserialized.data.device.manufacturer).toBe('HealthTech');
-      expect(deserialized.data.readings.length).toBe(3);
-      expect(deserialized.data.readings[1].value).toBe(78);
+      expect(dtoInstance.data).toEqual(complexData);
+      expect(dtoInstance.data.nestedObject.property1).toBe('value1');
+      expect(dtoInstance.data.nestedObject.property2).toBe(123);
+      expect(dtoInstance.data.nestedObject.property3).toBe(true);
+      expect(dtoInstance.data.arrayProperty).toEqual([1, 2, 3, 4, 5]);
+      expect(dtoInstance.data.dateProperty).toBe(complexData.dateProperty);
     });
   });
 
-  describe('Type safety', () => {
-    it('should enforce type safety for event properties', () => {
+  describe('Constructor', () => {
+    it('should create an instance with default values when no parameters are provided', () => {
+      // Act
+      const instance = new BaseEventDto();
+
+      // Assert
+      expect(instance).toBeInstanceOf(BaseEventDto);
+      expect(instance.timestamp).toBeDefined();
+      // Verify the timestamp is a valid ISO-8601 date string
+      expect(() => new Date(instance.timestamp)).not.toThrow();
+    });
+
+    it('should set properties from partial object when provided', () => {
       // Arrange
-      const eventDto = new BaseEventDto();
-      
-      // Act & Assert - TypeScript compilation would fail if types are incorrect
-      eventDto.type = 'TEST_EVENT';
-      eventDto.userId = '123e4567-e89b-12d3-a456-426614174000';
-      eventDto.journey = 'health';
-      eventDto.timestamp = new Date().toISOString();
-      eventDto.data = { testKey: 'testValue' };
-      
-      // Additional assertions
-      expect(typeof eventDto.type).toBe('string');
-      expect(typeof eventDto.userId).toBe('string');
-      expect(typeof eventDto.journey).toBe('string');
-      expect(typeof eventDto.timestamp).toBe('string');
-      expect(typeof eventDto.data).toBe('object');
+      const partial: Partial<BaseEventDto> = {
+        type: EventType.HEALTH_METRIC_RECORDED,
+        userId: uuidv4(),
+        journey: 'health',
+        data: { metricType: 'HEART_RATE', value: 75, unit: 'bpm' }
+      };
+
+      // Act
+      const instance = new BaseEventDto(partial);
+
+      // Assert
+      expect(instance.type).toBe(partial.type);
+      expect(instance.userId).toBe(partial.userId);
+      expect(instance.journey).toBe(partial.journey);
+      expect(instance.data).toEqual(partial.data);
+      expect(instance.timestamp).toBeDefined();
+    });
+
+    it('should use provided timestamp when available', () => {
+      // Arrange
+      const timestamp = '2023-04-15T14:32:17.123Z';
+      const partial: Partial<BaseEventDto> = {
+        type: EventType.HEALTH_METRIC_RECORDED,
+        userId: uuidv4(),
+        journey: 'health',
+        timestamp,
+        data: { metricType: 'HEART_RATE', value: 75, unit: 'bpm' }
+      };
+
+      // Act
+      const instance = new BaseEventDto(partial);
+
+      // Assert
+      expect(instance.timestamp).toBe(timestamp);
+    });
+  });
+
+  describe('Type Safety', () => {
+    it('should support generic type parameter for data property', () => {
+      // Define a type for health metric data
+      interface HealthMetricData {
+        metricType: string;
+        value: number;
+        unit: string;
+        recordedAt?: string;
+        source?: string;
+      }
+
+      // Create an event with typed data
+      const metricData: HealthMetricData = {
+        metricType: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        recordedAt: new Date().toISOString(),
+        source: 'manual'
+      };
+
+      // Create the event with typed data
+      const event = new BaseEventDto<HealthMetricData>({
+        type: EventType.HEALTH_METRIC_RECORDED,
+        userId: uuidv4(),
+        journey: 'health',
+        data: metricData
+      });
+
+      // Assert type safety
+      expect(event.data.metricType).toBe('HEART_RATE');
+      expect(event.data.value).toBe(75);
+      expect(event.data.unit).toBe('bpm');
+      expect(event.data.recordedAt).toBeDefined();
+      expect(event.data.source).toBe('manual');
+    });
+
+    it('should handle complex nested types', () => {
+      // Define complex nested types
+      interface Location {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+      }
+
+      interface DeviceInfo {
+        id: string;
+        name: string;
+        type: string;
+        location?: Location;
+      }
+
+      interface DeviceEventData {
+        device: DeviceInfo;
+        connectionTime: string;
+        batteryLevel: number;
+      }
+
+      // Create data with complex nested structure
+      const deviceData: DeviceEventData = {
+        device: {
+          id: uuidv4(),
+          name: 'Smartwatch XYZ',
+          type: 'wearable',
+          location: {
+            latitude: 40.7128,
+            longitude: -74.0060,
+            accuracy: 10
+          }
+        },
+        connectionTime: new Date().toISOString(),
+        batteryLevel: 85
+      };
+
+      // Create the event with complex typed data
+      const event = new BaseEventDto<DeviceEventData>({
+        type: EventType.HEALTH_DEVICE_CONNECTED,
+        userId: uuidv4(),
+        journey: 'health',
+        data: deviceData
+      });
+
+      // Assert complex nested types
+      expect(event.data.device.id).toBeDefined();
+      expect(event.data.device.name).toBe('Smartwatch XYZ');
+      expect(event.data.device.type).toBe('wearable');
+      expect(event.data.device.location?.latitude).toBe(40.7128);
+      expect(event.data.device.location?.longitude).toBe(-74.0060);
+      expect(event.data.device.location?.accuracy).toBe(10);
+      expect(event.data.connectionTime).toBeDefined();
+      expect(event.data.batteryLevel).toBe(85);
     });
   });
 });

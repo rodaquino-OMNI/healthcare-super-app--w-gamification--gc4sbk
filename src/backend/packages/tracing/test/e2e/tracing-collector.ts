@@ -1,143 +1,161 @@
-import { Context, SpanStatusCode, trace } from '@opentelemetry/api';
-import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
-import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import {
+  BasicTracerProvider,
+  SimpleSpanProcessor,
+  InMemorySpanExporter,
+  ReadableSpan,
+} from '@opentelemetry/sdk-trace-base';
+import { Span, SpanStatusCode, Context, trace, SpanKind } from '@opentelemetry/api';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
 
 /**
- * TracingCollector is a utility for capturing and analyzing OpenTelemetry traces during e2e tests.
- * It provides an in-memory trace collector that intercepts spans and exposes methods to query
- * and validate trace data. This component is crucial for verifying trace relationships,
- * span attributes, and context propagation in a multi-service environment.
+ * TracingCollector provides an in-memory trace collector for e2e testing of OpenTelemetry instrumentation.
+ * It intercepts spans and exposes methods to query and validate trace data.
  */
 export class TracingCollector {
-  private exporter: InMemorySpanExporter;
-  private provider: NodeTracerProvider;
-  private processor: SimpleSpanProcessor | BatchSpanProcessor;
-  private isInitialized = false;
+  private readonly exporter: InMemorySpanExporter;
+  private readonly provider: BasicTracerProvider;
+  private initialized = false;
 
   /**
    * Creates a new TracingCollector instance.
-   * @param useBatchProcessor Whether to use BatchSpanProcessor (true) or SimpleSpanProcessor (false)
    * @param serviceName The name of the service being tested
    */
-  constructor(useBatchProcessor = false, private serviceName = 'test-service') {
+  constructor(private readonly serviceName: string = 'test-service') {
     this.exporter = new InMemorySpanExporter();
-    this.provider = new NodeTracerProvider();
+    this.provider = new BasicTracerProvider();
+  }
+
+  /**
+   * Initializes the tracing collector and sets it as the global tracer provider.
+   * This should be called before any test that needs to capture traces.
+   */
+  public init(): void {
+    if (this.initialized) {
+      return;
+    }
+
+    // Configure the provider with a SimpleSpanProcessor that uses the in-memory exporter
+    this.provider.addSpanProcessor(new SimpleSpanProcessor(this.exporter));
     
-    if (useBatchProcessor) {
-      this.processor = new BatchSpanProcessor(this.exporter);
-    } else {
-      this.processor = new SimpleSpanProcessor(this.exporter);
-    }
-  }
-
-  /**
-   * Initializes the tracing collector and registers it as the global tracer provider.
-   * This method must be called before any spans are created.
-   */
-  initialize(): void {
-    if (this.isInitialized) {
-      return;
-    }
-
-    this.provider.addSpanProcessor(this.processor);
+    // Register the W3C trace context propagator for distributed tracing
+    trace.setGlobalPropagator(new W3CTraceContextPropagator());
+    
+    // Set the provider as the global tracer provider
     this.provider.register();
-    this.isInitialized = true;
+    
+    this.initialized = true;
   }
 
   /**
-   * Shuts down the tracing collector and cleans up resources.
-   * This should be called after tests are complete.
+   * Resets the collector by clearing all collected spans.
+   * This should be called between tests to ensure a clean state.
    */
-  async shutdown(): Promise<void> {
-    if (!this.isInitialized) {
-      return;
-    }
-
-    await this.provider.shutdown();
-    this.isInitialized = false;
-  }
-
-  /**
-   * Clears all collected spans from memory.
-   */
-  reset(): void {
+  public reset(): void {
     this.exporter.reset();
   }
 
   /**
-   * Gets all spans that have been collected.
-   * @returns Array of collected spans
+   * Shuts down the collector and cleans up resources.
+   * This should be called after all tests are complete.
    */
-  getSpans(): ReadableSpan[] {
+  public async shutdown(): Promise<void> {
+    await this.provider.shutdown();
+    this.initialized = false;
+  }
+
+  /**
+   * Gets all spans that have been collected.
+   * @returns An array of all collected spans
+   */
+  public getSpans(): ReadableSpan[] {
     return this.exporter.getFinishedSpans();
   }
 
   /**
-   * Gets spans that match the specified trace ID.
-   * @param traceId The trace ID to filter by
-   * @returns Array of spans with the specified trace ID
-   */
-  getSpansByTraceId(traceId: string): ReadableSpan[] {
-    return this.getSpans().filter(span => span.spanContext().traceId === traceId);
-  }
-
-  /**
-   * Gets a span by its span ID.
-   * @param spanId The span ID to find
-   * @returns The span with the specified ID, or undefined if not found
-   */
-  getSpanById(spanId: string): ReadableSpan | undefined {
-    return this.getSpans().find(span => span.spanContext().spanId === spanId);
-  }
-
-  /**
    * Gets spans that match the specified name.
-   * @param name The span name to filter by
-   * @returns Array of spans with the specified name
+   * @param name The name of the spans to retrieve
+   * @returns An array of spans with the specified name
    */
-  getSpansByName(name: string): ReadableSpan[] {
-    return this.getSpans().filter(span => span.name === name);
+  public getSpansByName(name: string): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => span.name === name);
   }
 
   /**
-   * Gets spans that have a specific attribute with a specific value.
-   * @param key The attribute key to filter by
-   * @param value The attribute value to filter by
-   * @returns Array of spans with the specified attribute value
+   * Gets spans that match the specified kind.
+   * @param kind The kind of spans to retrieve
+   * @returns An array of spans with the specified kind
    */
-  getSpansByAttribute(key: string, value: any): ReadableSpan[] {
-    return this.getSpans().filter(span => {
+  public getSpansByKind(kind: SpanKind): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => span.kind === kind);
+  }
+
+  /**
+   * Gets spans that belong to the specified trace.
+   * @param traceId The ID of the trace to retrieve spans for
+   * @returns An array of spans that belong to the specified trace
+   */
+  public getSpansByTraceId(traceId: string): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => span.spanContext().traceId === traceId);
+  }
+
+  /**
+   * Gets the root spans (spans without a parent) from the collected spans.
+   * @returns An array of root spans
+   */
+  public getRootSpans(): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => !span.parentSpanId);
+  }
+
+  /**
+   * Gets the child spans of the specified parent span.
+   * @param parentSpanId The ID of the parent span
+   * @returns An array of child spans
+   */
+  public getChildSpans(parentSpanId: string): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => span.parentSpanId === parentSpanId);
+  }
+
+  /**
+   * Gets spans that have the specified attribute.
+   * @param key The attribute key to filter by
+   * @param value The attribute value to filter by (optional)
+   * @returns An array of spans with the specified attribute
+   */
+  public getSpansByAttribute(key: string, value?: unknown): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => {
       const attrValue = span.attributes[key];
-      return attrValue !== undefined && attrValue === value;
+      return value !== undefined ? attrValue === value : attrValue !== undefined;
     });
   }
 
   /**
-   * Gets the root spans (spans without a parent) for each trace.
-   * @returns Array of root spans
+   * Gets spans that have an error status.
+   * @returns An array of spans with an error status
    */
-  getRootSpans(): ReadableSpan[] {
-    return this.getSpans().filter(span => !span.parentSpanId);
+  public getErrorSpans(): ReadableSpan[] {
+    return this.exporter.getFinishedSpans().filter(span => 
+      span.status.code === SpanStatusCode.ERROR
+    );
   }
 
   /**
-   * Gets all child spans of a specific parent span.
-   * @param parentSpanId The ID of the parent span
-   * @returns Array of child spans
+   * Verifies that a trace contains the expected number of spans.
+   * @param traceId The ID of the trace to verify
+   * @param expectedCount The expected number of spans in the trace
+   * @returns true if the trace contains the expected number of spans, false otherwise
    */
-  getChildSpans(parentSpanId: string): ReadableSpan[] {
-    return this.getSpans().filter(span => span.parentSpanId === parentSpanId);
+  public verifyTraceSpanCount(traceId: string, expectedCount: number): boolean {
+    const spans = this.getSpansByTraceId(traceId);
+    return spans.length === expectedCount;
   }
 
   /**
    * Verifies that a span has the expected attributes.
-   * @param span The span to check
-   * @param expectedAttributes Map of expected attribute key-value pairs
-   * @returns True if the span has all expected attributes with matching values
+   * @param span The span to verify
+   * @param expectedAttributes The expected attributes as key-value pairs
+   * @returns true if the span has all the expected attributes, false otherwise
    */
-  verifySpanAttributes(span: ReadableSpan, expectedAttributes: Record<string, any>): boolean {
+  public verifySpanAttributes(span: ReadableSpan, expectedAttributes: Record<string, unknown>): boolean {
     for (const [key, value] of Object.entries(expectedAttributes)) {
       if (span.attributes[key] !== value) {
         return false;
@@ -147,201 +165,147 @@ export class TracingCollector {
   }
 
   /**
-   * Verifies that a span has the expected status.
-   * @param span The span to check
-   * @param expectedStatus The expected status code
-   * @param expectedMessage The expected status message (optional)
-   * @returns True if the span has the expected status
+   * Verifies that a span has the expected events.
+   * @param span The span to verify
+   * @param expectedEventNames The expected event names
+   * @returns true if the span has all the expected events, false otherwise
    */
-  verifySpanStatus(
-    span: ReadableSpan, 
-    expectedStatus: SpanStatusCode, 
-    expectedMessage?: string
-  ): boolean {
-    const status = span.status;
-    if (status.code !== expectedStatus) {
-      return false;
-    }
-    if (expectedMessage !== undefined && status.message !== expectedMessage) {
-      return false;
-    }
-    return true;
+  public verifySpanEvents(span: ReadableSpan, expectedEventNames: string[]): boolean {
+    const eventNames = span.events.map(event => event.name);
+    return expectedEventNames.every(name => eventNames.includes(name));
   }
 
   /**
-   * Verifies that a trace has the expected structure of parent-child relationships.
-   * @param traceId The trace ID to check
-   * @param expectedHierarchy An object describing the expected hierarchy
-   * @returns True if the trace matches the expected hierarchy
+   * Verifies the parent-child relationship between spans.
+   * @param parentSpan The expected parent span
+   * @param childSpan The expected child span
+   * @returns true if the child span is a child of the parent span, false otherwise
    */
-  verifyTraceHierarchy(traceId: string, expectedHierarchy: TraceHierarchy): boolean {
+  public verifyParentChildRelationship(parentSpan: ReadableSpan, childSpan: ReadableSpan): boolean {
+    return childSpan.parentSpanId === parentSpan.spanContext().spanId;
+  }
+
+  /**
+   * Finds a span by its name and attributes.
+   * @param name The name of the span to find
+   * @param attributes The attributes the span should have (optional)
+   * @returns The first matching span, or undefined if no match is found
+   */
+  public findSpan(name: string, attributes?: Record<string, unknown>): ReadableSpan | undefined {
+    const spans = this.getSpansByName(name);
+    if (!attributes) {
+      return spans[0];
+    }
+    
+    return spans.find(span => this.verifySpanAttributes(span, attributes));
+  }
+
+  /**
+   * Analyzes a trace to find the critical path (longest sequence of spans).
+   * @param traceId The ID of the trace to analyze
+   * @returns An array of spans representing the critical path
+   */
+  public analyzeCriticalPath(traceId: string): ReadableSpan[] {
     const spans = this.getSpansByTraceId(traceId);
     if (spans.length === 0) {
-      return false;
+      return [];
     }
+
+    // Sort spans by start time
+    spans.sort((a, b) => a.startTime[0] - b.startTime[0] || a.startTime[1] - b.startTime[1]);
 
     // Find the root span
-    const rootSpan = spans.find(span => !span.parentSpanId);
-    if (!rootSpan) {
-      return false;
-    }
-
-    return this.verifyHierarchyNode(rootSpan, expectedHierarchy, spans);
-  }
-
-  /**
-   * Helper method to recursively verify a node in the trace hierarchy.
-   * @param span The current span to check
-   * @param expectedNode The expected node configuration
-   * @param allSpans All spans in the trace
-   * @returns True if the hierarchy matches the expected structure
-   */
-  private verifyHierarchyNode(
-    span: ReadableSpan, 
-    expectedNode: TraceHierarchy, 
-    allSpans: ReadableSpan[]
-  ): boolean {
-    // Verify the span name matches
-    if (expectedNode.name && span.name !== expectedNode.name) {
-      return false;
-    }
-
-    // Verify attributes if specified
-    if (expectedNode.attributes && 
-        !this.verifySpanAttributes(span, expectedNode.attributes)) {
-      return false;
-    }
-
-    // Verify status if specified
-    if (expectedNode.status && 
-        !this.verifySpanStatus(span, expectedNode.status.code, expectedNode.status.message)) {
-      return false;
-    }
-
-    // If no children are expected, we're done
-    if (!expectedNode.children || expectedNode.children.length === 0) {
-      return true;
-    }
-
-    // Find all child spans of the current span
-    const childSpans = allSpans.filter(s => s.parentSpanId === span.spanContext().spanId);
+    const rootSpan = spans.find(span => !span.parentSpanId) || spans[0];
     
-    // If the number of children doesn't match, fail
-    if (childSpans.length !== expectedNode.children.length) {
-      return false;
-    }
-
-    // Verify each child recursively
-    for (const expectedChild of expectedNode.children) {
-      // Find a matching child span
-      const matchingChild = childSpans.find(childSpan => 
-        !expectedChild.name || childSpan.name === expectedChild.name
-      );
-
-      if (!matchingChild) {
-        return false;
-      }
-
-      // Verify the child hierarchy
-      if (!this.verifyHierarchyNode(matchingChild, expectedChild, allSpans)) {
-        return false;
+    // Build a map of parent-child relationships
+    const childrenMap = new Map<string, ReadableSpan[]>();
+    for (const span of spans) {
+      if (span.parentSpanId) {
+        const children = childrenMap.get(span.parentSpanId) || [];
+        children.push(span);
+        childrenMap.set(span.parentSpanId, children);
       }
     }
 
-    return true;
-  }
-
-  /**
-   * Verifies that context propagation is working correctly between spans.
-   * @param parentSpanId The ID of the parent span
-   * @param childSpanId The ID of the child span
-   * @returns True if context was properly propagated
-   */
-  verifyContextPropagation(parentSpanId: string, childSpanId: string): boolean {
-    const parentSpan = this.getSpanById(parentSpanId);
-    const childSpan = this.getSpanById(childSpanId);
-
-    if (!parentSpan || !childSpan) {
-      return false;
-    }
-
-    // Verify trace ID is the same
-    if (parentSpan.spanContext().traceId !== childSpan.spanContext().traceId) {
-      return false;
-    }
-
-    // Verify parent-child relationship
-    if (childSpan.parentSpanId !== parentSpan.spanContext().spanId) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Creates a test span for use in tests.
-   * @param name The name of the span
-   * @param attributes Optional attributes to add to the span
-   * @param parentContext Optional parent context
-   * @returns The created span's context
-   */
-  createTestSpan(
-    name: string, 
-    attributes?: Record<string, any>, 
-    parentContext?: Context
-  ): Context {
-    const tracer = trace.getTracer(this.serviceName);
-    const ctx = parentContext || trace.context();
-    const span = tracer.startSpan(name, {}, ctx);
-
-    if (attributes) {
-      for (const [key, value] of Object.entries(attributes)) {
-        span.setAttribute(key, value);
+    // Find the longest path using DFS
+    const findLongestPath = (span: ReadableSpan): ReadableSpan[] => {
+      const children = childrenMap.get(span.spanContext().spanId) || [];
+      if (children.length === 0) {
+        return [span];
       }
-    }
 
-    span.end();
-    return trace.setSpan(ctx, span);
-  }
-
-  /**
-   * Waits for spans to be exported and available for querying.
-   * This is useful when using BatchSpanProcessor which may delay exporting.
-   * @param timeoutMs Maximum time to wait in milliseconds
-   * @param expectedCount Optional number of spans to wait for
-   * @returns Promise that resolves when spans are available or timeout is reached
-   */
-  async waitForSpans(timeoutMs = 1000, expectedCount?: number): Promise<void> {
-    const startTime = Date.now();
-    
-    while (Date.now() - startTime < timeoutMs) {
-      if (expectedCount !== undefined) {
-        if (this.getSpans().length >= expectedCount) {
-          return;
+      let longestPath: ReadableSpan[] = [span];
+      for (const child of children) {
+        const childPath = findLongestPath(child);
+        if (childPath.length + 1 > longestPath.length) {
+          longestPath = [span, ...childPath];
         }
-      } else if (this.getSpans().length > 0) {
-        return;
       }
-      
-      // Wait a short time before checking again
-      await new Promise(resolve => setTimeout(resolve, 10));
+
+      return longestPath;
+    };
+
+    return findLongestPath(rootSpan);
+  }
+
+  /**
+   * Calculates the total duration of a trace.
+   * @param traceId The ID of the trace to calculate the duration for
+   * @returns The duration of the trace in milliseconds, or 0 if the trace is not found
+   */
+  public calculateTraceDuration(traceId: string): number {
+    const spans = this.getSpansByTraceId(traceId);
+    if (spans.length === 0) {
+      return 0;
     }
+
+    let minStartTime = Number.MAX_SAFE_INTEGER;
+    let maxEndTime = 0;
+
+    for (const span of spans) {
+      const startTimeNanos = span.startTime[0] * 1e9 + span.startTime[1];
+      const endTimeNanos = span.endTime[0] * 1e9 + span.endTime[1];
+
+      minStartTime = Math.min(minStartTime, startTimeNanos);
+      maxEndTime = Math.max(maxEndTime, endTimeNanos);
+    }
+
+    return (maxEndTime - minStartTime) / 1e6; // Convert nanoseconds to milliseconds
+  }
+
+  /**
+   * Creates a tracer for the specified name.
+   * @param name The name of the tracer (defaults to the service name)
+   * @returns A tracer instance
+   */
+  public getTracer(name: string = this.serviceName): any {
+    return trace.getTracer(name);
+  }
+
+  /**
+   * Extracts the current active span from the context.
+   * @returns The current active span, or undefined if no span is active
+   */
+  public getCurrentSpan(): Span | undefined {
+    return trace.getSpan(trace.getActiveSpan());
+  }
+
+  /**
+   * Extracts the current active span context.
+   * @returns The current active span context
+   */
+  public getCurrentContext(): Context {
+    return trace.context();
   }
 }
 
 /**
- * Interface describing the expected hierarchy of a trace.
+ * Creates and initializes a new TracingCollector instance.
+ * @param serviceName The name of the service being tested
+ * @returns An initialized TracingCollector instance
  */
-export interface TraceHierarchy {
-  /** Expected span name (optional) */
-  name?: string;
-  /** Expected span attributes (optional) */
-  attributes?: Record<string, any>;
-  /** Expected span status (optional) */
-  status?: {
-    code: SpanStatusCode;
-    message?: string;
-  };
-  /** Expected child spans (optional) */
-  children?: TraceHierarchy[];
+export function createTracingCollector(serviceName: string = 'test-service'): TracingCollector {
+  const collector = new TracingCollector(serviceName);
+  collector.init();
+  return collector;
 }

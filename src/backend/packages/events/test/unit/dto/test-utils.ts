@@ -1,1129 +1,859 @@
 /**
- * @file test-utils.ts
- * @description Provides utility functions and fixtures for testing event DTOs, including factory
- * functions for creating valid test events, validation helpers, and common test patterns.
+ * Test utilities for event DTOs
  * 
- * This file centralizes testing utilities to reduce duplication, ensure consistent testing
- * approaches across all DTO tests, and simplify the creation of test data that complies with
- * validation rules and schema requirements.
- *
- * @module events/test/unit/dto
+ * This file provides utility functions and fixtures for testing event DTOs, including:
+ * - Factory functions for creating valid test events for each journey
+ * - Validation helper functions for common test patterns
+ * - Type-safe mock data generators for all event types
+ * - Utilities for testing validation errors and edge cases
  */
 
-import { validate } from 'class-validator';
+import { validate, ValidationError } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { v4 as uuidv4 } from 'uuid';
 
-// Import DTOs
-import { ProcessEventDto } from '@austa/interfaces';
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-import { EventMetadataDto, EventOriginDto, EventVersionDto, createEventMetadata } from '../../../src/dto/event-metadata.dto';
-import { VersionedEventDto, createVersionedEvent } from '../../../src/dto/version.dto';
-import {
-  HealthMetricData,
-  HealthGoalData,
-  DeviceSyncData,
-  HealthInsightData,
-  HealthMetricType,
-  HealthGoalType,
-  DeviceType,
-  HealthInsightType,
-  HealthMetricRecordedEventDto,
-  HealthGoalAchievedEventDto,
-  DeviceSynchronizedEventDto,
-  HealthInsightGeneratedEventDto
-} from '../../../src/dto/health-event.dto';
+// Import all DTOs
+import { BaseEventDto } from '../../../src/dto/base-event.dto';
+import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { VersionDto } from '../../../src/dto/version.dto';
+import { HealthEventDto } from '../../../src/dto/health-event.dto';
+import { CareEventDto } from '../../../src/dto/care-event.dto';
+import { PlanEventDto } from '../../../src/dto/plan-event.dto';
+import { HealthMetricEventDto } from '../../../src/dto/health-metric-event.dto';
+import { HealthGoalEventDto } from '../../../src/dto/health-goal-event.dto';
+import { AppointmentEventDto } from '../../../src/dto/appointment-event.dto';
+import { MedicationEventDto } from '../../../src/dto/medication-event.dto';
+import { ClaimEventDto } from '../../../src/dto/claim-event.dto';
+import { BenefitEventDto } from '../../../src/dto/benefit-event.dto';
 
-// Import validation utilities
-import { ValidationError, validateObject } from '../../../src/dto/validation';
+// Import event types enum
+import { EventTypes } from '../../../src/dto/event-types.enum';
 
-/**
- * Interface for test factory options
- */
-export interface TestFactoryOptions {
-  /**
-   * Whether to include metadata in the generated event
-   */
-  includeMetadata?: boolean;
-  
-  /**
-   * Whether to include a user ID in the generated event
-   */
-  includeUserId?: boolean;
-  
-  /**
-   * Whether to include a timestamp in the generated event
-   */
-  includeTimestamp?: boolean;
-  
-  /**
-   * Whether to include a correlation ID in the generated event
-   */
-  includeCorrelationId?: boolean;
-  
-  /**
-   * Whether to include a version in the generated event
-   */
-  includeVersion?: boolean;
-  
-  /**
-   * Whether to include an origin in the generated event metadata
-   */
-  includeOrigin?: boolean;
-}
-
-/**
- * Default test factory options
- */
-export const DEFAULT_TEST_FACTORY_OPTIONS: TestFactoryOptions = {
-  includeMetadata: true,
-  includeUserId: true,
-  includeTimestamp: true,
-  includeCorrelationId: true,
-  includeVersion: true,
-  includeOrigin: true
+// Types for test data
+export type TestEventOptions = {
+  userId?: string;
+  journey?: 'health' | 'care' | 'plan';
+  timestamp?: string;
+  metadata?: Partial<EventMetadataDto>;
+  version?: string;
+  [key: string]: any; // Additional properties for specific event types
 };
 
 /**
- * Creates a valid event metadata object for testing
- * 
- * @param options Options for customizing the generated metadata
- * @returns A valid EventMetadataDto instance
+ * Validation result interface for test assertions
  */
-export function createTestEventMetadata(options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS): EventMetadataDto {
-  const metadata = new EventMetadataDto();
-  
-  if (options.includeCorrelationId) {
-    metadata.correlationId = uuidv4();
-  }
-  
-  if (options.includeTimestamp) {
-    metadata.timestamp = new Date();
-  }
-  
-  if (options.includeVersion) {
-    metadata.version = new EventVersionDto();
-    metadata.version.major = '1';
-    metadata.version.minor = '0';
-    metadata.version.patch = '0';
-  }
-  
-  if (options.includeOrigin) {
-    metadata.origin = new EventOriginDto();
-    metadata.origin.service = 'test-service';
-    metadata.origin.component = 'test-component';
-    metadata.origin.instance = 'test-instance-1';
-  }
-  
-  return metadata;
+export interface ValidationResult {
+  isValid: boolean;
+  errors: ValidationError[];
+  errorMessages: string[];
+  errorCount: number;
+  hasErrorForProperty: (property: string) => boolean;
+  getErrorsForProperty: (property: string) => ValidationError[];
 }
 
 /**
- * Creates a base event object with common properties
+ * Validates a DTO instance and returns a structured validation result
  * 
- * @param type The event type
- * @param journey The journey name
- * @param data The event data
- * @param options Options for customizing the generated event
- * @returns A valid base event object
+ * @param instance - The DTO instance to validate
+ * @returns A promise resolving to a ValidationResult object
  */
-export function createBaseEvent<T>(type: string, journey: string, data: T, options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS): Partial<ProcessEventDto> {
-  const event: Partial<ProcessEventDto> = {
-    type,
-    journey,
-    data
+export async function validateDto<T extends object>(instance: T): Promise<ValidationResult> {
+  const errors = await validate(instance, {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    validationError: { target: false, value: false },
+  });
+
+  const errorMessages = extractErrorMessages(errors);
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+    errorMessages,
+    errorCount: errors.length,
+    hasErrorForProperty: (property: string) => {
+      return errors.some(error => error.property === property);
+    },
+    getErrorsForProperty: (property: string) => {
+      return errors.filter(error => error.property === property);
+    }
   };
-  
-  if (options.includeUserId) {
-    event.userId = uuidv4();
-  }
-  
-  if (options.includeTimestamp) {
-    event.timestamp = new Date().toISOString();
-  }
-  
-  if (options.includeMetadata) {
-    event.metadata = createTestEventMetadata(options);
-  }
-  
-  return event;
 }
 
-// ===== HEALTH JOURNEY TEST FACTORIES =====
+/**
+ * Extracts human-readable error messages from ValidationError objects
+ * 
+ * @param errors - Array of ValidationError objects
+ * @returns Array of error message strings
+ */
+export function extractErrorMessages(errors: ValidationError[]): string[] {
+  const messages: string[] = [];
+  
+  function processError(error: ValidationError, prefix = '') {
+    const property = prefix ? `${prefix}.${error.property}` : error.property;
+    
+    if (error.constraints) {
+      Object.values(error.constraints).forEach(message => {
+        messages.push(`${property}: ${message}`);
+      });
+    }
+    
+    if (error.children && error.children.length > 0) {
+      error.children.forEach(childError => {
+        processError(childError, property);
+      });
+    }
+  }
+  
+  errors.forEach(error => processError(error));
+  return messages;
+}
 
 /**
- * Creates a valid health metric data object for testing
+ * Creates a plain object with default values for a base event
  * 
- * @param metricType The type of health metric (defaults to HEART_RATE)
- * @param customData Additional data to merge with the generated data
- * @returns A valid HealthMetricData instance
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with base event properties
  */
-export function createHealthMetricData(metricType: HealthMetricType = HealthMetricType.HEART_RATE, customData: Partial<HealthMetricData> = {}): HealthMetricData {
-  const baseData: HealthMetricData = {
-    metricType,
-    value: 0,
-    unit: '',
-    validateMetricRange: function(): boolean { return true; }
+export function createBaseEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    eventId: options.eventId || uuidv4(),
+    type: options.type || EventTypes.HEALTH.METRIC_RECORDED,
+    userId: options.userId || uuidv4(),
+    journey: options.journey || 'health',
+    timestamp: options.timestamp || new Date().toISOString(),
+    metadata: options.metadata || createEventMetadataData(),
+    data: options.data || {},
+    ...options
   };
+}
+
+/**
+ * Creates a valid BaseEventDto instance
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A BaseEventDto instance
+ */
+export function createBaseEventDto(options: TestEventOptions = {}): BaseEventDto {
+  const data = createBaseEventData(options);
+  return plainToInstance(BaseEventDto, data);
+}
+
+/**
+ * Creates a plain object with default values for event metadata
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with event metadata properties
+ */
+export function createEventMetadataData(options: Partial<EventMetadataDto> = {}): Record<string, any> {
+  return {
+    source: options.source || 'test-service',
+    correlationId: options.correlationId || uuidv4(),
+    version: options.version || '1.0.0',
+    ...options
+  };
+}
+
+/**
+ * Creates a valid EventMetadataDto instance
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns An EventMetadataDto instance
+ */
+export function createEventMetadataDto(options: Partial<EventMetadataDto> = {}): EventMetadataDto {
+  const data = createEventMetadataData(options);
+  return plainToInstance(EventMetadataDto, data);
+}
+
+/**
+ * Creates a plain object with default values for a version DTO
+ * 
+ * @param version - Optional version string (defaults to '1.0.0')
+ * @returns A plain object with version properties
+ */
+export function createVersionData(version: string = '1.0.0'): Record<string, any> {
+  return { version };
+}
+
+/**
+ * Creates a valid VersionDto instance
+ * 
+ * @param version - Optional version string (defaults to '1.0.0')
+ * @returns A VersionDto instance
+ */
+export function createVersionDto(version: string = '1.0.0'): VersionDto {
+  const data = createVersionData(version);
+  return plainToInstance(VersionDto, data);
+}
+
+// Health Journey Event Factories
+
+/**
+ * Creates a plain object with default values for a health event
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with health event properties
+ */
+export function createHealthEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'health',
+      type: options.type || EventTypes.HEALTH.METRIC_RECORDED,
+      ...options
+    }),
+    data: options.data || {
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      source: 'manual',
+      ...options.data
+    }
+  };
+}
+
+/**
+ * Creates a valid HealthEventDto instance
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A HealthEventDto instance
+ */
+export function createHealthEventDto(options: TestEventOptions = {}): HealthEventDto {
+  const data = createHealthEventData(options);
+  return plainToInstance(HealthEventDto, data);
+}
+
+/**
+ * Creates a plain object with default values for a health metric event
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with health metric event properties
+ */
+export function createHealthMetricEventData(options: TestEventOptions = {}): Record<string, any> {
+  const metricType = options.metricType || 'HEART_RATE';
+  let defaultValue = 75;
+  let defaultUnit = 'bpm';
   
-  // Set appropriate values based on metric type
+  // Set appropriate defaults based on metric type
   switch (metricType) {
-    case HealthMetricType.HEART_RATE:
-      baseData.value = 75;
-      baseData.unit = 'bpm';
+    case 'BLOOD_PRESSURE':
+      defaultValue = { systolic: 120, diastolic: 80 };
+      defaultUnit = 'mmHg';
       break;
-    case HealthMetricType.BLOOD_PRESSURE:
-      baseData.value = 120; // Systolic value
-      baseData.unit = 'mmHg';
+    case 'BLOOD_GLUCOSE':
+      defaultValue = 95;
+      defaultUnit = 'mg/dL';
       break;
-    case HealthMetricType.BLOOD_GLUCOSE:
-      baseData.value = 95;
-      baseData.unit = 'mg/dL';
+    case 'STEPS':
+      defaultValue = 8000;
+      defaultUnit = 'steps';
       break;
-    case HealthMetricType.STEPS:
-      baseData.value = 8500;
-      baseData.unit = 'steps';
+    case 'WEIGHT':
+      defaultValue = 70.5;
+      defaultUnit = 'kg';
       break;
-    case HealthMetricType.SLEEP:
-      baseData.value = 7.5;
-      baseData.unit = 'hours';
-      break;
-    case HealthMetricType.WEIGHT:
-      baseData.value = 70;
-      baseData.unit = 'kg';
-      break;
-    case HealthMetricType.TEMPERATURE:
-      baseData.value = 36.8;
-      baseData.unit = '°C';
-      break;
-    case HealthMetricType.OXYGEN_SATURATION:
-      baseData.value = 98;
-      baseData.unit = '%';
-      break;
-    case HealthMetricType.RESPIRATORY_RATE:
-      baseData.value = 16;
-      baseData.unit = 'breaths/min';
-      break;
-    case HealthMetricType.WATER_INTAKE:
-      baseData.value = 2000;
-      baseData.unit = 'ml';
-      break;
-    case HealthMetricType.CALORIES:
-      baseData.value = 2500;
-      baseData.unit = 'kcal';
+    case 'SLEEP':
+      defaultValue = 7.5;
+      defaultUnit = 'hours';
       break;
   }
   
-  // Add optional fields
-  baseData.recordedAt = new Date().toISOString();
-  baseData.notes = 'Test metric recording';
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
+  return {
+    ...createBaseEventData({
+      journey: 'health',
+      type: EventTypes.HEALTH.METRIC_RECORDED,
+      ...options
+    }),
+    data: {
+      metricType,
+      value: options.value !== undefined ? options.value : defaultValue,
+      unit: options.unit || defaultUnit,
+      recordedAt: options.recordedAt || new Date().toISOString(),
+      source: options.source || 'manual',
+      deviceId: options.deviceId,
+      notes: options.notes,
+      ...options.data
+    }
+  };
 }
 
 /**
- * Creates a valid health goal data object for testing
+ * Creates a valid HealthMetricEventDto instance
  * 
- * @param goalType The type of health goal (defaults to STEPS_TARGET)
- * @param customData Additional data to merge with the generated data
- * @returns A valid HealthGoalData instance
+ * @param options - Optional overrides for the default values
+ * @returns A HealthMetricEventDto instance
  */
-export function createHealthGoalData(goalType: HealthGoalType = HealthGoalType.STEPS_TARGET, customData: Partial<HealthGoalData> = {}): HealthGoalData {
-  const baseData: HealthGoalData = {
-    goalId: uuidv4(),
-    goalType,
-    description: '',
-    isAchieved: function(): boolean { return this.progressPercentage === 100 || !!this.achievedAt; },
-    markAsAchieved: function(): void { this.achievedAt = new Date().toISOString(); this.progressPercentage = 100; }
-  };
+export function createHealthMetricEventDto(options: TestEventOptions = {}): HealthMetricEventDto {
+  const data = createHealthMetricEventData(options);
+  return plainToInstance(HealthMetricEventDto, data);
+}
+
+/**
+ * Creates a plain object with default values for a health goal event
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with health goal event properties
+ */
+export function createHealthGoalEventData(options: TestEventOptions = {}): Record<string, any> {
+  const goalType = options.goalType || 'STEPS';
+  let defaultTarget = 10000;
+  let defaultUnit = 'steps';
+  let defaultCurrentValue = 8000;
   
-  // Set appropriate values based on goal type
+  // Set appropriate defaults based on goal type
   switch (goalType) {
-    case HealthGoalType.STEPS_TARGET:
-      baseData.description = 'Walk 10,000 steps daily';
-      baseData.targetValue = 10000;
-      baseData.unit = 'steps';
+    case 'WEIGHT':
+      defaultTarget = 70;
+      defaultUnit = 'kg';
+      defaultCurrentValue = 75;
       break;
-    case HealthGoalType.WEIGHT_TARGET:
-      baseData.description = 'Reach target weight of 65kg';
-      baseData.targetValue = 65;
-      baseData.unit = 'kg';
+    case 'SLEEP':
+      defaultTarget = 8;
+      defaultUnit = 'hours';
+      defaultCurrentValue = 7;
       break;
-    case HealthGoalType.SLEEP_DURATION:
-      baseData.description = 'Sleep 8 hours every night';
-      baseData.targetValue = 8;
-      baseData.unit = 'hours';
-      break;
-    case HealthGoalType.ACTIVITY_FREQUENCY:
-      baseData.description = 'Exercise 5 times per week';
-      baseData.targetValue = 5;
-      baseData.unit = 'sessions';
-      break;
-    case HealthGoalType.WATER_INTAKE:
-      baseData.description = 'Drink 2L of water daily';
-      baseData.targetValue = 2000;
-      baseData.unit = 'ml';
-      break;
-    case HealthGoalType.BLOOD_PRESSURE_MANAGEMENT:
-      baseData.description = 'Maintain blood pressure below 130/85';
-      baseData.targetValue = 130;
-      baseData.unit = 'mmHg';
-      break;
-    case HealthGoalType.BLOOD_GLUCOSE_MANAGEMENT:
-      baseData.description = 'Keep fasting blood glucose below 100 mg/dL';
-      baseData.targetValue = 100;
-      baseData.unit = 'mg/dL';
+    case 'HEART_RATE':
+      defaultTarget = 60;
+      defaultUnit = 'bpm';
+      defaultCurrentValue = 65;
       break;
   }
   
-  // Add progress percentage (not achieved by default)
-  baseData.progressPercentage = 75;
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
-}
-
-/**
- * Creates a valid device sync data object for testing
- * 
- * @param deviceType The type of device (defaults to SMARTWATCH)
- * @param customData Additional data to merge with the generated data
- * @returns A valid DeviceSyncData instance
- */
-export function createDeviceSyncData(deviceType: DeviceType = DeviceType.SMARTWATCH, customData: Partial<DeviceSyncData> = {}): DeviceSyncData {
-  const baseData: DeviceSyncData = {
-    deviceId: uuidv4(),
-    deviceType,
-    deviceName: '',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    markAsFailed: function(errorMessage: string): void { this.syncSuccessful = false; this.errorMessage = errorMessage; },
-    markAsSuccessful: function(dataPointsCount: number, metricTypes: HealthMetricType[]): void {
-      this.syncSuccessful = true;
-      this.dataPointsCount = dataPointsCount;
-      this.metricTypes = metricTypes;
-      this.errorMessage = undefined;
+  return {
+    ...createBaseEventData({
+      journey: 'health',
+      type: options.type || EventTypes.HEALTH.GOAL_CREATED,
+      ...options
+    }),
+    data: {
+      goalId: options.goalId || uuidv4(),
+      goalType,
+      target: options.target !== undefined ? options.target : defaultTarget,
+      unit: options.unit || defaultUnit,
+      currentValue: options.currentValue !== undefined ? options.currentValue : defaultCurrentValue,
+      startDate: options.startDate || new Date().toISOString(),
+      endDate: options.endDate,
+      status: options.status || 'active',
+      progress: options.progress !== undefined ? options.progress : (defaultCurrentValue / defaultTarget * 100),
+      ...options.data
     }
   };
-  
-  // Set appropriate values based on device type
-  switch (deviceType) {
-    case DeviceType.SMARTWATCH:
-      baseData.deviceName = 'Apple Watch Series 7';
-      baseData.dataPointsCount = 24;
-      baseData.metricTypes = [HealthMetricType.HEART_RATE, HealthMetricType.STEPS, HealthMetricType.SLEEP];
-      break;
-    case DeviceType.FITNESS_TRACKER:
-      baseData.deviceName = 'Fitbit Charge 5';
-      baseData.dataPointsCount = 18;
-      baseData.metricTypes = [HealthMetricType.STEPS, HealthMetricType.HEART_RATE, HealthMetricType.SLEEP];
-      break;
-    case DeviceType.BLOOD_PRESSURE_MONITOR:
-      baseData.deviceName = 'Omron X5';
-      baseData.dataPointsCount = 3;
-      baseData.metricTypes = [HealthMetricType.BLOOD_PRESSURE];
-      break;
-    case DeviceType.GLUCOSE_MONITOR:
-      baseData.deviceName = 'Dexcom G6';
-      baseData.dataPointsCount = 12;
-      baseData.metricTypes = [HealthMetricType.BLOOD_GLUCOSE];
-      break;
-    case DeviceType.SCALE:
-      baseData.deviceName = 'Withings Body+';
-      baseData.dataPointsCount = 1;
-      baseData.metricTypes = [HealthMetricType.WEIGHT];
-      break;
-    case DeviceType.SLEEP_TRACKER:
-      baseData.deviceName = 'Oura Ring';
-      baseData.dataPointsCount = 8;
-      baseData.metricTypes = [HealthMetricType.SLEEP];
-      break;
-    case DeviceType.THERMOMETER:
-      baseData.deviceName = 'Withings Thermo';
-      baseData.dataPointsCount = 1;
-      baseData.metricTypes = [HealthMetricType.TEMPERATURE];
-      break;
-    case DeviceType.PULSE_OXIMETER:
-      baseData.deviceName = 'Nonin Onyx';
-      baseData.dataPointsCount = 2;
-      baseData.metricTypes = [HealthMetricType.OXYGEN_SATURATION];
-      break;
-  }
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid health insight data object for testing
+ * Creates a valid HealthGoalEventDto instance
  * 
- * @param insightType The type of health insight (defaults to TREND_ANALYSIS)
- * @param customData Additional data to merge with the generated data
- * @returns A valid HealthInsightData instance
+ * @param options - Optional overrides for the default values
+ * @returns A HealthGoalEventDto instance
  */
-export function createHealthInsightData(insightType: HealthInsightType = HealthInsightType.TREND_ANALYSIS, customData: Partial<HealthInsightData> = {}): HealthInsightData {
-  const baseData: HealthInsightData = {
-    insightId: uuidv4(),
-    insightType,
-    title: '',
-    description: '',
-    acknowledgeByUser: function(): void { this.userAcknowledged = true; },
-    isHighPriority: function(): boolean {
-      return (this.insightType === HealthInsightType.ANOMALY_DETECTION || 
-              this.insightType === HealthInsightType.HEALTH_RISK_ASSESSMENT) && 
-             this.confidenceScore !== undefined && 
-             this.confidenceScore > 75;
+export function createHealthGoalEventDto(options: TestEventOptions = {}): HealthGoalEventDto {
+  const data = createHealthGoalEventData(options);
+  return plainToInstance(HealthGoalEventDto, data);
+}
+
+// Care Journey Event Factories
+
+/**
+ * Creates a plain object with default values for a care event
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with care event properties
+ */
+export function createCareEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'care',
+      type: options.type || EventTypes.CARE.APPOINTMENT_BOOKED,
+      ...options
+    }),
+    data: options.data || {
+      appointmentId: uuidv4(),
+      providerId: uuidv4(),
+      specialtyId: uuidv4(),
+      scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+      status: 'scheduled',
+      ...options.data
     }
   };
-  
-  // Set appropriate values based on insight type
-  switch (insightType) {
-    case HealthInsightType.TREND_ANALYSIS:
-      baseData.title = 'Improving Sleep Pattern';
-      baseData.description = 'Your sleep duration has been consistently improving over the past 2 weeks.';
-      baseData.relatedMetricTypes = [HealthMetricType.SLEEP];
-      baseData.confidenceScore = 85;
-      break;
-    case HealthInsightType.ANOMALY_DETECTION:
-      baseData.title = 'Unusual Heart Rate Detected';
-      baseData.description = 'We noticed an unusually high resting heart rate yesterday evening.';
-      baseData.relatedMetricTypes = [HealthMetricType.HEART_RATE];
-      baseData.confidenceScore = 70;
-      break;
-    case HealthInsightType.PREVENTIVE_RECOMMENDATION:
-      baseData.title = 'Hydration Reminder';
-      baseData.description = 'Your water intake has been below target for 3 consecutive days.';
-      baseData.relatedMetricTypes = [HealthMetricType.WATER_INTAKE];
-      baseData.confidenceScore = 90;
-      break;
-    case HealthInsightType.GOAL_SUGGESTION:
-      baseData.title = 'New Step Goal Recommendation';
-      baseData.description = 'Based on your activity level, we recommend increasing your daily step goal to 12,000.';
-      baseData.relatedMetricTypes = [HealthMetricType.STEPS];
-      baseData.confidenceScore = 80;
-      break;
-    case HealthInsightType.HEALTH_RISK_ASSESSMENT:
-      baseData.title = 'Blood Pressure Trend Alert';
-      baseData.description = 'Your blood pressure readings have been consistently elevated over the past week.';
-      baseData.relatedMetricTypes = [HealthMetricType.BLOOD_PRESSURE];
-      baseData.confidenceScore = 85;
-      break;
-  }
-  
-  // Add generated timestamp
-  baseData.generatedAt = new Date().toISOString();
-  baseData.userAcknowledged = false;
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid health metric recorded event for testing
+ * Creates a valid CareEventDto instance
  * 
- * @param metricType The type of health metric (defaults to HEART_RATE)
- * @param customData Additional data to merge with the generated metric data
- * @param options Options for customizing the generated event
- * @returns A valid HealthMetricRecordedEventDto instance
+ * @param options - Optional overrides for the default values
+ * @returns A CareEventDto instance
  */
-export function createHealthMetricRecordedEvent(
-  metricType: HealthMetricType = HealthMetricType.HEART_RATE,
-  customData: Partial<HealthMetricData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): HealthMetricRecordedEventDto {
-  const metricData = createHealthMetricData(metricType, customData);
-  const eventData = createBaseEvent(EventType.HEALTH_METRIC_RECORDED, 'health', metricData, options);
-  
-  return plainToInstance(HealthMetricRecordedEventDto, eventData);
+export function createCareEventDto(options: TestEventOptions = {}): CareEventDto {
+  const data = createCareEventData(options);
+  return plainToInstance(CareEventDto, data);
 }
 
 /**
- * Creates a valid health goal achieved event for testing
+ * Creates a plain object with default values for an appointment event
  * 
- * @param goalType The type of health goal (defaults to STEPS_TARGET)
- * @param customData Additional data to merge with the generated goal data
- * @param options Options for customizing the generated event
- * @returns A valid HealthGoalAchievedEventDto instance
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with appointment event properties
  */
-export function createHealthGoalAchievedEvent(
-  goalType: HealthGoalType = HealthGoalType.STEPS_TARGET,
-  customData: Partial<HealthGoalData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): HealthGoalAchievedEventDto {
-  // Create goal data and mark it as achieved
-  const goalData = createHealthGoalData(goalType, customData);
-  goalData.markAsAchieved();
+export function createAppointmentEventData(options: TestEventOptions = {}): Record<string, any> {
+  const appointmentStatus = options.status || 'scheduled';
+  const appointmentType = options.appointmentType || 'in-person';
   
-  const eventData = createBaseEvent(EventType.HEALTH_GOAL_ACHIEVED, 'health', goalData, options);
-  
-  return plainToInstance(HealthGoalAchievedEventDto, eventData);
-}
-
-/**
- * Creates a valid device synchronized event for testing
- * 
- * @param deviceType The type of device (defaults to SMARTWATCH)
- * @param customData Additional data to merge with the generated device data
- * @param options Options for customizing the generated event
- * @returns A valid DeviceSynchronizedEventDto instance
- */
-export function createDeviceSynchronizedEvent(
-  deviceType: DeviceType = DeviceType.SMARTWATCH,
-  customData: Partial<DeviceSyncData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): DeviceSynchronizedEventDto {
-  const deviceData = createDeviceSyncData(deviceType, customData);
-  const eventData = createBaseEvent('DEVICE_SYNCHRONIZED', 'health', deviceData, options);
-  
-  return plainToInstance(DeviceSynchronizedEventDto, eventData);
-}
-
-/**
- * Creates a valid health insight generated event for testing
- * 
- * @param insightType The type of health insight (defaults to TREND_ANALYSIS)
- * @param customData Additional data to merge with the generated insight data
- * @param options Options for customizing the generated event
- * @returns A valid HealthInsightGeneratedEventDto instance
- */
-export function createHealthInsightGeneratedEvent(
-  insightType: HealthInsightType = HealthInsightType.TREND_ANALYSIS,
-  customData: Partial<HealthInsightData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): HealthInsightGeneratedEventDto {
-  const insightData = createHealthInsightData(insightType, customData);
-  const eventData = createBaseEvent(EventType.HEALTH_INSIGHT_GENERATED, 'health', insightData, options);
-  
-  return plainToInstance(HealthInsightGeneratedEventDto, eventData);
-}
-
-// ===== CARE JOURNEY TEST FACTORIES =====
-
-/**
- * Enum for appointment types in the care journey
- */
-export enum AppointmentType {
-  IN_PERSON = 'IN_PERSON',
-  TELEMEDICINE = 'TELEMEDICINE',
-  HOME_VISIT = 'HOME_VISIT'
-}
-
-/**
- * Enum for appointment statuses in the care journey
- */
-export enum AppointmentStatus {
-  SCHEDULED = 'SCHEDULED',
-  CONFIRMED = 'CONFIRMED',
-  CHECKED_IN = 'CHECKED_IN',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-  NO_SHOW = 'NO_SHOW',
-  RESCHEDULED = 'RESCHEDULED'
-}
-
-/**
- * Interface for appointment data in the care journey
- */
-export interface AppointmentData {
-  appointmentId: string;
-  providerId: string;
-  specialtyType: string;
-  appointmentType: AppointmentType;
-  status: AppointmentStatus;
-  scheduledAt: string;
-  bookedAt: string;
-  duration: number; // in minutes
-  location?: string;
-  notes?: string;
-  completedAt?: string;
-}
-
-/**
- * Creates a valid appointment data object for testing
- * 
- * @param appointmentType The type of appointment (defaults to IN_PERSON)
- * @param status The status of the appointment (defaults to SCHEDULED)
- * @param customData Additional data to merge with the generated data
- * @returns A valid AppointmentData object
- */
-export function createAppointmentData(
-  appointmentType: AppointmentType = AppointmentType.IN_PERSON,
-  status: AppointmentStatus = AppointmentStatus.SCHEDULED,
-  customData: Partial<AppointmentData> = {}
-): AppointmentData {
-  const now = new Date();
-  const scheduledDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-  
-  const baseData: AppointmentData = {
-    appointmentId: uuidv4(),
-    providerId: uuidv4(),
-    specialtyType: 'Cardiologia',
-    appointmentType,
-    status,
-    scheduledAt: scheduledDate.toISOString(),
-    bookedAt: now.toISOString(),
-    duration: 30, // 30 minutes
-    notes: 'Regular check-up appointment'
+  return {
+    ...createBaseEventData({
+      journey: 'care',
+      type: options.type || EventTypes.CARE.APPOINTMENT_BOOKED,
+      ...options
+    }),
+    data: {
+      appointmentId: options.appointmentId || uuidv4(),
+      providerId: options.providerId || uuidv4(),
+      providerName: options.providerName || 'Dr. Test Provider',
+      specialtyId: options.specialtyId || uuidv4(),
+      specialtyName: options.specialtyName || 'Cardiologia',
+      appointmentType,
+      scheduledAt: options.scheduledAt || new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+      duration: options.duration || 30, // minutes
+      status: appointmentStatus,
+      location: options.location || (appointmentType === 'in-person' ? {
+        name: 'AUSTA Medical Center',
+        address: 'Av. Paulista, 1000',
+        city: 'São Paulo',
+        state: 'SP',
+        zipCode: '01310-100'
+      } : null),
+      notes: options.notes,
+      ...options.data
+    }
   };
-  
-  // Set location based on appointment type
-  if (appointmentType === AppointmentType.IN_PERSON) {
-    baseData.location = 'AUSTA Medical Center - Floor 3, Room 302';
-  } else if (appointmentType === AppointmentType.HOME_VISIT) {
-    baseData.location = 'Patient\'s home address';
-  }
-  
-  // Set completedAt if status is COMPLETED
-  if (status === AppointmentStatus.COMPLETED) {
-    const completedDate = new Date(scheduledDate.getTime() + baseData.duration * 60 * 1000);
-    baseData.completedAt = completedDate.toISOString();
-  }
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid appointment booked event for testing
+ * Creates a valid AppointmentEventDto instance
  * 
- * @param appointmentType The type of appointment (defaults to IN_PERSON)
- * @param customData Additional data to merge with the generated appointment data
- * @param options Options for customizing the generated event
- * @returns A valid appointment booked event object
+ * @param options - Optional overrides for the default values
+ * @returns An AppointmentEventDto instance
  */
-export function createAppointmentBookedEvent(
-  appointmentType: AppointmentType = AppointmentType.IN_PERSON,
-  customData: Partial<AppointmentData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  const appointmentData = createAppointmentData(appointmentType, AppointmentStatus.SCHEDULED, customData);
-  const eventData = createBaseEvent(EventType.CARE_APPOINTMENT_BOOKED, 'care', appointmentData, options);
-  
-  return eventData;
+export function createAppointmentEventDto(options: TestEventOptions = {}): AppointmentEventDto {
+  const data = createAppointmentEventData(options);
+  return plainToInstance(AppointmentEventDto, data);
 }
 
 /**
- * Creates a valid appointment completed event for testing
+ * Creates a plain object with default values for a medication event
  * 
- * @param appointmentType The type of appointment (defaults to IN_PERSON)
- * @param customData Additional data to merge with the generated appointment data
- * @param options Options for customizing the generated event
- * @returns A valid appointment completed event object
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with medication event properties
  */
-export function createAppointmentCompletedEvent(
-  appointmentType: AppointmentType = AppointmentType.IN_PERSON,
-  customData: Partial<AppointmentData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  const appointmentData = createAppointmentData(appointmentType, AppointmentStatus.COMPLETED, customData);
-  const eventData = createBaseEvent(EventType.CARE_APPOINTMENT_COMPLETED, 'care', appointmentData, options);
-  
-  return eventData;
-}
-
-/**
- * Enum for medication adherence statuses
- */
-export enum MedicationAdherenceStatus {
-  ON_TIME = 'ON_TIME',
-  LATE = 'LATE',
-  MISSED = 'MISSED',
-  SKIPPED = 'SKIPPED'
-}
-
-/**
- * Interface for medication data
- */
-export interface MedicationData {
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  takenAt: string;
-  scheduledAt: string;
-  adherenceStatus: MedicationAdherenceStatus;
-  notes?: string;
-}
-
-/**
- * Creates a valid medication data object for testing
- * 
- * @param adherenceStatus The adherence status (defaults to ON_TIME)
- * @param customData Additional data to merge with the generated data
- * @returns A valid MedicationData object
- */
-export function createMedicationData(
-  adherenceStatus: MedicationAdherenceStatus = MedicationAdherenceStatus.ON_TIME,
-  customData: Partial<MedicationData> = {}
-): MedicationData {
-  const now = new Date();
-  const scheduledTime = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
-  
-  const baseData: MedicationData = {
-    medicationId: uuidv4(),
-    medicationName: 'Atorvastatina 20mg',
-    dosage: '1 comprimido',
-    scheduledAt: scheduledTime.toISOString(),
-    takenAt: now.toISOString(),
-    adherenceStatus,
-    notes: 'Taken after dinner'
+export function createMedicationEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'care',
+      type: options.type || EventTypes.CARE.MEDICATION_TAKEN,
+      ...options
+    }),
+    data: {
+      medicationId: options.medicationId || uuidv4(),
+      medicationName: options.medicationName || 'Test Medication',
+      dosage: options.dosage || '10mg',
+      scheduledTime: options.scheduledTime || new Date().toISOString(),
+      takenTime: options.takenTime || new Date().toISOString(),
+      status: options.status || 'taken',
+      adherence: options.adherence || 'on-time',
+      notes: options.notes,
+      ...options.data
+    }
   };
-  
-  // Adjust takenAt based on adherence status
-  if (adherenceStatus === MedicationAdherenceStatus.LATE) {
-    baseData.takenAt = new Date(scheduledTime.getTime() + 2 * 60 * 60 * 1000).toISOString(); // 2 hours after scheduled
-  } else if (adherenceStatus === MedicationAdherenceStatus.MISSED) {
-    baseData.takenAt = undefined;
-  }
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid medication taken event for testing
+ * Creates a valid MedicationEventDto instance
  * 
- * @param adherenceStatus The adherence status (defaults to ON_TIME)
- * @param customData Additional data to merge with the generated medication data
- * @param options Options for customizing the generated event
- * @returns A valid medication taken event object
+ * @param options - Optional overrides for the default values
+ * @returns A MedicationEventDto instance
  */
-export function createMedicationTakenEvent(
-  adherenceStatus: MedicationAdherenceStatus = MedicationAdherenceStatus.ON_TIME,
-  customData: Partial<MedicationData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  const medicationData = createMedicationData(adherenceStatus, customData);
-  const eventData = createBaseEvent(EventType.CARE_MEDICATION_TAKEN, 'care', medicationData, options);
-  
-  return eventData;
+export function createMedicationEventDto(options: TestEventOptions = {}): MedicationEventDto {
+  const data = createMedicationEventData(options);
+  return plainToInstance(MedicationEventDto, data);
 }
 
-// ===== PLAN JOURNEY TEST FACTORIES =====
+// Plan Journey Event Factories
 
 /**
- * Enum for claim types in the plan journey
- */
-export enum ClaimType {
-  MEDICAL = 'MEDICAL',
-  DENTAL = 'DENTAL',
-  VISION = 'VISION',
-  PHARMACY = 'PHARMACY',
-  LABORATORY = 'LABORATORY',
-  IMAGING = 'IMAGING',
-  THERAPY = 'THERAPY'
-}
-
-/**
- * Enum for claim statuses in the plan journey
- */
-export enum ClaimStatus {
-  SUBMITTED = 'SUBMITTED',
-  UNDER_REVIEW = 'UNDER_REVIEW',
-  ADDITIONAL_INFO_REQUIRED = 'ADDITIONAL_INFO_REQUIRED',
-  APPROVED = 'APPROVED',
-  PARTIALLY_APPROVED = 'PARTIALLY_APPROVED',
-  REJECTED = 'REJECTED',
-  PAYMENT_PENDING = 'PAYMENT_PENDING',
-  PAYMENT_PROCESSED = 'PAYMENT_PROCESSED',
-  APPEALED = 'APPEALED'
-}
-
-/**
- * Interface for claim data in the plan journey
- */
-export interface ClaimData {
-  claimId: string;
-  claimType: ClaimType;
-  providerId: string;
-  providerName: string;
-  serviceDate: string;
-  submittedAt: string;
-  amount: number;
-  status: ClaimStatus;
-  coveredAmount?: number;
-  notes?: string;
-  processedAt?: string;
-  documentIds?: string[];
-}
-
-/**
- * Creates a valid claim data object for testing
+ * Creates a plain object with default values for a plan event
  * 
- * @param claimType The type of claim (defaults to MEDICAL)
- * @param status The status of the claim (defaults to SUBMITTED)
- * @param customData Additional data to merge with the generated data
- * @returns A valid ClaimData object
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with plan event properties
  */
-export function createClaimData(
-  claimType: ClaimType = ClaimType.MEDICAL,
-  status: ClaimStatus = ClaimStatus.SUBMITTED,
-  customData: Partial<ClaimData> = {}
-): ClaimData {
-  const now = new Date();
-  const serviceDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days ago
-  
-  const baseData: ClaimData = {
-    claimId: uuidv4(),
-    claimType,
-    providerId: uuidv4(),
-    providerName: 'Dr. Carlos Silva',
-    serviceDate: serviceDate.toISOString(),
-    submittedAt: now.toISOString(),
-    amount: 350.00,
-    status,
-    notes: 'Regular consultation claim',
-    documentIds: [uuidv4(), uuidv4()]
+export function createPlanEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'plan',
+      type: options.type || EventTypes.PLAN.CLAIM_SUBMITTED,
+      ...options
+    }),
+    data: options.data || {
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      amount: 150.00,
+      currency: 'BRL',
+      status: 'submitted',
+      ...options.data
+    }
   };
-  
-  // Set covered amount and processed date for processed claims
-  if (status === ClaimStatus.APPROVED) {
-    baseData.coveredAmount = baseData.amount;
-    baseData.processedAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(); // 3 days after submission
-  } else if (status === ClaimStatus.PARTIALLY_APPROVED) {
-    baseData.coveredAmount = baseData.amount * 0.7; // 70% coverage
-    baseData.processedAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
-  } else if (status === ClaimStatus.REJECTED) {
-    baseData.coveredAmount = 0;
-    baseData.processedAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
-  }
-  
-  // Adjust amount based on claim type
-  if (claimType === ClaimType.DENTAL) {
-    baseData.amount = 250.00;
-    baseData.providerName = 'Dra. Ana Oliveira';
-    baseData.notes = 'Dental cleaning and check-up';
-  } else if (claimType === ClaimType.VISION) {
-    baseData.amount = 500.00;
-    baseData.providerName = 'Dr. Marcos Santos';
-    baseData.notes = 'Annual eye exam and prescription glasses';
-  } else if (claimType === ClaimType.PHARMACY) {
-    baseData.amount = 120.00;
-    baseData.providerName = 'Farmácia São Paulo';
-    baseData.notes = 'Monthly prescription medications';
-  }
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid claim submitted event for testing
+ * Creates a valid PlanEventDto instance
  * 
- * @param claimType The type of claim (defaults to MEDICAL)
- * @param customData Additional data to merge with the generated claim data
- * @param options Options for customizing the generated event
- * @returns A valid claim submitted event object
+ * @param options - Optional overrides for the default values
+ * @returns A PlanEventDto instance
  */
-export function createClaimSubmittedEvent(
-  claimType: ClaimType = ClaimType.MEDICAL,
-  customData: Partial<ClaimData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  const claimData = createClaimData(claimType, ClaimStatus.SUBMITTED, customData);
-  const eventData = createBaseEvent(EventType.PLAN_CLAIM_SUBMITTED, 'plan', claimData, options);
-  
-  return eventData;
+export function createPlanEventDto(options: TestEventOptions = {}): PlanEventDto {
+  const data = createPlanEventData(options);
+  return plainToInstance(PlanEventDto, data);
 }
 
 /**
- * Creates a valid claim processed event for testing
+ * Creates a plain object with default values for a claim event
  * 
- * @param claimType The type of claim (defaults to MEDICAL)
- * @param status The status of the processed claim (defaults to APPROVED)
- * @param customData Additional data to merge with the generated claim data
- * @param options Options for customizing the generated event
- * @returns A valid claim processed event object
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with claim event properties
  */
-export function createClaimProcessedEvent(
-  claimType: ClaimType = ClaimType.MEDICAL,
-  status: ClaimStatus = ClaimStatus.APPROVED,
-  customData: Partial<ClaimData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  // Only use processed statuses
-  const validStatuses = [ClaimStatus.APPROVED, ClaimStatus.PARTIALLY_APPROVED, ClaimStatus.REJECTED];
-  const processStatus = validStatuses.includes(status) ? status : ClaimStatus.APPROVED;
-  
-  const claimData = createClaimData(claimType, processStatus, customData);
-  const eventData = createBaseEvent(EventType.PLAN_CLAIM_PROCESSED, 'plan', claimData, options);
-  
-  return eventData;
-}
-
-/**
- * Interface for benefit data in the plan journey
- */
-export interface BenefitData {
-  benefitId: string;
-  benefitType: string;
-  benefitName: string;
-  providerId?: string;
-  providerName?: string;
-  utilizationDate: string;
-  savingsAmount?: number;
-  notes?: string;
-}
-
-/**
- * Creates a valid benefit data object for testing
- * 
- * @param benefitType The type of benefit (defaults to 'wellness')
- * @param customData Additional data to merge with the generated data
- * @returns A valid BenefitData object
- */
-export function createBenefitData(
-  benefitType: string = 'wellness',
-  customData: Partial<BenefitData> = {}
-): BenefitData {
-  const now = new Date();
-  
-  const baseData: BenefitData = {
-    benefitId: uuidv4(),
-    benefitType,
-    benefitName: '',
-    utilizationDate: now.toISOString(),
-    notes: ''
+export function createClaimEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'plan',
+      type: options.type || EventTypes.PLAN.CLAIM_SUBMITTED,
+      ...options
+    }),
+    data: {
+      claimId: options.claimId || uuidv4(),
+      claimType: options.claimType || 'Consulta Médica',
+      claimTypeId: options.claimTypeId || uuidv4(),
+      amount: options.amount !== undefined ? options.amount : 150.00,
+      currency: options.currency || 'BRL',
+      serviceDate: options.serviceDate || new Date().toISOString(),
+      submissionDate: options.submissionDate || new Date().toISOString(),
+      status: options.status || 'submitted',
+      providerName: options.providerName || 'Dr. Test Provider',
+      providerTaxId: options.providerTaxId || '12345678901',
+      documents: options.documents || [
+        { id: uuidv4(), type: 'receipt', url: 'https://example.com/receipt.pdf' }
+      ],
+      notes: options.notes,
+      ...options.data
+    }
   };
-  
-  // Set appropriate values based on benefit type
-  switch (benefitType) {
-    case 'wellness':
-      baseData.benefitName = 'Academia Desconto';
-      baseData.providerId = uuidv4();
-      baseData.providerName = 'Academia Fitness Total';
-      baseData.savingsAmount = 100.00;
-      baseData.notes = 'Monthly gym membership discount';
-      break;
-    case 'preventive':
-      baseData.benefitName = 'Check-up Anual';
-      baseData.providerId = uuidv4();
-      baseData.providerName = 'Clínica AUSTA';
-      baseData.savingsAmount = 350.00;
-      baseData.notes = 'Annual preventive health check-up';
-      break;
-    case 'specialist':
-      baseData.benefitName = 'Consulta Especialista';
-      baseData.providerId = uuidv4();
-      baseData.providerName = 'Dr. Roberto Almeida';
-      baseData.savingsAmount = 200.00;
-      baseData.notes = 'Specialist consultation with reduced co-pay';
-      break;
-    case 'telemedicine':
-      baseData.benefitName = 'Telemedicina Gratuita';
-      baseData.providerId = uuidv4();
-      baseData.providerName = 'AUSTA Telemedicina';
-      baseData.savingsAmount = 150.00;
-      baseData.notes = 'Free telemedicine consultation';
-      break;
-    case 'pharmacy':
-      baseData.benefitName = 'Desconto Medicamentos';
-      baseData.providerId = uuidv4();
-      baseData.providerName = 'Rede de Farmácias São Paulo';
-      baseData.savingsAmount = 75.00;
-      baseData.notes = 'Prescription medication discount';
-      break;
-  }
-  
-  // Merge with custom data
-  return { ...baseData, ...customData };
 }
 
 /**
- * Creates a valid benefit utilized event for testing
+ * Creates a valid ClaimEventDto instance
  * 
- * @param benefitType The type of benefit (defaults to 'wellness')
- * @param customData Additional data to merge with the generated benefit data
- * @param options Options for customizing the generated event
- * @returns A valid benefit utilized event object
+ * @param options - Optional overrides for the default values
+ * @returns A ClaimEventDto instance
  */
-export function createBenefitUtilizedEvent(
-  benefitType: string = 'wellness',
-  customData: Partial<BenefitData> = {},
-  options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS
-): any {
-  const benefitData = createBenefitData(benefitType, customData);
-  const eventData = createBaseEvent(EventType.PLAN_BENEFIT_UTILIZED, 'plan', benefitData, options);
-  
-  return eventData;
-}
-
-// ===== VALIDATION TESTING UTILITIES =====
-
-/**
- * Validates an event DTO and returns validation errors if any
- * 
- * @param dto The DTO to validate
- * @returns A promise resolving to validation errors or null if valid
- */
-export async function validateEventDto(dto: any): Promise<ValidationError[] | null> {
-  return validateObject(dto);
+export function createClaimEventDto(options: TestEventOptions = {}): ClaimEventDto {
+  const data = createClaimEventData(options);
+  return plainToInstance(ClaimEventDto, data);
 }
 
 /**
- * Checks if a DTO is valid
+ * Creates a plain object with default values for a benefit event
  * 
- * @param dto The DTO to validate
- * @returns A promise resolving to a boolean indicating if the DTO is valid
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with benefit event properties
  */
-export async function isValidEventDto(dto: any): Promise<boolean> {
-  const errors = await validate(dto);
-  return errors.length === 0;
+export function createBenefitEventData(options: TestEventOptions = {}): Record<string, any> {
+  return {
+    ...createBaseEventData({
+      journey: 'plan',
+      type: options.type || EventTypes.PLAN.BENEFIT_UTILIZED,
+      ...options
+    }),
+    data: {
+      benefitId: options.benefitId || uuidv4(),
+      benefitType: options.benefitType || 'discount',
+      benefitName: options.benefitName || 'Pharmacy Discount',
+      value: options.value !== undefined ? options.value : 15.00,
+      valueType: options.valueType || 'percentage',
+      utilizationDate: options.utilizationDate || new Date().toISOString(),
+      expirationDate: options.expirationDate || new Date(Date.now() + 30 * 86400000).toISOString(), // 30 days from now
+      status: options.status || 'active',
+      partnerName: options.partnerName || 'Test Pharmacy',
+      partnerLocation: options.partnerLocation || 'São Paulo, SP',
+      notes: options.notes,
+      ...options.data
+    }
+  };
 }
+
+/**
+ * Creates a valid BenefitEventDto instance
+ * 
+ * @param options - Optional overrides for the default values
+ * @returns A BenefitEventDto instance
+ */
+export function createBenefitEventDto(options: TestEventOptions = {}): BenefitEventDto {
+  const data = createBenefitEventData(options);
+  return plainToInstance(BenefitEventDto, data);
+}
+
+// Validation Helpers
 
 /**
  * Creates an invalid event by removing required properties
  * 
- * @param validEvent A valid event DTO
- * @param propertiesToRemove Properties to remove to make the event invalid
- * @returns An invalid event object
+ * @param eventData - The valid event data to modify
+ * @param propertiesToRemove - Array of property paths to remove
+ * @returns A modified event object with properties removed
  */
-export function createInvalidEvent(validEvent: any, propertiesToRemove: string[]): any {
-  const invalidEvent = { ...validEvent };
+export function createInvalidEvent(eventData: Record<string, any>, propertiesToRemove: string[]): Record<string, any> {
+  const invalidEvent = { ...eventData };
   
-  for (const prop of propertiesToRemove) {
-    const props = prop.split('.');
+  propertiesToRemove.forEach(propertyPath => {
+    const parts = propertyPath.split('.');
     let current = invalidEvent;
     
-    for (let i = 0; i < props.length - 1; i++) {
-      if (current[props[i]]) {
-        current = current[props[i]];
+    // Navigate to the parent object of the property to remove
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (current[parts[i]] === undefined) {
+        return; // Property path doesn't exist, nothing to remove
       }
+      current = current[parts[i]];
     }
     
-    const lastProp = props[props.length - 1];
-    if (current[lastProp] !== undefined) {
-      delete current[lastProp];
+    // Remove the property
+    const lastPart = parts[parts.length - 1];
+    if (current[lastPart] !== undefined) {
+      delete current[lastPart];
     }
-  }
+  });
   
   return invalidEvent;
 }
 
 /**
- * Creates an invalid event by setting invalid values for properties
+ * Creates an invalid event by setting properties to invalid values
  * 
- * @param validEvent A valid event DTO
- * @param invalidValues Map of property paths to invalid values
- * @returns An invalid event object
+ * @param eventData - The valid event data to modify
+ * @param invalidProperties - Object mapping property paths to invalid values
+ * @returns A modified event object with invalid property values
  */
-export function createEventWithInvalidValues(validEvent: any, invalidValues: Record<string, any>): any {
-  const invalidEvent = JSON.parse(JSON.stringify(validEvent));
+export function createEventWithInvalidValues(
+  eventData: Record<string, any>,
+  invalidProperties: Record<string, any>
+): Record<string, any> {
+  const invalidEvent = { ...eventData };
   
-  for (const [prop, value] of Object.entries(invalidValues)) {
-    const props = prop.split('.');
+  Object.entries(invalidProperties).forEach(([propertyPath, invalidValue]) => {
+    const parts = propertyPath.split('.');
     let current = invalidEvent;
     
-    for (let i = 0; i < props.length - 1; i++) {
-      if (current[props[i]]) {
-        current = current[props[i]];
+    // Navigate to the parent object of the property to modify
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (current[parts[i]] === undefined) {
+        current[parts[i]] = {}; // Create the path if it doesn't exist
       }
+      current = current[parts[i]];
     }
     
-    const lastProp = props[props.length - 1];
-    current[lastProp] = value;
-  }
+    // Set the invalid value
+    const lastPart = parts[parts.length - 1];
+    current[lastPart] = invalidValue;
+  });
   
   return invalidEvent;
 }
 
 /**
- * Creates a versioned event for testing
+ * Tests if a validation error contains a specific constraint violation
  * 
- * @param eventType The type of event
- * @param payload The event payload
- * @param version The event version (defaults to 1.0.0)
- * @returns A VersionedEventDto instance
+ * @param errors - Array of ValidationError objects
+ * @param property - The property name to check
+ * @param constraint - The constraint name to check
+ * @returns True if the error for the property contains the specified constraint
  */
-export function createTestVersionedEvent<T>(eventType: string, payload: T, version: string = '1.0.0'): VersionedEventDto<T> {
-  const versionParts = version.split('.');
-  const versionDto = new EventVersionDto();
-  versionDto.major = versionParts[0];
-  versionDto.minor = versionParts[1];
-  versionDto.patch = versionParts[2];
+export function hasConstraintViolation(
+  errors: ValidationError[],
+  property: string,
+  constraint: string
+): boolean {
+  const propertyErrors = errors.filter(error => error.property === property);
   
-  return new VersionedEventDto(eventType, payload, versionDto);
-}
-
-/**
- * Creates a test event with the specified journey and type
- * 
- * @param journey The journey name
- * @param type The event type
- * @param data The event data
- * @param options Options for customizing the generated event
- * @returns A generic event object
- */
-export function createTestEvent<T>(journey: string, type: string, data: T, options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS): any {
-  return createBaseEvent(type, journey, data, options);
-}
-
-/**
- * Creates a test event with random data for the specified journey and type
- * 
- * @param journey The journey name
- * @param type The event type
- * @param options Options for customizing the generated event
- * @returns A generic event object with random data
- */
-export function createRandomTestEvent(journey: string, type: string, options: TestFactoryOptions = DEFAULT_TEST_FACTORY_OPTIONS): any {
-  let data: any = {};
-  
-  // Generate appropriate data based on journey and type
-  if (journey === 'health') {
-    switch (type) {
-      case EventType.HEALTH_METRIC_RECORDED:
-        data = createHealthMetricData();
-        break;
-      case EventType.HEALTH_GOAL_ACHIEVED:
-        data = createHealthGoalData();
-        data.markAsAchieved();
-        break;
-      case EventType.HEALTH_GOAL_CREATED:
-        data = createHealthGoalData();
-        break;
-      case EventType.HEALTH_DEVICE_CONNECTED:
-        data = createDeviceSyncData();
-        break;
-      case EventType.HEALTH_INSIGHT_GENERATED:
-        data = createHealthInsightData();
-        break;
-      default:
-        data = { id: uuidv4(), timestamp: new Date().toISOString() };
-    }
-  } else if (journey === 'care') {
-    switch (type) {
-      case EventType.CARE_APPOINTMENT_BOOKED:
-        data = createAppointmentData();
-        break;
-      case EventType.CARE_APPOINTMENT_COMPLETED:
-        data = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
-        break;
-      case EventType.CARE_MEDICATION_TAKEN:
-        data = createMedicationData();
-        break;
-      default:
-        data = { id: uuidv4(), timestamp: new Date().toISOString() };
-    }
-  } else if (journey === 'plan') {
-    switch (type) {
-      case EventType.PLAN_CLAIM_SUBMITTED:
-        data = createClaimData();
-        break;
-      case EventType.PLAN_CLAIM_PROCESSED:
-        data = createClaimData(ClaimType.MEDICAL, ClaimStatus.APPROVED);
-        break;
-      case EventType.PLAN_BENEFIT_UTILIZED:
-        data = createBenefitData();
-        break;
-      default:
-        data = { id: uuidv4(), timestamp: new Date().toISOString() };
-    }
-  } else {
-    // Generic data for other journeys
-    data = { id: uuidv4(), timestamp: new Date().toISOString() };
+  if (propertyErrors.length === 0) {
+    return false;
   }
   
-  return createBaseEvent(type, journey, data, options);
+  return propertyErrors.some(error => 
+    error.constraints !== undefined && 
+    Object.keys(error.constraints).includes(constraint)
+  );
+}
+
+/**
+ * Creates a test event with a specific event type
+ * 
+ * @param eventType - The event type to use
+ * @param options - Optional overrides for the default values
+ * @returns A plain object with the specified event type
+ */
+export function createEventWithType(
+  eventType: string,
+  options: TestEventOptions = {}
+): Record<string, any> {
+  // Determine the journey based on the event type prefix
+  let journey = 'health';
+  if (eventType.startsWith('care.')) {
+    journey = 'care';
+  } else if (eventType.startsWith('plan.')) {
+    journey = 'plan';
+  }
+  
+  // Create the appropriate event based on the event type
+  switch (eventType) {
+    // Health journey events
+    case EventTypes.HEALTH.METRIC_RECORDED:
+      return createHealthMetricEventData({ type: eventType, ...options });
+    case EventTypes.HEALTH.GOAL_CREATED:
+    case EventTypes.HEALTH.GOAL_UPDATED:
+    case EventTypes.HEALTH.GOAL_ACHIEVED:
+      return createHealthGoalEventData({ type: eventType, ...options });
+      
+    // Care journey events
+    case EventTypes.CARE.APPOINTMENT_BOOKED:
+    case EventTypes.CARE.APPOINTMENT_COMPLETED:
+    case EventTypes.CARE.APPOINTMENT_CANCELLED:
+    case EventTypes.CARE.APPOINTMENT_RESCHEDULED:
+      return createAppointmentEventData({ type: eventType, ...options });
+    case EventTypes.CARE.MEDICATION_TAKEN:
+    case EventTypes.CARE.MEDICATION_SKIPPED:
+    case EventTypes.CARE.MEDICATION_SCHEDULED:
+      return createMedicationEventData({ type: eventType, ...options });
+      
+    // Plan journey events
+    case EventTypes.PLAN.CLAIM_SUBMITTED:
+    case EventTypes.PLAN.CLAIM_APPROVED:
+    case EventTypes.PLAN.CLAIM_REJECTED:
+    case EventTypes.PLAN.CLAIM_UPDATED:
+      return createClaimEventData({ type: eventType, ...options });
+    case EventTypes.PLAN.BENEFIT_UTILIZED:
+    case EventTypes.PLAN.BENEFIT_REDEEMED:
+    case EventTypes.PLAN.BENEFIT_EXPIRED:
+      return createBenefitEventData({ type: eventType, ...options });
+      
+    // Default case - use base event with the specified type
+    default:
+      return createBaseEventData({ type: eventType, journey, ...options });
+  }
+}
+
+/**
+ * Creates a DTO instance of the appropriate type based on the event type
+ * 
+ * @param eventType - The event type to use
+ * @param options - Optional overrides for the default values
+ * @returns A DTO instance for the specified event type
+ */
+export function createDtoWithType(
+  eventType: string,
+  options: TestEventOptions = {}
+): BaseEventDto {
+  const eventData = createEventWithType(eventType, options);
+  
+  // Determine the appropriate DTO class based on the event type
+  switch (eventType) {
+    // Health journey events
+    case EventTypes.HEALTH.METRIC_RECORDED:
+      return plainToInstance(HealthMetricEventDto, eventData);
+    case EventTypes.HEALTH.GOAL_CREATED:
+    case EventTypes.HEALTH.GOAL_UPDATED:
+    case EventTypes.HEALTH.GOAL_ACHIEVED:
+      return plainToInstance(HealthGoalEventDto, eventData);
+      
+    // Care journey events
+    case EventTypes.CARE.APPOINTMENT_BOOKED:
+    case EventTypes.CARE.APPOINTMENT_COMPLETED:
+    case EventTypes.CARE.APPOINTMENT_CANCELLED:
+    case EventTypes.CARE.APPOINTMENT_RESCHEDULED:
+      return plainToInstance(AppointmentEventDto, eventData);
+    case EventTypes.CARE.MEDICATION_TAKEN:
+    case EventTypes.CARE.MEDICATION_SKIPPED:
+    case EventTypes.CARE.MEDICATION_SCHEDULED:
+      return plainToInstance(MedicationEventDto, eventData);
+      
+    // Plan journey events
+    case EventTypes.PLAN.CLAIM_SUBMITTED:
+    case EventTypes.PLAN.CLAIM_APPROVED:
+    case EventTypes.PLAN.CLAIM_REJECTED:
+    case EventTypes.PLAN.CLAIM_UPDATED:
+      return plainToInstance(ClaimEventDto, eventData);
+    case EventTypes.PLAN.BENEFIT_UTILIZED:
+    case EventTypes.PLAN.BENEFIT_REDEEMED:
+    case EventTypes.PLAN.BENEFIT_EXPIRED:
+      return plainToInstance(BenefitEventDto, eventData);
+      
+    // Default case - use the journey-specific DTO or base DTO
+    default:
+      if (eventType.startsWith('health.')) {
+        return plainToInstance(HealthEventDto, eventData);
+      } else if (eventType.startsWith('care.')) {
+        return plainToInstance(CareEventDto, eventData);
+      } else if (eventType.startsWith('plan.')) {
+        return plainToInstance(PlanEventDto, eventData);
+      } else {
+        return plainToInstance(BaseEventDto, eventData);
+      }
+  }
+}
+
+/**
+ * Generates a batch of test events with different types
+ * 
+ * @param count - Number of events to generate
+ * @param options - Optional overrides for the default values
+ * @returns Array of event objects with different types
+ */
+export function generateEventBatch(
+  count: number,
+  options: TestEventOptions = {}
+): Record<string, any>[] {
+  const events: Record<string, any>[] = [];
+  const userId = options.userId || uuidv4();
+  
+  // Define a list of event types to cycle through
+  const eventTypes = [
+    EventTypes.HEALTH.METRIC_RECORDED,
+    EventTypes.HEALTH.GOAL_CREATED,
+    EventTypes.HEALTH.GOAL_ACHIEVED,
+    EventTypes.CARE.APPOINTMENT_BOOKED,
+    EventTypes.CARE.APPOINTMENT_COMPLETED,
+    EventTypes.CARE.MEDICATION_TAKEN,
+    EventTypes.PLAN.CLAIM_SUBMITTED,
+    EventTypes.PLAN.CLAIM_APPROVED,
+    EventTypes.PLAN.BENEFIT_UTILIZED
+  ];
+  
+  for (let i = 0; i < count; i++) {
+    const eventType = eventTypes[i % eventTypes.length];
+    events.push(createEventWithType(eventType, { userId, ...options }));
+  }
+  
+  return events;
+}
+
+/**
+ * Generates a batch of DTO instances with different types
+ * 
+ * @param count - Number of DTOs to generate
+ * @param options - Optional overrides for the default values
+ * @returns Array of DTO instances with different types
+ */
+export function generateDtoBatch(
+  count: number,
+  options: TestEventOptions = {}
+): BaseEventDto[] {
+  const events = generateEventBatch(count, options);
+  return events.map(eventData => {
+    return createDtoWithType(eventData.type, eventData);
+  });
 }

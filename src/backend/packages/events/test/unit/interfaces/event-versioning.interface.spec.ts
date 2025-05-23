@@ -1,368 +1,616 @@
-import { Test } from '@nestjs/testing';
-import { expect } from 'chai';
+/**
+ * @file event-versioning.interface.spec.ts
+ * @description Unit tests for event versioning interfaces that ensure proper semantic versioning
+ * implementation for event schemas. Tests validate version compatibility detection, upgrade paths
+ * between versions, and correct functioning of versioning strategies.
+ */
 
-// Mock interfaces for testing
-interface EventVersion {
-  major: number;
-  minor: number;
-  patch: number;
-  toString(): string;
-  isCompatibleWith(other: EventVersion): boolean;
-}
+import {
+  EventVersion,
+  IVersionedEvent,
+  VersionCompatibilityResult,
+  VersionDetectionStrategy,
+  VersionCompatibilityStrategy,
+  VersionMigrationPath,
+  EventVersioningStrategy,
+  EventTransformationOptions,
+  VersionRange,
+} from '../../../src/interfaces/event-versioning.interface';
 
-interface VersionedEvent<T> {
-  version: EventVersion;
-  payload: T;
-}
+describe('EventVersion Interface', () => {
+  describe('Semantic Versioning Structure', () => {
+    it('should correctly represent a semantic version with major, minor, and patch components', () => {
+      const version: EventVersion = { major: 1, minor: 2, patch: 3 };
+      
+      expect(version.major).toBe(1);
+      expect(version.minor).toBe(2);
+      expect(version.patch).toBe(3);
+    });
 
-interface EventVersionStrategy {
-  isCompatible(sourceVersion: EventVersion, targetVersion: EventVersion): boolean;
-  canUpgrade(sourceVersion: EventVersion, targetVersion: EventVersion): boolean;
-  upgrade<T>(event: VersionedEvent<T>, targetVersion: EventVersion): VersionedEvent<any>;
-}
+    it('should allow zero values for any component', () => {
+      const version: EventVersion = { major: 0, minor: 0, patch: 0 };
+      
+      expect(version.major).toBe(0);
+      expect(version.minor).toBe(0);
+      expect(version.patch).toBe(0);
+    });
+  });
+});
 
-// Mock implementation of EventVersion for testing
-class SemVerEventVersion implements EventVersion {
-  constructor(
-    public readonly major: number,
-    public readonly minor: number,
-    public readonly patch: number,
-  ) {}
-
-  toString(): string {
-    return `${this.major}.${this.minor}.${this.patch}`;
-  }
-
-  isCompatibleWith(other: EventVersion): boolean {
-    // Major version must match for compatibility
-    return this.major === other.major && this.minor <= other.minor;
-  }
-}
-
-// Mock implementation of EventVersionStrategy for testing
-class StandardEventVersionStrategy implements EventVersionStrategy {
-  isCompatible(sourceVersion: EventVersion, targetVersion: EventVersion): boolean {
-    return sourceVersion.isCompatibleWith(targetVersion);
-  }
-
-  canUpgrade(sourceVersion: EventVersion, targetVersion: EventVersion): boolean {
-    // Can upgrade if target version is higher than source version
-    // and they are compatible (same major version)
-    if (sourceVersion.major !== targetVersion.major) {
-      return false;
-    }
-
-    if (sourceVersion.minor > targetVersion.minor) {
-      return false;
-    }
-
-    if (sourceVersion.minor === targetVersion.minor && sourceVersion.patch > targetVersion.patch) {
-      return false;
-    }
-
-    return true;
-  }
-
-  upgrade<T>(event: VersionedEvent<T>, targetVersion: EventVersion): VersionedEvent<any> {
-    if (!this.canUpgrade(event.version, targetVersion)) {
-      throw new Error(`Cannot upgrade from ${event.version.toString()} to ${targetVersion.toString()}`);
-    }
-
-    // In a real implementation, this would transform the payload
-    // For testing, we'll just return a new event with the target version
-    return {
-      version: targetVersion,
-      payload: { ...event.payload, _upgraded: true },
+describe('IVersionedEvent Interface', () => {
+  it('should correctly implement the versioned event interface', () => {
+    const event: IVersionedEvent<{ data: string }> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: { data: 'test data' },
     };
-  }
-}
 
-describe('Event Versioning Interface', () => {
-  describe('SemVerEventVersion', () => {
-    it('should create a valid semantic version', () => {
-      const version = new SemVerEventVersion(1, 2, 3);
-      expect(version.major).to.equal(1);
-      expect(version.minor).to.equal(2);
-      expect(version.patch).to.equal(3);
-      expect(version.toString()).to.equal('1.2.3');
-    });
-
-    it('should correctly determine compatibility between versions', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v1_1_0 = new SemVerEventVersion(1, 1, 0);
-      const v1_2_0 = new SemVerEventVersion(1, 2, 0);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
-
-      // Same major version, higher minor version is compatible
-      expect(v1_0_0.isCompatibleWith(v1_1_0)).to.be.true;
-      expect(v1_0_0.isCompatibleWith(v1_2_0)).to.be.true;
-
-      // Same major version, lower minor version is not compatible
-      expect(v1_2_0.isCompatibleWith(v1_1_0)).to.be.false;
-      expect(v1_1_0.isCompatibleWith(v1_0_0)).to.be.false;
-
-      // Different major versions are not compatible
-      expect(v1_0_0.isCompatibleWith(v2_0_0)).to.be.false;
-      expect(v2_0_0.isCompatibleWith(v1_0_0)).to.be.false;
-    });
-
-    it('should handle patch versions correctly', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v1_0_1 = new SemVerEventVersion(1, 0, 1);
-      const v1_0_2 = new SemVerEventVersion(1, 0, 2);
-
-      // Patch versions don't affect compatibility
-      expect(v1_0_0.isCompatibleWith(v1_0_1)).to.be.true;
-      expect(v1_0_0.isCompatibleWith(v1_0_2)).to.be.true;
-      expect(v1_0_2.isCompatibleWith(v1_0_0)).to.be.true;
-    });
+    expect(event.version).toEqual({ major: 1, minor: 0, patch: 0 });
+    expect(event.type).toBe('test-event');
+    expect(event.payload).toEqual({ data: 'test data' });
   });
 
-  describe('StandardEventVersionStrategy', () => {
-    let strategy: StandardEventVersionStrategy;
+  it('should support optional metadata', () => {
+    const event: IVersionedEvent<{ data: string }> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: { data: 'test data' },
+      metadata: { source: 'test-source', timestamp: Date.now() },
+    };
 
-    beforeEach(() => {
-      strategy = new StandardEventVersionStrategy();
-    });
-
-    it('should correctly determine if versions are compatible', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v1_1_0 = new SemVerEventVersion(1, 1, 0);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
-
-      expect(strategy.isCompatible(v1_0_0, v1_1_0)).to.be.true;
-      expect(strategy.isCompatible(v1_1_0, v1_0_0)).to.be.false;
-      expect(strategy.isCompatible(v1_0_0, v2_0_0)).to.be.false;
-    });
-
-    it('should determine if an event can be upgraded to a target version', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v1_1_0 = new SemVerEventVersion(1, 1, 0);
-      const v1_1_1 = new SemVerEventVersion(1, 1, 1);
-      const v1_0_1 = new SemVerEventVersion(1, 0, 1);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
-
-      // Can upgrade to higher minor/patch version within same major version
-      expect(strategy.canUpgrade(v1_0_0, v1_1_0)).to.be.true;
-      expect(strategy.canUpgrade(v1_0_0, v1_0_1)).to.be.true;
-      expect(strategy.canUpgrade(v1_0_0, v1_1_1)).to.be.true;
-
-      // Cannot downgrade
-      expect(strategy.canUpgrade(v1_1_0, v1_0_0)).to.be.false;
-      expect(strategy.canUpgrade(v1_0_1, v1_0_0)).to.be.false;
-
-      // Cannot upgrade across major versions
-      expect(strategy.canUpgrade(v1_0_0, v2_0_0)).to.be.false;
-      expect(strategy.canUpgrade(v2_0_0, v1_0_0)).to.be.false;
-    });
-
-    it('should upgrade an event to a compatible version', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v1_1_0 = new SemVerEventVersion(1, 1, 0);
-
-      const event: VersionedEvent<{ data: string }> = {
-        version: v1_0_0,
-        payload: { data: 'test' },
-      };
-
-      const upgradedEvent = strategy.upgrade(event, v1_1_0);
-
-      expect(upgradedEvent.version).to.equal(v1_1_0);
-      expect(upgradedEvent.payload.data).to.equal('test');
-      expect(upgradedEvent.payload._upgraded).to.be.true;
-    });
-
-    it('should throw an error when trying to upgrade to an incompatible version', () => {
-      const v1_1_0 = new SemVerEventVersion(1, 1, 0);
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-
-      const event: VersionedEvent<{ data: string }> = {
-        version: v1_1_0,
-        payload: { data: 'test' },
-      };
-
-      expect(() => strategy.upgrade(event, v1_0_0)).to.throw(
-        `Cannot upgrade from ${v1_1_0.toString()} to ${v1_0_0.toString()}`
-      );
-    });
+    expect(event.metadata).toBeDefined();
+    expect(event.metadata?.source).toBe('test-source');
   });
 
-  describe('Event Versioning Integration', () => {
-    // Mock event types for testing
-    interface UserCreatedV1 {
-      userId: string;
+  it('should support generic payload types', () => {
+    // String payload
+    const stringEvent: IVersionedEvent<string> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'string-event',
+      payload: 'string data',
+    };
+
+    // Number payload
+    const numberEvent: IVersionedEvent<number> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'number-event',
+      payload: 42,
+    };
+
+    // Complex object payload
+    interface ComplexPayload {
+      id: number;
       name: string;
+      nested: { value: boolean };
     }
 
-    interface UserCreatedV2 {
-      userId: string;
-      firstName: string;
-      lastName: string;
-    }
+    const complexEvent: IVersionedEvent<ComplexPayload> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'complex-event',
+      payload: {
+        id: 1,
+        name: 'test',
+        nested: { value: true },
+      },
+    };
 
-    // Mock upgrader function
-    function upgradeUserCreatedV1ToV2(v1Event: UserCreatedV1): UserCreatedV2 {
-      const nameParts = v1Event.name.split(' ');
-      return {
-        userId: v1Event.userId,
-        firstName: nameParts[0] || '',
-        lastName: nameParts.slice(1).join(' ') || '',
-      };
-    }
+    expect(stringEvent.payload).toBe('string data');
+    expect(numberEvent.payload).toBe(42);
+    expect(complexEvent.payload.nested.value).toBe(true);
+  });
+});
 
-    it('should handle schema evolution between event versions', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
-
-      const userCreatedV1: VersionedEvent<UserCreatedV1> = {
-        version: v1_0_0,
-        payload: {
-          userId: '123',
-          name: 'John Doe',
-        },
-      };
-
-      // Simulate a manual upgrade between major versions (which would normally be handled by a registry)
-      const userCreatedV2: VersionedEvent<UserCreatedV2> = {
-        version: v2_0_0,
-        payload: upgradeUserCreatedV1ToV2(userCreatedV1.payload),
-      };
-
-      expect(userCreatedV2.payload.userId).to.equal('123');
-      expect(userCreatedV2.payload.firstName).to.equal('John');
-      expect(userCreatedV2.payload.lastName).to.equal('Doe');
-    });
-
-    it('should support transitional periods during breaking changes', () => {
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
-
-      // Simulate a system that can handle both V1 and V2 events during transition
-      function processUserEvent(event: VersionedEvent<UserCreatedV1 | UserCreatedV2>): string {
-        if (event.version.major === 1) {
-          const payload = event.payload as UserCreatedV1;
-          return `Processed V1 event for user ${payload.name}`;
-        } else if (event.version.major === 2) {
-          const payload = event.payload as UserCreatedV2;
-          return `Processed V2 event for user ${payload.firstName} ${payload.lastName}`;
+describe('Version Compatibility Detection', () => {
+  // Mock implementation of VersionCompatibilityStrategy for testing
+  class TestCompatibilityStrategy implements VersionCompatibilityStrategy {
+    checkCompatibility(sourceVersion: EventVersion, targetVersion: EventVersion): VersionCompatibilityResult {
+      // Simple implementation for testing: compatible if major versions match
+      const compatible = sourceVersion.major === targetVersion.major;
+      let compatibilityType: 'exact' | 'backward' | 'forward' | 'none' = 'none';
+      
+      if (sourceVersion.major === targetVersion.major) {
+        if (sourceVersion.minor === targetVersion.minor && sourceVersion.patch === targetVersion.patch) {
+          compatibilityType = 'exact';
+        } else if (sourceVersion.minor <= targetVersion.minor) {
+          compatibilityType = 'backward';
+        } else {
+          compatibilityType = 'forward';
         }
-        throw new Error(`Unsupported event version: ${event.version.toString()}`);
       }
-
-      const userCreatedV1: VersionedEvent<UserCreatedV1> = {
-        version: v1_0_0,
-        payload: {
-          userId: '123',
-          name: 'John Doe',
-        },
+      
+      return {
+        compatible,
+        compatibilityType,
+        reason: compatible ? undefined : 'Major versions do not match',
+        migrationRequired: sourceVersion.minor !== targetVersion.minor || sourceVersion.patch !== targetVersion.patch,
+        sourceVersion,
+        targetVersion,
       };
+    }
+  }
 
-      const userCreatedV2: VersionedEvent<UserCreatedV2> = {
-        version: v2_0_0,
-        payload: {
-          userId: '123',
-          firstName: 'John',
-          lastName: 'Doe',
-        },
-      };
+  const strategy = new TestCompatibilityStrategy();
 
-      expect(processUserEvent(userCreatedV1)).to.equal('Processed V1 event for user John Doe');
-      expect(processUserEvent(userCreatedV2)).to.equal('Processed V2 event for user John Doe');
-    });
+  it('should detect exact version match', () => {
+    const sourceVersion: EventVersion = { major: 1, minor: 2, patch: 3 };
+    const targetVersion: EventVersion = { major: 1, minor: 2, patch: 3 };
+    
+    const result = strategy.checkCompatibility(sourceVersion, targetVersion);
+    
+    expect(result.compatible).toBe(true);
+    expect(result.compatibilityType).toBe('exact');
+    expect(result.migrationRequired).toBe(false);
   });
 
-  describe('Advanced Versioning Strategies', () => {
-    // Mock implementation of a more advanced versioning strategy
-    class AdvancedEventVersionStrategy implements EventVersionStrategy {
-      private readonly upgraders: Map<string, (event: any) => any> = new Map();
+  it('should detect backward compatibility (older to newer minor version)', () => {
+    const sourceVersion: EventVersion = { major: 1, minor: 2, patch: 3 };
+    const targetVersion: EventVersion = { major: 1, minor: 3, patch: 0 };
+    
+    const result = strategy.checkCompatibility(sourceVersion, targetVersion);
+    
+    expect(result.compatible).toBe(true);
+    expect(result.compatibilityType).toBe('backward');
+    expect(result.migrationRequired).toBe(true);
+  });
 
-      registerUpgrader(sourceVersion: string, targetVersion: string, upgrader: (event: any) => any): void {
-        this.upgraders.set(`${sourceVersion}->${targetVersion}`, upgrader);
+  it('should detect forward compatibility (newer to older minor version)', () => {
+    const sourceVersion: EventVersion = { major: 1, minor: 3, patch: 0 };
+    const targetVersion: EventVersion = { major: 1, minor: 2, patch: 3 };
+    
+    const result = strategy.checkCompatibility(sourceVersion, targetVersion);
+    
+    expect(result.compatible).toBe(true);
+    expect(result.compatibilityType).toBe('forward');
+    expect(result.migrationRequired).toBe(true);
+  });
+
+  it('should detect incompatibility between different major versions', () => {
+    const sourceVersion: EventVersion = { major: 1, minor: 0, patch: 0 };
+    const targetVersion: EventVersion = { major: 2, minor: 0, patch: 0 };
+    
+    const result = strategy.checkCompatibility(sourceVersion, targetVersion);
+    
+    expect(result.compatible).toBe(false);
+    expect(result.compatibilityType).toBe('none');
+    expect(result.reason).toBe('Major versions do not match');
+  });
+});
+
+describe('Version Detection Strategies', () => {
+  // Mock implementation of VersionDetectionStrategy for testing
+  class ExplicitFieldStrategy implements VersionDetectionStrategy {
+    detectVersion(event: unknown): EventVersion | null {
+      if (typeof event !== 'object' || event === null) {
+        return null;
       }
-
-      isCompatible(sourceVersion: EventVersion, targetVersion: EventVersion): boolean {
-        // In advanced strategy, we consider versions compatible if:
-        // 1. They have the same major version, or
-        // 2. We have an explicit upgrader registered
-        if (sourceVersion.major === targetVersion.major) {
-          return true;
-        }
-
-        const key = `${sourceVersion.toString()}->${targetVersion.toString()}`;
-        return this.upgraders.has(key);
-      }
-
-      canUpgrade(sourceVersion: EventVersion, targetVersion: EventVersion): boolean {
-        return this.isCompatible(sourceVersion, targetVersion);
-      }
-
-      upgrade<T>(event: VersionedEvent<T>, targetVersion: EventVersion): VersionedEvent<any> {
-        if (!this.canUpgrade(event.version, targetVersion)) {
-          throw new Error(`Cannot upgrade from ${event.version.toString()} to ${targetVersion.toString()}`);
-        }
-
-        // If same major version, just update the version
-        if (event.version.major === targetVersion.major) {
+      
+      const eventObj = event as Record<string, any>;
+      if ('version' in eventObj && typeof eventObj.version === 'object') {
+        const version = eventObj.version;
+        if ('major' in version && 'minor' in version && 'patch' in version) {
           return {
-            version: targetVersion,
-            payload: { ...event.payload },
+            major: Number(version.major),
+            minor: Number(version.minor),
+            patch: Number(version.patch),
           };
         }
+      }
+      
+      return null;
+    }
 
-        // Otherwise, use registered upgrader
-        const key = `${event.version.toString()}->${targetVersion.toString()}`;
-        const upgrader = this.upgraders.get(key);
+    canHandle(event: unknown): boolean {
+      if (typeof event !== 'object' || event === null) {
+        return false;
+      }
+      
+      const eventObj = event as Record<string, any>;
+      return 'version' in eventObj && typeof eventObj.version === 'object';
+    }
+  }
 
-        if (!upgrader) {
-          throw new Error(`No upgrader registered for ${key}`);
+  class HeaderBasedStrategy implements VersionDetectionStrategy {
+    detectVersion(event: unknown): EventVersion | null {
+      if (typeof event !== 'object' || event === null) {
+        return null;
+      }
+      
+      const eventObj = event as Record<string, any>;
+      if ('headers' in eventObj && typeof eventObj.headers === 'object' && eventObj.headers !== null) {
+        const headers = eventObj.headers as Record<string, any>;
+        if ('x-event-version' in headers && typeof headers['x-event-version'] === 'string') {
+          const versionStr = headers['x-event-version'];
+          const parts = versionStr.split('.');
+          if (parts.length === 3) {
+            return {
+              major: Number(parts[0]),
+              minor: Number(parts[1]),
+              patch: Number(parts[2]),
+            };
+          }
         }
+      }
+      
+      return null;
+    }
 
+    canHandle(event: unknown): boolean {
+      if (typeof event !== 'object' || event === null) {
+        return false;
+      }
+      
+      const eventObj = event as Record<string, any>;
+      return 'headers' in eventObj && typeof eventObj.headers === 'object' && eventObj.headers !== null;
+    }
+  }
+
+  const explicitStrategy = new ExplicitFieldStrategy();
+  const headerStrategy = new HeaderBasedStrategy();
+
+  it('should detect version from explicit version field', () => {
+    const event = {
+      version: { major: 1, minor: 2, patch: 3 },
+      type: 'test-event',
+      payload: {},
+    };
+    
+    expect(explicitStrategy.canHandle(event)).toBe(true);
+    expect(explicitStrategy.detectVersion(event)).toEqual({ major: 1, minor: 2, patch: 3 });
+  });
+
+  it('should detect version from headers', () => {
+    const event = {
+      headers: { 'x-event-version': '2.3.4' },
+      type: 'test-event',
+      payload: {},
+    };
+    
+    expect(headerStrategy.canHandle(event)).toBe(true);
+    expect(headerStrategy.detectVersion(event)).toEqual({ major: 2, minor: 3, patch: 4 });
+  });
+
+  it('should return null for unsupported event formats', () => {
+    const invalidEvent = {
+      type: 'test-event',
+      payload: {},
+    };
+    
+    expect(explicitStrategy.canHandle(invalidEvent)).toBe(false);
+    expect(explicitStrategy.detectVersion(invalidEvent)).toBeNull();
+    
+    expect(headerStrategy.canHandle(invalidEvent)).toBe(false);
+    expect(headerStrategy.detectVersion(invalidEvent)).toBeNull();
+  });
+
+  it('should handle null or undefined inputs gracefully', () => {
+    expect(explicitStrategy.canHandle(null)).toBe(false);
+    expect(explicitStrategy.detectVersion(null)).toBeNull();
+    
+    expect(headerStrategy.canHandle(undefined)).toBe(false);
+    expect(headerStrategy.detectVersion(undefined)).toBeNull();
+  });
+});
+
+describe('Version Migration Paths', () => {
+  // Define test event types for different versions
+  interface EventV1Payload {
+    message: string;
+  }
+
+  interface EventV2Payload {
+    message: string;
+    timestamp: number;
+  }
+
+  // Mock implementation of VersionMigrationPath for testing
+  class TestMigrationPath implements VersionMigrationPath<EventV1Payload, EventV2Payload> {
+    sourceVersion: EventVersion = { major: 1, minor: 0, patch: 0 };
+    targetVersion: EventVersion = { major: 2, minor: 0, patch: 0 };
+
+    migrate(sourceEvent: IVersionedEvent<EventV1Payload>): IVersionedEvent<EventV2Payload> {
+      // Transform V1 to V2 by adding timestamp
+      return {
+        version: this.targetVersion,
+        type: sourceEvent.type,
+        payload: {
+          message: sourceEvent.payload.message,
+          timestamp: Date.now(),
+        },
+        metadata: sourceEvent.metadata,
+      };
+    }
+  }
+
+  const migrationPath = new TestMigrationPath();
+
+  it('should correctly migrate from source to target version', () => {
+    const sourceEvent: IVersionedEvent<EventV1Payload> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: { message: 'Hello, world!' },
+    };
+    
+    const migratedEvent = migrationPath.migrate(sourceEvent);
+    
+    expect(migratedEvent.version).toEqual({ major: 2, minor: 0, patch: 0 });
+    expect(migratedEvent.type).toBe('test-event');
+    expect(migratedEvent.payload.message).toBe('Hello, world!');
+    expect(migratedEvent.payload.timestamp).toBeDefined();
+    expect(typeof migratedEvent.payload.timestamp).toBe('number');
+  });
+
+  it('should preserve metadata during migration', () => {
+    const sourceEvent: IVersionedEvent<EventV1Payload> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: { message: 'Hello, world!' },
+      metadata: { source: 'test-source', correlationId: '123' },
+    };
+    
+    const migratedEvent = migrationPath.migrate(sourceEvent);
+    
+    expect(migratedEvent.metadata).toEqual({ source: 'test-source', correlationId: '123' });
+  });
+});
+
+describe('Event Versioning Strategy', () => {
+  // Mock implementation of EventVersioningStrategy for testing
+  class TestVersioningStrategy implements EventVersioningStrategy {
+    private migrationPaths: VersionMigrationPath[] = [];
+
+    detectVersion(event: unknown): EventVersion {
+      if (typeof event !== 'object' || event === null) {
+        throw new Error('Invalid event format');
+      }
+      
+      const eventObj = event as Record<string, any>;
+      if ('version' in eventObj && typeof eventObj.version === 'object') {
+        const version = eventObj.version;
+        if ('major' in version && 'minor' in version && 'patch' in version) {
+          return {
+            major: Number(version.major),
+            minor: Number(version.minor),
+            patch: Number(version.patch),
+          };
+        }
+      }
+      
+      throw new Error('Version not found in event');
+    }
+
+    checkCompatibility(event: unknown, targetVersion: EventVersion): VersionCompatibilityResult {
+      try {
+        const sourceVersion = this.detectVersion(event);
+        
+        // Simple compatibility check: major versions must match
+        const compatible = sourceVersion.major === targetVersion.major;
+        let compatibilityType: 'exact' | 'backward' | 'forward' | 'none' = 'none';
+        
+        if (sourceVersion.major === targetVersion.major) {
+          if (sourceVersion.minor === targetVersion.minor && sourceVersion.patch === targetVersion.patch) {
+            compatibilityType = 'exact';
+          } else if (sourceVersion.minor <= targetVersion.minor) {
+            compatibilityType = 'backward';
+          } else {
+            compatibilityType = 'forward';
+          }
+        }
+        
         return {
-          version: targetVersion,
-          payload: upgrader(event.payload),
+          compatible,
+          compatibilityType,
+          reason: compatible ? undefined : 'Major versions do not match',
+          migrationRequired: sourceVersion.minor !== targetVersion.minor || sourceVersion.patch !== targetVersion.patch,
+          sourceVersion,
+          targetVersion,
+        };
+      } catch (error) {
+        return {
+          compatible: false,
+          compatibilityType: 'none',
+          reason: (error as Error).message,
+          migrationRequired: false,
+          sourceVersion: { major: 0, minor: 0, patch: 0 },
+          targetVersion,
         };
       }
     }
 
-    it('should support explicit upgraders between incompatible versions', () => {
-      const strategy = new AdvancedEventVersionStrategy();
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v2_0_0 = new SemVerEventVersion(2, 0, 0);
+    transformToVersion<T = unknown, R = unknown>(
+      event: IVersionedEvent<T>,
+      targetVersion: EventVersion,
+      options?: EventTransformationOptions
+    ): IVersionedEvent<R> {
+      const sourceVersion = event.version;
+      
+      // If versions are the same, no transformation needed
+      if (
+        sourceVersion.major === targetVersion.major &&
+        sourceVersion.minor === targetVersion.minor &&
+        sourceVersion.patch === targetVersion.patch
+      ) {
+        return event as unknown as IVersionedEvent<R>;
+      }
+      
+      // Find migration path
+      const migrationPath = this.findMigrationPath<T, R>(sourceVersion, targetVersion);
+      
+      if (!migrationPath) {
+        throw new Error(`No migration path found from ${JSON.stringify(sourceVersion)} to ${JSON.stringify(targetVersion)}`);
+      }
+      
+      // Apply migration
+      return migrationPath.migrate(event);
+    }
 
-      // Register an upgrader from v1.0.0 to v2.0.0
-      strategy.registerUpgrader('1.0.0', '2.0.0', (payload: { name: string }) => {
-        const parts = payload.name.split(' ');
-        return {
-          firstName: parts[0] || '',
-          lastName: parts.slice(1).join(' ') || '',
-        };
-      });
+    registerMigrationPath<TSource = unknown, TTarget = unknown>(
+      migrationPath: VersionMigrationPath<TSource, TTarget>
+    ): void {
+      this.migrationPaths.push(migrationPath);
+    }
 
-      const event: VersionedEvent<{ name: string }> = {
-        version: v1_0_0,
-        payload: { name: 'John Doe' },
+    getMigrationPaths(): VersionMigrationPath[] {
+      return [...this.migrationPaths];
+    }
+
+    findMigrationPath<TSource = unknown, TTarget = unknown>(
+      sourceVersion: EventVersion,
+      targetVersion: EventVersion
+    ): VersionMigrationPath<TSource, TTarget> | null {
+      // Simple implementation: find direct path
+      for (const path of this.migrationPaths) {
+        if (
+          path.sourceVersion.major === sourceVersion.major &&
+          path.sourceVersion.minor === sourceVersion.minor &&
+          path.sourceVersion.patch === sourceVersion.patch &&
+          path.targetVersion.major === targetVersion.major &&
+          path.targetVersion.minor === targetVersion.minor &&
+          path.targetVersion.patch === targetVersion.patch
+        ) {
+          return path as VersionMigrationPath<TSource, TTarget>;
+        }
+      }
+      
+      return null;
+    }
+  }
+
+  // Define test event types for different versions
+  interface EventV1Payload {
+    message: string;
+  }
+
+  interface EventV2Payload {
+    message: string;
+    timestamp: number;
+  }
+
+  // Mock implementation of VersionMigrationPath for testing
+  class TestMigrationPath implements VersionMigrationPath<EventV1Payload, EventV2Payload> {
+    sourceVersion: EventVersion = { major: 1, minor: 0, patch: 0 };
+    targetVersion: EventVersion = { major: 2, minor: 0, patch: 0 };
+
+    migrate(sourceEvent: IVersionedEvent<EventV1Payload>): IVersionedEvent<EventV2Payload> {
+      // Transform V1 to V2 by adding timestamp
+      return {
+        version: this.targetVersion,
+        type: sourceEvent.type,
+        payload: {
+          message: sourceEvent.payload.message,
+          timestamp: Date.now(),
+        },
+        metadata: sourceEvent.metadata,
       };
+    }
+  }
 
-      const upgradedEvent = strategy.upgrade(event, v2_0_0);
+  let strategy: TestVersioningStrategy;
+  let migrationPath: TestMigrationPath;
 
-      expect(upgradedEvent.version).to.equal(v2_0_0);
-      expect(upgradedEvent.payload.firstName).to.equal('John');
-      expect(upgradedEvent.payload.lastName).to.equal('Doe');
-    });
+  beforeEach(() => {
+    strategy = new TestVersioningStrategy();
+    migrationPath = new TestMigrationPath();
+    strategy.registerMigrationPath(migrationPath);
+  });
 
-    it('should throw an error when no upgrader is registered', () => {
-      const strategy = new AdvancedEventVersionStrategy();
-      const v1_0_0 = new SemVerEventVersion(1, 0, 0);
-      const v3_0_0 = new SemVerEventVersion(3, 0, 0);
+  it('should detect version from event', () => {
+    const event: IVersionedEvent = {
+      version: { major: 1, minor: 2, patch: 3 },
+      type: 'test-event',
+      payload: {},
+    };
+    
+    expect(strategy.detectVersion(event)).toEqual({ major: 1, minor: 2, patch: 3 });
+  });
 
-      const event: VersionedEvent<{ name: string }> = {
-        version: v1_0_0,
-        payload: { name: 'John Doe' },
-      };
+  it('should check compatibility between event and target version', () => {
+    const event: IVersionedEvent = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: {},
+    };
+    
+    const targetVersion: EventVersion = { major: 1, minor: 1, patch: 0 };
+    
+    const result = strategy.checkCompatibility(event, targetVersion);
+    
+    expect(result.compatible).toBe(true);
+    expect(result.compatibilityType).toBe('backward');
+    expect(result.migrationRequired).toBe(true);
+  });
 
-      expect(() => strategy.upgrade(event, v3_0_0)).to.throw(
-        `Cannot upgrade from ${v1_0_0.toString()} to ${v3_0_0.toString()}`
-      );
-    });
+  it('should transform event to target version using registered migration path', () => {
+    const event: IVersionedEvent<EventV1Payload> = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: { message: 'Hello, world!' },
+    };
+    
+    const targetVersion: EventVersion = { major: 2, minor: 0, patch: 0 };
+    
+    const transformedEvent = strategy.transformToVersion<EventV1Payload, EventV2Payload>(
+      event,
+      targetVersion
+    );
+    
+    expect(transformedEvent.version).toEqual(targetVersion);
+    expect(transformedEvent.payload.message).toBe('Hello, world!');
+    expect(transformedEvent.payload.timestamp).toBeDefined();
+  });
+
+  it('should throw error when no migration path is found', () => {
+    const event: IVersionedEvent = {
+      version: { major: 1, minor: 0, patch: 0 },
+      type: 'test-event',
+      payload: {},
+    };
+    
+    const targetVersion: EventVersion = { major: 3, minor: 0, patch: 0 };
+    
+    expect(() => {
+      strategy.transformToVersion(event, targetVersion);
+    }).toThrow('No migration path found');
+  });
+
+  it('should return registered migration paths', () => {
+    const paths = strategy.getMigrationPaths();
+    
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toBe(migrationPath);
+  });
+});
+
+describe('Version Range', () => {
+  it('should correctly check if a version is within range', () => {
+    const range: VersionRange = {
+      minVersion: { major: 1, minor: 0, patch: 0 },
+      maxVersion: { major: 2, minor: 0, patch: 0 },
+      includes: function(version: EventVersion): boolean {
+        // Version is within range if it's >= minVersion and <= maxVersion
+        if (version.major < this.minVersion.major) return false;
+        if (version.major > this.maxVersion.major) return false;
+        
+        if (version.major === this.minVersion.major) {
+          if (version.minor < this.minVersion.minor) return false;
+          if (version.minor === this.minVersion.minor && version.patch < this.minVersion.patch) return false;
+        }
+        
+        if (version.major === this.maxVersion.major) {
+          if (version.minor > this.maxVersion.minor) return false;
+          if (version.minor === this.maxVersion.minor && version.patch > this.maxVersion.patch) return false;
+        }
+        
+        return true;
+      }
+    };
+
+    // Test versions within range
+    expect(range.includes({ major: 1, minor: 0, patch: 0 })).toBe(true); // Min boundary
+    expect(range.includes({ major: 1, minor: 5, patch: 0 })).toBe(true); // Middle
+    expect(range.includes({ major: 2, minor: 0, patch: 0 })).toBe(true); // Max boundary
+
+    // Test versions outside range
+    expect(range.includes({ major: 0, minor: 9, patch: 9 })).toBe(false); // Below min
+    expect(range.includes({ major: 2, minor: 0, patch: 1 })).toBe(false); // Above max
   });
 });

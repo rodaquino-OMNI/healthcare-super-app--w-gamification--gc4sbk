@@ -1,544 +1,634 @@
-import { ErrorType, AppException } from '../../../shared/src/exceptions/exceptions.types';
+import { ErrorType } from '../../../shared/src/exceptions/exceptions.types';
 
 /**
- * Options for configuring fallback behavior.
- * Provides a comprehensive set of configuration options for customizing
- * how fallback strategies are applied when operations fail.
+ * Interface for fallback strategy implementations.
+ * Fallback strategies provide alternative behavior when primary operations fail.
  */
-export interface FallbackOptions<T> {
-  /** Default value to return if operation fails */
-  defaultValue?: T;
-  
-  /** Time-to-live in milliseconds for cached fallback data */
-  cacheTtl?: number;
-  
-  /** Whether to retry the operation before falling back */
-  retry?: boolean;
-  
-  /** Maximum number of retry attempts */
-  maxRetries?: number;
-  
-  /** Delay between retries in milliseconds */
-  retryDelay?: number;
-  
-  /** Error types that should trigger the fallback */
-  errorTypes?: ErrorType[];
-  
-  /** Custom fallback function to execute */
-  fallbackFn?: () => Promise<T>;
-  
-  /** Journey context for journey-specific fallbacks */
-  journeyContext?: 'health' | 'care' | 'plan';
+export interface FallbackStrategy<T> {
+  /**
+   * Execute the fallback strategy to provide an alternative result.
+   * @param error - The error that triggered the fallback
+   * @param context - Optional context information that might help the fallback strategy
+   * @returns The fallback result
+   */
+  execute(error: Error, context?: Record<string, any>): Promise<T>;
+
+  /**
+   * Determines if this fallback strategy can handle the given error.
+   * @param error - The error to check
+   * @returns True if this strategy can handle the error, false otherwise
+   */
+  canHandle(error: Error): boolean;
 }
 
 /**
- * Default fallback options applied when specific options are not provided.
- * These defaults provide a reasonable starting point for fallback behavior
- * that can be overridden as needed for specific use cases.
+ * Options for configuring the withFallback function.
  */
-const DEFAULT_FALLBACK_OPTIONS: Partial<FallbackOptions<any>> = {
-  retry: false,
-  maxRetries: 3,
-  retryDelay: 300,
-  errorTypes: [ErrorType.EXTERNAL, ErrorType.TECHNICAL],
-  cacheTtl: 5 * 60 * 1000, // 5 minutes
-};
+export interface WithFallbackOptions {
+  /**
+   * Context information to pass to fallback strategies.
+   */
+  context?: Record<string, any>;
+
+  /**
+   * Whether to log the error before executing fallback strategies.
+   * @default true
+   */
+  logError?: boolean;
+
+  /**
+   * Custom error filter function to determine if a fallback should be attempted.
+   * @param error - The error to check
+   * @returns True if fallback should be attempted, false to rethrow the error
+   */
+  errorFilter?: (error: Error) => boolean;
+
+  /**
+   * Optional function to transform the error before it's passed to fallback strategies.
+   * @param error - The original error
+   * @returns Transformed error
+   */
+  errorTransformer?: (error: Error) => Error;
+}
 
 /**
- * Executes an operation with fallback strategies if it fails.
- * This is the primary utility for implementing graceful degradation
- * when operations fail, allowing the application to continue functioning
- * with reduced capabilities.
- * 
- * @param operation - The primary operation to execute
+ * Configuration options for the CacheableFallback class.
+ */
+export interface CacheableFallbackOptions<T> {
+  /**
+   * Time-to-live in milliseconds for the cached data.
+   * @default 300000 (5 minutes)
+   */
+  ttl?: number;
+
+  /**
+   * Function to determine if a specific error should trigger this fallback.
+   * @param error - The error to check
+   * @returns True if this fallback should be used, false otherwise
+   */
+  errorMatcher?: (error: Error) => boolean;
+
+  /**
+   * Optional function to transform the cached data before returning it.
+   * @param cachedData - The data retrieved from cache
+   * @param error - The error that triggered the fallback
+   * @returns Transformed data
+   */
+  dataTransformer?: (cachedData: T, error: Error) => T;
+
+  /**
+   * Optional function to get a cache key from the context.
+   * If not provided, a default key will be generated.
+   * @param context - The context object passed to the fallback
+   * @returns Cache key string
+   */
+  getCacheKey?: (context: Record<string, any>) => string;
+}
+
+/**
+ * Configuration options for the DefaultValueFallback class.
+ */
+export interface DefaultValueFallbackOptions {
+  /**
+   * Function to determine if a specific error should trigger this fallback.
+   * @param error - The error to check
+   * @returns True if this fallback should be used, false otherwise
+   */
+  errorMatcher?: (error: Error) => boolean;
+
+  /**
+   * Optional function to transform the default value based on the error and context.
+   * @param defaultValue - The configured default value
+   * @param error - The error that triggered the fallback
+   * @param context - The context object passed to the fallback
+   * @returns Transformed default value
+   */
+  valueTransformer?: <T>(defaultValue: T, error: Error, context?: Record<string, any>) => T;
+}
+
+/**
+ * Configuration options for the FallbackChain class.
+ */
+export interface FallbackChainOptions {
+  /**
+   * Whether to stop at the first successful fallback or try all fallbacks.
+   * @default true
+   */
+  stopOnSuccess?: boolean;
+
+  /**
+   * Whether to collect and combine results from all fallbacks.
+   * Only applicable when stopOnSuccess is false.
+   * @default false
+   */
+  combineResults?: boolean;
+
+  /**
+   * Function to combine results from multiple fallbacks.
+   * Only used when combineResults is true.
+   * @param results - Array of results from fallbacks that succeeded
+   * @returns Combined result
+   */
+  resultCombiner?: <T>(results: T[]) => T;
+}
+
+/**
+ * Executes a primary operation with fallback strategies if it fails.
+ * This function provides graceful degradation by allowing alternative
+ * behaviors when the primary operation encounters an error.
+ *
+ * @param primaryOperation - The main operation to execute
+ * @param fallbackStrategies - One or more fallback strategies to try if the primary operation fails
  * @param options - Configuration options for fallback behavior
- * @returns The result of the operation or fallback
- * 
+ * @returns Result from either the primary operation or a fallback strategy
+ * @throws Error if the primary operation fails and no fallback strategy can handle the error
+ *
  * @example
- * // With default value fallback
+ * // Basic usage with a default value fallback
  * const result = await withFallback(
- *   () => fetchUserProfile(userId),
- *   { defaultValue: { name: 'Guest User', isGuest: true } }
+ *   () => fetchUserData(userId),
+ *   new DefaultValueFallback({ defaultValue: { name: 'Guest', permissions: [] } })
  * );
- * 
+ *
  * @example
- * // With cached fallback for health journey
+ * // Using multiple fallbacks with options
  * const result = await withFallback(
  *   () => fetchLatestHealthMetrics(userId),
+ *   [
+ *     new CacheableFallback(cacheService, { ttl: 60000 }),
+ *     new DefaultValueFallback({ defaultValue: [] })
+ *   ],
  *   { 
- *     cacheTtl: 30 * 60 * 1000, // 30 minutes
- *     journeyContext: 'health'
- *   }
- * );
- * 
- * @example
- * // With custom fallback function and retry
- * const result = await withFallback(
- *   () => fetchProviderAvailability(providerId),
- *   {
- *     retry: true,
- *     maxRetries: 2,
- *     fallbackFn: async () => {
- *       // Try an alternative API or data source
- *       return await fetchProviderAvailabilityFromSecondarySource(providerId);
- *     },
- *     journeyContext: 'care'
+ *     context: { userId, journeyId: 'health' },
+ *     errorFilter: (err) => err instanceof NetworkError
  *   }
  * );
  */
 export async function withFallback<T>(
-  operation: () => Promise<T>,
-  options: FallbackOptions<T> = {}
+  primaryOperation: () => Promise<T>,
+  fallbackStrategies: FallbackStrategy<T> | FallbackStrategy<T>[],
+  options: WithFallbackOptions = {}
 ): Promise<T> {
-  // Merge with default options
-  const mergedOptions: FallbackOptions<T> = {
-    ...DEFAULT_FALLBACK_OPTIONS,
-    ...options,
-  };
-  
+  const {
+    context = {},
+    logError = true,
+    errorFilter = () => true,
+    errorTransformer = (err) => err
+  } = options;
+
   try {
     // Attempt the primary operation
-    if (mergedOptions.retry) {
-      return await withRetry(operation, mergedOptions.maxRetries!, mergedOptions.retryDelay!);
-    } else {
-      return await operation();
-    }
+    return await primaryOperation();
   } catch (error) {
-    // Check if this error type should trigger fallback
-    if (shouldTriggerFallback(error, mergedOptions.errorTypes!)) {
-      // Execute fallback strategy
-      return await executeFallbackStrategy(error, mergedOptions);
+    // Ensure error is an Error object
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    // Log the error if configured to do so
+    if (logError) {
+      console.error('[withFallback] Primary operation failed:', err);
     }
-    
-    // Re-throw error if it shouldn't trigger fallback
-    throw error;
+
+    // Check if we should attempt fallback for this error
+    if (!errorFilter(err)) {
+      throw err;
+    }
+
+    // Transform the error if a transformer is provided
+    const transformedError = errorTransformer(err);
+
+    // Convert single fallback to array for consistent handling
+    const fallbacks = Array.isArray(fallbackStrategies)
+      ? fallbackStrategies
+      : [fallbackStrategies];
+
+    // Try each fallback strategy in order
+    for (const fallback of fallbacks) {
+      if (fallback.canHandle(transformedError)) {
+        try {
+          return await fallback.execute(transformedError, context);
+        } catch (fallbackError) {
+          // Log fallback failure but continue to next fallback
+          console.error('[withFallback] Fallback strategy failed:', fallbackError);
+        }
+      }
+    }
+
+    // If we get here, all fallbacks failed or none could handle the error
+    throw transformedError;
   }
 }
 
 /**
- * Determines if an error should trigger the fallback strategy based on its type
- * and characteristics. This allows for selective fallback behavior depending
- * on the nature of the error.
+ * A fallback strategy that returns cached data when the primary operation fails.
+ * This is useful for maintaining functionality during temporary outages or
+ * performance degradation by serving slightly stale data instead of failing.
  */
-function shouldTriggerFallback(error: any, errorTypes: ErrorType[]): boolean {
-  // If error has a type property matching our ErrorType enum
-  if (error.type && errorTypes.includes(error.type)) {
-    return true;
-  }
-  
-  // For standard errors without type, assume technical error
-  if (errorTypes.includes(ErrorType.TECHNICAL)) {
-    return true;
-  }
-  
-  // For network or external service errors
-  if (
-    errorTypes.includes(ErrorType.EXTERNAL) &&
-    (error.code === 'ECONNREFUSED' || 
-     error.code === 'ETIMEDOUT' || 
-     error.message?.includes('timeout') ||
-     error.message?.includes('network'))
+export class CacheableFallback<T> implements FallbackStrategy<T> {
+  private readonly ttl: number;
+  private readonly errorMatcher: (error: Error) => boolean;
+  private readonly dataTransformer?: (cachedData: T, error: Error) => T;
+  private readonly getCacheKey: (context: Record<string, any>) => string;
+
+  /**
+   * Creates a new CacheableFallback instance.
+   *
+   * @param cacheService - The cache service to use for retrieving cached data
+   * @param options - Configuration options
+   */
+  constructor(
+    private readonly cacheService: {
+      get: (key: string) => Promise<T | null>;
+      set?: (key: string, value: T, ttl?: number) => Promise<void>;
+    },
+    options: CacheableFallbackOptions<T> = {}
   ) {
-    return true;
+    this.ttl = options.ttl ?? 300000; // Default: 5 minutes
+    this.errorMatcher = options.errorMatcher ?? (() => true);
+    this.dataTransformer = options.dataTransformer;
+    this.getCacheKey = options.getCacheKey ?? this.defaultGetCacheKey;
   }
-  
-  return false;
-}
 
-/**
- * Executes the appropriate fallback strategy based on options.
- * This function implements the core logic for selecting and executing
- * the most appropriate fallback strategy based on the provided options
- * and context.
- */
-async function executeFallbackStrategy<T>(error: any, options: FallbackOptions<T>): Promise<T> {
-  // If a custom fallback function is provided, use it
-  if (options.fallbackFn) {
-    return await options.fallbackFn();
-  }
-  
-  // If journey context is provided, use journey-specific fallback
-  if (options.journeyContext) {
-    return await executeJourneyFallback(options.journeyContext, options);
-  }
-  
-  // If a default value is provided, use it
-  if ('defaultValue' in options) {
-    return options.defaultValue as T;
-  }
-  
-  // If no fallback strategy is available, re-throw the error
-  throw error;
-}
-
-/**
- * Executes a journey-specific fallback strategy based on the journey context.
- * Each journey (health, care, plan) has its own specialized fallback behavior
- * optimized for the specific data and operations of that journey.
- */
-async function executeJourneyFallback<T>(
-  journeyContext: 'health' | 'care' | 'plan',
-  options: FallbackOptions<T>
-): Promise<T> {
-  switch (journeyContext) {
-    case 'health':
-      return await executeHealthJourneyFallback(options);
-    case 'care':
-      return await executeCareJourneyFallback(options);
-    case 'plan':
-      return await executePlanJourneyFallback(options);
-    default:
-      // If no journey-specific fallback is available, use default value
-      if ('defaultValue' in options) {
-        return options.defaultValue as T;
-      }
-      throw new Error(`No fallback strategy available for journey: ${journeyContext}`);
-  }
-}
-
-/**
- * Health journey specific fallback strategy
- */
-async function executeHealthJourneyFallback<T>(options: FallbackOptions<T>): Promise<T> {
-  // Health journey specific fallback logic
-  // Prioritizes cached data for health metrics and device connections
-  
-  // Check for cached data in localStorage or IndexedDB for web clients
-  // or AsyncStorage for mobile clients if available
-  try {
-    // This would be implemented with actual storage access in a real implementation
-    const cachedData = await getCachedHealthData();
-    if (cachedData) {
-      return cachedData as unknown as T;
-    }
-  } catch (cacheError) {
-    // Cache retrieval failed, continue to next fallback option
-  }
-  
-  // Return simplified or default health data if provided
-  if ('defaultValue' in options) {
-    return options.defaultValue as T;
-  }
-  
-  // If no fallback data is available, throw a specific error
-  throw new AppException(
-    'Unable to retrieve health data and no fallback available',
-    ErrorType.TECHNICAL,
-    'HEALTH_FALLBACK_001',
-    { journeyContext: 'health' }
-  );
-}
-
-/**
- * Mock function to simulate retrieving cached health data
- * In a real implementation, this would access actual storage
- */
-async function getCachedHealthData(): Promise<any | null> {
-  // This is a placeholder - in a real implementation, this would
-  // access localStorage, AsyncStorage, or another caching mechanism
-  return null;
-}
-
-/**
- * Care journey specific fallback strategy
- */
-async function executeCareJourneyFallback<T>(options: FallbackOptions<T>): Promise<T> {
-  // Care journey specific fallback logic
-  // Prioritizes cached data for appointments, providers, and medications
-  
-  // For appointment data, we can show cached appointments even if we can't fetch new ones
-  try {
-    // This would be implemented with actual storage access in a real implementation
-    const cachedData = await getCachedCareData();
-    if (cachedData) {
-      return cachedData as unknown as T;
-    }
-  } catch (cacheError) {
-    // Cache retrieval failed, continue to next fallback option
-  }
-  
-  // For telemedicine, we might need to show offline mode or reschedule options
-  // This would be implemented based on the specific operation that failed
-  
-  // Return default care journey data if provided
-  if ('defaultValue' in options) {
-    return options.defaultValue as T;
-  }
-  
-  // If no fallback data is available, throw a specific error
-  throw new AppException(
-    'Unable to retrieve care data and no fallback available',
-    ErrorType.TECHNICAL,
-    'CARE_FALLBACK_001',
-    { journeyContext: 'care' }
-  );
-}
-
-/**
- * Mock function to simulate retrieving cached care data
- * In a real implementation, this would access actual storage
- */
-async function getCachedCareData(): Promise<any | null> {
-  // This is a placeholder - in a real implementation, this would
-  // access localStorage, AsyncStorage, or another caching mechanism
-  return null;
-}
-
-/**
- * Plan journey specific fallback strategy
- */
-async function executePlanJourneyFallback<T>(options: FallbackOptions<T>): Promise<T> {
-  // Plan journey specific fallback logic
-  // Prioritizes cached data for insurance plans, benefits, and claims
-  
-  // For plan data, we can show cached information even if we can't fetch updates
-  try {
-    // This would be implemented with actual storage access in a real implementation
-    const cachedData = await getCachedPlanData();
-    if (cachedData) {
-      return cachedData as unknown as T;
-    }
-  } catch (cacheError) {
-    // Cache retrieval failed, continue to next fallback option
-  }
-  
-  // For claims processing, we might need to queue operations for later submission
-  // This would be implemented based on the specific operation that failed
-  
-  // Return default plan journey data if provided
-  if ('defaultValue' in options) {
-    return options.defaultValue as T;
-  }
-  
-  // If no fallback data is available, throw a specific error
-  throw new AppException(
-    'Unable to retrieve plan data and no fallback available',
-    ErrorType.TECHNICAL,
-    'PLAN_FALLBACK_001',
-    { journeyContext: 'plan' }
-  );
-}
-
-/**
- * Mock function to simulate retrieving cached plan data
- * In a real implementation, this would access actual storage
- */
-async function getCachedPlanData(): Promise<any | null> {
-  // This is a placeholder - in a real implementation, this would
-  // access localStorage, AsyncStorage, or another caching mechanism
-  return null;
-}
-
-/**
- * Executes an operation with retry logic using exponential backoff.
- * This provides resilience against transient failures by automatically
- * retrying failed operations with increasing delays between attempts.
- */
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetries: number,
-  delay: number
-): Promise<T> {
-  let lastError: any;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      
-      // If this is the last attempt, don't delay
-      if (attempt === maxRetries) {
-        break;
-      }
-      
-      // Exponential backoff with jitter
-      const backoffDelay = delay * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5);
-      await new Promise(resolve => setTimeout(resolve, backoffDelay));
-    }
-  }
-  
-  throw lastError;
-}
-
-/**
- * Class for implementing cacheable fallback strategies.
- * Provides a mechanism for storing and retrieving cached data
- * when primary operations fail, with configurable time-to-live.
- */
-export class CacheableFallback<T> {
-  private cache: Map<string, { value: T; timestamp: number }> = new Map();
-  
   /**
-   * Creates a new CacheableFallback instance
-   * 
-   * @param defaultTtl - Default time-to-live for cached items in milliseconds
+   * Determines if this fallback can handle the given error.
+   *
+   * @param error - The error to check
+   * @returns True if this fallback can handle the error, false otherwise
    */
-  constructor(private defaultTtl: number = 5 * 60 * 1000) {}
-  
+  canHandle(error: Error): boolean {
+    return this.errorMatcher(error);
+  }
+
   /**
-   * Executes an operation with caching fallback
-   * 
-   * @param key - Unique key for the operation (used for cache lookup)
-   * @param operation - The primary operation to execute
-   * @param options - Fallback options
-   * @returns The result of the operation or cached value
-   * 
-   * @example
-   * const cacheFallback = new CacheableFallback<UserProfile>();
-   * 
-   * const userProfile = await cacheFallback.execute(
-   *   `user-${userId}`,
-   *   () => fetchUserProfile(userId),
-   *   { cacheTtl: 10 * 60 * 1000 } // 10 minutes
-   * );
+   * Executes the fallback strategy by retrieving data from cache.
+   *
+   * @param error - The error that triggered the fallback
+   * @param context - Context information that might help determine the cache key
+   * @returns Cached data if available, otherwise throws the original error
+   * @throws The original error if no cached data is available
    */
-  async execute(
-    key: string,
-    operation: () => Promise<T>,
-    options: FallbackOptions<T> = {}
-  ): Promise<T> {
-    const ttl = options.cacheTtl || this.defaultTtl;
-    
-    try {
-      // Try to execute the primary operation
-      const result = await withFallback(operation, options);
-      
-      // Cache the successful result
-      this.cache.set(key, {
-        value: result,
-        timestamp: Date.now()
-      });
-      
-      return result;
-    } catch (error) {
-      // Check if we have a valid cached value
-      const cachedItem = this.cache.get(key);
-      
-      if (cachedItem && Date.now() - cachedItem.timestamp < ttl) {
-        // Return cached value if it's still valid
-        return cachedItem.value;
-      }
-      
-      // No valid cache, re-throw the error
-      throw error;
+  async execute(error: Error, context: Record<string, any> = {}): Promise<T> {
+    const cacheKey = this.getCacheKey(context);
+    const cachedData = await this.cacheService.get(cacheKey);
+
+    if (cachedData === null) {
+      throw new Error(`No cached data available for key: ${cacheKey}`);
+    }
+
+    // Apply data transformation if configured
+    return this.dataTransformer ? this.dataTransformer(cachedData, error) : cachedData;
+  }
+
+  /**
+   * Default function to generate a cache key from context.
+   * Override this by providing a getCacheKey function in options.
+   *
+   * @param context - The context object
+   * @returns A cache key string
+   */
+  private defaultGetCacheKey(context: Record<string, any>): string {
+    // Create a key based on available context properties
+    const keyParts = [];
+
+    if (context.userId) keyParts.push(`user:${context.userId}`);
+    if (context.journeyId) keyParts.push(`journey:${context.journeyId}`);
+    if (context.resourceId) keyParts.push(`resource:${context.resourceId}`);
+    if (context.operation) keyParts.push(`op:${context.operation}`);
+
+    // If no specific context is available, use a generic key
+    if (keyParts.length === 0) {
+      return 'fallback:generic';
+    }
+
+    return `fallback:${keyParts.join(':')}`;
+  }
+
+  /**
+   * Updates the cache with new data.
+   * This can be called after a successful retry to ensure the cache has fresh data.
+   *
+   * @param data - The data to cache
+   * @param context - Context information to determine the cache key
+   * @param customTtl - Optional custom TTL for this specific update
+   * @returns Promise that resolves when the cache is updated
+   */
+  async updateCache(data: T, context: Record<string, any> = {}, customTtl?: number): Promise<void> {
+    if (!this.cacheService.set) {
+      console.warn('[CacheableFallback] Cache service does not support writing to cache');
+      return;
+    }
+
+    const cacheKey = this.getCacheKey(context);
+    await this.cacheService.set(cacheKey, data, customTtl ?? this.ttl);
+  }
+}
+
+/**
+ * A fallback strategy that returns a default value when the primary operation fails.
+ * This is useful for non-critical operations where a reasonable default can be provided.
+ */
+export class DefaultValueFallback<T> implements FallbackStrategy<T> {
+  private readonly errorMatcher: (error: Error) => boolean;
+  private readonly valueTransformer?: (defaultValue: T, error: Error, context?: Record<string, any>) => T;
+
+  /**
+   * Creates a new DefaultValueFallback instance.
+   *
+   * @param defaultValue - The default value to return when fallback is triggered
+   * @param options - Configuration options
+   */
+  constructor(
+    private readonly defaultValue: T,
+    options: DefaultValueFallbackOptions = {}
+  ) {
+    this.errorMatcher = options.errorMatcher ?? (() => true);
+    this.valueTransformer = options.valueTransformer;
+  }
+
+  /**
+   * Determines if this fallback can handle the given error.
+   *
+   * @param error - The error to check
+   * @returns True if this fallback can handle the error, false otherwise
+   */
+  canHandle(error: Error): boolean {
+    return this.errorMatcher(error);
+  }
+
+  /**
+   * Executes the fallback strategy by returning the default value.
+   *
+   * @param error - The error that triggered the fallback
+   * @param context - Optional context information
+   * @returns The default value, possibly transformed
+   */
+  async execute(error: Error, context?: Record<string, any>): Promise<T> {
+    // Apply value transformation if configured
+    return this.valueTransformer
+      ? this.valueTransformer(this.defaultValue, error, context)
+      : this.defaultValue;
+  }
+}
+
+/**
+ * A fallback strategy that chains multiple fallback strategies together.
+ * Strategies are tried in order until one succeeds or all fail.
+ */
+export class FallbackChain<T> implements FallbackStrategy<T> {
+  private readonly stopOnSuccess: boolean;
+  private readonly combineResults: boolean;
+  private readonly resultCombiner?: (results: T[]) => T;
+
+  /**
+   * Creates a new FallbackChain instance.
+   *
+   * @param fallbackStrategies - Array of fallback strategies to try in order
+   * @param options - Configuration options
+   */
+  constructor(
+    private readonly fallbackStrategies: FallbackStrategy<T>[],
+    options: FallbackChainOptions = {}
+  ) {
+    this.stopOnSuccess = options.stopOnSuccess ?? true;
+    this.combineResults = options.combineResults ?? false;
+    this.resultCombiner = options.resultCombiner;
+
+    // Validate configuration
+    if (this.combineResults && !this.resultCombiner) {
+      throw new Error('resultCombiner must be provided when combineResults is true');
     }
   }
-  
+
   /**
-   * Manually sets a cached value
-   * 
-   * @param key - Cache key
-   * @param value - Value to cache
+   * Determines if this fallback chain can handle the given error.
+   * A chain can handle an error if at least one of its strategies can handle it.
+   *
+   * @param error - The error to check
+   * @returns True if at least one strategy in the chain can handle the error
    */
-  setCache(key: string, value: T): void {
-    this.cache.set(key, {
-      value,
-      timestamp: Date.now()
+  canHandle(error: Error): boolean {
+    return this.fallbackStrategies.some(strategy => strategy.canHandle(error));
+  }
+
+  /**
+   * Executes the fallback chain by trying each strategy in order.
+   *
+   * @param error - The error that triggered the fallback
+   * @param context - Optional context information
+   * @returns Result from a successful fallback strategy or combined results
+   * @throws Error if all fallback strategies fail
+   */
+  async execute(error: Error, context?: Record<string, any>): Promise<T> {
+    const errors: Error[] = [];
+    const results: T[] = [];
+
+    for (const strategy of this.fallbackStrategies) {
+      if (strategy.canHandle(error)) {
+        try {
+          const result = await strategy.execute(error, context);
+          
+          // Store the result
+          results.push(result);
+          
+          // If configured to stop on first success, return immediately
+          if (this.stopOnSuccess) {
+            return result;
+          }
+        } catch (fallbackError) {
+          // Store the error and continue to the next strategy
+          errors.push(fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError)));
+        }
+      }
+    }
+
+    // If we're combining results and have at least one result, combine them
+    if (this.combineResults && results.length > 0 && this.resultCombiner) {
+      return this.resultCombiner(results);
+    }
+
+    // If we have at least one result, return the last successful one
+    if (results.length > 0) {
+      return results[results.length - 1];
+    }
+
+    // If all strategies failed, throw an error with details
+    throw new Error(
+      `All fallback strategies failed: ${errors.map(e => e.message).join(', ')}`
+    );
+  }
+}
+
+/**
+ * Journey-specific fallback strategies for the Health journey.
+ * These strategies are tailored to the specific needs of health-related features.
+ */
+export namespace HealthJourneyFallbacks {
+  /**
+   * Creates a fallback strategy for health metrics data.
+   * Returns the most recent metrics with a clear indication they might be stale.
+   *
+   * @param cacheService - The cache service to use
+   * @param options - Additional configuration options
+   * @returns A configured CacheableFallback instance
+   */
+  export function createMetricsFallback<T>(
+    cacheService: { get: (key: string) => Promise<T | null>; set?: (key: string, value: T, ttl?: number) => Promise<void> },
+    options: Partial<CacheableFallbackOptions<T>> = {}
+  ): CacheableFallback<T> {
+    return new CacheableFallback(cacheService, {
+      ttl: 86400000, // 24 hours for health metrics
+      errorMatcher: (error) => {
+        // Match external errors or network timeouts
+        return error.name === 'ExternalSystemError' || error.message.includes('timeout');
+      },
+      dataTransformer: (data: any, error) => {
+        // Add a flag to indicate the data is from cache
+        if (Array.isArray(data)) {
+          return data.map(item => ({ ...item, fromCache: true })) as unknown as T;
+        } else if (typeof data === 'object' && data !== null) {
+          return { ...data, fromCache: true } as unknown as T;
+        }
+        return data;
+      },
+      getCacheKey: (context) => {
+        return `health:metrics:${context.userId}:${context.metricType || 'all'}`;
+      },
+      ...options
     });
   }
-  
-  /**
-   * Clears a specific cached item
-   * 
-   * @param key - Cache key to clear
-   */
-  clearCache(key: string): void {
-    this.cache.delete(key);
-  }
-  
-  /**
-   * Clears all cached items
-   */
-  clearAllCache(): void {
-    this.cache.clear();
-  }
-}
 
-/**
- * Creates a chain of fallback strategies to try in sequence.
- * Implements priority-based fallback chains where multiple strategies
- * are attempted in order until one succeeds.
- */
-export class FallbackChain<T> {
-  private strategies: Array<() => Promise<T>> = [];
-  
   /**
-   * Adds a fallback strategy to the chain
-   * 
-   * @param strategy - Fallback strategy function
-   * @returns The FallbackChain instance for chaining
-   * 
-   * @example
-   * const result = await new FallbackChain<UserData>()
-   *   .add(() => fetchFromPrimaryDatabase())
-   *   .add(() => fetchFromSecondaryDatabase())
-   *   .add(() => fetchFromCache())
-   *   .add(() => getDefaultUserData())
-   *   .execute();
+   * Creates a fallback strategy for health goals data.
+   * Returns simplified goal information when the primary source is unavailable.
+   *
+   * @param defaultGoals - Default goals to use as fallback
+   * @returns A configured DefaultValueFallback instance
    */
-  add(strategy: () => Promise<T>): FallbackChain<T> {
-    this.strategies.push(strategy);
-    return this;
-  }
-  
-  /**
-   * Executes the fallback chain, trying each strategy in sequence
-   * until one succeeds or all fail
-   * 
-   * @returns The result of the first successful strategy
-   * @throws The last error if all strategies fail
-   */
-  async execute(): Promise<T> {
-    if (this.strategies.length === 0) {
-      throw new Error('No fallback strategies defined in chain');
-    }
-    
-    let lastError: any;
-    
-    for (const strategy of this.strategies) {
-      try {
-        return await strategy();
-      } catch (error) {
-        lastError = error;
-        // Continue to the next strategy
+  export function createGoalsFallback<T>(
+    defaultGoals: T
+  ): DefaultValueFallback<T> {
+    return new DefaultValueFallback(defaultGoals, {
+      errorMatcher: (error) => {
+        // Match database errors or external service errors
+        return error.name === 'DatabaseError' || error.name === 'ExternalSystemError';
       }
-    }
-    
-    // If we get here, all strategies failed
-    throw lastError || new Error('All fallback strategies failed');
+    });
   }
 }
 
 /**
- * Creates a fallback function that returns a default value.
- * This is a utility for creating simple fallback strategies
- * that return predefined values when operations fail.
- * 
- * @param defaultValue - The default value to return
- * @returns A function that returns the default value
- * 
- * @example
- * const userProfileFallback = createDefaultValueFallback({
- *   name: 'Guest User',
- *   email: 'guest@example.com',
- *   isGuest: true
- * });
- * 
- * // Use in withFallback
- * const profile = await withFallback(
- *   () => fetchUserProfile(userId),
- *   { fallbackFn: userProfileFallback }
- * );
- * 
- * @example
- * // Use in a fallback chain
- * const result = await new FallbackChain<UserData>()
- *   .add(() => fetchFromPrimaryDatabase())
- *   .add(() => fetchFromSecondaryDatabase())
- *   .add(createDefaultValueFallback(DEFAULT_USER_DATA))
- *   .execute();
+ * Journey-specific fallback strategies for the Care journey.
+ * These strategies are tailored to the specific needs of care-related features.
  */
-export function createDefaultValueFallback<T>(defaultValue: T): () => Promise<T> {
-  return async () => defaultValue;
+export namespace CareJourneyFallbacks {
+  /**
+   * Creates a fallback strategy for appointment data.
+   * Returns cached appointments with status indicators when the booking system is unavailable.
+   *
+   * @param cacheService - The cache service to use
+   * @param options - Additional configuration options
+   * @returns A configured CacheableFallback instance
+   */
+  export function createAppointmentsFallback<T>(
+    cacheService: { get: (key: string) => Promise<T | null>; set?: (key: string, value: T, ttl?: number) => Promise<void> },
+    options: Partial<CacheableFallbackOptions<T>> = {}
+  ): CacheableFallback<T> {
+    return new CacheableFallback(cacheService, {
+      ttl: 3600000, // 1 hour for appointments
+      errorMatcher: (error) => {
+        // Match booking system errors
+        return error.name === 'BookingSystemError' || error.message.includes('appointment');
+      },
+      dataTransformer: (data: any, error) => {
+        // Add a warning flag to appointments
+        if (Array.isArray(data)) {
+          return data.map(appointment => ({
+            ...appointment,
+            statusWarning: 'Booking system temporarily unavailable. Please verify appointment details by phone.'
+          })) as unknown as T;
+        }
+        return data;
+      },
+      getCacheKey: (context) => {
+        return `care:appointments:${context.userId}:${context.timeframe || 'upcoming'}`;
+      },
+      ...options
+    });
+  }
+
+  /**
+   * Creates a fallback strategy for provider information.
+   * Returns basic provider information when detailed data is unavailable.
+   *
+   * @param defaultProviderInfo - Default provider information to use as fallback
+   * @returns A configured DefaultValueFallback instance
+   */
+  export function createProviderInfoFallback<T>(
+    defaultProviderInfo: T
+  ): DefaultValueFallback<T> {
+    return new DefaultValueFallback(defaultProviderInfo, {
+      errorMatcher: (error) => {
+        // Match provider directory errors
+        return error.name === 'ProviderDirectoryError' || error.message.includes('provider');
+      }
+    });
+  }
+}
+
+/**
+ * Journey-specific fallback strategies for the Plan journey.
+ * These strategies are tailored to the specific needs of insurance plan-related features.
+ */
+export namespace PlanJourneyFallbacks {
+  /**
+   * Creates a fallback strategy for benefits information.
+   * Returns cached benefits data when the insurance system is unavailable.
+   *
+   * @param cacheService - The cache service to use
+   * @param options - Additional configuration options
+   * @returns A configured CacheableFallback instance
+   */
+  export function createBenefitsFallback<T>(
+    cacheService: { get: (key: string) => Promise<T | null>; set?: (key: string, value: T, ttl?: number) => Promise<void> },
+    options: Partial<CacheableFallbackOptions<T>> = {}
+  ): CacheableFallback<T> {
+    return new CacheableFallback(cacheService, {
+      ttl: 86400000, // 24 hours for benefits info
+      errorMatcher: (error) => {
+        // Match insurance system errors
+        return error.name === 'InsuranceSystemError' || error.message.includes('benefits');
+      },
+      dataTransformer: (data: any, error) => {
+        // Add disclaimer to benefits data
+        if (typeof data === 'object' && data !== null) {
+          return {
+            ...data,
+            disclaimer: 'This information may not reflect recent changes. Please contact customer service for verification.'
+          } as unknown as T;
+        }
+        return data;
+      },
+      getCacheKey: (context) => {
+        return `plan:benefits:${context.userId}:${context.planId || 'current'}`;
+      },
+      ...options
+    });
+  }
+
+  /**
+   * Creates a fallback strategy for claim status information.
+   * Returns a simplified claim status when detailed tracking is unavailable.
+   *
+   * @param defaultClaimStatus - Default claim status to use as fallback
+   * @returns A configured DefaultValueFallback instance
+   */
+  export function createClaimStatusFallback<T>(
+    defaultClaimStatus: T
+  ): DefaultValueFallback<T> {
+    return new DefaultValueFallback(defaultClaimStatus, {
+      errorMatcher: (error) => {
+        // Match claim processing system errors
+        return error.name === 'ClaimSystemError' || error.message.includes('claim');
+      }
+    });
+  }
 }

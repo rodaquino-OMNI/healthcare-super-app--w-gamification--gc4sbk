@@ -1,117 +1,120 @@
-import { Writable, Readable } from 'stream';
+import { Writable } from 'stream';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { LoggingContext } from '../../src/context/context.interface';
-import { JourneyContext } from '../../src/context/journey-context.interface';
-import { RequestContext } from '../../src/context/request-context.interface';
-import { UserContext } from '../../src/context/user-context.interface';
+import { LogEntry } from '../../src/interfaces/log-entry.interface';
 import { Transport } from '../../src/interfaces/transport.interface';
 import { Formatter } from '../../src/formatters/formatter.interface';
-import { LogEntry } from '../../src/formatters/formatter.interface';
 
 /**
  * Interface for a captured log entry with additional metadata
  */
-export interface CapturedLogEntry extends LogEntry {
+export interface CapturedLog extends LogEntry {
+  /** Raw string representation of the log */
+  raw?: string;
   /** Timestamp when the log was captured */
   capturedAt: Date;
-  /** Original formatted string if available */
-  formatted?: string;
-  /** Raw log entry before processing */
-  raw?: any;
+  /** Format of the captured log (json, text, etc.) */
+  format?: string;
+  /** Transport that was used to capture the log */
+  transportType?: string;
 }
 
 /**
  * Options for configuring the log capture behavior
  */
 export interface LogCaptureOptions {
-  /** Whether to capture stdout logs */
-  captureStdout?: boolean;
-  /** Whether to capture stderr logs */
-  captureStderr?: boolean;
-  /** Whether to capture logs from transports */
-  captureTransports?: boolean;
+  /** Whether to capture console.log, console.error, etc. */
+  captureConsole?: boolean;
+  /** Whether to capture process.stdout and process.stderr */
+  captureStdio?: boolean;
+  /** Whether to capture logs from the logger service */
+  captureLoggerService?: boolean;
   /** Minimum log level to capture */
   minLevel?: LogLevel;
   /** Maximum number of logs to keep in memory */
   maxLogs?: number;
-  /** Whether to parse JSON logs */
-  parseJson?: boolean;
-  /** Journey types to filter by */
-  journeyTypes?: string[];
-  /** Whether to restore original streams on cleanup */
-  restoreStreams?: boolean;
+  /** Journey context to filter logs by */
+  journeyContext?: string;
+  /** User ID to filter logs by */
+  userId?: string;
+  /** Request ID to filter logs by */
+  requestId?: string;
 }
 
 /**
  * Default options for log capture
  */
-const DEFAULT_OPTIONS: LogCaptureOptions = {
-  captureStdout: true,
-  captureStderr: true,
-  captureTransports: true,
+const DEFAULT_CAPTURE_OPTIONS: LogCaptureOptions = {
+  captureConsole: true,
+  captureStdio: true,
+  captureLoggerService: true,
   minLevel: LogLevel.DEBUG,
   maxLogs: 1000,
-  parseJson: true,
-  restoreStreams: true,
 };
 
 /**
- * In-memory transport that captures logs for testing
+ * In-memory transport for capturing logs during tests
  */
-export class MemoryTransport implements Transport {
-  private logs: CapturedLogEntry[] = [];
+export class InMemoryTransport implements Transport {
+  private logs: CapturedLog[] = [];
   private options: LogCaptureOptions;
   private formatter?: Formatter;
 
-  constructor(options: LogCaptureOptions = DEFAULT_OPTIONS) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
-  }
-
-  /**
-   * Sets the formatter to use for this transport
-   */
-  setFormatter(formatter: Formatter): void {
+  constructor(options: LogCaptureOptions = DEFAULT_CAPTURE_OPTIONS, formatter?: Formatter) {
+    this.options = { ...DEFAULT_CAPTURE_OPTIONS, ...options };
     this.formatter = formatter;
   }
 
   /**
-   * Writes a log entry to memory
+   * Writes a log entry to the in-memory store
    */
   write(entry: LogEntry): void {
+    // Skip logs below the minimum level
     if (entry.level < this.options.minLevel) {
       return;
     }
 
-    // Filter by journey type if specified
-    if (this.options.journeyTypes?.length > 0) {
-      const journeyContext = entry.context as JourneyContext;
-      if (!journeyContext?.journeyType || 
-          !this.options.journeyTypes.includes(journeyContext.journeyType)) {
-        return;
-      }
+    // Skip logs that don't match journey context filter if specified
+    if (this.options.journeyContext && 
+        entry.context?.journey !== this.options.journeyContext) {
+      return;
     }
 
-    const formatted = this.formatter ? this.formatter.format(entry) : undefined;
+    // Skip logs that don't match user ID filter if specified
+    if (this.options.userId && 
+        entry.context?.userId !== this.options.userId) {
+      return;
+    }
 
-    const capturedEntry: CapturedLogEntry = {
+    // Skip logs that don't match request ID filter if specified
+    if (this.options.requestId && 
+        entry.context?.requestId !== this.options.requestId) {
+      return;
+    }
+
+    const capturedLog: CapturedLog = {
       ...entry,
       capturedAt: new Date(),
-      formatted,
-      raw: { ...entry },
+      transportType: 'memory'
     };
 
-    this.logs.push(capturedEntry);
+    // Format the log if a formatter is provided
+    if (this.formatter) {
+      capturedLog.raw = this.formatter.format(entry);
+      capturedLog.format = this.formatter.constructor.name.replace('Formatter', '').toLowerCase();
+    }
 
-    // Respect max logs limit
+    this.logs.push(capturedLog);
+
+    // Trim logs if we exceed the maximum
     if (this.logs.length > this.options.maxLogs) {
-      this.logs.shift();
+      this.logs = this.logs.slice(this.logs.length - this.options.maxLogs);
     }
   }
 
   /**
-   * Gets all captured logs
+   * Returns all captured logs
    */
-  getLogs(): CapturedLogEntry[] {
+  getLogs(): CapturedLog[] {
     return [...this.logs];
   }
 
@@ -121,503 +124,549 @@ export class MemoryTransport implements Transport {
   clear(): void {
     this.logs = [];
   }
-}
 
-/**
- * Stream that captures writes for testing
- */
-export class CaptureStream extends Writable {
-  private chunks: Buffer[] = [];
-  private originalStream?: NodeJS.WriteStream;
-  private options: LogCaptureOptions;
-  private logEntries: CapturedLogEntry[] = [];
-
-  constructor(originalStream?: NodeJS.WriteStream, options: LogCaptureOptions = DEFAULT_OPTIONS) {
-    super();
-    this.originalStream = originalStream;
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+  /**
+   * Filters logs by various criteria
+   */
+  filter(criteria: Partial<LogEntry>): CapturedLog[] {
+    return this.logs.filter(log => {
+      for (const [key, value] of Object.entries(criteria)) {
+        // Handle nested properties like context.userId
+        if (key.includes('.')) {
+          const [parent, child] = key.split('.');
+          if (log[parent]?.[child] !== value) {
+            return false;
+          }
+        } else if (log[key] !== value) {
+          return false;
+        }
+      }
+      return true;
+    });
   }
 
   /**
-   * Implementation of the _write method for the Writable stream
+   * Searches logs for a specific string or regular expression
    */
-  _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
-    this.chunks.push(chunk);
+  search(term: string | RegExp): CapturedLog[] {
+    const regex = typeof term === 'string' ? new RegExp(term, 'i') : term;
     
-    // Parse the chunk if needed
-    if (this.options.parseJson) {
-      try {
-        const str = chunk.toString();
-        const lines = str.split('\n').filter(line => line.trim());
-        
-        for (const line of lines) {
-          try {
-            // Try to parse as JSON
-            const parsed = JSON.parse(line);
-            if (this.isLogEntry(parsed)) {
-              const capturedEntry: CapturedLogEntry = {
-                ...parsed,
-                capturedAt: new Date(),
-                formatted: line,
-                raw: parsed,
-              };
-              
-              // Apply filtering
-              if (this.shouldCaptureLog(capturedEntry)) {
-                this.logEntries.push(capturedEntry);
-              }
-            }
-          } catch (e) {
-            // Not JSON or not a valid log entry, store as raw text
-            const capturedEntry: CapturedLogEntry = {
-              message: line,
-              level: LogLevel.INFO, // Default level
-              timestamp: new Date(),
-              context: {},
-              capturedAt: new Date(),
-              formatted: line,
-              raw: line,
-            };
-            
-            this.logEntries.push(capturedEntry);
-          }
-        }
-      } catch (e) {
-        // Ignore parsing errors
+    return this.logs.filter(log => {
+      // Search in the raw log if available
+      if (log.raw && regex.test(log.raw)) {
+        return true;
       }
+      
+      // Search in the message
+      if (regex.test(log.message)) {
+        return true;
+      }
+      
+      // Search in stringified context
+      if (log.context && regex.test(JSON.stringify(log.context))) {
+        return true;
+      }
+      
+      // Search in error message and stack if available
+      if (log.error) {
+        if (typeof log.error === 'string' && regex.test(log.error)) {
+          return true;
+        } else if (log.error instanceof Error) {
+          return regex.test(log.error.message) || 
+                 (log.error.stack ? regex.test(log.error.stack) : false);
+        } else if (typeof log.error === 'object') {
+          return regex.test(JSON.stringify(log.error));
+        }
+      }
+      
+      return false;
+    });
+  }
+}
+
+/**
+ * Stream capture for intercepting stdout/stderr
+ */
+export class StreamCapture extends Writable {
+  private originalWrite: Function;
+  private stream: NodeJS.WriteStream;
+  private buffer: string[] = [];
+  private callback?: (data: string) => void;
+  private paused: boolean = false;
+
+  /**
+   * Creates a new stream capture for the specified stream
+   * @param stream The stream to capture (process.stdout or process.stderr)
+   * @param callback Optional callback to execute for each write
+   */
+  constructor(stream: NodeJS.WriteStream, callback?: (data: string) => void) {
+    super();
+    this.stream = stream;
+    this.originalWrite = stream.write;
+    this.callback = callback;
+  }
+
+  /**
+   * Starts capturing the stream
+   */
+  startCapture(): void {
+    if (this.paused) {
+      return;
     }
 
-    // Pass through to original stream if it exists
-    if (this.originalStream && !this.originalStream.destroyed) {
-      this.originalStream.write(chunk);
+    // Override the write method to capture output
+    this.stream.write = (chunk: any, encoding?: any, callback?: any): boolean => {
+      const data = typeof chunk === 'string' ? chunk : chunk.toString();
+      this.buffer.push(data);
+      
+      if (this.callback) {
+        this.callback(data);
+      }
+      
+      // Call the original write to maintain normal output
+      return this.originalWrite.apply(this.stream, [chunk, encoding, callback]);
+    };
+  }
+
+  /**
+   * Stops capturing the stream and restores the original write method
+   */
+  stopCapture(): void {
+    this.stream.write = this.originalWrite;
+  }
+
+  /**
+   * Pauses capturing without restoring the original write method
+   */
+  pauseCapture(): void {
+    this.paused = true;
+  }
+
+  /**
+   * Resumes capturing after a pause
+   */
+  resumeCapture(): void {
+    this.paused = false;
+  }
+
+  /**
+   * Gets all captured output as a string
+   */
+  getOutput(): string {
+    return this.buffer.join('');
+  }
+
+  /**
+   * Gets captured output as an array of lines
+   */
+  getLines(): string[] {
+    return this.getOutput().split('\n').filter(line => line.trim() !== '');
+  }
+
+  /**
+   * Clears the captured output
+   */
+  clear(): void {
+    this.buffer = [];
+  }
+
+  /**
+   * Implementation of the write method for the Writable interface
+   */
+  _write(chunk: any, encoding: string, callback: (error?: Error) => void): void {
+    const data = typeof chunk === 'string' ? chunk : chunk.toString();
+    this.buffer.push(data);
+    
+    if (this.callback) {
+      this.callback(data);
     }
     
     callback();
   }
+}
+
+/**
+ * Console capture for intercepting console.log, console.error, etc.
+ */
+export class ConsoleCapture {
+  private originalMethods: Record<string, Function> = {};
+  private captures: Record<string, string[]> = {
+    log: [],
+    error: [],
+    warn: [],
+    info: [],
+    debug: []
+  };
+  private callback?: (method: string, args: any[]) => void;
+  private paused: boolean = false;
 
   /**
-   * Checks if an object is a valid log entry
+   * Creates a new console capture
+   * @param callback Optional callback to execute for each console method call
    */
-  private isLogEntry(obj: any): obj is LogEntry {
-    return obj && 
-           typeof obj.message === 'string' && 
-           typeof obj.level === 'number' &&
-           obj.timestamp !== undefined;
+  constructor(callback?: (method: string, args: any[]) => void) {
+    this.callback = callback;
   }
 
   /**
-   * Determines if a log entry should be captured based on filtering options
+   * Starts capturing console methods
+   * @param methods Optional array of methods to capture (defaults to all)
    */
-  private shouldCaptureLog(entry: CapturedLogEntry): boolean {
-    // Filter by log level
-    if (entry.level < this.options.minLevel) {
-      return false;
-    }
-
-    // Filter by journey type if specified
-    if (this.options.journeyTypes?.length > 0) {
-      const journeyContext = entry.context as JourneyContext;
-      if (!journeyContext?.journeyType || 
-          !this.options.journeyTypes.includes(journeyContext.journeyType)) {
-        return false;
+  startCapture(methods: string[] = ['log', 'error', 'warn', 'info', 'debug']): void {
+    methods.forEach(method => {
+      if (typeof console[method] === 'function') {
+        this.originalMethods[method] = console[method];
+        console[method] = (...args: any[]) => {
+          if (!this.paused) {
+            this.captures[method].push(args.map(arg => 
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '));
+            
+            if (this.callback) {
+              this.callback(method, args);
+            }
+          }
+          
+          // Call the original method to maintain normal console output
+          this.originalMethods[method].apply(console, args);
+        };
       }
+    });
+  }
+
+  /**
+   * Stops capturing and restores original console methods
+   */
+  stopCapture(): void {
+    Object.keys(this.originalMethods).forEach(method => {
+      console[method] = this.originalMethods[method];
+    });
+    this.originalMethods = {};
+  }
+
+  /**
+   * Pauses capturing without restoring original methods
+   */
+  pauseCapture(): void {
+    this.paused = true;
+  }
+
+  /**
+   * Resumes capturing after a pause
+   */
+  resumeCapture(): void {
+    this.paused = false;
+  }
+
+  /**
+   * Gets captured output for a specific console method
+   */
+  getCapture(method: string): string[] {
+    return [...(this.captures[method] || [])];
+  }
+
+  /**
+   * Gets all captured output
+   */
+  getAllCaptures(): Record<string, string[]> {
+    return Object.keys(this.captures).reduce((result, method) => {
+      result[method] = [...this.captures[method]];
+      return result;
+    }, {});
+  }
+
+  /**
+   * Clears captured output for a specific method or all methods
+   */
+  clear(method?: string): void {
+    if (method) {
+      this.captures[method] = [];
+    } else {
+      Object.keys(this.captures).forEach(m => {
+        this.captures[m] = [];
+      });
     }
-
-    return true;
-  }
-
-  /**
-   * Gets the raw captured output as a string
-   */
-  getOutput(): string {
-    return Buffer.concat(this.chunks).toString();
-  }
-
-  /**
-   * Gets all captured log entries
-   */
-  getLogs(): CapturedLogEntry[] {
-    return [...this.logEntries];
-  }
-
-  /**
-   * Clears all captured logs
-   */
-  clear(): void {
-    this.chunks = [];
-    this.logEntries = [];
   }
 }
 
 /**
- * Main class for capturing logs during tests
+ * Log analyzer for parsing and validating structured logs
  */
-export class LogCapture {
-  private options: LogCaptureOptions;
-  private memoryTransport: MemoryTransport;
-  private stdoutCapture?: CaptureStream;
-  private stderrCapture?: CaptureStream;
-  private originalStdout?: NodeJS.WriteStream;
-  private originalStderr?: NodeJS.WriteStream;
-  private transportHooks: Array<{ transport: Transport, originalWrite: Function }> = [];
+export class LogAnalyzer {
+  /**
+   * Parses a JSON log string into a structured object
+   */
+  static parseJsonLog(logString: string): any {
+    try {
+      return JSON.parse(logString);
+    } catch (error) {
+      throw new Error(`Failed to parse JSON log: ${error.message}`);
+    }
+  }
 
-  constructor(options: LogCaptureOptions = DEFAULT_OPTIONS) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
-    this.memoryTransport = new MemoryTransport(this.options);
+  /**
+   * Validates that a log object contains all required fields
+   */
+  static validateLogStructure(log: any, requiredFields: string[] = ['timestamp', 'level', 'message']): boolean {
+    return requiredFields.every(field => {
+      const fieldPath = field.split('.');
+      let current = log;
+      
+      for (const part of fieldPath) {
+        if (current === undefined || current === null) {
+          return false;
+        }
+        current = current[part];
+      }
+      
+      return current !== undefined && current !== null;
+    });
+  }
+
+  /**
+   * Extracts context information from a log object
+   */
+  static extractContext(log: any): Record<string, any> {
+    return log.context || {};
+  }
+
+  /**
+   * Extracts trace information from a log object
+   */
+  static extractTraceInfo(log: any): { traceId?: string, spanId?: string } {
+    const context = log.context || {};
+    return {
+      traceId: context.traceId || log.traceId,
+      spanId: context.spanId || log.spanId
+    };
+  }
+
+  /**
+   * Extracts journey information from a log object
+   */
+  static extractJourneyInfo(log: any): { journey?: string, journeyContext?: any } {
+    const context = log.context || {};
+    return {
+      journey: context.journey,
+      journeyContext: context.journeyContext
+    };
+  }
+
+  /**
+   * Groups logs by a specific field
+   */
+  static groupBy(logs: any[], field: string): Record<string, any[]> {
+    return logs.reduce((groups, log) => {
+      const fieldPath = field.split('.');
+      let value = log;
+      
+      for (const part of fieldPath) {
+        if (value === undefined || value === null) {
+          value = 'undefined';
+          break;
+        }
+        value = value[part];
+      }
+      
+      const key = value === undefined || value === null ? 'undefined' : String(value);
+      groups[key] = groups[key] || [];
+      groups[key].push(log);
+      
+      return groups;
+    }, {});
+  }
+}
+
+/**
+ * Creates a complete log capture environment for testing
+ */
+export class LogCaptureEnvironment {
+  private inMemoryTransport: InMemoryTransport;
+  private stdoutCapture: StreamCapture;
+  private stderrCapture: StreamCapture;
+  private consoleCapture: ConsoleCapture;
+  private options: LogCaptureOptions;
+  private active: boolean = false;
+
+  /**
+   * Creates a new log capture environment
+   */
+  constructor(options: LogCaptureOptions = DEFAULT_CAPTURE_OPTIONS) {
+    this.options = { ...DEFAULT_CAPTURE_OPTIONS, ...options };
+    this.inMemoryTransport = new InMemoryTransport(this.options);
+    this.stdoutCapture = new StreamCapture(process.stdout);
+    this.stderrCapture = new StreamCapture(process.stderr);
+    this.consoleCapture = new ConsoleCapture();
   }
 
   /**
    * Starts capturing logs
    */
   start(): void {
-    // Capture stdout if enabled
-    if (this.options.captureStdout) {
-      this.originalStdout = process.stdout;
-      this.stdoutCapture = new CaptureStream(process.stdout, this.options);
-      // @ts-ignore - TypeScript doesn't like us replacing stdout
-      process.stdout = this.stdoutCapture;
+    if (this.active) {
+      return;
     }
 
-    // Capture stderr if enabled
-    if (this.options.captureStderr) {
-      this.originalStderr = process.stderr;
-      this.stderrCapture = new CaptureStream(process.stderr, this.options);
-      // @ts-ignore - TypeScript doesn't like us replacing stderr
-      process.stderr = this.stderrCapture;
+    if (this.options.captureStdio) {
+      this.stdoutCapture.startCapture();
+      this.stderrCapture.startCapture();
     }
 
-    // Hook into transports if enabled
-    if (this.options.captureTransports) {
-      // This would be implemented by hooking into the transport factory
-      // or by providing this transport to the logger during tests
+    if (this.options.captureConsole) {
+      this.consoleCapture.startCapture();
     }
+
+    this.active = true;
   }
 
   /**
-   * Stops capturing logs and restores original streams
+   * Stops capturing logs and restores original behavior
    */
   stop(): void {
-    // Restore stdout if it was captured
-    if (this.stdoutCapture && this.originalStdout && this.options.restoreStreams) {
-      // @ts-ignore
-      process.stdout = this.originalStdout;
-      this.stdoutCapture = undefined;
+    if (!this.active) {
+      return;
     }
 
-    // Restore stderr if it was captured
-    if (this.stderrCapture && this.originalStderr && this.options.restoreStreams) {
-      // @ts-ignore
-      process.stderr = this.originalStderr;
-      this.stderrCapture = undefined;
+    if (this.options.captureStdio) {
+      this.stdoutCapture.stopCapture();
+      this.stderrCapture.stopCapture();
     }
 
-    // Unhook transports
-    this.transportHooks.forEach(({ transport, originalWrite }) => {
-      transport.write = originalWrite;
-    });
-    this.transportHooks = [];
-  }
-
-  /**
-   * Gets all captured logs from all sources
-   */
-  getLogs(): CapturedLogEntry[] {
-    const logs: CapturedLogEntry[] = [
-      ...this.memoryTransport.getLogs(),
-    ];
-
-    if (this.stdoutCapture) {
-      logs.push(...this.stdoutCapture.getLogs());
+    if (this.options.captureConsole) {
+      this.consoleCapture.stopCapture();
     }
 
-    if (this.stderrCapture) {
-      logs.push(...this.stderrCapture.getLogs());
-    }
-
-    // Sort by timestamp
-    return logs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-  }
-
-  /**
-   * Gets the memory transport for direct use
-   */
-  getMemoryTransport(): MemoryTransport {
-    return this.memoryTransport;
+    this.active = false;
   }
 
   /**
    * Clears all captured logs
    */
   clear(): void {
-    this.memoryTransport.clear();
-    
-    if (this.stdoutCapture) {
-      this.stdoutCapture.clear();
-    }
-    
-    if (this.stderrCapture) {
-      this.stderrCapture.clear();
-    }
+    this.inMemoryTransport.clear();
+    this.stdoutCapture.clear();
+    this.stderrCapture.clear();
+    this.consoleCapture.clear();
   }
 
   /**
-   * Hooks into an existing transport to capture its logs
+   * Gets the in-memory transport for direct access to captured logs
    */
-  hookTransport(transport: Transport): void {
-    const originalWrite = transport.write.bind(transport);
-    this.transportHooks.push({ transport, originalWrite });
-    
-    transport.write = (entry: LogEntry) => {
-      // Capture the log
-      this.memoryTransport.write(entry);
-      // Call the original method
-      originalWrite(entry);
+  getInMemoryTransport(): InMemoryTransport {
+    return this.inMemoryTransport;
+  }
+
+  /**
+   * Gets all captured logs from the in-memory transport
+   */
+  getLogs(): CapturedLog[] {
+    return this.inMemoryTransport.getLogs();
+  }
+
+  /**
+   * Gets captured stdout as a string
+   */
+  getStdout(): string {
+    return this.stdoutCapture.getOutput();
+  }
+
+  /**
+   * Gets captured stderr as a string
+   */
+  getStderr(): string {
+    return this.stderrCapture.getOutput();
+  }
+
+  /**
+   * Gets captured console output
+   */
+  getConsoleOutput(): Record<string, string[]> {
+    return this.consoleCapture.getAllCaptures();
+  }
+
+  /**
+   * Filters logs by various criteria
+   */
+  filterLogs(criteria: Partial<LogEntry>): CapturedLog[] {
+    return this.inMemoryTransport.filter(criteria);
+  }
+
+  /**
+   * Searches logs for a specific string or regular expression
+   */
+  searchLogs(term: string | RegExp): CapturedLog[] {
+    return this.inMemoryTransport.search(term);
+  }
+
+  /**
+   * Creates a snapshot of the current log state for comparison
+   */
+  createSnapshot(): {
+    logs: CapturedLog[],
+    stdout: string,
+    stderr: string,
+    console: Record<string, string[]>
+  } {
+    return {
+      logs: this.getLogs(),
+      stdout: this.getStdout(),
+      stderr: this.getStderr(),
+      console: this.getConsoleOutput()
     };
   }
 }
 
 /**
- * Utility class for filtering and analyzing captured logs
+ * Creates a log capture environment for a specific test
+ * @param options Options for configuring the log capture
  */
-export class LogAnalyzer {
-  private logs: CapturedLogEntry[];
-
-  constructor(logs: CapturedLogEntry[]) {
-    this.logs = logs;
-  }
-
-  /**
-   * Filters logs by log level
-   */
-  byLevel(level: LogLevel): LogAnalyzer {
-    return new LogAnalyzer(this.logs.filter(log => log.level === level));
-  }
-
-  /**
-   * Filters logs by minimum log level
-   */
-  byMinLevel(level: LogLevel): LogAnalyzer {
-    return new LogAnalyzer(this.logs.filter(log => log.level >= level));
-  }
-
-  /**
-   * Filters logs by message content
-   */
-  byMessage(substring: string): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => log.message.includes(substring))
-    );
-  }
-
-  /**
-   * Filters logs by regex pattern in message
-   */
-  byMessagePattern(pattern: RegExp): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => pattern.test(log.message))
-    );
-  }
-
-  /**
-   * Filters logs by journey type
-   */
-  byJourneyType(journeyType: string): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => {
-        const context = log.context as JourneyContext;
-        return context?.journeyType === journeyType;
-      })
-    );
-  }
-
-  /**
-   * Filters logs by user ID
-   */
-  byUserId(userId: string): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => {
-        const context = log.context as UserContext;
-        return context?.userId === userId;
-      })
-    );
-  }
-
-  /**
-   * Filters logs by request ID
-   */
-  byRequestId(requestId: string): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => {
-        const context = log.context as RequestContext;
-        return context?.requestId === requestId;
-      })
-    );
-  }
-
-  /**
-   * Filters logs by correlation ID
-   */
-  byCorrelationId(correlationId: string): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => {
-        return log.context?.correlationId === correlationId;
-      })
-    );
-  }
-
-  /**
-   * Filters logs by time range
-   */
-  byTimeRange(start: Date, end: Date): LogAnalyzer {
-    return new LogAnalyzer(
-      this.logs.filter(log => {
-        const timestamp = log.timestamp;
-        return timestamp >= start && timestamp <= end;
-      })
-    );
-  }
-
-  /**
-   * Filters logs by custom predicate function
-   */
-  filter(predicate: (log: CapturedLogEntry) => boolean): LogAnalyzer {
-    return new LogAnalyzer(this.logs.filter(predicate));
-  }
-
-  /**
-   * Gets all logs that match the current filters
-   */
-  getLogs(): CapturedLogEntry[] {
-    return [...this.logs];
-  }
-
-  /**
-   * Gets the count of logs that match the current filters
-   */
-  count(): number {
-    return this.logs.length;
-  }
-
-  /**
-   * Checks if any logs match the current filters
-   */
-  hasLogs(): boolean {
-    return this.logs.length > 0;
-  }
-
-  /**
-   * Gets the first log that matches the current filters
-   */
-  first(): CapturedLogEntry | undefined {
-    return this.logs[0];
-  }
-
-  /**
-   * Gets the last log that matches the current filters
-   */
-  last(): CapturedLogEntry | undefined {
-    return this.logs[this.logs.length - 1];
-  }
-
-  /**
-   * Extracts all unique values for a specific field from the logs
-   */
-  extractField<T>(fieldPath: string): T[] {
-    const result = new Set<T>();
-    
-    for (const log of this.logs) {
-      const value = this.getNestedProperty(log, fieldPath) as T;
-      if (value !== undefined) {
-        result.add(value);
-      }
-    }
-    
-    return Array.from(result);
-  }
-
-  /**
-   * Gets a nested property from an object using dot notation
-   */
-  private getNestedProperty(obj: any, path: string): any {
-    const parts = path.split('.');
-    let current = obj;
-    
-    for (const part of parts) {
-      if (current === null || current === undefined) {
-        return undefined;
-      }
-      current = current[part];
-    }
-    
-    return current;
-  }
-}
-
-/**
- * Creates a new LogCapture instance with the specified options
- */
-export function createLogCapture(options?: LogCaptureOptions): LogCapture {
-  return new LogCapture(options);
-}
-
-/**
- * Creates a new LogAnalyzer for the provided logs
- */
-export function analyzeLogEntries(logs: CapturedLogEntry[]): LogAnalyzer {
-  return new LogAnalyzer(logs);
-}
-
-/**
- * Utility function to capture logs during the execution of a function
- */
-export async function captureLogsAsync<T>(
-  fn: () => Promise<T>,
-  options?: LogCaptureOptions
-): Promise<{ result: T; logs: CapturedLogEntry[] }> {
-  const capture = createLogCapture(options);
+export function createLogCapture(options?: LogCaptureOptions): LogCaptureEnvironment {
+  const capture = new LogCaptureEnvironment(options);
   capture.start();
-  
-  try {
-    const result = await fn();
-    return { result, logs: capture.getLogs() };
-  } finally {
-    capture.stop();
-  }
+  return capture;
 }
 
 /**
- * Utility function to capture logs during the synchronous execution of a function
+ * Creates a journey-specific log capture environment
+ * @param journey The journey to capture logs for (health, care, plan)
+ * @param options Additional options for configuring the log capture
  */
-export function captureLogs<T>(
-  fn: () => T,
+export function createJourneyLogCapture(
+  journey: 'health' | 'care' | 'plan',
   options?: LogCaptureOptions
-): { result: T; logs: CapturedLogEntry[] } {
-  const capture = createLogCapture(options);
-  capture.start();
-  
-  try {
-    const result = fn();
-    return { result, logs: capture.getLogs() };
-  } finally {
-    capture.stop();
-  }
+): LogCaptureEnvironment {
+  return createLogCapture({
+    ...options,
+    journeyContext: journey
+  });
 }
 
 /**
- * Creates a Jest test wrapper that provides log capture capabilities
+ * Creates a user-specific log capture environment
+ * @param userId The user ID to capture logs for
+ * @param options Additional options for configuring the log capture
  */
-export function withLogCapture(
-  testFn: (capture: LogCapture) => void | Promise<void>,
+export function createUserLogCapture(
+  userId: string,
   options?: LogCaptureOptions
-): () => Promise<void> {
-  return async () => {
-    const capture = createLogCapture(options);
-    capture.start();
-    
-    try {
-      await testFn(capture);
-    } finally {
-      capture.stop();
-    }
-  };
+): LogCaptureEnvironment {
+  return createLogCapture({
+    ...options,
+    userId
+  });
+}
+
+/**
+ * Creates a request-specific log capture environment
+ * @param requestId The request ID to capture logs for
+ * @param options Additional options for configuring the log capture
+ */
+export function createRequestLogCapture(
+  requestId: string,
+  options?: LogCaptureOptions
+): LogCaptureEnvironment {
+  return createLogCapture({
+    ...options,
+    requestId
+  });
 }

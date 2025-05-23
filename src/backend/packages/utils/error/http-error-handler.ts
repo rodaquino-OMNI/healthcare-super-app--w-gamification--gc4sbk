@@ -1,34 +1,33 @@
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { createSecureAxios } from '../../../shared/utils/secure-axios';
-import { ErrorType } from '../../../shared/src/exceptions/exceptions.types';
-
 /**
- * HTTP error response structure
+ * @file http-error-handler.ts
+ * @description Provides specialized error handling utilities for HTTP requests,
+ * building upon the secure-axios.ts implementation. Includes functions for parsing
+ * HTTP error responses, automatic retries for specific HTTP status codes, and error
+ * transformation to the application's standard format.
+ *
+ * @module @austa/utils/error/http-error-handler
  */
-export interface HttpErrorResponse {
-  type: ErrorType;
-  code: string;
-  message: string;
-  details?: Record<string, any>;
-  originalError?: Error;
-  statusCode?: number;
-  retryable?: boolean;
-}
+
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import { createSecureAxios } from '../../shared/utils/secure-axios';
+import { ErrorType } from '../../shared/src/exceptions/exceptions.types';
 
 /**
- * Retry configuration options
+ * Configuration options for HTTP retry mechanism
  */
 export interface RetryConfig {
   /** Maximum number of retry attempts */
   maxRetries: number;
-  /** Base delay in milliseconds between retries (will be used with exponential backoff) */
-  baseDelayMs: number;
+  /** Base delay in milliseconds between retries */
+  retryDelay: number;
+  /** Jitter factor to add randomness to retry delays (0-1) */
+  jitter: number;
+  /** HTTP methods that are safe to retry (idempotent methods) */
+  retryableHttpMethods: string[];
   /** HTTP status codes that should trigger a retry */
   retryableStatusCodes: number[];
-  /** HTTP methods that are safe to retry */
-  retryableMethods: string[];
-  /** Whether to retry network errors */
-  retryNetworkErrors: boolean;
+  /** Custom function to determine if a request should be retried */
+  shouldRetry?: (error: AxiosError) => boolean;
 }
 
 /**
@@ -36,409 +35,460 @@ export interface RetryConfig {
  */
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
-  baseDelayMs: 300,
+  retryDelay: 300,
+  jitter: 0.2,
+  retryableHttpMethods: ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
   retryableStatusCodes: [408, 429, 500, 502, 503, 504],
-  retryableMethods: ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
-  retryNetworkErrors: true,
 };
 
 /**
- * Creates a secure HTTP client with enhanced error handling and retry capabilities
- * 
- * @param baseURL - Base URL for the client
- * @param config - Additional axios configuration
- * @param retryConfig - Configuration for retry behavior
- * @returns Configured axios instance with error handling
- */
-export function createHttpClient(
-  baseURL?: string,
-  config: AxiosRequestConfig = {},
-  retryConfig: Partial<RetryConfig> = {}
-): AxiosInstance {
-  // Create secure axios instance with SSRF protection
-  const instance = createSecureAxios();
-  
-  // Apply base configuration
-  if (baseURL) {
-    instance.defaults.baseURL = baseURL;
-  }
-  
-  // Apply additional configuration
-  Object.assign(instance.defaults, config);
-  
-  // Merge retry configuration with defaults
-  const finalRetryConfig: RetryConfig = {
-    ...DEFAULT_RETRY_CONFIG,
-    ...retryConfig,
-  };
-  
-  // Add response interceptor for error handling
-  instance.interceptors.response.use(
-    (response) => response,
-    async (error: AxiosError) => {
-      return handleHttpError(error, instance, finalRetryConfig);
-    }
-  );
-  
-  return instance;
-}
-
-/**
- * Handles HTTP errors with retry logic and standardized error formatting
- * 
- * @param error - The axios error
- * @param instance - The axios instance
- * @param retryConfig - Retry configuration
- * @returns Promise that either resolves with a retry or rejects with formatted error
- */
-async function handleHttpError(
-  error: AxiosError,
-  instance: AxiosInstance,
-  retryConfig: RetryConfig
-): Promise<AxiosResponse> {
-  const { config, response, request } = error;
-  
-  // Store retry attempt count in config
-  const retryCount = config?.['retryCount'] || 0;
-  
-  // Check if we should retry the request
-  if (config && shouldRetry(error, retryCount, retryConfig)) {
-    // Increment retry count
-    config['retryCount'] = retryCount + 1;
-    
-    // Calculate delay with exponential backoff and jitter
-    const delay = calculateRetryDelay(retryCount, retryConfig.baseDelayMs);
-    
-    // Wait before retrying
-    await new Promise(resolve => setTimeout(resolve, delay));
-    
-    // Retry the request
-    return instance(config);
-  }
-  
-  // If we shouldn't retry or have exhausted retries, format and throw the error
-  throw parseHttpError(error);
-}
-
-/**
- * Determines if a request should be retried based on error type, HTTP method, and status code
- * 
- * @param error - The axios error
- * @param retryCount - Current retry attempt count
- * @param retryConfig - Retry configuration
- * @returns Boolean indicating if request should be retried
- */
-function shouldRetry(
-  error: AxiosError,
-  retryCount: number,
-  retryConfig: RetryConfig
-): boolean {
-  const { maxRetries, retryableStatusCodes, retryableMethods, retryNetworkErrors } = retryConfig;
-  
-  // Don't retry if we've reached the maximum retry count
-  if (retryCount >= maxRetries) {
-    return false;
-  }
-  
-  // Don't retry if the request method is not considered idempotent/safe
-  const method = error.config?.method?.toUpperCase() || '';
-  if (!retryableMethods.includes(method)) {
-    return false;
-  }
-  
-  // Handle network errors (ECONNRESET, ETIMEDOUT, etc.)
-  if (!error.response && retryNetworkErrors) {
-    return true;
-  }
-  
-  // Check if status code is in the list of retryable status codes
-  const statusCode = error.response?.status;
-  return statusCode !== undefined && retryableStatusCodes.includes(statusCode);
-}
-
-/**
- * Calculates retry delay using exponential backoff with jitter
- * 
- * @param retryCount - Current retry attempt count
- * @param baseDelayMs - Base delay in milliseconds
- * @returns Delay in milliseconds before next retry
- */
-function calculateRetryDelay(retryCount: number, baseDelayMs: number): number {
-  // Exponential backoff: baseDelay * 2^retryCount
-  const exponentialDelay = baseDelayMs * Math.pow(2, retryCount);
-  
-  // Add jitter to prevent thundering herd problem (±20%)
-  const jitter = exponentialDelay * 0.2 * (Math.random() - 0.5);
-  
-  return exponentialDelay + jitter;
-}
-
-/**
- * Parses an Axios error into a standardized HTTP error response
- * 
- * @param error - The axios error
- * @returns Standardized HTTP error response
- */
-export function parseHttpError(error: AxiosError): HttpErrorResponse {
-  // Default error structure
-  const httpError: HttpErrorResponse = {
-    type: ErrorType.EXTERNAL,
-    code: 'HTTP_ERROR',
-    message: 'An error occurred while communicating with an external service',
-    originalError: error,
-    retryable: false,
-  };
-  
-  // Add status code if available
-  if (error.response) {
-    httpError.statusCode = error.response.status;
-    
-    // Classify error based on status code
-    if (error.response.status >= 400 && error.response.status < 500) {
-      // Client errors (4xx)
-      httpError.type = ErrorType.VALIDATION;
-      httpError.code = `HTTP_CLIENT_ERROR_${error.response.status}`;
-      httpError.message = error.response.statusText || 'Client error';
-      httpError.retryable = error.response.status === 429; // Rate limiting is retryable
-    } else if (error.response.status >= 500) {
-      // Server errors (5xx)
-      httpError.type = ErrorType.EXTERNAL;
-      httpError.code = `HTTP_SERVER_ERROR_${error.response.status}`;
-      httpError.message = error.response.statusText || 'Server error';
-      httpError.retryable = true; // Server errors are generally retryable
-    }
-    
-    // Extract error details from response body if available
-    try {
-      const responseData = error.response.data;
-      if (responseData && typeof responseData === 'object') {
-        // Handle standard error responses
-        if (responseData.error) {
-          if (typeof responseData.error === 'string') {
-            httpError.message = responseData.error;
-          } else if (typeof responseData.error === 'object') {
-            if (responseData.error.message) {
-              httpError.message = responseData.error.message;
-            }
-            if (responseData.error.code) {
-              httpError.code = responseData.error.code;
-            }
-            if (responseData.error.details) {
-              httpError.details = responseData.error.details;
-            }
-          }
-        } else if (responseData.message) {
-          // Some APIs just return a message field
-          httpError.message = responseData.message;
-        }
-      }
-    } catch (parseError) {
-      // If we can't parse the response, just use the original error
-      httpError.details = { parseError: 'Failed to parse error response' };
-    }
-  } else if (error.request) {
-    // Request was made but no response received (network error)
-    httpError.type = ErrorType.EXTERNAL;
-    httpError.code = 'HTTP_NO_RESPONSE';
-    httpError.message = 'No response received from server';
-    httpError.retryable = true;
-  } else {
-    // Error in setting up the request
-    httpError.type = ErrorType.TECHNICAL;
-    httpError.code = 'HTTP_REQUEST_SETUP_ERROR';
-    httpError.message = error.message || 'Error setting up the request';
-    httpError.retryable = false;
-  }
-  
-  return httpError;
-}
-
-/**
- * Circuit breaker state interface
- */
-export interface CircuitBreakerState {
-  /** Whether the circuit is open (failing) */
-  isOpen: boolean;
-  /** Timestamp when the circuit should be reset to half-open */
-  resetTimeout: number;
-  /** Failure count in the current window */
-  failureCount: number;
-  /** Success count in half-open state */
-  successCount: number;
-}
-
-/**
- * Circuit breaker configuration
+ * Configuration options for circuit breaker integration
  */
 export interface CircuitBreakerConfig {
-  /** Number of failures before opening the circuit */
-  failureThreshold: number;
-  /** Time in milliseconds to keep the circuit open */
-  resetTimeoutMs: number;
-  /** Number of successful requests needed to close the circuit */
-  successThreshold: number;
+  /** Whether to enable circuit breaker integration */
+  enabled: boolean;
+  /** Name of the circuit breaker (for logging and metrics) */
+  name: string;
+  /** Additional circuit breaker options to pass to the circuit breaker implementation */
+  options?: Record<string, unknown>;
 }
 
 /**
  * Default circuit breaker configuration
  */
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
-  failureThreshold: 5,
-  resetTimeoutMs: 30000, // 30 seconds
-  successThreshold: 2,
+  enabled: false,
+  name: 'default',
 };
 
 /**
- * Circuit breaker registry to track circuit state for different services
+ * Configuration for the HTTP error handler
  */
-const circuitRegistry: Record<string, CircuitBreakerState> = {};
+export interface HttpErrorHandlerConfig {
+  /** Retry configuration */
+  retry?: Partial<RetryConfig>;
+  /** Circuit breaker configuration */
+  circuitBreaker?: Partial<CircuitBreakerConfig>;
+  /** Base URL for the HTTP client */
+  baseURL?: string;
+  /** Default headers to include with all requests */
+  headers?: Record<string, string>;
+  /** Request timeout in milliseconds */
+  timeout?: number;
+}
 
 /**
- * Creates an HTTP client with circuit breaker pattern implementation
- * 
- * @param serviceKey - Unique identifier for the service
- * @param baseURL - Base URL for the client
- * @param config - Additional axios configuration
- * @param retryConfig - Configuration for retry behavior
- * @param circuitConfig - Configuration for circuit breaker
- * @returns Configured axios instance with circuit breaker
+ * Error class for HTTP-specific errors with enhanced details
  */
-export function createCircuitBreakerHttpClient(
-  serviceKey: string,
-  baseURL?: string,
-  config: AxiosRequestConfig = {},
-  retryConfig: Partial<RetryConfig> = {},
-  circuitConfig: Partial<CircuitBreakerConfig> = {}
-): AxiosInstance {
-  // Create HTTP client with retry capabilities
-  const instance = createHttpClient(baseURL, config, retryConfig);
-  
-  // Merge circuit breaker configuration with defaults
-  const finalCircuitConfig: CircuitBreakerConfig = {
-    ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
-    ...circuitConfig,
-  };
-  
-  // Initialize circuit state if not exists
-  if (!circuitRegistry[serviceKey]) {
-    circuitRegistry[serviceKey] = {
-      isOpen: false,
-      resetTimeout: 0,
-      failureCount: 0,
-      successCount: 0,
+export class HttpError extends Error {
+  /** Original Axios error */
+  readonly originalError: AxiosError;
+  /** HTTP status code */
+  readonly status: number;
+  /** Error type classification */
+  readonly type: ErrorType;
+  /** Error code for application-specific error handling */
+  readonly code: string;
+  /** Additional error details */
+  readonly details?: Record<string, unknown>;
+  /** Whether this error is retryable */
+  readonly isRetryable: boolean;
+
+  /**
+   * Creates a new HttpError instance
+   * 
+   * @param message Error message
+   * @param originalError Original Axios error
+   * @param status HTTP status code
+   * @param type Error type classification
+   * @param code Error code
+   * @param details Additional error details
+   * @param isRetryable Whether this error is retryable
+   */
+  constructor(
+    message: string,
+    originalError: AxiosError,
+    status: number,
+    type: ErrorType,
+    code: string,
+    details?: Record<string, unknown>,
+    isRetryable = false,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+    this.originalError = originalError;
+    this.status = status;
+    this.type = type;
+    this.code = code;
+    this.details = details;
+    this.isRetryable = isRetryable;
+
+    // Ensure proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, HttpError.prototype);
+  }
+
+  /**
+   * Converts the error to a JSON object for serialization
+   * 
+   * @returns JSON representation of the error
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      error: {
+        type: this.type,
+        code: this.code,
+        message: this.message,
+        status: this.status,
+        details: this.details,
+      },
     };
   }
+}
+
+/**
+ * Parses an Axios error and converts it to a standardized HttpError
+ * 
+ * @param error The Axios error to parse
+ * @param retryConfig Retry configuration to determine if the error is retryable
+ * @returns A standardized HttpError
+ */
+export function parseAxiosError(error: AxiosError, retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG): HttpError {
+  // Default values
+  let status = 500;
+  let type = ErrorType.TECHNICAL;
+  let code = 'UNKNOWN_ERROR';
+  let message = 'An unknown error occurred';
+  let details: Record<string, unknown> | undefined;
   
-  // Add request interceptor to check circuit state
-  instance.interceptors.request.use(async (config) => {
-    const circuitState = circuitRegistry[serviceKey];
-    const now = Date.now();
+  // Determine if the error is retryable
+  const isRetryable = isErrorRetryable(error, retryConfig);
+
+  // Handle network errors (no response)
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    status = 408;
+    type = ErrorType.EXTERNAL;
+    code = 'REQUEST_TIMEOUT';
+    message = 'The request timed out';
+  } else if (error.code === 'ECONNREFUSED') {
+    status = 503;
+    type = ErrorType.EXTERNAL;
+    code = 'SERVICE_UNAVAILABLE';
+    message = 'The service is unavailable';
+  } else if (error.code?.startsWith('E') && !error.response) {
+    // Other network errors
+    status = 0;
+    type = ErrorType.EXTERNAL;
+    code = 'NETWORK_ERROR';
+    message = `Network error: ${error.code}`;
+  }
+
+  // If we have a response, use its status and data
+  if (error.response) {
+    status = error.response.status;
     
-    // If circuit is open, check if reset timeout has passed
-    if (circuitState.isOpen) {
-      if (now >= circuitState.resetTimeout) {
-        // Transition to half-open state
-        circuitState.isOpen = false;
-        circuitState.successCount = 0;
-      } else {
-        // Circuit is still open, reject the request
-        throw {
-          type: ErrorType.EXTERNAL,
-          code: 'CIRCUIT_OPEN',
-          message: `Service ${serviceKey} is unavailable (circuit open)`,
-          details: { serviceKey, resetAfter: circuitState.resetTimeout - now },
-        } as HttpErrorResponse;
+    // Extract message and details from response if available
+    if (error.response.data) {
+      if (typeof error.response.data === 'string') {
+        message = error.response.data;
+      } else if (typeof error.response.data === 'object') {
+        const data = error.response.data as Record<string, unknown>;
+        message = (data.message as string) || (data.error as string) || message;
+        
+        // Extract error details if available
+        if (data.details) {
+          details = data.details as Record<string, unknown>;
+        } else {
+          // Create details from the response data, excluding common fields
+          const { message: _, error: __, details: ___, ...rest } = data;
+          if (Object.keys(rest).length > 0) {
+            details = rest;
+          }
+        }
+
+        // Extract error code if available
+        if (data.code && typeof data.code === 'string') {
+          code = data.code;
+        }
       }
     }
-    
-    return config;
-  });
+
+    // Map HTTP status codes to error types
+    if (status >= 400 && status < 500) {
+      if (status === 401) {
+        type = ErrorType.VALIDATION;
+        code = 'UNAUTHORIZED';
+        message = message || 'Authentication required';
+      } else if (status === 403) {
+        type = ErrorType.VALIDATION;
+        code = 'FORBIDDEN';
+        message = message || 'Access forbidden';
+      } else if (status === 404) {
+        type = ErrorType.VALIDATION;
+        code = 'NOT_FOUND';
+        message = message || 'Resource not found';
+      } else if (status === 422) {
+        type = ErrorType.BUSINESS;
+        code = 'UNPROCESSABLE_ENTITY';
+        message = message || 'The request could not be processed';
+      } else if (status === 429) {
+        type = ErrorType.EXTERNAL;
+        code = 'TOO_MANY_REQUESTS';
+        message = message || 'Too many requests';
+      } else {
+        type = ErrorType.VALIDATION;
+        code = `CLIENT_ERROR_${status}`;
+        message = message || 'Client error';
+      }
+    } else if (status >= 500) {
+      type = ErrorType.EXTERNAL;
+      code = `SERVER_ERROR_${status}`;
+      message = message || 'Server error';
+    }
+  }
+
+  return new HttpError(message, error, status, type, code, details, isRetryable);
+}
+
+/**
+ * Determines if an error should be retried based on the retry configuration
+ * 
+ * @param error The Axios error to check
+ * @param config Retry configuration
+ * @returns True if the error should be retried, false otherwise
+ */
+export function isErrorRetryable(error: AxiosError, config: RetryConfig = DEFAULT_RETRY_CONFIG): boolean {
+  // If a custom shouldRetry function is provided, use it
+  if (config.shouldRetry) {
+    return config.shouldRetry(error);
+  }
+
+  // Don't retry if the request method is not in the retryable methods list
+  const method = error.config?.method?.toUpperCase() || 'GET';
+  if (!config.retryableHttpMethods.includes(method)) {
+    return false;
+  }
+
+  // Retry on network errors (no response)
+  if (!error.response) {
+    return true;
+  }
+
+  // Retry based on status code
+  return config.retryableStatusCodes.includes(error.response.status);
+}
+
+/**
+ * Calculates the delay for the next retry attempt using exponential backoff with jitter
+ * 
+ * @param retryCount Current retry attempt (0-based)
+ * @param config Retry configuration
+ * @returns Delay in milliseconds before the next retry
+ */
+export function calculateRetryDelay(retryCount: number, config: RetryConfig = DEFAULT_RETRY_CONFIG): number {
+  // Calculate exponential backoff: baseDelay * 2^retryCount
+  const exponentialDelay = config.retryDelay * Math.pow(2, retryCount);
   
-  // Add response interceptor to track circuit state
+  // Add jitter to prevent thundering herd problem
+  // Formula: delay = exponentialDelay * (1 ± jitter)
+  const jitterFactor = 1 - config.jitter + (Math.random() * config.jitter * 2);
+  
+  return Math.floor(exponentialDelay * jitterFactor);
+}
+
+/**
+ * Creates an Axios instance with enhanced error handling, retry capabilities,
+ * and circuit breaker integration
+ * 
+ * @param config Configuration for the HTTP error handler
+ * @returns An Axios instance with enhanced error handling
+ */
+export function createHttpClient(config: HttpErrorHandlerConfig = {}): AxiosInstance {
+  // Create a secure Axios instance with SSRF protection
+  const instance = createSecureAxios();
+
+  // Apply base configuration
+  if (config.baseURL) {
+    instance.defaults.baseURL = config.baseURL;
+  }
+
+  if (config.headers) {
+    instance.defaults.headers = {
+      ...instance.defaults.headers,
+      ...config.headers,
+    };
+  }
+
+  if (config.timeout) {
+    instance.defaults.timeout = config.timeout;
+  }
+
+  // Merge retry configuration with defaults
+  const retryConfig: RetryConfig = {
+    ...DEFAULT_RETRY_CONFIG,
+    ...config.retry,
+  };
+
+  // Merge circuit breaker configuration with defaults
+  const circuitBreakerConfig: CircuitBreakerConfig = {
+    ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
+    ...config.circuitBreaker,
+  };
+
+  // Add response interceptor for error handling and retries
   instance.interceptors.response.use(
-    (response) => {
-      // Successful response
-      const circuitState = circuitRegistry[serviceKey];
+    // Success handler - just pass through the response
+    (response) => response,
+    // Error handler - handle retries and error transformation
+    async (error: AxiosError) => {
+      // Get the original request config
+      const originalConfig = error.config as AxiosRequestConfig & { _retryCount?: number };
       
-      // If in half-open state, increment success count
-      if (circuitState.failureCount > 0) {
-        circuitState.successCount++;
-        
-        // If success threshold reached, reset circuit
-        if (circuitState.successCount >= finalCircuitConfig.successThreshold) {
-          circuitState.failureCount = 0;
-          circuitState.successCount = 0;
-        }
+      // Initialize retry count if not already set
+      if (originalConfig._retryCount === undefined) {
+        originalConfig._retryCount = 0;
       }
-      
-      return response;
-    },
-    (error) => {
-      // Error response
-      const circuitState = circuitRegistry[serviceKey];
-      
-      // Only count certain errors for circuit breaker
-      if (shouldCountForCircuitBreaker(error)) {
-        circuitState.failureCount++;
-        
-        // If failure threshold reached, open the circuit
-        if (circuitState.failureCount >= finalCircuitConfig.failureThreshold) {
-          circuitState.isOpen = true;
-          circuitState.resetTimeout = Date.now() + finalCircuitConfig.resetTimeoutMs;
-        }
+
+      // Check if we should retry the request
+      if (
+        originalConfig._retryCount < retryConfig.maxRetries &&
+        isErrorRetryable(error, retryConfig)
+      ) {
+        originalConfig._retryCount += 1;
+
+        // Calculate delay for exponential backoff
+        const delay = calculateRetryDelay(originalConfig._retryCount - 1, retryConfig);
+
+        // Wait for the calculated delay
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+        // Retry the request
+        return instance(originalConfig);
       }
-      
-      // Propagate the error
-      return Promise.reject(error);
+
+      // If we've exhausted retries or the error is not retryable,
+      // transform it to a standardized format and reject
+      return Promise.reject(parseAxiosError(error, retryConfig));
     }
   );
-  
+
   return instance;
 }
 
 /**
- * Determines if an error should count towards the circuit breaker failure threshold
+ * Creates an HTTP client with circuit breaker integration
+ * This is a wrapper around createHttpClient that adds circuit breaker functionality
  * 
- * @param error - The axios error
- * @returns Boolean indicating if error should count for circuit breaker
+ * @param config Configuration for the HTTP error handler
+ * @param circuitBreakerFactory Factory function to create a circuit breaker instance
+ * @returns An Axios instance with circuit breaker integration
  */
-function shouldCountForCircuitBreaker(error: AxiosError): boolean {
-  // Network errors should count
-  if (!error.response) {
-    return true;
+export function createHttpClientWithCircuitBreaker(
+  config: HttpErrorHandlerConfig = {},
+  circuitBreakerFactory: (name: string, options?: Record<string, unknown>) => any
+): AxiosInstance {
+  // Create the HTTP client with retry capabilities
+  const instance = createHttpClient(config);
+
+  // Merge circuit breaker configuration with defaults
+  const circuitBreakerConfig: CircuitBreakerConfig = {
+    ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
+    ...config.circuitBreaker,
+  };
+
+  // If circuit breaker is not enabled, return the instance as is
+  if (!circuitBreakerConfig.enabled) {
+    return instance;
   }
-  
-  // Only count 5xx errors and specific 4xx errors
-  const statusCode = error.response.status;
-  return (
-    statusCode >= 500 || // Server errors
-    statusCode === 429 || // Rate limiting
-    statusCode === 408    // Request timeout
+
+  // Create a circuit breaker instance
+  const circuitBreaker = circuitBreakerFactory(
+    circuitBreakerConfig.name,
+    circuitBreakerConfig.options
   );
-}
 
-/**
- * Resets the circuit breaker state for a service
- * 
- * @param serviceKey - Unique identifier for the service
- */
-export function resetCircuitBreaker(serviceKey: string): void {
-  if (circuitRegistry[serviceKey]) {
-    circuitRegistry[serviceKey] = {
-      isOpen: false,
-      resetTimeout: 0,
-      failureCount: 0,
-      successCount: 0,
+  // Create a wrapped instance that uses the circuit breaker
+  const wrappedInstance = axios.create();
+
+  // Copy all properties from the original instance
+  Object.assign(wrappedInstance.defaults, instance.defaults);
+
+  // Override the request method to use the circuit breaker
+  const originalRequest = wrappedInstance.request.bind(wrappedInstance);
+  wrappedInstance.request = async function(configOrUrl: any, config?: any) {
+    // Normalize the config
+    const requestConfig = typeof configOrUrl === 'string'
+      ? { url: configOrUrl, ...config }
+      : configOrUrl;
+
+    // Execute the request through the circuit breaker
+    return circuitBreaker.execute(() => originalRequest(requestConfig));
+  };
+
+  // Add convenience methods (get, post, etc.) that use the wrapped request method
+  ['get', 'delete', 'head', 'options', 'post', 'put', 'patch'].forEach(method => {
+    wrappedInstance[method] = function(url: string, config?: any) {
+      return wrappedInstance.request({
+        ...config,
+        method,
+        url,
+      });
     };
-  }
+  });
+
+  return wrappedInstance;
 }
 
 /**
- * Gets the current circuit breaker state for a service
+ * Extracts useful information from an HTTP response
  * 
- * @param serviceKey - Unique identifier for the service
- * @returns Current circuit breaker state or null if not found
+ * @param response The Axios response object
+ * @returns An object with extracted information
  */
-export function getCircuitBreakerState(serviceKey: string): CircuitBreakerState | null {
-  return circuitRegistry[serviceKey] || null;
+export function extractResponseInfo(response: AxiosResponse): Record<string, unknown> {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+    data: response.data,
+    config: {
+      url: response.config.url,
+      method: response.config.method,
+      baseURL: response.config.baseURL,
+      headers: response.config.headers,
+    },
+  };
 }
+
+/**
+ * Extracts useful information from an HTTP error
+ * 
+ * @param error The HTTP error object
+ * @returns An object with extracted information
+ */
+export function extractErrorInfo(error: HttpError): Record<string, unknown> {
+  return {
+    name: error.name,
+    message: error.message,
+    status: error.status,
+    type: error.type,
+    code: error.code,
+    details: error.details,
+    isRetryable: error.isRetryable,
+    config: error.originalError.config ? {
+      url: error.originalError.config.url,
+      method: error.originalError.config.method,
+      baseURL: error.originalError.config.baseURL,
+    } : undefined,
+  };
+}
+
+export default {
+  createHttpClient,
+  createHttpClientWithCircuitBreaker,
+  parseAxiosError,
+  isErrorRetryable,
+  calculateRetryDelay,
+  extractResponseInfo,
+  extractErrorInfo,
+  HttpError,
+};

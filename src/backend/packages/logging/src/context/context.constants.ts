@@ -1,12 +1,13 @@
 /**
  * Constants and enums related to logging contexts in the AUSTA SuperApp.
- * These constants ensure consistent naming and values throughout the logging system,
- * particularly for journey types which are central to the application's architecture.
+ * This file defines standardized values used throughout the logging system,
+ * ensuring consistent naming and values across all services.
  */
 
 /**
  * Enum representing the three main journey types in the AUSTA SuperApp.
- * These journeys form the foundation of the application's user experience model.
+ * These journey types are central to the application's architecture and
+ * are used to categorize logs by their relevant business domain.
  */
 export enum JourneyType {
   HEALTH = 'health',
@@ -15,49 +16,69 @@ export enum JourneyType {
 }
 
 /**
- * Namespace for context-related constants used in the logging system.
+ * Keys used for context properties in structured logs.
+ * These keys are used consistently across all services to ensure
+ * that logs can be properly filtered and analyzed.
  */
-export namespace LoggingContext {
+export const CONTEXT_KEYS = {
+  REQUEST_ID: 'requestId',
+  CORRELATION_ID: 'correlationId',
+  USER_ID: 'userId',
+  JOURNEY_TYPE: 'journeyType',
+  SERVICE_NAME: 'serviceName',
+  COMPONENT: 'component',
+  TRANSACTION_ID: 'transactionId',
+  SESSION_ID: 'sessionId',
+  ENVIRONMENT: 'environment',
+};
+
+/**
+ * Default values for context fields when not explicitly provided.
+ */
+export const DEFAULT_CONTEXT_VALUES = {
+  journeyType: 'unknown',
+  serviceName: 'unknown-service',
+  component: 'unknown-component',
+  environment: 'development',
+};
+
+/**
+ * Namespace for context-related constants to avoid naming collisions.
+ * @deprecated Use CONTEXT_KEYS and DEFAULT_CONTEXT_VALUES instead
+ */
+export namespace LogContext {
   /**
-   * Keys for standard context properties that should be included in all logs.
+   * Keys used for context properties in structured logs.
+   * @deprecated Use CONTEXT_KEYS instead
    */
-  export const KEYS = {
-    REQUEST_ID: 'requestId',
-    CORRELATION_ID: 'correlationId',
-    USER_ID: 'userId',
-    JOURNEY_TYPE: 'journeyType',
-    SERVICE_NAME: 'serviceName',
-    ENVIRONMENT: 'environment',
-    VERSION: 'version',
-    TRACE_ID: 'traceId',
-    SPAN_ID: 'spanId',
-  } as const;
+  export enum Keys {
+    REQUEST_ID = 'requestId',
+    CORRELATION_ID = 'correlationId',
+    USER_ID = 'userId',
+    JOURNEY_TYPE = 'journeyType',
+    SERVICE_NAME = 'serviceName',
+    COMPONENT = 'component',
+    TRANSACTION_ID = 'transactionId',
+    SESSION_ID = 'sessionId',
+    ENVIRONMENT = 'environment',
+  }
 
   /**
    * Default values for context fields when not explicitly provided.
+   * @deprecated Use DEFAULT_CONTEXT_VALUES instead
    */
-  export const DEFAULTS = {
-    JOURNEY_TYPE: null,
+  export const Defaults = {
+    JOURNEY_TYPE: 'unknown',
     SERVICE_NAME: 'unknown-service',
-    ENVIRONMENT: process.env.NODE_ENV || 'development',
-    VERSION: process.env.APP_VERSION || '0.0.0',
-  } as const;
-
-  /**
-   * Maximum length constraints for context values to prevent oversized logs.
-   */
-  export const MAX_LENGTHS = {
-    REQUEST_ID: 36, // UUID length
-    CORRELATION_ID: 36,
-    USER_ID: 36,
-    SERVICE_NAME: 50,
-    JOURNEY_TYPE: 10,
-  } as const;
+    COMPONENT: 'unknown-component',
+    ENVIRONMENT: 'development',
+  };
 }
 
 /**
- * Standard logging levels used throughout the application.
- * Follows industry standard severity ordering.
+ * Log levels used throughout the application.
+ * These match the standard log levels used in most logging frameworks
+ * and provide a way to categorize logs by severity.
  */
 export enum LogLevel {
   DEBUG = 'debug',
@@ -68,18 +89,21 @@ export enum LogLevel {
 }
 
 /**
- * Numeric values associated with each log level for filtering and comparison.
- * Higher numbers indicate higher severity.
+ * Export log levels as a constant for use in index.ts
  */
-export const LOG_LEVEL_VALUES = {
-  [LogLevel.DEBUG]: 0,
-  [LogLevel.INFO]: 1,
-  [LogLevel.WARN]: 2,
-  [LogLevel.ERROR]: 3,
-  [LogLevel.FATAL]: 4,
-} as const;
+export const LOG_LEVELS = LogLevel;
 
 /**
- * Default log level to use when not explicitly specified.
+ * Constants related to log formatting and structure.
  */
-export const DEFAULT_LOG_LEVEL = LogLevel.INFO;
+export const LogFormat = {
+  /**
+   * Timestamp format used in logs (ISO 8601).
+   */
+  TIMESTAMP_FORMAT: 'yyyy-MM-dd\'T\'HH:mm:ss.SSSXXX',
+  
+  /**
+   * Maximum length for log message before truncation.
+   */
+  MAX_MESSAGE_LENGTH: 10000,
+};

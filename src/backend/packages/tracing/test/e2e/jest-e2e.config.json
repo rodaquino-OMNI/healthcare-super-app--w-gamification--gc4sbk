@@ -1,47 +1,37 @@
 {
-  "moduleFileExtensions": ["ts", "js", "json", "node"],
-  "rootDir": "../..",
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
+  "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": ["ts-jest", {
-      "tsconfig": "tsconfig.json",
-      "isolatedModules": true
-    }]
+    "^.+\\.(t|j)s$": "ts-jest"
   },
-  "collectCoverage": true,
-  "coverageDirectory": "<rootDir>/coverage/e2e",
-  "collectCoverageFrom": [
-    "<rootDir>/src/**/*.ts",
-    "!<rootDir>/src/**/*.d.ts",
-    "!<rootDir>/src/**/*.interface.ts",
-    "!<rootDir>/src/**/index.ts",
-    "!<rootDir>/src/**/*.mock.ts",
-    "!<rootDir>/src/**/*.test.ts",
-    "!<rootDir>/src/**/*.spec.ts"
-  ],
-  "coverageReporters": ["json", "lcov", "text", "clover"],
-  "setupFiles": ["<rootDir>/test/setup.ts"],
-  "globalTeardown": "<rootDir>/test/teardown.ts",
   "moduleNameMapper": {
-    "^@austa/tracing/(.*)$": "<rootDir>/src/$1",
-    "^@austa/logging(.*)$": "<rootDir>/../logging/src$1",
-    "^@austa/errors(.*)$": "<rootDir>/../errors/src$1"
+    "^@austa/tracing(.*)$": "<rootDir>/../../src/$1",
+    "^@austa/logging(.*)$": "<rootDir>/../../../logging/src/$1",
+    "^@austa/errors(.*)$": "<rootDir>/../../../errors/src/$1"
   },
   "testTimeout": 30000,
-  "verbose": true,
-  "detectOpenHandles": true,
-  "forceExit": true,
-  "maxWorkers": "50%",
-  "testPathIgnorePatterns": [
-    "/node_modules/"
+  "setupFilesAfterEnv": [
+    "<rootDir>/jest.setup.js"
   ],
-  "transformIgnorePatterns": [
-    "/node_modules/(?!(@opentelemetry)/)"
+  "collectCoverageFrom": [
+    "**/*.(t|j)s"
   ],
+  "coverageDirectory": "../../coverage-e2e",
   "globals": {
     "ts-jest": {
+      "tsconfig": "<rootDir>/../../tsconfig.json",
       "isolatedModules": true
     }
-  }
+  },
+  "verbose": true,
+  "forceExit": true,
+  "detectOpenHandles": true,
+  "maxWorkers": 1,
+  "testRunner": "jest-circus/runner"
 }

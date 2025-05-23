@@ -1,282 +1,570 @@
+/**
+ * @file Test Module Utilities
+ * @description Provides utilities for bootstrapping NestJS test modules with properly configured logging.
+ * Includes functions to create test modules with real or mock LoggerService, configure test-specific
+ * logging options, and integrate with other services like tracing.
+ *
+ * @module @austa/logging/test/utils
+ */
+
 import { DynamicModule, ModuleMetadata, Provider, Type } from '@nestjs/common';
-import { Test, TestingModule, TestingModuleBuilder } from '@nestjs/testing';
-import { LoggerModule } from '../../src/logger.module';
+import { Test, TestingModule } from '@nestjs/testing';
 import { LoggerService } from '../../src/logger.service';
 import { LoggerConfig } from '../../src/interfaces/log-config.interface';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { MockLoggerService } from './mock-logger.utils';
+import { Logger } from '../../src/interfaces/logger.interface';
+import { JourneyType } from '../../src/interfaces/log-entry.interface';
 
 /**
- * Interface for test module configuration options
+ * Mock implementation of the Logger interface for testing.
+ * Records all log calls for verification in tests.
  */
-export interface TestModuleOptions {
-  /**
-   * Whether to use a real LoggerService (true) or a mock (false)
-   * @default false
-   */
-  useRealLogger?: boolean;
+export class MockLoggerService implements Logger {
+  public logs: { level: string; message: string; context?: any }[] = [];
+  public errors: { message: string; trace?: string | Error; context?: any }[] = [];
+  public debugLogs: { message: string; context?: any }[] = [];
+  public infoLogs: { message: string; context?: any }[] = [];
+  public warnLogs: { message: string; context?: any }[] = [];
+  public errorLogs: { message: string; trace?: string | Error; context?: any }[] = [];
+  public fatalLogs: { message: string; trace?: string | Error; context?: any }[] = [];
   
+  // Journey-specific logs
+  public healthLogs: { level: string; message: string; resourceId?: string; context?: any }[] = [];
+  public careLogs: { level: string; message: string; resourceId?: string; context?: any }[] = [];
+  public planLogs: { level: string; message: string; resourceId?: string; context?: any }[] = [];
+
+  private currentLogLevel: LogLevel = LogLevel.DEBUG;
+  private currentContext: Record<string, any> = {};
+
+  // Basic NestJS LoggerService implementation
+  log(message: string, context?: string | any): void {
+    this.logs.push({ level: 'info', message, context });
+    this.infoLogs.push({ message, context });
+  }
+
+  error(message: string, trace?: string | Error, context?: string | any): void {
+    this.logs.push({ level: 'error', message, context });
+    this.errors.push({ message, trace, context });
+    this.errorLogs.push({ message, trace, context });
+  }
+
+  warn(message: string, context?: string | any): void {
+    this.logs.push({ level: 'warn', message, context });
+    this.warnLogs.push({ message, context });
+  }
+
+  debug(message: string, context?: string | any): void {
+    this.logs.push({ level: 'debug', message, context });
+    this.debugLogs.push({ message, context });
+  }
+
+  verbose(message: string, context?: string | any): void {
+    this.logs.push({ level: 'verbose', message, context });
+    this.debugLogs.push({ message, context });
+  }
+
+  // Extended Logger interface implementation
+  getLogLevel(): LogLevel {
+    return this.currentLogLevel;
+  }
+
+  setLogLevel(level: LogLevel): void {
+    this.currentLogLevel = level;
+  }
+
+  isLevelEnabled(level: LogLevel): boolean {
+    return level >= this.currentLogLevel;
+  }
+
+  createChildLogger(context: any): Logger {
+    const childLogger = new MockLoggerService();
+    childLogger.setContext({ ...this.currentContext, ...context });
+    return childLogger;
+  }
+
+  setContext(context: any): void {
+    this.currentContext = context;
+  }
+
+  addContext(context: any): void {
+    this.currentContext = { ...this.currentContext, ...context };
+  }
+
+  clearContext(): void {
+    this.currentContext = {};
+  }
+
+  getContext(): any {
+    return this.currentContext;
+  }
+
+  info(message: string, context?: string | any): void {
+    this.log(message, context);
+  }
+
+  fatal(message: string, trace?: string | Error, context?: string | any): void {
+    this.logs.push({ level: 'fatal', message, context });
+    this.fatalLogs.push({ message, trace, context });
+  }
+
+  logError(error: Error | string, context?: string | any): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.error(message, trace, context);
+  }
+
+  logFatal(error: Error | string, context?: string | any): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.fatal(message, trace, context);
+  }
+
+  // Journey-specific logging methods
+  debugHealth(message: string, resourceId?: string, context?: string | any): void {
+    this.healthLogs.push({ level: 'debug', message, resourceId, context });
+    this.debug(message, this.createJourneyContext('health', resourceId, context));
+  }
+
+  logHealth(message: string, resourceId?: string, context?: string | any): void {
+    this.healthLogs.push({ level: 'info', message, resourceId, context });
+    this.log(message, this.createJourneyContext('health', resourceId, context));
+  }
+
+  warnHealth(message: string, resourceId?: string, context?: string | any): void {
+    this.healthLogs.push({ level: 'warn', message, resourceId, context });
+    this.warn(message, this.createJourneyContext('health', resourceId, context));
+  }
+
+  errorHealth(message: string, trace?: string | Error, resourceId?: string, context?: string | any): void {
+    this.healthLogs.push({ level: 'error', message, resourceId, context });
+    this.error(message, trace, this.createJourneyContext('health', resourceId, context));
+  }
+
+  logErrorHealth(error: Error | string, resourceId?: string, context?: string | any): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorHealth(message, trace, resourceId, context);
+  }
+
+  debugCare(message: string, resourceId?: string, context?: string | any): void {
+    this.careLogs.push({ level: 'debug', message, resourceId, context });
+    this.debug(message, this.createJourneyContext('care', resourceId, context));
+  }
+
+  logCare(message: string, resourceId?: string, context?: string | any): void {
+    this.careLogs.push({ level: 'info', message, resourceId, context });
+    this.log(message, this.createJourneyContext('care', resourceId, context));
+  }
+
+  warnCare(message: string, resourceId?: string, context?: string | any): void {
+    this.careLogs.push({ level: 'warn', message, resourceId, context });
+    this.warn(message, this.createJourneyContext('care', resourceId, context));
+  }
+
+  errorCare(message: string, trace?: string | Error, resourceId?: string, context?: string | any): void {
+    this.careLogs.push({ level: 'error', message, resourceId, context });
+    this.error(message, trace, this.createJourneyContext('care', resourceId, context));
+  }
+
+  logErrorCare(error: Error | string, resourceId?: string, context?: string | any): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorCare(message, trace, resourceId, context);
+  }
+
+  debugPlan(message: string, resourceId?: string, context?: string | any): void {
+    this.planLogs.push({ level: 'debug', message, resourceId, context });
+    this.debug(message, this.createJourneyContext('plan', resourceId, context));
+  }
+
+  logPlan(message: string, resourceId?: string, context?: string | any): void {
+    this.planLogs.push({ level: 'info', message, resourceId, context });
+    this.log(message, this.createJourneyContext('plan', resourceId, context));
+  }
+
+  warnPlan(message: string, resourceId?: string, context?: string | any): void {
+    this.planLogs.push({ level: 'warn', message, resourceId, context });
+    this.warn(message, this.createJourneyContext('plan', resourceId, context));
+  }
+
+  errorPlan(message: string, trace?: string | Error, resourceId?: string, context?: string | any): void {
+    this.planLogs.push({ level: 'error', message, resourceId, context });
+    this.error(message, trace, this.createJourneyContext('plan', resourceId, context));
+  }
+
+  logErrorPlan(error: Error | string, resourceId?: string, context?: string | any): void {
+    const message = typeof error === 'string' ? error : error.message;
+    const trace = typeof error === 'string' ? undefined : error;
+    this.errorPlan(message, trace, resourceId, context);
+  }
+
+  logWithLevel(level: LogLevel, message: string, context?: string | any): void {
+    switch (level) {
+      case LogLevel.DEBUG:
+        this.debug(message, context);
+        break;
+      case LogLevel.INFO:
+        this.log(message, context);
+        break;
+      case LogLevel.WARN:
+        this.warn(message, context);
+        break;
+      case LogLevel.ERROR:
+        this.error(message, undefined, context);
+        break;
+      case LogLevel.FATAL:
+        this.fatal(message, undefined, context);
+        break;
+    }
+  }
+
+  logWithJourney(level: LogLevel, journeyType: 'health' | 'care' | 'plan', message: string, resourceId?: string, context?: string | any): void {
+    const journeyContext = this.createJourneyContext(journeyType, resourceId, context);
+    this.logWithLevel(level, message, journeyContext);
+  }
+
+  startTimer(label: string, level?: LogLevel, context?: string | any): () => void {
+    const start = Date.now();
+    return () => {
+      const elapsed = Date.now() - start;
+      this.logWithLevel(level || LogLevel.INFO, `${label}: ${elapsed}ms`, context);
+    };
+  }
+
+  logOperation(operation: string, context?: string | any): (result?: string) => void {
+    this.log(`Starting operation: ${operation}`, context);
+    return (result?: string) => {
+      this.log(`Completed operation: ${operation}${result ? ` - ${result}` : ''}`, context);
+    };
+  }
+
+  logJourneyOperation(journeyType: 'health' | 'care' | 'plan', operation: string, resourceId?: string, context?: string | any): (result?: string) => void {
+    const journeyContext = this.createJourneyContext(journeyType, resourceId, context);
+    return this.logOperation(operation, journeyContext);
+  }
+
+  async flush(): Promise<void> {
+    // No-op for mock implementation
+    return Promise.resolve();
+  }
+
+  // Helper method to create journey context
+  private createJourneyContext(journeyType: 'health' | 'care' | 'plan', resourceId?: string, context?: string | any): any {
+    const journeyContext = {
+      journey: {
+        type: journeyType,
+        resourceId
+      }
+    };
+
+    if (typeof context === 'string') {
+      return { ...journeyContext, context };
+    }
+
+    return { ...journeyContext, ...(context || {}) };
+  }
+
+  // Helper method to reset all logs (useful for test cleanup)
+  reset(): void {
+    this.logs = [];
+    this.errors = [];
+    this.debugLogs = [];
+    this.infoLogs = [];
+    this.warnLogs = [];
+    this.errorLogs = [];
+    this.fatalLogs = [];
+    this.healthLogs = [];
+    this.careLogs = [];
+    this.planLogs = [];
+    this.clearContext();
+  }
+}
+
+/**
+ * Options for creating a test module with logging
+ */
+export interface CreateTestModuleOptions {
   /**
-   * Custom logger configuration to use when useRealLogger is true
-   */
-  loggerConfig?: Partial<LoggerConfig>;
-  
-  /**
-   * Whether to integrate with TracingService for distributed tracing
-   * @default false
-   */
-  withTracing?: boolean;
-  
-  /**
-   * Journey context to use for journey-specific logging
-   * Can be 'health', 'care', or 'plan'
-   */
-  journeyContext?: 'health' | 'care' | 'plan';
-  
-  /**
-   * Additional providers to include in the test module
-   */
-  providers?: Provider[];
-  
-  /**
-   * Additional imports to include in the test module
+   * Imports to include in the test module
    */
   imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule>>;
   
   /**
-   * Additional module metadata to include in the test module
+   * Controllers to include in the test module
    */
-  moduleMetadata?: ModuleMetadata;
+  controllers?: Type<any>[];
+  
+  /**
+   * Providers to include in the test module
+   */
+  providers?: Provider[];
+  
+  /**
+   * Whether to use a mock logger (true) or real logger (false)
+   * @default true
+   */
+  useMockLogger?: boolean;
+  
+  /**
+   * Configuration for the real logger (if useMockLogger is false)
+   */
+  loggerConfig?: LoggerConfig;
+  
+  /**
+   * Whether to include a mock TracingService
+   * @default false
+   */
+  includeTracing?: boolean;
+  
+  /**
+   * The journey type to use for journey-specific logging
+   */
+  journeyType?: 'health' | 'care' | 'plan';
+  
+  /**
+   * Additional module metadata
+   */
+  moduleMetadata?: Partial<ModuleMetadata>;
 }
 
 /**
- * Default test module options
+ * Mock implementation of the TracingService for testing
  */
-const defaultTestModuleOptions: TestModuleOptions = {
-  useRealLogger: false,
-  withTracing: false,
-  providers: [],
-  imports: [],
-};
+export class MockTracingService {
+  private traceId: string = 'test-trace-id';
+  private spanId: string = 'test-span-id';
+
+  getCurrentTraceId(): string {
+    return this.traceId;
+  }
+
+  getCurrentSpanId(): string {
+    return this.spanId;
+  }
+
+  setCurrentTraceId(traceId: string): void {
+    this.traceId = traceId;
+  }
+
+  setCurrentSpanId(spanId: string): void {
+    this.spanId = spanId;
+  }
+
+  startSpan(name: string): any {
+    return {
+      end: () => {}
+    };
+  }
+
+  withSpan<T>(name: string, fn: () => T): T {
+    return fn();
+  }
+
+  async withAsyncSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    return await fn();
+  }
+}
 
 /**
- * Default logger configuration for tests
- */
-const defaultTestLoggerConfig: Partial<LoggerConfig> = {
-  level: LogLevel.DEBUG,
-  prettyPrint: true,
-  disableConsole: false,
-  disableCloudWatch: true,
-  includeTimestamp: true,
-  includeContext: true,
-};
-
-/**
- * Journey-specific logger configurations
- */
-const journeyLoggerConfigs: Record<string, Partial<LoggerConfig>> = {
-  health: {
-    ...defaultTestLoggerConfig,
-    defaultContext: { journey: 'health' },
-    serviceName: 'health-service',
-  },
-  care: {
-    ...defaultTestLoggerConfig,
-    defaultContext: { journey: 'care' },
-    serviceName: 'care-service',
-  },
-  plan: {
-    ...defaultTestLoggerConfig,
-    defaultContext: { journey: 'plan' },
-    serviceName: 'plan-service',
-  },
-};
-
-/**
- * Creates a mock TracingService for testing
- */
-const createMockTracingService = () => ({
-  getCurrentTraceId: jest.fn().mockReturnValue('test-trace-id'),
-  getCurrentSpanId: jest.fn().mockReturnValue('test-span-id'),
-  startSpan: jest.fn().mockImplementation((name) => ({
-    name,
-    end: jest.fn(),
-  })),
-  getTraceContext: jest.fn().mockReturnValue({
-    traceId: 'test-trace-id',
-    spanId: 'test-span-id',
-    sampled: true,
-  }),
-});
-
-/**
- * Creates a NestJS testing module with configured logging
+ * Creates a test module with properly configured logging
  * 
- * @param options Configuration options for the test module
- * @returns A TestingModuleBuilder that can be further customized before compilation
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule
  */
-export function createTestingModuleWithLogging(
-  options: TestModuleOptions = defaultTestModuleOptions,
-): TestingModuleBuilder {
-  const mergedOptions = { ...defaultTestModuleOptions, ...options };
-  
-  // Determine logger configuration
-  let loggerConfig: Partial<LoggerConfig> = { ...defaultTestLoggerConfig };
-  
-  // Apply journey-specific configuration if specified
-  if (mergedOptions.journeyContext) {
-    loggerConfig = {
-      ...loggerConfig,
-      ...journeyLoggerConfigs[mergedOptions.journeyContext],
-    };
-  }
-  
-  // Apply custom configuration if provided
-  if (mergedOptions.loggerConfig) {
-    loggerConfig = {
-      ...loggerConfig,
-      ...mergedOptions.loggerConfig,
-    };
-  }
-  
-  // Create module metadata
-  const moduleMetadata: ModuleMetadata = {
-    ...mergedOptions.moduleMetadata,
-    imports: [
-      ...(mergedOptions.imports || []),
-    ],
-    providers: [
-      ...(mergedOptions.providers || []),
-    ],
+export async function createTestModule(options: CreateTestModuleOptions = {}): Promise<TestingModule> {
+  const {
+    imports = [],
+    controllers = [],
+    providers = [],
+    useMockLogger = true,
+    loggerConfig = {},
+    includeTracing = false,
+    journeyType,
+    moduleMetadata = {}
+  } = options;
+
+  // Create the base module metadata
+  const metadata: ModuleMetadata = {
+    imports: [...imports],
+    controllers: [...controllers],
+    providers: [...providers],
+    ...moduleMetadata
   };
-  
-  // Add real or mock logger
-  if (mergedOptions.useRealLogger) {
-    moduleMetadata.imports.push(
-      LoggerModule.forRoot(loggerConfig as LoggerConfig),
-    );
-  } else {
-    moduleMetadata.providers.push({
+
+  // Add mock or real logger
+  if (useMockLogger) {
+    const mockLogger = new MockLoggerService();
+    metadata.providers.push({
       provide: LoggerService,
-      useClass: MockLoggerService,
+      useValue: mockLogger
     });
+  } else {
+    // Configure real logger for testing
+    const testLoggerConfig: LoggerConfig = {
+      logLevel: 'DEBUG',
+      transports: ['console'],
+      formatter: 'text',
+      serviceName: 'test-service',
+      ...loggerConfig
+    };
+
+    // If tracing is included, we need to provide the TracingService
+    if (includeTracing) {
+      const mockTracingService = new MockTracingService();
+      metadata.providers.push({
+        provide: 'TracingService',
+        useValue: mockTracingService
+      });
+
+      metadata.providers.push({
+        provide: LoggerService,
+        useFactory: () => new LoggerService(testLoggerConfig, mockTracingService)
+      });
+    } else {
+      metadata.providers.push({
+        provide: LoggerService,
+        useFactory: () => new LoggerService(testLoggerConfig)
+      });
+    }
   }
+
+  // Create and configure the test module
+  const testModule = await Test.createTestingModule(metadata).compile();
   
-  // Add tracing if requested
-  if (mergedOptions.withTracing) {
-    const mockTracingService = createMockTracingService();
-    moduleMetadata.providers.push({
-      provide: 'TracingService',
-      useValue: mockTracingService,
-    });
+  // Configure journey-specific logging if needed
+  if (journeyType) {
+    const logger = testModule.get<LoggerService>(LoggerService);
+    
+    // Apply journey context based on the specified journey type
+    switch (journeyType) {
+      case 'health':
+        testModule.useLogger(logger['forHealthJourney']());
+        break;
+      case 'care':
+        testModule.useLogger(logger['forCareJourney']());
+        break;
+      case 'plan':
+        testModule.useLogger(logger['forPlanJourney']());
+        break;
+    }
   }
-  
-  return Test.createTestingModule(moduleMetadata);
+
+  return testModule;
 }
 
 /**
- * Creates a compiled NestJS testing module with configured logging
+ * Creates a test module with a mock logger
  * 
- * @param options Configuration options for the test module
- * @returns A Promise that resolves to a compiled TestingModule
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule with a mock logger
  */
-export async function createCompiledTestingModuleWithLogging(
-  options: TestModuleOptions = defaultTestModuleOptions,
+export async function createTestModuleWithMockLogger(options: Omit<CreateTestModuleOptions, 'useMockLogger'> = {}): Promise<TestingModule> {
+  return createTestModule({
+    ...options,
+    useMockLogger: true
+  });
+}
+
+/**
+ * Creates a test module with a real logger
+ * 
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule with a real logger
+ */
+export async function createTestModuleWithRealLogger(options: Omit<CreateTestModuleOptions, 'useMockLogger'> = {}): Promise<TestingModule> {
+  return createTestModule({
+    ...options,
+    useMockLogger: false
+  });
+}
+
+/**
+ * Creates a test module with journey-specific logging
+ * 
+ * @param journeyType - The journey type to use for logging
+ * @param options - Additional options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule with journey-specific logging
+ */
+export async function createJourneyTestModule(
+  journeyType: 'health' | 'care' | 'plan',
+  options: Omit<CreateTestModuleOptions, 'journeyType'> = {}
 ): Promise<TestingModule> {
-  const moduleBuilder = createTestingModuleWithLogging(options);
-  return moduleBuilder.compile();
-}
-
-/**
- * Creates a test module specifically configured for Health journey testing
- * 
- * @param options Additional configuration options
- * @returns A TestingModuleBuilder configured for Health journey
- */
-export function createHealthJourneyTestingModule(
-  options: Omit<TestModuleOptions, 'journeyContext'> = {},
-): TestingModuleBuilder {
-  return createTestingModuleWithLogging({
+  return createTestModule({
     ...options,
-    journeyContext: 'health',
+    journeyType
   });
 }
 
 /**
- * Creates a test module specifically configured for Care journey testing
+ * Creates a test module for the Health journey
  * 
- * @param options Additional configuration options
- * @returns A TestingModuleBuilder configured for Care journey
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule for the Health journey
  */
-export function createCareJourneyTestingModule(
-  options: Omit<TestModuleOptions, 'journeyContext'> = {},
-): TestingModuleBuilder {
-  return createTestingModuleWithLogging({
-    ...options,
-    journeyContext: 'care',
-  });
+export async function createHealthJourneyTestModule(options: Omit<CreateTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createJourneyTestModule('health', options);
 }
 
 /**
- * Creates a test module specifically configured for Plan journey testing
+ * Creates a test module for the Care journey
  * 
- * @param options Additional configuration options
- * @returns A TestingModuleBuilder configured for Plan journey
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule for the Care journey
  */
-export function createPlanJourneyTestingModule(
-  options: Omit<TestModuleOptions, 'journeyContext'> = {},
-): TestingModuleBuilder {
-  return createTestingModuleWithLogging({
-    ...options,
-    journeyContext: 'plan',
-  });
+export async function createCareJourneyTestModule(options: Omit<CreateTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createJourneyTestModule('care', options);
 }
 
 /**
- * Gets a LoggerService instance from a compiled testing module
+ * Creates a test module for the Plan journey
  * 
- * @param module The compiled testing module
- * @returns The LoggerService instance
+ * @param options - Options for creating the test module
+ * @returns A promise that resolves to the configured TestingModule for the Plan journey
  */
-export function getLoggerFromModule(module: TestingModule): LoggerService {
-  return module.get<LoggerService>(LoggerService);
+export async function createPlanJourneyTestModule(options: Omit<CreateTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createJourneyTestModule('plan', options);
 }
 
 /**
- * Creates an environment-specific logger configuration for testing
+ * Gets the mock logger from a test module
  * 
- * @param env The environment name (e.g., 'test', 'development', 'production')
- * @param overrides Additional configuration overrides
- * @returns A logger configuration for the specified environment
+ * @param testModule - The test module
+ * @returns The mock logger instance
+ * @throws Error if the logger is not a MockLoggerService
  */
-export function createEnvironmentLoggerConfig(
-  env: string,
-  overrides: Partial<LoggerConfig> = {},
-): LoggerConfig {
-  const baseConfig: Partial<LoggerConfig> = {
-    level: LogLevel.DEBUG,
-    prettyPrint: env !== 'production',
-    disableConsole: env === 'production',
-    disableCloudWatch: env !== 'production',
-    includeTimestamp: true,
-    includeContext: true,
+export function getTestLogger(testModule: TestingModule): MockLoggerService {
+  const logger = testModule.get<LoggerService>(LoggerService);
+  
+  if (!(logger instanceof MockLoggerService)) {
+    throw new Error('Logger is not a MockLoggerService. Make sure you created the test module with useMockLogger=true');
+  }
+  
+  return logger;
+}
+
+/**
+ * Resets the mock logger in a test module
+ * 
+ * @param testModule - The test module
+ * @throws Error if the logger is not a MockLoggerService
+ */
+export function resetTestLogger(testModule: TestingModule): void {
+  const logger = getTestLogger(testModule);
+  logger.reset();
+}
+
+/**
+ * Creates a test-specific logger configuration
+ * 
+ * @param overrides - Configuration overrides
+ * @returns The test logger configuration
+ */
+export function createTestLoggerConfig(overrides: Partial<LoggerConfig> = {}): LoggerConfig {
+  return {
+    logLevel: 'DEBUG',
+    transports: ['console'],
+    formatter: 'text',
+    serviceName: 'test-service',
+    ...overrides
   };
-  
-  return { ...baseConfig, ...overrides } as LoggerConfig;
-}
-
-/**
- * Creates a test module with a real logger and tracing integration
- * 
- * @param options Additional configuration options
- * @returns A Promise that resolves to a compiled TestingModule
- */
-export async function createTracedLoggingTestModule(
-  options: Omit<TestModuleOptions, 'useRealLogger' | 'withTracing'> = {},
-): Promise<TestingModule> {
-  return createCompiledTestingModuleWithLogging({
-    ...options,
-    useRealLogger: true,
-    withTracing: true,
-  });
 }

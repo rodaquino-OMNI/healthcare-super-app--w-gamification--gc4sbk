@@ -1,301 +1,228 @@
-/**
- * @file log-parser.utils.ts
- * @description Provides utilities for parsing and analyzing log output in structured formats.
- * Includes functions to parse JSON logs, extract fields, validate format compliance, and analyze log structure.
- * Essential for verifying that logs conform to the expected structure and contain required fields for proper monitoring and observability.
- */
-
-import { LogLevel, LogLevelString, LogLevelUtils } from '../../../src/interfaces/log-level.enum';
-import { LogEntry } from '../../../src/interfaces/transport.interface';
+import { LogLevel, LogLevelUtils } from '../../../src/interfaces/log-level.enum';
+import { JourneyType } from '../../../src/interfaces/log-entry.interface';
 
 /**
- * Error thrown when log parsing or validation fails
+ * Interface representing a parsed log entry from JSON format.
+ * This mirrors the structure produced by JSONFormatter.
  */
-export class LogParsingError extends Error {
-  constructor(message: string, public readonly logData?: any) {
-    super(message);
-    this.name = 'LogParsingError';
-  }
+export interface ParsedLogEntry {
+  message: string;
+  level: string;
+  levelCode: number;
+  timestamp: string;
+  service: string;
+  context: string;
+  request?: {
+    id: string;
+    clientIp?: string;
+    userAgent?: string;
+  };
+  user?: {
+    id?: string;
+    sessionId?: string;
+  };
+  trace?: {
+    traceId?: string;
+    spanId?: string;
+    parentSpanId?: string;
+  };
+  journey?: {
+    type: JourneyType;
+    resourceId?: string;
+    action?: string;
+    data?: Record<string, any>;
+  };
+  error?: {
+    message: string;
+    name: string;
+    code?: string | number;
+    stack?: string;
+    isTransient?: boolean;
+    isClientError?: boolean;
+    isExternalError?: boolean;
+    originalError?: Record<string, any>;
+  };
+  contextData?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 /**
- * Result of log validation
- */
-export interface LogValidationResult {
-  /**
-   * Whether the log is valid
-   */
-  valid: boolean;
-
-  /**
-   * Validation errors, if any
-   */
-  errors: string[];
-
-  /**
-   * Warnings about non-critical issues, if any
-   */
-  warnings: string[];
-
-  /**
-   * The parsed log entry, if parsing was successful
-   */
-  parsedLog?: LogEntry;
-}
-
-/**
- * Options for log validation
+ * Interface for log validation options.
  */
 export interface LogValidationOptions {
-  /**
-   * Whether to require a trace ID
-   * @default true
-   */
-  requireTraceId?: boolean;
-
-  /**
-   * Whether to require a service name
-   * @default true
-   */
-  requireService?: boolean;
-
-  /**
-   * Whether to require a journey identifier
-   * @default false
-   */
+  /** Whether to require a request ID */
+  requireRequestId?: boolean;
+  /** Whether to require a user ID */
+  requireUserId?: boolean;
+  /** Whether to require trace information */
+  requireTrace?: boolean;
+  /** Whether to require journey context */
   requireJourney?: boolean;
-
-  /**
-   * List of required context fields
-   * @default ['requestId']
-   */
-  requiredContextFields?: string[];
-
-  /**
-   * Whether to validate timestamp format
-   * @default true
-   */
-  validateTimestamp?: boolean;
-
-  /**
-   * Whether to validate log level values
-   * @default true
-   */
-  validateLogLevel?: boolean;
+  /** Whether to require a specific journey type */
+  journeyType?: JourneyType;
+  /** Whether to require a specific log level or higher */
+  minimumLevel?: LogLevel;
+  /** Whether to require a specific service name */
+  serviceName?: string;
+  /** Whether to require a specific context */
+  context?: string;
+  /** Custom validation function */
+  customValidator?: (log: ParsedLogEntry) => boolean;
 }
 
 /**
- * Default validation options
+ * Result of a log validation operation.
  */
-const DEFAULT_VALIDATION_OPTIONS: LogValidationOptions = {
-  requireTraceId: true,
-  requireService: true,
-  requireJourney: false,
-  requiredContextFields: ['requestId'],
-  validateTimestamp: true,
-  validateLogLevel: true,
-};
+export interface LogValidationResult {
+  /** Whether the validation passed */
+  valid: boolean;
+  /** List of validation errors if any */
+  errors: string[];
+  /** The parsed log entry that was validated */
+  parsedLog: ParsedLogEntry;
+}
 
 /**
- * Parses a JSON log string into a structured object
- * @param logString JSON log string to parse
- * @returns Parsed log object
- * @throws LogParsingError if parsing fails
+ * Parses a JSON log string into a structured object.
+ * @param logString The JSON log string to parse
+ * @returns The parsed log entry
+ * @throws Error if the log string is not valid JSON
  */
-export function parseJsonLog(logString: string): Record<string, any> {
+export function parseJsonLog(logString: string): ParsedLogEntry {
   try {
-    return JSON.parse(logString);
+    return JSON.parse(logString) as ParsedLogEntry;
   } catch (error) {
-    throw new LogParsingError(`Failed to parse log as JSON: ${error.message}`, logString);
+    throw new Error(`Failed to parse log as JSON: ${error.message}`);
   }
 }
 
 /**
- * Parses a log string into a structured LogEntry object
- * @param logString Log string to parse (JSON format expected)
- * @returns Parsed LogEntry object
- * @throws LogParsingError if parsing fails or required fields are missing
+ * Parses multiple JSON log strings into structured objects.
+ * @param logStrings Array of JSON log strings to parse
+ * @returns Array of parsed log entries
+ * @throws Error if any log string is not valid JSON
  */
-export function parseLogEntry(logString: string): LogEntry {
-  const parsedLog = parseJsonLog(logString);
-  
-  // Validate required fields
-  if (!parsedLog.level) {
-    throw new LogParsingError('Log entry is missing required field: level', parsedLog);
-  }
-  
-  if (!parsedLog.timestamp) {
-    throw new LogParsingError('Log entry is missing required field: timestamp', parsedLog);
-  }
-  
-  if (!parsedLog.message && parsedLog.message !== '') {
-    throw new LogParsingError('Log entry is missing required field: message', parsedLog);
-  }
-  
-  // Convert string level to enum if needed
-  let level: LogLevel;
-  if (typeof parsedLog.level === 'string') {
-    const levelValue = LogLevelUtils.fromString(parsedLog.level);
-    if (levelValue === undefined) {
-      throw new LogParsingError(`Invalid log level: ${parsedLog.level}`, parsedLog);
-    }
-    level = levelValue;
-  } else if (typeof parsedLog.level === 'number') {
-    level = parsedLog.level;
-  } else {
-    throw new LogParsingError(`Invalid log level type: ${typeof parsedLog.level}`, parsedLog);
-  }
-  
-  // Convert timestamp string to Date if needed
-  let timestamp: Date;
-  if (typeof parsedLog.timestamp === 'string') {
-    timestamp = new Date(parsedLog.timestamp);
-    if (isNaN(timestamp.getTime())) {
-      throw new LogParsingError(`Invalid timestamp format: ${parsedLog.timestamp}`, parsedLog);
-    }
-  } else if (parsedLog.timestamp instanceof Date) {
-    timestamp = parsedLog.timestamp;
-  } else {
-    throw new LogParsingError(`Invalid timestamp type: ${typeof parsedLog.timestamp}`, parsedLog);
-  }
-  
-  // Construct the LogEntry object
-  const logEntry: LogEntry = {
-    level,
-    timestamp,
-    message: parsedLog.message,
-  };
-  
-  // Add optional fields if present
-  if (parsedLog.error) {
-    logEntry.error = parsedLog.error;
-  }
-  
-  if (parsedLog.context) {
-    logEntry.context = parsedLog.context;
-  }
-  
-  if (parsedLog.traceId) {
-    logEntry.traceId = parsedLog.traceId;
-  }
-  
-  if (parsedLog.service) {
-    logEntry.service = parsedLog.service;
-  }
-  
-  if (parsedLog.journey) {
-    logEntry.journey = parsedLog.journey;
-  }
-  
-  if (parsedLog.meta) {
-    logEntry.meta = parsedLog.meta;
-  }
-  
-  return logEntry;
+export function parseJsonLogs(logStrings: string[]): ParsedLogEntry[] {
+  return logStrings.map(logString => parseJsonLog(logString));
 }
 
 /**
- * Validates a log string against the expected format and requirements
- * @param logString Log string to validate (JSON format expected)
+ * Validates that a log entry contains all required fields and meets specified criteria.
+ * @param log The log entry to validate
  * @param options Validation options
- * @returns Validation result with details about validity and any issues found
+ * @returns Validation result with details
  */
-export function validateLog(logString: string, options: LogValidationOptions = {}): LogValidationResult {
-  const mergedOptions = { ...DEFAULT_VALIDATION_OPTIONS, ...options };
-  const result: LogValidationResult = {
-    valid: true,
-    errors: [],
-    warnings: [],
-  };
-  
-  try {
-    const parsedLog = parseLogEntry(logString);
-    result.parsedLog = parsedLog;
-    
-    // Validate log level if required
-    if (mergedOptions.validateLogLevel) {
-      const validLevels = LogLevelUtils.getAllLevelValues();
-      if (!validLevels.includes(parsedLog.level)) {
-        result.errors.push(`Invalid log level: ${parsedLog.level}`);
-        result.valid = false;
-      }
-    }
-    
-    // Validate timestamp if required
-    if (mergedOptions.validateTimestamp) {
-      if (!(parsedLog.timestamp instanceof Date) || isNaN(parsedLog.timestamp.getTime())) {
-        result.errors.push(`Invalid timestamp: ${parsedLog.timestamp}`);
-        result.valid = false;
-      }
-    }
-    
-    // Check for required trace ID
-    if (mergedOptions.requireTraceId && !parsedLog.traceId) {
-      result.errors.push('Missing required field: traceId');
-      result.valid = false;
-    }
-    
-    // Check for required service name
-    if (mergedOptions.requireService && !parsedLog.service) {
-      result.errors.push('Missing required field: service');
-      result.valid = false;
-    }
-    
-    // Check for required journey identifier
-    if (mergedOptions.requireJourney && !parsedLog.journey) {
-      result.errors.push('Missing required field: journey');
-      result.valid = false;
-    }
-    
-    // Check for required context fields
-    if (mergedOptions.requiredContextFields && mergedOptions.requiredContextFields.length > 0) {
-      if (!parsedLog.context) {
-        result.errors.push('Missing required field: context');
-        result.valid = false;
-      } else {
-        for (const field of mergedOptions.requiredContextFields) {
-          if (parsedLog.context[field] === undefined) {
-            result.errors.push(`Missing required context field: ${field}`);
-            result.valid = false;
-          }
-        }
-      }
-    }
-    
-    // Add warnings for potentially problematic issues
-    if (!parsedLog.error && parsedLog.level >= LogLevel.ERROR) {
-      result.warnings.push(`Error-level log without error object: ${parsedLog.message}`);
-    }
-    
-    if (parsedLog.message.length === 0) {
-      result.warnings.push('Log has empty message');
-    }
-    
-  } catch (error) {
-    if (error instanceof LogParsingError) {
-      result.errors.push(error.message);
-    } else {
-      result.errors.push(`Unexpected error during validation: ${error.message}`);
-    }
-    result.valid = false;
+export function validateLogEntry(log: ParsedLogEntry | string, options: LogValidationOptions = {}): LogValidationResult {
+  const parsedLog = typeof log === 'string' ? parseJsonLog(log) : log;
+  const errors: string[] = [];
+
+  // Check basic required fields
+  if (!parsedLog.message) {
+    errors.push('Log entry is missing required field: message');
   }
-  
-  return result;
+
+  if (!parsedLog.level) {
+    errors.push('Log entry is missing required field: level');
+  } else {
+    try {
+      // Verify the level is valid
+      LogLevelUtils.fromString(parsedLog.level);
+    } catch (error) {
+      errors.push(`Invalid log level: ${parsedLog.level}`);
+    }
+  }
+
+  if (!parsedLog.timestamp) {
+    errors.push('Log entry is missing required field: timestamp');
+  } else {
+    // Verify the timestamp is a valid ISO date string
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(parsedLog.timestamp)) {
+      errors.push(`Invalid timestamp format: ${parsedLog.timestamp}`);
+    }
+  }
+
+  if (!parsedLog.service) {
+    errors.push('Log entry is missing required field: service');
+  } else if (options.serviceName && parsedLog.service !== options.serviceName) {
+    errors.push(`Expected service name ${options.serviceName}, but got ${parsedLog.service}`);
+  }
+
+  if (!parsedLog.context) {
+    errors.push('Log entry is missing required field: context');
+  } else if (options.context && parsedLog.context !== options.context) {
+    errors.push(`Expected context ${options.context}, but got ${parsedLog.context}`);
+  }
+
+  // Check minimum log level if specified
+  if (options.minimumLevel !== undefined && parsedLog.levelCode !== undefined) {
+    if (parsedLog.levelCode < options.minimumLevel) {
+      errors.push(`Log level ${parsedLog.level} is below minimum required level ${LogLevelUtils.toString(options.minimumLevel)}`);
+    }
+  }
+
+  // Check request ID if required
+  if (options.requireRequestId && (!parsedLog.request || !parsedLog.request.id)) {
+    errors.push('Log entry is missing required request ID');
+  }
+
+  // Check user ID if required
+  if (options.requireUserId && (!parsedLog.user || !parsedLog.user.id)) {
+    errors.push('Log entry is missing required user ID');
+  }
+
+  // Check trace information if required
+  if (options.requireTrace && (!parsedLog.trace || !parsedLog.trace.traceId)) {
+    errors.push('Log entry is missing required trace information');
+  }
+
+  // Check journey context if required
+  if (options.requireJourney && (!parsedLog.journey || !parsedLog.journey.type)) {
+    errors.push('Log entry is missing required journey context');
+  } else if (parsedLog.journey && options.journeyType && parsedLog.journey.type !== options.journeyType) {
+    errors.push(`Expected journey type ${options.journeyType}, but got ${parsedLog.journey.type}`);
+  }
+
+  // Run custom validator if provided
+  if (options.customValidator) {
+    try {
+      if (!options.customValidator(parsedLog)) {
+        errors.push('Log entry failed custom validation');
+      }
+    } catch (error) {
+      errors.push(`Custom validation threw an error: ${error.message}`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    parsedLog
+  };
 }
 
 /**
- * Extracts a specific field from a log entry
- * @param logEntry Log entry or log string to extract from
- * @param fieldPath Path to the field (dot notation for nested fields, e.g., 'context.userId')
+ * Validates multiple log entries against the specified criteria.
+ * @param logs Array of log entries to validate
+ * @param options Validation options
+ * @returns Array of validation results
+ */
+export function validateLogEntries(logs: (ParsedLogEntry | string)[], options: LogValidationOptions = {}): LogValidationResult[] {
+  return logs.map(log => validateLogEntry(log, options));
+}
+
+/**
+ * Extracts a specific field from a log entry using a dot-notation path.
+ * @param log The log entry to extract from
+ * @param path The dot-notation path to the field (e.g., 'journey.type')
  * @returns The extracted field value or undefined if not found
  */
-export function extractLogField(logEntry: LogEntry | string, fieldPath: string): any {
-  const entry = typeof logEntry === 'string' ? parseLogEntry(logEntry) : logEntry;
+export function extractLogField(log: ParsedLogEntry | string, path: string): any {
+  const parsedLog = typeof log === 'string' ? parseJsonLog(log) : log;
   
-  const pathParts = fieldPath.split('.');
-  let value: any = entry;
+  const parts = path.split('.');
+  let value: any = parsedLog;
   
-  for (const part of pathParts) {
+  for (const part of parts) {
     if (value === undefined || value === null) {
       return undefined;
     }
@@ -306,333 +233,295 @@ export function extractLogField(logEntry: LogEntry | string, fieldPath: string):
 }
 
 /**
- * Checks if a log entry contains a specific field with an optional expected value
- * @param logEntry Log entry or log string to check
- * @param fieldPath Path to the field (dot notation for nested fields)
- * @param expectedValue Optional expected value to compare against
- * @returns True if the field exists and matches the expected value (if provided)
+ * Extracts a specific field from multiple log entries.
+ * @param logs Array of log entries to extract from
+ * @param path The dot-notation path to the field
+ * @returns Array of extracted field values
  */
-export function logContainsField(logEntry: LogEntry | string, fieldPath: string, expectedValue?: any): boolean {
-  const value = extractLogField(logEntry, fieldPath);
-  
-  if (value === undefined) {
-    return false;
-  }
-  
-  if (expectedValue !== undefined) {
-    if (typeof expectedValue === 'object') {
-      return JSON.stringify(value) === JSON.stringify(expectedValue);
-    }
-    return value === expectedValue;
-  }
-  
-  return true;
+export function extractLogFields(logs: (ParsedLogEntry | string)[], path: string): any[] {
+  return logs.map(log => extractLogField(log, path));
 }
 
 /**
- * Filters an array of log entries by log level
- * @param logs Array of log entries or log strings
+ * Filters log entries based on a field value.
+ * @param logs Array of log entries to filter
+ * @param path The dot-notation path to the field
+ * @param value The value to compare against
+ * @returns Filtered array of log entries
+ */
+export function filterLogsByField(logs: (ParsedLogEntry | string)[], path: string, value: any): ParsedLogEntry[] {
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
+  
+  return parsedLogs.filter(log => {
+    const fieldValue = extractLogField(log, path);
+    return fieldValue === value;
+  });
+}
+
+/**
+ * Filters log entries based on a predicate function.
+ * @param logs Array of log entries to filter
+ * @param predicate Function that returns true for logs to include
+ * @returns Filtered array of log entries
+ */
+export function filterLogs(logs: (ParsedLogEntry | string)[], predicate: (log: ParsedLogEntry) => boolean): ParsedLogEntry[] {
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
+  return parsedLogs.filter(predicate);
+}
+
+/**
+ * Filters log entries by log level.
+ * @param logs Array of log entries to filter
  * @param level Minimum log level to include
  * @returns Filtered array of log entries
  */
-export function filterLogsByLevel(logs: (LogEntry | string)[], level: LogLevel | LogLevelString): LogEntry[] {
-  const minLevel = typeof level === 'string' ? LogLevelUtils.fromString(level) : level;
+export function filterLogsByLevel(logs: (ParsedLogEntry | string)[], level: LogLevel): ParsedLogEntry[] {
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
   
-  if (minLevel === undefined) {
-    throw new Error(`Invalid log level: ${level}`);
-  }
-  
-  return logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log)
-    .filter(entry => entry.level >= minLevel);
-}
-
-/**
- * Filters an array of log entries by journey
- * @param logs Array of log entries or log strings
- * @param journey Journey identifier to filter by
- * @returns Filtered array of log entries
- */
-export function filterLogsByJourney(logs: (LogEntry | string)[], journey: string): LogEntry[] {
-  return logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log)
-    .filter(entry => entry.journey === journey);
-}
-
-/**
- * Filters an array of log entries by service
- * @param logs Array of log entries or log strings
- * @param service Service name to filter by
- * @returns Filtered array of log entries
- */
-export function filterLogsByService(logs: (LogEntry | string)[], service: string): LogEntry[] {
-  return logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log)
-    .filter(entry => entry.service === service);
-}
-
-/**
- * Filters an array of log entries by trace ID
- * @param logs Array of log entries or log strings
- * @param traceId Trace ID to filter by
- * @returns Filtered array of log entries
- */
-export function filterLogsByTraceId(logs: (LogEntry | string)[], traceId: string): LogEntry[] {
-  return logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log)
-    .filter(entry => entry.traceId === traceId);
-}
-
-/**
- * Filters an array of log entries by context field value
- * @param logs Array of log entries or log strings
- * @param fieldName Context field name to filter by
- * @param fieldValue Expected field value
- * @returns Filtered array of log entries
- */
-export function filterLogsByContextField(logs: (LogEntry | string)[], fieldName: string, fieldValue: any): LogEntry[] {
-  return logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log)
-    .filter(entry => entry.context && entry.context[fieldName] === fieldValue);
-}
-
-/**
- * Counts the number of log entries by level
- * @param logs Array of log entries or log strings
- * @returns Object with counts for each log level
- */
-export function countLogsByLevel(logs: (LogEntry | string)[]): Record<LogLevelString, number> {
-  const counts: Record<LogLevelString, number> = {
-    DEBUG: 0,
-    INFO: 0,
-    WARN: 0,
-    ERROR: 0,
-    FATAL: 0,
-  };
-  
-  logs.forEach(log => {
-    const entry = typeof log === 'string' ? parseLogEntry(log) : log;
-    const levelString = LogLevelUtils.toString(entry.level);
-    counts[levelString]++;
+  return parsedLogs.filter(log => {
+    try {
+      const logLevel = typeof log.level === 'string' 
+        ? LogLevelUtils.fromString(log.level) 
+        : log.levelCode;
+      
+      return logLevel >= level;
+    } catch (error) {
+      return false;
+    }
   });
+}
+
+/**
+ * Filters log entries by journey type.
+ * @param logs Array of log entries to filter
+ * @param journeyType Journey type to filter by
+ * @returns Filtered array of log entries
+ */
+export function filterLogsByJourney(logs: (ParsedLogEntry | string)[], journeyType: JourneyType): ParsedLogEntry[] {
+  return filterLogsByField(logs, 'journey.type', journeyType);
+}
+
+/**
+ * Filters log entries by error presence.
+ * @param logs Array of log entries to filter
+ * @param hasError Whether to include logs with errors (true) or without errors (false)
+ * @returns Filtered array of log entries
+ */
+export function filterLogsByError(logs: (ParsedLogEntry | string)[], hasError: boolean): ParsedLogEntry[] {
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
+  
+  return parsedLogs.filter(log => {
+    const hasErrorField = log.error !== undefined && log.error !== null;
+    return hasError ? hasErrorField : !hasErrorField;
+  });
+}
+
+/**
+ * Counts log entries by a specific field value.
+ * @param logs Array of log entries to analyze
+ * @param path The dot-notation path to the field
+ * @returns Object mapping field values to counts
+ */
+export function countLogsByField(logs: (ParsedLogEntry | string)[], path: string): Record<string, number> {
+  const fieldValues = extractLogFields(logs, path);
+  
+  const counts: Record<string, number> = {};
+  
+  for (const value of fieldValues) {
+    const key = value !== undefined && value !== null ? String(value) : 'undefined';
+    counts[key] = (counts[key] || 0) + 1;
+  }
   
   return counts;
 }
 
 /**
- * Analyzes a collection of logs for common patterns and issues
- * @param logs Array of log entries or log strings
- * @returns Analysis results with statistics and potential issues
+ * Counts log entries by log level.
+ * @param logs Array of log entries to analyze
+ * @returns Object mapping log levels to counts
  */
-export function analyzeLogStructure(logs: (LogEntry | string)[]): {
+export function countLogsByLevel(logs: (ParsedLogEntry | string)[]): Record<string, number> {
+  return countLogsByField(logs, 'level');
+}
+
+/**
+ * Counts log entries by journey type.
+ * @param logs Array of log entries to analyze
+ * @returns Object mapping journey types to counts
+ */
+export function countLogsByJourney(logs: (ParsedLogEntry | string)[]): Record<string, number> {
+  return countLogsByField(logs, 'journey.type');
+}
+
+/**
+ * Analyzes log entries for common patterns and issues.
+ * @param logs Array of log entries to analyze
+ * @returns Analysis results with insights and potential issues
+ */
+export function analyzeLogStructure(logs: (ParsedLogEntry | string)[]): {
   totalLogs: number;
-  levelCounts: Record<LogLevelString, number>;
+  levelCounts: Record<string, number>;
   journeyCounts: Record<string, number>;
-  serviceCounts: Record<string, number>;
-  missingTraceIds: number;
-  missingContextFields: string[];
+  errorCount: number;
+  missingFields: Record<string, number>;
   inconsistentFields: string[];
   potentialIssues: string[];
 } {
-  const parsedLogs = logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log);
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
+  
   const levelCounts = countLogsByLevel(parsedLogs);
+  const journeyCounts = countLogsByJourney(parsedLogs);
+  const errorLogs = filterLogsByError(parsedLogs, true);
   
-  // Count journeys
-  const journeyCounts: Record<string, number> = {};
-  parsedLogs.forEach(log => {
-    if (log.journey) {
-      journeyCounts[log.journey] = (journeyCounts[log.journey] || 0) + 1;
+  // Check for missing fields
+  const requiredFields = ['message', 'level', 'timestamp', 'service', 'context'];
+  const missingFields: Record<string, number> = {};
+  
+  for (const field of requiredFields) {
+    const missingCount = parsedLogs.filter(log => !extractLogField(log, field)).length;
+    if (missingCount > 0) {
+      missingFields[field] = missingCount;
     }
-  });
-  
-  // Count services
-  const serviceCounts: Record<string, number> = {};
-  parsedLogs.forEach(log => {
-    if (log.service) {
-      serviceCounts[log.service] = (serviceCounts[log.service] || 0) + 1;
-    }
-  });
-  
-  // Count missing trace IDs
-  const missingTraceIds = parsedLogs.filter(log => !log.traceId).length;
-  
-  // Find missing context fields
-  const allContextFields = new Set<string>();
-  parsedLogs.forEach(log => {
-    if (log.context) {
-      Object.keys(log.context).forEach(key => allContextFields.add(key));
-    }
-  });
-  
-  const missingContextFields: string[] = [];
-  allContextFields.forEach(field => {
-    const missingCount = parsedLogs.filter(log => !log.context || log.context[field] === undefined).length;
-    if (missingCount > 0 && missingCount < parsedLogs.length) {
-      missingContextFields.push(`${field} (missing in ${missingCount}/${parsedLogs.length} logs)`);
-    }
-  });
+  }
   
   // Check for inconsistent fields
   const inconsistentFields: string[] = [];
+  const fieldPresenceMap: Record<string, boolean[]> = {
+    'request': parsedLogs.map(log => log.request !== undefined),
+    'user': parsedLogs.map(log => log.user !== undefined),
+    'trace': parsedLogs.map(log => log.trace !== undefined),
+    'journey': parsedLogs.map(log => log.journey !== undefined),
+    'contextData': parsedLogs.map(log => log.contextData !== undefined),
+    'metadata': parsedLogs.map(log => log.metadata !== undefined)
+  };
   
-  // Check for service name consistency
-  const services = new Set(parsedLogs.map(log => log.service).filter(Boolean));
-  if (services.size > 1) {
-    inconsistentFields.push(`service (${services.size} different values)`);
+  for (const [field, presence] of Object.entries(fieldPresenceMap)) {
+    const presentCount = presence.filter(Boolean).length;
+    if (presentCount > 0 && presentCount < parsedLogs.length) {
+      inconsistentFields.push(field);
+    }
   }
   
   // Identify potential issues
   const potentialIssues: string[] = [];
   
-  // Check for errors without error objects
-  const errorsWithoutErrorObject = parsedLogs.filter(
-    log => (log.level === LogLevel.ERROR || log.level === LogLevel.FATAL) && !log.error
-  ).length;
-  
-  if (errorsWithoutErrorObject > 0) {
-    potentialIssues.push(`${errorsWithoutErrorObject} error logs without error objects`);
+  // Check for high error rate
+  if (errorLogs.length > parsedLogs.length * 0.2) {
+    potentialIssues.push(`High error rate: ${errorLogs.length} errors in ${parsedLogs.length} logs (${Math.round(errorLogs.length / parsedLogs.length * 100)}%)`);
   }
   
-  // Check for empty messages
-  const emptyMessages = parsedLogs.filter(log => log.message.trim().length === 0).length;
-  if (emptyMessages > 0) {
-    potentialIssues.push(`${emptyMessages} logs with empty messages`);
+  // Check for missing journey context in non-system logs
+  const nonSystemLogs = parsedLogs.filter(log => log.context !== 'system' && log.context !== 'global');
+  const missingJourneyLogs = nonSystemLogs.filter(log => !log.journey);
+  if (missingJourneyLogs.length > nonSystemLogs.length * 0.1) {
+    potentialIssues.push(`Missing journey context in ${missingJourneyLogs.length} non-system logs (${Math.round(missingJourneyLogs.length / nonSystemLogs.length * 100)}%)`);
   }
   
-  // Check for missing context
-  const missingContext = parsedLogs.filter(log => !log.context || Object.keys(log.context).length === 0).length;
-  if (missingContext > 0) {
-    potentialIssues.push(`${missingContext} logs without context information`);
+  // Check for missing trace IDs in request logs
+  const requestLogs = parsedLogs.filter(log => log.request);
+  const missingTraceLogs = requestLogs.filter(log => !log.trace || !log.trace.traceId);
+  if (missingTraceLogs.length > requestLogs.length * 0.1) {
+    potentialIssues.push(`Missing trace IDs in ${missingTraceLogs.length} request logs (${Math.round(missingTraceLogs.length / requestLogs.length * 100)}%)`);
   }
   
   return {
     totalLogs: parsedLogs.length,
     levelCounts,
     journeyCounts,
-    serviceCounts,
-    missingTraceIds,
-    missingContextFields,
+    errorCount: errorLogs.length,
+    missingFields,
     inconsistentFields,
-    potentialIssues,
+    potentialIssues
   };
 }
 
 /**
- * Checks if a collection of logs contains a specific log pattern
- * @param logs Array of log entries or log strings
- * @param pattern Object with fields to match against log entries
- * @returns True if at least one log matches the pattern
+ * Compares two log entries for equality based on specified fields.
+ * @param logA First log entry
+ * @param logB Second log entry
+ * @param fields Array of field paths to compare
+ * @returns Whether the specified fields are equal in both logs
  */
-export function logsContainPattern(logs: (LogEntry | string)[], pattern: Partial<LogEntry>): boolean {
-  const parsedLogs = logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log);
+export function compareLogEntries(logA: ParsedLogEntry | string, logB: ParsedLogEntry | string, fields: string[]): boolean {
+  const parsedLogA = typeof logA === 'string' ? parseJsonLog(logA) : logA;
+  const parsedLogB = typeof logB === 'string' ? parseJsonLog(logB) : logB;
   
-  return parsedLogs.some(log => {
-    for (const [key, value] of Object.entries(pattern)) {
-      if (key === 'level' && typeof value === 'string') {
-        const levelValue = LogLevelUtils.fromString(value);
-        if (levelValue === undefined || log.level !== levelValue) {
-          return false;
-        }
-      } else if (key === 'timestamp' && typeof value === 'string') {
-        const timestampValue = new Date(value);
-        if (isNaN(timestampValue.getTime()) || log.timestamp.getTime() !== timestampValue.getTime()) {
-          return false;
-        }
-      } else if (key === 'context' && typeof value === 'object') {
-        if (!log.context) return false;
-        for (const [contextKey, contextValue] of Object.entries(value)) {
-          if (log.context[contextKey] !== contextValue) {
-            return false;
-          }
-        }
-      } else if (log[key] !== value) {
+  for (const field of fields) {
+    const valueA = extractLogField(parsedLogA, field);
+    const valueB = extractLogField(parsedLogB, field);
+    
+    // Handle special case for objects and arrays
+    if (typeof valueA === 'object' && valueA !== null && typeof valueB === 'object' && valueB !== null) {
+      if (JSON.stringify(valueA) !== JSON.stringify(valueB)) {
         return false;
       }
+    } else if (valueA !== valueB) {
+      return false;
     }
-    return true;
-  });
+  }
+  
+  return true;
 }
 
 /**
- * Extracts all logs matching a specific pattern
- * @param logs Array of log entries or log strings
- * @param pattern Object with fields to match against log entries
+ * Finds log entries that match a specific pattern.
+ * @param logs Array of log entries to search
+ * @param pattern Object with field paths and values to match
  * @returns Array of matching log entries
  */
-export function extractLogsByPattern(logs: (LogEntry | string)[], pattern: Partial<LogEntry>): LogEntry[] {
-  const parsedLogs = logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log);
+export function findLogsByPattern(logs: (ParsedLogEntry | string)[], pattern: Record<string, any>): ParsedLogEntry[] {
+  const parsedLogs = logs.map(log => typeof log === 'string' ? parseJsonLog(log) : log);
   
   return parsedLogs.filter(log => {
-    for (const [key, value] of Object.entries(pattern)) {
-      if (key === 'level' && typeof value === 'string') {
-        const levelValue = LogLevelUtils.fromString(value);
-        if (levelValue === undefined || log.level !== levelValue) {
+    for (const [path, value] of Object.entries(pattern)) {
+      const fieldValue = extractLogField(log, path);
+      
+      // Handle special case for objects and arrays
+      if (typeof value === 'object' && value !== null && typeof fieldValue === 'object' && fieldValue !== null) {
+        if (JSON.stringify(fieldValue) !== JSON.stringify(value)) {
           return false;
         }
-      } else if (key === 'timestamp' && typeof value === 'string') {
-        const timestampValue = new Date(value);
-        if (isNaN(timestampValue.getTime()) || log.timestamp.getTime() !== timestampValue.getTime()) {
-          return false;
-        }
-      } else if (key === 'context' && typeof value === 'object') {
-        if (!log.context) return false;
-        for (const [contextKey, contextValue] of Object.entries(value)) {
-          if (log.context[contextKey] !== contextValue) {
-            return false;
-          }
-        }
-      } else if (log[key] !== value) {
+      } else if (fieldValue !== value) {
         return false;
       }
     }
+    
     return true;
   });
 }
 
 /**
- * Validates that a collection of logs contains all required journey-specific context
- * @param logs Array of log entries or log strings
- * @param journey Journey identifier to validate
- * @returns Validation result with details about validity and any issues found
+ * Extracts all unique values for a specific field across log entries.
+ * @param logs Array of log entries to analyze
+ * @param path The dot-notation path to the field
+ * @returns Array of unique field values
  */
-export function validateJourneyLogs(logs: (LogEntry | string)[], journey: string): LogValidationResult {
-  const result: LogValidationResult = {
-    valid: true,
-    errors: [],
-    warnings: [],
-  };
+export function extractUniqueValues(logs: (ParsedLogEntry | string)[], path: string): any[] {
+  const values = extractLogFields(logs, path);
+  return [...new Set(values.filter(value => value !== undefined && value !== null))];
+}
+
+/**
+ * Checks if a log entry matches a specific pattern.
+ * @param log Log entry to check
+ * @param pattern Object with field paths and values to match
+ * @returns Whether the log entry matches the pattern
+ */
+export function matchesPattern(log: ParsedLogEntry | string, pattern: Record<string, any>): boolean {
+  const parsedLog = typeof log === 'string' ? parseJsonLog(log) : log;
   
-  const parsedLogs = logs.map(log => typeof log === 'string' ? parseLogEntry(log) : log);
-  const journeyLogs = parsedLogs.filter(log => log.journey === journey);
-  
-  if (journeyLogs.length === 0) {
-    result.errors.push(`No logs found for journey: ${journey}`);
-    result.valid = false;
-    return result;
-  }
-  
-  // Define required context fields for each journey
-  const requiredFields: Record<string, string[]> = {
-    health: ['userId', 'requestId', 'healthMetricId'],
-    care: ['userId', 'requestId', 'appointmentId'],
-    plan: ['userId', 'requestId', 'planId'],
-  };
-  
-  if (!requiredFields[journey]) {
-    result.warnings.push(`Unknown journey: ${journey}, cannot validate required fields`);
-    return result;
-  }
-  
-  // Check for required fields in all logs
-  for (const log of journeyLogs) {
-    if (!log.context) {
-      result.errors.push(`Log missing context object for journey: ${journey}`);
-      result.valid = false;
-      continue;
-    }
+  for (const [path, value] of Object.entries(pattern)) {
+    const fieldValue = extractLogField(parsedLog, path);
     
-    for (const field of requiredFields[journey]) {
-      if (log.context[field] === undefined) {
-        result.errors.push(`Log missing required context field for ${journey} journey: ${field}`);
-        result.valid = false;
+    // Handle special case for objects and arrays
+    if (typeof value === 'object' && value !== null && typeof fieldValue === 'object' && fieldValue !== null) {
+      if (JSON.stringify(fieldValue) !== JSON.stringify(value)) {
+        return false;
       }
+    } else if (fieldValue !== value) {
+      return false;
     }
   }
   
-  return result;
+  return true;
 }

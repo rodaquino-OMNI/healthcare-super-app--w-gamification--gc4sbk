@@ -1,148 +1,165 @@
-import { describe, it, expect } from 'jest';
-import * as fs from 'fs';
-import * as path from 'path';
+/**
+ * @file Unit tests for the DTO barrel export file
+ * @description Validates proper export patterns and module organization
+ */
 
-// Path to the DTO directory
-const DTO_DIR = path.resolve(__dirname, '../../../src/dto');
-// Path to the barrel file
-const BARREL_FILE = path.join(DTO_DIR, 'index.ts');
+import * as dtoExports from '../../../src/dto';
 
 describe('DTO Barrel Exports', () => {
-  // Check if the barrel file exists
-  it('should have a barrel file', () => {
-    const barrelExists = fs.existsSync(BARREL_FILE);
-    expect(barrelExists).toBe(true);
+  // List of all expected DTO exports
+  const expectedExports = [
+    // Base/Core DTOs
+    'BaseEventDto',
+    'EventMetadataDto',
+    'EventType',
+    'VersionDto',
+    'IsValidJourney',
+    'IsValidEventType',
+    
+    // Journey-specific DTOs
+    'HealthEventDto',
+    'CareEventDto',
+    'PlanEventDto',
+    
+    // Health Journey specialized DTOs
+    'HealthMetricEventDto',
+    'HealthGoalEventDto',
+    
+    // Care Journey specialized DTOs
+    'AppointmentEventDto',
+    'MedicationEventDto',
+    
+    // Plan Journey specialized DTOs
+    'ClaimEventDto',
+    'BenefitEventDto',
+  ];
+
+  it('should export all required DTO classes', () => {
+    // Check that all expected exports are present
+    for (const exportName of expectedExports) {
+      expect(dtoExports).toHaveProperty(exportName);
+    }
   });
 
-  // Get all DTO files in the directory
-  it('should export all DTO files in the directory', () => {
-    // Get all TS files in the DTO directory except index.ts
-    const dtoFiles = fs.readdirSync(DTO_DIR)
-      .filter(file => file.endsWith('.ts') && file !== 'index.ts');
+  it('should not have unexpected exports', () => {
+    // Get all actual exports
+    const actualExports = Object.keys(dtoExports);
     
-    // Read the barrel file content
-    const barrelContent = fs.readFileSync(BARREL_FILE, 'utf-8');
-    
-    // Check if each DTO file is exported in the barrel file
-    dtoFiles.forEach(file => {
-      const fileName = file.replace('.ts', '');
-      const exportPattern = new RegExp(`export\s+[*]\s+from\s+['"]\.\/+${fileName}['"]`, 'g');
-      const namedExportPattern = new RegExp(`export\s+\{[^}]*\}\s+from\s+['"]\.\/+${fileName}['"]`, 'g');
-      
-      const hasExport = exportPattern.test(barrelContent) || namedExportPattern.test(barrelContent);
-      expect(hasExport).toBe(true, `${file} should be exported in the barrel file`);
-    });
-  });
-
-  // Check for proper export structure
-  it('should have a consistent export structure', () => {
-    const barrelContent = fs.readFileSync(BARREL_FILE, 'utf-8');
-    
-    // All exports should follow the same pattern
-    const exportLines = barrelContent.split('\n')
-      .filter(line => line.trim().startsWith('export'));
-    
-    // Check if all export lines follow the same pattern (either all * exports or all named exports)
-    const starExports = exportLines.filter(line => line.includes('export * from'));
-    const namedExports = exportLines.filter(line => line.includes('export {') && line.includes('} from'));
-    
-    // Either all exports should be star exports or all should be named exports
-    // or there should be a consistent pattern for different types of files
-    const isConsistent = 
-      (starExports.length === exportLines.length) || 
-      (namedExports.length === exportLines.length) ||
-      (starExports.length > 0 && namedExports.length > 0); // Mixed pattern is acceptable if intentional
-    
-    expect(isConsistent).toBe(true, 'Export structure should be consistent');
-  });
-
-  // Check for circular dependencies
-  it('should not have circular dependencies', () => {
-    const barrelContent = fs.readFileSync(BARREL_FILE, 'utf-8');
-    
-    // Extract all imported modules
-    const importedModules = [];
-    const importRegex = /import\s+[^;]+\s+from\s+['"](\.\/[^'"]+)['"];?/g;
-    let match;
-    
-    while ((match = importRegex.exec(barrelContent)) !== null) {
-      importedModules.push(match[1]);
+    // Check that there are no unexpected exports
+    for (const exportName of actualExports) {
+      expect(expectedExports).toContain(exportName);
     }
     
-    // Check if the barrel file imports itself or any module that imports the barrel
-    const hasCircularDependency = importedModules.some(module => {
-      const modulePath = path.resolve(DTO_DIR, `${module}.ts`);
-      if (!fs.existsSync(modulePath)) return false;
-      
-      const moduleContent = fs.readFileSync(modulePath, 'utf-8');
-      return moduleContent.includes("from './index'") || 
-             moduleContent.includes("from './'") ||
-             moduleContent.includes("from '.'");
-    });
-    
-    expect(hasCircularDependency).toBe(false, 'Barrel file should not have circular dependencies');
+    // Check that the number of exports matches
+    expect(actualExports.length).toBe(expectedExports.length);
   });
 
-  // Check for clean public API
-  it('should provide a clean public API', () => {
-    const barrelContent = fs.readFileSync(BARREL_FILE, 'utf-8');
+  it('should export classes with proper structure', () => {
+    // Check that exported items are properly structured
+    // Base DTOs should be classes with validation decorators
+    expect(dtoExports.BaseEventDto).toBeDefined();
+    expect(dtoExports.BaseEventDto.prototype).toBeDefined();
+    expect(typeof dtoExports.BaseEventDto).toBe('function');
     
-    // Check for comments explaining the purpose of exports
-    const hasComments = barrelContent.includes('/**') || 
-                       barrelContent.includes('//') || 
-                       barrelContent.includes('/*');
+    // Journey DTOs should extend BaseEventDto
+    expect(dtoExports.HealthEventDto.prototype instanceof dtoExports.BaseEventDto).toBe(true);
+    expect(dtoExports.CareEventDto.prototype instanceof dtoExports.BaseEventDto).toBe(true);
+    expect(dtoExports.PlanEventDto.prototype instanceof dtoExports.BaseEventDto).toBe(true);
     
-    // Check for organized exports (grouped by category or alphabetically)
-    const exportLines = barrelContent.split('\n')
-      .filter(line => line.trim().startsWith('export'));
-    
-    // Check if exports are grouped with empty lines or comments between groups
-    const hasGrouping = barrelContent.includes('\n\n') || 
-                       (hasComments && exportLines.length > 1);
-    
-    // Either the file should have comments or grouping for better organization
-    const isCleanAPI = hasComments || hasGrouping || exportLines.length <= 5;
-    
-    expect(isCleanAPI).toBe(true, 'Barrel file should provide a clean, well-documented public API');
+    // Specialized DTOs should be properly structured
+    expect(typeof dtoExports.HealthMetricEventDto).toBe('function');
+    expect(typeof dtoExports.AppointmentEventDto).toBe('function');
+    expect(typeof dtoExports.ClaimEventDto).toBe('function');
   });
 
-  // Check for proper named exports
-  it('should export expected DTO classes and types', () => {
-    // These are the expected exports based on the DTO files we found in the directory
-    const expectedExports = [
-      // From health-event.dto.ts
-      'HealthEventDto',
-      // From event-metadata.dto.ts
-      'EventMetadataDto',
-      // From version.dto.ts
-      'VersionedEventDto',
-      // From event-types.enum.ts
-      'EventType',
-      // From validation.ts
-      'validateEventData'
-    ];
+  it('should have consistent naming patterns', () => {
+    // Check that all DTOs follow the naming convention with 'Dto' suffix
+    const dtosWithoutEnumsAndDecorators = expectedExports.filter(
+      name => name !== 'EventType' && name !== 'IsValidJourney' && name !== 'IsValidEventType'
+    );
     
-    // Dynamic import of the barrel file to check exports
-    // Note: This is a runtime check and requires the barrel file to be properly set up
-    // If the barrel file doesn't exist or has syntax errors, this test will fail
-    try {
-      // We can't actually import the module in the test as it might not exist yet
-      // Instead, we'll check the barrel content for these exports
-      const barrelContent = fs.readFileSync(BARREL_FILE, 'utf-8');
-      
-      expectedExports.forEach(exportName => {
-        // Check for direct export or re-export of this name
-        const hasExport = 
-          barrelContent.includes(`export { ${exportName}`) || 
-          barrelContent.includes(`export * from`) || 
-          barrelContent.includes(`export { default as ${exportName}`);
-        
-        expect(hasExport).toBe(true, `${exportName} should be exported from the barrel file`);
-      });
-    } catch (error) {
-      // If the barrel file doesn't exist yet, this test will be skipped
-      // The first test will fail instead, which is more informative
-      console.warn('Could not check exports, barrel file may not exist yet:', error.message);
+    for (const dtoName of dtosWithoutEnumsAndDecorators) {
+      expect(dtoName).toMatch(/Dto$/); // Should end with 'Dto'
     }
+  });
+});
+
+describe('DTO Import Patterns', () => {
+  it('should allow individual imports without circular dependencies', async () => {
+    // Test that we can import individual files without circular dependency errors
+    // This is done by dynamically importing each file
+    
+    // Base/Core DTOs
+    await expect(import('../../../src/dto/base-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/event-metadata.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/event-types.enum')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/version.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/validation')).resolves.not.toThrow();
+    
+    // Journey-specific DTOs
+    await expect(import('../../../src/dto/health-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/care-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/plan-event.dto')).resolves.not.toThrow();
+    
+    // Specialized DTOs
+    await expect(import('../../../src/dto/health-metric-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/health-goal-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/appointment-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/medication-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/claim-event.dto')).resolves.not.toThrow();
+    await expect(import('../../../src/dto/benefit-event.dto')).resolves.not.toThrow();
+  });
+
+  it('should maintain proper import hierarchy', async () => {
+    // Test that specialized DTOs import journey DTOs, and journey DTOs import base DTOs
+    // This ensures the proper dependency hierarchy
+    
+    // Import specialized DTOs and check their imports
+    const healthMetricModule = await import('../../../src/dto/health-metric-event.dto');
+    const healthMetricSource = healthMetricModule.toString();
+    
+    // Check that health-metric-event.dto imports health-event.dto
+    expect(healthMetricSource).toContain('health-event.dto');
+    
+    // Import journey DTOs and check their imports
+    const healthEventModule = await import('../../../src/dto/health-event.dto');
+    const healthEventSource = healthEventModule.toString();
+    
+    // Check that health-event.dto imports base-event.dto
+    expect(healthEventSource).toContain('base-event.dto');
+  });
+});
+
+describe('DTO Organization', () => {
+  it('should organize exports according to the documented structure', () => {
+    // Get the source code of the barrel file
+    const fs = require('fs');
+    const path = require('path');
+    const barrelFilePath = path.resolve(__dirname, '../../../src/dto/index.ts');
+    const barrelFileContent = fs.readFileSync(barrelFilePath, 'utf8');
+    
+    // Check that the file has the expected sections
+    expect(barrelFileContent).toContain('// Base/Core DTOs');
+    expect(barrelFileContent).toContain('// Journey-specific DTOs');
+    expect(barrelFileContent).toContain('// Specialized Event DTOs');
+    
+    // Check that exports are in the correct sections
+    const baseDtoSection = barrelFileContent.indexOf('// Base/Core DTOs');
+    const journeyDtoSection = barrelFileContent.indexOf('// Journey-specific DTOs');
+    const specializedDtoSection = barrelFileContent.indexOf('// Specialized Event DTOs');
+    
+    // Base DTOs should be exported before Journey DTOs
+    const baseEventExport = barrelFileContent.indexOf("export * from './base-event.dto'");
+    expect(baseEventExport).toBeGreaterThan(baseDtoSection);
+    expect(baseEventExport).toBeLessThan(journeyDtoSection);
+    
+    // Journey DTOs should be exported before Specialized DTOs
+    const healthEventExport = barrelFileContent.indexOf("export * from './health-event.dto'");
+    expect(healthEventExport).toBeGreaterThan(journeyDtoSection);
+    expect(healthEventExport).toBeLessThan(specializedDtoSection);
+    
+    // Specialized DTOs should be exported after Journey DTOs
+    const healthMetricExport = barrelFileContent.indexOf("export * from './health-metric-event.dto'");
+    expect(healthMetricExport).toBeGreaterThan(specializedDtoSection);
   });
 });

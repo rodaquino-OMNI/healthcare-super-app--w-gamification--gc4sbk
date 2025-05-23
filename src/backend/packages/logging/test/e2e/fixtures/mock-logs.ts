@@ -1,343 +1,325 @@
+import { LogEntry, LogLevel, JourneyType } from '../../../src/interfaces/log-entry.interface';
+
 /**
  * Mock log entries for e2e testing of the logging package.
  * Provides standardized log entries with different log levels and various context parameters.
  */
 
-// Standard timestamp for consistent testing
-const TEST_TIMESTAMP = '2023-04-15T14:30:00.000Z';
-
-// Mock error with stack trace for error log testing
-const mockError = new Error('Test error message');
-mockError.stack = `Error: Test error message
-    at Object.<anonymous> (/src/backend/packages/logging/test/e2e/fixtures/mock-logs.ts:10:20)
-    at Module._compile (internal/modules/cjs/loader.js:1085:14)
-    at Object.Module._extensions..js (internal/modules/cjs/loader.js:1114:10)
-    at Module.load (internal/modules/cjs/loader.js:950:32)
-    at Function.Module._load (internal/modules/cjs/loader.js:790:12)`;
-
 /**
- * Base log entry interface with common fields
+ * Creates a timestamp for testing that is consistent and predictable.
+ * @param minutesAgo Number of minutes to subtract from the base time
+ * @returns Date object with a consistent test timestamp
  */
-export interface MockLogEntry {
-  timestamp: string;
-  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
-  message: string;
-  correlationId: string;
-  service: string;
-  context?: Record<string, any>;
-  error?: {
-    message: string;
-    stack?: string;
-    code?: string;
-    type?: string;
-  };
-  journey?: 'health' | 'care' | 'plan' | null;
-  user?: {
-    id: string;
-    role?: string;
-  };
-  request?: {
-    id: string;
-    method: string;
-    path: string;
-    ip?: string;
-    userAgent?: string;
-  };
-  metadata?: Record<string, any>;
-}
-
-/**
- * Debug level log entry with minimal context
- */
-export const debugLogEntry: MockLogEntry = {
-  timestamp: TEST_TIMESTAMP,
-  level: 'DEBUG',
-  message: 'Processing user preferences',
-  correlationId: 'corr-1234-5678-90ab-cdef',
-  service: 'user-service',
-  context: {
-    preferences: { notifications: true, language: 'pt-BR' },
-    processingTime: 5,
-  },
-  journey: null,
+const createTestTimestamp = (minutesAgo = 0): Date => {
+  // Use a fixed date for consistent testing
+  const baseTime = new Date('2023-05-15T10:00:00.000Z');
+  baseTime.setMinutes(baseTime.getMinutes() - minutesAgo);
+  return baseTime;
 };
 
 /**
- * Info level log entry with health journey context
+ * Basic debug log entry with minimal context
  */
-export const infoLogEntry: MockLogEntry = {
-  timestamp: TEST_TIMESTAMP,
-  level: 'INFO',
-  message: 'Health metric recorded successfully',
-  correlationId: 'corr-2345-6789-01cd-efgh',
-  service: 'health-service',
-  journey: 'health',
-  user: {
-    id: 'user-1234',
-    role: 'patient',
+export const DEBUG_LOG: LogEntry = {
+  message: 'Debug message for detailed troubleshooting',
+  level: LogLevel.DEBUG,
+  timestamp: createTestTimestamp(),
+  serviceName: 'health-service',
+  context: 'HealthMetricsController',
+  contextData: {
+    operation: 'fetchMetrics',
+    parameters: { userId: '12345', metricType: 'heart-rate' }
   },
-  context: {
-    metricType: 'blood_pressure',
-    value: { systolic: 120, diastolic: 80 },
-    source: 'manual_entry',
-  },
-  request: {
-    id: 'req-abcd-1234',
-    method: 'POST',
-    path: '/api/health/metrics',
-    ip: '192.168.1.1',
-    userAgent: 'AUSTA-App/1.0.0 (iPhone; iOS 15.0)',
+  requestId: 'req-debug-123456',
+  traceId: 'trace-debug-abcdef',
+  spanId: 'span-debug-123456',
+  journey: {
+    type: JourneyType.HEALTH,
+    resourceId: 'health-metric-789',
+    action: 'fetch',
+    data: { metricType: 'heart-rate' }
   },
   metadata: {
-    processingTimeMs: 45,
-    cacheMiss: true,
-  },
+    debugInfo: 'Additional debug information',
+    environment: 'development'
+  }
 };
 
 /**
- * Warning level log entry with care journey context
+ * Standard info log entry with user context
  */
-export const warnLogEntry: MockLogEntry = {
-  timestamp: TEST_TIMESTAMP,
-  level: 'WARN',
-  message: 'Appointment rescheduling attempted with short notice',
-  correlationId: 'corr-3456-7890-12ef-ghij',
-  service: 'care-service',
-  journey: 'care',
-  user: {
-    id: 'user-5678',
-    role: 'patient',
+export const INFO_LOG: LogEntry = {
+  message: 'User profile updated successfully',
+  level: LogLevel.INFO,
+  timestamp: createTestTimestamp(5),
+  serviceName: 'auth-service',
+  context: 'UserProfileService',
+  contextData: {
+    operation: 'updateProfile',
+    changes: ['email', 'preferences']
   },
-  context: {
-    appointmentId: 'appt-9876',
-    originalTime: '2023-04-16T10:00:00Z',
-    requestedTime: '2023-04-16T15:30:00Z',
-    noticeHours: 22,
-    minimumRequired: 24,
+  requestId: 'req-info-789012',
+  userId: 'user-456789',
+  sessionId: 'session-info-123456',
+  clientIp: '192.168.1.100',
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+  traceId: 'trace-info-defghi',
+  spanId: 'span-info-789012',
+  journey: {
+    type: JourneyType.HEALTH,
+    action: 'update-profile'
+  }
+};
+
+/**
+ * Warning log entry with plan journey context
+ */
+export const WARN_LOG: LogEntry = {
+  message: 'Claim processing delayed due to missing documentation',
+  level: LogLevel.WARN,
+  timestamp: createTestTimestamp(15),
+  serviceName: 'plan-service',
+  context: 'ClaimsProcessor',
+  contextData: {
+    operation: 'processClaim',
+    claimId: 'claim-123456',
+    missingDocuments: ['receipt', 'medical-report']
   },
-  request: {
-    id: 'req-efgh-5678',
-    method: 'PUT',
-    path: '/api/care/appointments/appt-9876',
+  requestId: 'req-warn-345678',
+  userId: 'user-789012',
+  traceId: 'trace-warn-ghijkl',
+  spanId: 'span-warn-345678',
+  journey: {
+    type: JourneyType.PLAN,
+    resourceId: 'claim-123456',
+    action: 'process-claim',
+    data: {
+      claimType: 'medical',
+      claimAmount: 1250.75,
+      submissionDate: '2023-05-10T14:30:00.000Z'
+    }
   },
   metadata: {
-    policyReference: 'appointment-reschedule-policy-v2',
-  },
+    retryCount: 2,
+    nextRetryAt: '2023-05-15T10:30:00.000Z'
+  }
 };
 
 /**
- * Error level log entry with plan journey context and error details
+ * Error log entry with care journey context and error object
  */
-export const errorLogEntry: MockLogEntry = {
-  timestamp: TEST_TIMESTAMP,
-  level: 'ERROR',
-  message: 'Failed to process insurance claim',
-  correlationId: 'corr-4567-8901-23gh-ijkl',
-  service: 'plan-service',
-  journey: 'plan',
-  user: {
-    id: 'user-9012',
-    role: 'patient',
+export const ERROR_LOG: LogEntry = {
+  message: 'Failed to schedule appointment with provider',
+  level: LogLevel.ERROR,
+  timestamp: createTestTimestamp(30),
+  serviceName: 'care-service',
+  context: 'AppointmentController',
+  contextData: {
+    operation: 'scheduleAppointment',
+    providerId: 'provider-456789',
+    appointmentTime: '2023-05-20T15:00:00.000Z'
+  },
+  requestId: 'req-error-901234',
+  userId: 'user-123456',
+  sessionId: 'session-error-789012',
+  clientIp: '192.168.1.101',
+  traceId: 'trace-error-klmnop',
+  spanId: 'span-error-901234',
+  parentSpanId: 'span-parent-567890',
+  journey: {
+    type: JourneyType.CARE,
+    resourceId: 'appointment-456789',
+    action: 'schedule',
+    data: {
+      providerId: 'provider-456789',
+      specialtyId: 'cardiology',
+      appointmentType: 'video-consultation'
+    }
   },
   error: {
-    message: 'Invalid claim document format',
-    stack: mockError.stack,
-    code: 'INVALID_DOCUMENT_FORMAT',
-    type: 'ValidationError',
-  },
-  context: {
-    claimId: 'claim-1234',
-    documentId: 'doc-5678',
-    validationErrors: [
-      { field: 'receiptDate', error: 'Invalid date format' },
-      { field: 'amount', error: 'Amount exceeds maximum allowed' },
-    ],
-    attemptCount: 2,
-  },
-  request: {
-    id: 'req-ijkl-9012',
-    method: 'POST',
-    path: '/api/plan/claims',
-    ip: '192.168.1.2',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    message: 'Provider calendar unavailable',
+    name: 'ProviderUnavailableError',
+    code: 'PROVIDER_UNAVAILABLE',
+    stack: `ProviderUnavailableError: Provider calendar unavailable
+    at ProviderService.checkAvailability (/src/services/provider.service.ts:125:23)
+    at AppointmentService.scheduleAppointment (/src/services/appointment.service.ts:67:45)
+    at AppointmentController.createAppointment (/src/controllers/appointment.controller.ts:42:19)
+    at processRequest (/src/middleware/request-handler.ts:28:11)`,
+    isTransient: true,
+    isClientError: false,
+    isExternalError: true
   },
   metadata: {
-    processingTimeMs: 234,
-  },
+    failedAttempts: 3,
+    suggestedAction: 'retry-with-different-time'
+  }
 };
 
 /**
- * Fatal level log entry with system-wide impact and detailed error
+ * Fatal log entry with system-level error
  */
-export const fatalLogEntry: MockLogEntry = {
-  timestamp: TEST_TIMESTAMP,
-  level: 'FATAL',
-  message: 'Database connection pool exhausted',
-  correlationId: 'corr-5678-9012-34ij-klmn',
-  service: 'database-service',
-  error: {
-    message: 'Connection limit reached',
-    stack: mockError.stack,
-    code: 'CONNECTION_LIMIT_ERROR',
-    type: 'SystemError',
+export const FATAL_LOG: LogEntry = {
+  message: 'Database connection failed - system unable to process requests',
+  level: LogLevel.FATAL,
+  timestamp: createTestTimestamp(45),
+  serviceName: 'api-gateway',
+  context: 'DatabaseConnectionManager',
+  contextData: {
+    operation: 'establishConnection',
+    databaseHost: 'primary-db-cluster.austa.internal',
+    connectionPool: 'main'
   },
-  context: {
-    poolSize: 100,
-    activeConnections: 100,
-    waitingConnections: 25,
-    timeout: 30000,
-    databaseHost: 'primary-db-cluster.internal',
+  requestId: 'req-fatal-567890',
+  traceId: 'trace-fatal-qrstuv',
+  spanId: 'span-fatal-567890',
+  error: {
+    message: 'Connection timeout after 30000ms',
+    name: 'ConnectionTimeoutError',
+    code: 'ETIMEDOUT',
+    stack: `ConnectionTimeoutError: Connection timeout after 30000ms
+    at ConnectionPool.acquire (/src/database/connection-pool.ts:87:11)
+    at DatabaseService.connect (/src/database/database.service.ts:42:35)
+    at ApiGatewayService.handleRequest (/src/services/api-gateway.service.ts:28:22)
+    at processRequest (/src/middleware/request-handler.ts:15:7)`,
+    isTransient: true,
+    isClientError: false,
+    isExternalError: false
   },
   metadata: {
+    systemStatus: 'degraded',
+    affectedServices: ['all'],
+    failoverInitiated: true,
     alertSent: true,
-    impactedServices: ['health-service', 'care-service', 'plan-service'],
-    incidentId: 'INC-2023-04-15-001',
-  },
+    incidentId: 'incident-123456'
+  }
 };
 
 /**
- * Collection of all mock log entries for batch testing
+ * Log entry with gamification context
  */
-export const allLogEntries: MockLogEntry[] = [
-  debugLogEntry,
-  infoLogEntry,
-  warnLogEntry,
-  errorLogEntry,
-  fatalLogEntry,
+export const GAMIFICATION_LOG: LogEntry = {
+  message: 'Achievement unlocked for user',
+  level: LogLevel.INFO,
+  timestamp: createTestTimestamp(10),
+  serviceName: 'gamification-engine',
+  context: 'AchievementProcessor',
+  contextData: {
+    operation: 'processAchievement',
+    achievementId: 'achievement-123456',
+    achievementName: 'Health Enthusiast',
+    pointsAwarded: 500
+  },
+  requestId: 'req-gamification-123456',
+  userId: 'user-234567',
+  traceId: 'trace-gamification-wxyz12',
+  spanId: 'span-gamification-123456',
+  journey: {
+    type: JourneyType.HEALTH,
+    resourceId: 'achievement-123456',
+    action: 'unlock-achievement',
+    data: {
+      achievementType: 'streak',
+      streakDays: 7,
+      category: 'exercise'
+    }
+  },
+  metadata: {
+    totalUserPoints: 2500,
+    userLevel: 5,
+    nextLevelAt: 3000
+  }
+};
+
+/**
+ * Log entry with notification context
+ */
+export const NOTIFICATION_LOG: LogEntry = {
+  message: 'Push notification sent to user',
+  level: LogLevel.INFO,
+  timestamp: createTestTimestamp(20),
+  serviceName: 'notification-service',
+  context: 'PushNotificationSender',
+  contextData: {
+    operation: 'sendPushNotification',
+    notificationId: 'notification-123456',
+    notificationType: 'appointment-reminder',
+    deviceToken: 'device-token-123456'
+  },
+  requestId: 'req-notification-123456',
+  userId: 'user-345678',
+  traceId: 'trace-notification-345678',
+  spanId: 'span-notification-123456',
+  journey: {
+    type: JourneyType.CARE,
+    resourceId: 'appointment-789012',
+    action: 'send-reminder',
+    data: {
+      appointmentTime: '2023-05-16T14:00:00.000Z',
+      providerName: 'Dr. Maria Silva',
+      appointmentType: 'in-person'
+    }
+  },
+  metadata: {
+    deliveryStatus: 'sent',
+    notificationChannel: 'push',
+    priority: 'high'
+  }
+};
+
+/**
+ * Collection of all mock logs for easy import
+ */
+export const ALL_MOCK_LOGS: LogEntry[] = [
+  DEBUG_LOG,
+  INFO_LOG,
+  WARN_LOG,
+  ERROR_LOG,
+  FATAL_LOG,
+  GAMIFICATION_LOG,
+  NOTIFICATION_LOG
 ];
 
 /**
- * Generates a custom log entry with specified properties
+ * Mock logs grouped by log level for testing level-specific filtering
  */
-export function createCustomLogEntry(overrides: Partial<MockLogEntry>): MockLogEntry {
-  return {
-    timestamp: TEST_TIMESTAMP,
-    level: 'INFO',
+export const MOCK_LOGS_BY_LEVEL: Record<string, LogEntry[]> = {
+  debug: [DEBUG_LOG],
+  info: [INFO_LOG, GAMIFICATION_LOG, NOTIFICATION_LOG],
+  warn: [WARN_LOG],
+  error: [ERROR_LOG],
+  fatal: [FATAL_LOG]
+};
+
+/**
+ * Mock logs grouped by journey type for testing journey-specific filtering
+ */
+export const MOCK_LOGS_BY_JOURNEY: Record<string, LogEntry[]> = {
+  health: [DEBUG_LOG, INFO_LOG, GAMIFICATION_LOG],
+  care: [ERROR_LOG, NOTIFICATION_LOG],
+  plan: [WARN_LOG]
+};
+
+/**
+ * Mock logs with errors for testing error handling and formatting
+ */
+export const ERROR_LOGS: LogEntry[] = [ERROR_LOG, FATAL_LOG];
+
+/**
+ * Creates a custom log entry with specified properties
+ * @param overrides Properties to override in the base log entry
+ * @returns Custom log entry with specified overrides
+ */
+export const createCustomLogEntry = (overrides: Partial<LogEntry>): LogEntry => {
+  const baseLog: LogEntry = {
     message: 'Custom log message',
-    correlationId: 'corr-custom-id',
-    service: 'test-service',
-    ...overrides,
+    level: LogLevel.INFO,
+    timestamp: createTestTimestamp(),
+    serviceName: 'custom-service',
+    context: 'CustomContext',
+    requestId: 'req-custom-123456',
+    traceId: 'trace-custom-123456',
+    spanId: 'span-custom-123456'
   };
-}
 
-/**
- * Creates a batch of log entries with sequential correlation IDs
- */
-export function createLogBatch(count: number, baseLevel: MockLogEntry['level'] = 'INFO'): MockLogEntry[] {
-  return Array.from({ length: count }, (_, index) => ({
-    timestamp: TEST_TIMESTAMP,
-    level: baseLevel,
-    message: `Batch log message ${index + 1}`,
-    correlationId: `corr-batch-${index.toString().padStart(4, '0')}`,
-    service: 'batch-service',
-    context: { batchId: 'batch-test', itemIndex: index },
-  }));
-}
-
-/**
- * Creates a sequence of related logs with the same correlation ID
- * to test tracing of a request through multiple services
- */
-export function createTraceableLogSequence(): MockLogEntry[] {
-  const correlationId = 'corr-trace-abcd-1234';
-  const requestId = 'req-trace-5678';
-  const userId = 'user-trace-9012';
-  
-  return [
-    {
-      timestamp: '2023-04-15T14:30:00.000Z',
-      level: 'INFO',
-      message: 'API request received',
-      correlationId,
-      service: 'api-gateway',
-      request: {
-        id: requestId,
-        method: 'POST',
-        path: '/api/health/sync-device',
-      },
-      user: { id: userId },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.050Z',
-      level: 'DEBUG',
-      message: 'Request authenticated',
-      correlationId,
-      service: 'auth-service',
-      request: { id: requestId },
-      user: { id: userId },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.150Z',
-      level: 'INFO',
-      message: 'Processing device sync request',
-      correlationId,
-      service: 'health-service',
-      journey: 'health',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { deviceId: 'device-5678', syncType: 'full' },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.350Z',
-      level: 'INFO',
-      message: 'Device data synchronized',
-      correlationId,
-      service: 'health-service',
-      journey: 'health',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { deviceId: 'device-5678', metricsCount: 24, newMetrics: 5 },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.400Z',
-      level: 'INFO',
-      message: 'Sending achievement event',
-      correlationId,
-      service: 'health-service',
-      journey: 'health',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { eventType: 'device_sync_completed', deviceId: 'device-5678' },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.500Z',
-      level: 'INFO',
-      message: 'Processing achievement event',
-      correlationId,
-      service: 'gamification-engine',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { eventType: 'device_sync_completed', achievementId: 'achievement-regular-sync' },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.600Z',
-      level: 'INFO',
-      message: 'Achievement unlocked',
-      correlationId,
-      service: 'gamification-engine',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { achievementId: 'achievement-regular-sync', points: 50 },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.650Z',
-      level: 'INFO',
-      message: 'Sending notification',
-      correlationId,
-      service: 'notification-service',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { notificationType: 'achievement', achievementId: 'achievement-regular-sync' },
-    },
-    {
-      timestamp: '2023-04-15T14:30:00.750Z',
-      level: 'INFO',
-      message: 'API response sent',
-      correlationId,
-      service: 'api-gateway',
-      request: { id: requestId },
-      user: { id: userId },
-      context: { statusCode: 200, responseTimeMs: 750 },
-    },
-  ];
-}
+  return { ...baseLog, ...overrides };
+};

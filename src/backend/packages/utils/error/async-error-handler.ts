@@ -1,429 +1,490 @@
 /**
  * Async Error Handler
  * 
- * Provides utilities for consistent handling of asynchronous errors in promise chains
- * and async/await functions. These utilities help standardize error handling patterns,
- * ensure proper error propagation, and support structured logging.
- * 
- * @module async-error-handler
+ * Provides utilities for consistent handling of asynchronous errors in promise chains and async/await functions.
+ * These utilities help prevent unhandled promise rejections, properly capture stack traces, and ensure
+ * errors in async code are consistently handled across the application.
  */
 
-import { AppException, ErrorType } from '@austa/interfaces/common';
+import { AppException, ErrorType } from '@backend/shared/src/exceptions/exceptions.types';
 
 /**
- * Options for the asyncTryCatch function
+ * Type for any function that returns a Promise
  */
-export interface AsyncTryCatchOptions<T, R> {
+export type AsyncFunction<T = any, Args extends any[] = any[]> = (...args: Args) => Promise<T>;
+
+/**
+ * Type for error handler functions
+ */
+export type ErrorHandler<E = Error> = (error: E) => void;
+
+/**
+ * Type for error transformer functions that convert one error type to another
+ */
+export type ErrorTransformer<E = Error, R = Error> = (error: E) => R;
+
+/**
+ * Options for asyncTryCatch
+ */
+export interface AsyncTryCatchOptions<E = Error, R = Error> {
   /**
-   * Function to execute when an error occurs
+   * Error handler to execute when an error is caught
    */
-  onError?: (error: Error) => R;
+  errorHandler?: ErrorHandler<E>;
   
   /**
-   * Function to transform a specific error type to another error or value
+   * Error transformer to convert caught errors to a different type
    */
-  transformError?: (error: Error) => R | Promise<R>;
+  errorTransformer?: ErrorTransformer<E, R>;
   
   /**
-   * Function to execute after the operation completes (success or failure)
+   * Whether to rethrow the error after handling
+   * @default true
    */
-  finally?: () => void;
+  rethrow?: boolean;
   
   /**
-   * Timeout in milliseconds after which the operation will be cancelled
+   * Specific error types to catch
+   * If provided, only errors of these types will be caught
+   */
+  catchErrorTypes?: Array<new (...args: any[]) => E>;
+}
+
+/**
+ * Options for createSafePromise
+ */
+export interface SafePromiseOptions<E = Error, R = Error> {
+  /**
+   * Error handler to execute when an error is caught
+   */
+  errorHandler?: ErrorHandler<E>;
+  
+  /**
+   * Error transformer to convert caught errors to a different type
+   */
+  errorTransformer?: ErrorTransformer<E, R>;
+  
+  /**
+   * Timeout in milliseconds after which the promise will be rejected
    */
   timeout?: number;
+  
+  /**
+   * Custom error to throw when timeout occurs
+   */
+  timeoutError?: Error;
 }
 
 /**
  * Wraps an async function with standardized error handling.
- * Provides a consistent way to handle errors in async operations.
  * 
- * @param fn - The async function to execute
+ * @param fn - The async function to wrap
  * @param options - Options for error handling
- * @returns A function that returns a promise resolving to the result or error handler result
+ * @returns A wrapped function that handles errors consistently
  * 
  * @example
  * // Basic usage
- * const getUser = asyncTryCatch(async (id: string) => {
- *   return await userService.findById(id);
+ * const safeFunction = asyncTryCatch(async () => {
+ *   // async operations that might throw
  * });
  * 
- * // With error transformation
- * const getUser = asyncTryCatch(async (id: string) => {
- *   return await userService.findById(id);
- * }, {
- *   transformError: (error) => {
- *     if (error.message.includes('not found')) {
- *       return new AppException('User not found', ErrorType.BUSINESS, 'USER_001');
- *     }
- *     return error;
+ * // With custom error handling
+ * const safeFunction = asyncTryCatch(
+ *   async () => { /* ... */ },
+ *   {
+ *     errorHandler: (err) => console.error('Caught error:', err),
+ *     errorTransformer: (err) => new AppException(
+ *       'Operation failed',
+ *       ErrorType.TECHNICAL,
+ *       'ASYNC_001',
+ *       { originalError: err.message },
+ *       err
+ *     ),
+ *     rethrow: true
  *   }
- * });
+ * );
  */
-export function asyncTryCatch<T extends (...args: any[]) => Promise<any>, R = ReturnType<T>>(  
-  fn: T,
-  options: AsyncTryCatchOptions<T, R> = {}
-): (...args: Parameters<T>) => Promise<Awaited<ReturnType<T>> | R> {
-  return async (...args: Parameters<T>): Promise<Awaited<ReturnType<T>> | R> => {
+export function asyncTryCatch<T, Args extends any[], E = Error, R = Error>(
+  fn: AsyncFunction<T, Args>,
+  options: AsyncTryCatchOptions<E, R> = {}
+): AsyncFunction<T, Args> {
+  const {
+    errorHandler,
+    errorTransformer,
+    rethrow = true,
+    catchErrorTypes
+  } = options;
+
+  return async (...args: Args): Promise<T> => {
     try {
-      // If timeout is specified, create a race between the function and a timeout
-      if (options.timeout) {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new AppException(
-              `Operation timed out after ${options.timeout}ms`,
-              ErrorType.TECHNICAL,
-              'TIMEOUT_001'
-            ));
-          }, options.timeout);
-        });
-        
-        return await Promise.race([fn(...args), timeoutPromise]);
-      }
-      
       return await fn(...args);
     } catch (error) {
-      // Transform the error if a transform function is provided
-      if (options.transformError) {
-        return await options.transformError(error as Error);
+      // Only handle errors of specified types if catchErrorTypes is provided
+      if (catchErrorTypes && catchErrorTypes.length > 0) {
+        const shouldCatch = catchErrorTypes.some(errorType => error instanceof errorType);
+        if (!shouldCatch) {
+          throw error;
+        }
       }
-      
-      // Execute the onError handler if provided
-      if (options.onError) {
-        return options.onError(error as Error);
+
+      // Cast error to expected type
+      const typedError = error as E;
+
+      // Execute error handler if provided
+      if (errorHandler) {
+        errorHandler(typedError);
       }
-      
-      // Re-throw the error if no handler is provided
-      throw error;
-    } finally {
-      // Execute the finally function if provided
-      if (options.finally) {
-        options.finally();
+
+      // Transform error if transformer is provided
+      const transformedError = errorTransformer ? errorTransformer(typedError) : error;
+
+      // Rethrow the error (original or transformed) if rethrow is true
+      if (rethrow) {
+        throw transformedError;
       }
+
+      // If we're not rethrowing and the function is expected to return a value,
+      // we need to return something to satisfy TypeScript
+      return undefined as unknown as T;
     }
   };
 }
 
 /**
- * Options for the safePromise function
- */
-export interface SafePromiseOptions<T> {
-  /**
-   * Default value to return if the promise rejects
-   */
-  defaultValue?: T;
-  
-  /**
-   * Function to execute when an error occurs
-   */
-  onError?: (error: Error) => void;
-  
-  /**
-   * Timeout in milliseconds after which the operation will be cancelled
-   */
-  timeout?: number;
-}
-
-/**
- * Result of the safePromise function, containing either the result or an error
- */
-export interface SafePromiseResult<T> {
-  /**
-   * The result of the promise if it resolved successfully
-   */
-  data: T | null;
-  
-  /**
-   * The error if the promise rejected
-   */
-  error: Error | null;
-  
-  /**
-   * Whether the promise resolved successfully
-   */
-  success: boolean;
-}
-
-/**
- * Wraps a promise to prevent unhandled rejections and provide a standardized result format.
+ * Creates a safe promise that won't cause unhandled rejections and supports timeout.
  * 
  * @param promise - The promise to wrap
- * @param options - Options for handling the promise
- * @returns A promise that always resolves with a SafePromiseResult
+ * @param options - Options for error handling and timeout
+ * @returns A new promise that safely handles errors
  * 
  * @example
  * // Basic usage
- * const result = await safePromise(userService.findById(id));
- * if (result.success) {
- *   console.log(result.data);
- * } else {
- *   console.error(result.error);
- * }
+ * const result = await createSafePromise(fetchData());
  * 
- * // With default value
- * const result = await safePromise(userService.findById(id), {
- *   defaultValue: { id, name: 'Unknown' }
+ * // With timeout
+ * const result = await createSafePromise(fetchData(), {
+ *   timeout: 5000,
+ *   timeoutError: new AppException(
+ *     'Operation timed out',
+ *     ErrorType.TECHNICAL,
+ *     'TIMEOUT_001'
+ *   )
  * });
- * console.log(result.data); // Will be the user or the default value
  */
-export async function safePromise<T>(
+export function createSafePromise<T, E = Error, R = Error>(
   promise: Promise<T>,
-  options: SafePromiseOptions<T> = {}
-): Promise<SafePromiseResult<T>> {
-  try {
-    // If timeout is specified, create a race between the promise and a timeout
-    let result: T;
-    if (options.timeout) {
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new AppException(
-            `Operation timed out after ${options.timeout}ms`,
-            ErrorType.TECHNICAL,
-            'TIMEOUT_001'
-          ));
-        }, options.timeout);
-      });
-      
-      result = await Promise.race([promise, timeoutPromise]);
-    } else {
-      result = await promise;
+  options: SafePromiseOptions<E, R> = {}
+): Promise<T> {
+  const {
+    errorHandler,
+    errorTransformer,
+    timeout,
+    timeoutError = new AppException(
+      'Operation timed out',
+      ErrorType.TECHNICAL,
+      'TIMEOUT_001',
+      { timeoutMs: timeout }
+    )
+  } = options;
+
+  // Create a timeout promise if timeout is specified
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeoutPromise = timeout
+    ? new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(timeoutError);
+        }, timeout);
+      })
+    : null;
+
+  // Wrap the original promise to handle errors
+  const wrappedPromise = promise.catch((error: E) => {
+    // Execute error handler if provided
+    if (errorHandler) {
+      errorHandler(error);
     }
-    
-    return {
-      data: result,
-      error: null,
-      success: true
-    };
-  } catch (error) {
-    // Execute the onError handler if provided
-    if (options.onError) {
-      options.onError(error as Error);
+
+    // Transform error if transformer is provided
+    const transformedError = errorTransformer ? errorTransformer(error) : error;
+
+    // Rethrow the transformed error
+    throw transformedError;
+  }).finally(() => {
+    // Clear the timeout if it was set
+    if (timeoutId) {
+      clearTimeout(timeoutId);
     }
-    
-    return {
-      data: options.defaultValue ?? null,
-      error: error as Error,
-      success: false
-    };
+  });
+
+  // If timeout is specified, race the wrapped promise against the timeout promise
+  return timeoutPromise
+    ? Promise.race([wrappedPromise, timeoutPromise])
+    : wrappedPromise;
+}
+
+/**
+ * A class that provides reactive error handling for async operations.
+ * Useful for implementing retry logic, circuit breaking, and other error recovery patterns.
+ */
+export class AsyncErrorBoundary<T = any, E = Error> {
+  private errorHandlers: ErrorHandler<E>[] = [];
+  private errorTransformers: ErrorTransformer<E, any>[] = [];
+  private retryCount = 0;
+  private maxRetries = 0;
+  private retryDelay = 0;
+  private exponentialBackoff = false;
+  private circuitOpen = false;
+  private circuitResetTimeout = 0;
+  private circuitResetTimer: NodeJS.Timeout | null = null;
+  private fallbackValue: T | null = null;
+  private hasFallback = false;
+
+  /**
+   * Adds an error handler to the boundary.
+   * 
+   * @param handler - The error handler function
+   * @returns This instance for chaining
+   */
+  public onError(handler: ErrorHandler<E>): AsyncErrorBoundary<T, E> {
+    this.errorHandlers.push(handler);
+    return this;
+  }
+
+  /**
+   * Adds an error transformer to the boundary.
+   * 
+   * @param transformer - The error transformer function
+   * @returns This instance for chaining
+   */
+  public transformError<R>(transformer: ErrorTransformer<E, R>): AsyncErrorBoundary<T, E> {
+    this.errorTransformers.push(transformer);
+    return this;
+  }
+
+  /**
+   * Configures retry behavior for failed operations.
+   * 
+   * @param maxRetries - Maximum number of retry attempts
+   * @param delay - Delay between retries in milliseconds
+   * @param exponential - Whether to use exponential backoff for delays
+   * @returns This instance for chaining
+   */
+  public withRetry(maxRetries: number, delay = 1000, exponential = false): AsyncErrorBoundary<T, E> {
+    this.maxRetries = maxRetries;
+    this.retryDelay = delay;
+    this.exponentialBackoff = exponential;
+    return this;
+  }
+
+  /**
+   * Configures circuit breaker behavior to prevent repeated calls to failing operations.
+   * 
+   * @param resetTimeout - Time in milliseconds before the circuit is reset (closed)
+   * @returns This instance for chaining
+   */
+  public withCircuitBreaker(resetTimeout: number): AsyncErrorBoundary<T, E> {
+    this.circuitResetTimeout = resetTimeout;
+    return this;
+  }
+
+  /**
+   * Sets a fallback value to return if all recovery strategies fail.
+   * 
+   * @param value - The fallback value
+   * @returns This instance for chaining
+   */
+  public withFallback(value: T): AsyncErrorBoundary<T, E> {
+    this.fallbackValue = value;
+    this.hasFallback = true;
+    return this;
+  }
+
+  /**
+   * Executes an async function with all configured error handling strategies.
+   * 
+   * @param fn - The async function to execute
+   * @param args - Arguments to pass to the function
+   * @returns A promise that resolves to the function result or fallback value
+   * 
+   * @throws Will throw an error if all recovery strategies fail and no fallback is configured
+   */
+  public async execute<Args extends any[]>(
+    fn: AsyncFunction<T, Args>,
+    ...args: Args
+  ): Promise<T> {
+    // Check if circuit is open
+    if (this.circuitOpen) {
+      if (this.hasFallback) {
+        return this.fallbackValue as T;
+      }
+      throw new AppException(
+        'Circuit is open, operation rejected',
+        ErrorType.TECHNICAL,
+        'CIRCUIT_OPEN',
+        { resetTimeoutMs: this.circuitResetTimeout }
+      );
+    }
+
+    // Reset retry count
+    this.retryCount = 0;
+
+    // Execute with retry
+    return this.executeWithRetry(fn, args);
+  }
+
+  /**
+   * Internal method to execute a function with retry logic.
+   */
+  private async executeWithRetry<Args extends any[]>(
+    fn: AsyncFunction<T, Args>,
+    args: Args
+  ): Promise<T> {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      // Handle the error
+      this.handleError(error as E);
+
+      // Transform the error through all transformers
+      let transformedError = error;
+      for (const transformer of this.errorTransformers) {
+        transformedError = transformer(transformedError as E);
+      }
+
+      // Check if we should retry
+      if (this.retryCount < this.maxRetries) {
+        this.retryCount++;
+
+        // Calculate delay with exponential backoff if enabled
+        const delay = this.exponentialBackoff
+          ? this.retryDelay * Math.pow(2, this.retryCount - 1)
+          : this.retryDelay;
+
+        // Wait for the delay
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+        // Retry the operation
+        return this.executeWithRetry(fn, args);
+      }
+
+      // Open the circuit if circuit breaker is configured
+      if (this.circuitResetTimeout > 0) {
+        this.openCircuit();
+      }
+
+      // Return fallback value if configured
+      if (this.hasFallback) {
+        return this.fallbackValue as T;
+      }
+
+      // Rethrow the transformed error
+      throw transformedError;
+    }
+  }
+
+  /**
+   * Internal method to handle an error by calling all registered error handlers.
+   */
+  private handleError(error: E): void {
+    for (const handler of this.errorHandlers) {
+      handler(error);
+    }
+  }
+
+  /**
+   * Internal method to open the circuit and set a timer to reset it.
+   */
+  private openCircuit(): void {
+    this.circuitOpen = true;
+
+    // Clear any existing timer
+    if (this.circuitResetTimer) {
+      clearTimeout(this.circuitResetTimer);
+    }
+
+    // Set a timer to reset the circuit
+    this.circuitResetTimer = setTimeout(() => {
+      this.circuitOpen = false;
+      this.circuitResetTimer = null;
+    }, this.circuitResetTimeout);
   }
 }
 
 /**
- * Type guard to check if an error is an instance of a specific error class
+ * Transforms any error to an AppException with the specified type and code.
  * 
- * @param error - The error to check
- * @param errorClass - The error class to check against
- * @returns True if the error is an instance of the specified class
+ * @param type - The error type
+ * @param code - The error code
+ * @param message - Optional custom message (defaults to the original error message)
+ * @returns An error transformer function
  * 
  * @example
- * try {
- *   await someOperation();
- * } catch (error) {
- *   if (isErrorOfType(error, AppException)) {
- *     console.log(error.code); // TypeScript knows this is an AppException
+ * const safeFunction = asyncTryCatch(
+ *   async () => { /* ... */ },
+ *   {
+ *     errorTransformer: toAppException(ErrorType.TECHNICAL, 'ASYNC_001')
  *   }
- * }
+ * );
  */
-export function isErrorOfType<T extends Error>(
-  error: unknown,
-  errorClass: new (...args: any[]) => T
-): error is T {
-  return error instanceof errorClass;
+export function toAppException(
+  type: ErrorType,
+  code: string,
+  message?: string
+): ErrorTransformer<Error, AppException> {
+  return (error: Error): AppException => {
+    return new AppException(
+      message || error.message,
+      type,
+      code,
+      { originalError: error.message },
+      error
+    );
+  };
 }
 
 /**
- * Options for the AsyncErrorBoundary class
- */
-export interface AsyncErrorBoundaryOptions<T> {
-  /**
-   * Function to execute when an error occurs
-   */
-  onError?: (error: Error) => void;
-  
-  /**
-   * Default value to return if an error occurs
-   */
-  fallbackValue?: T;
-  
-  /**
-   * Maximum number of retry attempts
-   */
-  maxRetries?: number;
-  
-  /**
-   * Base delay in milliseconds for exponential backoff
-   */
-  retryDelay?: number;
-}
-
-/**
- * Class that provides reactive error handling for async operations.
- * Useful for implementing retry logic, circuit breaking, and fallback strategies.
- */
-export class AsyncErrorBoundary<T> {
-  private onError?: (error: Error) => void;
-  private fallbackValue?: T;
-  private maxRetries: number;
-  private retryDelay: number;
-  
-  /**
-   * Creates a new AsyncErrorBoundary instance
-   * 
-   * @param options - Options for the error boundary
-   */
-  constructor(options: AsyncErrorBoundaryOptions<T> = {}) {
-    this.onError = options.onError;
-    this.fallbackValue = options.fallbackValue;
-    this.maxRetries = options.maxRetries ?? 3;
-    this.retryDelay = options.retryDelay ?? 300;
-  }
-  
-  /**
-   * Executes an async operation with retry logic and fallback
-   * 
-   * @param operation - The async operation to execute
-   * @returns The result of the operation or the fallback value
-   * 
-   * @example
-   * const boundary = new AsyncErrorBoundary<User>({
-   *   fallbackValue: { id: '0', name: 'Unknown' },
-   *   maxRetries: 3
-   * });
-   * 
-   * const user = await boundary.execute(() => userService.findById(id));
-   */
-  async execute(operation: () => Promise<T>): Promise<T | undefined> {
-    let lastError: Error | undefined;
-    
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        // Execute the operation
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-        
-        // Call the error handler if provided
-        if (this.onError) {
-          this.onError(lastError);
-        }
-        
-        // If this was the last retry, break out of the loop
-        if (attempt === this.maxRetries) {
-          break;
-        }
-        
-        // Wait before the next retry with exponential backoff
-        const delay = this.retryDelay * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-    
-    // Return the fallback value if provided, otherwise undefined
-    return this.fallbackValue;
-  }
-  
-  /**
-   * Executes an async operation with a circuit breaker pattern
-   * 
-   * @param operation - The async operation to execute
-   * @param options - Options for the circuit breaker
-   * @returns The result of the operation or the fallback value
-   * 
-   * @example
-   * const boundary = new AsyncErrorBoundary<User>();
-   * 
-   * // This will use a shared circuit breaker for all calls with the same breakerId
-   * const user = await boundary.executeWithCircuitBreaker(
-   *   () => userService.findById(id),
-   *   { breakerId: 'user-service', fallbackValue: { id: '0', name: 'Unknown' } }
-   * );
-   */
-  async executeWithCircuitBreaker(
-    operation: () => Promise<T>,
-    options: {
-      breakerId: string;
-      fallbackValue?: T;
-      timeout?: number;
-    }
-  ): Promise<T | undefined> {
-    // Simple implementation of circuit breaker pattern
-    // In a real implementation, this would track failure rates and open/close the circuit
-    try {
-      // If timeout is specified, create a race between the operation and a timeout
-      if (options.timeout) {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new AppException(
-              `Operation timed out after ${options.timeout}ms`,
-              ErrorType.TECHNICAL,
-              'TIMEOUT_001'
-            ));
-          }, options.timeout);
-        });
-        
-        return await Promise.race([operation(), timeoutPromise]);
-      }
-      
-      return await operation();
-    } catch (error) {
-      // Call the error handler if provided
-      if (this.onError) {
-        this.onError(error as Error);
-      }
-      
-      // Return the fallback value if provided
-      return options.fallbackValue ?? this.fallbackValue;
-    }
-  }
-}
-
-/**
- * Creates a promise that rejects after the specified timeout
+ * Creates a promise that rejects after the specified timeout.
  * 
  * @param ms - Timeout in milliseconds
- * @param message - Optional error message
+ * @param errorMessage - Optional custom error message
  * @returns A promise that rejects after the timeout
  * 
  * @example
- * // Use with Promise.race to implement a timeout
+ * // Use with Promise.race to implement timeout
  * const result = await Promise.race([
  *   fetchData(),
- *   createTimeout(5000, 'Data fetch timed out')
+ *   createTimeoutPromise(5000, 'Fetch operation timed out')
  * ]);
  */
-export function createTimeout(ms: number, message?: string): Promise<never> {
+export function createTimeoutPromise(ms: number, errorMessage = 'Operation timed out'): Promise<never> {
   return new Promise<never>((_, reject) => {
     setTimeout(() => {
       reject(new AppException(
-        message ?? `Operation timed out after ${ms}ms`,
+        errorMessage,
         ErrorType.TECHNICAL,
-        'TIMEOUT_001'
+        'TIMEOUT_001',
+        { timeoutMs: ms }
       ));
     }, ms);
   });
 }
 
 /**
- * Adds a timeout to a promise
+ * Adds timeout capability to any promise.
  * 
- * @param promise - The promise to add a timeout to
+ * @param promise - The promise to add timeout to
  * @param ms - Timeout in milliseconds
- * @param message - Optional error message
- * @returns A promise that resolves to the result or rejects with a timeout error
+ * @param errorMessage - Optional custom error message
+ * @returns A promise that rejects if the original promise doesn't resolve within the timeout
  * 
  * @example
- * // Add a timeout to any promise
- * const user = await withTimeout(
- *   userService.findById(id),
- *   5000,
- *   'User fetch timed out'
- * );
+ * const result = await withTimeout(fetchData(), 5000);
  */
 export function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
-  message?: string
+  errorMessage = 'Operation timed out'
 ): Promise<T> {
-  return Promise.race([promise, createTimeout(ms, message)]);
+  const timeoutPromise = createTimeoutPromise(ms, errorMessage);
+  return Promise.race([promise, timeoutPromise]);
 }

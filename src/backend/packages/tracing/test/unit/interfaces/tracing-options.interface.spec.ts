@@ -1,416 +1,667 @@
-import { DEFAULT_SAMPLING_RATE, DEFAULT_SERVICE_NAME } from '../../../src/constants/defaults';
-import { CONFIG_KEYS } from '../../../src/constants/config-keys';
-
-/**
- * This is a mock of what the TracingOptions interface would look like.
- * In a real implementation, this would be imported from the actual interface file.
- */
-interface TracingOptions {
-  service: {
-    name: string;
-    version?: string;
-    environment?: string;
-  };
-  exporter?: {
-    type?: 'jaeger' | 'zipkin' | 'otlp' | 'console' | 'none';
-    endpoint?: string;
-    headers?: Record<string, string>;
-    timeout?: number;
-  };
-  sampling?: {
-    ratio?: number;
-    strategy?: 'always' | 'never' | 'probability' | 'parentbased';
-  };
-  resource?: {
-    attributes?: Record<string, string | number | boolean>;
-    autoDetect?: boolean;
-  };
-  batchProcessor?: {
-    maxBatchSize?: number;
-    maxExportBatchSize?: number;
-    exportTimeout?: number;
-    scheduleDelay?: number;
-  };
-  journey?: {
-    health?: {
-      enabled?: boolean;
-      samplingRatio?: number;
-    };
-    care?: {
-      enabled?: boolean;
-      samplingRatio?: number;
-    };
-    plan?: {
-      enabled?: boolean;
-      samplingRatio?: number;
-    };
-  };
-  enabled?: boolean;
-  logLevel?: 'debug' | 'info' | 'warn' | 'error';
-  contextPropagation?: {
-    enabled?: boolean;
-  };
-}
-
-/**
- * Mock validation function for testing purposes.
- * In a real implementation, this would be the actual validation function.
- */
-function validateTracingOptions(options: TracingOptions): { isValid: boolean; errors: string[] } {
-  const errors: string[] = [];
-
-  // Validate service name
-  if (!options.service || !options.service.name) {
-    errors.push('Service name is required');
-  } else if (typeof options.service.name !== 'string') {
-    errors.push('Service name must be a string');
-  } else if (options.service.name.trim() === '') {
-    errors.push('Service name cannot be empty');
-  }
-
-  // Validate sampling ratio
-  if (options.sampling && options.sampling.ratio !== undefined) {
-    if (typeof options.sampling.ratio !== 'number') {
-      errors.push('Sampling ratio must be a number');
-    } else if (options.sampling.ratio < 0 || options.sampling.ratio > 1) {
-      errors.push('Sampling ratio must be between 0 and 1');
-    }
-  }
-
-  // Validate exporter type
-  if (options.exporter && options.exporter.type) {
-    const validTypes = ['jaeger', 'zipkin', 'otlp', 'console', 'none'];
-    if (!validTypes.includes(options.exporter.type)) {
-      errors.push(`Exporter type must be one of: ${validTypes.join(', ')}`);
-    }
-  }
-
-  // Validate exporter endpoint
-  if (options.exporter && options.exporter.type && options.exporter.type !== 'none' && options.exporter.type !== 'console') {
-    if (!options.exporter.endpoint) {
-      errors.push(`Endpoint is required for exporter type: ${options.exporter.type}`);
-    } else if (typeof options.exporter.endpoint !== 'string') {
-      errors.push('Exporter endpoint must be a string');
-    } else if (!options.exporter.endpoint.startsWith('http://') && !options.exporter.endpoint.startsWith('https://')) {
-      errors.push('Exporter endpoint must start with http:// or https://');
-    }
-  }
-
-  // Validate journey-specific sampling ratios
-  const journeyTypes = ['health', 'care', 'plan'] as const;
-  if (options.journey) {
-    for (const journeyType of journeyTypes) {
-      if (options.journey[journeyType] && options.journey[journeyType]?.samplingRatio !== undefined) {
-        const ratio = options.journey[journeyType]?.samplingRatio;
-        if (typeof ratio !== 'number') {
-          errors.push(`${journeyType} journey sampling ratio must be a number`);
-        } else if (ratio < 0 || ratio > 1) {
-          errors.push(`${journeyType} journey sampling ratio must be between 0 and 1`);
-        }
-      }
-    }
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-}
-
-/**
- * Mock function to apply default values to tracing options.
- * In a real implementation, this would be the actual function to apply defaults.
- */
-function applyDefaultTracingOptions(options: Partial<TracingOptions>): TracingOptions {
-  return {
-    service: {
-      name: options.service?.name || DEFAULT_SERVICE_NAME,
-      version: options.service?.version,
-      environment: options.service?.environment || 'development',
-    },
-    exporter: {
-      type: options.exporter?.type || 'console',
-      endpoint: options.exporter?.endpoint,
-      headers: options.exporter?.headers || {},
-      timeout: options.exporter?.timeout || 30000,
-    },
-    sampling: {
-      ratio: options.sampling?.ratio !== undefined ? options.sampling.ratio : DEFAULT_SAMPLING_RATE,
-      strategy: options.sampling?.strategy || 'probability',
-    },
-    resource: {
-      attributes: options.resource?.attributes || {},
-      autoDetect: options.resource?.autoDetect !== undefined ? options.resource.autoDetect : true,
-    },
-    batchProcessor: {
-      maxBatchSize: options.batchProcessor?.maxBatchSize || 512,
-      maxExportBatchSize: options.batchProcessor?.maxExportBatchSize || 512,
-      exportTimeout: options.batchProcessor?.exportTimeout || 30000,
-      scheduleDelay: options.batchProcessor?.scheduleDelay || 5000,
-    },
-    journey: {
-      health: {
-        enabled: options.journey?.health?.enabled !== undefined ? options.journey.health.enabled : true,
-        samplingRatio: options.journey?.health?.samplingRatio !== undefined ? options.journey.health.samplingRatio : DEFAULT_SAMPLING_RATE,
-      },
-      care: {
-        enabled: options.journey?.care?.enabled !== undefined ? options.journey.care.enabled : true,
-        samplingRatio: options.journey?.care?.samplingRatio !== undefined ? options.journey.care.samplingRatio : DEFAULT_SAMPLING_RATE,
-      },
-      plan: {
-        enabled: options.journey?.plan?.enabled !== undefined ? options.journey.plan.enabled : true,
-        samplingRatio: options.journey?.plan?.samplingRatio !== undefined ? options.journey.plan.samplingRatio : DEFAULT_SAMPLING_RATE,
-      },
-    },
-    enabled: options.enabled !== undefined ? options.enabled : true,
-    logLevel: options.logLevel || 'info',
-    contextPropagation: {
-      enabled: options.contextPropagation?.enabled !== undefined ? options.contextPropagation.enabled : true,
-    },
-  };
-}
+import { TracingOptions } from '../../../src/interfaces/tracing-options.interface';
+import { mockServiceConfigs } from '../../fixtures/service-config';
 
 describe('TracingOptions Interface', () => {
-  describe('Service Name Configuration', () => {
-    it('should validate that service name is required', () => {
-      // @ts-expect-error - Testing invalid input
-      const result = validateTracingOptions({ service: {} });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Service name is required');
+  describe('Service Configuration', () => {
+    it('should require service name to be defined', () => {
+      // Type assertion test - this should fail TypeScript compilation if service.name is not required
+      // @ts-expect-error - service.name is required
+      const invalidOptions: TracingOptions = {
+        service: {}
+      };
+
+      // This should compile correctly
+      const validOptions: TracingOptions = {
+        service: {
+          name: 'test-service'
+        }
+      };
+
+      expect(validOptions.service.name).toBe('test-service');
     });
 
-    it('should validate that service name must be a string', () => {
-      // @ts-expect-error - Testing invalid input
-      const result = validateTracingOptions({ service: { name: 123 } });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Service name must be a string');
+    it('should allow optional service version', () => {
+      // Both should compile correctly
+      const withoutVersion: TracingOptions = {
+        service: {
+          name: 'test-service'
+        }
+      };
+
+      const withVersion: TracingOptions = {
+        service: {
+          name: 'test-service',
+          version: '1.2.3'
+        }
+      };
+
+      expect(withoutVersion.service.version).toBeUndefined();
+      expect(withVersion.service.version).toBe('1.2.3');
     });
 
-    it('should validate that service name cannot be empty', () => {
-      const result = validateTracingOptions({ service: { name: '' } });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Service name cannot be empty');
+    it('should allow optional service environment', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service',
+          environment: 'production'
+        }
+      };
+
+      expect(options.service.environment).toBe('production');
     });
 
-    it('should accept a valid service name', () => {
-      const result = validateTracingOptions({ service: { name: 'test-service' } });
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
+    it('should restrict journey to valid values', () => {
+      // These should compile correctly
+      const healthJourney: TracingOptions = {
+        service: {
+          name: 'health-service',
+          journey: 'health'
+        }
+      };
 
-    it('should use default service name when not provided', () => {
-      const options = applyDefaultTracingOptions({});
-      expect(options.service.name).toBe(DEFAULT_SERVICE_NAME);
+      const careJourney: TracingOptions = {
+        service: {
+          name: 'care-service',
+          journey: 'care'
+        }
+      };
+
+      const planJourney: TracingOptions = {
+        service: {
+          name: 'plan-service',
+          journey: 'plan'
+        }
+      };
+
+      const sharedJourney: TracingOptions = {
+        service: {
+          name: 'shared-service',
+          journey: 'shared'
+        }
+      };
+
+      // This should fail TypeScript compilation
+      // @ts-expect-error - invalid journey value
+      const invalidJourney: TracingOptions = {
+        service: {
+          name: 'invalid-service',
+          journey: 'invalid'
+        }
+      };
+
+      expect(healthJourney.service.journey).toBe('health');
+      expect(careJourney.service.journey).toBe('care');
+      expect(planJourney.service.journey).toBe('plan');
+      expect(sharedJourney.service.journey).toBe('shared');
     });
   });
 
-  describe('Sampling Rate Configuration', () => {
-    it('should validate that sampling ratio must be a number', () => {
-      // @ts-expect-error - Testing invalid input
-      const result = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: '0.5' } });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Sampling ratio must be a number');
+  describe('Sampling Configuration', () => {
+    it('should allow optional sampling configuration', () => {
+      // Both should compile correctly
+      const withoutSampling: TracingOptions = {
+        service: {
+          name: 'test-service'
+        }
+      };
+
+      const withSampling: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          rate: 0.5
+        }
+      };
+
+      expect(withoutSampling.sampling).toBeUndefined();
+      expect(withSampling.sampling?.rate).toBe(0.5);
     });
 
-    it('should validate that sampling ratio must be between 0 and 1', () => {
-      const result1 = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: -0.1 } });
-      expect(result1.isValid).toBe(false);
-      expect(result1.errors).toContain('Sampling ratio must be between 0 and 1');
+    it('should validate sampling rate is between 0 and 1', () => {
+      // These should compile correctly
+      const minRate: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          rate: 0
+        }
+      };
 
-      const result2 = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: 1.1 } });
-      expect(result2.isValid).toBe(false);
-      expect(result2.errors).toContain('Sampling ratio must be between 0 and 1');
+      const maxRate: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          rate: 1
+        }
+      };
+
+      const midRate: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          rate: 0.5
+        }
+      };
+
+      // Runtime validation would be needed for these cases
+      // as TypeScript can't enforce numeric ranges
+      expect(minRate.sampling?.rate).toBe(0);
+      expect(maxRate.sampling?.rate).toBe(1);
+      expect(midRate.sampling?.rate).toBe(0.5);
+
+      // In a real implementation, there would be runtime validation:
+      const validateSamplingRate = (rate: number): boolean => {
+        return rate >= 0 && rate <= 1;
+      };
+
+      expect(validateSamplingRate(minRate.sampling?.rate || 0)).toBe(true);
+      expect(validateSamplingRate(maxRate.sampling?.rate || 0)).toBe(true);
+      expect(validateSamplingRate(midRate.sampling?.rate || 0)).toBe(true);
+      expect(validateSamplingRate(-0.1)).toBe(false);
+      expect(validateSamplingRate(1.1)).toBe(false);
     });
 
-    it('should accept valid sampling ratios', () => {
-      const result1 = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: 0 } });
-      expect(result1.isValid).toBe(true);
+    it('should allow configuration of always sampling errors', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          alwaysSampleErrors: false
+        }
+      };
 
-      const result2 = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: 0.5 } });
-      expect(result2.isValid).toBe(true);
-
-      const result3 = validateTracingOptions({ service: { name: 'test' }, sampling: { ratio: 1 } });
-      expect(result3.isValid).toBe(true);
+      expect(options.sampling?.alwaysSampleErrors).toBe(false);
     });
 
-    it('should use default sampling ratio when not provided', () => {
-      const options = applyDefaultTracingOptions({ service: { name: 'test' } });
-      expect(options.sampling.ratio).toBe(DEFAULT_SAMPLING_RATE);
+    it('should allow configuration of paths to always sample', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        sampling: {
+          alwaysSamplePaths: ['/api/health', '/api/critical']
+        }
+      };
+
+      expect(options.sampling?.alwaysSamplePaths).toEqual(['/api/health', '/api/critical']);
     });
   });
 
   describe('Exporter Configuration', () => {
-    it('should validate exporter type', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'invalid' as any } 
-      });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Exporter type must be one of: jaeger, zipkin, otlp, console, none');
+    it('should allow configuration of exporter type', () => {
+      // These should all compile correctly
+      const otlpExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp'
+        }
+      };
+
+      const prometheusExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'prometheus'
+        }
+      };
+
+      const consoleExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'console'
+        }
+      };
+
+      const jaegerExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'jaeger'
+        }
+      };
+
+      const zipkinExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'zipkin'
+        }
+      };
+
+      const noExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'none'
+        }
+      };
+
+      // This should fail TypeScript compilation
+      // @ts-expect-error - invalid exporter type
+      const invalidExporter: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'invalid'
+        }
+      };
+
+      expect(otlpExporter.exporter?.type).toBe('otlp');
+      expect(prometheusExporter.exporter?.type).toBe('prometheus');
+      expect(consoleExporter.exporter?.type).toBe('console');
+      expect(jaegerExporter.exporter?.type).toBe('jaeger');
+      expect(zipkinExporter.exporter?.type).toBe('zipkin');
+      expect(noExporter.exporter?.type).toBe('none');
     });
 
-    it('should validate that endpoint is required for non-console exporters', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'jaeger' } 
-      });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Endpoint is required for exporter type: jaeger');
-    });
-
-    it('should validate that endpoint must be a valid URL', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'jaeger', endpoint: 'invalid-url' } 
-      });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Exporter endpoint must start with http:// or https://');
-    });
-
-    it('should accept valid exporter configuration', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'jaeger', endpoint: 'http://localhost:14268/api/traces' } 
-      });
-      expect(result.isValid).toBe(true);
-    });
-
-    it('should not require endpoint for console exporter', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'console' } 
-      });
-      expect(result.isValid).toBe(true);
-    });
-
-    it('should not require endpoint for none exporter', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' }, 
-        exporter: { type: 'none' } 
-      });
-      expect(result.isValid).toBe(true);
-    });
-
-    it('should use default exporter type when not provided', () => {
-      const options = applyDefaultTracingOptions({ service: { name: 'test' } });
-      expect(options.exporter?.type).toBe('console');
-    });
-  });
-
-  describe('Default Value Behavior', () => {
-    it('should apply all default values when minimal configuration is provided', () => {
-      const minimalOptions = { service: { name: 'minimal-service' } };
-      const fullOptions = applyDefaultTracingOptions(minimalOptions);
-
-      // Check that all required fields have default values
-      expect(fullOptions.service.name).toBe('minimal-service');
-      expect(fullOptions.service.environment).toBe('development');
-      expect(fullOptions.exporter?.type).toBe('console');
-      expect(fullOptions.sampling?.ratio).toBe(DEFAULT_SAMPLING_RATE);
-      expect(fullOptions.sampling?.strategy).toBe('probability');
-      expect(fullOptions.resource?.autoDetect).toBe(true);
-      expect(fullOptions.enabled).toBe(true);
-      expect(fullOptions.logLevel).toBe('info');
-      expect(fullOptions.contextPropagation?.enabled).toBe(true);
-    });
-
-    it('should not override provided values with defaults', () => {
-      const customOptions = { 
-        service: { 
-          name: 'custom-service',
-          environment: 'production' 
+    it('should allow OTLP-specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
         },
         exporter: {
           type: 'otlp',
-          endpoint: 'https://collector.example.com:4317'
-        },
-        sampling: {
-          ratio: 0.1,
-          strategy: 'parentbased' as const
-        },
-        enabled: false,
-        logLevel: 'error' as const
+          otlp: {
+            protocol: 'grpc',
+            endpoint: 'http://collector:4317',
+            headers: {
+              'x-api-key': 'test-key'
+            },
+            timeoutMillis: 15000,
+            compression: 'gzip',
+            maxRetries: 3,
+            initialBackoffMillis: 500,
+            maxBackoffMillis: 3000,
+            maxConcurrentExports: 4
+          }
+        }
       };
-      
-      const fullOptions = applyDefaultTracingOptions(customOptions);
 
-      // Check that provided values are preserved
-      expect(fullOptions.service.name).toBe('custom-service');
-      expect(fullOptions.service.environment).toBe('production');
-      expect(fullOptions.exporter?.type).toBe('otlp');
-      expect(fullOptions.exporter?.endpoint).toBe('https://collector.example.com:4317');
-      expect(fullOptions.sampling?.ratio).toBe(0.1);
-      expect(fullOptions.sampling?.strategy).toBe('parentbased');
-      expect(fullOptions.enabled).toBe(false);
-      expect(fullOptions.logLevel).toBe('error');
+      expect(options.exporter?.otlp?.protocol).toBe('grpc');
+      expect(options.exporter?.otlp?.endpoint).toBe('http://collector:4317');
+      expect(options.exporter?.otlp?.headers).toEqual({ 'x-api-key': 'test-key' });
+      expect(options.exporter?.otlp?.timeoutMillis).toBe(15000);
+      expect(options.exporter?.otlp?.compression).toBe('gzip');
+      expect(options.exporter?.otlp?.maxRetries).toBe(3);
+      expect(options.exporter?.otlp?.initialBackoffMillis).toBe(500);
+      expect(options.exporter?.otlp?.maxBackoffMillis).toBe(3000);
+      expect(options.exporter?.otlp?.maxConcurrentExports).toBe(4);
+    });
+
+    it('should restrict OTLP protocol to valid values', () => {
+      // These should compile correctly
+      const grpcProtocol: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            protocol: 'grpc'
+          }
+        }
+      };
+
+      const httpProtocol: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            protocol: 'http/protobuf'
+          }
+        }
+      };
+
+      // This should fail TypeScript compilation
+      // @ts-expect-error - invalid protocol
+      const invalidProtocol: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            protocol: 'invalid'
+          }
+        }
+      };
+
+      expect(grpcProtocol.exporter?.otlp?.protocol).toBe('grpc');
+      expect(httpProtocol.exporter?.otlp?.protocol).toBe('http/protobuf');
+    });
+
+    it('should restrict OTLP compression to valid values', () => {
+      // These should compile correctly
+      const gzipCompression: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            compression: 'gzip'
+          }
+        }
+      };
+
+      const noCompression: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            compression: 'none'
+          }
+        }
+      };
+
+      // This should fail TypeScript compilation
+      // @ts-expect-error - invalid compression
+      const invalidCompression: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'otlp',
+          otlp: {
+            compression: 'invalid'
+          }
+        }
+      };
+
+      expect(gzipCompression.exporter?.otlp?.compression).toBe('gzip');
+      expect(noCompression.exporter?.otlp?.compression).toBe('none');
+    });
+
+    it('should allow Prometheus-specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'prometheus',
+          prometheus: {
+            host: '0.0.0.0',
+            port: 9464,
+            path: '/metrics',
+            withResourceAttributes: true,
+            withUnits: false
+          }
+        }
+      };
+
+      expect(options.exporter?.prometheus?.host).toBe('0.0.0.0');
+      expect(options.exporter?.prometheus?.port).toBe(9464);
+      expect(options.exporter?.prometheus?.path).toBe('/metrics');
+      expect(options.exporter?.prometheus?.withResourceAttributes).toBe(true);
+      expect(options.exporter?.prometheus?.withUnits).toBe(false);
+    });
+
+    it('should allow Console-specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        exporter: {
+          type: 'console',
+          console: {
+            prettyPrint: false
+          }
+        }
+      };
+
+      expect(options.exporter?.console?.prettyPrint).toBe(false);
+    });
+  });
+
+  describe('Batch Configuration', () => {
+    it('should allow configuration of batch processing options', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        batch: {
+          maxExportBatchSize: 256,
+          scheduledDelayMillis: 1000,
+          maxQueueSize: 4096
+        }
+      };
+
+      expect(options.batch?.maxExportBatchSize).toBe(256);
+      expect(options.batch?.scheduledDelayMillis).toBe(1000);
+      expect(options.batch?.maxQueueSize).toBe(4096);
+    });
+  });
+
+  describe('Resource Attributes', () => {
+    it('should allow configuration of resource attributes', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        resourceAttributes: {
+          'deployment.environment': 'production',
+          'service.instance.id': 'instance-123',
+          'host.name': 'host-abc'
+        }
+      };
+
+      expect(options.resourceAttributes).toEqual({
+        'deployment.environment': 'production',
+        'service.instance.id': 'instance-123',
+        'host.name': 'host-abc'
+      });
+    });
+  });
+
+  describe('Debug and Disabled Flags', () => {
+    it('should allow enabling debug mode', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        debug: true
+      };
+
+      expect(options.debug).toBe(true);
+    });
+
+    it('should allow disabling tracing entirely', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'test-service'
+        },
+        disabled: true
+      };
+
+      expect(options.disabled).toBe(true);
+    });
+  });
+
+  describe('Journey-Specific Configuration', () => {
+    it('should allow health journey specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'health-service',
+          journey: 'health'
+        },
+        journeyConfig: {
+          health: {
+            includeMetrics: true,
+            includeDeviceInfo: false
+          }
+        }
+      };
+
+      expect(options.journeyConfig?.health?.includeMetrics).toBe(true);
+      expect(options.journeyConfig?.health?.includeDeviceInfo).toBe(false);
+    });
+
+    it('should allow care journey specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'care-service',
+          journey: 'care'
+        },
+        journeyConfig: {
+          care: {
+            includeAppointments: true,
+            includeProviders: false
+          }
+        }
+      };
+
+      expect(options.journeyConfig?.care?.includeAppointments).toBe(true);
+      expect(options.journeyConfig?.care?.includeProviders).toBe(false);
+    });
+
+    it('should allow plan journey specific configuration', () => {
+      const options: TracingOptions = {
+        service: {
+          name: 'plan-service',
+          journey: 'plan'
+        },
+        journeyConfig: {
+          plan: {
+            includeClaims: true,
+            includeBenefits: false
+          }
+        }
+      };
+
+      expect(options.journeyConfig?.plan?.includeClaims).toBe(true);
+      expect(options.journeyConfig?.plan?.includeBenefits).toBe(false);
     });
   });
 
   describe('Environment-Specific Configuration', () => {
-    it('should validate journey-specific sampling ratios', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' },
-        journey: {
-          health: { samplingRatio: 1.5 },
-          care: { samplingRatio: -0.1 }
-        }
-      });
+    it('should support development environment configuration', () => {
+      const devConfig = mockServiceConfigs.development;
       
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('health journey sampling ratio must be between 0 and 1');
-      expect(result.errors).toContain('care journey sampling ratio must be between 0 and 1');
+      expect(devConfig.service.environment).toBe('development');
+      expect(devConfig.sampling?.rate).toBe(1.0); // Full sampling in development
+      expect(devConfig.exporter?.type).toBe('console'); // Console exporter for development
+      expect(devConfig.debug).toBe(true); // Debug enabled in development
     });
 
-    it('should accept valid journey-specific configuration', () => {
-      const result = validateTracingOptions({ 
-        service: { name: 'test' },
-        journey: {
-          health: { enabled: true, samplingRatio: 0.8 },
-          care: { enabled: false, samplingRatio: 0.2 },
-          plan: { enabled: true, samplingRatio: 1.0 }
-        }
-      });
+    it('should support production environment configuration', () => {
+      const prodConfig = mockServiceConfigs.production;
       
-      expect(result.isValid).toBe(true);
+      expect(prodConfig.service.environment).toBe('production');
+      expect(prodConfig.sampling?.rate).toBeLessThan(1.0); // Partial sampling in production
+      expect(prodConfig.exporter?.type).toBe('otlp'); // OTLP exporter for production
+      expect(prodConfig.debug).toBe(false); // Debug disabled in production
+      expect(prodConfig.batch?.maxQueueSize).toBeGreaterThan(0); // Batch processing configured
     });
 
-    it('should apply default journey-specific configuration', () => {
-      const options = applyDefaultTracingOptions({ service: { name: 'test' } });
+    it('should support staging environment configuration', () => {
+      const stagingConfig = mockServiceConfigs.staging;
       
-      expect(options.journey?.health?.enabled).toBe(true);
-      expect(options.journey?.health?.samplingRatio).toBe(DEFAULT_SAMPLING_RATE);
-      expect(options.journey?.care?.enabled).toBe(true);
-      expect(options.journey?.care?.samplingRatio).toBe(DEFAULT_SAMPLING_RATE);
-      expect(options.journey?.plan?.enabled).toBe(true);
-      expect(options.journey?.plan?.samplingRatio).toBe(DEFAULT_SAMPLING_RATE);
+      expect(stagingConfig.service.environment).toBe('staging');
+      expect(stagingConfig.sampling?.rate).toBeLessThan(1.0); // Partial sampling in staging
+      expect(stagingConfig.exporter?.type).toBe('otlp'); // OTLP exporter for staging
     });
+  });
 
-    it('should handle environment-specific configuration correctly', () => {
-      // Test development environment defaults
-      const devOptions = applyDefaultTracingOptions({ 
-        service: { name: 'test', environment: 'development' } 
-      });
-      expect(devOptions.service.environment).toBe('development');
-      expect(devOptions.exporter?.type).toBe('console'); // Console exporter is default for development
-      
-      // Test production environment with custom settings
-      const prodOptions = applyDefaultTracingOptions({ 
-        service: { name: 'test', environment: 'production' },
-        exporter: { type: 'otlp', endpoint: 'https://collector.example.com:4317' },
-        sampling: { ratio: 0.1 }, // Lower sampling in production
-        journey: {
-          health: { samplingRatio: 0.2 }, // Higher sampling for health journey
-          care: { samplingRatio: 0.05 }, // Lower sampling for care journey
-          plan: { samplingRatio: 0.05 } // Lower sampling for plan journey
+  describe('Default Value Behavior', () => {
+    it('should use default service name when not provided', () => {
+      // In a real implementation, there would be a function to apply defaults
+      const applyDefaults = (options: Partial<TracingOptions>): TracingOptions => {
+        return {
+          service: {
+            name: options.service?.name || 'austa-service',
+            version: options.service?.version || '1.0.0',
+            environment: options.service?.environment || 'development',
+            journey: options.service?.journey
+          },
+          sampling: {
+            rate: options.sampling?.rate ?? 1.0,
+            alwaysSampleErrors: options.sampling?.alwaysSampleErrors ?? true,
+            alwaysSamplePaths: options.sampling?.alwaysSamplePaths || []
+          },
+          exporter: {
+            type: options.exporter?.type || 'otlp',
+            otlp: options.exporter?.otlp || {
+              protocol: 'http/protobuf',
+              endpoint: 'http://localhost:4318/v1/traces'
+            }
+          },
+          debug: options.debug ?? false,
+          disabled: options.disabled ?? false
+        };
+      };
+
+      const emptyOptions = applyDefaults({});
+      const partialOptions = applyDefaults({
+        service: {
+          name: 'custom-service'
         }
       });
-      
-      expect(prodOptions.service.environment).toBe('production');
-      expect(prodOptions.exporter?.type).toBe('otlp');
-      expect(prodOptions.sampling?.ratio).toBe(0.1);
-      expect(prodOptions.journey?.health?.samplingRatio).toBe(0.2);
-      expect(prodOptions.journey?.care?.samplingRatio).toBe(0.05);
-      expect(prodOptions.journey?.plan?.samplingRatio).toBe(0.05);
+
+      expect(emptyOptions.service.name).toBe('austa-service');
+      expect(partialOptions.service.name).toBe('custom-service');
+      expect(emptyOptions.sampling?.rate).toBe(1.0);
+      expect(emptyOptions.exporter?.type).toBe('otlp');
+    });
+
+    it('should use appropriate defaults for different environments', () => {
+      // In a real implementation, there would be environment-specific defaults
+      const getEnvironmentDefaults = (environment: string): Partial<TracingOptions> => {
+        switch (environment) {
+          case 'production':
+            return {
+              sampling: { rate: 0.1 },
+              exporter: { type: 'otlp' },
+              debug: false
+            };
+          case 'staging':
+            return {
+              sampling: { rate: 0.5 },
+              exporter: { type: 'otlp' },
+              debug: true
+            };
+          case 'development':
+          default:
+            return {
+              sampling: { rate: 1.0 },
+              exporter: { type: 'console' },
+              debug: true
+            };
+        }
+      };
+
+      const devDefaults = getEnvironmentDefaults('development');
+      const stagingDefaults = getEnvironmentDefaults('staging');
+      const prodDefaults = getEnvironmentDefaults('production');
+
+      expect(devDefaults.sampling?.rate).toBe(1.0);
+      expect(devDefaults.exporter?.type).toBe('console');
+      expect(devDefaults.debug).toBe(true);
+
+      expect(stagingDefaults.sampling?.rate).toBe(0.5);
+      expect(stagingDefaults.exporter?.type).toBe('otlp');
+      expect(stagingDefaults.debug).toBe(true);
+
+      expect(prodDefaults.sampling?.rate).toBe(0.1);
+      expect(prodDefaults.exporter?.type).toBe('otlp');
+      expect(prodDefaults.debug).toBe(false);
     });
   });
 });

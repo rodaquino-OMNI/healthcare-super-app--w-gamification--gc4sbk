@@ -1,275 +1,256 @@
-import { Formatter, LogEntry } from './formatter.interface';
+import { Formatter } from './formatter.interface';
+import { LogEntry, ErrorInfo, JourneyContext } from '../interfaces/log-entry.interface';
 import { LogLevel, LogLevelUtils } from '../interfaces/log-level.enum';
-import {
-  formatError,
-  formatTimestamp,
-  formatValue,
-  redactSensitiveInfo,
-  safeStringify,
-} from '../utils/format.utils';
 
 /**
- * JSON log formatter that transforms log entries into structured JSON format.
- * This formatter is suitable for CloudWatch and other log aggregation systems,
- * ensuring that logs are machine-readable and include all necessary context,
- * metadata, and correlation IDs for proper observability.
+ * JSON formatter for log entries.
+ * Transforms log entries into structured JSON format suitable for CloudWatch and other log aggregation systems.
+ * Ensures logs are machine-readable and include all necessary context, metadata, and correlation IDs.
  */
-export class JsonFormatter implements Formatter {
+export class JSONFormatter implements Formatter {
   /**
-   * Sensitive keys that should be redacted from logs
-   */
-  private readonly sensitiveKeys: string[] = [
-    'password',
-    'token',
-    'secret',
-    'key',
-    'authorization',
-    'apiKey',
-    'credential',
-    'jwt',
-  ];
-
-  /**
-   * Creates a new instance of JsonFormatter
-   * @param options Configuration options for the formatter
-   */
-  constructor(
-    private readonly options: {
-      /**
-       * Whether to pretty-print the JSON output (default: false)
-       */
-      pretty?: boolean;
-      
-      /**
-       * Additional keys to redact from logs
-       */
-      additionalSensitiveKeys?: string[];
-      
-      /**
-       * Whether to include the full stack trace for errors (default: true)
-       */
-      includeStackTrace?: boolean;
-    } = {}
-  ) {
-    // Add any additional sensitive keys to the default list
-    if (options.additionalSensitiveKeys?.length) {
-      this.sensitiveKeys = [
-        ...this.sensitiveKeys,
-        ...options.additionalSensitiveKeys,
-      ];
-    }
-  }
-
-  /**
-   * Formats a log entry into a JSON string representation.
-   * 
+   * Formats a log entry into a JSON string.
    * @param entry The log entry to format
-   * @returns A JSON string representation of the log entry
+   * @returns The formatted log entry as a JSON string
    */
   format(entry: LogEntry): string {
-    // Create the base log object
-    const logObject: Record<string, any> = {
-      // Standard fields
-      timestamp: formatTimestamp(entry.timestamp),
-      level: LogLevelUtils.toString(entry.level),
-      levelValue: entry.level,
+    const formattedEntry = this.createFormattedEntry(entry);
+    return JSON.stringify(formattedEntry);
+  }
+
+  /**
+   * Creates a formatted entry object from a log entry.
+   * @param entry The log entry to format
+   * @returns A formatted object ready for JSON serialization
+   */
+  private createFormattedEntry(entry: LogEntry): Record<string, any> {
+    const formattedEntry: Record<string, any> = {
+      // Basic log information
       message: entry.message,
+      level: LogLevelUtils.toString(entry.level),
+      levelCode: entry.level,
+      timestamp: this.formatTimestamp(entry.timestamp),
+      
+      // Service and context information
+      service: entry.serviceName || 'unknown',
+      context: entry.context || 'global',
     };
-
-    // Add service and journey information if available
-    if (entry.context?.service) {
-      logObject.service = entry.context.service;
-    }
-
-    if (entry.context?.journey) {
-      logObject.journey = entry.context.journey;
-    }
 
     // Add request context if available
-    if (entry.context?.request) {
-      logObject.request = this.formatRequestContext(entry.context.request);
-    }
-
-    // Add trace context if available
-    if (entry.context?.trace) {
-      logObject.trace = this.formatTraceContext(entry.context.trace);
-    }
-
-    // Handle error objects
-    if (entry.error) {
-      logObject.error = this.formatErrorObject(entry.error);
-    }
-
-    // Add any additional context fields, excluding already processed ones
-    if (entry.context) {
-      const { service, journey, request, trace, ...restContext } = entry.context;
-      
-      // Add remaining context fields
-      Object.entries(restContext).forEach(([key, value]) => {
-        // Don't overwrite existing fields
-        if (!(key in logObject)) {
-          logObject[key] = formatValue(value);
-        }
-      });
-    }
-
-    // Add any additional entry fields, excluding already processed ones
-    const { message, level, timestamp, error, context, ...rest } = entry;
-    
-    // Add remaining entry fields
-    Object.entries(rest).forEach(([key, value]) => {
-      // Don't overwrite existing fields
-      if (!(key in logObject)) {
-        logObject[key] = formatValue(value);
-      }
-    });
-
-    // Redact sensitive information
-    const redactedLogObject = redactSensitiveInfo(logObject, this.sensitiveKeys);
-
-    // Convert to JSON string
-    return this.options.pretty
-      ? JSON.stringify(redactedLogObject, null, 2)
-      : safeStringify(redactedLogObject);
-  }
-
-  /**
-   * Formats the request context for logging
-   * @param requestContext The request context object
-   * @returns Formatted request context
-   */
-  private formatRequestContext(requestContext: Record<string, any>): Record<string, any> {
-    const formatted: Record<string, any> = {};
-
-    // Add standard request fields
-    if (requestContext.id) {
-      formatted.id = requestContext.id;
-    }
-
-    if (requestContext.method) {
-      formatted.method = requestContext.method;
-    }
-
-    if (requestContext.path) {
-      formatted.path = requestContext.path;
-    }
-
-    if (requestContext.userId) {
-      formatted.userId = requestContext.userId;
-    }
-
-    if (requestContext.duration !== undefined) {
-      formatted.duration = requestContext.duration;
-    }
-
-    // Add any additional request fields
-    const { id, method, path, userId, duration, ...rest } = requestContext;
-    
-    // Add remaining request fields
-    Object.entries(rest).forEach(([key, value]) => {
-      // Don't overwrite existing fields
-      if (!(key in formatted)) {
-        formatted[key] = formatValue(value);
-      }
-    });
-
-    return formatted;
-  }
-
-  /**
-   * Formats the trace context for logging
-   * @param traceContext The trace context object
-   * @returns Formatted trace context
-   */
-  private formatTraceContext(traceContext: Record<string, any>): Record<string, any> {
-    const formatted: Record<string, any> = {};
-
-    // Add standard trace fields
-    if (traceContext.id) {
-      formatted.id = traceContext.id;
-    }
-
-    if (traceContext.spanId) {
-      formatted.spanId = traceContext.spanId;
-    }
-
-    if (traceContext.parentSpanId) {
-      formatted.parentSpanId = traceContext.parentSpanId;
-    }
-
-    // Add any additional trace fields
-    const { id, spanId, parentSpanId, ...rest } = traceContext;
-    
-    // Add remaining trace fields
-    Object.entries(rest).forEach(([key, value]) => {
-      // Don't overwrite existing fields
-      if (!(key in formatted)) {
-        formatted[key] = formatValue(value);
-      }
-    });
-
-    return formatted;
-  }
-
-  /**
-   * Formats an error object for logging
-   * @param error The error object to format
-   * @returns Formatted error object
-   */
-  private formatErrorObject(error: any): Record<string, any> {
-    // If it's already an Error object, format it
-    if (error instanceof Error) {
-      const formatted = formatError(error);
-      
-      // Remove stack trace if not needed
-      if (this.options.includeStackTrace === false && formatted.stack) {
-        delete formatted.stack;
-      }
-      
-      return formatted;
-    }
-    
-    // If it's a string, create a simple error object
-    if (typeof error === 'string') {
-      return {
-        message: error,
+    if (entry.requestId) {
+      formattedEntry.request = {
+        id: entry.requestId,
+        clientIp: entry.clientIp,
+        userAgent: entry.userAgent
       };
     }
-    
-    // If it's an object but not an Error, format it as a generic object
-    if (typeof error === 'object' && error !== null) {
-      const formatted: Record<string, any> = {};
-      
-      // Add message if available
-      if (error.message) {
-        formatted.message = error.message;
-      }
-      
-      // Add name if available
-      if (error.name) {
-        formatted.name = error.name;
-      }
-      
-      // Add stack if available and needed
-      if (error.stack && this.options.includeStackTrace !== false) {
-        formatted.stack = typeof error.stack === 'string'
-          ? error.stack.split('\n').map((line: string) => line.trim()).filter(Boolean)
-          : error.stack;
-      }
-      
-      // Add any additional fields
-      Object.entries(error).forEach(([key, value]) => {
-        if (key !== 'message' && key !== 'name' && key !== 'stack') {
-          formatted[key] = formatValue(value);
-        }
-      });
-      
-      return formatted;
+
+    // Add user context if available
+    if (entry.userId || entry.sessionId) {
+      formattedEntry.user = {
+        id: entry.userId,
+        sessionId: entry.sessionId
+      };
     }
-    
-    // For any other type, convert to string
-    return {
-      message: String(error),
+
+    // Add tracing information if available
+    if (entry.traceId || entry.spanId) {
+      formattedEntry.trace = {
+        traceId: entry.traceId,
+        spanId: entry.spanId,
+        parentSpanId: entry.parentSpanId
+      };
+    }
+
+    // Add journey context if available
+    if (entry.journey) {
+      formattedEntry.journey = this.formatJourneyContext(entry.journey);
+    }
+
+    // Add error information if available
+    if (entry.error) {
+      formattedEntry.error = this.formatError(entry.error);
+    }
+
+    // Add additional context data if available
+    if (entry.contextData && Object.keys(entry.contextData).length > 0) {
+      formattedEntry.contextData = this.sanitizeObject(entry.contextData);
+    }
+
+    // Add metadata if available
+    if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+      formattedEntry.metadata = this.sanitizeObject(entry.metadata);
+    }
+
+    return formattedEntry;
+  }
+
+  /**
+   * Formats a timestamp for CloudWatch compatibility.
+   * @param timestamp The timestamp to format
+   * @returns The formatted timestamp string in ISO format
+   */
+  private formatTimestamp(timestamp: Date): string {
+    return timestamp.toISOString();
+  }
+
+  /**
+   * Formats journey context information.
+   * @param journey The journey context to format
+   * @returns The formatted journey context
+   */
+  private formatJourneyContext(journey: JourneyContext): Record<string, any> {
+    const formattedJourney: Record<string, any> = {
+      type: journey.type,
     };
+
+    if (journey.resourceId) {
+      formattedJourney.resourceId = journey.resourceId;
+    }
+
+    if (journey.action) {
+      formattedJourney.action = journey.action;
+    }
+
+    if (journey.data && Object.keys(journey.data).length > 0) {
+      formattedJourney.data = this.sanitizeObject(journey.data);
+    }
+
+    return formattedJourney;
+  }
+
+  /**
+   * Formats error information.
+   * @param error The error information to format
+   * @returns The formatted error information
+   */
+  private formatError(error: ErrorInfo): Record<string, any> {
+    const formattedError: Record<string, any> = {
+      message: error.message,
+      name: error.name || 'Error',
+    };
+
+    if (error.code !== undefined) {
+      formattedError.code = error.code;
+    }
+
+    if (error.stack) {
+      formattedError.stack = error.stack;
+    }
+
+    if (error.isTransient !== undefined) {
+      formattedError.isTransient = error.isTransient;
+    }
+
+    if (error.isClientError !== undefined) {
+      formattedError.isClientError = error.isClientError;
+    }
+
+    if (error.isExternalError !== undefined) {
+      formattedError.isExternalError = error.isExternalError;
+    }
+
+    // If there's an original error, extract additional properties
+    if (error.originalError) {
+      formattedError.originalError = this.extractErrorProperties(error.originalError);
+    }
+
+    return formattedError;
+  }
+
+  /**
+   * Extracts properties from an error object.
+   * @param err The error object to extract properties from
+   * @returns An object containing the extracted properties
+   */
+  private extractErrorProperties(err: any): Record<string, any> {
+    if (!err) {
+      return {};
+    }
+
+    // If it's not an object, return it as is
+    if (typeof err !== 'object') {
+      return { value: err };
+    }
+
+    // Handle Error objects specially
+    if (err instanceof Error) {
+      const errorProps: Record<string, any> = {
+        message: err.message,
+        name: err.name,
+      };
+
+      if (err.stack) {
+        errorProps.stack = err.stack;
+      }
+
+      // Extract any additional properties from the error
+      for (const key in err) {
+        if (Object.prototype.hasOwnProperty.call(err, key) && 
+            !['message', 'name', 'stack'].includes(key)) {
+          try {
+            errorProps[key] = this.sanitizeObject(err[key]);
+          } catch (e) {
+            errorProps[key] = '[Circular or Unserializable]';
+          }
+        }
+      }
+
+      return errorProps;
+    }
+
+    // For other objects, sanitize them
+    return this.sanitizeObject(err);
+  }
+
+  /**
+   * Sanitizes an object for JSON serialization, handling circular references and special objects.
+   * @param obj The object to sanitize
+   * @returns A sanitized version of the object safe for JSON serialization
+   */
+  private sanitizeObject(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    // Handle primitive types
+    if (typeof obj !== 'object') {
+      return obj;
+    }
+
+    // Handle Date objects
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
+
+    // Handle Error objects
+    if (obj instanceof Error) {
+      return this.extractErrorProperties(obj);
+    }
+
+    // Handle arrays
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.sanitizeObject(item));
+    }
+
+    // Handle regular objects
+    const sanitized: Record<string, any> = {};
+    
+    // Use a try-catch to handle potential circular references
+    try {
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          try {
+            sanitized[key] = this.sanitizeObject(obj[key]);
+          } catch (e) {
+            sanitized[key] = '[Circular or Unserializable]';
+          }
+        }
+      }
+    } catch (e) {
+      return '[Circular or Unserializable Object]';
+    }
+
+    return sanitized;
   }
 }

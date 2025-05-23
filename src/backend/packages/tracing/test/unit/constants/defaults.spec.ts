@@ -3,8 +3,18 @@ import {
   DEFAULT_SPAN_NAME,
   DEFAULT_LOGGER_CONTEXT,
   DEFAULT_SAMPLING_RATE,
-  MAX_SPAN_ATTRIBUTES,
-  DEFAULT_SPAN_TIMEOUT_MS
+  DEFAULT_MAX_ATTRIBUTES_PER_SPAN,
+  DEFAULT_MAX_EVENTS_PER_SPAN,
+  DEFAULT_MAX_LINKS_PER_SPAN,
+  DEFAULT_RETRY_ATTEMPTS,
+  DEFAULT_RETRY_DELAY_MS,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_EXPORT_BATCH_SIZE,
+  DEFAULT_EXPORT_INTERVAL_MS,
+  DEFAULT_JOURNEY_CONTEXT_ENABLED,
+  DEFAULT_JOURNEY_TYPES,
+  DEFAULT_EXPORTER_TYPE,
+  DEFAULT_ATTRIBUTE_VALUE,
 } from '../../../src/constants/defaults';
 
 describe('Tracing Default Constants', () => {
@@ -21,9 +31,10 @@ describe('Tracing Default Constants', () => {
       expect(DEFAULT_SERVICE_NAME).toBe('austa-service');
     });
 
-    it('should be a valid service name format', () => {
-      // Service names should follow a consistent pattern with lowercase and hyphens
-      expect(DEFAULT_SERVICE_NAME).toMatch(/^[a-z][a-z0-9-]*$/);
+    it('should be a valid service name for OpenTelemetry', () => {
+      // OpenTelemetry service names should not be empty and should be reasonable length
+      expect(DEFAULT_SERVICE_NAME.length).toBeGreaterThan(0);
+      expect(DEFAULT_SERVICE_NAME.length).toBeLessThan(100);
     });
   });
 
@@ -37,13 +48,12 @@ describe('Tracing Default Constants', () => {
     });
 
     it('should have the correct value', () => {
-      expect(DEFAULT_SPAN_NAME).toBe('unnamed-operation');
+      expect(DEFAULT_SPAN_NAME).toBe('unnamed_span');
     });
 
-    it('should be descriptive for debugging', () => {
-      // Span names should be descriptive enough to identify unnamed spans in traces
-      expect(DEFAULT_SPAN_NAME.length).toBeGreaterThan(5);
-      expect(DEFAULT_SPAN_NAME).toContain('unnamed');
+    it('should follow OpenTelemetry naming conventions', () => {
+      // OpenTelemetry recommends snake_case for span names
+      expect(DEFAULT_SPAN_NAME).toMatch(/^[a-z][a-z0-9_]*$/);
     });
   });
 
@@ -60,10 +70,10 @@ describe('Tracing Default Constants', () => {
       expect(DEFAULT_LOGGER_CONTEXT).toBe('AustaTracing');
     });
 
-    it('should follow the logger context naming convention', () => {
-      // Logger contexts typically use PascalCase and should be descriptive
+    it('should be a descriptive context name', () => {
+      // Logger context should be descriptive and follow PascalCase convention
+      expect(DEFAULT_LOGGER_CONTEXT.length).toBeGreaterThan(0);
       expect(DEFAULT_LOGGER_CONTEXT).toMatch(/^[A-Z][a-zA-Z0-9]*$/);
-      expect(DEFAULT_LOGGER_CONTEXT).toContain('Tracing');
     });
   });
 
@@ -81,78 +91,251 @@ describe('Tracing Default Constants', () => {
     });
 
     it('should be within valid sampling rate range', () => {
-      // Sampling rates should be between 0 and 1 inclusive
+      // Sampling rate should be between 0 and 1 inclusive
       expect(DEFAULT_SAMPLING_RATE).toBeGreaterThanOrEqual(0);
       expect(DEFAULT_SAMPLING_RATE).toBeLessThanOrEqual(1);
     });
   });
 
-  describe('MAX_SPAN_ATTRIBUTES', () => {
+  describe('DEFAULT_MAX_ATTRIBUTES_PER_SPAN', () => {
     it('should be defined', () => {
-      expect(MAX_SPAN_ATTRIBUTES).toBeDefined();
+      expect(DEFAULT_MAX_ATTRIBUTES_PER_SPAN).toBeDefined();
     });
 
     it('should be a number', () => {
-      expect(typeof MAX_SPAN_ATTRIBUTES).toBe('number');
+      expect(typeof DEFAULT_MAX_ATTRIBUTES_PER_SPAN).toBe('number');
     });
 
     it('should have the correct value', () => {
-      expect(MAX_SPAN_ATTRIBUTES).toBe(128);
+      expect(DEFAULT_MAX_ATTRIBUTES_PER_SPAN).toBe(128);
     });
 
-    it('should be a positive integer', () => {
-      expect(Number.isInteger(MAX_SPAN_ATTRIBUTES)).toBe(true);
-      expect(MAX_SPAN_ATTRIBUTES).toBeGreaterThan(0);
-    });
-
-    it('should be reasonable for production use', () => {
-      // Span attributes should be limited to prevent excessive memory usage
-      // but still allow enough attributes for detailed tracing
-      expect(MAX_SPAN_ATTRIBUTES).toBeGreaterThanOrEqual(32); // Minimum reasonable value
-      expect(MAX_SPAN_ATTRIBUTES).toBeLessThanOrEqual(1000); // Maximum reasonable value
+    it('should be a reasonable limit for span attributes', () => {
+      // Span attribute limits should be positive and not excessively large
+      expect(DEFAULT_MAX_ATTRIBUTES_PER_SPAN).toBeGreaterThan(0);
+      expect(DEFAULT_MAX_ATTRIBUTES_PER_SPAN).toBeLessThan(1000);
     });
   });
 
-  describe('DEFAULT_SPAN_TIMEOUT_MS', () => {
+  describe('DEFAULT_MAX_EVENTS_PER_SPAN', () => {
     it('should be defined', () => {
-      expect(DEFAULT_SPAN_TIMEOUT_MS).toBeDefined();
+      expect(DEFAULT_MAX_EVENTS_PER_SPAN).toBeDefined();
     });
 
     it('should be a number', () => {
-      expect(typeof DEFAULT_SPAN_TIMEOUT_MS).toBe('number');
+      expect(typeof DEFAULT_MAX_EVENTS_PER_SPAN).toBe('number');
     });
 
     it('should have the correct value', () => {
-      expect(DEFAULT_SPAN_TIMEOUT_MS).toBe(30000); // 30 seconds
+      expect(DEFAULT_MAX_EVENTS_PER_SPAN).toBe(128);
     });
 
-    it('should be a positive integer', () => {
-      expect(Number.isInteger(DEFAULT_SPAN_TIMEOUT_MS)).toBe(true);
-      expect(DEFAULT_SPAN_TIMEOUT_MS).toBeGreaterThan(0);
-    });
-
-    it('should be reasonable for typical operations', () => {
-      // Span timeouts should be long enough for typical operations
-      // but not so long that resources are tied up unnecessarily
-      const oneSecondMs = 1000;
-      const fiveMinutesMs = 5 * 60 * 1000;
-      
-      expect(DEFAULT_SPAN_TIMEOUT_MS).toBeGreaterThanOrEqual(oneSecondMs);
-      expect(DEFAULT_SPAN_TIMEOUT_MS).toBeLessThanOrEqual(fiveMinutesMs);
+    it('should be a reasonable limit for span events', () => {
+      // Span event limits should be positive and not excessively large
+      expect(DEFAULT_MAX_EVENTS_PER_SPAN).toBeGreaterThan(0);
+      expect(DEFAULT_MAX_EVENTS_PER_SPAN).toBeLessThan(1000);
     });
   });
 
-  describe('Constant relationships', () => {
-    it('should have a service name that matches logger context pattern', () => {
-      // The service name prefix should match the logger context prefix
-      expect(DEFAULT_LOGGER_CONTEXT.toLowerCase()).toContain(DEFAULT_SERVICE_NAME.split('-')[0].toLowerCase());
+  describe('DEFAULT_MAX_LINKS_PER_SPAN', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_MAX_LINKS_PER_SPAN).toBeDefined();
     });
 
-    it('should have a span timeout appropriate for the sampling rate', () => {
-      // With 100% sampling (1.0), timeouts should be reasonable to prevent resource exhaustion
-      if (DEFAULT_SAMPLING_RATE === 1.0) {
-        expect(DEFAULT_SPAN_TIMEOUT_MS).toBeLessThanOrEqual(5 * 60 * 1000); // Max 5 minutes
-      }
+    it('should be a number', () => {
+      expect(typeof DEFAULT_MAX_LINKS_PER_SPAN).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_MAX_LINKS_PER_SPAN).toBe(128);
+    });
+
+    it('should be a reasonable limit for span links', () => {
+      // Span link limits should be positive and not excessively large
+      expect(DEFAULT_MAX_LINKS_PER_SPAN).toBeGreaterThan(0);
+      expect(DEFAULT_MAX_LINKS_PER_SPAN).toBeLessThan(1000);
+    });
+  });
+
+  describe('DEFAULT_RETRY_ATTEMPTS', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_RETRY_ATTEMPTS).toBeDefined();
+    });
+
+    it('should be a number', () => {
+      expect(typeof DEFAULT_RETRY_ATTEMPTS).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_RETRY_ATTEMPTS).toBe(3);
+    });
+
+    it('should be a reasonable number of retry attempts', () => {
+      // Retry attempts should be positive and not excessively large
+      expect(DEFAULT_RETRY_ATTEMPTS).toBeGreaterThan(0);
+      expect(DEFAULT_RETRY_ATTEMPTS).toBeLessThan(10);
+    });
+  });
+
+  describe('DEFAULT_RETRY_DELAY_MS', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_RETRY_DELAY_MS).toBeDefined();
+    });
+
+    it('should be a number', () => {
+      expect(typeof DEFAULT_RETRY_DELAY_MS).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_RETRY_DELAY_MS).toBe(100);
+    });
+
+    it('should be a reasonable retry delay', () => {
+      // Retry delay should be positive and not excessively large
+      expect(DEFAULT_RETRY_DELAY_MS).toBeGreaterThan(0);
+      expect(DEFAULT_RETRY_DELAY_MS).toBeLessThan(10000); // Less than 10 seconds
+    });
+  });
+
+  describe('DEFAULT_TIMEOUT_MS', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_TIMEOUT_MS).toBeDefined();
+    });
+
+    it('should be a number', () => {
+      expect(typeof DEFAULT_TIMEOUT_MS).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_TIMEOUT_MS).toBe(30000);
+    });
+
+    it('should be a reasonable timeout value', () => {
+      // Timeout should be positive and not excessively large or small
+      expect(DEFAULT_TIMEOUT_MS).toBeGreaterThan(1000); // At least 1 second
+      expect(DEFAULT_TIMEOUT_MS).toBeLessThan(300000); // Less than 5 minutes
+    });
+  });
+
+  describe('DEFAULT_EXPORT_BATCH_SIZE', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_EXPORT_BATCH_SIZE).toBeDefined();
+    });
+
+    it('should be a number', () => {
+      expect(typeof DEFAULT_EXPORT_BATCH_SIZE).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_EXPORT_BATCH_SIZE).toBe(512);
+    });
+
+    it('should be a reasonable batch size', () => {
+      // Batch size should be positive and not excessively large
+      expect(DEFAULT_EXPORT_BATCH_SIZE).toBeGreaterThan(0);
+      expect(DEFAULT_EXPORT_BATCH_SIZE).toBeLessThan(10000);
+    });
+  });
+
+  describe('DEFAULT_EXPORT_INTERVAL_MS', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_EXPORT_INTERVAL_MS).toBeDefined();
+    });
+
+    it('should be a number', () => {
+      expect(typeof DEFAULT_EXPORT_INTERVAL_MS).toBe('number');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_EXPORT_INTERVAL_MS).toBe(5000);
+    });
+
+    it('should be a reasonable export interval', () => {
+      // Export interval should be positive and not excessively large or small
+      expect(DEFAULT_EXPORT_INTERVAL_MS).toBeGreaterThan(100); // At least 100ms
+      expect(DEFAULT_EXPORT_INTERVAL_MS).toBeLessThan(60000); // Less than 1 minute
+    });
+  });
+
+  describe('DEFAULT_JOURNEY_CONTEXT_ENABLED', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_JOURNEY_CONTEXT_ENABLED).toBeDefined();
+    });
+
+    it('should be a boolean', () => {
+      expect(typeof DEFAULT_JOURNEY_CONTEXT_ENABLED).toBe('boolean');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_JOURNEY_CONTEXT_ENABLED).toBe(true);
+    });
+  });
+
+  describe('DEFAULT_JOURNEY_TYPES', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_JOURNEY_TYPES).toBeDefined();
+    });
+
+    it('should be an object', () => {
+      expect(typeof DEFAULT_JOURNEY_TYPES).toBe('object');
+      expect(DEFAULT_JOURNEY_TYPES).not.toBeNull();
+    });
+
+    it('should contain the correct journey types', () => {
+      expect(DEFAULT_JOURNEY_TYPES.HEALTH).toBe('health');
+      expect(DEFAULT_JOURNEY_TYPES.CARE).toBe('care');
+      expect(DEFAULT_JOURNEY_TYPES.PLAN).toBe('plan');
+    });
+
+    it('should have the correct number of journey types', () => {
+      // There should be exactly 3 journey types as per the AUSTA SuperApp requirements
+      expect(Object.keys(DEFAULT_JOURNEY_TYPES).length).toBe(3);
+    });
+
+    it('should use lowercase values for journey types', () => {
+      // Journey type values should be lowercase for consistency
+      Object.values(DEFAULT_JOURNEY_TYPES).forEach(value => {
+        expect(value).toBe(value.toLowerCase());
+      });
+    });
+  });
+
+  describe('DEFAULT_EXPORTER_TYPE', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_EXPORTER_TYPE).toBeDefined();
+    });
+
+    it('should be a string', () => {
+      expect(typeof DEFAULT_EXPORTER_TYPE).toBe('string');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_EXPORTER_TYPE).toBe('console');
+    });
+
+    it('should be a valid exporter type', () => {
+      // Valid exporter types include 'console', 'jaeger', 'zipkin', 'otlp'
+      const validExporterTypes = ['console', 'jaeger', 'zipkin', 'otlp'];
+      expect(validExporterTypes).toContain(DEFAULT_EXPORTER_TYPE);
+    });
+  });
+
+  describe('DEFAULT_ATTRIBUTE_VALUE', () => {
+    it('should be defined', () => {
+      expect(DEFAULT_ATTRIBUTE_VALUE).toBeDefined();
+    });
+
+    it('should be a string', () => {
+      expect(typeof DEFAULT_ATTRIBUTE_VALUE).toBe('string');
+    });
+
+    it('should have the correct value', () => {
+      expect(DEFAULT_ATTRIBUTE_VALUE).toBe('unknown');
+    });
+
+    it('should be a descriptive fallback value', () => {
+      // Fallback value should indicate that the actual value is unknown
+      expect(DEFAULT_ATTRIBUTE_VALUE.toLowerCase()).toContain('unknown');
     });
   });
 });

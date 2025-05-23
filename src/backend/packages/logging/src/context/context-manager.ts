@@ -1,52 +1,30 @@
-/**
- * @file context-manager.ts
- * @description Implements the ContextManager class that manages the creation, merging,
- * and manipulation of logging contexts throughout the application. This class provides
- * methods for creating different context types, merging multiple contexts, and integrating
- * with the tracing service for correlation IDs.
- */
-
 import { Injectable } from '@nestjs/common';
-import { v4 as uuidv4 } from 'uuid';
-
-// Import interfaces from their respective files
-import { LoggingContext } from './context.interface';
-import { RequestContext } from './request-context.interface';
-import { UserContext } from './user-context.interface';
-import { JourneyContext } from './journey-context.interface';
+import { JourneyType } from '../interfaces/log-entry.interface';
 
 /**
- * Interface for the tracing service
+ * Interface for the base logging context that all other context types extend.
+ * Provides common properties for correlation, service identification, and timestamps.
  */
+export interface LoggingContext {
   /**
-   * Correlation ID for connecting logs, traces, and metrics
-   */
-  correlationId?: string;
-
-  /**
-   * Trace ID for distributed tracing
+   * Unique identifier for the trace (for distributed tracing)
    */
   traceId?: string;
 
   /**
-   * Span ID for the current operation
+   * Unique identifier for the span within a trace
    */
   spanId?: string;
 
   /**
-   * Service name that generated the log
+   * Identifier of the parent span
    */
-  service?: string;
+  parentSpanId?: string;
 
   /**
-   * Application name
+   * The name of the service generating the log
    */
-  application?: string;
-
-  /**
-   * Environment (development, staging, production)
-   */
-  environment?: string;
+  serviceName?: string;
 
   /**
    * Timestamp when the context was created
@@ -54,24 +32,74 @@ import { JourneyContext } from './journey-context.interface';
   timestamp?: Date;
 
   /**
-   * Additional context properties
+   * Additional metadata as key-value pairs
    */
-  [key: string]: any;
+  metadata?: Record<string, any>;
 }
 
 /**
- * Interface for HTTP request-specific context
+ * Interface for journey-specific context information
+ */
+export interface JourneyContext extends LoggingContext {
+  /**
+   * The type of journey (health, care, plan)
+   */
+  journeyType: JourneyType;
+
+  /**
+   * Journey-specific identifier (e.g., appointment ID, claim ID, health record ID)
+   */
+  resourceId?: string;
+
+  /**
+   * The specific action being performed within the journey
+   */
+  action?: string;
+
+  /**
+   * Additional journey-specific data
+   */
+  journeyData?: Record<string, any>;
+}
+
+/**
+ * Interface for user-specific context information
+ */
+export interface UserContext extends LoggingContext {
+  /**
+   * Unique identifier for the user
+   */
+  userId: string;
+
+  /**
+   * Unique identifier for the user session
+   */
+  sessionId?: string;
+
+  /**
+   * User roles or permissions
+   */
+  roles?: string[];
+
+  /**
+   * Whether the user is authenticated
+   */
+  isAuthenticated?: boolean;
+
+  /**
+   * Additional user-specific data
+   */
+  userData?: Record<string, any>;
+}
+
+/**
+ * Interface for HTTP request-specific context information
  */
 export interface RequestContext extends LoggingContext {
   /**
    * Unique identifier for the request
    */
   requestId: string;
-
-  /**
-   * IP address of the client
-   */
-  ip?: string;
 
   /**
    * HTTP method (GET, POST, etc.)
@@ -89,7 +117,12 @@ export interface RequestContext extends LoggingContext {
   path?: string;
 
   /**
-   * User agent string
+   * IP address of the client
+   */
+  clientIp?: string;
+
+  /**
+   * User agent of the client
    */
   userAgent?: string;
 
@@ -101,387 +134,509 @@ export interface RequestContext extends LoggingContext {
   /**
    * Sanitized request headers
    */
-  headers?: Record<string, string>;
+  headers?: Record<string, any>;
 }
 
 /**
- * Interface for user-specific context
- */
-export interface UserContext extends LoggingContext {
-  /**
-   * User ID
-   */
-  userId: string;
-
-  /**
-   * Authentication status
-   */
-  isAuthenticated: boolean;
-
-  /**
-   * User roles
-   */
-  roles?: string[];
-
-  /**
-   * User permissions
-   */
-  permissions?: string[];
-
-  /**
-   * User preferences affecting system behavior
-   */
-  preferences?: Record<string, any>;
-}
-
-/**
- * Interface for journey-specific context
- */
-export interface JourneyContext extends LoggingContext {
-  /**
-   * Journey type (Health, Care, Plan)
-   */
-  journeyType: 'health' | 'care' | 'plan';
-
-  /**
-   * Journey-specific state
-   */
-  journeyState?: Record<string, any>;
-
-  /**
-   * Journey metadata
-   */
-  journeyMetadata?: Record<string, any>;
-
-  /**
-   * Cross-journey context when needed
-   */
-  crossJourneyContext?: Record<string, any>;
-}
-
-/**
- * Interface for the tracing service
+ * Optional interface for the tracing service that can be injected into the ContextManager.
+ * This allows for integration with the tracing system for correlation IDs.
  */
 export interface TracingService {
   /**
-   * Gets the current trace context
+   * Gets the current trace ID
    */
-  getCurrentTraceContext(): { traceId?: string; spanId?: string };
+  getCurrentTraceId(): string | undefined;
 
   /**
-   * Creates a new span
+   * Gets the current span ID
    */
-  createSpan(name: string, options?: any): any;
+  getCurrentSpanId(): string | undefined;
 
   /**
-   * Ends a span
+   * Gets the parent span ID
    */
-  endSpan(span: any): void;
+  getParentSpanId(): string | undefined;
+
+  /**
+   * Creates a new span with the given name and options
+   */
+  createSpan?(name: string, options?: any): any;
+
+  /**
+   * Ends the current span
+   */
+  endSpan?(): void;
 }
 
 /**
- * Manages the creation, merging, and manipulation of logging contexts
- * throughout the application.
+ * Options for creating a new logging context
+ */
+export interface ContextOptions {
+  /**
+   * Whether to include trace information from the tracing service
+   */
+  includeTraceInfo?: boolean;
+
+  /**
+   * The service name to include in the context
+   */
+  serviceName?: string;
+
+  /**
+   * Additional metadata to include in the context
+   */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * ContextManager class that manages the creation, merging, and manipulation of logging contexts.
+ * This class provides methods for creating different context types, merging multiple contexts,
+ * and integrating with the tracing service for correlation IDs.
  */
 @Injectable()
 export class ContextManager {
-  private defaultContext: LoggingContext;
-  private tracingService?: TracingService;
+  private readonly serviceName: string;
+  private readonly tracingService?: TracingService;
 
   /**
    * Creates a new ContextManager instance
-   * @param options Configuration options
+   * @param options Configuration options for the ContextManager
    */
   constructor(options?: {
-    defaultContext?: Partial<LoggingContext>;
+    serviceName?: string;
     tracingService?: TracingService;
   }) {
-    this.defaultContext = {
-      application: 'austa-superapp',
-      environment: process.env.NODE_ENV || 'development',
-      service: process.env.SERVICE_NAME,
-      timestamp: new Date(),
-      correlationId: uuidv4(),
-      ...(options?.defaultContext || {}),
-    };
-
+    this.serviceName = options?.serviceName || 'unknown-service';
     this.tracingService = options?.tracingService;
   }
 
   /**
-   * Creates a new base logging context
-   * @param context Optional context properties to include
-   * @returns A new logging context
+   * Creates a base logging context with common properties
+   * @param options Options for creating the context
+   * @returns A new LoggingContext instance
    */
-  createContext(context?: Partial<LoggingContext>): LoggingContext {
-    const baseContext = { ...this.defaultContext };
-    
-    // Add trace context if tracing service is available
-    if (this.tracingService) {
-      const traceContext = this.tracingService.getCurrentTraceContext();
-      if (traceContext.traceId) {
-        baseContext.traceId = traceContext.traceId;
-      }
-      if (traceContext.spanId) {
-        baseContext.spanId = traceContext.spanId;
-      }
-    }
+  createContext(options?: ContextOptions): LoggingContext {
+    const context: LoggingContext = {
+      timestamp: new Date(),
+      serviceName: options?.serviceName || this.serviceName,
+      metadata: options?.metadata || {},
+    };
 
-    // Update timestamp to current time
-    baseContext.timestamp = new Date();
-
-    // Merge with provided context
-    return { ...baseContext, ...(context || {}) };
-  }
-
-  /**
-   * Creates a new request context
-   * @param requestInfo Request information
-   * @returns A new request context
-   */
-  createRequestContext(requestInfo: Partial<RequestContext>): RequestContext {
-    const baseContext = this.createContext();
-    
-    // Ensure requestId is present
-    const requestId = requestInfo.requestId || uuidv4();
-    
-    return {
-      ...baseContext,
-      ...requestInfo,
-      requestId,
-    } as RequestContext;
-  }
-
-  /**
-   * Creates a new user context
-   * @param userInfo User information
-   * @returns A new user context
-   */
-  createUserContext(userInfo: Partial<UserContext>): UserContext {
-    const baseContext = this.createContext();
-    
-    // Ensure required fields are present
-    if (!userInfo.userId) {
-      throw new Error('User ID is required for user context');
-    }
-    
-    return {
-      ...baseContext,
-      ...userInfo,
-      isAuthenticated: userInfo.isAuthenticated ?? false,
-    } as UserContext;
-  }
-
-  /**
-   * Creates a new journey context
-   * @param journeyInfo Journey information
-   * @returns A new journey context
-   */
-  createJourneyContext(journeyInfo: Partial<JourneyContext>): JourneyContext {
-    const baseContext = this.createContext();
-    
-    // Ensure required fields are present
-    if (!journeyInfo.journeyType) {
-      throw new Error('Journey type is required for journey context');
-    }
-    
-    return {
-      ...baseContext,
-      ...journeyInfo,
-    } as JourneyContext;
-  }
-
-  /**
-   * Merges multiple contexts into a single context
-   * @param contexts Contexts to merge
-   * @returns Merged context
-   */
-  mergeContexts(...contexts: Partial<LoggingContext>[]): LoggingContext {
-    if (contexts.length === 0) {
-      return this.createContext();
-    }
-
-    // Start with a base context
-    const baseContext = this.createContext();
-    
-    // Merge all contexts, with later contexts taking precedence
-    return contexts.reduce(
-      (merged, context) => ({ ...merged, ...(context || {}) }),
-      baseContext
-    );
-  }
-
-  /**
-   * Creates a complete context with request, user, and journey information
-   * @param requestInfo Request information
-   * @param userInfo User information
-   * @param journeyInfo Journey information
-   * @returns Complete context with all information
-   */
-  createCompleteContext(
-    requestInfo?: Partial<RequestContext>,
-    userInfo?: Partial<UserContext>,
-    journeyInfo?: Partial<JourneyContext>
-  ): LoggingContext {
-    const contexts: Partial<LoggingContext>[] = [this.createContext()];
-
-    // Add request context if provided
-    if (requestInfo) {
+    // Add trace information if available and requested
+    if (options?.includeTraceInfo !== false && this.tracingService) {
       try {
-        contexts.push(this.createRequestContext(requestInfo));
+        context.traceId = this.tracingService.getCurrentTraceId();
+        context.spanId = this.tracingService.getCurrentSpanId();
+        context.parentSpanId = this.tracingService.getParentSpanId();
       } catch (error) {
-        // Log error but continue with other contexts
-        console.error('Error creating request context:', error);
+        // Silently handle errors from tracing service
+        context.metadata = {
+          ...context.metadata,
+          tracingError: error instanceof Error ? error.message : 'Unknown tracing error',
+        };
       }
-    }
-
-    // Add user context if provided
-    if (userInfo && userInfo.userId) {
-      try {
-        contexts.push(this.createUserContext(userInfo));
-      } catch (error) {
-        // Log error but continue with other contexts
-        console.error('Error creating user context:', error);
-      }
-    }
-
-    // Add journey context if provided
-    if (journeyInfo && journeyInfo.journeyType) {
-      try {
-        contexts.push(this.createJourneyContext(journeyInfo));
-      } catch (error) {
-        // Log error but continue with other contexts
-        console.error('Error creating journey context:', error);
-      }
-    }
-
-    // Merge all contexts
-    return this.mergeContexts(...contexts);
-  }
-
-  /**
-   * Extracts context information for propagation across service boundaries
-   * @param context Context to extract from
-   * @returns Object with serialized context for propagation
-   */
-  extractContextForPropagation(context: LoggingContext): Record<string, string> {
-    const propagationContext: Record<string, string> = {};
-
-    // Include correlation ID for connecting logs
-    if (context.correlationId) {
-      propagationContext['x-correlation-id'] = context.correlationId;
-    }
-
-    // Include trace context for distributed tracing
-    if (context.traceId) {
-      propagationContext['traceparent'] = this.formatTraceParent(context);
-    }
-
-    // Include journey information if available
-    const journeyContext = context as JourneyContext;
-    if (journeyContext.journeyType) {
-      propagationContext['x-journey-type'] = journeyContext.journeyType;
-    }
-
-    // Include user ID if available
-    const userContext = context as UserContext;
-    if (userContext.userId) {
-      propagationContext['x-user-id'] = userContext.userId;
-    }
-
-    return propagationContext;
-  }
-
-  /**
-   * Creates a context from propagated headers
-   * @param headers Headers containing propagated context
-   * @returns Context created from propagated information
-   */
-  createContextFromPropagation(headers: Record<string, string>): LoggingContext {
-    const context = this.createContext();
-
-    // Extract correlation ID
-    if (headers['x-correlation-id']) {
-      context.correlationId = headers['x-correlation-id'];
-    }
-
-    // Extract trace context
-    if (headers['traceparent']) {
-      const traceContext = this.parseTraceParent(headers['traceparent']);
-      if (traceContext) {
-        context.traceId = traceContext.traceId;
-        context.spanId = traceContext.spanId;
-      }
-    }
-
-    // Extract journey information
-    if (headers['x-journey-type']) {
-      (context as JourneyContext).journeyType = headers['x-journey-type'] as any;
-    }
-
-    // Extract user ID
-    if (headers['x-user-id']) {
-      (context as UserContext).userId = headers['x-user-id'];
-      (context as UserContext).isAuthenticated = true;
     }
 
     return context;
   }
 
   /**
-   * Formats trace context according to W3C Trace Context specification
-   * @param context Context containing trace information
-   * @returns Formatted traceparent header value
+   * Creates a journey-specific context
+   * @param journeyType The type of journey (health, care, plan)
+   * @param options Additional options for the context
+   * @returns A new JourneyContext instance
    */
-  private formatTraceParent(context: LoggingContext): string {
-    // Default values if not provided
-    const traceId = context.traceId || '00000000000000000000000000000000';
-    const spanId = context.spanId || '0000000000000000';
-    const flags = '01'; // Sampled
-
-    // Format: version-traceId-spanId-flags
-    return `00-${traceId}-${spanId}-${flags}`;
+  createJourneyContext(
+    journeyType: JourneyType,
+    options?: ContextOptions & {
+      resourceId?: string;
+      action?: string;
+      journeyData?: Record<string, any>;
+    },
+  ): JourneyContext {
+    const baseContext = this.createContext(options);
+    
+    return {
+      ...baseContext,
+      journeyType,
+      resourceId: options?.resourceId,
+      action: options?.action,
+      journeyData: options?.journeyData || {},
+    };
   }
 
   /**
-   * Parses a traceparent header value according to W3C Trace Context specification
-   * @param traceparent Traceparent header value
-   * @returns Parsed trace context or undefined if invalid
+   * Creates a user-specific context
+   * @param userId The unique identifier for the user
+   * @param options Additional options for the context
+   * @returns A new UserContext instance
    */
-  private parseTraceParent(traceparent: string): { traceId: string; spanId: string } | undefined {
+  createUserContext(
+    userId: string,
+    options?: ContextOptions & {
+      sessionId?: string;
+      roles?: string[];
+      isAuthenticated?: boolean;
+      userData?: Record<string, any>;
+    },
+  ): UserContext {
+    const baseContext = this.createContext(options);
+    
+    return {
+      ...baseContext,
+      userId,
+      sessionId: options?.sessionId,
+      roles: options?.roles || [],
+      isAuthenticated: options?.isAuthenticated !== undefined ? options.isAuthenticated : true,
+      userData: options?.userData || {},
+    };
+  }
+
+  /**
+   * Creates a request-specific context
+   * @param requestId The unique identifier for the request
+   * @param options Additional options for the context
+   * @returns A new RequestContext instance
+   */
+  createRequestContext(
+    requestId: string,
+    options?: ContextOptions & {
+      method?: string;
+      url?: string;
+      path?: string;
+      clientIp?: string;
+      userAgent?: string;
+      params?: Record<string, any>;
+      headers?: Record<string, any>;
+    },
+  ): RequestContext {
+    const baseContext = this.createContext(options);
+    
+    return {
+      ...baseContext,
+      requestId,
+      method: options?.method,
+      url: options?.url,
+      path: options?.path,
+      clientIp: options?.clientIp,
+      userAgent: options?.userAgent,
+      params: this.sanitizeObject(options?.params || {}),
+      headers: this.sanitizeObject(options?.headers || {}),
+    };
+  }
+
+  /**
+   * Merges multiple contexts into a single context
+   * @param contexts The contexts to merge
+   * @returns A merged context with properties from all input contexts
+   */
+  mergeContexts<T extends LoggingContext>(...contexts: LoggingContext[]): T {
+    if (contexts.length === 0) {
+      return this.createContext() as T;
+    }
+
+    if (contexts.length === 1) {
+      return contexts[0] as T;
+    }
+
+    const mergedContext: Record<string, any> = {};
+    let mergedMetadata: Record<string, any> = {};
+
+    // Merge all contexts, with later contexts overriding earlier ones
+    for (const context of contexts) {
+      if (!context) continue;
+
+      // Merge metadata separately to avoid overriding the entire object
+      if (context.metadata) {
+        mergedMetadata = { ...mergedMetadata, ...context.metadata };
+      }
+
+      // Merge all other properties
+      Object.entries(context).forEach(([key, value]) => {
+        if (key !== 'metadata' && value !== undefined) {
+          mergedContext[key] = value;
+        }
+      });
+    }
+
+    // Add the merged metadata
+    mergedContext.metadata = mergedMetadata;
+
+    return mergedContext as T;
+  }
+
+  /**
+   * Creates a complete context by merging journey, user, and request contexts
+   * @param options Options for creating the complete context
+   * @returns A merged context with properties from all context types
+   */
+  createCompleteContext(options: {
+    journeyType?: JourneyType;
+    resourceId?: string;
+    action?: string;
+    journeyData?: Record<string, any>;
+    userId?: string;
+    sessionId?: string;
+    roles?: string[];
+    userData?: Record<string, any>;
+    requestId?: string;
+    method?: string;
+    url?: string;
+    path?: string;
+    clientIp?: string;
+    userAgent?: string;
+    params?: Record<string, any>;
+    headers?: Record<string, any>;
+    includeTraceInfo?: boolean;
+    serviceName?: string;
+    metadata?: Record<string, any>;
+  }): LoggingContext {
+    const contexts: LoggingContext[] = [this.createContext(options)];
+
+    // Add journey context if journey type is provided
+    if (options.journeyType) {
+      contexts.push(
+        this.createJourneyContext(options.journeyType, {
+          resourceId: options.resourceId,
+          action: options.action,
+          journeyData: options.journeyData,
+          includeTraceInfo: false, // Already included in base context
+        }),
+      );
+    }
+
+    // Add user context if user ID is provided
+    if (options.userId) {
+      contexts.push(
+        this.createUserContext(options.userId, {
+          sessionId: options.sessionId,
+          roles: options.roles,
+          userData: options.userData,
+          includeTraceInfo: false, // Already included in base context
+        }),
+      );
+    }
+
+    // Add request context if request ID is provided
+    if (options.requestId) {
+      contexts.push(
+        this.createRequestContext(options.requestId, {
+          method: options.method,
+          url: options.url,
+          path: options.path,
+          clientIp: options.clientIp,
+          userAgent: options.userAgent,
+          params: options.params,
+          headers: options.headers,
+          includeTraceInfo: false, // Already included in base context
+        }),
+      );
+    }
+
+    return this.mergeContexts(...contexts);
+  }
+
+  /**
+   * Extracts context information from a request object
+   * @param request The HTTP request object (Express or NestJS)
+   * @returns A RequestContext with information extracted from the request
+   */
+  extractContextFromRequest(request: any): RequestContext {
     try {
-      // Expected format: 00-traceId-spanId-flags
-      const parts = traceparent.split('-');
-      if (parts.length !== 4) {
-        return undefined;
-      }
+      // Generate a request ID if not present
+      const requestId = request.id || request.headers?.['x-request-id'] || this.generateRequestId();
 
-      const [version, traceId, spanId, flags] = parts;
-      
-      // Basic validation
-      if (version !== '00' || traceId.length !== 32 || spanId.length !== 16) {
-        return undefined;
-      }
-
-      return { traceId, spanId };
+      return this.createRequestContext(requestId, {
+        method: request.method,
+        url: request.url || request.originalUrl,
+        path: request.path || request.route?.path,
+        clientIp: this.extractClientIp(request),
+        userAgent: request.headers?.['user-agent'],
+        params: {
+          ...request.params,
+          ...request.query,
+          // Exclude body for security reasons, can be added explicitly if needed
+        },
+        headers: this.sanitizeHeaders(request.headers || {}),
+      });
     } catch (error) {
-      return undefined;
+      // Fallback to a minimal context in case of errors
+      return this.createRequestContext(this.generateRequestId(), {
+        metadata: {
+          extractError: error instanceof Error ? error.message : 'Unknown error extracting request context',
+        },
+      });
     }
   }
 
   /**
-   * Sets the tracing service for this context manager
-   * @param tracingService Tracing service to use
+   * Serializes a context to a string for transmission across service boundaries
+   * @param context The context to serialize
+   * @returns A string representation of the context
    */
-  setTracingService(tracingService: TracingService): void {
-    this.tracingService = tracingService;
+  serializeContext(context: LoggingContext): string {
+    try {
+      return JSON.stringify(context);
+    } catch (error) {
+      // Handle circular references or other serialization errors
+      const safeContext = this.createContext({
+        metadata: {
+          serializationError: error instanceof Error ? error.message : 'Unknown serialization error',
+          originalContextType: context ? typeof context : 'undefined',
+        },
+      });
+      return JSON.stringify(safeContext);
+    }
   }
 
   /**
-   * Gets the current tracing service
-   * @returns Current tracing service or undefined if not set
+   * Deserializes a context string back into a context object
+   * @param contextString The serialized context string
+   * @returns The deserialized context object, or a new context if deserialization fails
    */
-  getTracingService(): TracingService | undefined {
-    return this.tracingService;
+  deserializeContext(contextString: string): LoggingContext {
+    try {
+      const context = JSON.parse(contextString) as LoggingContext;
+      
+      // Restore Date objects
+      if (context.timestamp && typeof context.timestamp === 'string') {
+        context.timestamp = new Date(context.timestamp);
+      }
+      
+      return context;
+    } catch (error) {
+      // Return a new context with error information if deserialization fails
+      return this.createContext({
+        metadata: {
+          deserializationError: error instanceof Error ? error.message : 'Unknown deserialization error',
+          originalString: contextString.substring(0, 100) + (contextString.length > 100 ? '...' : ''),
+        },
+      });
+    }
+  }
+
+  /**
+   * Enriches a context with trace information from the tracing service
+   * @param context The context to enrich
+   * @returns The enriched context with trace information
+   */
+  enrichWithTraceInfo<T extends LoggingContext>(context: T): T {
+    if (!this.tracingService) {
+      return context;
+    }
+
+    try {
+      const traceId = this.tracingService.getCurrentTraceId();
+      const spanId = this.tracingService.getCurrentSpanId();
+      const parentSpanId = this.tracingService.getParentSpanId();
+
+      return {
+        ...context,
+        traceId: traceId || context.traceId,
+        spanId: spanId || context.spanId,
+        parentSpanId: parentSpanId || context.parentSpanId,
+      };
+    } catch (error) {
+      // Return the original context if enrichment fails
+      return {
+        ...context,
+        metadata: {
+          ...context.metadata,
+          traceEnrichmentError: error instanceof Error ? error.message : 'Unknown tracing error',
+        },
+      };
+    }
+  }
+
+  /**
+   * Generates a unique request ID
+   * @returns A unique request ID string
+   */
+  private generateRequestId(): string {
+    return `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  }
+
+  /**
+   * Extracts the client IP address from a request object
+   * @param request The HTTP request object
+   * @returns The client IP address
+   */
+  private extractClientIp(request: any): string {
+    // Try various headers that might contain the client IP
+    return (
+      request.headers?.['x-forwarded-for']?.split(',')[0].trim() ||
+      request.headers?.['x-real-ip'] ||
+      request.connection?.remoteAddress ||
+      request.socket?.remoteAddress ||
+      request.ip ||
+      'unknown'
+    );
+  }
+
+  /**
+   * Sanitizes headers to remove sensitive information
+   * @param headers The headers object to sanitize
+   * @returns Sanitized headers object
+   */
+  private sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
+    const sensitiveHeaders = [
+      'authorization',
+      'cookie',
+      'set-cookie',
+      'x-api-key',
+      'x-auth-token',
+      'x-csrf-token',
+    ];
+
+    const sanitized: Record<string, any> = {};
+
+    Object.entries(headers).forEach(([key, value]) => {
+      const lowerKey = key.toLowerCase();
+      if (sensitiveHeaders.includes(lowerKey)) {
+        sanitized[key] = '[REDACTED]';
+      } else {
+        sanitized[key] = value;
+      }
+    });
+
+    return sanitized;
+  }
+
+  /**
+   * Sanitizes an object to remove potential sensitive information
+   * @param obj The object to sanitize
+   * @returns Sanitized object
+   */
+  private sanitizeObject(obj: Record<string, any>): Record<string, any> {
+    const sensitiveKeys = [
+      'password',
+      'token',
+      'secret',
+      'key',
+      'auth',
+      'credential',
+      'credit_card',
+      'creditcard',
+      'ssn',
+      'social_security',
+      'socialsecurity',
+      'cpf',
+      'cnpj',
+    ];
+
+    const sanitized: Record<string, any> = {};
+
+    Object.entries(obj).forEach(([key, value]) => {
+      const lowerKey = key.toLowerCase();
+      if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
+        sanitized[key] = '[REDACTED]';
+      } else if (typeof value === 'object' && value !== null) {
+        sanitized[key] = this.sanitizeObject(value);
+      } else {
+        sanitized[key] = value;
+      }
+    });
+
+    return sanitized;
   }
 }

@@ -1,210 +1,390 @@
 /**
- * Mock trace contexts for e2e testing of logging and tracing integration.
+ * Mock Trace Contexts for E2E Testing
  * 
- * These fixtures simulate distributed trace contexts that would be generated
- * during request processing across multiple services. They are used to verify
- * that logs properly include trace information and maintain correlation.
+ * This file provides mock trace context objects used in the tracing-integration.e2e-spec.ts tests
+ * to verify proper integration between logging and distributed tracing.
+ * 
+ * These fixtures simulate trace contexts that would be present in a distributed system,
+ * allowing tests to verify that trace context is properly propagated and included in logs.
  */
 
-/**
- * Base interface for trace context objects used in tests
- */
-export interface MockTraceContext {
-  traceId: string;          // 16-byte hex string (32 characters)
-  spanId: string;           // 8-byte hex string (16 characters)
-  parentSpanId?: string;    // 8-byte hex string for parent span (if applicable)
-  serviceName: string;      // Name of the service generating the span
-  operationName: string;    // Name of the operation being traced
-  startTime: number;        // Timestamp when the span started (milliseconds since epoch)
-  endTime?: number;         // Timestamp when the span ended (if applicable)
-  attributes?: Record<string, string | number | boolean>; // Additional context as key-value pairs
-}
+import { SpanKind, TraceFlags } from '@opentelemetry/api';
 
 /**
- * Simple trace context with a single span
+ * Collection of mock trace contexts for testing various tracing scenarios.
  */
-export const singleSpanContext: MockTraceContext = {
-  traceId: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
-  spanId: 'a1b2c3d4e5f6a7b8',
-  serviceName: 'api-gateway',
-  operationName: 'GET /health',
-  startTime: Date.now() - 50,
-  endTime: Date.now(),
-  attributes: {
-    'http.method': 'GET',
-    'http.url': '/health',
-    'http.status_code': 200
-  }
-};
+export const TraceContexts = {
+  /**
+   * Basic trace context with a single span
+   */
+  basic: {
+    traceId: 'abcdef0123456789abcdef0123456789',
+    spanId: '0123456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'test-service',
+    operationName: 'test-operation',
+    startTime: [1619712000, 123000000], // [seconds, nanoseconds]
+    endTime: [1619712001, 234000000],
+    attributes: {
+      'service.name': 'test-service',
+      'operation.name': 'test-operation',
+    },
+  },
 
-/**
- * Parent span context for a multi-span trace
- */
-export const parentSpanContext: MockTraceContext = {
-  traceId: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7',
-  spanId: 'b2c3d4e5f6a7b8c9',
-  serviceName: 'api-gateway',
-  operationName: 'POST /auth/login',
-  startTime: Date.now() - 150,
-  attributes: {
-    'http.method': 'POST',
-    'http.url': '/auth/login',
-    'http.request_content_length': 256
-  }
-};
+  /**
+   * Parent span context for testing parent-child relationships
+   */
+  parent: {
+    traceId: 'bbcdef0123456789abcdef0123456789',
+    spanId: 'bbbb456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'parent-service',
+    operationName: 'parent-operation',
+    startTime: [1619712000, 100000000],
+    endTime: [1619712002, 300000000],
+    attributes: {
+      'service.name': 'parent-service',
+      'operation.name': 'parent-operation',
+    },
+  },
 
-/**
- * Child span context that references the parent span
- */
-export const childSpanContext: MockTraceContext = {
-  traceId: parentSpanContext.traceId, // Same trace ID as parent
-  spanId: 'c3d4e5f6a7b8c9d0',
-  parentSpanId: parentSpanContext.spanId, // Reference to parent span
-  serviceName: 'auth-service',
-  operationName: 'validateCredentials',
-  startTime: parentSpanContext.startTime + 10, // Started after parent
-  endTime: parentSpanContext.startTime + 100,  // Ended before parent ends
-  attributes: {
-    'db.system': 'postgresql',
-    'db.operation': 'SELECT',
-    'db.statement': 'SELECT * FROM users WHERE email = $1',
-    'auth.user_id': '12345'
-  }
-};
+  /**
+   * Child span context that is a child of the parent context
+   */
+  child: {
+    traceId: 'bbcdef0123456789abcdef0123456789', // Same trace ID as parent
+    spanId: 'cccc456789abcdef',
+    parentSpanId: 'bbbb456789abcdef', // References parent span ID
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'child-service',
+    operationName: 'child-operation',
+    startTime: [1619712000, 200000000],
+    endTime: [1619712001, 800000000],
+    attributes: {
+      'service.name': 'child-service',
+      'operation.name': 'child-operation',
+      'parent.service': 'parent-service',
+    },
+  },
 
-/**
- * Complete request flow across multiple services
- * This simulates a user accessing their health metrics, which requires:
- * 1. API Gateway receiving the request
- * 2. Auth Service validating the token
- * 3. Health Service retrieving the metrics
- * 4. Health Service processing the metrics
- */
-export const multiServiceTraceContexts: MockTraceContext[] = [
-  // Root span in API Gateway
-  {
-    traceId: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9',
-    spanId: 'd4e5f6a7b8c9d0e1',
+  /**
+   * Trace context for cross-service tracing
+   */
+  crossServiceTrace: {
+    traceId: 'ccccef0123456789abcdef0123456789',
+    spanId: 'dddd456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: true,
     serviceName: 'api-gateway',
-    operationName: 'GET /health/metrics',
-    startTime: Date.now() - 300,
-    endTime: Date.now(),
+    operationName: 'http-request',
+    startTime: [1619712010, 100000000],
+    endTime: [1619712012, 900000000],
     attributes: {
-      'http.method': 'GET',
-      'http.url': '/health/metrics',
+      'service.name': 'api-gateway',
+      'operation.name': 'http-request',
+      'http.method': 'POST',
+      'http.url': '/api/v1/health/metrics',
       'http.status_code': 200,
-      'user.id': 'user-789',
-      'journey': 'health'
-    }
+    },
   },
-  // Auth validation span
-  {
-    traceId: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9',
-    spanId: 'e5f6a7b8c9d0e1f2',
-    parentSpanId: 'd4e5f6a7b8c9d0e1',
-    serviceName: 'auth-service',
-    operationName: 'validateToken',
-    startTime: Date.now() - 280,
-    endTime: Date.now() - 260,
-    attributes: {
-      'auth.token_type': 'JWT',
-      'auth.user_id': 'user-789',
-      'auth.scopes': 'health:read'
-    }
-  },
-  // Health service database query
-  {
-    traceId: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9',
-    spanId: 'f6a7b8c9d0e1f2a3',
-    parentSpanId: 'd4e5f6a7b8c9d0e1',
+
+  /**
+   * Trace context for a span in the health journey service
+   */
+  healthJourney: {
+    traceId: 'ddcdef0123456789abcdef0123456789',
+    spanId: 'eeee456789abcdef',
+    parentSpanId: 'dddd456789abcdef', // References cross-service trace
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
     serviceName: 'health-service',
-    operationName: 'getHealthMetrics',
-    startTime: Date.now() - 250,
-    endTime: Date.now() - 150,
+    operationName: 'update-health-metrics',
+    startTime: [1619712010, 200000000],
+    endTime: [1619712011, 500000000],
     attributes: {
-      'db.system': 'postgresql',
-      'db.operation': 'SELECT',
-      'db.statement': 'SELECT * FROM health_metrics WHERE user_id = $1 ORDER BY recorded_at DESC LIMIT 10',
-      'user.id': 'user-789',
-      'journey': 'health'
-    }
+      'service.name': 'health-service',
+      'operation.name': 'update-health-metrics',
+      'journey.type': 'health',
+      'journey.resource_id': 'health-record-123',
+      'user.id': 'user-456',
+    },
   },
-  // Health service metrics processing
-  {
-    traceId: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9',
-    spanId: 'a7b8c9d0e1f2a3b4',
-    parentSpanId: 'f6a7b8c9d0e1f2a3',
-    serviceName: 'health-service',
-    operationName: 'processMetrics',
-    startTime: Date.now() - 140,
-    endTime: Date.now() - 50,
+
+  /**
+   * Trace context for a span in the care journey service
+   */
+  careJourney: {
+    traceId: 'eecdef0123456789abcdef0123456789',
+    spanId: 'ffff456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'care-service',
+    operationName: 'book-appointment',
+    startTime: [1619712020, 100000000],
+    endTime: [1619712022, 800000000],
     attributes: {
-      'metrics.count': 10,
-      'metrics.type': 'heart_rate,steps,sleep',
-      'processing.algorithm': 'trend_analysis',
-      'user.id': 'user-789',
-      'journey': 'health'
-    }
-  }
-];
+      'service.name': 'care-service',
+      'operation.name': 'book-appointment',
+      'journey.type': 'care',
+      'journey.resource_id': 'appointment-789',
+      'user.id': 'user-456',
+      'provider.id': 'provider-123',
+    },
+  },
 
-/**
- * Trace context with error condition
- */
-export const errorTraceContext: MockTraceContext = {
-  traceId: 'e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
-  spanId: 'e5f6a7b8c9d0e1f2',
-  serviceName: 'care-service',
-  operationName: 'scheduleAppointment',
-  startTime: Date.now() - 200,
-  endTime: Date.now() - 150,
-  attributes: {
-    'http.method': 'POST',
-    'http.url': '/care/appointments',
-    'http.status_code': 500,
-    'error': true,
-    'error.type': 'DatabaseConnectionError',
-    'error.message': 'Failed to connect to database after 3 retries',
-    'journey': 'care'
-  }
-};
+  /**
+   * Trace context for a span in the plan journey service
+   */
+  planJourney: {
+    traceId: 'ffcdef0123456789abcdef0123456789',
+    spanId: 'aaaa456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'plan-service',
+    operationName: 'submit-claim',
+    startTime: [1619712030, 100000000],
+    endTime: [1619712033, 900000000],
+    attributes: {
+      'service.name': 'plan-service',
+      'operation.name': 'submit-claim',
+      'journey.type': 'plan',
+      'journey.resource_id': 'claim-456',
+      'user.id': 'user-456',
+      'plan.id': 'plan-789',
+    },
+  },
 
-/**
- * Trace context for gamification event processing
- */
-export const gamificationTraceContext: MockTraceContext = {
-  traceId: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1',
-  spanId: 'f6a7b8c9d0e1f2a3',
-  serviceName: 'gamification-engine',
-  operationName: 'processAchievementEvent',
-  startTime: Date.now() - 75,
-  endTime: Date.now() - 30,
-  attributes: {
-    'event.type': 'achievement_unlocked',
-    'event.source': 'health-service',
-    'achievement.id': 'first_workout_complete',
-    'user.id': 'user-456',
-    'points.awarded': 50,
-    'journey': 'health'
-  }
-};
+  /**
+   * Trace context for an error scenario
+   */
+  errorTrace: {
+    traceId: 'aacdef0123456789abcdef0123456789',
+    spanId: 'eeee456789abcdef',
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: false,
+    serviceName: 'health-service',
+    operationName: 'process-health-data',
+    startTime: [1619712040, 100000000],
+    endTime: [1619712040, 500000000],
+    attributes: {
+      'service.name': 'health-service',
+      'operation.name': 'process-health-data',
+      'journey.type': 'health',
+      'error': true,
+      'error.type': 'ValidationError',
+      'error.message': 'Invalid health metric data',
+    },
+  },
 
-/**
- * Trace context for plan journey operations
- */
-export const planJourneyTraceContext: MockTraceContext = {
-  traceId: 'a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2',
-  spanId: 'a7b8c9d0e1f2a3b4',
-  serviceName: 'plan-service',
-  operationName: 'getCoverageDetails',
-  startTime: Date.now() - 120,
-  endTime: Date.now() - 80,
-  attributes: {
-    'http.method': 'GET',
-    'http.url': '/plan/coverage/details',
-    'http.status_code': 200,
-    'user.id': 'user-123',
-    'plan.id': 'premium-family-2023',
-    'journey': 'plan'
-  }
+  /**
+   * Complete request flow across multiple services
+   * Simulates a user submitting health data that triggers gamification events
+   */
+  completeFlow: {
+    // Initial request through API Gateway
+    apiGateway: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '1111456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+      serviceName: 'api-gateway',
+      operationName: 'http-request',
+      spanKind: SpanKind.SERVER,
+      startTime: [1619712050, 100000000],
+      endTime: [1619712055, 900000000],
+      attributes: {
+        'service.name': 'api-gateway',
+        'operation.name': 'http-request',
+        'http.method': 'POST',
+        'http.url': '/api/v1/health/metrics',
+        'http.status_code': 200,
+      },
+    },
+    
+    // Health service processing the request
+    healthService: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '2222456789abcdef',
+      parentSpanId: '1111456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'health-service',
+      operationName: 'save-health-metrics',
+      spanKind: SpanKind.INTERNAL,
+      startTime: [1619712050, 200000000],
+      endTime: [1619712051, 500000000],
+      attributes: {
+        'service.name': 'health-service',
+        'operation.name': 'save-health-metrics',
+        'journey.type': 'health',
+        'journey.resource_id': 'health-record-789',
+        'user.id': 'user-123',
+        'metric.type': 'steps',
+        'metric.value': '10000',
+      },
+    },
+    
+    // Health service publishing event
+    healthServiceEvent: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '3333456789abcdef',
+      parentSpanId: '2222456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'health-service',
+      operationName: 'publish-metric-event',
+      spanKind: SpanKind.PRODUCER,
+      startTime: [1619712051, 500000000],
+      endTime: [1619712051, 700000000],
+      attributes: {
+        'service.name': 'health-service',
+        'operation.name': 'publish-metric-event',
+        'messaging.system': 'kafka',
+        'messaging.destination': 'health-metrics',
+        'messaging.destination_kind': 'topic',
+      },
+    },
+    
+    // Gamification engine consuming the event
+    gamificationConsumer: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '4444456789abcdef',
+      parentSpanId: '3333456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+      serviceName: 'gamification-engine',
+      operationName: 'consume-metric-event',
+      spanKind: SpanKind.CONSUMER,
+      startTime: [1619712051, 800000000],
+      endTime: [1619712052, 100000000],
+      attributes: {
+        'service.name': 'gamification-engine',
+        'operation.name': 'consume-metric-event',
+        'messaging.system': 'kafka',
+        'messaging.destination': 'health-metrics',
+        'messaging.destination_kind': 'topic',
+        'messaging.operation': 'receive',
+      },
+    },
+    
+    // Gamification engine processing achievement
+    gamificationProcessing: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '5555456789abcdef',
+      parentSpanId: '4444456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'gamification-engine',
+      operationName: 'process-achievement',
+      spanKind: SpanKind.INTERNAL,
+      startTime: [1619712052, 100000000],
+      endTime: [1619712052, 500000000],
+      attributes: {
+        'service.name': 'gamification-engine',
+        'operation.name': 'process-achievement',
+        'achievement.id': 'daily-steps-goal',
+        'achievement.type': 'milestone',
+        'user.id': 'user-123',
+        'points.earned': 100,
+      },
+    },
+    
+    // Notification service sending achievement notification
+    notificationService: {
+      traceId: 'aaaaef0123456789abcdef0123456789',
+      spanId: '6666456789abcdef',
+      parentSpanId: '5555456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+      serviceName: 'notification-service',
+      operationName: 'send-achievement-notification',
+      spanKind: SpanKind.INTERNAL,
+      startTime: [1619712052, 600000000],
+      endTime: [1619712053, 100000000],
+      attributes: {
+        'service.name': 'notification-service',
+        'operation.name': 'send-achievement-notification',
+        'notification.type': 'achievement',
+        'notification.channel': 'push',
+        'user.id': 'user-123',
+      },
+    },
+  },
+
+  /**
+   * Trace context for testing with different trace flags
+   */
+  traceFlags: {
+    // Sampled trace (normal case)
+    sampled: {
+      traceId: 'bbbbef0123456789abcdef0123456789',
+      spanId: '7777456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'test-service',
+      operationName: 'sampled-operation',
+    },
+    
+    // Not sampled trace (for testing sampling behavior)
+    notSampled: {
+      traceId: 'ccccef0123456789abcdef0123456789',
+      spanId: '8888456789abcdef',
+      traceFlags: TraceFlags.NONE,
+      isRemote: false,
+      serviceName: 'test-service',
+      operationName: 'not-sampled-operation',
+    },
+  },
+
+  /**
+   * Trace contexts for testing different span kinds
+   */
+  spanKinds: {
+    // Server span (incoming request)
+    server: {
+      traceId: 'dddddf0123456789abcdef0123456789',
+      spanId: '9999456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+      serviceName: 'test-service',
+      operationName: 'handle-request',
+      spanKind: SpanKind.SERVER,
+    },
+    
+    // Client span (outgoing request)
+    client: {
+      traceId: 'eeeeef0123456789abcdef0123456789',
+      spanId: 'aaaa456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'test-service',
+      operationName: 'make-request',
+      spanKind: SpanKind.CLIENT,
+    },
+    
+    // Producer span (sending to message broker)
+    producer: {
+      traceId: 'ffffef0123456789abcdef0123456789',
+      spanId: 'bbbb456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+      serviceName: 'test-service',
+      operationName: 'send-message',
+      spanKind: SpanKind.PRODUCER,
+    },
+    
+    // Consumer span (receiving from message broker)
+    consumer: {
+      traceId: '11111f0123456789abcdef0123456789',
+      spanId: 'cccc456789abcdef',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+      serviceName: 'test-service',
+      operationName: 'process-message',
+      spanKind: SpanKind.CONSUMER,
+    },
+  },
 };

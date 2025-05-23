@@ -1,622 +1,540 @@
-import { TextFormatter, TextFormatterOptions } from '../../../src/formatters/text.formatter';
+import { TextFormatter } from '../../../src/formatters/text.formatter';
+import { LogEntry, JourneyType } from '../../../src/interfaces/log-entry.interface';
 import { LogLevel } from '../../../src/interfaces/log-level.enum';
-import { LogEntry } from '../../../src/formatters/formatter.interface';
 
+/**
+ * Test suite for the TextFormatter class.
+ * These tests verify that the TextFormatter correctly transforms log entries
+ * into human-readable text format with proper coloring and formatting.
+ */
 describe('TextFormatter', () => {
   let formatter: TextFormatter;
-  let defaultOptions: TextFormatterOptions;
-
+  
+  // Sample timestamp for consistent testing
+  const sampleTimestamp = new Date('2023-05-15T14:30:45.123Z');
+  
+  // ANSI color codes used by the formatter
+  const colors = {
+    reset: '\x1b[0m',
+    debug: '\x1b[36m', // Cyan
+    info: '\x1b[32m',  // Green
+    warn: '\x1b[33m',  // Yellow
+    error: '\x1b[31m', // Red
+    fatal: '\x1b[35m', // Magenta
+    timestamp: '\x1b[90m', // Gray
+    context: '\x1b[1;34m', // Bright Blue
+    journeyHealth: '\x1b[1;32m', // Bright Green
+    journeyCare: '\x1b[1;36m',  // Bright Cyan
+    journeyPlan: '\x1b[1;33m',  // Bright Yellow
+  };
+  
   beforeEach(() => {
-    defaultOptions = {
-      colors: true,
-      timestamps: true,
-      prettyPrint: true,
-      maxDepth: 3,
-      includeContext: true,
-    };
-    formatter = new TextFormatter(defaultOptions);
+    // Create a new formatter instance with colors enabled for testing
+    formatter = new TextFormatter({ useColors: true });
   });
-
-  describe('basic formatting', () => {
-    it('should format a simple log entry with INFO level', () => {
-      const timestamp = new Date('2023-01-01T12:00:00Z');
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp,
-      };
-
+  
+  /**
+   * Helper function to create a basic log entry for testing.
+   * @param level The log level
+   * @param message The log message
+   * @returns A basic log entry
+   */
+  function createBasicLogEntry(level: LogLevel, message: string): LogEntry {
+    return {
+      level,
+      message,
+      timestamp: sampleTimestamp,
+    };
+  }
+  
+  describe('Basic Formatting', () => {
+    it('should format a basic log entry with the correct structure', () => {
+      const entry = createBasicLogEntry(LogLevel.INFO, 'Test message');
       const result = formatter.format(entry);
-
-      expect(result).toContain('[2023-01-01 12:00:00.000]');
-      expect(result).toContain('[INFO]');
+      
+      // The result should contain the timestamp, level, and message
+      expect(result).toContain('2023-05-15 14:30:45.123');
+      expect(result).toContain('INFO');
       expect(result).toContain('Test message');
     });
-
-    it('should format a log entry with DEBUG level', () => {
-      const entry: LogEntry = {
-        level: LogLevel.DEBUG,
-        message: 'Debug message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('[DEBUG]');
-      expect(result).toContain('Debug message');
-    });
-
-    it('should format a log entry with WARN level', () => {
-      const entry: LogEntry = {
-        level: LogLevel.WARN,
-        message: 'Warning message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('[WARN]');
-      expect(result).toContain('Warning message');
-    });
-
-    it('should format a log entry with ERROR level', () => {
-      const entry: LogEntry = {
-        level: LogLevel.ERROR,
-        message: 'Error message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('[ERROR]');
-      expect(result).toContain('Error message');
-    });
-
-    it('should format a log entry with FATAL level', () => {
-      const entry: LogEntry = {
-        level: LogLevel.FATAL,
-        message: 'Fatal message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('[FATAL]');
-      expect(result).toContain('Fatal message');
-    });
-  });
-
-  describe('color formatting', () => {
-    it('should include ANSI color codes when colors are enabled', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      // Check for ANSI color codes
-      expect(result).toMatch(/\x1b\[/); // Contains ANSI escape sequence
-    });
-
-    it('should not include ANSI color codes when colors are disabled', () => {
-      formatter = new TextFormatter({ ...defaultOptions, colors: false });
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-      };
-
-      const result = formatter.format(entry);
-
-      // Should not contain ANSI escape sequences
-      expect(result).not.toMatch(/\x1b\[/);
-    });
-
-    it('should use different colors for different log levels', () => {
-      const debugEntry: LogEntry = {
-        level: LogLevel.DEBUG,
-        message: 'Debug message',
-        timestamp: new Date(),
-      };
-
-      const errorEntry: LogEntry = {
-        level: LogLevel.ERROR,
-        message: 'Error message',
-        timestamp: new Date(),
-      };
-
-      const debugResult = formatter.format(debugEntry);
-      const errorResult = formatter.format(errorEntry);
-
-      // Different log levels should have different color codes
-      expect(debugResult).not.toEqual(errorResult);
+    
+    it('should format log entries with different levels correctly', () => {
+      // Test each log level
+      const levels = [
+        { level: LogLevel.DEBUG, name: 'DEBUG' },
+        { level: LogLevel.INFO, name: 'INFO' },
+        { level: LogLevel.WARN, name: 'WARN' },
+        { level: LogLevel.ERROR, name: 'ERROR' },
+        { level: LogLevel.FATAL, name: 'FATAL' },
+      ];
       
-      // Debug should contain cyan color code
-      expect(debugResult).toMatch(/\x1b\[36m/); // Cyan color
+      levels.forEach(({ level, name }) => {
+        const entry = createBasicLogEntry(level, `${name} message`);
+        const result = formatter.format(entry);
+        
+        // The result should contain the level name
+        expect(result).toContain(name);
+        expect(result).toContain(`${name} message`);
+      });
+    });
+    
+    it('should include context when provided', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Test with context'),
+        context: 'TestContext',
+      };
       
-      // Error should contain red color code
-      expect(errorResult).toMatch(/\x1b\[31m/); // Red color
+      const result = formatter.format(entry);
+      
+      // The result should contain the context
+      expect(result).toContain('[TestContext]');
     });
   });
-
-  describe('timestamp formatting', () => {
-    it('should include formatted timestamp when timestamps are enabled', () => {
-      const timestamp = new Date('2023-01-01T12:00:00Z');
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp,
-      };
-
+  
+  describe('Color Coding', () => {
+    it('should apply the correct color for DEBUG level', () => {
+      const entry = createBasicLogEntry(LogLevel.DEBUG, 'Debug message');
       const result = formatter.format(entry);
-
-      expect(result).toContain('[2023-01-01 12:00:00.000]');
+      
+      // The result should contain the debug color code
+      expect(result).toContain(colors.debug);
     });
-
-    it('should not include timestamp when timestamps are disabled', () => {
-      formatter = new TextFormatter({ ...defaultOptions, timestamps: false });
-      const timestamp = new Date('2023-01-01T12:00:00Z');
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp,
-      };
-
+    
+    it('should apply the correct color for INFO level', () => {
+      const entry = createBasicLogEntry(LogLevel.INFO, 'Info message');
       const result = formatter.format(entry);
-
-      expect(result).not.toContain('[2023-01-01 12:00:00.000]');
+      
+      // The result should contain the info color code
+      expect(result).toContain(colors.info);
+    });
+    
+    it('should apply the correct color for WARN level', () => {
+      const entry = createBasicLogEntry(LogLevel.WARN, 'Warning message');
+      const result = formatter.format(entry);
+      
+      // The result should contain the warn color code
+      expect(result).toContain(colors.warn);
+    });
+    
+    it('should apply the correct color for ERROR level', () => {
+      const entry = createBasicLogEntry(LogLevel.ERROR, 'Error message');
+      const result = formatter.format(entry);
+      
+      // The result should contain the error color code
+      expect(result).toContain(colors.error);
+    });
+    
+    it('should apply the correct color for FATAL level', () => {
+      const entry = createBasicLogEntry(LogLevel.FATAL, 'Fatal message');
+      const result = formatter.format(entry);
+      
+      // The result should contain the fatal color code
+      expect(result).toContain(colors.fatal);
+    });
+    
+    it('should apply the correct color for timestamp', () => {
+      const entry = createBasicLogEntry(LogLevel.INFO, 'Test message');
+      const result = formatter.format(entry);
+      
+      // The result should contain the timestamp color code
+      expect(result).toContain(colors.timestamp);
+    });
+    
+    it('should not use colors when disabled', () => {
+      // Create a formatter with colors disabled
+      const noColorFormatter = new TextFormatter({ useColors: false });
+      const entry = createBasicLogEntry(LogLevel.INFO, 'No color message');
+      const result = noColorFormatter.format(entry);
+      
+      // The result should not contain any color codes
+      expect(result).not.toContain(colors.reset);
+      expect(result).not.toContain(colors.info);
+      expect(result).not.toContain(colors.timestamp);
     });
   });
-
-  describe('context formatting', () => {
-    it('should include service name in context when available', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'test-service',
+  
+  describe('Journey Formatting', () => {
+    it('should format HEALTH journey correctly', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Health journey message'),
+        journey: {
+          type: JourneyType.HEALTH,
+          resourceId: 'health-123',
+          action: 'view',
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[test-service]');
+      
+      // The result should contain the journey type and color
+      expect(result).toContain('[HEALTH]');
+      expect(result).toContain(colors.journeyHealth);
+      expect(result).toContain('Resource: health-123');
+      expect(result).toContain('Action: view');
     });
-
-    it('should include journey in context when available', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          journey: 'health',
+    
+    it('should format CARE journey correctly', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Care journey message'),
+        journey: {
+          type: JourneyType.CARE,
+          resourceId: 'care-456',
+          action: 'book',
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[health]');
+      
+      // The result should contain the journey type and color
+      expect(result).toContain('[CARE]');
+      expect(result).toContain(colors.journeyCare);
+      expect(result).toContain('Resource: care-456');
+      expect(result).toContain('Action: book');
     });
-
-    it('should include request information in context when available', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          request: {
-            id: '123',
-            method: 'GET',
-            path: '/api/test',
-            userId: 'user-123',
-            duration: 42,
+    
+    it('should format PLAN journey correctly', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Plan journey message'),
+        journey: {
+          type: JourneyType.PLAN,
+          resourceId: 'plan-789',
+          action: 'claim',
+        },
+      };
+      
+      const result = formatter.format(entry);
+      
+      // The result should contain the journey type and color
+      expect(result).toContain('[PLAN]');
+      expect(result).toContain(colors.journeyPlan);
+      expect(result).toContain('Resource: plan-789');
+      expect(result).toContain('Action: claim');
+    });
+    
+    it('should format journey data when provided', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Journey with data'),
+        journey: {
+          type: JourneyType.HEALTH,
+          data: {
+            metricType: 'steps',
+            value: 10000,
+            unit: 'count',
           },
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[req:123]');
-      expect(result).toContain('[GET /api/test]');
-      expect(result).toContain('[user:user-123]');
-      expect(result).toContain('[42ms]');
-    });
-
-    it('should include trace information in context when available', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          trace: {
-            id: 'trace-123',
-          },
-        },
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('[trace:trace-123]');
-    });
-
-    it('should not include context when includeContext is disabled', () => {
-      formatter = new TextFormatter({ ...defaultOptions, includeContext: false });
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'test-service',
-          journey: 'health',
-          request: {
-            id: '123',
-          },
-        },
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).not.toContain('[test-service]');
-      expect(result).not.toContain('[health]');
-      expect(result).not.toContain('[req:123]');
+      
+      // The result should contain the journey data
+      expect(result).toContain('Journey Data:');
+      expect(result).toContain('"metricType": "steps"');
+      expect(result).toContain('"value": 10000');
+      expect(result).toContain('"unit": "count"');
     });
   });
-
-  describe('error formatting', () => {
-    it('should format error string', () => {
-      const entry: LogEntry = {
-        level: LogLevel.ERROR,
-        message: 'Error occurred',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        error: 'Simple error message',
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('Error occurred');
-      expect(result).toContain('Error: Simple error message');
-    });
-
-    it('should format Error object with stack trace', () => {
-      const error = new Error('Test error');
-      const entry: LogEntry = {
-        level: LogLevel.ERROR,
-        message: 'Error occurred',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        error,
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('Error occurred');
-      expect(result).toContain('Error: Error: Test error');
-      expect(result).toContain('stack');
-    });
-
-    it('should format custom error with additional properties', () => {
-      class CustomError extends Error {
-        constructor(message: string, public code: string, public statusCode: number) {
-          super(message);
-          this.name = 'CustomError';
-        }
-      }
-
-      const error = new CustomError('Custom error', 'ERR_CUSTOM', 400);
-      const entry: LogEntry = {
-        level: LogLevel.ERROR,
-        message: 'Error occurred',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        error,
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('Error occurred');
-      expect(result).toContain('Error: CustomError: Custom error');
-      expect(result).toContain('code');
-      expect(result).toContain('ERR_CUSTOM');
-      expect(result).toContain('statusCode');
-      expect(result).toContain('400');
-    });
-  });
-
-  describe('object formatting', () => {
-    it('should format simple objects', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        metadata: {
-          key1: 'value1',
-          key2: 42,
-          key3: true,
+  
+  describe('Context Data Formatting', () => {
+    it('should format context data correctly', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Context data test'),
+        contextData: {
+          userId: 'user-123',
+          sessionId: 'session-456',
+          browser: 'Chrome',
+          device: 'Desktop',
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('key1');
-      expect(result).toContain('value1');
-      expect(result).toContain('key2');
-      expect(result).toContain('42');
-      expect(result).toContain('key3');
-      expect(result).toContain('true');
+      
+      // The result should contain the context data
+      expect(result).toContain('Context Data:');
+      expect(result).toContain('"userId": "user-123"');
+      expect(result).toContain('"sessionId": "session-456"');
+      expect(result).toContain('"browser": "Chrome"');
+      expect(result).toContain('"device": "Desktop"');
     });
-
-    it('should format nested objects with proper indentation', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        metadata: {
+    
+    it('should handle nested objects in context data', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Nested context data'),
+        contextData: {
           user: {
             id: 'user-123',
-            profile: {
-              name: 'Test User',
-              email: 'test@example.com',
+            name: 'Test User',
+            preferences: {
+              theme: 'dark',
+              notifications: true,
             },
           },
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('user');
-      expect(result).toContain('id');
-      expect(result).toContain('user-123');
-      expect(result).toContain('profile');
-      expect(result).toContain('name');
-      expect(result).toContain('Test User');
-      expect(result).toContain('email');
-      expect(result).toContain('test@example.com');
-
-      // Check for indentation (spaces after newlines)
-      expect(result).toMatch(/\n\s+/);
+      
+      // The result should contain the nested context data
+      expect(result).toContain('Context Data:');
+      expect(result).toContain('"user": {');
+      expect(result).toContain('"id": "user-123"');
+      expect(result).toContain('"name": "Test User"');
+      expect(result).toContain('"preferences": {');
+      expect(result).toContain('"theme": "dark"');
+      expect(result).toContain('"notifications": true');
     });
-
-    it('should format arrays with proper indentation', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        metadata: {
-          items: [1, 2, 3],
-          users: [
-            { id: 'user-1', name: 'User 1' },
-            { id: 'user-2', name: 'User 2' },
-          ],
+    
+    it('should handle arrays in context data', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Array context data'),
+        contextData: {
+          items: ['item1', 'item2', 'item3'],
+          counts: [1, 2, 3],
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('items');
-      expect(result).toContain('[');
+      
+      // The result should contain the array context data
+      expect(result).toContain('Context Data:');
+      expect(result).toContain('"items": [');
+      expect(result).toContain('"item1"');
+      expect(result).toContain('"item2"');
+      expect(result).toContain('"item3"');
+      expect(result).toContain('"counts": [');
       expect(result).toContain('1');
       expect(result).toContain('2');
       expect(result).toContain('3');
-      expect(result).toContain(']');
-      expect(result).toContain('users');
-      expect(result).toContain('id');
-      expect(result).toContain('user-1');
-      expect(result).toContain('name');
-      expect(result).toContain('User 1');
-      expect(result).toContain('user-2');
-      expect(result).toContain('User 2');
-
-      // Check for indentation (spaces after newlines)
-      expect(result).toMatch(/\n\s+/);
-    });
-
-    it('should respect maxDepth for nested objects', () => {
-      formatter = new TextFormatter({ ...defaultOptions, maxDepth: 1 });
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        metadata: {
-          user: {
-            profile: {
-              details: {
-                preferences: {
-                  theme: 'dark',
-                },
-              },
-            },
-          },
-        },
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('user');
-      expect(result).toContain('profile');
-      expect(result).toContain('[Max Depth Exceeded]');
-      expect(result).not.toContain('theme');
-      expect(result).not.toContain('dark');
-    });
-
-    it('should handle special values like null, undefined, and dates', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        metadata: {
-          nullValue: null,
-          undefinedValue: undefined,
-          dateValue: new Date('2023-02-01T00:00:00Z'),
-          emptyObject: {},
-          emptyArray: [],
-        },
-      };
-
-      const result = formatter.format(entry);
-
-      expect(result).toContain('nullValue');
-      expect(result).toContain('null');
-      expect(result).toContain('undefinedValue');
-      expect(result).toContain('undefined');
-      expect(result).toContain('dateValue');
-      expect(result).toContain('2023-02-01');
-      expect(result).toContain('emptyObject');
-      expect(result).toContain('{}');
-      expect(result).toContain('emptyArray');
-      expect(result).toContain('[]');
     });
   });
-
-  describe('configuration options', () => {
-    it('should use default options when none are provided', () => {
-      formatter = new TextFormatter();
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'test-service',
-        },
+  
+  describe('Error Formatting', () => {
+    it('should format error information correctly', () => {
+      const error = {
+        name: 'TestError',
+        message: 'Test error message',
+        stack: 'TestError: Test error message\n    at TestFunction (/test.ts:123:45)',
+        code: 'ERR_TEST',
       };
-
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.ERROR, 'Error test'),
+        error,
+      };
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[2023-01-01 12:00:00.000]'); // timestamps enabled
-      expect(result).toMatch(/\x1b\[/); // colors enabled
-      expect(result).toContain('[test-service]'); // includeContext enabled
+      
+      // The result should contain the error information
+      expect(result).toContain('TestError: Test error message');
+      expect(result).toContain('Code: ERR_TEST');
+      expect(result).toContain('Stack Trace:');
+      expect(result).toContain('TestError: Test error message');
+      expect(result).toContain('at TestFunction (/test.ts:123:45)');
     });
-
-    it('should respect all configuration options when provided', () => {
-      formatter = new TextFormatter({
-        colors: false,
-        timestamps: false,
-        prettyPrint: false,
-        maxDepth: 1,
-        includeContext: false,
-      });
-
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Test message',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'test-service',
-        },
-        metadata: {
-          user: {
-            profile: {
-              name: 'Test User',
-            },
-          },
-        },
+    
+    it('should format error flags when present', () => {
+      const error = {
+        name: 'TransientError',
+        message: 'Temporary failure',
+        isTransient: true,
+        isClientError: false,
+        isExternalError: true,
       };
-
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.ERROR, 'Error with flags'),
+        error,
+      };
+      
       const result = formatter.format(entry);
-
-      expect(result).not.toContain('[2023-01-01 12:00:00.000]'); // timestamps disabled
-      expect(result).not.toMatch(/\x1b\[/); // colors disabled
-      expect(result).not.toContain('[test-service]'); // includeContext disabled
-      expect(result).toContain('[Max Depth Exceeded]'); // maxDepth respected
+      
+      // The result should contain the error flags
+      expect(result).toContain('Flags: Transient, External Error');
+      expect(result).not.toContain('Client Error');
+    });
+    
+    it('should handle errors without a stack trace', () => {
+      const error = {
+        name: 'SimpleError',
+        message: 'Simple error without stack',
+      };
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.ERROR, 'Error without stack'),
+        error,
+      };
+      
+      const result = formatter.format(entry);
+      
+      // The result should contain the error information but no stack trace
+      expect(result).toContain('SimpleError: Simple error without stack');
+      expect(result).not.toContain('Stack Trace:');
     });
   });
-
-  describe('journey-specific formatting', () => {
-    it('should format health journey context correctly', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Health metric recorded',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'health-service',
-          journey: 'health',
-          request: {
-            id: 'req-123',
-            userId: 'user-123',
-          },
-        },
-        metadata: {
-          metricType: 'heart-rate',
-          value: 75,
-          unit: 'bpm',
-          deviceId: 'device-123',
-        },
+  
+  describe('Request Information Formatting', () => {
+    it('should format request ID, user ID, and session ID', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Request info test'),
+        requestId: 'req-123',
+        userId: 'user-456',
+        sessionId: 'session-789',
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[health-service]');
-      expect(result).toContain('[health]');
-      expect(result).toContain('Health metric recorded');
-      expect(result).toContain('metricType');
-      expect(result).toContain('heart-rate');
-      expect(result).toContain('value');
-      expect(result).toContain('75');
+      
+      // The result should contain the request information
+      expect(result).toContain('Request ID: req-123');
+      expect(result).toContain('User ID: user-456');
+      expect(result).toContain('Session ID: session-789');
     });
-
-    it('should format care journey context correctly', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Appointment scheduled',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'care-service',
-          journey: 'care',
-          request: {
-            id: 'req-456',
-            userId: 'user-456',
-          },
-        },
-        metadata: {
-          appointmentId: 'appt-123',
-          providerId: 'provider-123',
-          specialtyId: 'specialty-123',
-          scheduledTime: new Date('2023-02-01T14:30:00Z'),
-        },
+    
+    it('should format trace ID when provided', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Trace info test'),
+        traceId: 'trace-123',
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[care-service]');
-      expect(result).toContain('[care]');
-      expect(result).toContain('Appointment scheduled');
-      expect(result).toContain('appointmentId');
-      expect(result).toContain('appt-123');
-      expect(result).toContain('providerId');
-      expect(result).toContain('provider-123');
+      
+      // The result should contain the trace information
+      expect(result).toContain('Trace ID: trace-123');
     });
-
-    it('should format plan journey context correctly', () => {
-      const entry: LogEntry = {
-        level: LogLevel.INFO,
-        message: 'Claim submitted',
-        timestamp: new Date('2023-01-01T12:00:00Z'),
-        context: {
-          service: 'plan-service',
-          journey: 'plan',
-          request: {
-            id: 'req-789',
-            userId: 'user-789',
-          },
-        },
+    
+    it('should handle partial request information', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Partial request info'),
+        requestId: 'req-123',
+        // No userId or sessionId
+      };
+      
+      const result = formatter.format(entry);
+      
+      // The result should contain only the request ID
+      expect(result).toContain('Request ID: req-123');
+      expect(result).not.toContain('User ID:');
+      expect(result).not.toContain('Session ID:');
+    });
+  });
+  
+  describe('Timestamp Formatting', () => {
+    it('should format timestamp in the expected format', () => {
+      const entry = createBasicLogEntry(LogLevel.INFO, 'Timestamp test');
+      const result = formatter.format(entry);
+      
+      // The timestamp should be in the format: YYYY-MM-DD HH:MM:SS.mmm
+      expect(result).toContain('2023-05-15 14:30:45.123');
+    });
+    
+    it('should handle different timestamps correctly', () => {
+      // Test with a different timestamp
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Different timestamp'),
+        timestamp: new Date('2023-12-31T23:59:59.999Z'),
+      };
+      
+      const result = formatter.format(entry);
+      
+      // The result should contain the formatted timestamp
+      expect(result).toContain('2023-12-31 23:59:59.999');
+    });
+  });
+  
+  describe('Metadata Formatting', () => {
+    it('should format metadata correctly', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Metadata test'),
         metadata: {
-          claimId: 'claim-123',
-          planId: 'plan-123',
-          amount: 150.75,
-          category: 'medical',
-          status: 'submitted',
+          version: '1.0.0',
+          environment: 'test',
+          features: ['feature1', 'feature2'],
         },
       };
-
+      
       const result = formatter.format(entry);
-
-      expect(result).toContain('[plan-service]');
-      expect(result).toContain('[plan]');
-      expect(result).toContain('Claim submitted');
-      expect(result).toContain('claimId');
-      expect(result).toContain('claim-123');
-      expect(result).toContain('planId');
-      expect(result).toContain('plan-123');
+      
+      // The result should contain the metadata
+      expect(result).toContain('Metadata:');
+      expect(result).toContain('"version": "1.0.0"');
+      expect(result).toContain('"environment": "test"');
+      expect(result).toContain('"features": [');
+      expect(result).toContain('"feature1"');
+      expect(result).toContain('"feature2"');
+    });
+  });
+  
+  describe('Edge Cases', () => {
+    it('should handle circular references in objects', () => {
+      // Create an object with a circular reference
+      const circular: any = { name: 'circular' };
+      circular.self = circular;
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Circular reference'),
+        contextData: { circular },
+      };
+      
+      // The formatter should handle the circular reference without throwing
+      expect(() => formatter.format(entry)).not.toThrow();
+      
+      const result = formatter.format(entry);
+      
+      // The result should contain a placeholder for the circular reference
+      expect(result).toContain('Context Data:');
+      expect(result).toContain('"name": "circular"');
+      expect(result).toContain('"self": "[Circular Reference]"');
+    });
+    
+    it('should handle very large objects', () => {
+      // Create a large object that might cause performance issues
+      const largeObject: Record<string, string> = {};
+      for (let i = 0; i < 100; i++) {
+        largeObject[`key${i}`] = `value${i}`.repeat(10);
+      }
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Large object'),
+        contextData: { largeObject },
+      };
+      
+      // The formatter should handle the large object without throwing
+      expect(() => formatter.format(entry)).not.toThrow();
+    });
+    
+    it('should handle empty objects', () => {
+      const entry = {
+        ...createBasicLogEntry(LogLevel.INFO, 'Empty object'),
+        contextData: {},
+      };
+      
+      const result = formatter.format(entry);
+      
+      // The result should not contain context data section
+      expect(result).not.toContain('Context Data:');
+    });
+    
+    it('should handle special characters in messages', () => {
+      const entry = createBasicLogEntry(
+        LogLevel.INFO,
+        'Message with special characters: \n\t\r\"\'\\'
+      );
+      
+      // The formatter should handle special characters without throwing
+      expect(() => formatter.format(entry)).not.toThrow();
+    });
+    
+    it('should handle non-string error messages', () => {
+      const error = {
+        name: 'TypeError',
+        message: null as any, // Force null for testing
+      };
+      
+      const entry = {
+        ...createBasicLogEntry(LogLevel.ERROR, 'Error with null message'),
+        error,
+      };
+      
+      // The formatter should handle non-string error messages without throwing
+      expect(() => formatter.format(entry)).not.toThrow();
     });
   });
 });

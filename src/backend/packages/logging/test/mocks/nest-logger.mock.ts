@@ -1,300 +1,141 @@
 import { LoggerService as NestLoggerService, LogLevel } from '@nestjs/common';
 
 /**
- * Interface representing a logged message with its metadata
+ * Interface representing a logged message for testing purposes
  */
 export interface LoggedMessage {
+  level: LogLevel;
   message: string;
-  context?: string;
-  trace?: string;
+  optionalParams: any[];
   timestamp: Date;
-  journeyId?: string;
-  requestId?: string;
-  userId?: string;
 }
 
 /**
- * Mock implementation of NestJS Logger and LoggerService for testing
- * Provides a simplified Logger with tracking of logged messages and configurable behavior
+ * Mock implementation of NestJS Logger for testing
+ * Tracks all logged messages and provides methods to inspect them
  */
 export class MockLogger implements NestLoggerService {
-  private readonly logs: Record<string, LoggedMessage[]> = {
-    log: [],
-    error: [],
-    warn: [],
-    debug: [],
-    verbose: [],
-    fatal: [], // Added FATAL level for comprehensive logging
-  };
-
+  private logs: LoggedMessage[] = [];
   private contextName?: string;
-  private journeyId?: string;
-  private requestId?: string;
-  private userId?: string;
 
   /**
    * Creates a new MockLogger instance
    * @param context Optional context name for the logger
-   * @param options Optional configuration options
    */
-  constructor(context?: string, options?: { journeyId?: string; requestId?: string; userId?: string }) {
+  constructor(context?: string) {
     this.contextName = context;
-    this.journeyId = options?.journeyId;
-    this.requestId = options?.requestId;
-    this.userId = options?.userId;
   }
 
   /**
-   * Logs a message with the INFO level
+   * Logs a message with INFO level
    * @param message The message to log
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
+   * @param optionalParams Optional parameters (context, etc.)
    */
-  log(message: any, context?: string, metadata?: Record<string, any>): void {
-    this.logs.log.push({
-      message: this.formatMessage(message),
-      context: context || this.contextName,
+  log(message: any, ...optionalParams: any[]): void {
+    this.addLog('log', message, optionalParams);
+  }
+
+  /**
+   * Logs a message with ERROR level
+   * @param message The message to log
+   * @param optionalParams Optional parameters (trace, context, etc.)
+   */
+  error(message: any, ...optionalParams: any[]): void {
+    this.addLog('error', message, optionalParams);
+  }
+
+  /**
+   * Logs a message with WARN level
+   * @param message The message to log
+   * @param optionalParams Optional parameters (context, etc.)
+   */
+  warn(message: any, ...optionalParams: any[]): void {
+    this.addLog('warn', message, optionalParams);
+  }
+
+  /**
+   * Logs a message with DEBUG level
+   * @param message The message to log
+   * @param optionalParams Optional parameters (context, etc.)
+   */
+  debug(message: any, ...optionalParams: any[]): void {
+    this.addLog('debug', message, optionalParams);
+  }
+
+  /**
+   * Logs a message with VERBOSE level
+   * @param message The message to log
+   * @param optionalParams Optional parameters (context, etc.)
+   */
+  verbose(message: any, ...optionalParams: any[]): void {
+    this.addLog('verbose', message, optionalParams);
+  }
+
+  /**
+   * Adds a log entry to the internal logs array
+   * @param level The log level
+   * @param message The message to log
+   * @param optionalParams Optional parameters
+   */
+  private addLog(level: LogLevel, message: any, optionalParams: any[]): void {
+    this.logs.push({
+      level,
+      message,
+      optionalParams,
       timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
     });
   }
 
   /**
-   * Logs a message with the ERROR level
-   * @param message The message to log
-   * @param trace Optional stack trace or error object
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
-   */
-  error(message: any, trace?: string, context?: string, metadata?: Record<string, any>): void {
-    this.logs.error.push({
-      message: this.formatMessage(message),
-      trace,
-      context: context || this.contextName,
-      timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
-    });
-  }
-
-  /**
-   * Logs a message with the WARN level
-   * @param message The message to log
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
-   */
-  warn(message: any, context?: string, metadata?: Record<string, any>): void {
-    this.logs.warn.push({
-      message: this.formatMessage(message),
-      context: context || this.contextName,
-      timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
-    });
-  }
-
-  /**
-   * Logs a message with the DEBUG level
-   * @param message The message to log
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
-   */
-  debug(message: any, context?: string, metadata?: Record<string, any>): void {
-    this.logs.debug.push({
-      message: this.formatMessage(message),
-      context: context || this.contextName,
-      timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
-    });
-  }
-
-  /**
-   * Logs a message with the VERBOSE level
-   * @param message The message to log
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
-   */
-  verbose(message: any, context?: string, metadata?: Record<string, any>): void {
-    this.logs.verbose.push({
-      message: this.formatMessage(message),
-      context: context || this.contextName,
-      timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
-    });
-  }
-  
-  /**
-   * Logs a message with the FATAL level
-   * @param message The message to log
-   * @param trace Optional stack trace or error object
-   * @param context Optional context for the log
-   * @param metadata Optional additional metadata
-   */
-  fatal(message: any, trace?: string, context?: string, metadata?: Record<string, any>): void {
-    this.logs.fatal.push({
-      message: this.formatMessage(message),
-      trace,
-      context: context || this.contextName,
-      timestamp: new Date(),
-      journeyId: metadata?.journeyId || this.journeyId,
-      requestId: metadata?.requestId || this.requestId,
-      userId: metadata?.userId || this.userId,
-      ...metadata
-    });
-  }
-
-  /**
-   * Sets the log levels to be logged
-   * This is a required method for the NestLoggerService interface but is a no-op in the mock
-   * @param levels The log levels to log
-   */
-  setLogLevels(levels: LogLevel[]): void {
-    // No-op for the mock implementation
-  }
-
-  /**
-   * Formats the message to ensure it's a string
-   * @param message The message to format
-   * @returns The formatted message as a string
-   */
-  private formatMessage(message: any): string {
-    if (typeof message === 'object') {
-      return JSON.stringify(message);
-    }
-    return String(message);
-  }
-
-  /**
-   * Gets all logged messages of a specific level
-   * @param level The log level to retrieve
-   * @returns Array of logged messages for the specified level
-   */
-  getLogsByLevel(level: 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal'): LoggedMessage[] {
-    return [...this.logs[level]];
-  }
-
-  /**
-   * Gets all logged messages across all levels
-   * @returns Record of all logged messages by level
-   */
-  getAllLogs(): Record<string, LoggedMessage[]> {
-    return {
-      log: [...this.logs.log],
-      error: [...this.logs.error],
-      warn: [...this.logs.warn],
-      debug: [...this.logs.debug],
-      verbose: [...this.logs.verbose],
-      fatal: [...this.logs.fatal],
-    };
-  }
-
-  /**
-   * Checks if a specific message was logged at a given level
-   * @param level The log level to check
-   * @param messageSubstring Substring to search for in logged messages
-   * @param options Optional filtering options
-   * @returns True if the message was logged, false otherwise
-   */
-  hasLoggedMessage(
-    level: 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal', 
-    messageSubstring: string, 
-    options?: { context?: string; journeyId?: string; requestId?: string; userId?: string }
-  ): boolean {
-    return this.logs[level].some(log => 
-      log.message.includes(messageSubstring) && 
-      (!options?.context || log.context === options.context) &&
-      (!options?.journeyId || log.journeyId === options.journeyId) &&
-      (!options?.requestId || log.requestId === options.requestId) &&
-      (!options?.userId || log.userId === options.userId)
-    );
-  }
-
-  /**
-   * Finds all logged messages that match the given criteria
-   * @param level The log level to search
-   * @param messageSubstring Substring to search for in logged messages
-   * @param options Optional filtering options
-   * @returns Array of matching logged messages
-   */
-  findLoggedMessages(
-    level: 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal', 
-    messageSubstring: string, 
-    options?: { context?: string; journeyId?: string; requestId?: string; userId?: string }
-  ): LoggedMessage[] {
-    return this.logs[level].filter(log => 
-      log.message.includes(messageSubstring) && 
-      (!options?.context || log.context === options.context) &&
-      (!options?.journeyId || log.journeyId === options.journeyId) &&
-      (!options?.requestId || log.requestId === options.requestId) &&
-      (!options?.userId || log.userId === options.userId)
-    );
-  }
-
-  /**
-   * Counts how many times a specific message was logged at a given level
-   * @param level The log level to check
-   * @param messageSubstring Substring to search for in logged messages
-   * @param options Optional filtering options
-   * @returns Number of matching log entries
-   */
-  countLoggedMessages(
-    level: 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal', 
-    messageSubstring: string, 
-    options?: { context?: string; journeyId?: string; requestId?: string; userId?: string }
-  ): number {
-    return this.findLoggedMessages(level, messageSubstring, options).length;
-  }
-
-  /**
-   * Clears all logged messages
-   * Useful for resetting the mock between tests
+   * Resets the logged messages
+   * Used to clear logs between tests
    */
   reset(): void {
-    this.logs.log = [];
-    this.logs.error = [];
-    this.logs.warn = [];
-    this.logs.debug = [];
-    this.logs.verbose = [];
-    this.logs.fatal = [];
+    this.logs = [];
   }
-  
+
   /**
-   * Gets logs in a standardized JSON format
-   * @returns Array of logs in JSON format
+   * Gets all logged messages
+   * @returns Array of all logged messages
    */
-  getLogsAsJson(): string {
-    const allLogs = Object.values(this.logs).flat();
-    return JSON.stringify(allLogs, null, 2);
+  getLoggedMessages(): LoggedMessage[] {
+    return [...this.logs];
+  }
+
+  /**
+   * Gets logged messages of a specific level
+   * @param level The log level to filter by
+   * @returns Array of logged messages with the specified level
+   */
+  getLogsByLevel(level: LogLevel): LoggedMessage[] {
+    return this.logs.filter(log => log.level === level);
+  }
+
+  /**
+   * Checks if a specific message was logged
+   * @param level The log level to check
+   * @param messageSubstring Substring to search for in messages
+   * @returns True if a matching message was found
+   */
+  hasLoggedMessage(level: LogLevel, messageSubstring: string): boolean {
+    return this.logs.some(
+      log => log.level === level && log.message.includes(messageSubstring)
+    );
+  }
+
+  /**
+   * Gets the context name for this logger
+   * @returns The context name or undefined if none was set
+   */
+  getContextName(): string | undefined {
+    return this.contextName;
+  }
+
+  /**
+   * Sets the context name for this logger
+   * @param context The new context name
+   */
+  setContextName(context: string): void {
+    this.contextName = context;
   }
 }
-
-/**
- * Factory function to create a new MockLogger instance
- * @param context Optional context name for the logger
- * @param options Optional configuration options
- * @returns A new MockLogger instance
- */
-export function createMockLogger(
-  context?: string, 
-  options?: { journeyId?: string; requestId?: string; userId?: string }
-): MockLogger {
-  return new MockLogger(context, options);
-}
-
-/**
- * Type definition for log levels supported by the mock logger
- */
-export type MockLogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal';

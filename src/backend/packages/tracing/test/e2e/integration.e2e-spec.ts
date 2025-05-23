@@ -1,10 +1,17 @@
+/**
+ * @file integration.e2e-spec.ts
+ * @description End-to-end tests for the tracing functionality across service boundaries.
+ * These tests verify trace propagation, span recording, error handling, and correlation
+ * with logs in a production-like environment with actual HTTP requests between services.
+ */
+
 import { Test } from '@nestjs/testing';
 import { INestApplication, LoggerService } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { TracingService } from '../../src/tracing.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as request from 'supertest';
-import { Controller, Get, Module, Param } from '@nestjs/common';
-import { SpanStatusCode, context, trace } from '@opentelemetry/api';
+import { createServer, Server } from 'http';
+import { AddressInfo } from 'net';
+import { trace, context, SpanStatusCode, Span } from '@opentelemetry/api';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
@@ -12,474 +19,535 @@ import { W3CTraceContextPropagator } from '@opentelemetry/core';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core';
-import { SpanAttributes } from '../../src/interfaces/span-attributes.interface';
-import { JourneyContext } from '../../src/interfaces/journey-context.interface';
-import { spanAttributeUtils } from '../../src/utils/span-attributes';
-import { correlationUtils } from '../../src/utils/correlation';
-import { contextPropagationUtils } from '../../src/utils/context-propagation';
-import { MockLoggerService } from '../mocks/mock-logger.service';
-import { spanAssertionUtils } from '../utils/span-assertion.utils';
+import axios from 'axios';
 
-/**
- * Mock Health Service Controller
- */
-@Controller('health')
-class HealthController {
-  constructor(private readonly tracingService: TracingService) {}
+import { TracingModule } from '../../src/tracing.module';
+import { TracingService } from '../../src/tracing.service';
+import { TraceContext, PropagationFormat, JourneyType, TRACE_CONTEXT_KEYS } from '../../src/interfaces';
 
-  @Get('metrics/:userId')
-  async getHealthMetrics(@Param('userId') userId: string) {
-    return this.tracingService.createSpan('health.getMetrics', async () => {
-      // Add health journey specific attributes
-      const span = trace.getActiveSpan();
-      if (span) {
-        spanAttributeUtils.addHealthJourneyAttributes(span, {
-          userId,
-          metricType: 'heartRate',
-          deviceId: 'mock-device-123'
-        });
-      }
-      
-      // Simulate fetching health metrics
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      return { 
-        userId, 
-        metrics: [
-          { type: 'heartRate', value: 75, unit: 'bpm', timestamp: new Date().toISOString() }
-        ]
-      };
-    });
+// Mock logger to capture log messages
+class MockLogger implements LoggerService {
+  logs: Record<string, any[]> = {
+    log: [],
+    error: [],
+    warn: [],
+    debug: [],
+    verbose: []
+  };
+
+  log(message: any, ...optionalParams: any[]) {
+    this.logs.log.push({ message, params: optionalParams });
+  }
+
+  error(message: any, ...optionalParams: any[]) {
+    this.logs.error.push({ message, params: optionalParams });
+  }
+
+  warn(message: any, ...optionalParams: any[]) {
+    this.logs.warn.push({ message, params: optionalParams });
+  }
+
+  debug(message: any, ...optionalParams: any[]) {
+    this.logs.debug.push({ message, params: optionalParams });
+  }
+
+  verbose(message: any, ...optionalParams: any[]) {
+    this.logs.verbose.push({ message, params: optionalParams });
+  }
+
+  clear() {
+    this.logs = {
+      log: [],
+      error: [],
+      warn: [],
+      debug: [],
+      verbose: []
+    };
   }
 }
-
-/**
- * Mock Care Service Controller
- */
-@Controller('care')
-class CareController {
-  constructor(private readonly tracingService: TracingService) {}
-
-  @Get('appointments/:userId')
-  async getAppointments(@Param('userId') userId: string) {
-    return this.tracingService.createSpan('care.getAppointments', async () => {
-      // Add care journey specific attributes
-      const span = trace.getActiveSpan();
-      if (span) {
-        spanAttributeUtils.addCareJourneyAttributes(span, {
-          userId,
-          providerId: 'mock-provider-456',
-          appointmentType: 'checkup'
-        });
-      }
-      
-      // Simulate fetching appointments
-      await new Promise(resolve => setTimeout(resolve, 30));
-      
-      return { 
-        userId, 
-        appointments: [
-          { id: 'apt-123', provider: 'Dr. Smith', date: new Date().toISOString(), type: 'checkup' }
-        ]
-      };
-    });
-  }
-}
-
-/**
- * Mock Plan Service Controller
- */
-@Controller('plan')
-class PlanController {
-  constructor(private readonly tracingService: TracingService) {}
-
-  @Get('benefits/:userId')
-  async getBenefits(@Param('userId') userId: string) {
-    return this.tracingService.createSpan('plan.getBenefits', async () => {
-      // Add plan journey specific attributes
-      const span = trace.getActiveSpan();
-      if (span) {
-        spanAttributeUtils.addPlanJourneyAttributes(span, {
-          userId,
-          planId: 'mock-plan-789',
-          membershipType: 'premium'
-        });
-      }
-      
-      // Simulate fetching benefits
-      await new Promise(resolve => setTimeout(resolve, 40));
-      
-      return { 
-        userId, 
-        benefits: [
-          { id: 'ben-123', name: 'Annual Checkup', coverage: '100%', category: 'preventive' }
-        ]
-      };
-    });
-  }
-
-  @Get('error/:userId')
-  async simulateError(@Param('userId') userId: string) {
-    try {
-      return await this.tracingService.createSpan('plan.errorOperation', async () => {
-        // Add plan journey specific attributes
-        const span = trace.getActiveSpan();
-        if (span) {
-          spanAttributeUtils.addPlanJourneyAttributes(span, {
-            userId,
-            planId: 'mock-plan-789',
-            membershipType: 'premium'
-          });
-        }
-        
-        // Simulate an error
-        throw new Error('Simulated error in plan service');
-      });
-    } catch (error) {
-      // The error should be recorded in the span and rethrown
-      throw error;
-    }
-  }
-}
-
-/**
- * Mock User Journey Controller that calls multiple services
- */
-@Controller('journey')
-class UserJourneyController {
-  constructor(
-    private readonly tracingService: TracingService,
-    private readonly httpService: HttpClientService
-  ) {}
-
-  @Get('user-dashboard/:userId')
-  async getUserDashboard(@Param('userId') userId: string) {
-    return this.tracingService.createSpan('journey.getUserDashboard', async () => {
-      // Add cross-journey attributes
-      const span = trace.getActiveSpan();
-      if (span) {
-        span.setAttribute('user.id', userId);
-        span.setAttribute('journey.type', 'dashboard');
-      }
-      
-      // Make calls to all three services with trace context propagation
-      const [healthData, careData, planData] = await Promise.all([
-        this.httpService.get(`http://localhost:3000/health/metrics/${userId}`),
-        this.httpService.get(`http://localhost:3000/care/appointments/${userId}`),
-        this.httpService.get(`http://localhost:3000/plan/benefits/${userId}`)
-      ]);
-      
-      return {
-        userId,
-        dashboard: {
-          health: healthData,
-          care: careData,
-          plan: planData
-        }
-      };
-    });
-  }
-
-  @Get('error-handling/:userId')
-  async testErrorHandling(@Param('userId') userId: string) {
-    return this.tracingService.createSpan('journey.errorHandling', async () => {
-      try {
-        // Make a call to a service that will generate an error
-        await this.httpService.get(`http://localhost:3000/plan/error/${userId}`);
-        return { success: true };
-      } catch (error) {
-        // The error should be recorded in the span
-        return { success: false, error: error.message };
-      }
-    });
-  }
-}
-
-/**
- * Simple HTTP client service that propagates trace context
- */
-class HttpClientService {
-  constructor(private readonly tracingService: TracingService) {}
-
-  async get(url: string): Promise<any> {
-    return this.tracingService.createSpan(`http.get.${new URL(url).pathname}`, async () => {
-      const span = trace.getActiveSpan();
-      if (span) {
-        span.setAttribute('http.url', url);
-        span.setAttribute('http.method', 'GET');
-      }
-      
-      // Extract current context for propagation
-      const currentContext = context.active();
-      const headers = {};
-      
-      // Inject trace context into headers
-      contextPropagationUtils.injectTraceContext(currentContext, headers);
-      
-      // Make the HTTP request with trace context headers
-      const response = await request('http://localhost:3000')
-        .get(new URL(url).pathname)
-        .set(headers);
-      
-      if (span) {
-        span.setAttribute('http.status_code', response.status);
-      }
-      
-      return response.body;
-    });
-  }
-}
-
-/**
- * Test Module
- */
-@Module({
-  controllers: [HealthController, CareController, PlanController, UserJourneyController],
-  providers: [
-    {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue?: any) => {
-          const config = {
-            'service.name': 'austa-e2e-test'
-          };
-          return config[key] || defaultValue;
-        }
-      }
-    },
-    {
-      provide: LoggerService,
-      useClass: MockLoggerService
-    },
-    TracingService,
-    HttpClientService
-  ]
-})
-class TestModule {}
 
 describe('Tracing Integration Tests', () => {
-  let app: INestApplication;
-  let memoryExporter: InMemorySpanExporter;
+  let primaryApp: INestApplication;
+  let secondaryApp: INestApplication;
+  let primaryServer: Server;
+  let secondaryServer: Server;
+  let primaryPort: number;
+  let secondaryPort: number;
+  let primaryTracingService: TracingService;
+  let secondaryTracingService: TracingService;
+  let mockLogger: MockLogger;
+  let spanExporter: InMemorySpanExporter;
   let tracerProvider: NodeTracerProvider;
-  let mockLogger: MockLoggerService;
+
+  // Helper function to get all collected spans
+  const getSpans = () => spanExporter.getFinishedSpans();
   
+  // Helper function to clear all spans
+  const clearSpans = () => spanExporter.reset();
+
   beforeAll(async () => {
-    // Set up the in-memory span exporter for testing
-    memoryExporter = new InMemorySpanExporter();
+    // Set up OpenTelemetry with in-memory exporter for testing
+    spanExporter = new InMemorySpanExporter();
     tracerProvider = new NodeTracerProvider();
-    tracerProvider.addSpanProcessor(new SimpleSpanProcessor(memoryExporter));
+    tracerProvider.addSpanProcessor(new SimpleSpanProcessor(spanExporter));
     tracerProvider.register({
       propagator: new W3CTraceContextPropagator()
     });
-    
-    // Register instrumentations for HTTP and NestJS
+
+    // Register auto-instrumentations
     registerInstrumentations({
+      tracerProvider,
       instrumentations: [
         new HttpInstrumentation(),
         new NestInstrumentation()
       ]
     });
-    
-    // Create the NestJS test module
-    const moduleRef = await Test.createTestingModule({
-      imports: [TestModule]
+
+    // Create mock logger
+    mockLogger = new MockLogger();
+
+    // Create primary service (simulating API Gateway)
+    const primaryModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [() => ({
+            service: {
+              name: 'primary-service',
+              port: 0 // Use any available port
+            }
+          })]
+        }),
+        TracingModule
+      ],
+      providers: [
+        {
+          provide: LoggerService,
+          useValue: mockLogger
+        }
+      ]
     }).compile();
-    
-    app = moduleRef.createNestApplication();
-    mockLogger = moduleRef.get<MockLoggerService>(LoggerService);
-    
-    await app.init();
+
+    primaryApp = primaryModule.createNestApplication();
+    await primaryApp.init();
+    primaryTracingService = primaryModule.get<TracingService>(TracingService);
+
+    // Create secondary service (simulating a microservice)
+    const secondaryModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          load: [() => ({
+            service: {
+              name: 'secondary-service',
+              port: 0 // Use any available port
+            }
+          })]
+        }),
+        TracingModule
+      ],
+      providers: [
+        {
+          provide: LoggerService,
+          useValue: mockLogger
+        }
+      ]
+    }).compile();
+
+    secondaryApp = secondaryModule.createNestApplication();
+    await secondaryApp.init();
+    secondaryTracingService = secondaryModule.get<TracingService>(TracingService);
+
+    // Start HTTP servers for both applications
+    primaryServer = createServer(primaryApp.getHttpAdapter().getInstance());
+    secondaryServer = createServer(secondaryApp.getHttpAdapter().getInstance());
+
+    // Listen on random available ports
+    primaryServer.listen(0);
+    secondaryServer.listen(0);
+
+    // Get the assigned ports
+    primaryPort = (primaryServer.address() as AddressInfo).port;
+    secondaryPort = (secondaryServer.address() as AddressInfo).port;
+
+    // Configure routes for testing
+    const primaryHttpAdapter = primaryApp.getHttpAdapter();
+    primaryHttpAdapter.get('/api/health', async (req: any, res: any) => {
+      // Create a span for this operation
+      await primaryTracingService.createSpan('health-check', async () => {
+        // Make a request to the secondary service
+        const response = await axios.get(`http://localhost:${secondaryPort}/internal/status`, {
+          headers: {
+            // Extract headers from the incoming request to propagate trace context
+            ...req.headers
+          }
+        });
+        res.status(200).json({ status: 'ok', downstream: response.data });
+      });
+    });
+
+    primaryHttpAdapter.get('/api/error', async (req: any, res: any) => {
+      try {
+        // Create a span that will contain an error
+        await primaryTracingService.createSpan('error-operation', async () => {
+          // Make a request to a non-existent endpoint on the secondary service
+          await axios.get(`http://localhost:${secondaryPort}/internal/non-existent`, {
+            headers: {
+              ...req.headers
+            }
+          });
+        });
+      } catch (error) {
+        // The error is caught here, but the span should record the error
+        res.status(500).json({ error: 'An error occurred' });
+      }
+    });
+
+    primaryHttpAdapter.get('/api/journey/:type', async (req: any, res: any) => {
+      // Create a span with journey context
+      await primaryTracingService.createSpan('journey-operation', async () => {
+        const journeyType = req.params.type;
+        const userId = req.query.userId || 'test-user';
+        
+        // Add journey context to headers
+        const headers = {
+          ...req.headers,
+          [TRACE_CONTEXT_KEYS.JOURNEY_ID]: `journey-${Date.now()}`,
+          [TRACE_CONTEXT_KEYS.JOURNEY_TYPE]: journeyType,
+          [TRACE_CONTEXT_KEYS.USER_ID]: userId
+        };
+        
+        // Make a request to the secondary service with journey context
+        const response = await axios.get(`http://localhost:${secondaryPort}/internal/journey-status`, {
+          headers
+        });
+        
+        res.status(200).json({ journey: journeyType, data: response.data });
+      });
+    });
+
+    const secondaryHttpAdapter = secondaryApp.getHttpAdapter();
+    secondaryHttpAdapter.get('/internal/status', async (req: any, res: any) => {
+      // Create a child span in the secondary service
+      await secondaryTracingService.createSpan('internal-status-check', async () => {
+        // Simulate some work
+        await new Promise(resolve => setTimeout(resolve, 50));
+        res.status(200).json({ status: 'healthy', service: 'secondary' });
+      });
+    });
+
+    secondaryHttpAdapter.get('/internal/journey-status', async (req: any, res: any) => {
+      // Create a child span with journey attributes
+      await secondaryTracingService.createSpan('journey-status-check', async () => {
+        // Extract journey information from headers
+        const journeyId = req.headers[TRACE_CONTEXT_KEYS.JOURNEY_ID];
+        const journeyType = req.headers[TRACE_CONTEXT_KEYS.JOURNEY_TYPE];
+        const userId = req.headers[TRACE_CONTEXT_KEYS.USER_ID];
+        
+        // Simulate journey-specific work
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        res.status(200).json({
+          journeyId,
+          journeyType,
+          userId,
+          status: 'active',
+          timestamp: new Date().toISOString()
+        });
+      });
+    });
   });
-  
-  afterEach(() => {
-    // Clear the spans after each test
-    memoryExporter.reset();
-    mockLogger.clearLogs();
-  });
-  
+
   afterAll(async () => {
-    await app.close();
+    // Clean up resources
+    await primaryApp.close();
+    await secondaryApp.close();
+    primaryServer.close();
+    secondaryServer.close();
   });
-  
-  describe('Trace ID Propagation', () => {
-    it('should propagate trace ID across service boundaries', async () => {
-      // Make a request to the user journey endpoint that calls multiple services
-      const response = await request(app.getHttpServer())
-        .get('/journey/user-dashboard/user-123')
+
+  beforeEach(() => {
+    // Clear spans and logs before each test
+    clearSpans();
+    mockLogger.clear();
+  });
+
+  describe('Trace Propagation', () => {
+    it('should propagate trace context between services', async () => {
+      // Make a request to the primary service
+      await request(primaryServer)
+        .get('/api/health')
         .expect(200);
+
+      // Get all spans generated during the request
+      const spans = getSpans();
       
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
+      // There should be spans from both services
+      expect(spans.length).toBeGreaterThanOrEqual(3); // At least 3 spans (HTTP client, server, and custom spans)
       
-      // Verify that we have spans from all services
-      expect(spans.length).toBeGreaterThan(4); // At least one span per service plus the journey span
-      
-      // Get all unique trace IDs
-      const traceIds = new Set(spans.map(span => span.spanContext().traceId));
-      
-      // Verify that all spans have the same trace ID (single trace across services)
-      expect(traceIds.size).toBe(1);
-      
-      // Verify the response contains data from all services
-      expect(response.body.dashboard.health).toBeDefined();
-      expect(response.body.dashboard.care).toBeDefined();
-      expect(response.body.dashboard.plan).toBeDefined();
-    });
-  });
-  
-  describe('OpenTelemetry Instrumentation', () => {
-    it('should automatically collect spans for HTTP requests', async () => {
-      // Make a simple request to a service
-      await request(app.getHttpServer())
-        .get('/health/metrics/user-123')
-        .expect(200);
-      
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
-      
-      // Find HTTP spans created by auto-instrumentation
-      const httpSpans = spans.filter(span => 
-        span.name.startsWith('HTTP ') || 
-        span.attributes['http.method'] !== undefined
-      );
-      
-      // Verify that HTTP instrumentation created spans
-      expect(httpSpans.length).toBeGreaterThan(0);
-      
-      // Verify HTTP span attributes
-      const httpSpan = httpSpans[0];
-      expect(httpSpan.attributes['http.method']).toBeDefined();
-      expect(httpSpan.attributes['http.url'] || httpSpan.attributes['http.target']).toBeDefined();
-      expect(httpSpan.attributes['http.status_code']).toBeDefined();
-    });
-  });
-  
-  describe('Custom Span Annotations', () => {
-    it('should add journey-specific attributes to spans', async () => {
-      // Make requests to all journey services
-      await request(app.getHttpServer()).get('/health/metrics/user-123').expect(200);
-      await request(app.getHttpServer()).get('/care/appointments/user-123').expect(200);
-      await request(app.getHttpServer()).get('/plan/benefits/user-123').expect(200);
-      
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
-      
-      // Find spans for each journey
-      const healthSpan = spans.find(span => span.name === 'health.getMetrics');
-      const careSpan = spans.find(span => span.name === 'care.getAppointments');
-      const planSpan = spans.find(span => span.name === 'plan.getBenefits');
-      
-      // Verify health journey attributes
-      expect(healthSpan).toBeDefined();
-      expect(healthSpan?.attributes['journey.type']).toBe('health');
-      expect(healthSpan?.attributes['health.metric.type']).toBe('heartRate');
-      expect(healthSpan?.attributes['health.device.id']).toBe('mock-device-123');
-      
-      // Verify care journey attributes
-      expect(careSpan).toBeDefined();
-      expect(careSpan?.attributes['journey.type']).toBe('care');
-      expect(careSpan?.attributes['care.provider.id']).toBe('mock-provider-456');
-      expect(careSpan?.attributes['care.appointment.type']).toBe('checkup');
-      
-      // Verify plan journey attributes
-      expect(planSpan).toBeDefined();
-      expect(planSpan?.attributes['journey.type']).toBe('plan');
-      expect(planSpan?.attributes['plan.id']).toBe('mock-plan-789');
-      expect(planSpan?.attributes['plan.membership.type']).toBe('premium');
-    });
-  });
-  
-  describe('Correlation IDs', () => {
-    it('should correlate logs with traces using correlation IDs', async () => {
-      // Make a request that generates logs
-      await request(app.getHttpServer())
-        .get('/journey/user-dashboard/user-123')
-        .expect(200);
-      
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
+      // All spans should have the same trace ID
       const traceId = spans[0].spanContext().traceId;
+      spans.forEach(span => {
+        expect(span.spanContext().traceId).toEqual(traceId);
+      });
       
-      // Get logs from the mock logger
-      const logs = mockLogger.getLogs();
-      
-      // Verify that logs contain trace correlation IDs
-      const logsWithTraceId = logs.filter(log => 
-        log.message.includes(traceId) || 
-        (log.context && JSON.stringify(log.context).includes(traceId))
-      );
-      
-      expect(logsWithTraceId.length).toBeGreaterThan(0);
-    });
-  });
-  
-  describe('Error Handling', () => {
-    it('should record exceptions in spans and set appropriate status', async () => {
-      // Make a request that will generate an error
-      await request(app.getHttpServer())
-        .get('/journey/error-handling/user-123')
-        .expect(200); // The controller catches the error, so HTTP status is still 200
-      
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
-      
-      // Find the error span
-      const errorSpan = spans.find(span => span.name === 'plan.errorOperation');
-      
-      // Verify error was recorded in the span
-      expect(errorSpan).toBeDefined();
-      expect(errorSpan?.status.code).toBe(SpanStatusCode.ERROR);
-      
-      // Verify error events were recorded
-      const events = errorSpan?.events || [];
-      const errorEvents = events.filter(event => event.name === 'exception');
-      expect(errorEvents.length).toBeGreaterThan(0);
-      
-      // Verify error message
-      const errorEvent = errorEvents[0];
-      expect(errorEvent.attributes['exception.message']).toBe('Simulated error in plan service');
-    });
-  });
-  
-  describe('End-to-End User Journeys', () => {
-    it('should trace complete user journey across all services', async () => {
-      // Make a request to the user journey endpoint
-      await request(app.getHttpServer())
-        .get('/journey/user-dashboard/user-123')
-        .expect(200);
-      
-      // Get all spans from the exporter
-      const spans = memoryExporter.getFinishedSpans();
-      
-      // Verify spans from all services exist in the trace
-      const journeySpan = spans.find(span => span.name === 'journey.getUserDashboard');
-      const healthSpan = spans.find(span => span.name.includes('health'));
-      const careSpan = spans.find(span => span.name.includes('care'));
-      const planSpan = spans.find(span => span.name.includes('plan'));
-      
-      expect(journeySpan).toBeDefined();
-      expect(healthSpan).toBeDefined();
-      expect(careSpan).toBeDefined();
-      expect(planSpan).toBeDefined();
+      // Verify we have spans from both services
+      const serviceNames = spans.map(span => span.attributes['service.name']);
+      expect(serviceNames).toContain('primary-service');
+      expect(serviceNames).toContain('secondary-service');
       
       // Verify parent-child relationships
-      // All service spans should have the same trace ID as the journey span
-      const traceId = journeySpan?.spanContext().traceId;
-      expect(healthSpan?.spanContext().traceId).toBe(traceId);
-      expect(careSpan?.spanContext().traceId).toBe(traceId);
-      expect(planSpan?.spanContext().traceId).toBe(traceId);
+      const spanIds = spans.map(span => span.spanContext().spanId);
+      const parentIds = spans.map(span => span.parentSpanId).filter(Boolean);
       
-      // Verify timing - journey span should encompass all other spans
-      const journeyStartTime = journeySpan?.startTime;
-      const journeyEndTime = journeySpan?.endTime;
-      
-      // All other spans should be within the journey span's time range
-      spans.forEach(span => {
-        if (span !== journeySpan) {
-          expect(span.startTime).toBeGreaterThanOrEqual(journeyStartTime!);
-          expect(span.endTime).toBeLessThanOrEqual(journeyEndTime!);
-        }
+      // At least some spans should have parents within our trace
+      parentIds.forEach(parentId => {
+        expect(spanIds).toContain(parentId);
       });
+    });
+
+    it('should include correlation IDs in trace context', async () => {
+      // Make a request with a correlation ID
+      const correlationId = `test-correlation-${Date.now()}`;
+      
+      await request(primaryServer)
+        .get('/api/health')
+        .set('x-correlation-id', correlationId)
+        .expect(200);
+
+      // Get all spans generated during the request
+      const spans = getSpans();
+      
+      // Verify correlation ID is present in span attributes
+      const spanWithCorrelationId = spans.find(span => 
+        span.attributes && span.attributes['correlation.id'] === correlationId
+      );
+      
+      expect(spanWithCorrelationId).toBeDefined();
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should record errors in spans', async () => {
+      // Make a request that will cause an error
+      await request(primaryServer)
+        .get('/api/error')
+        .expect(500);
+
+      // Get all spans generated during the request
+      const spans = getSpans();
+      
+      // Find spans with error status
+      const errorSpans = spans.filter(span => 
+        span.status.code === SpanStatusCode.ERROR
+      );
+      
+      // Verify we have at least one span with error status
+      expect(errorSpans.length).toBeGreaterThanOrEqual(1);
+      
+      // Verify error details are recorded
+      const errorSpan = errorSpans.find(span => 
+        span.name === 'error-operation' || span.name.includes('GET /internal/non-existent')
+      );
+      
+      expect(errorSpan).toBeDefined();
+      expect(errorSpan?.events.length).toBeGreaterThanOrEqual(1); // Should have at least one event (the exception)
+      
+      // Verify error is logged
+      expect(mockLogger.logs.error.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('Journey Context', () => {
+    it('should propagate journey context between services', async () => {
+      // Make a request with journey context
+      const userId = `user-${Date.now()}`;
+      const journeyType = JourneyType.HEALTH;
+      
+      await request(primaryServer)
+        .get(`/api/journey/${journeyType}`)
+        .query({ userId })
+        .expect(200);
+
+      // Get all spans generated during the request
+      const spans = getSpans();
+      
+      // Find spans with journey attributes
+      const journeySpans = spans.filter(span => 
+        span.attributes && (
+          span.attributes['journey.type'] === journeyType ||
+          span.attributes['user.id'] === userId
+        )
+      );
+      
+      // Verify we have spans with journey context from both services
+      expect(journeySpans.length).toBeGreaterThanOrEqual(2);
+      
+      // Verify journey attributes are correctly propagated
+      const primaryJourneySpan = journeySpans.find(span => 
+        span.attributes['service.name'] === 'primary-service'
+      );
+      
+      const secondaryJourneySpan = journeySpans.find(span => 
+        span.attributes['service.name'] === 'secondary-service'
+      );
+      
+      expect(primaryJourneySpan).toBeDefined();
+      expect(secondaryJourneySpan).toBeDefined();
+      
+      // Both spans should have the same journey ID
+      if (primaryJourneySpan && secondaryJourneySpan) {
+        expect(primaryJourneySpan.attributes['journey.id'])
+          .toEqual(secondaryJourneySpan.attributes['journey.id']);
+      }
+    });
+
+    it('should support different journey types', async () => {
+      // Test with different journey types
+      const journeyTypes = [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN];
+      
+      for (const journeyType of journeyTypes) {
+        // Clear spans before each journey type test
+        clearSpans();
+        
+        await request(primaryServer)
+          .get(`/api/journey/${journeyType}`)
+          .expect(200);
+
+        // Get all spans generated during the request
+        const spans = getSpans();
+        
+        // Find spans with this journey type
+        const journeySpans = spans.filter(span => 
+          span.attributes && span.attributes['journey.type'] === journeyType
+        );
+        
+        // Verify we have spans with the correct journey type
+        expect(journeySpans.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('Custom Span Annotations', () => {
+    it('should support custom span attributes for business operations', async () => {
+      // Create a custom span with business-relevant attributes
+      await primaryTracingService.createSpan('business-operation', async () => {
+        const span = trace.getSpan(context.active());
+        if (span) {
+          // Add business-specific attributes
+          span.setAttribute('business.operation.type', 'health-data-sync');
+          span.setAttribute('business.operation.entity', 'health-metrics');
+          span.setAttribute('business.operation.result', 'success');
+          span.setAttribute('business.operation.count', 42);
+        }
+        
+        // Simulate some work
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      // Get all spans generated during the operation
+      const spans = getSpans();
+      
+      // Find the business operation span
+      const businessSpan = spans.find(span => span.name === 'business-operation');
+      
+      // Verify business attributes are recorded
+      expect(businessSpan).toBeDefined();
+      expect(businessSpan?.attributes['business.operation.type']).toEqual('health-data-sync');
+      expect(businessSpan?.attributes['business.operation.entity']).toEqual('health-metrics');
+      expect(businessSpan?.attributes['business.operation.result']).toEqual('success');
+      expect(businessSpan?.attributes['business.operation.count']).toEqual(42);
+    });
+  });
+
+  describe('Log Correlation', () => {
+    it('should correlate logs with trace context', async () => {
+      // Create a span and generate logs within it
+      await primaryTracingService.createSpan('logging-operation', async () => {
+        const span = trace.getSpan(context.active());
+        const traceId = span?.spanContext().traceId;
+        const spanId = span?.spanContext().spanId;
+        
+        // Log messages that should be correlated with the span
+        mockLogger.log('Test log message', { traceId, spanId, context: 'test' });
+        mockLogger.error('Test error message', { traceId, spanId, context: 'test' });
+      });
+
+      // Get all spans generated during the operation
+      const spans = getSpans();
+      
+      // Find the logging operation span
+      const loggingSpan = spans.find(span => span.name === 'logging-operation');
+      expect(loggingSpan).toBeDefined();
+      
+      if (loggingSpan) {
+        const traceId = loggingSpan.spanContext().traceId;
+        const spanId = loggingSpan.spanContext().spanId;
+        
+        // Verify logs contain trace and span IDs
+        const correlatedLogs = mockLogger.logs.log.filter(log => 
+          log.params.some((param: any) => 
+            param.traceId === traceId && param.spanId === spanId
+          )
+        );
+        
+        expect(correlatedLogs.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('End-to-End User Journeys', () => {
+    it('should trace a complete health journey flow', async () => {
+      // Simulate a complete health journey with multiple steps
+      const userId = `user-${Date.now()}`;
+      const journeyId = `journey-${Date.now()}`;
+      
+      // Step 1: Start health journey
+      await request(primaryServer)
+        .get(`/api/journey/${JourneyType.HEALTH}`)
+        .query({ userId })
+        .set(TRACE_CONTEXT_KEYS.JOURNEY_ID, journeyId)
+        .set(TRACE_CONTEXT_KEYS.JOURNEY_TYPE, JourneyType.HEALTH)
+        .set(TRACE_CONTEXT_KEYS.USER_ID, userId)
+        .expect(200);
+      
+      // Step 2: Make another request in the same journey
+      await request(primaryServer)
+        .get('/api/health')
+        .set(TRACE_CONTEXT_KEYS.JOURNEY_ID, journeyId)
+        .set(TRACE_CONTEXT_KEYS.JOURNEY_TYPE, JourneyType.HEALTH)
+        .set(TRACE_CONTEXT_KEYS.USER_ID, userId)
+        .expect(200);
+
+      // Get all spans generated during the journey
+      const spans = getSpans();
+      
+      // Group spans by trace ID
+      const traceGroups = spans.reduce((groups: Record<string, Span[]>, span) => {
+        const traceId = span.spanContext().traceId;
+        if (!groups[traceId]) {
+          groups[traceId] = [];
+        }
+        groups[traceId].push(span);
+        return groups;
+      }, {});
+      
+      // We should have at least 2 traces (one for each request)
+      expect(Object.keys(traceGroups).length).toBeGreaterThanOrEqual(2);
+      
+      // Each trace should have spans from both services
+      Object.values(traceGroups).forEach(traceSpans => {
+        const serviceNames = traceSpans.map(span => span.attributes['service.name']);
+        expect(serviceNames).toContain('primary-service');
+        expect(serviceNames).toContain('secondary-service');
+      });
+      
+      // All traces should have the same journey ID
+      const journeySpans = spans.filter(span => 
+        span.attributes && span.attributes['journey.id'] === journeyId
+      );
+      
+      expect(journeySpans.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

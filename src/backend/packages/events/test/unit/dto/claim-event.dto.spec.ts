@@ -1,703 +1,1124 @@
 /**
  * @file claim-event.dto.spec.ts
- * @description Unit tests for the ClaimEventDto class that validate insurance claim events
- * (submission, approval, rejection, status updates). Tests verify claim type validation,
- * amount and currency validation, supporting documentation validation, and status transition rules.
+ * @description Unit tests for the ClaimEventDto class and its subclasses.
  * 
- * These tests ensure that claim-related events are properly validated for gamification and
- * notification processing.
- *
- * @module events/test/unit/dto
+ * These tests validate the behavior of the claim event DTOs, ensuring proper validation
+ * of claim submission, approval, rejection, status updates, and document uploads.
  */
 
-import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { EventType } from '../../../src/dto/event-types.enum';
+import { plainToInstance } from 'class-transformer';
 import { 
-  createClaimSubmittedEvent,
-  createClaimProcessedEvent,
-  ClaimType,
-  ClaimStatus,
-  createClaimData,
-  createInvalidEvent,
-  createEventWithInvalidValues,
-  validateEventDto,
-  isValidEventDto
-} from './test-utils';
+  ClaimEventDto,
+  ClaimSubmittedEventDto,
+  ClaimApprovedEventDto,
+  ClaimDeniedEventDto,
+  ClaimDocumentUploadedEventDto,
+  ClaimStatusUpdatedEventDto,
+  ClaimCompletedEventDto,
+  ClaimAmountDto,
+  ClaimDocumentDto
+} from '../../../src/dto/claim-event.dto';
+import { ClaimStatus } from '@austa/interfaces/journey/plan';
+import { EventType } from '@austa/interfaces/gamification/events';
 
-// We're testing the validation rules for claim events
-// The actual DTO classes are imported indirectly through the test utilities
 describe('ClaimEventDto', () => {
+  describe('Base ClaimEventDto', () => {
+    it('should validate a valid claim event', async () => {
+      const claimEvent = plainToInstance(ClaimEventDto, {
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+      });
+
+      const errors = await validate(claimEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing required fields', async () => {
+      const claimEvent = plainToInstance(ClaimEventDto, {});
+
+      const errors = await validate(claimEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const errorFields = errors.map(error => error.property);
+      expect(errorFields).toContain('claimId');
+      expect(errorFields).toContain('claimType');
+      expect(errorFields).toContain('status');
+      expect(errorFields).toContain('planId');
+    });
+
+    it('should fail validation with invalid UUID format', async () => {
+      const claimEvent = plainToInstance(ClaimEventDto, {
+        claimId: 'invalid-uuid',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: 'invalid-uuid',
+        timestamp: new Date().toISOString()
+      });
+
+      const errors = await validate(claimEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const errorProperties = errors.map(error => error.property);
+      expect(errorProperties).toContain('claimId');
+      expect(errorProperties).toContain('planId');
+    });
+
+    it('should fail validation with invalid claim status', async () => {
+      const claimEvent = plainToInstance(ClaimEventDto, {
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: 'INVALID_STATUS',
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+      });
+
+      const errors = await validate(claimEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const statusError = errors.find(error => error.property === 'status');
+      expect(statusError).toBeDefined();
+    });
+
+    it('should fail validation with invalid timestamp format', async () => {
+      const claimEvent = plainToInstance(ClaimEventDto, {
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: 'invalid-date'
+      });
+
+      const errors = await validate(claimEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const timestampError = errors.find(error => error.property === 'timestamp');
+      expect(timestampError).toBeDefined();
+    });
+  });
+
+  describe('ClaimAmountDto', () => {
+    it('should validate a valid claim amount', async () => {
+      const claimAmount = plainToInstance(ClaimAmountDto, {
+        amount: 150.75,
+        currency: 'BRL',
+        covered: true,
+        coveragePercentage: 80
+      });
+
+      const errors = await validate(claimAmount);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with negative amount', async () => {
+      const claimAmount = plainToInstance(ClaimAmountDto, {
+        amount: -50,
+        currency: 'BRL'
+      });
+
+      const errors = await validate(claimAmount);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const amountError = errors.find(error => error.property === 'amount');
+      expect(amountError).toBeDefined();
+    });
+
+    it('should fail validation with amount exceeding maximum', async () => {
+      const claimAmount = plainToInstance(ClaimAmountDto, {
+        amount: 2000000, // Exceeds the 1,000,000 maximum
+        currency: 'BRL'
+      });
+
+      const errors = await validate(claimAmount);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const amountError = errors.find(error => error.property === 'amount');
+      expect(amountError).toBeDefined();
+    });
+
+    it('should fail validation with invalid coverage percentage', async () => {
+      const claimAmount = plainToInstance(ClaimAmountDto, {
+        amount: 150.75,
+        currency: 'BRL',
+        covered: true,
+        coveragePercentage: 120 // Exceeds 100%
+      });
+
+      const errors = await validate(claimAmount);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const coverageError = errors.find(error => error.property === 'coveragePercentage');
+      expect(coverageError).toBeDefined();
+    });
+
+    it('should fail validation with negative coverage percentage', async () => {
+      const claimAmount = plainToInstance(ClaimAmountDto, {
+        amount: 150.75,
+        currency: 'BRL',
+        covered: true,
+        coveragePercentage: -10 // Negative percentage
+      });
+
+      const errors = await validate(claimAmount);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const coverageError = errors.find(error => error.property === 'coveragePercentage');
+      expect(coverageError).toBeDefined();
+    });
+  });
+
+  describe('ClaimDocumentDto', () => {
+    it('should validate a valid claim document', async () => {
+      const claimDocument = plainToInstance(ClaimDocumentDto, {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'receipt',
+        url: 'https://storage.austa.com/documents/123e4567-e89b-12d3-a456-426614174000.pdf',
+        metadata: { fileSize: '1.2MB', contentType: 'application/pdf' }
+      });
+
+      const errors = await validate(claimDocument);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing required fields', async () => {
+      const claimDocument = plainToInstance(ClaimDocumentDto, {});
+
+      const errors = await validate(claimDocument);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const errorFields = errors.map(error => error.property);
+      expect(errorFields).toContain('id');
+      expect(errorFields).toContain('type');
+    });
+
+    it('should fail validation with invalid UUID format', async () => {
+      const claimDocument = plainToInstance(ClaimDocumentDto, {
+        id: 'invalid-uuid',
+        type: 'receipt',
+        url: 'https://storage.austa.com/documents/123e4567-e89b-12d3-a456-426614174000.pdf'
+      });
+
+      const errors = await validate(claimDocument);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const idError = errors.find(error => error.property === 'id');
+      expect(idError).toBeDefined();
+    });
+
+    it('should fail validation with document type exceeding maximum length', async () => {
+      const claimDocument = plainToInstance(ClaimDocumentDto, {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'a'.repeat(51), // Exceeds 50 character limit
+        url: 'https://storage.austa.com/documents/123e4567-e89b-12d3-a456-426614174000.pdf'
+      });
+
+      const errors = await validate(claimDocument);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const typeError = errors.find(error => error.property === 'type');
+      expect(typeError).toBeDefined();
+    });
+  });
+
   describe('ClaimSubmittedEventDto', () => {
     it('should validate a valid claim submission event', async () => {
-      // Create a valid claim submission event
-      const event = createClaimSubmittedEvent();
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      
-      // Assert that the event is valid
-      expect(isValid).toBe(true);
-    });
-    
-    it('should validate claim submission events for all claim types', async () => {
-      // Test all claim types
-      for (const claimType of Object.values(ClaimType)) {
-        const event = createClaimSubmittedEvent(claimType);
-        const isValid = await isValidEventDto(event);
-        expect(isValid).toBe(true);
-      }
-    });
-    
-    it('should reject claim submission without required fields', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Create invalid events by removing required fields
-      const requiredFields = [
-        'data.claimId',
-        'data.claimType',
-        'data.providerId',
-        'data.serviceDate',
-        'data.submittedAt',
-        'data.amount',
-        'data.status'
-      ];
-      
-      for (const field of requiredFields) {
-        const invalidEvent = createInvalidEvent(validEvent, [field]);
-        const isValid = await isValidEventDto(invalidEvent);
-        expect(isValid).toBe(false);
-      }
-    });
-    
-    it('should reject claim submission with invalid claim type', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Create an invalid event with an invalid claim type
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.claimType': 'INVALID_TYPE'
-      });
-      
-      const isValid = await isValidEventDto(invalidEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should reject claim submission with negative or zero amount', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Test with negative amount
-      const negativeAmountEvent = createEventWithInvalidValues(validEvent, {
-        'data.amount': -100
-      });
-      
-      const isValidNegative = await isValidEventDto(negativeAmountEvent);
-      expect(isValidNegative).toBe(false);
-      
-      // Test with zero amount
-      const zeroAmountEvent = createEventWithInvalidValues(validEvent, {
-        'data.amount': 0
-      });
-      
-      const isValidZero = await isValidEventDto(zeroAmountEvent);
-      expect(isValidZero).toBe(false);
-    });
-    
-    it('should reject claim submission with invalid dates', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Test with invalid service date
-      const invalidServiceDateEvent = createEventWithInvalidValues(validEvent, {
-        'data.serviceDate': 'not-a-date'
-      });
-      
-      const isValidServiceDate = await isValidEventDto(invalidServiceDateEvent);
-      expect(isValidServiceDate).toBe(false);
-      
-      // Test with invalid submission date
-      const invalidSubmissionDateEvent = createEventWithInvalidValues(validEvent, {
-        'data.submittedAt': 'not-a-date'
-      });
-      
-      const isValidSubmissionDate = await isValidEventDto(invalidSubmissionDateEvent);
-      expect(isValidSubmissionDate).toBe(false);
-    });
-    
-    it('should reject claim submission with future service date', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Create a future date (30 days from now)
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 30);
-      
-      // Test with future service date
-      const futureDateEvent = createEventWithInvalidValues(validEvent, {
-        'data.serviceDate': futureDate.toISOString()
-      });
-      
-      const isValid = await isValidEventDto(futureDateEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should reject claim submission with invalid document IDs', async () => {
-      // Create a valid event first
-      const validEvent = createClaimSubmittedEvent();
-      
-      // Test with invalid document IDs (not UUIDs)
-      const invalidDocumentIdsEvent = createEventWithInvalidValues(validEvent, {
-        'data.documentIds': ['not-a-uuid', '123']
-      });
-      
-      const isValid = await isValidEventDto(invalidDocumentIdsEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should validate claim submission with optional fields', async () => {
-      // Create a valid event with all optional fields
-      const event = createClaimSubmittedEvent(ClaimType.MEDICAL, {
-        notes: 'Test notes',
-        documentIds: []
-      });
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      
-      // Assert that the event is valid
-      expect(isValid).toBe(true);
-    });
-    
-    it('should validate claim submission with the correct status', async () => {
-      // Create a valid event
-      const event = createClaimSubmittedEvent();
-      
-      // Ensure the status is SUBMITTED
-      expect(event.data.status).toBe(ClaimStatus.SUBMITTED);
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-      
-      // Try with an invalid status for submission
-      const invalidStatusEvent = createEventWithInvalidValues(event, {
-        'data.status': ClaimStatus.APPROVED
-      });
-      
-      const isValidWithInvalidStatus = await isValidEventDto(invalidStatusEvent);
-      expect(isValidWithInvalidStatus).toBe(false);
-    });
-  });
-  
-  describe('ClaimProcessedEventDto', () => {
-    it('should validate a valid claim processed event', async () => {
-      // Create a valid claim processed event
-      const event = createClaimProcessedEvent();
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      
-      // Assert that the event is valid
-      expect(isValid).toBe(true);
-    });
-    
-    it('should validate claim processed events for all valid statuses', async () => {
-      // Test all valid processed statuses
-      const validProcessedStatuses = [
-        ClaimStatus.APPROVED,
-        ClaimStatus.PARTIALLY_APPROVED,
-        ClaimStatus.REJECTED
-      ];
-      
-      for (const status of validProcessedStatuses) {
-        const event = createClaimProcessedEvent(ClaimType.MEDICAL, status);
-        const isValid = await isValidEventDto(event);
-        expect(isValid).toBe(true);
-      }
-    });
-    
-    it('should reject claim processed event with invalid status', async () => {
-      // Create a valid event first
-      const validEvent = createClaimProcessedEvent();
-      
-      // Test with invalid status for processed event
-      const invalidStatusEvent = createEventWithInvalidValues(validEvent, {
-        'data.status': ClaimStatus.SUBMITTED
-      });
-      
-      const isValid = await isValidEventDto(invalidStatusEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should require coveredAmount for processed claims', async () => {
-      // Create a valid event first
-      const validEvent = createClaimProcessedEvent();
-      
-      // Remove coveredAmount
-      const invalidEvent = createInvalidEvent(validEvent, ['data.coveredAmount']);
-      
-      const isValid = await isValidEventDto(invalidEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should require processedAt for processed claims', async () => {
-      // Create a valid event first
-      const validEvent = createClaimProcessedEvent();
-      
-      // Remove processedAt
-      const invalidEvent = createInvalidEvent(validEvent, ['data.processedAt']);
-      
-      const isValid = await isValidEventDto(invalidEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should validate that coveredAmount is not greater than amount', async () => {
-      // Create a valid event first
-      const validEvent = createClaimProcessedEvent();
-      
-      // Set coveredAmount greater than amount
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.amount': 100,
-        'data.coveredAmount': 150
-      });
-      
-      const isValid = await isValidEventDto(invalidEvent);
-      expect(isValid).toBe(false);
-    });
-    
-    it('should validate that coveredAmount is zero for rejected claims', async () => {
-      // Create a rejected claim event
-      const event = createClaimProcessedEvent(ClaimType.MEDICAL, ClaimStatus.REJECTED);
-      
-      // Ensure coveredAmount is zero
-      expect(event.data.coveredAmount).toBe(0);
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-      
-      // Try with non-zero coveredAmount for rejected claim
-      const invalidEvent = createEventWithInvalidValues(event, {
-        'data.coveredAmount': 100
-      });
-      
-      const isValidWithNonZeroCoveredAmount = await isValidEventDto(invalidEvent);
-      expect(isValidWithNonZeroCoveredAmount).toBe(false);
-    });
-    
-    it('should validate that coveredAmount is less than amount for partially approved claims', async () => {
-      // Create a partially approved claim event
-      const event = createClaimProcessedEvent(ClaimType.MEDICAL, ClaimStatus.PARTIALLY_APPROVED);
-      
-      // Ensure coveredAmount is less than amount
-      expect(event.data.coveredAmount).toBeLessThan(event.data.amount);
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-      
-      // Try with coveredAmount equal to amount for partially approved claim
-      const invalidEvent = createEventWithInvalidValues(event, {
-        'data.coveredAmount': event.data.amount
-      });
-      
-      const isValidWithEqualCoveredAmount = await isValidEventDto(invalidEvent);
-      expect(isValidWithEqualCoveredAmount).toBe(false);
-    });
-    
-    it('should validate that coveredAmount equals amount for fully approved claims', async () => {
-      // Create a fully approved claim event
-      const event = createClaimProcessedEvent(ClaimType.MEDICAL, ClaimStatus.APPROVED);
-      
-      // Ensure coveredAmount equals amount
-      expect(event.data.coveredAmount).toBe(event.data.amount);
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-      
-      // Try with coveredAmount less than amount for fully approved claim
-      const invalidEvent = createEventWithInvalidValues(event, {
-        'data.coveredAmount': event.data.amount - 10
-      });
-      
-      const isValidWithLessCoveredAmount = await isValidEventDto(invalidEvent);
-      expect(isValidWithLessCoveredAmount).toBe(false);
-    });
-  });
-  
-  describe('Claim Status Transitions', () => {
-    it('should validate valid status transitions', async () => {
-      // Create a claim data object with SUBMITTED status
-      const submittedClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.SUBMITTED);
-      
-      // Valid transitions from SUBMITTED
-      const validTransitionsFromSubmitted = [
-        ClaimStatus.UNDER_REVIEW,
-        ClaimStatus.ADDITIONAL_INFO_REQUIRED,
-        ClaimStatus.REJECTED
-      ];
-      
-      for (const nextStatus of validTransitionsFromSubmitted) {
-        // Create a claim update event with the next status
-        const updateEvent = {
-          type: 'CLAIM_UPDATED',
-          journey: 'plan',
-          userId: submittedClaim.claimId,
-          data: {
-            ...submittedClaim,
-            status: nextStatus,
-            previousStatus: ClaimStatus.SUBMITTED
-          }
-        };
-        
-        // Validate the event
-        const isValid = await isValidEventDto(updateEvent);
-        expect(isValid).toBe(true);
-      }
-      
-      // Create a claim data object with UNDER_REVIEW status
-      const underReviewClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.UNDER_REVIEW);
-      
-      // Valid transitions from UNDER_REVIEW
-      const validTransitionsFromUnderReview = [
-        ClaimStatus.ADDITIONAL_INFO_REQUIRED,
-        ClaimStatus.APPROVED,
-        ClaimStatus.PARTIALLY_APPROVED,
-        ClaimStatus.REJECTED
-      ];
-      
-      for (const nextStatus of validTransitionsFromUnderReview) {
-        // Create a claim update event with the next status
-        const updateEvent = {
-          type: 'CLAIM_UPDATED',
-          journey: 'plan',
-          userId: underReviewClaim.claimId,
-          data: {
-            ...underReviewClaim,
-            status: nextStatus,
-            previousStatus: ClaimStatus.UNDER_REVIEW
-          }
-        };
-        
-        // Validate the event
-        const isValid = await isValidEventDto(updateEvent);
-        expect(isValid).toBe(true);
-      }
-    });
-    
-    it('should reject invalid status transitions', async () => {
-      // Create a claim data object with SUBMITTED status
-      const submittedClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.SUBMITTED);
-      
-      // Invalid transitions from SUBMITTED
-      const invalidTransitionsFromSubmitted = [
-        ClaimStatus.APPROVED,
-        ClaimStatus.PARTIALLY_APPROVED,
-        ClaimStatus.PAYMENT_PENDING,
-        ClaimStatus.PAYMENT_PROCESSED
-      ];
-      
-      for (const nextStatus of invalidTransitionsFromSubmitted) {
-        // Create a claim update event with the next status
-        const updateEvent = {
-          type: 'CLAIM_UPDATED',
-          journey: 'plan',
-          userId: submittedClaim.claimId,
-          data: {
-            ...submittedClaim,
-            status: nextStatus,
-            previousStatus: ClaimStatus.SUBMITTED
-          }
-        };
-        
-        // Validate the event
-        const isValid = await isValidEventDto(updateEvent);
-        expect(isValid).toBe(false);
-      }
-      
-      // Create a claim data object with REJECTED status
-      const rejectedClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.REJECTED);
-      
-      // Invalid transitions from REJECTED (terminal state except for APPEALED)
-      const invalidTransitionsFromRejected = [
-        ClaimStatus.SUBMITTED,
-        ClaimStatus.UNDER_REVIEW,
-        ClaimStatus.ADDITIONAL_INFO_REQUIRED,
-        ClaimStatus.APPROVED,
-        ClaimStatus.PARTIALLY_APPROVED,
-        ClaimStatus.PAYMENT_PENDING,
-        ClaimStatus.PAYMENT_PROCESSED
-      ];
-      
-      for (const nextStatus of invalidTransitionsFromRejected) {
-        // Create a claim update event with the next status
-        const updateEvent = {
-          type: 'CLAIM_UPDATED',
-          journey: 'plan',
-          userId: rejectedClaim.claimId,
-          data: {
-            ...rejectedClaim,
-            status: nextStatus,
-            previousStatus: ClaimStatus.REJECTED
-          }
-        };
-        
-        // Validate the event
-        const isValid = await isValidEventDto(updateEvent);
-        expect(isValid).toBe(false);
-      }
-    });
-    
-    it('should validate appeal from rejected status', async () => {
-      // Create a claim data object with REJECTED status
-      const rejectedClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.REJECTED);
-      
-      // Create a claim update event with APPEALED status
-      const updateEvent = {
-        type: 'CLAIM_UPDATED',
-        journey: 'plan',
-        userId: rejectedClaim.claimId,
-        data: {
-          ...rejectedClaim,
-          status: ClaimStatus.APPEALED,
-          previousStatus: ClaimStatus.REJECTED,
-          appealReason: 'Additional documentation provided'
-        }
-      };
-      
-      // Validate the event
-      const isValid = await isValidEventDto(updateEvent);
-      expect(isValid).toBe(true);
-      
-      // Appeal without reason should be invalid
-      const invalidAppealEvent = {
-        type: 'CLAIM_UPDATED',
-        journey: 'plan',
-        userId: rejectedClaim.claimId,
-        data: {
-          ...rejectedClaim,
-          status: ClaimStatus.APPEALED,
-          previousStatus: ClaimStatus.REJECTED
-          // Missing appealReason
-        }
-      };
-      
-      const isValidWithoutReason = await isValidEventDto(invalidAppealEvent);
-      expect(isValidWithoutReason).toBe(false);
-    });
-    
-    it('should validate payment processing flow', async () => {
-      // Create a claim data object with APPROVED status
-      const approvedClaim = createClaimData(ClaimType.MEDICAL, ClaimStatus.APPROVED);
-      
-      // Create a claim update event with PAYMENT_PENDING status
-      const pendingPaymentEvent = {
-        type: 'CLAIM_UPDATED',
-        journey: 'plan',
-        userId: approvedClaim.claimId,
-        data: {
-          ...approvedClaim,
-          status: ClaimStatus.PAYMENT_PENDING,
-          previousStatus: ClaimStatus.APPROVED,
-          paymentDetails: {
-            method: 'BANK_TRANSFER',
-            accountNumber: '****1234',
-            scheduledDate: new Date().toISOString()
-          }
-        }
-      };
-      
-      // Validate the event
-      const isPendingValid = await isValidEventDto(pendingPaymentEvent);
-      expect(isPendingValid).toBe(true);
-      
-      // Create a claim update event with PAYMENT_PROCESSED status
-      const processedPaymentEvent = {
-        type: 'CLAIM_UPDATED',
-        journey: 'plan',
-        userId: approvedClaim.claimId,
-        data: {
-          ...pendingPaymentEvent.data,
-          status: ClaimStatus.PAYMENT_PROCESSED,
-          previousStatus: ClaimStatus.PAYMENT_PENDING,
-          paymentDetails: {
-            ...pendingPaymentEvent.data.paymentDetails,
-            transactionId: '1234567890',
-            processedDate: new Date().toISOString()
-          }
-        }
-      };
-      
-      // Validate the event
-      const isProcessedValid = await isValidEventDto(processedPaymentEvent);
-      expect(isProcessedValid).toBe(true);
-      
-      // Payment processed without transaction ID should be invalid
-      const invalidProcessedEvent = {
-        type: 'CLAIM_UPDATED',
-        journey: 'plan',
-        userId: approvedClaim.claimId,
-        data: {
-          ...pendingPaymentEvent.data,
-          status: ClaimStatus.PAYMENT_PROCESSED,
-          previousStatus: ClaimStatus.PAYMENT_PENDING,
-          paymentDetails: {
-            ...pendingPaymentEvent.data.paymentDetails,
-            // Missing transactionId
-            processedDate: new Date().toISOString()
-          }
-        }
-      };
-      
-      const isInvalidProcessedValid = await isValidEventDto(invalidProcessedEvent);
-      expect(isInvalidProcessedValid).toBe(false);
-    });
-  });
-  
-  describe('Gamification Integration', () => {
-    it('should validate claim events with gamification metadata', async () => {
-      // Create a claim submission event with gamification metadata
-      const event = createClaimSubmittedEvent();
-      
-      // Add gamification metadata
-      event.gamification = {
-        points: 10,
-        achievementProgress: {
-          achievementId: 'claim-master',
-          progress: 1,
-          threshold: 5,
-          completed: false
-        }
-      };
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-    });
-    
-    it('should validate claim events with different point values based on claim type', async () => {
-      // Points should vary based on claim type complexity
-      const pointsByClaimType = {
-        [ClaimType.MEDICAL]: 10,
-        [ClaimType.DENTAL]: 8,
-        [ClaimType.VISION]: 8,
-        [ClaimType.PHARMACY]: 5,
-        [ClaimType.LABORATORY]: 7,
-        [ClaimType.IMAGING]: 7,
-        [ClaimType.THERAPY]: 6
-      };
-      
-      for (const [claimType, points] of Object.entries(pointsByClaimType)) {
-        // Create a claim submission event
-        const event = createClaimSubmittedEvent(claimType as ClaimType);
-        
-        // Add gamification metadata with points based on claim type
-        event.gamification = {
-          points,
-          achievementProgress: {
-            achievementId: 'claim-master',
-            progress: 1,
-            threshold: 5,
-            completed: false
-          }
-        };
-        
-        // Validate the event
-        const isValid = await isValidEventDto(event);
-        expect(isValid).toBe(true);
-      }
-    });
-    
-    it('should validate claim events with achievement unlocked', async () => {
-      // Create a claim submission event
-      const event = createClaimSubmittedEvent();
-      
-      // Add gamification metadata with completed achievement
-      event.gamification = {
-        points: 10,
-        achievementProgress: {
-          achievementId: 'claim-master',
-          progress: 5,
-          threshold: 5,
-          completed: true
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL',
+          covered: true,
+          coveragePercentage: 80
         },
-        achievementUnlocked: {
-          achievementId: 'claim-master',
-          tier: 'bronze',
-          name: 'Mestre em Reembolsos',
-          description: 'Submeta 5 solicitações de reembolso completas',
-          unlockedAt: new Date().toISOString()
-        }
-      };
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
-    });
-    
-    it('should reject claim events with invalid gamification metadata', async () => {
-      // Create a claim submission event
-      const event = createClaimSubmittedEvent();
-      
-      // Add invalid gamification metadata (negative points)
-      event.gamification = {
-        points: -10,
-        achievementProgress: {
-          achievementId: 'claim-master',
-          progress: 1,
-          threshold: 5,
-          completed: false
-        }
-      };
-      
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(false);
-      
-      // Create another claim submission event
-      const anotherEvent = createClaimSubmittedEvent();
-      
-      // Add invalid gamification metadata (progress > threshold)
-      anotherEvent.gamification = {
-        points: 10,
-        achievementProgress: {
-          achievementId: 'claim-master',
-          progress: 6,
-          threshold: 5,
-          completed: false // Inconsistent state: progress > threshold but not completed
-        }
-      };
-      
-      // Validate the event
-      const isValidAnother = await isValidEventDto(anotherEvent);
-      expect(isValidAnother).toBe(false);
-    });
-    
-    it('should validate claim events with bonus points for complete documentation', async () => {
-      // Create a claim submission event with documentation
-      const event = createClaimSubmittedEvent(ClaimType.MEDICAL, {
-        documentIds: ['550e8400-e29b-41d4-a716-446655440000', '6ba7b810-9dad-11d1-80b4-00c04fd430c8']
+        documents: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            type: 'receipt',
+            url: 'https://storage.austa.com/documents/receipt.pdf'
+          },
+          {
+            id: '123e4567-e89b-12d3-a456-426614174003',
+            type: 'prescription',
+            url: 'https://storage.austa.com/documents/prescription.pdf'
+          }
+        ],
+        procedureCode: 'A123.4',
+        isFirstClaim: true
       });
+
+      const errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing amount information', async () => {
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+        // Missing amount
+      });
+
+      const errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBeGreaterThan(0);
       
-      // Add gamification metadata with bonus points
-      event.gamification = {
-        points: 15, // Base 10 + 5 bonus for complete documentation
-        bonusPoints: 5,
-        bonusReason: 'complete_documentation',
-        achievementProgress: {
-          achievementId: 'claim-master',
-          progress: 1,
-          threshold: 5,
-          completed: false
+      // Check for specific validation errors
+      const amountError = errors.find(error => error.property === 'amount');
+      expect(amountError).toBeDefined();
+    });
+
+    it('should fail validation with too many documents', async () => {
+      // Create an array of 11 documents (exceeding the 10 document limit)
+      const documents = Array(11).fill(null).map((_, index) => ({
+        id: `123e4567-e89b-12d3-a456-42661417400${index}`,
+        type: 'receipt',
+        url: `https://storage.austa.com/documents/receipt-${index}.pdf`
+      }));
+
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        documents
+      });
+
+      const errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const documentsError = errors.find(error => error.property === 'documents');
+      expect(documentsError).toBeDefined();
+    });
+
+    it('should fail validation with invalid procedure code length', async () => {
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        procedureCode: 'A'.repeat(21) // Exceeds 20 character limit
+      });
+
+      const errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const procedureCodeError = errors.find(error => error.property === 'procedureCode');
+      expect(procedureCodeError).toBeDefined();
+    });
+  });
+
+  describe('ClaimApprovedEventDto', () => {
+    it('should validate a valid claim approval event', async () => {
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL',
+          covered: true,
+          coveragePercentage: 80
+        },
+        approvedAmount: 120.60,
+        expectedPaymentDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+        approvalNotes: 'Claim approved with partial coverage'
+      });
+
+      const errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing approved amount', async () => {
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
         }
-      };
+        // Missing approvedAmount
+      });
+
+      const errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBeGreaterThan(0);
       
-      // Validate the event
-      const isValid = await isValidEventDto(event);
-      expect(isValid).toBe(true);
+      // Check for specific validation errors
+      const approvedAmountError = errors.find(error => error.property === 'approvedAmount');
+      expect(approvedAmountError).toBeDefined();
+    });
+
+    it('should fail validation with negative approved amount', async () => {
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        approvedAmount: -50 // Negative amount
+      });
+
+      const errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const approvedAmountError = errors.find(error => error.property === 'approvedAmount');
+      expect(approvedAmountError).toBeDefined();
+    });
+
+    it('should fail validation with invalid expected payment date format', async () => {
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        approvedAmount: 120.60,
+        expectedPaymentDate: 'invalid-date'
+      });
+
+      const errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const dateError = errors.find(error => error.property === 'expectedPaymentDate');
+      expect(dateError).toBeDefined();
+    });
+
+    it('should fail validation with approval notes exceeding maximum length', async () => {
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        approvedAmount: 120.60,
+        approvalNotes: 'a'.repeat(501) // Exceeds 500 character limit
+      });
+
+      const errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const notesError = errors.find(error => error.property === 'approvalNotes');
+      expect(notesError).toBeDefined();
+    });
+  });
+
+  describe('ClaimDeniedEventDto', () => {
+    it('should validate a valid claim denial event', async () => {
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        denialReason: 'Service not covered under current plan',
+        denialCode: 'NC001',
+        appealable: true,
+        appealDeadline: new Date(Date.now() + 30 * 86400000).toISOString() // 30 days from now
+      });
+
+      const errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing denial reason', async () => {
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        }
+        // Missing denialReason
+      });
+
+      const errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const reasonError = errors.find(error => error.property === 'denialReason');
+      expect(reasonError).toBeDefined();
+    });
+
+    it('should fail validation with denial reason exceeding maximum length', async () => {
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        denialReason: 'a'.repeat(501) // Exceeds 500 character limit
+      });
+
+      const errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const reasonError = errors.find(error => error.property === 'denialReason');
+      expect(reasonError).toBeDefined();
+    });
+
+    it('should fail validation with denial code exceeding maximum length', async () => {
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        denialReason: 'Service not covered under current plan',
+        denialCode: 'a'.repeat(21) // Exceeds 20 character limit
+      });
+
+      const errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const codeError = errors.find(error => error.property === 'denialCode');
+      expect(codeError).toBeDefined();
+    });
+
+    it('should fail validation with invalid appeal deadline format', async () => {
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        denialReason: 'Service not covered under current plan',
+        appealable: true,
+        appealDeadline: 'invalid-date'
+      });
+
+      const errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const deadlineError = errors.find(error => error.property === 'appealDeadline');
+      expect(deadlineError).toBeDefined();
+    });
+  });
+
+  describe('ClaimDocumentUploadedEventDto', () => {
+    it('should validate a valid document upload event', async () => {
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.ADDITIONAL_INFO_REQUIRED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documents: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            type: 'receipt',
+            url: 'https://storage.austa.com/documents/receipt.pdf'
+          },
+          {
+            id: '123e4567-e89b-12d3-a456-426614174003',
+            type: 'prescription',
+            url: 'https://storage.austa.com/documents/prescription.pdf'
+          }
+        ],
+        documentCount: 5, // Total documents including these new ones
+        documentationComplete: true
+      });
+
+      const errors = await validate(documentUploadEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing documents array', async () => {
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.ADDITIONAL_INFO_REQUIRED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documentCount: 5
+        // Missing documents array
+      });
+
+      const errors = await validate(documentUploadEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const documentsError = errors.find(error => error.property === 'documents');
+      expect(documentsError).toBeDefined();
+    });
+
+    it('should fail validation with empty documents array', async () => {
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.ADDITIONAL_INFO_REQUIRED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documents: [], // Empty array
+        documentCount: 5
+      });
+
+      const errors = await validate(documentUploadEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const documentsError = errors.find(error => error.property === 'documents');
+      expect(documentsError).toBeDefined();
+    });
+
+    it('should fail validation with too many documents', async () => {
+      // Create an array of 11 documents (exceeding the 10 document limit)
+      const documents = Array(11).fill(null).map((_, index) => ({
+        id: `123e4567-e89b-12d3-a456-42661417400${index}`,
+        type: 'receipt',
+        url: `https://storage.austa.com/documents/receipt-${index}.pdf`
+      }));
+
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.ADDITIONAL_INFO_REQUIRED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documents,
+        documentCount: 15
+      });
+
+      const errors = await validate(documentUploadEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const documentsError = errors.find(error => error.property === 'documents');
+      expect(documentsError).toBeDefined();
+    });
+
+    it('should fail validation with invalid document count', async () => {
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.ADDITIONAL_INFO_REQUIRED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documents: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            type: 'receipt',
+            url: 'https://storage.austa.com/documents/receipt.pdf'
+          }
+        ],
+        documentCount: 0 // Invalid count (must be at least 1)
+      });
+
+      const errors = await validate(documentUploadEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const countError = errors.find(error => error.property === 'documentCount');
+      expect(countError).toBeDefined();
+    });
+  });
+
+  describe('ClaimStatusUpdatedEventDto', () => {
+    it('should validate a valid status update event', async () => {
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        statusChangeReason: 'Claim has been assigned to a reviewer',
+        changedByUserId: '123e4567-e89b-12d3-a456-426614174004',
+        requiresAction: false
+      });
+
+      const errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing previous status', async () => {
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+        // Missing previousStatus
+      });
+
+      const errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const previousStatusError = errors.find(error => error.property === 'previousStatus');
+      expect(previousStatusError).toBeDefined();
+    });
+
+    it('should fail validation with invalid previous status', async () => {
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: 'INVALID_STATUS',
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+      });
+
+      const errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const previousStatusError = errors.find(error => error.property === 'previousStatus');
+      expect(previousStatusError).toBeDefined();
+    });
+
+    it('should fail validation with status change reason exceeding maximum length', async () => {
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        statusChangeReason: 'a'.repeat(501) // Exceeds 500 character limit
+      });
+
+      const errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const reasonError = errors.find(error => error.property === 'statusChangeReason');
+      expect(reasonError).toBeDefined();
+    });
+
+    it('should fail validation with invalid changedByUserId format', async () => {
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        changedByUserId: 'invalid-uuid'
+      });
+
+      const errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const userIdError = errors.find(error => error.property === 'changedByUserId');
+      expect(userIdError).toBeDefined();
+    });
+  });
+
+  describe('ClaimCompletedEventDto', () => {
+    it('should validate a valid claim completion event', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL',
+          covered: true,
+          coveragePercentage: 80
+        },
+        finalAmount: 120.60,
+        paymentReference: 'PAY-123456',
+        paymentDate: new Date().toISOString(),
+        processingTimeDays: 5
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation with missing final amount', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        }
+        // Missing finalAmount
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const finalAmountError = errors.find(error => error.property === 'finalAmount');
+      expect(finalAmountError).toBeDefined();
+    });
+
+    it('should fail validation with negative final amount', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        finalAmount: -50 // Negative amount
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const finalAmountError = errors.find(error => error.property === 'finalAmount');
+      expect(finalAmountError).toBeDefined();
+    });
+
+    it('should fail validation with payment reference exceeding maximum length', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        finalAmount: 120.60,
+        paymentReference: 'a'.repeat(51) // Exceeds 50 character limit
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const referenceError = errors.find(error => error.property === 'paymentReference');
+      expect(referenceError).toBeDefined();
+    });
+
+    it('should fail validation with invalid payment date format', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        finalAmount: 120.60,
+        paymentDate: 'invalid-date'
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const dateError = errors.find(error => error.property === 'paymentDate');
+      expect(dateError).toBeDefined();
+    });
+
+    it('should fail validation with negative processing time', async () => {
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        finalAmount: 120.60,
+        processingTimeDays: -2 // Negative processing time
+      });
+
+      const errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBeGreaterThan(0);
+      
+      // Check for specific validation errors
+      const timeError = errors.find(error => error.property === 'processingTimeDays');
+      expect(timeError).toBeDefined();
+    });
+  });
+
+  // Integration tests for claim state transitions
+  describe('Claim State Transitions', () => {
+    it('should validate a complete claim lifecycle', async () => {
+      // 1. Claim Submission
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        isFirstClaim: true
+      });
+
+      let errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBe(0);
+
+      // 2. Status Update to UNDER_REVIEW
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+      });
+
+      errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBe(0);
+
+      // 3. Document Upload
+      const documentUploadEvent = plainToInstance(ClaimDocumentUploadedEventDto, {
+        eventType: EventType.CLAIM_DOCUMENT_UPLOADED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        documents: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174002',
+            type: 'receipt',
+            url: 'https://storage.austa.com/documents/receipt.pdf'
+          }
+        ],
+        documentCount: 1
+      });
+
+      errors = await validate(documentUploadEvent);
+      expect(errors.length).toBe(0);
+
+      // 4. Claim Approval
+      const claimApprovedEvent = plainToInstance(ClaimApprovedEventDto, {
+        eventType: EventType.CLAIM_APPROVED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPROVED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        approvedAmount: 120.60
+      });
+
+      errors = await validate(claimApprovedEvent);
+      expect(errors.length).toBe(0);
+
+      // 5. Claim Completion
+      const claimCompletedEvent = plainToInstance(ClaimCompletedEventDto, {
+        eventType: EventType.CLAIM_COMPLETED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.COMPLETED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        finalAmount: 120.60,
+        processingTimeDays: 5
+      });
+
+      errors = await validate(claimCompletedEvent);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should validate a denied claim lifecycle', async () => {
+      // 1. Claim Submission
+      const claimSubmittedEvent = plainToInstance(ClaimSubmittedEventDto, {
+        eventType: EventType.CLAIM_SUBMITTED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        }
+      });
+
+      let errors = await validate(claimSubmittedEvent);
+      expect(errors.length).toBe(0);
+
+      // 2. Status Update to UNDER_REVIEW
+      const statusUpdateEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.UNDER_REVIEW,
+        previousStatus: ClaimStatus.SUBMITTED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString()
+      });
+
+      errors = await validate(statusUpdateEvent);
+      expect(errors.length).toBe(0);
+
+      // 3. Claim Denial
+      const claimDeniedEvent = plainToInstance(ClaimDeniedEventDto, {
+        eventType: EventType.CLAIM_DENIED,
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        amount: {
+          amount: 150.75,
+          currency: 'BRL'
+        },
+        denialReason: 'Service not covered under current plan',
+        appealable: true
+      });
+
+      errors = await validate(claimDeniedEvent);
+      expect(errors.length).toBe(0);
+
+      // 4. Status Update to APPEALED
+      const appealStatusEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.APPEALED,
+        previousStatus: ClaimStatus.DENIED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        statusChangeReason: 'Customer has appealed the denial'
+      });
+
+      errors = await validate(appealStatusEvent);
+      expect(errors.length).toBe(0);
+
+      // 5. Final Denial
+      const finalDenialEvent = plainToInstance(ClaimStatusUpdatedEventDto, {
+        eventType: 'CLAIM_STATUS_UPDATED',
+        claimId: '123e4567-e89b-12d3-a456-426614174000',
+        claimType: 'medical_visit',
+        status: ClaimStatus.FINAL_DENIAL,
+        previousStatus: ClaimStatus.APPEALED,
+        planId: '123e4567-e89b-12d3-a456-426614174001',
+        timestamp: new Date().toISOString(),
+        statusChangeReason: 'Appeal reviewed and denied'
+      });
+
+      errors = await validate(finalDenialEvent);
+      expect(errors.length).toBe(0);
     });
   });
 });

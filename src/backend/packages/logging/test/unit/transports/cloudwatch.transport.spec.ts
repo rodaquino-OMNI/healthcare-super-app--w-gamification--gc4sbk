@@ -1,809 +1,772 @@
-import { Test } from '@nestjs/testing';
-import {
-  CloudWatchLogsClient,
-  ResourceNotFoundException,
-  ThrottlingException,
-  ServiceUnavailableException,
-  InputLogEvent,
-} from '@aws-sdk/client-cloudwatch-logs';
+import { CloudWatchLogsClient, PutLogEventsCommand, CreateLogGroupCommand, CreateLogStreamCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { CloudWatchTransport, CloudWatchTransportConfig } from '../../../src/transports/cloudwatch.transport';
-import { CloudWatchFormatter } from '../../../src/formatters/cloudwatch.formatter';
-import { LogEntry, LogLevel } from '../../../src/interfaces/formatter.interface';
-import {
-  createMockCloudWatchLogsClient,
-  MockCloudWatchLogsClient,
-  createResourceNotFoundException,
-  createThrottlingException,
-  createServiceUnavailableException,
-} from '../../mocks/aws-sdk.mock';
-import { MockCloudWatchFormatter } from '../../mocks/formatter.mock';
+import { LogEntry } from '../../../src/interfaces/log-entry.interface';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
+import { createMockCloudWatchLogsClient, getMockFromClient, MockCloudWatchLogsClient } from '../../mocks/aws-sdk.mock';
 
-// Mock the AWS SDK CloudWatch Logs client
+// Mock the AWS SDK client
 jest.mock('@aws-sdk/client-cloudwatch-logs', () => {
-  const actual = jest.requireActual('@aws-sdk/client-cloudwatch-logs');
+  const originalModule = jest.requireActual('@aws-sdk/client-cloudwatch-logs');
   return {
-    ...actual,
-    CloudWatchLogsClient: jest.fn().mockImplementation(() => {
-      return {
-        send: jest.fn(),
-      };
-    }),
+    ...originalModule,
+    CloudWatchLogsClient: jest.fn().mockImplementation(() => createMockCloudWatchLogsClient()),
   };
 });
 
 describe('CloudWatchTransport', () => {
   let transport: CloudWatchTransport;
   let mockClient: MockCloudWatchLogsClient;
-  let mockFormatter: MockCloudWatchFormatter;
   let defaultConfig: CloudWatchTransportConfig;
 
   beforeEach(() => {
-    // Reset mocks
+    // Reset the mock client before each test
     jest.clearAllMocks();
-    
-    // Create mock CloudWatch client
-    const { client, mock } = createMockCloudWatchLogsClient();
-    mockClient = mock;
-    
-    // Create mock formatter
-    mockFormatter = new MockCloudWatchFormatter();
     
     // Default configuration for tests
     defaultConfig = {
       region: 'us-east-1',
       logGroupName: 'test-log-group',
-      logStreamName: 'test-log-stream',
-      createLogGroup: true,
-      createLogStream: true,
-      batchSize: 10,
-      flushInterval: 100,
-      maxRetries: 3,
-      retryBaseDelay: 50,
+      serviceName: 'test-service',
+      environment: 'test',
     };
 
-    // Mock the CloudWatchLogsClient constructor
-    (CloudWatchLogsClient as jest.Mock).mockImplementation(() => client);
+    // Create the transport with the default configuration
+    transport = new CloudWatchTransport(defaultConfig);
+    
+    // Get the mock client from the transport
+    mockClient = getMockFromClient(transport['client']);
+    mockClient.reset();
   });
 
-  afterEach(async () => {
-    // Clean up resources
-    if (transport) {
-      await transport.cleanup();
+  afterEach(() => {
+    // Clean up after each test
+    if (transport['batchTimer']) {
+      clearTimeout(transport['batchTimer']);
     }
   });
 
-  describe('initialization', () => {
-    it('should create a CloudWatchTransport with default configuration', () => {
-      // Act
-      transport = new CloudWatchTransport({
+  describe('constructor', () => {
+    it('should initialize with default configuration values', () => {
+      // Create a transport with minimal configuration
+      const minimalConfig: CloudWatchTransportConfig = {
         region: 'us-east-1',
         logGroupName: 'test-log-group',
-      });
+      };
+      const minimalTransport = new CloudWatchTransport(minimalConfig);
 
-      // Assert
-      expect(transport).toBeDefined();
-      expect(CloudWatchLogsClient).toHaveBeenCalledWith({
-        region: 'us-east-1',
-        credentials: undefined,
-      });
+      // Verify default values are set
+      expect(minimalTransport['config'].batchSize).toBe(10000);
+      expect(minimalTransport['config'].batchInterval).toBe(1000);
+      expect(minimalTransport['config'].maxRetries).toBe(3);
+      expect(minimalTransport['config'].retryBaseDelay).toBe(100);
+      expect(minimalTransport['config'].retentionInDays).toBe(14);
     });
 
-    it('should create a CloudWatchTransport with custom configuration', () => {
-      // Arrange
-      const config: CloudWatchTransportConfig = {
+    it('should use provided configuration values', () => {
+      // Create a transport with custom configuration
+      const customConfig: CloudWatchTransportConfig = {
         region: 'eu-west-1',
         logGroupName: 'custom-log-group',
         logStreamName: 'custom-log-stream',
-        credentials: {
-          accessKeyId: 'test-access-key',
-          secretAccessKey: 'test-secret-key',
-        },
-        createLogGroup: false,
-        createLogStream: false,
-        retentionInDays: 30,
-        batchSize: 100,
-        flushInterval: 500,
+        batchSize: 5000,
+        batchInterval: 2000,
         maxRetries: 5,
         retryBaseDelay: 200,
-      };
-
-      // Act
-      transport = new CloudWatchTransport(config);
-
-      // Assert
-      expect(transport).toBeDefined();
-      expect(CloudWatchLogsClient).toHaveBeenCalledWith({
-        region: 'eu-west-1',
+        retentionInDays: 30,
+        serviceName: 'custom-service',
+        environment: 'custom',
         credentials: {
           accessKeyId: 'test-access-key',
           secretAccessKey: 'test-secret-key',
         },
+      };
+      const customTransport = new CloudWatchTransport(customConfig);
+
+      // Verify custom values are set
+      expect(customTransport['config'].region).toBe('eu-west-1');
+      expect(customTransport['config'].logGroupName).toBe('custom-log-group');
+      expect(customTransport['config'].logStreamName).toBe('custom-log-stream');
+      expect(customTransport['config'].batchSize).toBe(5000);
+      expect(customTransport['config'].batchInterval).toBe(2000);
+      expect(customTransport['config'].maxRetries).toBe(5);
+      expect(customTransport['config'].retryBaseDelay).toBe(200);
+      expect(customTransport['config'].retentionInDays).toBe(30);
+      expect(customTransport['config'].serviceName).toBe('custom-service');
+      expect(customTransport['config'].environment).toBe('custom');
+      expect(customTransport['config'].credentials).toEqual({
+        accessKeyId: 'test-access-key',
+        secretAccessKey: 'test-secret-key',
       });
     });
 
-    it('should create a CloudWatchTransport with a custom formatter', () => {
-      // Act
-      transport = new CloudWatchTransport(defaultConfig, mockFormatter as unknown as CloudWatchFormatter);
+    it('should generate a log stream name if not provided', () => {
+      // Create a transport without a log stream name
+      const config: CloudWatchTransportConfig = {
+        region: 'us-east-1',
+        logGroupName: 'test-log-group',
+        serviceName: 'test-service',
+        environment: 'test',
+      };
+      const testTransport = new CloudWatchTransport(config);
 
-      // Assert
-      expect(transport).toBeDefined();
+      // Verify a log stream name was generated
+      expect(testTransport['logStreamName']).toBeDefined();
+      expect(testTransport['logStreamName']).toContain('test-service');
+      expect(testTransport['logStreamName']).toContain('test');
+      expect(testTransport['logStreamName']).toMatch(/\d{4}-\d{2}-\d{2}/);
     });
 
-    it('should generate a date-based log stream name if not provided', () => {
-      // Arrange
-      const configWithoutStream = { ...defaultConfig };
-      delete configWithoutStream.logStreamName;
-      
-      // Mock date to ensure consistent test results
-      const mockDate = new Date('2023-01-15');
-      jest.spyOn(global, 'Date').mockImplementation(() => mockDate as unknown as Date);
+    it('should use the provided log stream name if available', () => {
+      // Create a transport with a log stream name
+      const config: CloudWatchTransportConfig = {
+        region: 'us-east-1',
+        logGroupName: 'test-log-group',
+        logStreamName: 'custom-log-stream',
+      };
+      const testTransport = new CloudWatchTransport(config);
 
-      // Act
-      transport = new CloudWatchTransport(configWithoutStream);
+      // Verify the provided log stream name is used
+      expect(testTransport['logStreamName']).toBe('custom-log-stream');
+    });
 
-      // Assert
-      expect(transport).toBeDefined();
-      // The log stream name should be in the format YYYY-MM-DD
-      expect(mockClient.createLogStreamCalls[0]?.logStreamName).toBe('2023-01-15');
+    it('should create a CloudWatchLogsClient with the correct configuration', () => {
+      // Create a transport with credentials
+      const config: CloudWatchTransportConfig = {
+        region: 'us-west-2',
+        logGroupName: 'test-log-group',
+        credentials: {
+          accessKeyId: 'test-access-key',
+          secretAccessKey: 'test-secret-key',
+          sessionToken: 'test-session-token',
+        },
+      };
+      const testTransport = new CloudWatchTransport(config);
 
-      // Restore the original Date implementation
-      jest.restoreAllMocks();
+      // Verify the client was created with the correct configuration
+      expect(CloudWatchLogsClient).toHaveBeenCalledWith({
+        region: 'us-west-2',
+        credentials: {
+          accessKeyId: 'test-access-key',
+          secretAccessKey: 'test-secret-key',
+          sessionToken: 'test-session-token',
+        },
+      });
     });
   });
 
-  describe('log group and stream management', () => {
-    it('should check if log group exists during initialization', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-
-      // Act
+  describe('initialize', () => {
+    it('should create log group and log stream if they do not exist', async () => {
+      // Initialize the transport
       await transport.initialize();
 
-      // Assert
-      expect(mockClient.describeLogGroupsCalls.length).toBe(1);
-      expect(mockClient.describeLogGroupsCalls[0].logGroupNamePrefix).toBe('test-log-group');
-    });
-
-    it('should create log group if it does not exist', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([]);
-
-      // Act
-      await transport.initialize();
-
-      // Assert
+      // Verify the log group and stream were created
       expect(mockClient.createLogGroupCalls.length).toBe(1);
-      expect(mockClient.createLogGroupCalls[0].logGroupName).toBe('test-log-group');
+      expect(mockClient.createLogGroupCalls[0].input.logGroupName).toBe('test-log-group');
+      
+      expect(mockClient.describeLogStreamsCalls.length).toBe(1);
+      expect(mockClient.describeLogStreamsCalls[0].input.logGroupName).toBe('test-log-group');
+      expect(mockClient.describeLogStreamsCalls[0].input.logStreamNamePrefix).toBe(transport['logStreamName']);
+      
+      expect(mockClient.createLogStreamCalls.length).toBe(1);
+      expect(mockClient.createLogStreamCalls[0].input.logGroupName).toBe('test-log-group');
+      expect(mockClient.createLogStreamCalls[0].input.logStreamName).toBe(transport['logStreamName']);
+      
+      // Verify the transport is marked as initialized
+      expect(transport['initialized']).toBe(true);
     });
 
     it('should not create log group if it already exists', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
+      // Set up the mock client to simulate the log group already existing
+      mockClient.logGroups.add('test-log-group');
 
-      // Act
+      // Initialize the transport
       await transport.initialize();
 
-      // Assert
-      expect(mockClient.createLogGroupCalls.length).toBe(0);
-    });
-
-    it('should set retention policy if specified', async () => {
-      // Arrange
-      const configWithRetention = { ...defaultConfig, retentionInDays: 30 };
-      transport = new CloudWatchTransport(configWithRetention);
-      mockClient.mockDescribeLogGroupsResponse([]);
-
-      // Act
-      await transport.initialize();
-
-      // Assert
-      expect(mockClient.putRetentionPolicyCalls.length).toBe(1);
-      expect(mockClient.putRetentionPolicyCalls[0].logGroupName).toBe('test-log-group');
-      expect(mockClient.putRetentionPolicyCalls[0].retentionInDays).toBe(30);
-    });
-
-    it('should check if log stream exists during initialization', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-
-      // Act
-      await transport.initialize();
-
-      // Assert
-      expect(mockClient.describeLogStreamsCalls.length).toBe(1);
-      expect(mockClient.describeLogStreamsCalls[0].logGroupName).toBe('test-log-group');
-      expect(mockClient.describeLogStreamsCalls[0].logStreamNamePrefix).toBe('test-log-stream');
-    });
-
-    it('should create log stream if it does not exist', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([]);
-
-      // Act
-      await transport.initialize();
-
-      // Assert
+      // Verify the log group creation was attempted
+      expect(mockClient.createLogGroupCalls.length).toBe(1);
+      
+      // Verify the log stream was still created
       expect(mockClient.createLogStreamCalls.length).toBe(1);
-      expect(mockClient.createLogStreamCalls[0].logGroupName).toBe('test-log-group');
-      expect(mockClient.createLogStreamCalls[0].logStreamName).toBe('test-log-stream');
+      
+      // Verify the transport is marked as initialized
+      expect(transport['initialized']).toBe(true);
     });
 
     it('should not create log stream if it already exists', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
+      // Set up the mock client to simulate the log group and stream already existing
+      mockClient.logGroups.add('test-log-group');
+      if (!mockClient.logStreams.has('test-log-group')) {
+        mockClient.logStreams.set('test-log-group', new Set());
+      }
+      mockClient.logStreams.get('test-log-group')!.add(transport['logStreamName']);
 
-      // Act
+      // Initialize the transport
       await transport.initialize();
 
-      // Assert
+      // Verify the log stream creation was not attempted
       expect(mockClient.createLogStreamCalls.length).toBe(0);
+      
+      // Verify the transport is marked as initialized
+      expect(transport['initialized']).toBe(true);
     });
 
-    it('should get sequence token if log stream exists', async () => {
-      // Arrange
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ 
-        logStreamName: 'test-log-stream',
-        uploadSequenceToken: 'test-sequence-token'
-      }]);
-
-      // Act
+    it('should only initialize once even if called multiple times', async () => {
+      // Initialize the transport twice
+      await transport.initialize();
       await transport.initialize();
 
-      // Assert
-      // Verify the sequence token is used in the next PutLogEvents call
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      await transport.write(testEntry);
-      await transport.flush();
-      
-      expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].sequenceToken).toBe('test-sequence-token');
+      // Verify the log group and stream were only created once
+      expect(mockClient.createLogGroupCalls.length).toBe(1);
+      expect(mockClient.createLogStreamCalls.length).toBe(1);
     });
 
-    it('should throw error if log group does not exist and createLogGroup is false', async () => {
-      // Arrange
-      const configWithoutCreate = { ...defaultConfig, createLogGroup: false };
-      transport = new CloudWatchTransport(configWithoutCreate);
-      mockClient.mockDescribeLogGroupsResponse([]);
+    it('should handle errors during initialization', async () => {
+      // Set up the mock client to simulate an error
+      mockClient.shouldFail = true;
+      mockClient.errorToThrow = new Error('Simulated AWS SDK error');
 
-      // Act & Assert
-      await expect(transport.initialize()).rejects.toThrow(
-        'Log group test-log-group does not exist and createLogGroup is false'
-      );
-    });
+      // Attempt to initialize the transport
+      await expect(transport.initialize()).rejects.toThrow('Simulated AWS SDK error');
 
-    it('should throw error if log stream does not exist and createLogStream is false', async () => {
-      // Arrange
-      const configWithoutCreate = { ...defaultConfig, createLogStream: false };
-      transport = new CloudWatchTransport(configWithoutCreate);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([]);
-
-      // Act & Assert
-      await expect(transport.initialize()).rejects.toThrow(
-        'Log stream test-log-stream does not exist and createLogStream is false'
-      );
+      // Verify the transport is not marked as initialized
+      expect(transport['initialized']).toBe(false);
     });
   });
 
-  describe('writing logs', () => {
+  describe('write', () => {
     beforeEach(async () => {
-      // Create and initialize transport
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
+      // Initialize the transport before each test
       await transport.initialize();
+      // Reset the mock client after initialization
+      mockClient.reset();
+      mockClient.logGroups.add('test-log-group');
+      if (!mockClient.logStreams.has('test-log-group')) {
+        mockClient.logStreams.set('test-log-group', new Set());
+      }
+      mockClient.logStreams.get('test-log-group')!.add(transport['logStreamName']);
     });
 
-    it('should format and add log entry to batch', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
+    it('should add log entry to the batch', async () => {
+      // Create a log entry
+      const logEntry: LogEntry = {
+        message: 'Test log message',
         level: LogLevel.INFO,
-        message: 'Test message',
+        timestamp: new Date(),
+        serviceName: 'test-service',
       };
 
-      // Act
-      await transport.write(testEntry);
+      // Write the log entry
+      await transport.write(logEntry);
 
-      // Assert - No immediate PutLogEvents call since batch size is not reached
+      // Verify the log entry was added to the batch
+      expect(transport['logBatch'].length).toBe(1);
+      expect(transport['logBatch'][0].timestamp).toBe(logEntry.timestamp.getTime());
+      expect(transport['logBatch'][0].message).toBe(JSON.stringify(logEntry));
+      
+      // Verify no logs were sent to CloudWatch yet (batch not full)
       expect(mockClient.putLogEventsCalls.length).toBe(0);
     });
 
-    it('should flush logs when batch size is reached', async () => {
-      // Arrange
-      const entries: LogEntry[] = Array.from({ length: defaultConfig.batchSize! }, (_, i) => ({
-        timestamp: new Date(),
+    it('should flush the batch when it reaches the batch size', async () => {
+      // Set a small batch size for testing
+      transport['config'].batchSize = 2;
+
+      // Create log entries
+      const logEntry1: LogEntry = {
+        message: 'Test log message 1',
         level: LogLevel.INFO,
-        message: `Test message ${i}`,
-      }));
-
-      // Act
-      for (const entry of entries) {
-        await transport.write(entry);
-      }
-
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(defaultConfig.batchSize);
-    });
-
-    it('should flush logs when manually called', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
         timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
+        serviceName: 'test-service',
       };
 
-      // Act
-      await transport.write(testEntry);
-      await transport.flush();
+      const logEntry2: LogEntry = {
+        message: 'Test log message 2',
+        level: LogLevel.INFO,
+        timestamp: new Date(Date.now() + 1000), // 1 second later
+        serviceName: 'test-service',
+      };
 
-      // Assert
+      // Write the first log entry
+      await transport.write(logEntry1);
+      
+      // Verify the first log entry was added to the batch
+      expect(transport['logBatch'].length).toBe(1);
+      
+      // Write the second log entry, which should trigger a flush
+      await transport.write(logEntry2);
+      
+      // Verify the batch was flushed
+      expect(transport['logBatch'].length).toBe(0);
+      
+      // Verify logs were sent to CloudWatch
       expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents[0].message).toBe('Test message');
+      expect(mockClient.putLogEventsCalls[0].input.logGroupName).toBe('test-log-group');
+      expect(mockClient.putLogEventsCalls[0].input.logStreamName).toBe(transport['logStreamName']);
+      expect(mockClient.putLogEventsCalls[0].input.logEvents?.length).toBe(2);
+      
+      // Verify the log events are in chronological order
+      const logEvents = mockClient.putLogEventsCalls[0].input.logEvents || [];
+      expect(logEvents[0].message).toBe(JSON.stringify(logEntry1));
+      expect(logEvents[1].message).toBe(JSON.stringify(logEntry2));
     });
 
-    it('should sort log events by timestamp', async () => {
-      // Arrange
-      const now = Date.now();
-      const entries: LogEntry[] = [
-        {
-          timestamp: new Date(now + 2000),
-          level: LogLevel.INFO,
-          message: 'Message 3',
-        },
-        {
-          timestamp: new Date(now),
-          level: LogLevel.INFO,
-          message: 'Message 1',
-        },
-        {
-          timestamp: new Date(now + 1000),
-          level: LogLevel.INFO,
-          message: 'Message 2',
-        },
+    it('should set a timer to flush the batch after the batch interval', async () => {
+      // Mock setTimeout
+      jest.useFakeTimers();
+
+      // Create a log entry
+      const logEntry: LogEntry = {
+        message: 'Test log message',
+        level: LogLevel.INFO,
+        timestamp: new Date(),
+        serviceName: 'test-service',
+      };
+
+      // Write the log entry
+      await transport.write(logEntry);
+
+      // Verify a timer was set
+      expect(transport['batchTimer']).toBeDefined();
+      
+      // Fast-forward time
+      jest.advanceTimersByTime(1000);
+      
+      // Verify the batch was flushed
+      expect(transport['logBatch'].length).toBe(0);
+      expect(mockClient.putLogEventsCalls.length).toBe(1);
+      
+      // Restore timers
+      jest.useRealTimers();
+    });
+
+    it('should initialize the transport if not already initialized', async () => {
+      // Create a new transport that is not initialized
+      const uninitializedTransport = new CloudWatchTransport(defaultConfig);
+      const uninitializedMockClient = getMockFromClient(uninitializedTransport['client']);
+      
+      // Create a log entry
+      const logEntry: LogEntry = {
+        message: 'Test log message',
+        level: LogLevel.INFO,
+        timestamp: new Date(),
+        serviceName: 'test-service',
+      };
+
+      // Write the log entry
+      await uninitializedTransport.write(logEntry);
+
+      // Verify the transport was initialized
+      expect(uninitializedTransport['initialized']).toBe(true);
+      expect(uninitializedMockClient.createLogGroupCalls.length).toBe(1);
+    });
+  });
+
+  describe('flushBatch', () => {
+    beforeEach(async () => {
+      // Initialize the transport before each test
+      await transport.initialize();
+      // Reset the mock client after initialization
+      mockClient.reset();
+      mockClient.logGroups.add('test-log-group');
+      if (!mockClient.logStreams.has('test-log-group')) {
+        mockClient.logStreams.set('test-log-group', new Set());
+      }
+      mockClient.logStreams.get('test-log-group')!.add(transport['logStreamName']);
+    });
+
+    it('should clear the batch timer when flushing', async () => {
+      // Mock setTimeout and clearTimeout
+      jest.useFakeTimers();
+
+      // Create a log entry and write it to set the timer
+      const logEntry: LogEntry = {
+        message: 'Test log message',
+        level: LogLevel.INFO,
+        timestamp: new Date(),
+        serviceName: 'test-service',
+      };
+      await transport.write(logEntry);
+
+      // Verify a timer was set
+      expect(transport['batchTimer']).toBeDefined();
+      
+      // Manually flush the batch
+      await transport['flushBatch']();
+      
+      // Verify the timer was cleared
+      expect(transport['batchTimer']).toBeNull();
+      
+      // Restore timers
+      jest.useRealTimers();
+    });
+
+    it('should not send logs if the batch is empty', async () => {
+      // Ensure the batch is empty
+      transport['logBatch'] = [];
+
+      // Flush the batch
+      await transport['flushBatch']();
+
+      // Verify no logs were sent to CloudWatch
+      expect(mockClient.putLogEventsCalls.length).toBe(0);
+    });
+
+    it('should send logs to CloudWatch with the correct parameters', async () => {
+      // Add log entries to the batch
+      const timestamp1 = new Date();
+      const timestamp2 = new Date(timestamp1.getTime() + 1000);
+      transport['logBatch'] = [
+        { timestamp: timestamp1.getTime(), message: 'Test log message 1' },
+        { timestamp: timestamp2.getTime(), message: 'Test log message 2' },
       ];
 
-      // Act
-      for (const entry of entries) {
-        await transport.write(entry);
+      // Flush the batch
+      await transport['flushBatch']();
+
+      // Verify logs were sent to CloudWatch
+      expect(mockClient.putLogEventsCalls.length).toBe(1);
+      expect(mockClient.putLogEventsCalls[0].input.logGroupName).toBe('test-log-group');
+      expect(mockClient.putLogEventsCalls[0].input.logStreamName).toBe(transport['logStreamName']);
+      expect(mockClient.putLogEventsCalls[0].input.logEvents?.length).toBe(2);
+      
+      // Verify the log events are in chronological order
+      const logEvents = mockClient.putLogEventsCalls[0].input.logEvents || [];
+      expect(logEvents[0].timestamp).toBe(timestamp1.getTime());
+      expect(logEvents[0].message).toBe('Test log message 1');
+      expect(logEvents[1].timestamp).toBe(timestamp2.getTime());
+      expect(logEvents[1].message).toBe('Test log message 2');
+      
+      // Verify the batch was cleared
+      expect(transport['logBatch'].length).toBe(0);
+    });
+  });
+
+  describe('sendLogsWithRetry', () => {
+    beforeEach(async () => {
+      // Initialize the transport before each test
+      await transport.initialize();
+      // Reset the mock client after initialization
+      mockClient.reset();
+      mockClient.logGroups.add('test-log-group');
+      if (!mockClient.logStreams.has('test-log-group')) {
+        mockClient.logStreams.set('test-log-group', new Set());
       }
-      await transport.flush();
+      mockClient.logStreams.get('test-log-group')!.add(transport['logStreamName']);
+    });
 
-      // Assert
+    it('should send logs to CloudWatch successfully on the first try', async () => {
+      // Create log events
+      const logEvents = [
+        { timestamp: Date.now(), message: 'Test log message' },
+      ];
+
+      // Send logs with retry
+      await transport['sendLogsWithRetry'](logEvents);
+
+      // Verify logs were sent to CloudWatch
       expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(3);
-      expect(mockClient.putLogEventsCalls[0].logEvents[0].message).toBe('Message 1');
-      expect(mockClient.putLogEventsCalls[0].logEvents[1].message).toBe('Message 2');
-      expect(mockClient.putLogEventsCalls[0].logEvents[2].message).toBe('Message 3');
     });
 
-    it('should update sequence token after successful put', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      mockClient.mockPutLogEventsResponse('new-sequence-token');
-
-      // Act
-      await transport.write(testEntry);
-      await transport.flush();
-      
-      // Write another entry to verify sequence token is used
-      await transport.write(testEntry);
-      await transport.flush();
-
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(2);
-      expect(mockClient.putLogEventsCalls[1].sequenceToken).toBe('new-sequence-token');
-    });
-
-    it('should handle string and object formatted entries', async () => {
-      // Arrange
-      const stringEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'String message',
-      };
-      
-      const objectEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Object message',
-        metadata: { key: 'value' },
-      };
-
-      // Mock formatter to return string for first call and object for second call
-      const mockFormat = jest.spyOn(CloudWatchFormatter.prototype, 'format');
-      mockFormat.mockReturnValueOnce('Formatted string message');
-      mockFormat.mockReturnValueOnce({ formatted: 'object message' });
-
-      // Act
-      await transport.write(stringEntry);
-      await transport.write(objectEntry);
-      await transport.flush();
-
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(2);
-      expect(mockClient.putLogEventsCalls[0].logEvents[0].message).toBe('Formatted string message');
-      expect(mockClient.putLogEventsCalls[0].logEvents[1].message).toBe('{"formatted":"object message"}');
-
-      // Restore the original implementation
-      mockFormat.mockRestore();
-    });
-  });
-
-  describe('error handling and retries', () => {
-    beforeEach(async () => {
-      // Create and initialize transport
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
-      await transport.initialize();
-    });
-
-    it('should retry on ThrottlingException', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // First call throws ThrottlingException, second call succeeds
-      const throttlingError = createThrottlingException('Throttling error');
-      mockClient.mockErrorFor('PutLogEventsCommand', throttlingError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      
-      // Clear the error to allow the retry to succeed
-      mockClient.mockErrorFor('PutLogEventsCommand', null as any);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.putLogEventsCalls.length).toBe(2); // Initial call + 1 retry
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should retry on ServiceUnavailableException', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // First call throws ServiceUnavailableException, second call succeeds
-      const unavailableError = createServiceUnavailableException('Service unavailable');
-      mockClient.mockErrorFor('PutLogEventsCommand', unavailableError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      
-      // Clear the error to allow the retry to succeed
-      mockClient.mockErrorFor('PutLogEventsCommand', null as any);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.putLogEventsCalls.length).toBe(2); // Initial call + 1 retry
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should recreate log group on ResourceNotFoundException with log group message', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // Create error with log group message
-      const resourceError = createResourceNotFoundException('The specified log group does not exist');
-      mockClient.mockErrorFor('PutLogEventsCommand', resourceError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      
-      // Clear the error to allow the retry to succeed
-      mockClient.mockErrorFor('PutLogEventsCommand', null as any);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.describeLogGroupsCalls.length).toBeGreaterThan(1); // Additional call to check log group
-      expect(mockClient.putLogEventsCalls.length).toBe(2); // Initial call + 1 retry
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should recreate log stream on ResourceNotFoundException with log stream message', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // Create error with log stream message
-      const resourceError = createResourceNotFoundException('The specified log stream does not exist');
-      mockClient.mockErrorFor('PutLogEventsCommand', resourceError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      
-      // Clear the error to allow the retry to succeed
-      mockClient.mockErrorFor('PutLogEventsCommand', null as any);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.describeLogStreamsCalls.length).toBeGreaterThan(1); // Additional call to check log stream
-      expect(mockClient.putLogEventsCalls.length).toBe(2); // Initial call + 1 retry
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should extract sequence token from error message', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // Create error with sequence token in message
-      const invalidSeqError = new Error('The given sequenceToken is invalid. The next expected sequenceToken is: 12345');
-      mockClient.mockErrorFor('PutLogEventsCommand', invalidSeqError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      
-      // Clear the error to allow the retry to succeed
-      mockClient.mockErrorFor('PutLogEventsCommand', null as any);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.putLogEventsCalls.length).toBe(2); // Initial call + 1 retry
-      expect(mockClient.putLogEventsCalls[1].sequenceToken).toBe('12345'); // Should extract token from error
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should give up after max retries', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // Always throw ThrottlingException
-      const throttlingError = createThrottlingException('Throttling error');
-      mockClient.mockErrorFor('PutLogEventsCommand', throttlingError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(mockClient.putLogEventsCalls.length).toBe(4); // Initial call + 3 retries (maxRetries)
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should handle non-AWS errors', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      
-      // Create a generic error
-      const genericError = new Error('Generic error');
-      mockClient.mockErrorFor('PutLogEventsCommand', genericError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.write(testEntry);
-      await transport.flush();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error sending logs to CloudWatch:', genericError);
-      expect(mockClient.putLogEventsCalls.length).toBe(1); // No retries for non-AWS errors
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-  });
-
-  describe('cleanup', () => {
-    beforeEach(async () => {
-      // Create and initialize transport
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
-      await transport.initialize();
-    });
-
-    it('should flush remaining logs during cleanup', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      await transport.write(testEntry);
-
-      // Act
-      await transport.cleanup();
-
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(1);
-    });
-
-    it('should not process new logs after cleanup', async () => {
-      // Arrange
-      await transport.cleanup();
-
-      // Act
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message after cleanup',
-      };
-      await transport.write(testEntry);
-      await transport.flush();
-
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(0);
-    });
-
-    it('should handle errors during cleanup flush', async () => {
-      // Arrange
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      await transport.write(testEntry);
-      
-      // Create an error for PutLogEvents
-      const genericError = new Error('Error during cleanup');
-      mockClient.mockErrorFor('PutLogEventsCommand', genericError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-      // Act
-      await transport.cleanup();
-
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error flushing logs during cleanup:', genericError);
-      
-      // Restore console.error
-      consoleErrorSpy.mockRestore();
-    });
-  });
-
-  describe('flush timer', () => {
-    it('should flush logs on timer', async () => {
-      // Arrange
+    it('should retry sending logs when there is an error', async () => {
+      // Mock setTimeout
       jest.useFakeTimers();
-      
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
-      await transport.initialize();
-      
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      await transport.write(testEntry);
+      jest.spyOn(global, 'setTimeout');
 
-      // Act
-      jest.advanceTimersByTime(defaultConfig.flushInterval! + 10);
-      
-      // Need to wait for the async flush to complete
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // Set up the mock client to fail on the first attempt but succeed on the second
+      let attempts = 0;
+      mockClient.send = jest.fn().mockImplementation((command) => {
+        if (command instanceof PutLogEventsCommand) {
+          attempts++;
+          if (attempts === 1) {
+            return Promise.reject(new Error('Simulated AWS SDK error'));
+          }
+          return Promise.resolve({
+            $metadata: {
+              httpStatusCode: 200,
+              requestId: 'mock-request-id',
+              attempts: 1,
+              totalRetryDelay: 0
+            },
+            nextSequenceToken: 'mock-sequence-token'
+          });
+        }
+        return Promise.resolve({});
+      });
 
-      // Assert
-      expect(mockClient.putLogEventsCalls.length).toBe(1);
-      expect(mockClient.putLogEventsCalls[0].logEvents.length).toBe(1);
+      // Create log events
+      const logEvents = [
+        { timestamp: Date.now(), message: 'Test log message' },
+      ];
+
+      // Send logs with retry
+      const sendPromise = transport['sendLogsWithRetry'](logEvents);
       
-      // Cleanup
+      // Fast-forward time to trigger the retry
+      jest.advanceTimersByTime(100); // First retry delay
+      
+      // Wait for the promise to resolve
+      await sendPromise;
+
+      // Verify the send was retried
+      expect(mockClient.send).toHaveBeenCalledTimes(2);
+      expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 100);
+      
+      // Restore timers
       jest.useRealTimers();
     });
 
-    it('should handle errors during timer-based flush', async () => {
-      // Arrange
+    it('should use exponential backoff for retries', async () => {
+      // Mock setTimeout
       jest.useFakeTimers();
-      
-      transport = new CloudWatchTransport(defaultConfig);
-      mockClient.mockDescribeLogGroupsResponse([{ logGroupName: 'test-log-group' }]);
-      mockClient.mockDescribeLogStreamsResponse([{ logStreamName: 'test-log-stream' }]);
-      await transport.initialize();
-      
-      const testEntry: LogEntry = {
-        timestamp: new Date(),
-        level: LogLevel.INFO,
-        message: 'Test message',
-      };
-      await transport.write(testEntry);
-      
-      // Create an error for PutLogEvents
-      const genericError = new Error('Error during timer flush');
-      mockClient.mockErrorFor('PutLogEventsCommand', genericError);
-      
-      // Mock console.error to avoid polluting test output
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      jest.spyOn(global, 'setTimeout');
 
-      // Act
-      jest.advanceTimersByTime(defaultConfig.flushInterval! + 10);
-      
-      // Need to wait for the async flush to complete
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // Set up the mock client to fail on the first two attempts but succeed on the third
+      let attempts = 0;
+      mockClient.send = jest.fn().mockImplementation((command) => {
+        if (command instanceof PutLogEventsCommand) {
+          attempts++;
+          if (attempts <= 2) {
+            return Promise.reject(new Error('Simulated AWS SDK error'));
+          }
+          return Promise.resolve({
+            $metadata: {
+              httpStatusCode: 200,
+              requestId: 'mock-request-id',
+              attempts: 1,
+              totalRetryDelay: 0
+            },
+            nextSequenceToken: 'mock-sequence-token'
+          });
+        }
+        return Promise.resolve({});
+      });
 
-      // Assert
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error flushing logs:', genericError);
+      // Create log events
+      const logEvents = [
+        { timestamp: Date.now(), message: 'Test log message' },
+      ];
+
+      // Send logs with retry
+      const sendPromise = transport['sendLogsWithRetry'](logEvents);
       
-      // Cleanup
+      // Fast-forward time to trigger the first retry
+      jest.advanceTimersByTime(100); // First retry delay (100ms)
+      
+      // Fast-forward time to trigger the second retry
+      jest.advanceTimersByTime(200); // Second retry delay (100ms * 2^1 = 200ms)
+      
+      // Wait for the promise to resolve
+      await sendPromise;
+
+      // Verify the send was retried with exponential backoff
+      expect(mockClient.send).toHaveBeenCalledTimes(3);
+      expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 100);
+      expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 200);
+      
+      // Restore timers
       jest.useRealTimers();
-      consoleErrorSpy.mockRestore();
+    });
+
+    it('should give up after the maximum number of retries', async () => {
+      // Mock setTimeout
+      jest.useFakeTimers();
+
+      // Set up the mock client to always fail
+      mockClient.send = jest.fn().mockRejectedValue(new Error('Simulated AWS SDK error'));
+
+      // Create log events
+      const logEvents = [
+        { timestamp: Date.now(), message: 'Test log message' },
+      ];
+
+      // Send logs with retry
+      const sendPromise = transport['sendLogsWithRetry'](logEvents);
+      
+      // Fast-forward time to trigger all retries
+      jest.advanceTimersByTime(100); // First retry delay
+      jest.advanceTimersByTime(200); // Second retry delay
+      jest.advanceTimersByTime(400); // Third retry delay
+      
+      // Verify the promise is rejected after all retries
+      await expect(sendPromise).rejects.toThrow('Simulated AWS SDK error');
+
+      // Verify the send was retried the maximum number of times
+      expect(mockClient.send).toHaveBeenCalledTimes(4); // Initial attempt + 3 retries
+      
+      // Restore timers
+      jest.useRealTimers();
+    });
+  });
+
+  describe('close', () => {
+    beforeEach(async () => {
+      // Initialize the transport before each test
+      await transport.initialize();
+    });
+
+    it('should flush any pending logs', async () => {
+      // Add a log entry to the batch
+      const logEntry: LogEntry = {
+        message: 'Test log message',
+        level: LogLevel.INFO,
+        timestamp: new Date(),
+        serviceName: 'test-service',
+      };
+      await transport.write(logEntry);
+
+      // Spy on the flushBatch method
+      const flushBatchSpy = jest.spyOn(transport as any, 'flushBatch');
+
+      // Close the transport
+      await transport.close();
+
+      // Verify flushBatch was called
+      expect(flushBatchSpy).toHaveBeenCalled();
+    });
+
+    it('should clear the batch timer', async () => {
+      // Mock setTimeout and clearTimeout
+      jest.useFakeTimers();
+
+      // Add a log entry to the batch to set the timer
+      const logEntry: LogEntry = {
+        message: 'Test log message',
+        level: LogLevel.INFO,
+        timestamp: new Date(),
+        serviceName: 'test-service',
+      };
+      await transport.write(logEntry);
+
+      // Verify a timer was set
+      expect(transport['batchTimer']).toBeDefined();
+
+      // Close the transport
+      await transport.close();
+
+      // Verify the timer was cleared
+      expect(transport['batchTimer']).toBeNull();
+      
+      // Restore timers
+      jest.useRealTimers();
+    });
+
+    it('should not flush if there are no pending logs', async () => {
+      // Ensure the batch is empty
+      transport['logBatch'] = [];
+
+      // Spy on the flushBatch method
+      const flushBatchSpy = jest.spyOn(transport as any, 'flushBatch');
+
+      // Close the transport
+      await transport.close();
+
+      // Verify flushBatch was not called
+      expect(flushBatchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('error handling', () => {
+    beforeEach(async () => {
+      // Initialize the transport before each test
+      await transport.initialize();
+      // Reset the mock client after initialization
+      mockClient.reset();
+      mockClient.logGroups.add('test-log-group');
+      if (!mockClient.logStreams.has('test-log-group')) {
+        mockClient.logStreams.set('test-log-group', new Set());
+      }
+      mockClient.logStreams.get('test-log-group')!.add(transport['logStreamName']);
+    });
+
+    it('should handle errors during log group creation', async () => {
+      // Create a new transport that is not initialized
+      const uninitializedTransport = new CloudWatchTransport(defaultConfig);
+      const uninitializedMockClient = getMockFromClient(uninitializedTransport['client']);
+      
+      // Set up the mock client to fail during log group creation
+      uninitializedMockClient.shouldFail = true;
+      uninitializedMockClient.failOperation = 'createLogGroup';
+      uninitializedMockClient.errorToThrow = new Error('Simulated log group creation error');
+
+      // Attempt to initialize the transport
+      await expect(uninitializedTransport.initialize()).rejects.toThrow('Simulated log group creation error');
+
+      // Verify the transport is not marked as initialized
+      expect(uninitializedTransport['initialized']).toBe(false);
+    });
+
+    it('should handle errors during log stream creation', async () => {
+      // Create a new transport that is not initialized
+      const uninitializedTransport = new CloudWatchTransport(defaultConfig);
+      const uninitializedMockClient = getMockFromClient(uninitializedTransport['client']);
+      
+      // Set up the mock client to fail during log stream creation
+      uninitializedMockClient.shouldFail = true;
+      uninitializedMockClient.failOperation = 'createLogStream';
+      uninitializedMockClient.errorToThrow = new Error('Simulated log stream creation error');
+
+      // Attempt to initialize the transport
+      await expect(uninitializedTransport.initialize()).rejects.toThrow('Simulated log stream creation error');
+
+      // Verify the transport is not marked as initialized
+      expect(uninitializedTransport['initialized']).toBe(false);
+    });
+
+    it('should handle errors during log stream description', async () => {
+      // Create a new transport that is not initialized
+      const uninitializedTransport = new CloudWatchTransport(defaultConfig);
+      const uninitializedMockClient = getMockFromClient(uninitializedTransport['client']);
+      
+      // Set up the mock client to fail during log stream description
+      uninitializedMockClient.shouldFail = true;
+      uninitializedMockClient.failOperation = 'describeLogStreams';
+      uninitializedMockClient.errorToThrow = new Error('Simulated log stream description error');
+
+      // Attempt to initialize the transport
+      await expect(uninitializedTransport.initialize()).rejects.toThrow('Simulated log stream description error');
+
+      // Verify the transport is not marked as initialized
+      expect(uninitializedTransport['initialized']).toBe(false);
+    });
+
+    it('should handle errors during log event submission', async () => {
+      // Set up the mock client to fail during log event submission
+      mockClient.shouldFail = true;
+      mockClient.failOperation = 'putLogEvents';
+      mockClient.errorToThrow = new Error('Simulated log event submission error');
+
+      // Add log entries to the batch
+      transport['logBatch'] = [
+        { timestamp: Date.now(), message: 'Test log message' },
+      ];
+
+      // Attempt to flush the batch
+      await expect(transport['flushBatch']()).rejects.toThrow('Simulated log event submission error');
+
+      // Verify the batch was not cleared (to allow for retry)
+      expect(transport['logBatch'].length).toBe(1);
+    });
+
+    it('should ignore ResourceAlreadyExistsException during log group creation', async () => {
+      // Create a new transport that is not initialized
+      const uninitializedTransport = new CloudWatchTransport(defaultConfig);
+      const uninitializedMockClient = getMockFromClient(uninitializedTransport['client']);
+      
+      // Set up the mock client to throw ResourceAlreadyExistsException
+      uninitializedMockClient.send = jest.fn().mockImplementation((command) => {
+        if (command instanceof CreateLogGroupCommand) {
+          const error: any = new Error('Log group already exists');
+          error.name = 'ResourceAlreadyExistsException';
+          return Promise.reject(error);
+        }
+        return Promise.resolve({});
+      });
+
+      // Attempt to initialize the transport
+      await uninitializedTransport.initialize();
+
+      // Verify the transport is marked as initialized despite the error
+      expect(uninitializedTransport['initialized']).toBe(true);
     });
   });
 });

@@ -1,171 +1,226 @@
-import { describe, it, expect } from 'jest';
+/**
+ * @file index.spec.ts
+ * @description Unit tests for the interfaces barrel file that verify the proper export
+ * of all interface definitions from the tracing package. These tests ensure that consumers
+ * can correctly import the interfaces using the package's public API.
+ */
+
+import { Context, Span, SpanStatusCode, Tracer } from '@opentelemetry/api';
 import * as interfaces from '../../../src/interfaces';
-import { Context, Span, SpanOptions, Tracer, TracerOptions, SpanContext } from '@opentelemetry/api';
-import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
-import { KafkaMessage } from 'kafkajs';
 
-describe('Tracing Interfaces', () => {
-  describe('Exports', () => {
-    it('should export TraceContext interface', () => {
-      // Verify that TraceContext is exported
-      expect(typeof interfaces.TraceContext).toBe('undefined');
-      
-      // Type checking only - this code is not executed
-      // @ts-expect-error - This is a type test
-      const typeCheck: interfaces.TraceContext = null;
-      expect(typeCheck).toBeNull(); // This line is never reached
+describe('Tracing Interfaces Barrel File', () => {
+  describe('Export Verification', () => {
+    it('should export all journey context interfaces', () => {
+      // Verify journey context interfaces
+      expect(typeof interfaces.JourneyContext).toBe('object');
+      expect(typeof interfaces.JourneyType).toBe('object');
+      expect(typeof interfaces.HealthJourneyContext).toBe('object');
+      expect(typeof interfaces.CareJourneyContext).toBe('object');
+      expect(typeof interfaces.PlanJourneyContext).toBe('object');
+      expect(typeof interfaces.GamificationContext).toBe('object');
+      expect(typeof interfaces.HealthJourneyWithGamification).toBe('object');
+      expect(typeof interfaces.CareJourneyWithGamification).toBe('object');
+      expect(typeof interfaces.PlanJourneyWithGamification).toBe('object');
+      expect(typeof interfaces.createJourneyContext).toBe('function');
     });
 
-    it('should export JourneyContextInfo interface', () => {
-      // Verify that JourneyContextInfo is exported
-      expect(typeof interfaces.JourneyContextInfo).toBe('undefined');
-      
-      // Type checking only - this code is not executed
-      // @ts-expect-error - This is a type test
-      const typeCheck: interfaces.JourneyContextInfo = null;
-      expect(typeCheck).toBeNull(); // This line is never reached
+    it('should export all span attributes interfaces and constants', () => {
+      // Verify span attributes interfaces
+      expect(typeof interfaces.SpanAttributes).toBe('object');
+      expect(typeof interfaces.HttpSpanAttributes).toBe('object');
+      expect(typeof interfaces.DatabaseSpanAttributes).toBe('object');
+      expect(typeof interfaces.MessagingSpanAttributes).toBe('object');
+      expect(typeof interfaces.UserSessionSpanAttributes).toBe('object');
+      expect(typeof interfaces.JourneySpanAttributes).toBe('object');
+      expect(typeof interfaces.HealthJourneySpanAttributes).toBe('object');
+      expect(typeof interfaces.CareJourneySpanAttributes).toBe('object');
+      expect(typeof interfaces.PlanJourneySpanAttributes).toBe('object');
+      expect(typeof interfaces.GamificationSpanAttributes).toBe('object');
+      expect(typeof interfaces.ErrorSpanAttributes).toBe('object');
+      expect(typeof interfaces.ExternalServiceSpanAttributes).toBe('object');
+
+      // Verify constants
+      expect(interfaces.JOURNEY_TYPES).toBeDefined();
+      expect(interfaces.JOURNEY_STEP_STATUS).toBeDefined();
+      expect(interfaces.GAMIFICATION_EVENT_TYPES).toBeDefined();
+      expect(interfaces.ERROR_CATEGORIES).toBeDefined();
+      expect(interfaces.DB_SYSTEMS).toBeDefined();
+      expect(interfaces.MESSAGING_SYSTEMS).toBeDefined();
+      expect(interfaces.HTTP_METHODS).toBeDefined();
+      expect(interfaces.NETWORK_TYPES).toBeDefined();
+      expect(interfaces.DEVICE_TYPES).toBeDefined();
+      expect(interfaces.HEALTH_METRIC_TYPES).toBeDefined();
+      expect(interfaces.HEALTH_METRIC_UNITS).toBeDefined();
+      expect(interfaces.CARE_APPOINTMENT_TYPES).toBeDefined();
+      expect(interfaces.CARE_APPOINTMENT_STATUSES).toBeDefined();
+      expect(interfaces.PLAN_TYPES).toBeDefined();
+      expect(interfaces.CLAIM_STATUSES).toBeDefined();
     });
 
-    it('should export TracerProvider interface', () => {
-      // Verify that TracerProvider is exported
-      expect(typeof interfaces.TracerProvider).toBe('undefined');
+    it('should export all trace context interfaces and constants', () => {
+      // Verify trace context interfaces
+      expect(typeof interfaces.TraceContext).toBe('object');
+      expect(typeof interfaces.PropagationFormat).toBe('object');
+      expect(typeof interfaces.HttpTraceContextCarrier).toBe('object');
+      expect(typeof interfaces.KafkaTraceContextCarrier).toBe('object');
       
-      // Type checking only - this code is not executed
-      // @ts-expect-error - This is a type test
-      const typeCheck: interfaces.TracerProvider = null;
-      expect(typeCheck).toBeNull(); // This line is never reached
-    });
-  });
-
-  describe('Interface Compatibility', () => {
-    it('should have TraceContext compatible with OpenTelemetry Context', () => {
-      // Type checking only - this code is not executed
-      type TestType = {
-        context: Context;
-        getContext: () => Context;
-      };
-      
-      // @ts-expect-error - This is a type test
-      const test: TestType & Omit<interfaces.TraceContext, 'getContext'> = null;
-      expect(test).toBeNull(); // This line is never reached
+      // Verify constants
+      expect(interfaces.TRACE_CONTEXT_KEYS).toBeDefined();
+      expect(interfaces.TRACE_CONTEXT_ATTRIBUTES).toBeDefined();
     });
 
-    it('should have TracerProvider compatible with OpenTelemetry Tracer', () => {
-      // Type checking only - this code is not executed
-      type TestType = {
-        getTracer: (name: string, options?: TracerOptions) => Tracer;
-        startSpan: (tracer: Tracer, name: string, options?: SpanOptions) => Span;
-      };
-      
-      // @ts-expect-error - This is a type test
-      const test: TestType & Omit<interfaces.TracerProvider, 'getTracer' | 'startSpan'> = null;
-      expect(test).toBeNull(); // This line is never reached
+    it('should export tracer provider interfaces', () => {
+      expect(typeof interfaces.TracerProvider).toBe('object');
+      expect(typeof interfaces.TracerProviderOptions).toBe('object');
     });
 
-    it('should have JourneyContextInfo with required properties', () => {
-      // Type checking only - this code is not executed
-      type TestType = {
-        journeyType: 'health' | 'care' | 'plan';
-        journeyId: string;
-        userId?: string;
-        sessionId?: string;
-        requestId?: string;
-      };
-      
-      // @ts-expect-error - This is a type test
-      const test: TestType & interfaces.JourneyContextInfo = null;
-      // @ts-expect-error - This is a type test
-      const reverseTest: interfaces.JourneyContextInfo & TestType = null;
-      expect(test).toBeNull(); // This line is never reached
-      expect(reverseTest).toBeNull(); // This line is never reached
+    it('should export span options interface', () => {
+      expect(typeof interfaces.SpanOptions).toBe('object');
+    });
+
+    it('should export tracing options interface', () => {
+      expect(typeof interfaces.TracingOptions).toBe('object');
     });
   });
 
   describe('Import Path Consistency', () => {
-    it('should allow importing interfaces directly from package root', () => {
-      // This test verifies that the interfaces can be imported from the package root
-      // The actual test is that this import statement compiles successfully
-      const importTest = () => {
-        // In a real application, this would be:
-        // import { TraceContext, JourneyContextInfo, TracerProvider } from '@austa/tracing';
-        const { TraceContext, JourneyContextInfo, TracerProvider } = interfaces;
-        return { TraceContext, JourneyContextInfo, TracerProvider };
-      };
+    it('should allow importing interfaces directly from the package', () => {
+      // This test verifies that the barrel file correctly re-exports all interfaces
+      // so they can be imported directly from the package root
+      const importPath = require.resolve('../../../src/interfaces');
+      expect(importPath).toContain('index.ts');
       
-      expect(importTest).not.toThrow();
+      // Verify the import path doesn't contain any unexpected segments
+      expect(importPath).not.toContain('dist');
+      expect(importPath.split('/').pop()).toBe('index.ts');
+    });
+
+    it('should maintain consistent naming conventions', () => {
+      // Verify interface naming conventions
+      const interfaceNames = Object.keys(interfaces).filter(key => 
+        typeof interfaces[key] === 'object' && 
+        key[0] === key[0].toUpperCase() && // Starts with uppercase
+        key.includes('Interface') === false // Doesn't include 'Interface' in name
+      );
+
+      // All interface names should follow PascalCase
+      interfaceNames.forEach(name => {
+        expect(name).toMatch(/^[A-Z][a-zA-Z0-9]*$/);
+      });
+
+      // All constant names should be UPPER_SNAKE_CASE
+      const constantNames = Object.keys(interfaces).filter(key =>
+        typeof interfaces[key] === 'object' &&
+        key === key.toUpperCase() &&
+        key.includes('_')
+      );
+
+      constantNames.forEach(name => {
+        expect(name).toMatch(/^[A-Z][A-Z0-9_]*$/);
+      });
+    });
+  });
+
+  describe('OpenTelemetry Compatibility', () => {
+    it('should be compatible with OpenTelemetry Context type', () => {
+      // Create a mock implementation of TraceContext to verify compatibility
+      const mockTraceContext: Partial<interfaces.TraceContext> = {
+        extract: (carrier: object): Context => ({} as Context),
+        inject: (context: Context, carrier: object): void => {},
+        getCurrentContext: (): Context => ({} as Context)
+      };
+
+      // Verify the mock implementation is compatible with the interface
+      expect(mockTraceContext.extract).toBeDefined();
+      expect(mockTraceContext.inject).toBeDefined();
+      expect(mockTraceContext.getCurrentContext).toBeDefined();
+    });
+
+    it('should be compatible with OpenTelemetry Tracer type', () => {
+      // Create a mock implementation of TracerProvider to verify compatibility
+      const mockTracerProvider: Partial<interfaces.TracerProvider> = {
+        getTracer: (name: string, version?: string): Tracer => ({} as Tracer),
+        createSpan: (name: string, options?: interfaces.SpanOptions): Span => ({} as Span)
+      };
+
+      // Verify the mock implementation is compatible with the interface
+      expect(mockTracerProvider.getTracer).toBeDefined();
+      expect(mockTracerProvider.createSpan).toBeDefined();
+    });
+
+    it('should include OpenTelemetry span status codes', () => {
+      // Verify that our interfaces work with OpenTelemetry status codes
+      const mockErrorAttributes: interfaces.ErrorSpanAttributes = {
+        'error.type': 'ValidationError',
+        'error.message': 'Invalid input',
+        'error.handled': true
+      };
+
+      // This is a type-level test - if it compiles, it passes
+      const setErrorStatus = (span: Span, attributes: interfaces.ErrorSpanAttributes) => {
+        span.setAttributes(attributes);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+      };
+
+      expect(typeof setErrorStatus).toBe('function');
     });
   });
 
   describe('Tree-Shaking Support', () => {
-    it('should support tree-shaking by using named exports', () => {
-      // This test verifies that the interfaces are exported as named exports
-      // which supports tree-shaking in modern bundlers
+    it('should support individual imports for tree-shaking', () => {
+      // This test verifies that each interface can be imported individually
+      // which is important for tree-shaking in production builds
       
-      // The test is that these imports compile successfully
-      const importTest = () => {
-        // In a real application with tree-shaking, this would be:
-        // import { TraceContext } from '@austa/tracing';
-        const { TraceContext } = interfaces;
-        return { TraceContext };
-      };
+      // We can't actually import individually in the test, but we can verify
+      // that each export is a separate property on the interfaces object
+      const exportedKeys = Object.keys(interfaces);
       
-      expect(importTest).not.toThrow();
-      expect(Object.keys(importTest())).toEqual(['TraceContext']);
+      // Each export should be a separate property
+      expect(exportedKeys.length).toBeGreaterThan(10); // We have many exports
+      
+      // Verify some specific exports exist as separate properties
+      expect(exportedKeys).toContain('JourneyContext');
+      expect(exportedKeys).toContain('SpanAttributes');
+      expect(exportedKeys).toContain('TraceContext');
+      expect(exportedKeys).toContain('TracerProvider');
+      expect(exportedKeys).toContain('SpanOptions');
+      expect(exportedKeys).toContain('TracingOptions');
     });
   });
 
   describe('Backward Compatibility', () => {
-    it('should maintain compatibility with existing code', () => {
-      // This test simulates how the interfaces would be used in application code
+    it('should maintain compatibility with existing code patterns', () => {
+      // This test verifies that our interfaces maintain compatibility with
+      // existing code patterns that might be using them
       
-      // Example usage of TraceContext
-      const traceContextUsage = () => {
-        type TestTraceContext = interfaces.TraceContext;
-        
-        // Simulate a function that uses TraceContext
-        const processRequest = (context: TestTraceContext) => {
-          const traceId = context.getTraceId();
-          const spanId = context.getSpanId();
-          const journeyContext = context.getJourneyContext();
-          
-          return { traceId, spanId, journeyContext };
+      // Create a mock implementation using the interfaces as they would be used
+      // in existing code
+      const createHealthJourneyContext = (userId: string): interfaces.HealthJourneyContext => {
+        return {
+          journeyId: 'health-123',
+          journeyType: interfaces.JourneyType.HEALTH,
+          userId,
+          metricType: 'heart_rate',
+          dataSource: 'wearable'
         };
-        
-        return processRequest;
       };
+
+      const healthContext = createHealthJourneyContext('user-123');
       
-      // Example usage of TracerProvider
-      const tracerProviderUsage = () => {
-        type TestTracerProvider = interfaces.TracerProvider;
-        
-        // Simulate a function that uses TracerProvider
-        const createTracer = (provider: TestTracerProvider, name: string) => {
-          const tracer = provider.getTracer(name);
-          const span = provider.startSpan(tracer, 'operation');
-          
-          return { tracer, span };
-        };
-        
-        return createTracer;
-      };
+      // Verify the created context matches the interface
+      expect(healthContext.journeyType).toBe(interfaces.JourneyType.HEALTH);
+      expect(healthContext.userId).toBe('user-123');
+      expect(healthContext.metricType).toBe('heart_rate');
+    });
+
+    it('should support the factory function pattern', () => {
+      // Verify that the createJourneyContext factory function works as expected
+      const journeyContext = interfaces.createJourneyContext('user-456', interfaces.JourneyType.CARE);
       
-      // Example usage of JourneyContextInfo
-      const journeyContextUsage = () => {
-        type TestJourneyContextInfo = interfaces.JourneyContextInfo;
-        
-        // Simulate a function that uses JourneyContextInfo
-        const processJourney = (info: TestJourneyContextInfo) => {
-          const { journeyType, journeyId, userId } = info;
-          
-          return { journeyType, journeyId, userId };
-        };
-        
-        return processJourney;
-      };
-      
-      expect(traceContextUsage).not.toThrow();
-      expect(tracerProviderUsage).not.toThrow();
-      expect(journeyContextUsage).not.toThrow();
+      expect(journeyContext.journeyType).toBe(interfaces.JourneyType.CARE);
+      expect(journeyContext.userId).toBe('user-456');
+      expect(journeyContext.journeyId).toBeDefined();
+      expect(journeyContext.startedAt).toBeDefined();
     });
   });
 });

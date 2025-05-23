@@ -1,591 +1,606 @@
-/**
- * @file file.transport.spec.ts
- * @description Unit tests for the FileTransport class that verify its ability to write log entries
- * to files on the local filesystem with proper rotation, compression, and error handling.
- */
-
 import * as fs from 'fs';
 import * as path from 'path';
-import * as zlib from 'zlib';
+import * as os from 'os';
 import * as lockfile from 'proper-lockfile';
-import { EventEmitter } from 'events';
 import { FileTransport, FileTransportOptions } from '../../../src/transports/file.transport';
 import { LogLevel } from '../../../src/interfaces/log-level.enum';
-import { MockFormatter } from '../../mocks/formatter.mock';
-import { createSampleLogEntry } from '../../mocks/formatter.mock';
+import { LogEntry } from '../../../src/interfaces/log-entry.interface';
+import { wait, waitForLogsToProcess } from '../../utils/timing.utils';
+import { createMockLogEntry } from '../../utils/assertion.utils';
 
 // Mock dependencies
-jest.mock('fs');
-jest.mock('path');
-jest.mock('zlib');
-jest.mock('proper-lockfile');
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  promises: {
+    mkdir: jest.fn().mockResolvedValue(undefined),
+    stat: jest.fn(),
+    unlink: jest.fn().mockResolvedValue(undefined),
+    rename: jest.fn().mockResolvedValue(undefined),
+    copyFile: jest.fn().mockResolvedValue(undefined),
+    readdir: jest.fn().mockResolvedValue([])
+  },
+  createWriteStream: jest.fn(),
+  writeFileSync: jest.fn()
+}));
+
+jest.mock('proper-lockfile', () => ({
+  lock: jest.fn().mockResolvedValue(() => Promise.resolve())
+}));
+
+jest.mock('zlib', () => ({
+  createGzip: jest.fn().mockReturnValue({
+    pipe: jest.fn().mockReturnThis()
+  })
+}));
 
 describe('FileTransport', () => {
-  // Mock implementations
-  const mockFs = fs as jest.Mocked<typeof fs>;
-  const mockPath = path as jest.Mocked<typeof path>;
-  const mockZlib = zlib as jest.Mocked<typeof zlib>;
-  const mockLockfile = lockfile as jest.Mocked<typeof lockfile>;
-  
-  // Test variables
   let transport: FileTransport;
-  let formatter: MockFormatter;
   let mockWriteStream: any;
-  let mockReleaseFn: jest.Mock;
-  let mockGzipStream: any;
-  
-  // Setup default test configuration
-  const testLogFilePath = '/var/log/austa/test.log';
-  const testLogDir = '/var/log/austa';
+  let tempDir: string;
+  let logFilePath: string;
   
   beforeEach(() => {
-    // Reset all mocks
-    jest.resetAllMocks();
+    // Create a temporary directory for test log files
+    tempDir = path.join(os.tmpdir(), `austa-logs-${Date.now()}`);
+    logFilePath = path.join(tempDir, 'test.log');
     
-    // Setup formatter mock
-    formatter = new MockFormatter();
+    // Reset mocks
+    jest.clearAllMocks();
     
-    // Setup mock write stream
-    mockWriteStream = new EventEmitter();
-    mockWriteStream.write = jest.fn((data, callback) => {
-      if (callback) callback();
-      return true;
-    });
-    mockWriteStream.end = jest.fn((callback) => {
-      if (callback) callback();
-      return mockWriteStream;
-    });
+    // Mock the write stream
+    mockWriteStream = {
+      write: jest.fn((data, encoding, callback) => {
+        if (callback) callback();
+        return true;
+      }),
+      end: jest.fn((callback) => {
+        if (callback) callback();
+      }),
+      on: jest.fn((event, callback) => {
+        if (event === 'open') {
+          callback();
+        }
+        return mockWriteStream;
+      })
+    };
     
-    // Setup mock fs implementations
-    mockFs.createWriteStream.mockReturnValue(mockWriteStream);
-    mockFs.statSync.mockReturnValue({ size: 0 } as any);
-    mockFs.existsSync.mockReturnValue(true);
-    mockFs.mkdirSync.mockImplementation(() => undefined);
-    mockFs.rename.mockImplementation((oldPath, newPath, callback) => {
-      callback(null);
-    });
-    mockFs.unlink.mockImplementation((path, callback) => {
-      callback(null);
-    });
-    mockFs.readdir.mockImplementation((path, callback) => {
-      callback(null, []);
-    });
+    (fs.createWriteStream as jest.Mock).mockReturnValue(mockWriteStream);
     
-    // Setup mock path implementations
-    mockPath.dirname.mockReturnValue(testLogDir);
-    mockPath.basename.mockReturnValue('test.log');
-    mockPath.join.mockImplementation((...paths) => paths.join('/'));
+    // Mock fs.promises.stat to return a file size
+    (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 0 });
     
-    // Setup mock lockfile implementation
-    mockReleaseFn = jest.fn().mockResolvedValue(undefined);
-    mockLockfile.lock.mockResolvedValue(mockReleaseFn);
-    
-    // Setup mock zlib implementation
-    mockGzipStream = new EventEmitter();
-    mockGzipStream.pipe = jest.fn().mockReturnValue(mockGzipStream);
-    mockZlib.createGzip.mockReturnValue(mockGzipStream as any);
+    // Mock fs.promises.readdir to return empty array
+    (fs.promises.readdir as jest.Mock).mockResolvedValue([]);
   });
   
   afterEach(async () => {
-    // Ensure transport is closed after each test
+    // Clean up by closing the transport if it exists
     if (transport) {
       await transport.close();
     }
   });
   
   describe('initialization', () => {
-    it('should create the log directory if it does not exist', () => {
-      // Setup
-      mockFs.existsSync.mockReturnValue(false);
-      
-      // Execute
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-      
-      // Verify
-      expect(mockFs.existsSync).toHaveBeenCalledWith(testLogDir);
-      expect(mockFs.mkdirSync).toHaveBeenCalledWith(testLogDir, { recursive: true });
-    });
-    
-    it('should initialize with default options', () => {
-      // Execute
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-      
-      // Verify
-      expect(mockFs.createWriteStream).toHaveBeenCalledWith(
-        testLogFilePath,
-        expect.objectContaining({
-          flags: 'a',
-          encoding: 'utf8'
-        })
-      );
-    });
-    
-    it('should initialize with custom options', () => {
-      // Setup
-      const customOptions: FileTransportOptions = {
-        filePath: testLogFilePath,
-        formatter,
-        minLevel: LogLevel.INFO,
-        maxSize: 5 * 1024 * 1024, // 5MB
-        maxFiles: 5,
-        rotationInterval: 'hourly',
-        compress: false,
-        fileMode: 0o644,
-        encoding: 'ascii',
-        append: false
+    it('should initialize with default options', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
       };
       
-      // Execute
-      transport = new FileTransport(customOptions);
+      transport = new FileTransport(options);
+      await transport.initialize();
       
-      // Verify
-      expect(mockFs.createWriteStream).toHaveBeenCalledWith(
-        testLogFilePath,
-        expect.objectContaining({
-          flags: 'w', // append: false
-          encoding: 'ascii',
-          mode: 0o644
-        })
-      );
+      expect(fs.promises.mkdir).toHaveBeenCalledWith(tempDir, { recursive: true });
+      expect(fs.promises.stat).toHaveBeenCalledWith(logFilePath);
+      expect(fs.createWriteStream).toHaveBeenCalledWith(logFilePath, {
+        flags: 'a',
+        encoding: 'utf8',
+        mode: 0o666
+      });
     });
     
-    it('should emit error when directory creation fails', () => {
-      // Setup
-      mockFs.existsSync.mockReturnValue(false);
-      mockFs.mkdirSync.mockImplementation(() => {
-        throw new Error('Permission denied');
-      });
+    it('should initialize with custom options', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10MB',
+        maxFiles: 10,
+        interval: 'daily',
+        compress: true,
+        compressionLevel: 9,
+        fileMode: 0o644,
+        sync: true,
+        encoding: 'ascii'
+      };
       
-      // Execute & Verify
-      const errorHandler = jest.fn();
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-      transport.on('error', errorHandler);
+      transport = new FileTransport(options);
+      await transport.initialize();
       
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Failed to create log directory')
-        })
-      );
+      expect(fs.createWriteStream).toHaveBeenCalledWith(logFilePath, {
+        flags: 'a',
+        encoding: 'ascii',
+        mode: 0o644
+      });
     });
     
-    it('should emit error when file creation fails', () => {
-      // Setup
-      mockFs.createWriteStream.mockImplementation(() => {
-        throw new Error('Permission denied');
-      });
+    it('should handle initialization errors', async () => {
+      (fs.promises.mkdir as jest.Mock).mockRejectedValueOnce(new Error('Directory creation failed'));
       
-      // Execute & Verify
-      const errorHandler = jest.fn();
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-      transport.on('error', errorHandler);
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Failed to open log file')
-        })
-      );
+      transport = new FileTransport(options);
+      
+      await expect(transport.initialize()).rejects.toThrow('Failed to initialize FileTransport');
     });
     
-    it('should check current file size on initialization', () => {
-      // Setup
-      const fileSize = 1024;
-      mockFs.statSync.mockReturnValue({ size: fileSize } as any);
+    it('should rotate immediately if file size exceeds maxSize', async () => {
+      // Mock stat to return a large file size
+      (fs.promises.stat as jest.Mock).mockResolvedValueOnce({ size: 15 * 1024 * 1024 }); // 15MB
       
-      // Execute
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10MB',
+        maxFiles: 3
+      };
       
-      // Verify
-      expect(mockFs.statSync).toHaveBeenCalledWith(testLogFilePath);
-      // We can't directly test the private property, but we can test behavior
-      // that depends on it in other tests
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Should attempt to rename the file for rotation
+      expect(fs.promises.rename).toHaveBeenCalled();
     });
   });
   
-  describe('write', () => {
-    beforeEach(() => {
-      // Initialize transport with default options
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-    });
-    
-    it('should format and buffer log entries', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      const formattedLog = 'Formatted log entry';
-      formatter.format = jest.fn().mockReturnValue(formattedLog);
+  describe('writing logs', () => {
+    it('should write log entries to the file', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Execute
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
+      transport = new FileTransport(options);
+      await transport.initialize();
       
-      // Verify
-      expect(formatter.format).toHaveBeenCalledWith(expect.objectContaining({
-        level: logEntry.level,
-        message: logEntry.message,
-        timestamp: expect.any(Date),
-        meta: expect.objectContaining(logEntry.context || {})
-      }));
-      
-      // Note: We can't directly test the private buffer, but we'll test the flush behavior
-    });
-    
-    it('should not write logs below minimum level', async () => {
-      // Setup
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        minLevel: LogLevel.ERROR
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
       });
       
-      const logEntry = createSampleLogEntry({ level: LogLevel.INFO });
-      formatter.format = jest.fn();
+      await transport.write(JSON.stringify(logEntry) + '\n');
       
-      // Execute
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Verify
-      expect(formatter.format).not.toHaveBeenCalled();
-    });
-    
-    it('should throw error when writing to closed transport', async () => {
-      // Setup
-      await transport.close();
-      const logEntry = createSampleLogEntry();
-      
-      // Execute & Verify
-      await expect(transport.write(logEntry.level, logEntry.message, logEntry.context))
-        .rejects.toThrow('Cannot write to closed transport');
-    });
-    
-    it('should emit error when formatting fails', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      const formatError = new Error('Formatting failed');
-      formatter.format = jest.fn().mockImplementation(() => {
-        throw formatError;
-      });
-      
-      // Execute & Verify
-      const errorHandler = jest.fn();
-      transport.on('error', errorHandler);
-      
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(formatError);
-    });
-  });
-  
-  describe('flush', () => {
-    beforeEach(() => {
-      // Initialize transport with default options
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        flushInterval: 100 // Short interval for testing
-      });
-    });
-    
-    it('should write buffered logs to file', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      const formattedLog = 'Formatted log entry';
-      formatter.format = jest.fn().mockReturnValue(formattedLog);
-      
-      // Add log to buffer
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Execute - force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Verify
-      expect(mockLockfile.lock).toHaveBeenCalledWith(
-        testLogFilePath,
-        expect.any(Object)
-      );
+      expect(lockfile.lock).toHaveBeenCalledWith(logFilePath, expect.any(Object));
       expect(mockWriteStream.write).toHaveBeenCalledWith(
-        expect.stringContaining(formattedLog),
+        JSON.stringify(logEntry) + '\n',
+        'utf8',
         expect.any(Function)
       );
-      expect(mockReleaseFn).toHaveBeenCalled();
     });
     
-    it('should handle write errors gracefully', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      const formattedLog = 'Formatted log entry';
-      formatter.format = jest.fn().mockReturnValue(formattedLog);
+    it('should use synchronous write when sync option is true', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        sync: true
+      };
       
-      const writeError = new Error('Write failed');
-      mockWriteStream.write = jest.fn((data, callback) => {
-        if (callback) callback(writeError);
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
+      });
+      
+      await transport.write(JSON.stringify(logEntry) + '\n');
+      
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        logFilePath,
+        JSON.stringify(logEntry) + '\n',
+        expect.objectContaining({
+          encoding: 'utf8',
+          flag: 'a'
+        })
+      );
+    });
+    
+    it('should handle write errors', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock write stream to fail
+      mockWriteStream.write.mockImplementationOnce((data, encoding, callback) => {
+        callback(new Error('Write failed'));
         return false;
       });
       
-      // Execute & Verify
-      const errorHandler = jest.fn();
-      transport.on('error', errorHandler);
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
+      });
       
-      // Add log to buffer
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Failed to flush logs')
-        })
-      );
+      await expect(transport.write(JSON.stringify(logEntry) + '\n')).rejects.toThrow('Failed to write to log file');
     });
     
-    it('should handle lock acquisition failures', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      const formattedLog = 'Formatted log entry';
-      formatter.format = jest.fn().mockReturnValue(formattedLog);
+    it('should handle lock acquisition errors', async () => {
+      (lockfile.lock as jest.Mock).mockRejectedValueOnce(new Error('Lock acquisition failed'));
       
-      const lockError = new Error('Lock failed');
-      mockLockfile.lock.mockRejectedValue(lockError);
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Execute & Verify
-      const errorHandler = jest.fn();
-      transport.on('error', errorHandler);
+      transport = new FileTransport(options);
+      await transport.initialize();
       
-      // Add log to buffer
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
+      });
       
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await expect(transport.write(JSON.stringify(logEntry) + '\n')).rejects.toThrow('Failed to write to log file');
+    });
+    
+    it('should initialize if not already initialized when writing', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Failed to flush logs')
-        })
-      );
+      transport = new FileTransport(options);
+      // Don't call initialize explicitly
+      
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
+      });
+      
+      await transport.write(JSON.stringify(logEntry) + '\n');
+      
+      expect(fs.promises.mkdir).toHaveBeenCalledWith(tempDir, { recursive: true });
+      expect(mockWriteStream.write).toHaveBeenCalled();
+    });
+    
+    it('should throw error when writing during shutdown', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      await transport.close();
+      
+      const logEntry = createMockLogEntry({
+        message: 'Test log message',
+        level: LogLevel.INFO
+      });
+      
+      await expect(transport.write(JSON.stringify(logEntry) + '\n')).rejects.toThrow('Cannot write to transport during shutdown');
     });
   });
   
-  describe('rotation', () => {
-    it('should rotate log file when size limit is reached', async () => {
-      // Setup
-      const maxSize = 1024; // 1KB
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        maxSize,
-        flushInterval: 100 // Short interval for testing
+  describe('log rotation', () => {
+    it('should rotate logs when size exceeds maxSize', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10B', // Very small size for testing
+        maxFiles: 3
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock current size to be 5 bytes
+      (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 5 });
+      
+      // Write a log entry that will exceed the max size
+      const logEntry = createMockLogEntry({
+        message: 'This log entry will trigger rotation',
+        level: LogLevel.INFO
       });
       
-      // Mock current file size to be just below the limit
-      mockFs.statSync.mockReturnValue({ size: maxSize - 100 } as any);
+      // Mock Buffer.byteLength to return a size that will trigger rotation
+      jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(10);
       
-      // Create a large log entry that will exceed the limit
-      const logEntry = createSampleLogEntry();
-      const formattedLog = 'X'.repeat(200); // 200 bytes
-      formatter.format = jest.fn().mockReturnValue(formattedLog);
+      await transport.write(JSON.stringify(logEntry) + '\n');
       
-      // Execute
-      const rotateHandler = jest.fn();
-      transport.on('rotate', rotateHandler);
-      
-      // Add log to buffer
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Verify
+      // Should attempt to close the stream and rename the file
       expect(mockWriteStream.end).toHaveBeenCalled();
-      expect(mockFs.rename).toHaveBeenCalled();
-      expect(rotateHandler).toHaveBeenCalled();
+      expect(fs.promises.rename).toHaveBeenCalled();
+      expect(fs.createWriteStream).toHaveBeenCalledTimes(2); // Initial + after rotation
     });
     
-    it('should compress rotated files when compression is enabled', async () => {
-      // Setup
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        maxSize: 1024, // 1KB
-        compress: true,
-        flushInterval: 100 // Short interval for testing
+    it('should compress rotated logs when compress option is true', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10B',
+        compress: true
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock current size to be 5 bytes
+      (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 5 });
+      
+      // Mock Buffer.byteLength to return a size that will trigger rotation
+      jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(10);
+      
+      // Write a log entry that will exceed the max size
+      const logEntry = createMockLogEntry({
+        message: 'This log entry will trigger rotation',
+        level: LogLevel.INFO
       });
       
-      // Mock current file size to be at the limit
-      mockFs.statSync.mockReturnValue({ size: 1024 } as any);
+      await transport.write(JSON.stringify(logEntry) + '\n');
       
-      // Setup mock read stream
-      const mockReadStream = new EventEmitter();
-      mockReadStream.pipe = jest.fn().mockReturnValue(mockGzipStream);
-      mockFs.createReadStream.mockReturnValue(mockReadStream as any);
-      
-      // Execute
-      const compressHandler = jest.fn();
-      transport.on('compress', compressHandler);
-      
-      // Add log to buffer to trigger rotation
-      const logEntry = createSampleLogEntry();
-      formatter.format = jest.fn().mockReturnValue('Test log');
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Simulate compression completion
-      mockGzipStream.emit('finish');
-      
-      // Verify
-      expect(mockZlib.createGzip).toHaveBeenCalled();
-      expect(mockReadStream.pipe).toHaveBeenCalledWith(expect.any(Object)); // gzip stream
-      expect(mockGzipStream.pipe).toHaveBeenCalledWith(expect.any(Object)); // write stream
-      expect(mockFs.unlink).toHaveBeenCalled(); // Delete original file after compression
-      expect(compressHandler).toHaveBeenCalled();
+      // Should attempt to compress the rotated file
+      expect(require('zlib').createGzip).toHaveBeenCalled();
     });
     
-    it('should clean up old rotated files based on maxFiles setting', async () => {
-      // Setup
-      const maxFiles = 3;
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        maxSize: 1024, // 1KB
-        maxFiles,
-        flushInterval: 100 // Short interval for testing
-      });
-      
-      // Mock current file size to be at the limit
-      mockFs.statSync.mockReturnValue({ size: 1024 } as any);
-      
-      // Mock directory listing with rotated files
-      const rotatedFiles = [
-        'test.log.2023-01-01T00-00-00-000Z',
-        'test.log.2023-01-02T00-00-00-000Z',
-        'test.log.2023-01-03T00-00-00-000Z',
-        'test.log.2023-01-04T00-00-00-000Z'
+    it('should clean up old log files when maxFiles is exceeded', async () => {
+      // Mock readdir to return multiple log files
+      const oldLogFiles = [
+        'test.log.2023-01-01_00-00-00',
+        'test.log.2023-01-02_00-00-00',
+        'test.log.2023-01-03_00-00-00',
+        'test.log.2023-01-04_00-00-00',
+        'test.log.2023-01-05_00-00-00'
       ];
-      mockFs.readdir.mockImplementation((dir, callback) => {
-        callback(null, rotatedFiles);
+      
+      (fs.promises.readdir as jest.Mock).mockResolvedValueOnce(oldLogFiles);
+      
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10B',
+        maxFiles: 3 // Keep only 3 files
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock current size to be 5 bytes
+      (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 5 });
+      
+      // Mock Buffer.byteLength to return a size that will trigger rotation
+      jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(10);
+      
+      // Write a log entry that will exceed the max size
+      const logEntry = createMockLogEntry({
+        message: 'This log entry will trigger rotation',
+        level: LogLevel.INFO
       });
       
-      // Mock file stats to have different mtimes
-      let statCallCount = 0;
-      mockFs.statSync.mockImplementation(() => {
-        const mtime = new Date(2023, 0, statCallCount + 1);
-        statCallCount++;
-        return { mtime, size: 1024 } as any;
-      });
+      await transport.write(JSON.stringify(logEntry) + '\n');
       
-      // Execute
-      const deleteHandler = jest.fn();
-      transport.on('delete', deleteHandler);
-      
-      // Add log to buffer to trigger rotation
-      const logEntry = createSampleLogEntry();
-      formatter.format = jest.fn().mockReturnValue('Test log');
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Verify
-      expect(mockFs.readdir).toHaveBeenCalledWith(
-        testLogDir,
-        expect.any(Function)
-      );
-      expect(mockFs.unlink).toHaveBeenCalledTimes(rotatedFiles.length - maxFiles + 1);
-      expect(deleteHandler).toHaveBeenCalledTimes(rotatedFiles.length - maxFiles + 1);
+      // Should attempt to delete the oldest files
+      expect(fs.promises.unlink).toHaveBeenCalledTimes(2); // Delete 2 oldest files
     });
     
     it('should handle rotation errors gracefully', async () => {
-      // Setup
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter,
-        maxSize: 1024, // 1KB
-        flushInterval: 100 // Short interval for testing
-      });
-      
-      // Mock current file size to be at the limit
-      mockFs.statSync.mockReturnValue({ size: 1024 } as any);
-      
       // Mock rename to fail
-      const renameError = new Error('Rename failed');
-      mockFs.rename.mockImplementation((oldPath, newPath, callback) => {
-        callback(renameError);
+      (fs.promises.rename as jest.Mock).mockRejectedValueOnce(new Error('Rename failed'));
+      
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10B'
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock current size to be 5 bytes
+      (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 5 });
+      
+      // Mock Buffer.byteLength to return a size that will trigger rotation
+      jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(10);
+      
+      // Write a log entry that will exceed the max size
+      const logEntry = createMockLogEntry({
+        message: 'This log entry will trigger rotation',
+        level: LogLevel.INFO
       });
       
-      // Execute
-      const errorHandler = jest.fn();
-      transport.on('error', errorHandler);
+      // Should fall back to copy and delete
+      await transport.write(JSON.stringify(logEntry) + '\n');
       
-      // Add log to buffer to trigger rotation
-      const logEntry = createSampleLogEntry();
-      formatter.format = jest.fn().mockReturnValue('Test log');
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
-      
-      // Force flush by waiting for the flush interval
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Verify
-      expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Failed to rotate log file')
-        })
-      );
+      expect(fs.promises.copyFile).toHaveBeenCalled();
+      expect(fs.promises.unlink).toHaveBeenCalled();
     });
   });
   
-  describe('close', () => {
-    beforeEach(() => {
-      // Initialize transport with default options
-      transport = new FileTransport({
-        filePath: testLogFilePath,
-        formatter
-      });
-    });
-    
-    it('should flush pending writes and close the stream', async () => {
-      // Setup
-      const logEntry = createSampleLogEntry();
-      formatter.format = jest.fn().mockReturnValue('Test log');
+  describe('closing', () => {
+    it('should close the transport and flush pending writes', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Add log to buffer
-      await transport.write(logEntry.level, logEntry.message, logEntry.context);
+      transport = new FileTransport(options);
+      await transport.initialize();
       
-      // Execute
       await transport.close();
       
-      // Verify
       expect(mockWriteStream.end).toHaveBeenCalled();
     });
     
-    it('should be idempotent', async () => {
-      // Execute
-      await transport.close();
-      await transport.close(); // Second call should be a no-op
+    it('should handle close errors', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
       
-      // Verify
-      expect(mockWriteStream.end).toHaveBeenCalledTimes(1);
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock end to trigger error
+      mockWriteStream.end.mockImplementationOnce((callback) => {
+        mockWriteStream.on.mock.calls.find(call => call[0] === 'error')[1](new Error('Close failed'));
+      });
+      
+      await expect(transport.close()).rejects.toThrow('Failed to close log file stream');
     });
+    
+    it('should clear rotation timer when closing', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        interval: 'daily'
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock clearTimeout
+      const originalClearTimeout = global.clearTimeout;
+      global.clearTimeout = jest.fn();
+      
+      await transport.close();
+      
+      expect(global.clearTimeout).toHaveBeenCalled();
+      
+      // Restore original clearTimeout
+      global.clearTimeout = originalClearTimeout;
+    });
+  });
+  
+  describe('utility functions', () => {
+    it('should parse size strings correctly', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath
+      };
+      
+      transport = new FileTransport(options);
+      
+      // Test various size formats by triggering rotation with different maxSize values
+      const testSizes = [
+        { input: '1k', expected: 1024 },
+        { input: '1m', expected: 1024 * 1024 },
+        { input: '1g', expected: 1024 * 1024 * 1024 },
+        { input: '1.5m', expected: 1.5 * 1024 * 1024 },
+        { input: 2048, expected: 2048 }
+      ];
+      
+      for (const { input, expected } of testSizes) {
+        const newOptions = { ...options, maxSize: input };
+        const newTransport = new FileTransport(newOptions);
+        
+        // Mock stat to return a size just below the expected value
+        (fs.promises.stat as jest.Mock).mockResolvedValueOnce({ size: expected - 1 });
+        
+        await newTransport.initialize();
+        
+        // Mock Buffer.byteLength to return a size that will trigger rotation
+        jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(2);
+        
+        // Write a log entry that will exceed the max size
+        const logEntry = createMockLogEntry({
+          message: 'Test size parsing',
+          level: LogLevel.INFO
+        });
+        
+        await newTransport.write(JSON.stringify(logEntry) + '\n');
+        
+        // Should trigger rotation
+        expect(fs.promises.rename).toHaveBeenCalled();
+        
+        // Reset mocks for next iteration
+        jest.clearAllMocks();
+        await newTransport.close();
+      }
+    });
+    
+    it('should generate correct rotated filenames', async () => {
+      const options: FileTransportOptions = {
+        filename: logFilePath,
+        maxSize: '10B'
+      };
+      
+      transport = new FileTransport(options);
+      await transport.initialize();
+      
+      // Mock current size to be 5 bytes
+      (fs.promises.stat as jest.Mock).mockResolvedValue({ size: 5 });
+      
+      // Mock Buffer.byteLength to return a size that will trigger rotation
+      jest.spyOn(Buffer, 'byteLength').mockReturnValueOnce(10);
+      
+      // Mock Date.now to return a fixed timestamp
+      const originalDate = global.Date;
+      const mockDate = class extends Date {
+        constructor() {
+          super();
+        }
+        getFullYear() { return 2023; }
+        getMonth() { return 0; } // January (0-indexed)
+        getDate() { return 15; }
+        getHours() { return 12; }
+        getMinutes() { return 30; }
+        getSeconds() { return 45; }
+      };
+      global.Date = mockDate as any;
+      
+      // Write a log entry that will exceed the max size
+      const logEntry = createMockLogEntry({
+        message: 'This log entry will trigger rotation',
+        level: LogLevel.INFO
+      });
+      
+      await transport.write(JSON.stringify(logEntry) + '\n');
+      
+      // Should rename with the correct timestamp format
+      expect(fs.promises.rename).toHaveBeenCalledWith(
+        logFilePath,
+        expect.stringContaining('test.log.2023-01-15_12-30-45')
+      );
+      
+      // Restore original Date
+      global.Date = originalDate;
+    });
+  });
+  
+  describe('integration with file system', () => {
+    // These tests interact with the actual file system
+    // They are commented out to avoid file system operations during unit tests
+    // Uncomment for local testing or when running in a controlled environment
+    
+    /*
+    it('should write logs to an actual file', async () => {
+      // Use real fs module for this test
+      jest.unmock('fs');
+      jest.unmock('proper-lockfile');
+      
+      const realTempDir = path.join(os.tmpdir(), `austa-logs-real-${Date.now()}`);
+      const realLogFilePath = path.join(realTempDir, 'real-test.log');
+      
+      // Ensure directory exists
+      await fs.promises.mkdir(realTempDir, { recursive: true });
+      
+      const options: FileTransportOptions = {
+        filename: realLogFilePath
+      };
+      
+      const realTransport = new FileTransport(options);
+      await realTransport.initialize();
+      
+      const logEntry = createMockLogEntry({
+        message: 'Real file system test',
+        level: LogLevel.INFO
+      });
+      
+      await realTransport.write(JSON.stringify(logEntry) + '\n');
+      
+      // Wait for file operations to complete
+      await waitForLogsToProcess(100);
+      
+      // Verify file exists and contains the log entry
+      const fileContent = await fs.promises.readFile(realLogFilePath, 'utf8');
+      expect(fileContent).toContain('Real file system test');
+      
+      // Clean up
+      await realTransport.close();
+      await fs.promises.unlink(realLogFilePath);
+      await fs.promises.rmdir(realTempDir);
+      
+      // Restore mocks
+      jest.resetModules();
+    });
+    */
   });
 });

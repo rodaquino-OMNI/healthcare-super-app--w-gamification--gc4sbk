@@ -1,68 +1,73 @@
 /**
- * Sanitization utilities for logging
- * 
- * This module provides utilities for sanitizing sensitive data in logs to ensure
- * compliance with privacy regulations and protect user information.
+ * Utilities for sanitizing sensitive data in logs to ensure compliance with privacy regulations
+ * and protect user information. These utilities help prevent accidental logging of PII,
+ * credentials, and other sensitive information.
  */
 
 /**
  * Regular expressions for detecting common patterns of sensitive information
  */
 const SENSITIVE_PATTERNS = {
-  // Credit card numbers (major card formats)
-  CREDIT_CARD: /\b(?:\d{4}[- ]?){3}\d{4}\b/g,
-  // Email addresses
-  EMAIL: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
-  // Social security numbers (Brazilian CPF format)
-  CPF: /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,
-  // Phone numbers (Brazilian format)
-  PHONE: /\b\(?\d{2}\)?[- ]?\d{4,5}[- ]?\d{4}\b/g,
-  // Passwords in various formats (password=X, pwd=X, etc.)
-  PASSWORD: /\b(?:password|pwd|passwd|secret)\s*[=:]\s*[^\s,;]{1,}/gi,
-  // Authentication tokens (Bearer, JWT, etc.)
-  AUTH_TOKEN: /\b(?:bearer|jwt|token|api[-_]?key)\s+[A-Za-z0-9._~+/=-]+/gi,
-  // Brazilian healthcare ID (CNS - Cartão Nacional de Saúde)
-  CNS: /\b\d{15}\b/g,
+  // PII patterns
+  EMAIL: /([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})/gi,
+  PHONE: /\b(\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}\b/g,
+  CPF: /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g, // Brazilian CPF format
+  RG: /\b\d{2}\.\d{3}\.\d{3}-[0-9X]\b/g, // Brazilian RG format
+  CREDIT_CARD: /\b(?:\d[ -]*?){13,16}\b/g,
+  
+  // Credential patterns
+  PASSWORD_FIELD: /"?password"?\s*[:=]\s*"([^"]+)"/gi,
+  TOKEN_FIELD: /"?(api_?key|auth_?token|access_?token|secret|jwt)"?\s*[:=]\s*"([^"]+)"/gi,
+  BASIC_AUTH: /basic\s+[a-zA-Z0-9+/=]+/gi,
+  BEARER_TOKEN: /bearer\s+[a-zA-Z0-9\-_\.]+/gi,
 };
 
 /**
- * Default fields that should be redacted in objects
+ * Default list of field names that should be redacted from objects
  */
 const DEFAULT_SENSITIVE_FIELDS = [
   'password',
   'senha',
   'secret',
-  'token',
   'apiKey',
   'api_key',
-  'authorization',
-  'credential',
+  'token',
+  'accessToken',
+  'access_token',
+  'refreshToken',
+  'refresh_token',
   'creditCard',
   'credit_card',
   'cardNumber',
   'card_number',
+  'cvv',
   'ssn',
   'cpf',
   'rg',
-  'cns',
-  'healthCardId',
-  'health_card_id',
+  'passportNumber',
+  'passport_number',
 ];
 
 /**
  * Configuration options for sanitization
  */
 export interface SanitizationOptions {
-  /** Fields to redact in objects (in addition to defaults) */
+  /** Custom list of field names to redact (will be merged with defaults) */
   sensitiveFields?: string[];
-  /** Character to use for masking sensitive data */
+  /** Replacement string for masked values */
   maskChar?: string;
-  /** Whether to preserve a portion of the sensitive data for debugging */
-  preserveLength?: boolean;
-  /** Number of characters to show at the beginning of masked data */
-  showFirstN?: number;
-  /** Number of characters to show at the end of masked data */
-  showLastN?: number;
+  /** Number of characters to preserve at the beginning of masked values */
+  preserveStart?: number;
+  /** Number of characters to preserve at the end of masked values */
+  preserveEnd?: number;
+  /** Whether to sanitize nested objects */
+  sanitizeNested?: boolean;
+  /** Maximum depth for sanitizing nested objects */
+  maxDepth?: number;
+  /** Whether to detect and mask PII patterns */
+  detectPII?: boolean;
+  /** Whether to detect and mask credential patterns */
+  detectCredentials?: boolean;
 }
 
 /**
@@ -71,109 +76,220 @@ export interface SanitizationOptions {
 const DEFAULT_OPTIONS: SanitizationOptions = {
   sensitiveFields: [],
   maskChar: '*',
-  preserveLength: true,
-  showFirstN: 0,
-  showLastN: 0,
+  preserveStart: 0,
+  preserveEnd: 0,
+  sanitizeNested: true,
+  maxDepth: 5,
+  detectPII: true,
+  detectCredentials: true,
 };
 
 /**
- * Masks a string with the specified character while optionally preserving some characters
- * 
- * @param value - The string to mask
- * @param options - Sanitization options
+ * Masks a string value, optionally preserving some characters at the beginning and end
+ * @param value The string to mask
+ * @param options Sanitization options
  * @returns The masked string
  */
-export function maskString(value: string, options: SanitizationOptions = DEFAULT_OPTIONS): string {
+export function maskValue(value: string, options: SanitizationOptions = DEFAULT_OPTIONS): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   
-  if (!value || typeof value !== 'string') {
+  if (!value || typeof value !== 'string' || value.length === 0) {
     return value;
   }
   
-  const { maskChar, preserveLength, showFirstN, showLastN } = opts;
+  const { maskChar, preserveStart, preserveEnd } = opts;
   
-  // Handle empty strings
-  if (value.length === 0) {
-    return value;
+  // If the value is too short to mask meaningfully, mask it completely
+  if (value.length <= (preserveStart || 0) + (preserveEnd || 0)) {
+    return maskChar.repeat(value.length);
   }
   
-  // If we're showing parts of the string
-  if (showFirstN > 0 || showLastN > 0) {
-    const firstPart = showFirstN > 0 ? value.substring(0, showFirstN) : '';
-    const lastPart = showLastN > 0 ? value.substring(value.length - showLastN) : '';
-    
-    // Calculate how many characters to mask
-    const maskLength = preserveLength 
-      ? Math.max(0, value.length - firstPart.length - lastPart.length)
-      : 6; // Default mask length if not preserving
-    
-    const maskedPart = maskChar.repeat(maskLength);
-    return `${firstPart}${maskedPart}${lastPart}`;
-  }
+  const start = value.substring(0, preserveStart || 0);
+  const end = value.substring(value.length - (preserveEnd || 0));
+  const maskedLength = value.length - (preserveStart || 0) - (preserveEnd || 0);
+  const masked = maskChar.repeat(maskedLength);
   
-  // Simple full masking
-  return preserveLength ? maskChar.repeat(value.length) : `${maskChar}${maskChar}${maskChar}${maskChar}${maskChar}${maskChar}`;
+  return `${start}${masked}${end}`;
 }
 
 /**
- * Detects and masks PII (Personally Identifiable Information) in a string
- * 
- * @param text - The text to sanitize
- * @param options - Sanitization options
+ * Detects and masks PII patterns in a string
+ * @param text The text to sanitize
+ * @param options Sanitization options
  * @returns The sanitized text with PII masked
  */
 export function maskPII(text: string, options: SanitizationOptions = DEFAULT_OPTIONS): string {
-  if (!text || typeof text !== 'string') {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  
+  if (!text || typeof text !== 'string' || text.length === 0 || !opts.detectPII) {
     return text;
   }
   
   let sanitized = text;
   
-  // Apply each pattern and mask matches
-  Object.values(SENSITIVE_PATTERNS).forEach(pattern => {
-    sanitized = sanitized.replace(pattern, (match) => maskString(match, options));
+  // Replace email addresses
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.EMAIL, (match) => {
+    const atIndex = match.indexOf('@');
+    if (atIndex > 0) {
+      const username = match.substring(0, atIndex);
+      const domain = match.substring(atIndex);
+      return `${maskValue(username, { ...opts, preserveStart: 1, preserveEnd: 0 })}${domain}`;
+    }
+    return maskValue(match, opts);
+  });
+  
+  // Replace phone numbers
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.PHONE, (match) => {
+    return maskValue(match, { ...opts, preserveStart: 0, preserveEnd: 4 });
+  });
+  
+  // Replace CPF (Brazilian ID)
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.CPF, (match) => {
+    return maskValue(match, { ...opts, preserveStart: 0, preserveEnd: 2 });
+  });
+  
+  // Replace RG (Brazilian ID)
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.RG, (match) => {
+    return maskValue(match, { ...opts, preserveStart: 0, preserveEnd: 2 });
+  });
+  
+  // Replace credit card numbers
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.CREDIT_CARD, (match) => {
+    // Remove spaces and dashes for consistent masking
+    const cleaned = match.replace(/[\s-]/g, '');
+    return maskValue(cleaned, { ...opts, preserveStart: 0, preserveEnd: 4 });
   });
   
   return sanitized;
 }
 
 /**
- * Redacts sensitive fields from an object
- * 
- * @param obj - The object to sanitize
- * @param options - Sanitization options
- * @returns A new object with sensitive fields redacted
+ * Detects and masks credential patterns in a string
+ * @param text The text to sanitize
+ * @param options Sanitization options
+ * @returns The sanitized text with credentials masked
  */
-export function redactSensitiveFields<T extends Record<string, any>>(
-  obj: T, 
-  options: SanitizationOptions = DEFAULT_OPTIONS
+export function maskCredentials(text: string, options: SanitizationOptions = DEFAULT_OPTIONS): string {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  
+  if (!text || typeof text !== 'string' || text.length === 0 || !opts.detectCredentials) {
+    return text;
+  }
+  
+  let sanitized = text;
+  
+  // Replace password fields
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.PASSWORD_FIELD, (match, group) => {
+    return match.replace(group, maskValue(group, opts));
+  });
+  
+  // Replace token fields
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.TOKEN_FIELD, (match, field, token) => {
+    return match.replace(token, maskValue(token, opts));
+  });
+  
+  // Replace Basic Auth headers
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.BASIC_AUTH, (match) => {
+    const parts = match.split(' ');
+    if (parts.length === 2) {
+      return `${parts[0]} ${maskValue(parts[1], opts)}`;
+    }
+    return match;
+  });
+  
+  // Replace Bearer tokens
+  sanitized = sanitized.replace(SENSITIVE_PATTERNS.BEARER_TOKEN, (match) => {
+    const parts = match.split(' ');
+    if (parts.length === 2) {
+      return `${parts[0]} ${maskValue(parts[1], { ...opts, preserveStart: 3, preserveEnd: 3 })}`;
+    }
+    return match;
+  });
+  
+  return sanitized;
+}
+
+/**
+ * Sanitizes a string by masking PII and credentials
+ * @param text The text to sanitize
+ * @param options Sanitization options
+ * @returns The sanitized text
+ */
+export function sanitizeString(text: string, options: SanitizationOptions = DEFAULT_OPTIONS): string {
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+  
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  let sanitized = text;
+  
+  if (opts.detectPII) {
+    sanitized = maskPII(sanitized, opts);
+  }
+  
+  if (opts.detectCredentials) {
+    sanitized = maskCredentials(sanitized, opts);
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Sanitizes an object by redacting sensitive fields and optionally detecting PII in string values
+ * @param obj The object to sanitize
+ * @param options Sanitization options
+ * @param currentDepth Current recursion depth (used internally)
+ * @returns A sanitized copy of the object
+ */
+export function sanitizeObject<T extends Record<string, any>>(
+  obj: T,
+  options: SanitizationOptions = DEFAULT_OPTIONS,
+  currentDepth = 0
 ): T {
-  if (!obj || typeof obj !== 'object' || obj === null) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
     return obj;
   }
   
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const allSensitiveFields = [...DEFAULT_SENSITIVE_FIELDS, ...(opts.sensitiveFields || [])];
+  const sensitiveFields = [...DEFAULT_SENSITIVE_FIELDS, ...(opts.sensitiveFields || [])];
+  const result = { ...obj };
   
-  // Create a new object to avoid mutating the original
-  const result = Array.isArray(obj) ? [...obj] as any : { ...obj };
+  // Stop recursion if we've reached the maximum depth
+  if (currentDepth >= (opts.maxDepth || DEFAULT_OPTIONS.maxDepth)) {
+    return result;
+  }
   
-  // Process each property
   for (const key in result) {
     if (Object.prototype.hasOwnProperty.call(result, key)) {
       const value = result[key];
       
-      // Check if this is a sensitive field name (case insensitive)
-      const isSensitiveField = allSensitiveFields.some(
-        field => key.toLowerCase() === field.toLowerCase()
+      // Check if this is a sensitive field that should be redacted
+      const isSensitiveField = sensitiveFields.some(field => 
+        key.toLowerCase() === field.toLowerCase() || 
+        key.toLowerCase().includes(field.toLowerCase())
       );
       
-      if (isSensitiveField && typeof value === 'string') {
-        // Mask the sensitive value
-        result[key] = maskString(value, opts);
-      } else if (value && typeof value === 'object') {
-        // Recursively process nested objects and arrays
-        result[key] = redactSensitiveFields(value, opts);
+      if (isSensitiveField && value !== null && value !== undefined) {
+        // Redact sensitive field
+        result[key] = typeof value === 'string' 
+          ? maskValue(value, opts) 
+          : '[REDACTED]';
+      } else if (typeof value === 'string') {
+        // Sanitize string values for PII and credentials
+        result[key] = sanitizeString(value, opts);
+      } else if (opts.sanitizeNested && value !== null && typeof value === 'object') {
+        // Recursively sanitize nested objects
+        if (Array.isArray(value)) {
+          result[key] = value.map(item => 
+            typeof item === 'object' && item !== null
+              ? sanitizeObject(item, opts, currentDepth + 1)
+              : typeof item === 'string'
+                ? sanitizeString(item, opts)
+                : item
+          );
+        } else {
+          result[key] = sanitizeObject(value, opts, currentDepth + 1);
+        }
       }
     }
   }
@@ -182,152 +298,109 @@ export function redactSensitiveFields<T extends Record<string, any>>(
 }
 
 /**
- * Sanitizes HTTP request data for logging
- * 
- * @param requestData - The request data to sanitize
- * @param options - Sanitization options
- * @returns Sanitized request data safe for logging
+ * Sanitizes HTTP request data for logging, removing sensitive information
+ * @param request The HTTP request object to sanitize
+ * @param options Sanitization options
+ * @returns A sanitized copy of the request object safe for logging
  */
-export function sanitizeRequestData(
-  requestData: Record<string, any>,
+export function sanitizeRequest(
+  request: Record<string, any>,
   options: SanitizationOptions = DEFAULT_OPTIONS
 ): Record<string, any> {
-  if (!requestData || typeof requestData !== 'object') {
-    return requestData;
+  if (!request || typeof request !== 'object') {
+    return request;
   }
   
-  // Create a sanitized copy of the request data
-  const sanitized = { ...requestData };
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const result: Record<string, any> = {};
   
-  // Sanitize headers if present
-  if (sanitized.headers && typeof sanitized.headers === 'object') {
-    sanitized.headers = sanitizeHeaders(sanitized.headers, options);
+  // Copy and sanitize headers
+  if (request.headers) {
+    result.headers = { ...request.headers };
+    
+    // Specifically handle common auth headers
+    const authHeaders = ['authorization', 'x-api-key', 'api-key', 'x-auth-token'];
+    for (const header of authHeaders) {
+      if (result.headers[header]) {
+        result.headers[header] = maskCredentials(result.headers[header], opts);
+      }
+    }
+    
+    // Sanitize all other headers
+    result.headers = sanitizeObject(result.headers, opts);
   }
   
-  // Sanitize body if present
-  if (sanitized.body && typeof sanitized.body === 'object') {
-    sanitized.body = redactSensitiveFields(sanitized.body, options);
-  } else if (sanitized.body && typeof sanitized.body === 'string') {
-    // Try to parse JSON strings and sanitize them
-    try {
-      const parsedBody = JSON.parse(sanitized.body);
-      sanitized.body = JSON.stringify(redactSensitiveFields(parsedBody, options));
-    } catch (e) {
-      // If not valid JSON, treat as text and mask PII
-      sanitized.body = maskPII(sanitized.body, options);
+  // Copy and sanitize query parameters
+  if (request.query) {
+    result.query = sanitizeObject(request.query, opts);
+  }
+  
+  // Copy and sanitize request body
+  if (request.body) {
+    result.body = sanitizeObject(request.body, opts);
+  }
+  
+  // Copy and sanitize URL
+  if (request.url) {
+    result.url = sanitizeString(request.url, opts);
+  }
+  
+  // Copy non-sensitive fields
+  const safeCopyFields = ['method', 'httpVersion', 'ip', 'path', 'route', 'protocol'];
+  for (const field of safeCopyFields) {
+    if (request[field] !== undefined) {
+      result[field] = request[field];
     }
   }
   
-  // Sanitize query parameters if present
-  if (sanitized.query && typeof sanitized.query === 'object') {
-    sanitized.query = redactSensitiveFields(sanitized.query, options);
-  }
-  
-  // Sanitize params if present (route parameters)
-  if (sanitized.params && typeof sanitized.params === 'object') {
-    sanitized.params = redactSensitiveFields(sanitized.params, options);
-  }
-  
-  return sanitized;
+  return result;
 }
 
 /**
- * Sanitizes HTTP headers for logging
- * 
- * @param headers - The headers object to sanitize
- * @param options - Sanitization options
- * @returns Sanitized headers safe for logging
+ * Sanitizes HTTP response data for logging, removing sensitive information
+ * @param response The HTTP response object to sanitize
+ * @param options Sanitization options
+ * @returns A sanitized copy of the response object safe for logging
  */
-export function sanitizeHeaders(
-  headers: Record<string, any>,
+export function sanitizeResponse(
+  response: Record<string, any>,
   options: SanitizationOptions = DEFAULT_OPTIONS
 ): Record<string, any> {
-  if (!headers || typeof headers !== 'object') {
-    return headers;
+  if (!response || typeof response !== 'object') {
+    return response;
   }
   
-  const sanitizedHeaders = { ...headers };
-  const sensitiveHeaderNames = [
-    'authorization',
-    'x-api-key',
-    'api-key',
-    'x-auth-token',
-    'cookie',
-    'set-cookie',
-    'x-forwarded-for',
-    'x-real-ip',
-  ];
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const result: Record<string, any> = {};
   
-  // Process each header
-  for (const key in sanitizedHeaders) {
-    if (Object.prototype.hasOwnProperty.call(sanitizedHeaders, key)) {
-      const lowerKey = key.toLowerCase();
-      
-      if (sensitiveHeaderNames.includes(lowerKey)) {
-        sanitizedHeaders[key] = maskString(String(sanitizedHeaders[key]), options);
-      }
-      
-      // Special handling for cookies
-      if (lowerKey === 'cookie' || lowerKey === 'set-cookie') {
-        sanitizedHeaders[key] = sanitizeCookies(String(sanitizedHeaders[key]), options);
-      }
+  // Copy and sanitize headers
+  if (response.headers) {
+    result.headers = sanitizeObject(response.headers, opts);
+  }
+  
+  // Copy and sanitize body/data
+  if (response.body) {
+    result.body = sanitizeObject(response.body, opts);
+  } else if (response.data) {
+    result.data = sanitizeObject(response.data, opts);
+  }
+  
+  // Copy non-sensitive fields
+  const safeCopyFields = ['statusCode', 'status', 'statusMessage', 'type', 'size'];
+  for (const field of safeCopyFields) {
+    if (response[field] !== undefined) {
+      result[field] = response[field];
     }
   }
   
-  return sanitizedHeaders;
+  return result;
 }
 
 /**
- * Sanitizes cookie strings for logging
- * 
- * @param cookieString - The cookie string to sanitize
- * @param options - Sanitization options
- * @returns Sanitized cookie string safe for logging
- */
-export function sanitizeCookies(
-  cookieString: string,
-  options: SanitizationOptions = DEFAULT_OPTIONS
-): string {
-  if (!cookieString || typeof cookieString !== 'string') {
-    return cookieString;
-  }
-  
-  const sensitiveNames = [
-    'auth',
-    'token',
-    'jwt',
-    'session',
-    'id',
-    'sid',
-    'remember',
-    'connect.sid',
-  ];
-  
-  // Split cookies and process each one
-  return cookieString
-    .split(';')
-    .map(cookie => {
-      const [name, ...rest] = cookie.split('=');
-      const cookieName = name.trim();
-      const isSensitive = sensitiveNames.some(sensitive => 
-        cookieName.toLowerCase().includes(sensitive.toLowerCase())
-      );
-      
-      if (isSensitive) {
-        return `${cookieName}=${maskString(rest.join('='), options)}`;
-      }
-      
-      return cookie;
-    })
-    .join(';');
-}
-
-/**
- * Sanitizes an error object for logging
- * 
- * @param error - The error object to sanitize
- * @param options - Sanitization options
- * @returns Sanitized error object safe for logging
+ * Sanitizes error objects for logging, removing sensitive information
+ * @param error The error object to sanitize
+ * @param options Sanitization options
+ * @returns A sanitized copy of the error object safe for logging
  */
 export function sanitizeError(
   error: Error | Record<string, any>,
@@ -337,143 +410,163 @@ export function sanitizeError(
     return error;
   }
   
-  // Convert Error to plain object if needed
-  const errorObj = error instanceof Error 
-    ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-        ...(error as any), // Include any custom properties
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  let result: Record<string, any>;
+  
+  if (error instanceof Error) {
+    // Handle standard Error objects
+    result = {
+      name: error.name,
+      message: sanitizeString(error.message, opts),
+      stack: error.stack,
+    };
+    
+    // Copy any additional properties from the error object
+    for (const key in error) {
+      if (Object.prototype.hasOwnProperty.call(error, key) && !['name', 'message', 'stack'].includes(key)) {
+        const value = (error as any)[key];
+        if (typeof value === 'object' && value !== null) {
+          result[key] = sanitizeObject(value, opts);
+        } else if (typeof value === 'string') {
+          result[key] = sanitizeString(value, opts);
+        } else {
+          result[key] = value;
+        }
       }
-    : { ...error };
-  
-  // Sanitize the error message for PII
-  if (errorObj.message && typeof errorObj.message === 'string') {
-    errorObj.message = maskPII(errorObj.message, options);
+    }
+  } else {
+    // Handle error-like objects
+    result = sanitizeObject(error, opts);
   }
   
-  // Sanitize the stack trace
-  if (errorObj.stack && typeof errorObj.stack === 'string') {
-    errorObj.stack = maskPII(errorObj.stack, options);
-  }
-  
-  // Sanitize any other properties that might contain sensitive data
-  return redactSensitiveFields(errorObj, options);
+  return result;
 }
 
 /**
- * Sanitizes a log message and its context for sensitive information
- * 
- * @param message - The log message to sanitize
- * @param context - The log context to sanitize
- * @param options - Sanitization options
- * @returns An object containing the sanitized message and context
- */
-export function sanitizeLogEntry(
-  message: string,
-  context?: Record<string, any>,
-  options: SanitizationOptions = DEFAULT_OPTIONS
-): { message: string; context?: Record<string, any> } {
-  // Sanitize the message for PII
-  const sanitizedMessage = maskPII(message, options);
-  
-  // If no context, just return the sanitized message
-  if (!context) {
-    return { message: sanitizedMessage };
-  }
-  
-  // Sanitize the context object
-  const sanitizedContext = redactSensitiveFields(context, options);
-  
-  return {
-    message: sanitizedMessage,
-    context: sanitizedContext,
-  };
-}
-
-/**
- * Creates a sanitization middleware for Express/NestJS
- * 
- * @param options - Sanitization options
- * @returns Middleware function that sanitizes request and response objects
+ * Creates a sanitization middleware for Express/NestJS that sanitizes request and response data before logging
+ * @param options Sanitization options
+ * @returns A middleware function that can be used with Express/NestJS
  */
 export function createSanitizationMiddleware(options: SanitizationOptions = DEFAULT_OPTIONS) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  
   return (req: any, res: any, next: () => void) => {
-    // Store original methods that we'll wrap
-    const originalReqToJSON = req.toJSON;
-    const originalResToJSON = res.toJSON;
+    // Store the original request body for processing
+    const originalBody = { ...req.body };
     
-    // Override request toJSON method to sanitize data
-    req.toJSON = function() {
-      const json = originalReqToJSON ? originalReqToJSON.call(this) : { ...this };
-      return sanitizeRequestData(json, options);
+    // Override the JSON stringifier to sanitize logs
+    const originalSend = res.send;
+    res.send = function(body: any) {
+      res.locals = res.locals || {};
+      res.locals.responseBody = body;
+      return originalSend.call(this, body);
     };
     
-    // Override response toJSON method to sanitize data
-    res.toJSON = function() {
-      const json = originalResToJSON ? originalResToJSON.call(this) : { ...this };
-      
-      // Sanitize response body if present
-      if (json.body) {
-        json.body = redactSensitiveFields(json.body, options);
-      }
-      
-      return json;
-    };
-    
+    // Continue with the request
     next();
   };
 }
 
 /**
- * Creates a sanitized logger wrapper that automatically sanitizes all log entries
- * 
- * @param logger - The original logger instance
- * @param options - Sanitization options
- * @returns A wrapped logger that sanitizes log entries
+ * Sanitizes journey-specific data based on the journey type
+ * @param data The journey data to sanitize
+ * @param journeyType The type of journey ('health', 'care', or 'plan')
+ * @param options Sanitization options
+ * @returns A sanitized copy of the journey data
  */
-export function createSanitizedLogger(logger: any, options: SanitizationOptions = DEFAULT_OPTIONS) {
-  // Create a proxy to intercept all logger method calls
-  return new Proxy(logger, {
-    get(target, prop) {
-      // Get the original property
-      const originalMethod = target[prop];
-      
-      // If it's not a function or not a logging method, return it as is
-      if (typeof originalMethod !== 'function' || 
-          !['log', 'info', 'warn', 'error', 'debug', 'verbose'].includes(prop as string)) {
-        return originalMethod;
-      }
-      
-      // Return a wrapped function that sanitizes inputs
-      return function(...args: any[]) {
-        // First argument is typically the message
-        let sanitizedArgs = [...args];
-        
-        if (args.length > 0) {
-          // Sanitize the first argument (message) if it's a string
-          if (typeof args[0] === 'string') {
-            sanitizedArgs[0] = maskPII(args[0], options);
-          } else if (typeof args[0] === 'object' && args[0] !== null) {
-            // If first arg is an object, sanitize it
-            sanitizedArgs[0] = redactSensitiveFields(args[0], options);
-          }
-          
-          // Sanitize additional arguments if they exist
-          for (let i = 1; i < args.length; i++) {
-            if (args[i] instanceof Error) {
-              sanitizedArgs[i] = sanitizeError(args[i], options);
-            } else if (typeof args[i] === 'object' && args[i] !== null) {
-              sanitizedArgs[i] = redactSensitiveFields(args[i], options);
-            } else if (typeof args[i] === 'string') {
-              sanitizedArgs[i] = maskPII(args[i], options);
-            }
-          }
-        }
-        
-        // Call the original method with sanitized arguments
-        return originalMethod.apply(target, sanitizedArgs);
-      };
-    }
-  });
+export function sanitizeJourneyData(
+  data: Record<string, any>,
+  journeyType: 'health' | 'care' | 'plan',
+  options: SanitizationOptions = DEFAULT_OPTIONS
+): Record<string, any> {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+  
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  
+  // Add journey-specific sensitive fields
+  const journeySpecificFields: Record<string, string[]> = {
+    health: [
+      'medicalRecordNumber',
+      'medical_record_number',
+      'healthMetric',
+      'health_metric',
+      'biometricData',
+      'biometric_data',
+      'deviceId',
+      'device_id',
+    ],
+    care: [
+      'diagnosisCode',
+      'diagnosis_code',
+      'medicationName',
+      'medication_name',
+      'prescriptionId',
+      'prescription_id',
+      'providerNotes',
+      'provider_notes',
+    ],
+    plan: [
+      'membershipId',
+      'membership_id',
+      'policyNumber',
+      'policy_number',
+      'claimId',
+      'claim_id',
+      'benefitCode',
+      'benefit_code',
+    ],
+  };
+  
+  // Create a new options object with journey-specific sensitive fields
+  const journeyOptions: SanitizationOptions = {
+    ...opts,
+    sensitiveFields: [
+      ...(opts.sensitiveFields || []),
+      ...(journeySpecificFields[journeyType] || []),
+    ],
+  };
+  
+  return sanitizeObject(data, journeyOptions);
+}
+
+/**
+ * Sanitizes gamification event data to protect sensitive user information
+ * @param eventData The gamification event data to sanitize
+ * @param options Sanitization options
+ * @returns A sanitized copy of the event data
+ */
+export function sanitizeGamificationEvent(
+  eventData: Record<string, any>,
+  options: SanitizationOptions = DEFAULT_OPTIONS
+): Record<string, any> {
+  if (!eventData || typeof eventData !== 'object') {
+    return eventData;
+  }
+  
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  
+  // Add gamification-specific sensitive fields
+  const gamificationSensitiveFields = [
+    'userId',
+    'user_id',
+    'profileId',
+    'profile_id',
+    'achievementData',
+    'achievement_data',
+    'rewardCode',
+    'reward_code',
+  ];
+  
+  // Create a new options object with gamification-specific sensitive fields
+  const gamificationOptions: SanitizationOptions = {
+    ...opts,
+    sensitiveFields: [
+      ...(opts.sensitiveFields || []),
+      ...gamificationSensitiveFields,
+    ],
+  };
+  
+  return sanitizeObject(eventData, gamificationOptions);
 }

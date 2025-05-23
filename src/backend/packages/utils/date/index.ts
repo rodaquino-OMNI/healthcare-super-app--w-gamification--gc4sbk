@@ -1,42 +1,26 @@
 /**
  * Date Utilities Package
  * 
- * This package provides a comprehensive set of date manipulation, formatting, parsing,
- * and validation utilities for use across the AUSTA SuperApp. It ensures consistent
- * date handling across all services and journeys.
- * 
- * The utilities are organized into logical categories for better maintainability
- * and to enable selective imports for tree-shaking, while still providing a
- * convenient entry point for importing all date utilities from a single location.
+ * This package provides a comprehensive set of date manipulation, formatting,
+ * parsing, and validation utilities for use across all journey services in the
+ * AUSTA SuperApp. It supports localization for Portuguese and English and
+ * includes journey-specific date formatting rules.
  * 
  * @packageDocumentation
  */
 
-// Re-export all date utilities from their respective modules
-
-// Calculation utilities
+// Re-export all date utility modules
 export * from './calculation';
-
-// Comparison utilities
 export * from './comparison';
-
-// Constants and types
 export * from './constants';
-
-// Formatting utilities
 export * from './format';
-
-// Journey-specific utilities
 export * from './journey';
-
-// Parsing utilities
 export * from './parse';
-
-// Range utilities
 export * from './range';
-
-// Timezone utilities
 export * from './timezone';
-
-// Validation utilities
 export * from './validation';
+
+// For backward compatibility with existing import patterns
+// This ensures that code using the old import path still works
+import * as DateUtils from '../src/date';
+export default DateUtils;

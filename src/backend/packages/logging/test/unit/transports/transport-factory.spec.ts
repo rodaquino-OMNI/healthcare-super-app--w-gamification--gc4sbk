@@ -1,610 +1,570 @@
 import { Test } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
+import { TransportFactory, TransportType, AnyTransportConfig, Transport, Formatter } from '../../../src/transports/transport-factory';
 
-// Import the class to test
-import { TransportFactory } from '../../../src/transports/transport-factory';
+// Mock transport implementations
+class MockConsoleTransport implements Transport {
+  static instances: MockConsoleTransport[] = [];
+  config: any;
+  formatter: Formatter;
+  initialized = false;
 
-// Import interfaces and types
-import { LoggerConfig, TransportConfig, TransportType } from '../../../src/interfaces/log-config.interface';
-import { LogLevel } from '../../../src/interfaces/log-level.enum';
-import { Transport } from '../../../src/interfaces/transport.interface';
+  constructor(config: any, formatter: Formatter) {
+    this.config = config;
+    this.formatter = formatter;
+    MockConsoleTransport.instances.push(this);
+  }
 
-// Import formatters for testing
-import { JsonFormatter } from '../../../src/formatters/json.formatter';
-import { TextFormatter } from '../../../src/formatters/text.formatter';
-import { CloudWatchFormatter } from '../../../src/formatters/cloudwatch.formatter';
+  async initialize(): Promise<void> {
+    this.initialized = true;
+  }
 
-// Import transports for mocking
-import { ConsoleTransport } from '../../../src/transports/console.transport';
-import { FileTransport } from '../../../src/transports/file.transport';
-import { CloudWatchTransport } from '../../../src/transports/cloudwatch.transport';
+  async write(entry: any): Promise<void> {
+    // Mock implementation
+  }
 
-// Mock the transports
-jest.mock('../../../src/transports/console.transport');
-jest.mock('../../../src/transports/file.transport');
-jest.mock('../../../src/transports/cloudwatch.transport');
+  async close(): Promise<void> {
+    // Mock implementation
+  }
+}
 
-// Mock the formatters
-jest.mock('../../../src/formatters/json.formatter');
-jest.mock('../../../src/formatters/text.formatter');
-jest.mock('../../../src/formatters/cloudwatch.formatter');
+class MockFileTransport implements Transport {
+  static instances: MockFileTransport[] = [];
+  config: any;
+  formatter: Formatter;
+  initialized = false;
 
-// Mock Logger to prevent console output during tests
-jest.mock('@nestjs/common', () => {
-  const original = jest.requireActual('@nestjs/common');
-  return {
-    ...original,
-    Logger: jest.fn().mockImplementation(() => ({
-      log: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
-      debug: jest.fn(),
-      verbose: jest.fn(),
-    })),
-  };
-});
+  constructor(config: any, formatter: Formatter) {
+    this.config = config;
+    this.formatter = formatter;
+    MockFileTransport.instances.push(this);
+  }
+
+  async initialize(): Promise<void> {
+    this.initialized = true;
+  }
+
+  async write(entry: any): Promise<void> {
+    // Mock implementation
+  }
+
+  async close(): Promise<void> {
+    // Mock implementation
+  }
+}
+
+class MockCloudWatchTransport implements Transport {
+  static instances: MockCloudWatchTransport[] = [];
+  config: any;
+  formatter: Formatter;
+  initialized = false;
+
+  constructor(config: any, formatter: Formatter) {
+    this.config = config;
+    this.formatter = formatter;
+    MockCloudWatchTransport.instances.push(this);
+  }
+
+  async initialize(): Promise<void> {
+    this.initialized = true;
+  }
+
+  async write(entry: any): Promise<void> {
+    // Mock implementation
+  }
+
+  async close(): Promise<void> {
+    // Mock implementation
+  }
+}
+
+// Mock formatters
+class MockJsonFormatter implements Formatter {
+  format(entry: any): any {
+    return JSON.stringify(entry);
+  }
+}
+
+class MockTextFormatter implements Formatter {
+  format(entry: any): any {
+    return `${entry.level}: ${entry.message}`;
+  }
+}
+
+class MockCloudWatchFormatter implements Formatter {
+  format(entry: any): any {
+    return JSON.stringify({ ...entry, aws: true });
+  }
+}
+
+// Mock the dynamic imports
+jest.mock('../../../src/transports/console.transport', () => ({
+  ConsoleTransport: MockConsoleTransport
+}));
+
+jest.mock('../../../src/transports/file.transport', () => ({
+  FileTransport: MockFileTransport
+}));
+
+jest.mock('../../../src/transports/cloudwatch.transport', () => ({
+  CloudWatchTransport: MockCloudWatchTransport
+}));
 
 describe('TransportFactory', () => {
   let transportFactory: TransportFactory;
-  let configService: ConfigService;
+  let formatters: Map<string, Formatter>;
 
-  // Reset all mocks before each test
-  beforeEach(() => {
-    jest.clearAllMocks();
-    
-    // Mock ConfigService
-    configService = {
-      get: jest.fn((key: string) => {
-        const config: Record<string, any> = {
-          'NODE_ENV': 'development',
-          'APP_NAME': 'test-app',
-          'SERVICE_NAME': 'test-service',
-          'AWS_REGION': 'us-east-1',
-          'AWS_ACCESS_KEY_ID': 'test-key-id',
-          'AWS_SECRET_ACCESS_KEY': 'test-secret-key',
-          'INSTANCE_ID': 'test-instance',
-        };
-        return config[key];
-      }),
-    } as unknown as ConfigService;
+  beforeEach(async () => {
+    // Reset mock instances
+    MockConsoleTransport.instances = [];
+    MockFileTransport.instances = [];
+    MockCloudWatchTransport.instances = [];
 
-    // Create the factory with mocked dependencies
-    transportFactory = new TransportFactory(configService);
+    // Create formatters map
+    formatters = new Map<string, Formatter>();
+    formatters.set('json', new MockJsonFormatter());
+    formatters.set('text', new MockTextFormatter());
+    formatters.set('cloudwatch', new MockCloudWatchFormatter());
+
+    // Create the module with TransportFactory
+    const moduleRef = await Test.createTestingModule({
+      providers: [TransportFactory],
+    }).compile();
+
+    transportFactory = moduleRef.get<TransportFactory>(TransportFactory);
   });
 
   describe('createTransports', () => {
-    it('should create a default console transport when no transports are specified', () => {
+    it('should create console transport with correct configuration', async () => {
       // Arrange
-      const config: LoggerConfig = {};
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-    });
-
-    it('should create a default console transport when empty transports array is provided', () => {
-      // Arrange
-      const config: LoggerConfig = { transports: [] };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-    });
-
-    it('should create multiple transports based on configuration', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CONSOLE },
-          { type: TransportType.FILE, filename: 'test.log' },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(2);
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(FileTransport).toHaveBeenCalledTimes(1);
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-      expect(transports[1]).toBeInstanceOf(FileTransport);
-    });
-
-    it('should create a fallback console transport if all configured transports fail', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.FILE }, // Missing required filename
-        ],
-      };
-      
-      // Mock FileTransport constructor to throw an error
-      (FileTransport as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Missing filename');
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-    });
-
-    it('should continue creating transports even if one fails', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CONSOLE },
-          { type: TransportType.FILE }, // Missing required filename
-          { type: TransportType.CLOUDWATCH, logGroupName: 'test-group' },
-        ],
-      };
-      
-      // Mock FileTransport constructor to throw an error
-      (FileTransport as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Missing filename');
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(2);
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(CloudWatchTransport).toHaveBeenCalledTimes(1);
-      expect(transports[0]).toBeInstanceOf(ConsoleTransport);
-      expect(transports[1]).toBeInstanceOf(CloudWatchTransport);
-    });
-  });
-
-  describe('environment-specific configuration', () => {
-    it('should apply development environment overrides for console transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CONSOLE },
-        ],
-      };
-      
-      // Mock ConfigService to return development environment
-      (configService.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'NODE_ENV') return 'development';
-        return null;
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(ConsoleTransport).toHaveBeenCalledWith(expect.objectContaining({
-        colorize: true,
-        level: LogLevel.DEBUG,
-      }));
-      expect(TextFormatter).toHaveBeenCalled();
-    });
-
-    it('should apply production environment overrides for CloudWatch transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CLOUDWATCH, logGroupName: 'test-group' },
-        ],
-      };
-      
-      // Mock ConfigService to return production environment
-      (configService.get as jest.Mock).mockImplementation((key: string) => {
-        const config: Record<string, any> = {
-          'NODE_ENV': 'production',
-          'APP_NAME': 'test-app',
-          'SERVICE_NAME': 'test-service',
-          'AWS_REGION': 'us-east-1',
-          'AWS_ACCESS_KEY_ID': 'test-key-id',
-          'AWS_SECRET_ACCESS_KEY': 'test-secret-key',
-          'INSTANCE_ID': 'test-instance',
-        };
-        return config[key];
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(CloudWatchTransport).toHaveBeenCalledWith(expect.objectContaining({
-        logGroupName: 'test-group',
-        level: LogLevel.INFO,
-        tags: expect.objectContaining({
-          Environment: 'production',
-          Application: 'test-app',
-          Service: 'test-service',
-        }),
-      }));
-      expect(CloudWatchFormatter).toHaveBeenCalled();
-    });
-
-    it('should replace CloudWatch transport with console transport in test environment', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CLOUDWATCH, logGroupName: 'test-group' },
-        ],
-      };
-      
-      // Mock ConfigService to return test environment
-      (configService.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'NODE_ENV') return 'test';
-        return null;
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(CloudWatchTransport).not.toHaveBeenCalled();
-      expect(ConsoleTransport).toHaveBeenCalledWith(expect.objectContaining({
-        level: LogLevel.ERROR,
-        colorize: true,
-      }));
-    });
-  });
-
-  describe('transport configuration validation', () => {
-    it('should throw an error for missing transport type', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: undefined as unknown as TransportType },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-    });
-
-    it('should throw an error for invalid log level', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CONSOLE, 
-            level: 999 as unknown as LogLevel 
-          },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-    });
-
-    it('should throw an error for missing filename in file transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.FILE },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(FileTransport).not.toHaveBeenCalled();
-    });
-
-    it('should throw an error for invalid maxSize format in file transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.FILE, 
-            filename: 'test.log',
-            maxSize: '10x' // Invalid format
-          },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(FileTransport).not.toHaveBeenCalled();
-    });
-
-    it('should throw an error for missing log group name in CloudWatch transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { type: TransportType.CLOUDWATCH },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(CloudWatchTransport).not.toHaveBeenCalled();
-    });
-
-    it('should throw an error for invalid batch size in CloudWatch transport', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-            batchSize: 20000 // Exceeds maximum of 10000
-          },
-        ],
-      };
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(CloudWatchTransport).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('formatter selection', () => {
-    it('should use TextFormatter for console transport with useJsonFormat=false', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CONSOLE, 
-            useJsonFormat: false 
-          },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(TextFormatter).toHaveBeenCalledTimes(1);
-      expect(JsonFormatter).not.toHaveBeenCalled();
-    });
-
-    it('should use JsonFormatter for console transport with useJsonFormat=true', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CONSOLE, 
-            useJsonFormat: true 
-          },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(JsonFormatter).toHaveBeenCalledTimes(1);
-      expect(TextFormatter).not.toHaveBeenCalled();
-    });
-
-    it('should always use JsonFormatter for file transport regardless of useJsonFormat', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.FILE, 
-            filename: 'test.log',
-            useJsonFormat: false // This should be ignored
-          },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(JsonFormatter).toHaveBeenCalledTimes(1);
-      expect(TextFormatter).not.toHaveBeenCalled();
-    });
-
-    it('should always use CloudWatchFormatter for CloudWatch transport regardless of useJsonFormat', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-            useJsonFormat: false // This should be ignored
-          },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(CloudWatchFormatter).toHaveBeenCalledTimes(1);
-      expect(JsonFormatter).not.toHaveBeenCalled();
-      expect(TextFormatter).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('AWS configuration', () => {
-    it('should use AWS configuration from environment variables if not provided in config', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-          },
-        ],
-      };
-      
-      // Mock ConfigService to return AWS configuration
-      (configService.get as jest.Mock).mockImplementation((key: string) => {
-        const config: Record<string, any> = {
-          'NODE_ENV': 'production',
-          'APP_NAME': 'test-app',
-          'SERVICE_NAME': 'test-service',
-          'AWS_REGION': 'us-east-1',
-          'AWS_ACCESS_KEY_ID': 'test-key-id',
-          'AWS_SECRET_ACCESS_KEY': 'test-secret-key',
-          'INSTANCE_ID': 'test-instance',
-        };
-        return config[key];
-      });
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(CloudWatchTransport).toHaveBeenCalledWith(expect.objectContaining({
-        region: 'us-east-1',
-        awsAccessKeyId: 'test-key-id',
-        awsSecretAccessKey: 'test-secret-key',
-      }));
-    });
-
-    it('should use AWS configuration from transport config if provided', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-            region: 'eu-west-1',
-            awsAccessKeyId: 'config-key-id',
-            awsSecretAccessKey: 'config-secret-key',
-          },
-        ],
-      };
-      
-      // Act
-      const transports = transportFactory.createTransports(config);
-      
-      // Assert
-      expect(transports).toHaveLength(1);
-      expect(CloudWatchTransport).toHaveBeenCalledWith(expect.objectContaining({
-        region: 'eu-west-1',
-        awsAccessKeyId: 'config-key-id',
-        awsSecretAccessKey: 'config-secret-key',
-      }));
-    });
-
-    it('should throw an error if AWS region is missing', () => {
-      // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-          },
-        ],
-      };
-      
-      // Mock ConfigService to return no AWS region
-      (configService.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'AWS_REGION') return undefined;
-        return null;
-      });
-      
-      // Act & Assert
-      expect(() => transportFactory.createTransports(config)).not.toThrow();
-      // The factory should catch the error and create a fallback console transport
-      expect(ConsoleTransport).toHaveBeenCalledTimes(1);
-      expect(CloudWatchTransport).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('log retention configuration', () => {
-    it('should set appropriate retention days based on environment', () => {
-      // Test different environments
-      const environments = [
-        { env: 'production', expectedDays: 90 },
-        { env: 'staging', expectedDays: 30 },
-        { env: 'development', expectedDays: 7 },
-        { env: 'other', expectedDays: 1 },
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          colorize: true,
+          prettyPrint: true,
+        },
       ];
-      
-      for (const { env, expectedDays } of environments) {
-        // Arrange
-        jest.clearAllMocks();
-        
-        const config: LoggerConfig = {
-          transports: [
-            { 
-              type: TransportType.CLOUDWATCH, 
-              logGroupName: 'test-group',
-            },
-          ],
-        };
-        
-        // Mock ConfigService to return specific environment
-        (configService.get as jest.Mock).mockImplementation((key: string) => {
-          const config: Record<string, any> = {
-            'NODE_ENV': env,
-            'APP_NAME': 'test-app',
-            'SERVICE_NAME': 'test-service',
-            'AWS_REGION': 'us-east-1',
-            'AWS_ACCESS_KEY_ID': 'test-key-id',
-            'AWS_SECRET_ACCESS_KEY': 'test-secret-key',
-            'INSTANCE_ID': 'test-instance',
-          };
-          return config[key];
-        });
-        
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(1);
+      expect(MockConsoleTransport.instances).toHaveLength(1);
+      expect(MockConsoleTransport.instances[0].config).toEqual(configs[0]);
+      expect(MockConsoleTransport.instances[0].initialized).toBe(true);
+    });
+
+    it('should create file transport with correct configuration', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.FILE,
+          filename: 'test.log',
+          maxSize: '10m',
+          maxFiles: 5,
+        },
+      ];
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(1);
+      expect(MockFileTransport.instances).toHaveLength(1);
+      expect(MockFileTransport.instances[0].config).toEqual(configs[0]);
+      expect(MockFileTransport.instances[0].initialized).toBe(true);
+    });
+
+    it('should create cloudwatch transport with correct configuration', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CLOUDWATCH,
+          logGroupName: '/austa/test',
+          logStreamName: 'test-stream',
+          awsRegion: 'us-east-1',
+        },
+      ];
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(1);
+      expect(MockCloudWatchTransport.instances).toHaveLength(1);
+      expect(MockCloudWatchTransport.instances[0].config).toEqual(configs[0]);
+      expect(MockCloudWatchTransport.instances[0].initialized).toBe(true);
+    });
+
+    it('should create multiple transports from configuration', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          colorize: true,
+        },
+        {
+          type: TransportType.FILE,
+          filename: 'test.log',
+        },
+        {
+          type: TransportType.CLOUDWATCH,
+          logGroupName: '/austa/test',
+          logStreamName: 'test-stream',
+        },
+      ];
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(3);
+      expect(MockConsoleTransport.instances).toHaveLength(1);
+      expect(MockFileTransport.instances).toHaveLength(1);
+      expect(MockCloudWatchTransport.instances).toHaveLength(1);
+    });
+
+    it('should skip disabled transports', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          enabled: false,
+        },
+        {
+          type: TransportType.FILE,
+          filename: 'test.log',
+          enabled: true,
+        },
+      ];
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(1);
+      expect(MockConsoleTransport.instances).toHaveLength(0);
+      expect(MockFileTransport.instances).toHaveLength(1);
+    });
+
+    it('should throw error if no valid transports could be created', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          enabled: false,
+        },
+        {
+          type: TransportType.FILE,
+          enabled: false,
+          filename: 'test.log',
+        },
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs, formatters))
+        .rejects
+        .toThrow('No valid transports could be created from the provided configuration');
+    });
+
+    it('should throw error if configs is not a valid array', async () => {
+      // Act & Assert
+      await expect(transportFactory.createTransports(null as any, formatters))
+        .rejects
+        .toThrow('Invalid transport configuration: configs must be a non-empty array');
+
+      await expect(transportFactory.createTransports([] as any[], formatters))
+        .rejects
+        .toThrow('Invalid transport configuration: configs must be a non-empty array');
+
+      await expect(transportFactory.createTransports({} as any, formatters))
+        .rejects
+        .toThrow('Invalid transport configuration: configs must be a non-empty array');
+    });
+
+    it('should throw error if formatters is not a valid map', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+        },
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs, null as any))
+        .rejects
+        .toThrow('Invalid formatters: formatters must be a non-empty Map');
+
+      await expect(transportFactory.createTransports(configs, new Map()))
+        .rejects
+        .toThrow('Invalid formatters: formatters must be a non-empty Map');
+
+      await expect(transportFactory.createTransports(configs, {} as any))
+        .rejects
+        .toThrow('Invalid formatters: formatters must be a non-empty Map');
+    });
+
+    it('should validate file transport configuration', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.FILE,
+          // Missing filename
+        } as any,
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs, formatters))
+        .rejects
+        .toThrow('File transport configuration must specify a filename');
+    });
+
+    it('should validate cloudwatch transport configuration', async () => {
+      // Arrange - missing logGroupName
+      const configs1: AnyTransportConfig[] = [
+        {
+          type: TransportType.CLOUDWATCH,
+          logStreamName: 'test-stream',
+        } as any,
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs1, formatters))
+        .rejects
+        .toThrow('CloudWatch transport configuration must specify a logGroupName');
+
+      // Arrange - missing logStreamName
+      const configs2: AnyTransportConfig[] = [
+        {
+          type: TransportType.CLOUDWATCH,
+          logGroupName: '/austa/test',
+        } as any,
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs2, formatters))
+        .rejects
+        .toThrow('CloudWatch transport configuration must specify a logStreamName');
+    });
+
+    it('should throw error for unsupported transport type', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: 'unsupported' as any,
+        },
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs, formatters))
+        .rejects
+        .toThrow('Unsupported transport type: unsupported');
+    });
+
+    it('should continue creating other transports if one fails', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.FILE,
+          // Missing filename, will cause validation error
+        } as any,
+        {
+          type: TransportType.CONSOLE,
+          colorize: true,
+        },
+      ];
+
+      // Mock console.error to prevent test output pollution
+      const originalConsoleError = console.error;
+      console.error = jest.fn();
+
+      try {
         // Act
-        const transports = transportFactory.createTransports(config);
-        
+        const transports = await transportFactory.createTransports(configs, formatters);
+
         // Assert
         expect(transports).toHaveLength(1);
-        expect(CloudWatchTransport).toHaveBeenCalledWith(expect.objectContaining({
-          retentionInDays: expectedDays,
-        }));
+        expect(MockConsoleTransport.instances).toHaveLength(1);
+        expect(MockFileTransport.instances).toHaveLength(0);
+        expect(console.error).toHaveBeenCalled();
+      } finally {
+        // Restore console.error
+        console.error = originalConsoleError;
+      }
+    });
+  });
+
+  describe('getFormatter', () => {
+    it('should select text formatter for console transport in development', async () => {
+      // Arrange
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'development';
+
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+        },
+      ];
+
+      try {
+        // Act
+        const transports = await transportFactory.createTransports(configs, formatters);
+
+        // Assert
+        expect(transports).toHaveLength(1);
+        expect(MockConsoleTransport.instances[0].formatter).toBeInstanceOf(MockTextFormatter);
+      } finally {
+        // Restore NODE_ENV
+        process.env.NODE_ENV = originalNodeEnv;
       }
     });
 
-    it('should use retention days from config if provided', () => {
+    it('should select json formatter for console transport in production', async () => {
       // Arrange
-      const config: LoggerConfig = {
-        transports: [
-          { 
-            type: TransportType.CLOUDWATCH, 
-            logGroupName: 'test-group',
-            retentionInDays: 180,
-          },
-        ],
-      };
-      
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+        },
+      ];
+
+      try {
+        // Act
+        const transports = await transportFactory.createTransports(configs, formatters);
+
+        // Assert
+        expect(transports).toHaveLength(1);
+        expect(MockConsoleTransport.instances[0].formatter).toBeInstanceOf(MockJsonFormatter);
+      } finally {
+        // Restore NODE_ENV
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    });
+
+    it('should select cloudwatch formatter for cloudwatch transport', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CLOUDWATCH,
+          logGroupName: '/austa/test',
+          logStreamName: 'test-stream',
+        },
+      ];
+
       // Act
-      const transports = transportFactory.createTransports(config);
-      
+      const transports = await transportFactory.createTransports(configs, formatters);
+
       // Assert
       expect(transports).toHaveLength(1);
-      expect(CloudWatchTransport).toHaveBeenCalledWith(expect.objectContaining({
-        retentionInDays: 180,
-      }));
+      expect(MockCloudWatchTransport.instances[0].formatter).toBeInstanceOf(MockCloudWatchFormatter);
+    });
+
+    it('should use formatter specified in config', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          formatter: 'json',
+        },
+      ];
+
+      // Act
+      const transports = await transportFactory.createTransports(configs, formatters);
+
+      // Assert
+      expect(transports).toHaveLength(1);
+      expect(MockConsoleTransport.instances[0].formatter).toBeInstanceOf(MockJsonFormatter);
+    });
+
+    it('should throw error if formatter not found', async () => {
+      // Arrange
+      const configs: AnyTransportConfig[] = [
+        {
+          type: TransportType.CONSOLE,
+          formatter: 'nonexistent',
+        },
+      ];
+
+      // Act & Assert
+      await expect(transportFactory.createTransports(configs, formatters))
+        .rejects
+        .toThrow('Formatter not found: nonexistent');
+    });
+  });
+
+  describe('createDefaultTransportConfigs', () => {
+    it('should create console and file transports for development environment', () => {
+      // Act
+      const configs = TransportFactory.createDefaultTransportConfigs('development', 'test-service');
+
+      // Assert
+      expect(configs).toHaveLength(2);
+      
+      // Verify console transport
+      const consoleTransport = configs.find(c => c.type === TransportType.CONSOLE);
+      expect(consoleTransport).toBeDefined();
+      expect(consoleTransport!.enabled).toBe(true);
+      expect(consoleTransport!.formatter).toBe('text');
+      expect((consoleTransport as any).colorize).toBe(true);
+      expect((consoleTransport as any).prettyPrint).toBe(true);
+
+      // Verify file transport
+      const fileTransport = configs.find(c => c.type === TransportType.FILE);
+      expect(fileTransport).toBeDefined();
+      expect(fileTransport!.enabled).toBe(true);
+      expect(fileTransport!.formatter).toBe('json');
+      expect((fileTransport as any).filename).toBe('test-service.log');
+    });
+
+    it('should create console, file, and cloudwatch transports for production environment', () => {
+      // Act
+      const configs = TransportFactory.createDefaultTransportConfigs('production', 'test-service');
+
+      // Assert
+      expect(configs).toHaveLength(3);
+      
+      // Verify console transport
+      const consoleTransport = configs.find(c => c.type === TransportType.CONSOLE);
+      expect(consoleTransport).toBeDefined();
+      expect(consoleTransport!.enabled).toBe(true);
+      expect(consoleTransport!.formatter).toBe('json');
+      expect((consoleTransport as any).colorize).toBe(false);
+      expect((consoleTransport as any).prettyPrint).toBe(false);
+
+      // Verify file transport
+      const fileTransport = configs.find(c => c.type === TransportType.FILE);
+      expect(fileTransport).toBeDefined();
+      expect(fileTransport!.enabled).toBe(true);
+      expect(fileTransport!.formatter).toBe('json');
+
+      // Verify cloudwatch transport
+      const cloudwatchTransport = configs.find(c => c.type === TransportType.CLOUDWATCH);
+      expect(cloudwatchTransport).toBeDefined();
+      expect(cloudwatchTransport!.enabled).toBe(true);
+      expect(cloudwatchTransport!.formatter).toBe('cloudwatch');
+      expect((cloudwatchTransport as any).logGroupName).toBe('/austa/test-service');
+      expect((cloudwatchTransport as any).awsRegion).toBeDefined();
+    });
+
+    it('should use AWS_REGION environment variable for cloudwatch transport if available', () => {
+      // Arrange
+      const originalAwsRegion = process.env.AWS_REGION;
+      process.env.AWS_REGION = 'eu-west-1';
+
+      try {
+        // Act
+        const configs = TransportFactory.createDefaultTransportConfigs('production', 'test-service');
+
+        // Assert
+        const cloudwatchTransport = configs.find(c => c.type === TransportType.CLOUDWATCH);
+        expect(cloudwatchTransport).toBeDefined();
+        expect((cloudwatchTransport as any).awsRegion).toBe('eu-west-1');
+      } finally {
+        // Restore AWS_REGION
+        process.env.AWS_REGION = originalAwsRegion;
+      }
     });
   });
 });

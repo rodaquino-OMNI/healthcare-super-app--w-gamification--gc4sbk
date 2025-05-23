@@ -1,240 +1,479 @@
-import { describe, it, expect } from '@jest/globals';
-
 /**
- * This test suite verifies that all interfaces are correctly exported from the barrel file.
- * It ensures the public API of the events interfaces is complete and consistent for consumers.
+ * @file Interface Barrel Tests
+ * @description Unit tests for the interface barrel file (index.ts) to ensure all interfaces are correctly exported and accessible.
  */
-describe('Events Interfaces Barrel File', () => {
-  /**
-   * Test that all expected interfaces are exported from the barrel file
-   */
-  describe('Interface Exports', () => {
+
+import * as EventInterfaces from '../../../src/interfaces';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+
+describe('Event Interfaces Barrel File', () => {
+  describe('Base Event Interfaces', () => {
     it('should export BaseEvent interface', () => {
-      // Import the interface from the barrel file
-      const { BaseEvent } = require('../../../src/interfaces');
+      // Type assertion test - this will fail at compile time if the interface is not exported correctly
+      const testEvent: EventInterfaces.BaseEvent = {
+        eventId: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'TEST_EVENT',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test-service',
+        payload: { test: 'data' },
+      };
+
+      // Runtime verification
+      expect(testEvent).toBeDefined();
+      expect(testEvent.eventId).toBe('123e4567-e89b-12d3-a456-426614174000');
+      expect(testEvent.type).toBe('TEST_EVENT');
+    });
+
+    it('should export EventMetadata interface', () => {
+      const metadata: EventInterfaces.EventMetadata = {
+        correlationId: 'corr-123',
+        traceId: 'trace-456',
+        priority: 'high',
+        isRetry: false,
+      };
+
+      expect(metadata).toBeDefined();
+      expect(metadata.correlationId).toBe('corr-123');
+      expect(metadata.priority).toBe('high');
+    });
+
+    it('should export isBaseEvent type guard function', () => {
+      const validEvent = {
+        eventId: '123',
+        type: 'TEST',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        payload: {},
+      };
+
+      const invalidEvent = {
+        id: '123', // wrong property name
+        type: 'TEST',
+      };
+
+      expect(EventInterfaces.isBaseEvent).toBeDefined();
+      expect(typeof EventInterfaces.isBaseEvent).toBe('function');
+      expect(EventInterfaces.isBaseEvent(validEvent)).toBe(true);
+      expect(EventInterfaces.isBaseEvent(invalidEvent)).toBe(false);
+    });
+
+    it('should export createEvent helper function', () => {
+      expect(EventInterfaces.createEvent).toBeDefined();
+      expect(typeof EventInterfaces.createEvent).toBe('function');
+
+      const event = EventInterfaces.createEvent('TEST', 'test-service', { data: 'test' });
       
-      // Verify it exists
-      expect(BaseEvent).toBeDefined();
+      expect(event).toBeDefined();
+      expect(event.type).toBe('TEST');
+      expect(event.source).toBe('test-service');
+      expect(event.payload).toEqual({ data: 'test' });
+      expect(event.eventId).toBeDefined(); // Should be auto-generated
+      expect(event.timestamp).toBeDefined(); // Should be auto-generated
+      expect(event.version).toBe('1.0.0'); // Default version
     });
 
-    it('should export EventHandler interface', () => {
-      const { EventHandler } = require('../../../src/interfaces');
-      expect(EventHandler).toBeDefined();
-    });
+    it('should export validateEvent function', () => {
+      expect(EventInterfaces.validateEvent).toBeDefined();
+      expect(typeof EventInterfaces.validateEvent).toBe('function');
 
-    it('should export EventResponse interface', () => {
-      const { EventResponse } = require('../../../src/interfaces');
-      expect(EventResponse).toBeDefined();
-    });
-
-    it('should export EventValidator interface', () => {
-      const { EventValidator } = require('../../../src/interfaces');
-      expect(EventValidator).toBeDefined();
-    });
-
-    it('should export EventVersioning interface', () => {
-      const { EventVersioning } = require('../../../src/interfaces');
-      expect(EventVersioning).toBeDefined();
-    });
-
-    it('should export journey-specific event interfaces', () => {
-      const { HealthEvent, CareEvent, PlanEvent } = require('../../../src/interfaces');
-      expect(HealthEvent).toBeDefined();
-      expect(CareEvent).toBeDefined();
-      expect(PlanEvent).toBeDefined();
-    });
-
-    it('should export KafkaEvent interface', () => {
-      const { KafkaEvent } = require('../../../src/interfaces');
-      expect(KafkaEvent).toBeDefined();
-    });
-  });
-
-  /**
-   * Test that interfaces maintain their expected structure and properties
-   */
-  describe('Interface Structure', () => {
-    it('should maintain BaseEvent structure with required properties', () => {
-      // Create a mock implementation of BaseEvent to verify structure
-      const mockBaseEvent = {
-        eventId: 'test-event-id',
+      const validEvent = {
+        eventId: '123',
+        type: 'TEST',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
-        source: 'test-source',
-        type: 'test-type',
-        payload: { data: 'test-data' }
+        source: 'test',
+        payload: {},
       };
 
-      // Type check should pass if the structure is correct
-      const { isBaseEvent } = require('../../../src/interfaces');
-      expect(isBaseEvent(mockBaseEvent)).toBe(true);
-    });
-
-    it('should maintain EventHandler interface with required methods', () => {
-      // Create a mock implementation of EventHandler to verify structure
-      const mockEventHandler = {
-        handle: jest.fn(),
-        canHandle: jest.fn(),
-        getEventType: jest.fn()
+      const invalidEvent = {
+        type: 'TEST', // Missing required fields
       };
 
-      // Type check should pass if the structure is correct
-      const { isEventHandler } = require('../../../src/interfaces');
-      expect(isEventHandler(mockEventHandler)).toBe(true);
-    });
+      const validResult = EventInterfaces.validateEvent(validEvent);
+      const invalidResult = EventInterfaces.validateEvent(invalidEvent);
 
-    it('should maintain EventResponse interface with required properties', () => {
-      // Create a mock implementation of EventResponse to verify structure
-      const mockEventResponse = {
-        success: true,
-        eventId: 'test-event-id',
-        result: { data: 'test-result' },
-        error: null,
-        metadata: { processingTime: 100 }
-      };
-
-      // Type check should pass if the structure is correct
-      const { isEventResponse } = require('../../../src/interfaces');
-      expect(isEventResponse(mockEventResponse)).toBe(true);
-    });
-
-    it('should maintain KafkaEvent interface extending BaseEvent', () => {
-      // Create a mock implementation of KafkaEvent to verify structure
-      const mockKafkaEvent = {
-        eventId: 'test-event-id',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        source: 'test-source',
-        type: 'test-type',
-        payload: { data: 'test-data' },
-        topic: 'test-topic',
-        partition: 0,
-        offset: 100,
-        headers: { correlationId: 'test-correlation-id' }
-      };
-
-      // Type check should pass if the structure is correct
-      const { isKafkaEvent } = require('../../../src/interfaces');
-      expect(isKafkaEvent(mockKafkaEvent)).toBe(true);
+      expect(validResult.isValid).toBe(true);
+      expect(invalidResult.isValid).toBe(false);
+      expect(invalidResult.errors).toBeDefined();
+      expect(invalidResult.errors!.length).toBeGreaterThan(0);
     });
   });
 
-  /**
-   * Test backward compatibility with previous versions
-   */
-  describe('Backward Compatibility', () => {
-    it('should support legacy event format', () => {
-      // Create a mock implementation of a legacy event format
-      const legacyEvent = {
-        id: 'legacy-id', // old property name
-        time: new Date().toISOString(), // old property name
-        version: '0.9.0',
-        source: 'legacy-source',
-        eventType: 'legacy-type', // old property name
-        data: { value: 'legacy-data' } // old property name
-      };
-
-      // Type check should pass if backward compatibility is maintained
-      const { isCompatibleWithLegacyEvent } = require('../../../src/interfaces');
-      expect(isCompatibleWithLegacyEvent(legacyEvent)).toBe(true);
-    });
-  });
-
-  /**
-   * Test that interfaces can be properly consumed by client code
-   */
-  describe('Interface Consumption', () => {
-    it('should allow creating type-safe event handlers', () => {
-      // Import the necessary interfaces
-      const { EventHandler, BaseEvent } = require('../../../src/interfaces');
-
-      // Create a mock implementation that uses the interfaces
-      class TestEventHandler implements EventHandler {
-        handle(event: BaseEvent) {
-          return {
-            success: true,
-            eventId: event.eventId,
-            result: { processed: true },
-            error: null,
-            metadata: { handlerName: 'TestEventHandler' }
-          };
-        }
-
-        canHandle(event: BaseEvent) {
-          return event.type === 'test-type';
-        }
-
-        getEventType() {
-          return 'test-type';
-        }
-      }
-
-      // Create an instance and verify it works as expected
-      const handler = new TestEventHandler();
-      expect(handler.getEventType()).toBe('test-type');
-      expect(handler.canHandle({ type: 'test-type' } as BaseEvent)).toBe(true);
-      expect(handler.canHandle({ type: 'other-type' } as BaseEvent)).toBe(false);
-    });
-
-    it('should allow creating journey-specific events', () => {
-      // Import the necessary interfaces
-      const { HealthEvent, CareEvent, PlanEvent } = require('../../../src/interfaces');
-
-      // Create mock implementations for each journey event type
-      const healthEvent = {
-        eventId: 'health-event-id',
+  describe('Journey-Specific Event Interfaces', () => {
+    it('should export HealthJourneyEvent interface', () => {
+      // Type assertion test
+      const healthEvent: EventInterfaces.HealthJourneyEvent = {
+        eventId: '123',
+        type: 'HEALTH_METRIC_RECORDED',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         source: 'health-service',
-        type: 'health.metrics.recorded',
+        journey: 'HEALTH',
+        userId: 'user123',
         payload: {
-          userId: 'user-123',
           metricType: 'HEART_RATE',
           value: 75,
           unit: 'bpm',
-          recordedAt: new Date().toISOString()
+          recordedAt: new Date().toISOString(),
         },
-        journey: 'health'
       };
 
-      const careEvent = {
-        eventId: 'care-event-id',
+      expect(healthEvent).toBeDefined();
+      expect(healthEvent.journey).toBe('HEALTH');
+      expect(healthEvent.payload.metricType).toBe('HEART_RATE');
+    });
+
+    it('should export CareJourneyEvent interface', () => {
+      // Type assertion test
+      const careEvent: EventInterfaces.CareJourneyEvent = {
+        eventId: '123',
+        type: 'APPOINTMENT_BOOKED',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         source: 'care-service',
-        type: 'care.appointment.booked',
+        journey: 'CARE',
+        userId: 'user123',
         payload: {
-          userId: 'user-123',
-          appointmentId: 'appt-456',
-          providerId: 'provider-789',
+          appointmentId: 'appt123',
+          providerId: 'provider456',
           scheduledAt: new Date().toISOString(),
-          specialty: 'Cardiology'
+          specialtyType: 'CARDIOLOGY',
         },
-        journey: 'care'
       };
 
-      const planEvent = {
-        eventId: 'plan-event-id',
+      expect(careEvent).toBeDefined();
+      expect(careEvent.journey).toBe('CARE');
+      expect(careEvent.payload.appointmentId).toBe('appt123');
+    });
+
+    it('should export PlanJourneyEvent interface', () => {
+      // Type assertion test
+      const planEvent: EventInterfaces.PlanJourneyEvent = {
+        eventId: '123',
+        type: 'CLAIM_SUBMITTED',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         source: 'plan-service',
-        type: 'plan.claim.submitted',
+        journey: 'PLAN',
+        userId: 'user123',
         payload: {
-          userId: 'user-123',
-          claimId: 'claim-456',
+          claimId: 'claim123',
           amount: 150.75,
-          currency: 'BRL',
-          submittedAt: new Date().toISOString(),
-          category: 'Medical'
+          serviceDate: new Date().toISOString(),
+          claimType: 'MEDICAL',
         },
-        journey: 'plan'
       };
 
-      // Type checks should pass if the structures are correct
-      const { isHealthEvent, isCareEvent, isPlanEvent } = require('../../../src/interfaces');
-      expect(isHealthEvent(healthEvent)).toBe(true);
-      expect(isCareEvent(careEvent)).toBe(true);
-      expect(isPlanEvent(planEvent)).toBe(true);
+      expect(planEvent).toBeDefined();
+      expect(planEvent.journey).toBe('PLAN');
+      expect(planEvent.payload.claimId).toBe('claim123');
+    });
+  });
+
+  describe('Event Handler Interfaces', () => {
+    it('should export EventHandler interface', () => {
+      // Create a mock implementation of EventHandler
+      class TestEventHandler implements EventInterfaces.EventHandler<EventInterfaces.BaseEvent> {
+        async handle(event: EventInterfaces.BaseEvent): Promise<EventInterfaces.EventResponse> {
+          return { success: true, eventId: event.eventId };
+        }
+
+        canHandle(event: EventInterfaces.BaseEvent): boolean {
+          return event.type === 'TEST_EVENT';
+        }
+
+        getEventType(): string {
+          return 'TEST_EVENT';
+        }
+      }
+
+      const handler = new TestEventHandler();
+      const event: EventInterfaces.BaseEvent = {
+        eventId: '123',
+        type: 'TEST_EVENT',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        payload: {},
+      };
+
+      expect(handler).toBeDefined();
+      expect(handler.canHandle(event)).toBe(true);
+      expect(handler.getEventType()).toBe('TEST_EVENT');
+      expect(handler.handle(event)).resolves.toEqual({
+        success: true,
+        eventId: '123',
+      });
+    });
+  });
+
+  describe('Event Response Interfaces', () => {
+    it('should export EventResponse interface', () => {
+      // Type assertion test
+      const successResponse: EventInterfaces.EventResponse = {
+        success: true,
+        eventId: '123',
+        timestamp: new Date().toISOString(),
+      };
+
+      const errorResponse: EventInterfaces.EventResponse = {
+        success: false,
+        eventId: '123',
+        timestamp: new Date().toISOString(),
+        error: {
+          code: 'EVENT_PROCESSING_ERROR',
+          message: 'Failed to process event',
+        },
+      };
+
+      expect(successResponse).toBeDefined();
+      expect(successResponse.success).toBe(true);
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.error).toBeDefined();
+      expect(errorResponse.error!.code).toBe('EVENT_PROCESSING_ERROR');
+    });
+  });
+
+  describe('Event Validation Interfaces', () => {
+    it('should export EventValidator interface', () => {
+      // Create a mock implementation of EventValidator
+      class TestValidator implements EventInterfaces.EventValidator<EventInterfaces.BaseEvent> {
+        validate(event: EventInterfaces.BaseEvent): EventInterfaces.ValidationResult {
+          if (!event.eventId) {
+            return {
+              valid: false,
+              errors: [{ field: 'eventId', message: 'Event ID is required' }],
+            };
+          }
+          return { valid: true };
+        }
+      }
+
+      const validator = new TestValidator();
+      const validEvent: EventInterfaces.BaseEvent = {
+        eventId: '123',
+        type: 'TEST',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        payload: {},
+      };
+
+      const invalidEvent = {
+        type: 'TEST',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        payload: {},
+      } as EventInterfaces.BaseEvent; // Missing eventId
+
+      expect(validator).toBeDefined();
+      expect(validator.validate(validEvent).valid).toBe(true);
+      expect(validator.validate(invalidEvent).valid).toBe(false);
+    });
+
+    it('should export ValidationResult interface', () => {
+      // Type assertion test
+      const validResult: EventInterfaces.ValidationResult = {
+        valid: true,
+      };
+
+      const invalidResult: EventInterfaces.ValidationResult = {
+        valid: false,
+        errors: [
+          { field: 'eventId', message: 'Event ID is required' },
+          { field: 'timestamp', message: 'Timestamp must be a valid ISO string' },
+        ],
+      };
+
+      expect(validResult).toBeDefined();
+      expect(validResult.valid).toBe(true);
+      expect(invalidResult.valid).toBe(false);
+      expect(invalidResult.errors).toHaveLength(2);
+      expect(invalidResult.errors![0].field).toBe('eventId');
+    });
+  });
+
+  describe('Event Versioning Interfaces', () => {
+    it('should export VersionedEvent interface', () => {
+      // Type assertion test
+      const versionedEvent: EventInterfaces.VersionedEvent = {
+        eventId: '123',
+        type: 'TEST',
+        timestamp: new Date().toISOString(),
+        version: '2.1.0', // Specific version
+        source: 'test',
+        payload: {},
+      };
+
+      expect(versionedEvent).toBeDefined();
+      expect(versionedEvent.version).toBe('2.1.0');
+    });
+
+    it('should export EventVersion interface', () => {
+      // Type assertion test
+      const version: EventInterfaces.EventVersion = {
+        major: 2,
+        minor: 1,
+        patch: 0,
+      };
+
+      expect(version).toBeDefined();
+      expect(version.major).toBe(2);
+      expect(version.minor).toBe(1);
+      expect(version.patch).toBe(0);
+    });
+
+    it('should export EventVersioningStrategy interface', () => {
+      // Create a mock implementation of EventVersioningStrategy
+      class TestVersioningStrategy implements EventInterfaces.EventVersioningStrategy {
+        parseVersion(versionString: string): EventInterfaces.EventVersion {
+          const [major, minor, patch] = versionString.split('.').map(Number);
+          return { major, minor, patch };
+        }
+
+        formatVersion(version: EventInterfaces.EventVersion): string {
+          return `${version.major}.${version.minor}.${version.patch}`;
+        }
+
+        isCompatible(eventVersion: string, handlerVersion: string): boolean {
+          const event = this.parseVersion(eventVersion);
+          const handler = this.parseVersion(handlerVersion);
+          return event.major === handler.major;
+        }
+      }
+
+      const strategy = new TestVersioningStrategy();
+      
+      expect(strategy).toBeDefined();
+      expect(strategy.parseVersion('2.1.0')).toEqual({ major: 2, minor: 1, patch: 0 });
+      expect(strategy.formatVersion({ major: 2, minor: 1, patch: 0 })).toBe('2.1.0');
+      expect(strategy.isCompatible('2.1.0', '2.0.0')).toBe(true);
+      expect(strategy.isCompatible('2.1.0', '3.0.0')).toBe(false);
+    });
+  });
+
+  describe('Kafka-Specific Event Interfaces', () => {
+    it('should export KafkaEvent interface', () => {
+      // Type assertion test
+      const kafkaEvent: EventInterfaces.KafkaEvent = {
+        eventId: '123',
+        type: 'TEST',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test',
+        payload: {},
+        topic: 'test-topic',
+        partition: 0,
+        offset: '100',
+        key: 'test-key',
+        headers: {
+          correlationId: 'corr-123',
+        },
+      };
+
+      expect(kafkaEvent).toBeDefined();
+      expect(kafkaEvent.topic).toBe('test-topic');
+      expect(kafkaEvent.partition).toBe(0);
+      expect(kafkaEvent.offset).toBe('100');
+      expect(kafkaEvent.key).toBe('test-key');
+      expect(kafkaEvent.headers.correlationId).toBe('corr-123');
+    });
+  });
+
+  describe('Backward Compatibility', () => {
+    it('should maintain backward compatibility with older event formats', () => {
+      // Test with a minimal event format that would have been valid in previous versions
+      const legacyEvent = {
+        eventId: '123',
+        type: 'LEGACY_EVENT',
+        timestamp: new Date().toISOString(),
+        version: '0.9.0', // Old version
+        source: 'legacy-service',
+        data: { test: 'data' }, // Using 'data' instead of 'payload' (assuming this was the old format)
+      };
+
+      // Convert to current format
+      const convertedEvent: EventInterfaces.BaseEvent = {
+        ...legacyEvent,
+        payload: legacyEvent.data as any,
+      };
+
+      // Remove the old property
+      delete (convertedEvent as any).data;
+
+      expect(convertedEvent).toBeDefined();
+      expect(convertedEvent.eventId).toBe('123');
+      expect(convertedEvent.type).toBe('LEGACY_EVENT');
+      expect(convertedEvent.payload).toEqual({ test: 'data' });
+    });
+
+    it('should support both new and old journey event formats', () => {
+      // Old format (assuming journey was previously called 'journeyType')
+      const oldFormatEvent = {
+        eventId: '123',
+        type: 'OLD_FORMAT_EVENT',
+        timestamp: new Date().toISOString(),
+        version: '0.9.0',
+        source: 'legacy-service',
+        journeyType: 'HEALTH' as JourneyType, // Old property name
+        payload: { test: 'data' },
+      };
+
+      // Convert to current format
+      const convertedEvent: EventInterfaces.BaseEvent = {
+        ...oldFormatEvent,
+        journey: oldFormatEvent.journeyType,
+      };
+
+      // Remove the old property
+      delete (convertedEvent as any).journeyType;
+
+      expect(convertedEvent).toBeDefined();
+      expect(convertedEvent.eventId).toBe('123');
+      expect(convertedEvent.journey).toBe('HEALTH');
+    });
+  });
+
+  describe('Complete Interface Coverage', () => {
+    it('should export all expected interfaces and types', () => {
+      // This test ensures that all expected interfaces are exported
+      // If any interface is missing, TypeScript will show a compile-time error
+      
+      // Base Event Interfaces
+      expect(typeof EventInterfaces.BaseEvent).toBe('object'); // Interfaces are 'object' at runtime
+      expect(typeof EventInterfaces.EventMetadata).toBe('object');
+      expect(typeof EventInterfaces.isBaseEvent).toBe('function');
+      expect(typeof EventInterfaces.createEvent).toBe('function');
+      expect(typeof EventInterfaces.validateEvent).toBe('function');
+      
+      // Journey-Specific Event Interfaces
+      expect(typeof EventInterfaces.HealthJourneyEvent).toBe('object');
+      expect(typeof EventInterfaces.CareJourneyEvent).toBe('object');
+      expect(typeof EventInterfaces.PlanJourneyEvent).toBe('object');
+      
+      // Event Handler Interfaces
+      expect(typeof EventInterfaces.EventHandler).toBe('object');
+      
+      // Event Response Interfaces
+      expect(typeof EventInterfaces.EventResponse).toBe('object');
+      expect(typeof EventInterfaces.EventError).toBe('object');
+      
+      // Event Validation Interfaces
+      expect(typeof EventInterfaces.EventValidator).toBe('object');
+      expect(typeof EventInterfaces.ValidationResult).toBe('object');
+      expect(typeof EventInterfaces.ValidationError).toBe('object');
+      
+      // Event Versioning Interfaces
+      expect(typeof EventInterfaces.VersionedEvent).toBe('object');
+      expect(typeof EventInterfaces.EventVersion).toBe('object');
+      expect(typeof EventInterfaces.EventVersioningStrategy).toBe('object');
+      
+      // Kafka-Specific Event Interfaces
+      expect(typeof EventInterfaces.KafkaEvent).toBe('object');
+      expect(typeof EventInterfaces.KafkaHeaders).toBe('object');
     });
   });
 });

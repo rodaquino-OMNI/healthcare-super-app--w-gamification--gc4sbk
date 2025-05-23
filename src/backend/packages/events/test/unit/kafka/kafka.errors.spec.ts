@@ -1,611 +1,593 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '@austa/logging';
-import { TracingService } from '@austa/tracing';
-import { KafkaService } from '../../../src/kafka/kafka.service';
-import { 
-  KafkaError, 
-  EventValidationError, 
-  ProducerError, 
-  ConsumerError, 
-  MessageSerializationError 
-} from '../../../src/errors/kafka.errors';
-import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY, HTTP_STATUS_CODES } from '../../../src/constants/errors.constants';
-import { TOPICS } from '../../../src/constants/topics.constants';
-
-// Mock dependencies
-const mockConfigService = {
-  get: jest.fn(),
-};
-
-const mockLoggerService = {
-  log: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
-  debug: jest.fn(),
-};
-
-const mockTracingService = {
-  createSpan: jest.fn((name, fn) => fn()),
-  getTraceHeaders: jest.fn(() => ({})),
-  getCurrentTraceId: jest.fn(() => 'mock-trace-id'),
-};
-
-// Mock Kafka client and components
-const mockProducer = {
-  connect: jest.fn(),
-  disconnect: jest.fn(),
-  send: jest.fn(),
-  sendBatch: jest.fn(),
-};
-
-const mockConsumer = {
-  connect: jest.fn(),
-  disconnect: jest.fn(),
-  subscribe: jest.fn(),
-  run: jest.fn(),
-};
-
-const mockKafka = {
-  producer: jest.fn(() => mockProducer),
-  consumer: jest.fn(() => mockConsumer),
-};
-
-// Mock kafkajs module
-jest.mock('kafkajs', () => {
-  return {
-    Kafka: jest.fn(() => mockKafka),
-    CompressionTypes: {
-      GZIP: 1,
-      None: 0,
-    },
-    logLevel: {
-      INFO: 4,
-      ERROR: 1,
-      WARN: 2,
-      DEBUG: 5,
-      NOTHING: 0,
-    },
-  };
-});
+import { ErrorCategory, JourneyType } from '@austa/errors';
+import {
+  KafkaError,
+  KafkaErrorType,
+  KafkaConnectionError,
+  KafkaBrokerUnavailableError,
+  KafkaAuthenticationError,
+  KafkaAuthorizationError,
+  KafkaProducerError,
+  KafkaMessageSerializationError,
+  KafkaTopicAuthorizationError,
+  KafkaTopicNotFoundError,
+  KafkaConsumerError,
+  KafkaMessageDeserializationError,
+  KafkaOffsetOutOfRangeError,
+  KafkaGroupAuthorizationError,
+  KafkaRebalanceError,
+  KafkaAdminError,
+  KafkaClusterAuthorizationError,
+  KafkaTimeoutError,
+  KafkaUnknownError,
+  KafkaCircuitBreaker,
+  CircuitState,
+  createKafkaError,
+  isRetryableKafkaError,
+  getKafkaErrorRetryDelay,
+  createKafkaDlqEntry,
+  KAFKA_ERROR_CATEGORY_MAP,
+  RETRYABLE_KAFKA_ERRORS,
+  KafkaErrorContext
+} from '../../../src/kafka/kafka.errors';
 
 describe('Kafka Error Handling', () => {
-  let kafkaService: KafkaService;
-
-  beforeEach(async () => {
-    jest.clearAllMocks();
-
-    // Configure default mock responses
-    mockConfigService.get.mockImplementation((key, defaultValue) => {
-      const config = {
-        'service.name': 'test-service',
-        'kafka.brokers': 'localhost:9092',
-        'kafka.clientId': 'test-client',
-        'kafka.retry.initialRetryTime': 300,
-        'kafka.retry.retries': 10,
-        'kafka.retry.factor': 2,
-        'kafka.retry.maxRetryTime': 30000,
-        'kafka.deadLetterTopic': TOPICS.DEAD_LETTER,
-        'kafka.groupId': 'test-consumer-group',
-        'kafka.ssl': false,
-        'kafka.maxRetries': 3,
+  describe('KafkaError Base Class', () => {
+    it('should create a KafkaError with the correct properties', () => {
+      const message = 'Test error message';
+      const errorType = KafkaErrorType.CONNECTION_ERROR;
+      const context: KafkaErrorContext = {
+        topic: 'test-topic',
+        partition: 0,
+        clientId: 'test-client'
       };
-      return config[key] || defaultValue;
+      
+      const error = new KafkaError(message, errorType, context);
+      
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(KafkaError);
+      expect(error.message).toBe(message);
+      expect(error.kafkaErrorType).toBe(errorType);
+      expect(error.context).toEqual(expect.objectContaining({
+        kafkaErrorType: errorType,
+        topic: 'test-topic',
+        partition: 0,
+        clientId: 'test-client'
+      }));
+      expect(error.name).toBe('KafkaError');
     });
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        KafkaService,
-        { provide: ConfigService, useValue: mockConfigService },
-        { provide: LoggerService, useValue: mockLoggerService },
-        { provide: TracingService, useValue: mockTracingService },
-      ],
-    }).compile();
+    it('should correctly map error types to error categories', () => {
+      // Test a few representative error types
+      const connectionError = new KafkaError('Connection error', KafkaErrorType.CONNECTION_ERROR);
+      const authError = new KafkaError('Auth error', KafkaErrorType.AUTHENTICATION_ERROR);
+      const serializationError = new KafkaError('Serialization error', KafkaErrorType.MESSAGE_SERIALIZATION_ERROR);
+      
+      expect(connectionError.getErrorCategory()).toBe(ErrorCategory.TRANSIENT);
+      expect(authError.getErrorCategory()).toBe(ErrorCategory.SYSTEM);
+      expect(serializationError.getErrorCategory()).toBe(ErrorCategory.CLIENT);
+    });
 
-    kafkaService = module.get<KafkaService>(KafkaService);
+    it('should correctly identify retryable errors', () => {
+      const retryableError = new KafkaError('Retryable error', KafkaErrorType.CONNECTION_ERROR);
+      const nonRetryableError = new KafkaError('Non-retryable error', KafkaErrorType.AUTHENTICATION_ERROR);
+      
+      expect(retryableError.isRetryable()).toBe(true);
+      expect(nonRetryableError.isRetryable()).toBe(false);
+    });
+
+    it('should calculate retry delay with exponential backoff', () => {
+      const error = new KafkaError('Retryable error', KafkaErrorType.CONNECTION_ERROR);
+      
+      // Test increasing retry counts
+      const delay1 = error.getRetryDelay(1);
+      const delay2 = error.getRetryDelay(2);
+      const delay3 = error.getRetryDelay(3);
+      
+      // Verify exponential growth
+      expect(delay1).toBeGreaterThan(0);
+      expect(delay2).toBeGreaterThan(delay1);
+      expect(delay3).toBeGreaterThan(delay2);
+      
+      // Verify non-retryable errors return 0 delay
+      const nonRetryableError = new KafkaError('Non-retryable error', KafkaErrorType.AUTHENTICATION_ERROR);
+      expect(nonRetryableError.getRetryDelay(1)).toBe(0);
+    });
+
+    it('should create a valid DLQ entry', () => {
+      const error = new KafkaError('Test error', KafkaErrorType.CONNECTION_ERROR, {
+        topic: 'test-topic',
+        clientId: 'test-client'
+      });
+      
+      const messageKey = 'test-key';
+      const messageValue = { data: 'test-data' };
+      
+      const dlqEntry = error.toDlqEntry(messageKey, messageValue);
+      
+      expect(dlqEntry).toEqual(expect.objectContaining({
+        errorType: KafkaErrorType.CONNECTION_ERROR,
+        errorCategory: ErrorCategory.TRANSIENT,
+        errorMessage: 'Test error',
+        context: expect.objectContaining({
+          kafkaErrorType: KafkaErrorType.CONNECTION_ERROR,
+          topic: 'test-topic',
+          clientId: 'test-client'
+        }),
+        messageKey: 'test-key',
+        messageValue: JSON.stringify(messageValue),
+        timestamp: expect.any(String)
+      }));
+    });
   });
 
-  describe('Error Classification', () => {
-    it('should create a base KafkaError with correct properties', () => {
-      const message = 'Test error message';
-      const code = ERROR_CODES.PRODUCER_SEND_FAILED;
-      const context = { topic: 'test-topic', key: 'test-key' };
-      const cause = new Error('Original error');
-
-      const error = new KafkaError(message, code, context, cause);
-
-      expect(error).toBeInstanceOf(Error);
-      expect(error.name).toBe('KafkaError');
-      expect(error.message).toBe(message);
-      expect(error.code).toBe(code);
-      expect(error.context).toEqual(context);
-      expect(error.cause).toBe(cause);
-      expect(error.stack).toBeDefined();
+  describe('Specific Kafka Error Classes', () => {
+    it('should create connection-related error classes with correct types', () => {
+      const connectionError = new KafkaConnectionError('Connection error');
+      const brokerError = new KafkaBrokerUnavailableError('Broker unavailable');
+      const authError = new KafkaAuthenticationError('Authentication failed');
+      const authzError = new KafkaAuthorizationError('Authorization failed');
+      
+      expect(connectionError.kafkaErrorType).toBe(KafkaErrorType.CONNECTION_ERROR);
+      expect(brokerError.kafkaErrorType).toBe(KafkaErrorType.BROKER_UNAVAILABLE);
+      expect(authError.kafkaErrorType).toBe(KafkaErrorType.AUTHENTICATION_ERROR);
+      expect(authzError.kafkaErrorType).toBe(KafkaErrorType.AUTHORIZATION_ERROR);
     });
 
-    it('should create specialized error classes with correct inheritance', () => {
-      const message = 'Test error message';
-      const code = ERROR_CODES.SCHEMA_VALIDATION_FAILED;
-      const context = { topic: 'test-topic' };
-
-      const validationError = new EventValidationError(message, code, context);
-      const producerError = new ProducerError(message, code, context);
-      const consumerError = new ConsumerError(message, code, context);
-      const serializationError = new MessageSerializationError(message, code, context);
-
-      // Check inheritance
-      expect(validationError).toBeInstanceOf(KafkaError);
-      expect(producerError).toBeInstanceOf(KafkaError);
-      expect(consumerError).toBeInstanceOf(KafkaError);
-      expect(serializationError).toBeInstanceOf(KafkaError);
-
-      // Check specialized names
-      expect(validationError.name).toBe('EventValidationError');
-      expect(producerError.name).toBe('ProducerError');
-      expect(consumerError.name).toBe('ConsumerError');
-      expect(serializationError.name).toBe('MessageSerializationError');
-
-      // Check properties are preserved
-      expect(validationError.code).toBe(code);
-      expect(validationError.context).toEqual(context);
+    it('should create producer-related error classes with correct types', () => {
+      const producerError = new KafkaProducerError('Producer error');
+      const serializationError = new KafkaMessageSerializationError('Serialization error');
+      const topicAuthError = new KafkaTopicAuthorizationError('Topic authorization failed');
+      const topicNotFoundError = new KafkaTopicNotFoundError('Topic not found');
+      
+      expect(producerError.kafkaErrorType).toBe(KafkaErrorType.PRODUCER_ERROR);
+      expect(serializationError.kafkaErrorType).toBe(KafkaErrorType.MESSAGE_SERIALIZATION_ERROR);
+      expect(topicAuthError.kafkaErrorType).toBe(KafkaErrorType.TOPIC_AUTHORIZATION_ERROR);
+      expect(topicNotFoundError.kafkaErrorType).toBe(KafkaErrorType.TOPIC_NOT_FOUND);
     });
 
-    it('should map error codes to correct error messages', () => {
-      // Test a sample of error codes
-      const producerError = new KafkaError(
-        ERROR_MESSAGES[ERROR_CODES.PRODUCER_SEND_FAILED],
-        ERROR_CODES.PRODUCER_SEND_FAILED
-      );
-
-      const consumerError = new KafkaError(
-        ERROR_MESSAGES[ERROR_CODES.CONSUMER_PROCESSING_FAILED],
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED
-      );
-
-      const schemaError = new KafkaError(
-        ERROR_MESSAGES[ERROR_CODES.SCHEMA_VALIDATION_FAILED],
-        ERROR_CODES.SCHEMA_VALIDATION_FAILED
-      );
-
-      // Verify messages match the constants
-      expect(producerError.message).toBe('Failed to produce message to topic');
-      expect(consumerError.message).toBe('Failed to process message from topic');
-      expect(schemaError.message).toBe('Message failed schema validation');
+    it('should create consumer-related error classes with correct types', () => {
+      const consumerError = new KafkaConsumerError('Consumer error');
+      const deserializationError = new KafkaMessageDeserializationError('Deserialization error');
+      const offsetError = new KafkaOffsetOutOfRangeError('Offset out of range');
+      const groupAuthError = new KafkaGroupAuthorizationError('Group authorization failed');
+      const rebalanceError = new KafkaRebalanceError('Rebalance error');
+      
+      expect(consumerError.kafkaErrorType).toBe(KafkaErrorType.CONSUMER_ERROR);
+      expect(deserializationError.kafkaErrorType).toBe(KafkaErrorType.MESSAGE_DESERIALIZATION_ERROR);
+      expect(offsetError.kafkaErrorType).toBe(KafkaErrorType.OFFSET_OUT_OF_RANGE);
+      expect(groupAuthError.kafkaErrorType).toBe(KafkaErrorType.GROUP_AUTHORIZATION_ERROR);
+      expect(rebalanceError.kafkaErrorType).toBe(KafkaErrorType.REBALANCE_ERROR);
     });
 
-    it('should have correct severity levels for different error types', () => {
-      // Check severity levels for different error codes
-      expect(ERROR_SEVERITY[ERROR_CODES.INITIALIZATION_FAILED]).toBe('CRITICAL');
-      expect(ERROR_SEVERITY[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe('CRITICAL');
-      expect(ERROR_SEVERITY[ERROR_CODES.PRODUCER_SEND_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.DLQ_SEND_FAILED]).toBe('WARNING');
-      expect(ERROR_SEVERITY[ERROR_CODES.RETRY_EXHAUSTED]).toBe('WARNING');
+    it('should create admin-related error classes with correct types', () => {
+      const adminError = new KafkaAdminError('Admin error');
+      const clusterAuthError = new KafkaClusterAuthorizationError('Cluster authorization failed');
+      
+      expect(adminError.kafkaErrorType).toBe(KafkaErrorType.ADMIN_ERROR);
+      expect(clusterAuthError.kafkaErrorType).toBe(KafkaErrorType.CLUSTER_AUTHORIZATION_ERROR);
     });
 
-    it('should map error codes to appropriate HTTP status codes', () => {
-      // Check HTTP status codes for different error codes
-      expect(HTTP_STATUS_CODES[ERROR_CODES.INITIALIZATION_FAILED]).toBe(500);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe(503);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe(400);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.RETRY_EXHAUSTED]).toBe(503);
+    it('should create generic error classes with correct types', () => {
+      const timeoutError = new KafkaTimeoutError('Timeout error');
+      const unknownError = new KafkaUnknownError('Unknown error');
+      
+      expect(timeoutError.kafkaErrorType).toBe(KafkaErrorType.TIMEOUT_ERROR);
+      expect(unknownError.kafkaErrorType).toBe(KafkaErrorType.UNKNOWN_ERROR);
     });
   });
 
   describe('Error Context Enrichment', () => {
-    it('should enrich errors with operation context', () => {
-      const topic = 'test-topic';
-      const partition = 0;
-      const offset = '100';
-      const key = 'test-key';
-
-      const context = {
-        topic,
-        partition,
-        offset,
-        key,
-        serviceName: 'test-service',
+    it('should enrich error context with operation details', () => {
+      const context: KafkaErrorContext = {
+        topic: 'health-metrics',
+        partition: 3,
+        offset: '1000',
+        groupId: 'health-consumer-group',
+        clientId: 'health-service-client',
+        correlationId: 'corr-123',
+        retryCount: 2,
+        broker: 'kafka-broker-1:9092',
+        journey: JourneyType.HEALTH,
+        operation: 'publishHealthMetric',
+        component: 'HealthMetricsProducer'
       };
-
-      const error = new ConsumerError(
-        'Failed to process message',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        context
-      );
-
-      expect(error.context).toEqual(context);
-      expect(error.context.topic).toBe(topic);
-      expect(error.context.partition).toBe(partition);
-      expect(error.context.offset).toBe(offset);
-      expect(error.context.key).toBe(key);
-      expect(error.context.serviceName).toBe('test-service');
+      
+      const error = new KafkaProducerError('Failed to publish health metric', context);
+      
+      expect(error.context).toEqual(expect.objectContaining({
+        kafkaErrorType: KafkaErrorType.PRODUCER_ERROR,
+        topic: 'health-metrics',
+        partition: 3,
+        offset: '1000',
+        groupId: 'health-consumer-group',
+        clientId: 'health-service-client',
+        correlationId: 'corr-123',
+        retryCount: 2,
+        broker: 'kafka-broker-1:9092',
+        journey: JourneyType.HEALTH,
+        operation: 'publishHealthMetric',
+        component: 'HealthMetricsProducer'
+      }));
     });
 
-    it('should properly chain error causes', () => {
-      const originalError = new Error('Network error');
-      const intermediateError = new Error('Kafka client error');
-      intermediateError.cause = originalError;
-
-      const kafkaError = new KafkaError(
-        'Failed to produce message',
-        ERROR_CODES.PRODUCER_SEND_FAILED,
-        { topic: 'test-topic' },
-        intermediateError
-      );
-
-      expect(kafkaError.cause).toBe(intermediateError);
-      expect(kafkaError.cause.cause).toBe(originalError);
-    });
-
-    it('should capture stack traces', () => {
-      const error = new KafkaError(
-        'Test error',
-        ERROR_CODES.PRODUCER_SEND_FAILED
-      );
-
-      expect(error.stack).toBeDefined();
-      expect(error.stack).toContain('KafkaError');
-      expect(error.stack).toContain('kafka.errors.spec.ts'); // Should contain this test file
+    it('should include original message in error context when provided', () => {
+      const originalMessage = {
+        key: Buffer.from('test-key'),
+        value: Buffer.from(JSON.stringify({ data: 'test-data' })),
+        headers: { correlationId: Buffer.from('corr-123') },
+        timestamp: '1621234567890',
+        offset: '1000',
+        partition: 3,
+        topic: 'health-metrics'
+      };
+      
+      const context: KafkaErrorContext = {
+        originalMessage,
+        operation: 'consumeHealthMetric'
+      };
+      
+      const error = new KafkaConsumerError('Failed to process health metric', context);
+      
+      expect(error.context.originalMessage).toEqual(originalMessage);
     });
   });
 
   describe('Retry Policy Integration', () => {
-    it('should handle transient errors with retry', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer with a handler that throws a transient error
-      await kafkaService.consume(
-        'test-topic',
-        async () => {
-          throw new KafkaError(
-            'Temporary network issue',
-            ERROR_CODES.PRODUCER_SEND_FAILED,
-            { transient: true }
-          );
-        }
-      );
-
-      // Simulate message processing
-      const mockMessage = {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: {},
-        timestamp: '1630000000000',
-        offset: '0',
-      };
-
-      await capturedEachMessageHandler({
-        topic: 'test-topic',
-        partition: 0,
-        message: mockMessage,
-      });
-
-      // Verify message was retried (sent back to original topic)
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      expect(mockProducer.send.mock.calls[0][0].topic).toBe('test-topic');
-      expect(mockProducer.send.mock.calls[0][0].messages[0].headers).toHaveProperty('retry-count', Buffer.from('1'));
+    it('should correctly identify retryable Kafka error types', () => {
+      // Test all error types defined as retryable
+      for (const errorType of RETRYABLE_KAFKA_ERRORS) {
+        const error = new KafkaError('Test error', errorType);
+        expect(error.isRetryable()).toBe(true);
+      }
+      
+      // Test a few non-retryable error types
+      const nonRetryableTypes = [
+        KafkaErrorType.AUTHENTICATION_ERROR,
+        KafkaErrorType.AUTHORIZATION_ERROR,
+        KafkaErrorType.MESSAGE_SERIALIZATION_ERROR,
+        KafkaErrorType.TOPIC_NOT_FOUND
+      ];
+      
+      for (const errorType of nonRetryableTypes) {
+        const error = new KafkaError('Test error', errorType);
+        expect(error.isRetryable()).toBe(false);
+      }
     });
 
-    it('should handle permanent errors without retry', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer with a handler that throws a permanent error
-      await kafkaService.consume(
-        'test-topic',
-        async () => {
-          const error = new KafkaError(
-            'Permanent validation error',
-            ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            { permanent: true }
-          );
-          (error as any).permanent = true; // Mark as permanent
-          throw error;
-        }
-      );
-
-      // Simulate message processing
-      const mockMessage = {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: {},
-        timestamp: '1630000000000',
-        offset: '0',
-      };
-
-      await capturedEachMessageHandler({
-        topic: 'test-topic',
-        partition: 0,
-        message: mockMessage,
-      });
-
-      // Verify message was sent to DLQ instead of being retried
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      expect(mockProducer.send.mock.calls[0][0].topic).toBe(TOPICS.DEAD_LETTER);
-      expect(mockProducer.send.mock.calls[0][0].messages[0].headers).toHaveProperty('error-type');
+    it('should calculate appropriate retry delays based on retry count', () => {
+      const error = new KafkaConnectionError('Connection error');
+      
+      // Test retry delays for multiple attempts
+      const delays = [];
+      for (let i = 1; i <= 5; i++) {
+        delays.push(error.getRetryDelay(i));
+      }
+      
+      // Verify exponential growth pattern
+      for (let i = 1; i < delays.length; i++) {
+        expect(delays[i]).toBeGreaterThan(delays[i-1]);
+      }
+      
+      // Verify maximum delay cap
+      const maxDelay = error.getRetryDelay(15); // Very high retry count
+      expect(maxDelay).toBeLessThanOrEqual(30000); // 30 seconds max
     });
 
-    it('should respect max retry limits', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer
-      const maxRetries = 3;
-      await kafkaService.consume(
-        'test-topic',
-        async () => {
-          throw new Error('Processing failed');
-        },
-        { maxRetries }
-      );
-
-      // Simulate message with max retries already reached
-      const mockMessage = {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: { 'retry-count': Buffer.from(maxRetries.toString()) },
-        timestamp: '1630000000000',
-        offset: '0',
-      };
-
-      await capturedEachMessageHandler({
-        topic: 'test-topic',
-        partition: 0,
-        message: mockMessage,
-      });
-
-      // Verify message was sent to DLQ with max-retries-exceeded
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      expect(mockProducer.send.mock.calls[0][0].topic).toBe(TOPICS.DEAD_LETTER);
-      expect(mockProducer.send.mock.calls[0][0].messages[0].headers).toHaveProperty('error-type', Buffer.from('max-retries-exceeded'));
+    it('should integrate with helper functions for retry handling', () => {
+      // Test isRetryableKafkaError helper
+      const retryableError = new KafkaConnectionError('Connection error');
+      const nonRetryableError = new KafkaAuthenticationError('Auth error');
+      const regularError = new Error('Regular error');
+      
+      expect(isRetryableKafkaError(retryableError)).toBe(true);
+      expect(isRetryableKafkaError(nonRetryableError)).toBe(false);
+      expect(isRetryableKafkaError(regularError)).toBe(false); // Should create a KafkaUnknownError internally
+      
+      // Test getKafkaErrorRetryDelay helper
+      expect(getKafkaErrorRetryDelay(retryableError, 1)).toBeGreaterThan(0);
+      expect(getKafkaErrorRetryDelay(nonRetryableError, 1)).toBe(0);
+      expect(getKafkaErrorRetryDelay(regularError, 1)).toBe(0); // Non-retryable by default
     });
   });
 
   describe('Circuit Breaker Pattern', () => {
-    it('should implement circuit breaker for producer errors', async () => {
-      // Mock producer to fail with connection error
-      mockProducer.send.mockRejectedValueOnce(new Error('Broker connection failed'));
-      
-      // First attempt should throw the original error
-      await expect(kafkaService.produce('test-topic', { data: 'test' })).rejects.toThrow(KafkaError);
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      
-      // Reset mock for next test
-      mockProducer.send.mockReset();
-      
-      // Simulate circuit half-open by making the next call succeed
-      mockProducer.send.mockResolvedValueOnce(undefined);
-      
-      // Should succeed and close the circuit
-      await expect(kafkaService.produce('test-topic', { data: 'test' })).resolves.not.toThrow();
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
+    let circuitBreaker: KafkaCircuitBreaker;
+    
+    beforeEach(() => {
+      // Create a circuit breaker with test-friendly settings
+      circuitBreaker = new KafkaCircuitBreaker({
+        failureThreshold: 2,
+        resetTimeout: 100, // 100ms for faster testing
+        successThreshold: 1
+      });
+    });
+    
+    it('should start in closed state', () => {
+      expect(circuitBreaker.getState()).toBe(CircuitState.CLOSED);
     });
 
-    it('should track error rates for circuit breaking decisions', async () => {
-      // This test would verify that the service tracks error rates
-      // and opens the circuit when error threshold is exceeded
+    it('should transition to open state after failures exceed threshold', async () => {
+      // Mock functions for success and failure
+      const successFn = jest.fn().mockResolvedValue('success');
+      const failureFn = jest.fn().mockRejectedValue(new KafkaConnectionError('Connection error'));
       
-      // Since the actual circuit breaker implementation details might vary,
-      // we're testing the concept rather than specific implementation
+      // First execution should succeed
+      await expect(circuitBreaker.execute(successFn)).resolves.toBe('success');
+      expect(circuitBreaker.getState()).toBe(CircuitState.CLOSED);
       
-      // Mock multiple consecutive failures
-      mockProducer.send.mockRejectedValue(new Error('Broker connection failed'));
+      // Two consecutive failures should open the circuit
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow('Connection error');
+      expect(circuitBreaker.getState()).toBe(CircuitState.CLOSED); // Still closed after first failure
       
-      // Make multiple calls to simulate error rate tracking
-      for (let i = 0; i < 5; i++) {
-        try {
-          await kafkaService.produce('test-topic', { data: `test-${i}` });
-        } catch (error) {
-          // Expected to throw
-        }
-      }
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow('Connection error');
+      expect(circuitBreaker.getState()).toBe(CircuitState.OPEN); // Open after second failure
       
-      // Verify producer.send was called the expected number of times
-      // If circuit breaker is working, it might not be called for all attempts
-      expect(mockProducer.send).toHaveBeenCalled();
+      // Further calls should fail fast without executing the function
+      await expect(circuitBreaker.execute(successFn)).rejects.toThrow('Circuit breaker is open');
+      expect(successFn).toHaveBeenCalledTimes(1); // Not called again after circuit opened
+    });
+
+    it('should transition to half-open state after reset timeout', async () => {
+      // Force circuit to open state
+      const failureFn = jest.fn().mockRejectedValue(new KafkaConnectionError('Connection error'));
       
-      // Verify error logging
-      expect(mockLoggerService.error).toHaveBeenCalled();
+      // Two failures to open the circuit
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      expect(circuitBreaker.getState()).toBe(CircuitState.OPEN);
+      
+      // Wait for reset timeout
+      await new Promise(resolve => setTimeout(resolve, 150)); // 150ms > 100ms reset timeout
+      
+      // Next call should put circuit in half-open state
+      const successFn = jest.fn().mockResolvedValue('success');
+      await expect(circuitBreaker.execute(successFn)).resolves.toBe('success');
+      expect(circuitBreaker.getState()).toBe(CircuitState.CLOSED); // Success in half-open closes the circuit
+    });
+
+    it('should transition back to open state on failure in half-open state', async () => {
+      // Force circuit to open state
+      const failureFn = jest.fn().mockRejectedValue(new KafkaConnectionError('Connection error'));
+      
+      // Two failures to open the circuit
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      expect(circuitBreaker.getState()).toBe(CircuitState.OPEN);
+      
+      // Wait for reset timeout
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Failure in half-open state should reopen the circuit
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      expect(circuitBreaker.getState()).toBe(CircuitState.OPEN);
+    });
+
+    it('should handle timeout errors correctly', async () => {
+      // Create circuit breaker with timeout
+      const timeoutCircuitBreaker = new KafkaCircuitBreaker({
+        failureThreshold: 2,
+        resetTimeout: 100,
+        successThreshold: 1,
+        timeout: 50 // 50ms timeout
+      });
+      
+      // Function that takes longer than the timeout
+      const slowFn = jest.fn().mockImplementation(() => {
+        return new Promise(resolve => setTimeout(() => resolve('slow'), 100));
+      });
+      
+      // Should timeout and throw KafkaTimeoutError
+      await expect(timeoutCircuitBreaker.execute(slowFn)).rejects.toThrow('Operation timed out');
+      expect(timeoutCircuitBreaker.getState()).toBe(CircuitState.CLOSED); // Still closed after first failure
+      
+      // Second timeout should open the circuit
+      await expect(timeoutCircuitBreaker.execute(slowFn)).rejects.toThrow('Operation timed out');
+      expect(timeoutCircuitBreaker.getState()).toBe(CircuitState.OPEN);
+    });
+
+    it('should reset circuit breaker state', async () => {
+      // Force circuit to open state
+      const failureFn = jest.fn().mockRejectedValue(new KafkaConnectionError('Connection error'));
+      
+      // Two failures to open the circuit
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      await expect(circuitBreaker.execute(failureFn)).rejects.toThrow();
+      expect(circuitBreaker.getState()).toBe(CircuitState.OPEN);
+      
+      // Reset the circuit breaker
+      circuitBreaker.reset();
+      expect(circuitBreaker.getState()).toBe(CircuitState.CLOSED);
+      
+      // Should be able to execute successfully again
+      const successFn = jest.fn().mockResolvedValue('success');
+      await expect(circuitBreaker.execute(successFn)).resolves.toBe('success');
+    });
+  });
+
+  describe('Error Factory and Helper Functions', () => {
+    it('should create appropriate error types based on error messages', () => {
+      // Test connection errors
+      expect(createKafkaError('connect ECONNREFUSED')).toBeInstanceOf(KafkaConnectionError);
+      expect(createKafkaError('Broker not available')).toBeInstanceOf(KafkaBrokerUnavailableError);
+      expect(createKafkaError('SASL Authentication failed')).toBeInstanceOf(KafkaAuthenticationError);
+      expect(createKafkaError('not authorized')).toBeInstanceOf(KafkaAuthorizationError);
+      
+      // Test producer errors
+      expect(createKafkaError('Failed to produce message')).toBeInstanceOf(KafkaProducerError);
+      expect(createKafkaError('Invalid message format')).toBeInstanceOf(KafkaMessageSerializationError);
+      expect(createKafkaError('Topic authorization failed')).toBeInstanceOf(KafkaTopicAuthorizationError);
+      expect(createKafkaError('This server does not host this topic-partition')).toBeInstanceOf(KafkaTopicNotFoundError);
+      
+      // Test consumer errors
+      expect(createKafkaError('Consumer error')).toBeInstanceOf(KafkaConsumerError);
+      expect(createKafkaError('Error deserializing message')).toBeInstanceOf(KafkaMessageDeserializationError);
+      expect(createKafkaError('Offset out of range')).toBeInstanceOf(KafkaOffsetOutOfRangeError);
+      expect(createKafkaError('Group authorization failed')).toBeInstanceOf(KafkaGroupAuthorizationError);
+      expect(createKafkaError('Rebalance')).toBeInstanceOf(KafkaRebalanceError);
+      
+      // Test admin errors
+      expect(createKafkaError('Admin operation failed')).toBeInstanceOf(KafkaAdminError);
+      expect(createKafkaError('Cluster authorization failed')).toBeInstanceOf(KafkaClusterAuthorizationError);
+      
+      // Test generic errors
+      expect(createKafkaError('Request timed out')).toBeInstanceOf(KafkaTimeoutError);
+      expect(createKafkaError('Unknown error type')).toBeInstanceOf(KafkaUnknownError);
+    });
+
+    it('should create error with context when provided', () => {
+      const context: KafkaErrorContext = {
+        topic: 'test-topic',
+        clientId: 'test-client',
+        journey: JourneyType.CARE
+      };
+      
+      const error = createKafkaError('Connection error', context);
+      
+      expect(error.context).toEqual(expect.objectContaining({
+        kafkaErrorType: expect.any(String),
+        topic: 'test-topic',
+        clientId: 'test-client',
+        journey: JourneyType.CARE
+      }));
+    });
+
+    it('should create error from existing Error object', () => {
+      const originalError = new Error('Original error: connect ECONNREFUSED');
+      const kafkaError = createKafkaError(originalError);
+      
+      expect(kafkaError).toBeInstanceOf(KafkaConnectionError);
+      expect(kafkaError.message).toBe('Original error: connect ECONNREFUSED');
+      expect(kafkaError.cause).toBe(originalError);
+    });
+
+    it('should create DLQ entry from any error type', () => {
+      // From KafkaError
+      const kafkaError = new KafkaConnectionError('Connection error', {
+        topic: 'test-topic',
+        clientId: 'test-client'
+      });
+      
+      const kafkaDlqEntry = createKafkaDlqEntry(kafkaError, 'key1', { value: 'test1' });
+      
+      expect(kafkaDlqEntry).toEqual(expect.objectContaining({
+        errorType: KafkaErrorType.CONNECTION_ERROR,
+        errorCategory: ErrorCategory.TRANSIENT,
+        errorMessage: 'Connection error',
+        messageKey: 'key1',
+        messageValue: expect.any(String)
+      }));
+      
+      // From regular Error
+      const regularError = new Error('Regular error');
+      const regularDlqEntry = createKafkaDlqEntry(
+        regularError, 
+        'key2', 
+        { value: 'test2' },
+        { topic: 'error-topic' }
+      );
+      
+      expect(regularDlqEntry).toEqual(expect.objectContaining({
+        errorType: KafkaErrorType.UNKNOWN_ERROR,
+        errorCategory: ErrorCategory.SYSTEM,
+        errorMessage: 'Regular error',
+        messageKey: 'key2',
+        messageValue: expect.any(String),
+        context: expect.objectContaining({
+          topic: 'error-topic'
+        })
+      }));
     });
   });
 
   describe('Journey-Specific Error Handling', () => {
-    it('should handle health journey errors with appropriate context', async () => {
-      const healthJourneyError = new KafkaError(
-        'Failed to process health metric event',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        {
-          journey: 'health',
+    it('should handle health journey specific errors with appropriate context', () => {
+      const healthContext: KafkaErrorContext = {
+        topic: 'health-metrics',
+        journey: JourneyType.HEALTH,
+        operation: 'publishHealthMetric',
+        component: 'HealthMetricsProducer',
+        metadata: {
           metricType: 'HEART_RATE',
           userId: 'user-123',
+          deviceId: 'device-456'
         }
-      );
-
-      expect(healthJourneyError.context.journey).toBe('health');
-      expect(healthJourneyError.context.metricType).toBe('HEART_RATE');
+      };
+      
+      const error = new KafkaProducerError('Failed to publish health metric', healthContext);
+      
+      expect(error.context.journey).toBe(JourneyType.HEALTH);
+      expect(error.context.metadata).toEqual(expect.objectContaining({
+        metricType: 'HEART_RATE',
+        userId: 'user-123',
+        deviceId: 'device-456'
+      }));
+      
+      // Create DLQ entry with journey context
+      const dlqEntry = error.toDlqEntry('health-key', { heartRate: 75 });
+      expect(dlqEntry.context.journey).toBe(JourneyType.HEALTH);
+      expect(dlqEntry.context.metadata.metricType).toBe('HEART_RATE');
     });
 
-    it('should handle care journey errors with appropriate context', async () => {
-      const careJourneyError = new KafkaError(
-        'Failed to process appointment booking event',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        {
-          journey: 'care',
+    it('should handle care journey specific errors with appropriate context', () => {
+      const careContext: KafkaErrorContext = {
+        topic: 'appointment-events',
+        journey: JourneyType.CARE,
+        operation: 'publishAppointmentCreated',
+        component: 'AppointmentProducer',
+        metadata: {
           appointmentId: 'appt-123',
           providerId: 'provider-456',
+          patientId: 'patient-789',
+          appointmentType: 'TELEMEDICINE'
         }
-      );
-
-      expect(careJourneyError.context.journey).toBe('care');
-      expect(careJourneyError.context.appointmentId).toBe('appt-123');
-    });
-
-    it('should handle plan journey errors with appropriate context', async () => {
-      const planJourneyError = new KafkaError(
-        'Failed to process claim submission event',
-        ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        {
-          journey: 'plan',
-          claimId: 'claim-123',
-          claimType: 'MEDICAL',
-        }
-      );
-
-      expect(planJourneyError.context.journey).toBe('plan');
-      expect(planJourneyError.context.claimId).toBe('claim-123');
-    });
-
-    it('should propagate errors across services with tracing context', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer
-      await kafkaService.consume(
-        'test-topic',
-        async () => {
-          throw new KafkaError(
-            'Cross-service error',
-            ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-            { journey: 'health' }
-          );
-        }
-      );
-
-      // Simulate message processing with tracing headers
-      const mockMessage = {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: {
-          'x-trace-id': Buffer.from('trace-123'),
-          'x-span-id': Buffer.from('span-456'),
-        },
-        timestamp: '1630000000000',
-        offset: '0',
       };
-
-      await capturedEachMessageHandler({
-        topic: 'test-topic',
-        partition: 0,
-        message: mockMessage,
-      });
-
-      // Verify message was retried with preserved tracing headers
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      const sentHeaders = mockProducer.send.mock.calls[0][0].messages[0].headers;
-      expect(sentHeaders).toHaveProperty('x-trace-id', Buffer.from('trace-123'));
-      expect(sentHeaders).toHaveProperty('x-span-id', Buffer.from('span-456'));
-    });
-  });
-
-  describe('Dead Letter Queue Integration', () => {
-    it('should send failed messages to DLQ with error context', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer with DLQ enabled
-      await kafkaService.consume(
-        'health.events',
-        async () => {
-          throw new KafkaError(
-            'Processing failed',
-            ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-            { journey: 'health', metricType: 'HEART_RATE' }
-          );
-        },
-        { maxRetries: 0, useDLQ: true } // Force immediate DLQ
-      );
-
-      // Simulate message processing
-      const mockMessage = {
-        key: Buffer.from('user-123'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: {},
-        timestamp: '1630000000000',
-        offset: '0',
-      };
-
-      await capturedEachMessageHandler({
-        topic: 'health.events',
-        partition: 0,
-        message: mockMessage,
-      });
-
-      // Verify message was sent to DLQ with appropriate headers
-      expect(mockProducer.send).toHaveBeenCalledTimes(1);
-      expect(mockProducer.send.mock.calls[0][0].topic).toBe(TOPICS.DEAD_LETTER);
       
-      const dlqHeaders = mockProducer.send.mock.calls[0][0].messages[0].headers;
-      expect(dlqHeaders).toHaveProperty('error-type');
-      expect(dlqHeaders).toHaveProperty('error-message');
-      expect(dlqHeaders).toHaveProperty('source-topic', Buffer.from('health.events'));
-      expect(dlqHeaders).toHaveProperty('source-partition', Buffer.from('0'));
-      expect(dlqHeaders).toHaveProperty('source-service', Buffer.from('test-service'));
-      expect(dlqHeaders).toHaveProperty('dlq-timestamp');
+      const error = new KafkaProducerError('Failed to publish appointment event', careContext);
+      
+      expect(error.context.journey).toBe(JourneyType.CARE);
+      expect(error.context.metadata).toEqual(expect.objectContaining({
+        appointmentId: 'appt-123',
+        providerId: 'provider-456',
+        patientId: 'patient-789',
+        appointmentType: 'TELEMEDICINE'
+      }));
+      
+      // Create DLQ entry with journey context
+      const dlqEntry = error.toDlqEntry('appointment-key', { status: 'SCHEDULED' });
+      expect(dlqEntry.context.journey).toBe(JourneyType.CARE);
+      expect(dlqEntry.context.metadata.appointmentId).toBe('appt-123');
     });
 
-    it('should handle DLQ failures gracefully', async () => {
-      // Mock the consumer run implementation to capture the eachMessage handler
-      let capturedEachMessageHandler: Function;
-      mockConsumer.run.mockImplementation(({ eachMessage }) => {
-        capturedEachMessageHandler = eachMessage;
-        return Promise.resolve();
-      });
-
-      // Set up a consumer
-      await kafkaService.consume(
-        'test-topic',
-        async () => {
-          throw new Error('Processing failed');
-        },
-        { maxRetries: 0 } // Force immediate DLQ
-      );
-
-      // Make the producer.send fail when trying to send to DLQ
-      mockProducer.send.mockRejectedValueOnce(new Error('DLQ send failed'));
-
-      // Simulate message processing
-      const mockMessage = {
-        key: Buffer.from('test-key'),
-        value: Buffer.from(JSON.stringify({ data: 'test' })),
-        headers: {},
-        timestamp: '1630000000000',
-        offset: '0',
+    it('should handle plan journey specific errors with appropriate context', () => {
+      const planContext: KafkaErrorContext = {
+        topic: 'claim-events',
+        journey: JourneyType.PLAN,
+        operation: 'publishClaimSubmitted',
+        component: 'ClaimProducer',
+        metadata: {
+          claimId: 'claim-123',
+          memberId: 'member-456',
+          planId: 'plan-789',
+          claimAmount: 150.75,
+          claimType: 'MEDICAL'
+        }
       };
-
-      // This should not throw despite DLQ failure
-      await expect(capturedEachMessageHandler({
-        topic: 'test-topic',
-        partition: 0,
-        message: mockMessage,
-      })).resolves.not.toThrow();
-
-      // Verify error was logged
-      expect(mockLoggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to send message to dead-letter queue'),
-        expect.any(Error),
-        'KafkaService'
-      );
+      
+      const error = new KafkaProducerError('Failed to publish claim event', planContext);
+      
+      expect(error.context.journey).toBe(JourneyType.PLAN);
+      expect(error.context.metadata).toEqual(expect.objectContaining({
+        claimId: 'claim-123',
+        memberId: 'member-456',
+        planId: 'plan-789',
+        claimAmount: 150.75,
+        claimType: 'MEDICAL'
+      }));
+      
+      // Create DLQ entry with journey context
+      const dlqEntry = error.toDlqEntry('claim-key', { status: 'SUBMITTED' });
+      expect(dlqEntry.context.journey).toBe(JourneyType.PLAN);
+      expect(dlqEntry.context.metadata.claimId).toBe('claim-123');
     });
   });
 });

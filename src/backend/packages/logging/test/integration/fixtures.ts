@@ -1,838 +1,471 @@
 /**
- * Integration Test Fixtures for the Logging Package
- * 
- * This file provides test fixtures and mock data for integration testing of the logging package.
- * It contains sample log entries, context objects, configuration options, and expected output formats
- * that represent realistic use cases for the logging system.
+ * Test fixtures for integration testing of the logging package.
+ * Provides sample log entries, context objects, configuration options, and expected output formats.
  */
 
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { LoggerConfig } from '../../src/interfaces/log-config.interface';
-import { LoggingContext } from '../../src/context/context.interface';
-import { JourneyContext } from '../../src/context/journey-context.interface';
-import { UserContext } from '../../src/context/user-context.interface';
-import { RequestContext } from '../../src/context/request-context.interface';
-import { LogEntry } from '../../src/formatters/formatter.interface';
-
-// ==============================
-// Sample Log Entries
-// ==============================
+import { LogContext } from '../../src/interfaces/log-context.interface';
+import { LoggerConfig } from '../../src/interfaces/logger-config.interface';
+import { TransportConfig } from '../../src/interfaces/transport-config.interface';
 
 /**
- * Sample log entries for different log levels and scenarios
+ * Sample log entries for different log levels
  */
-export const sampleLogEntries: Record<string, LogEntry> = {
-  /**
-   * Basic log entry with minimal information
-   */
-  basic: {
+export const sampleLogEntries = {
+  info: {
     level: LogLevel.INFO,
-    message: 'Application started successfully',
-    timestamp: new Date('2023-06-15T08:00:00.000Z'),
-    context: {
-      service: 'api-gateway',
-      correlationId: '550e8400-e29b-41d4-a716-446655440000',
-      applicationName: 'austa-superapp'
-    }
+    message: 'User profile updated successfully',
+    timestamp: new Date('2023-05-15T14:30:00Z'),
+    context: { userId: '12345', service: 'user-service' }
   },
-
-  /**
-   * Debug log entry with detailed information
-   */
-  debug: {
-    level: LogLevel.DEBUG,
-    message: 'Processing user authentication request',
-    timestamp: new Date('2023-06-15T08:01:15.432Z'),
-    context: {
-      service: 'auth-service',
-      correlationId: '550e8400-e29b-41d4-a716-446655440001',
-      applicationName: 'austa-superapp',
-      method: 'UserService.authenticate',
-      params: { username: 'user@example.com', rememberMe: true }
-    }
-  },
-
-  /**
-   * Info log entry with journey context
-   */
-  journeyInfo: {
-    level: LogLevel.INFO,
-    message: 'User completed health assessment',
-    timestamp: new Date('2023-06-15T08:05:30.123Z'),
-    context: {
-      service: 'health-service',
-      correlationId: '550e8400-e29b-41d4-a716-446655440002',
-      applicationName: 'austa-superapp',
-      journeyType: 'Health',
-      journeyId: 'health-assessment-123',
-      userId: 'user-789',
-      completionTime: 180, // seconds
-      assessmentScore: 85
-    }
-  },
-
-  /**
-   * Warning log entry with request context
-   */
-  warning: {
-    level: LogLevel.WARN,
-    message: 'Rate limit threshold exceeded',
-    timestamp: new Date('2023-06-15T08:10:45.789Z'),
-    context: {
-      service: 'api-gateway',
-      correlationId: '550e8400-e29b-41d4-a716-446655440003',
-      applicationName: 'austa-superapp',
-      requestId: 'req-456',
-      ipAddress: '192.168.1.1',
-      method: 'GET',
-      path: '/api/health/metrics',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
-      userId: 'user-789',
-      requestsPerMinute: 120,
-      threshold: 100
-    }
-  },
-
-  /**
-   * Error log entry with error details
-   */
   error: {
     level: LogLevel.ERROR,
     message: 'Failed to process payment',
-    timestamp: new Date('2023-06-15T08:15:22.456Z'),
-    error: new Error('Payment gateway timeout'),
-    context: {
-      service: 'payment-service',
-      correlationId: '550e8400-e29b-41d4-a716-446655440004',
-      applicationName: 'austa-superapp',
-      requestId: 'req-789',
-      userId: 'user-456',
-      paymentId: 'pmt-123',
-      paymentAmount: 99.99,
-      paymentMethod: 'credit_card',
-      attemptNumber: 2,
-      errorCode: 'GATEWAY_TIMEOUT'
-    }
+    timestamp: new Date('2023-05-15T14:35:00Z'),
+    context: { userId: '12345', service: 'payment-service' },
+    error: new Error('Payment gateway timeout')
   },
-
-  /**
-   * Fatal log entry with critical system error
-   */
-  fatal: {
-    level: LogLevel.FATAL,
-    message: 'Database connection pool exhausted',
-    timestamp: new Date('2023-06-15T08:20:10.111Z'),
-    error: new Error('Connection limit exceeded'),
-    context: {
-      service: 'database-service',
-      correlationId: '550e8400-e29b-41d4-a716-446655440005',
-      applicationName: 'austa-superapp',
-      databaseHost: 'primary-db-cluster.example.com',
-      connectionPoolSize: 100,
-      activeConnections: 100,
-      waitingConnections: 50,
-      errorCode: 'CONNECTION_LIMIT_EXCEEDED'
-    }
+  warn: {
+    level: LogLevel.WARN,
+    message: 'Rate limit approaching threshold',
+    timestamp: new Date('2023-05-15T14:32:00Z'),
+    context: { service: 'api-gateway', endpoint: '/api/v1/users' }
   },
-
-  /**
-   * Log entry with gamification event
-   */
-  gamification: {
-    level: LogLevel.INFO,
-    message: 'Achievement unlocked',
-    timestamp: new Date('2023-06-15T08:25:45.789Z'),
-    context: {
-      service: 'gamification-engine',
-      correlationId: '550e8400-e29b-41d4-a716-446655440006',
-      applicationName: 'austa-superapp',
-      userId: 'user-123',
-      achievementId: 'first-appointment-completed',
-      achievementName: 'First Appointment Completed',
-      pointsAwarded: 50,
-      currentLevel: 2,
-      progressToNextLevel: 0.45,
-      journeyType: 'Care'
-    }
+  debug: {
+    level: LogLevel.DEBUG,
+    message: 'Processing request payload',
+    timestamp: new Date('2023-05-15T14:31:00Z'),
+    context: { requestId: 'req-123', method: 'POST' }
+  },
+  verbose: {
+    level: LogLevel.VERBOSE,
+    message: 'Cache hit for user preferences',
+    timestamp: new Date('2023-05-15T14:29:00Z'),
+    context: { userId: '12345', cacheKey: 'user:12345:prefs' }
   }
 };
 
-// ==============================
-// Context Objects
-// ==============================
-
 /**
- * Base logging context with common fields
+ * Journey-specific context objects
  */
-export const baseContext: LoggingContext = {
-  correlationId: '550e8400-e29b-41d4-a716-446655440000',
-  service: 'api-gateway',
-  applicationName: 'austa-superapp',
-  environment: 'production',
-  version: '1.5.0',
-  instanceId: 'i-1234567890abcdef0',
-  region: 'us-east-1'
-};
-
-/**
- * Sample journey contexts for different journey types
- */
-export const journeyContexts: Record<string, JourneyContext> = {
+export const journeyContexts = {
   health: {
-    ...baseContext,
-    journeyType: 'Health',
-    journeyId: 'health-assessment-123',
-    journeyName: 'Health Assessment',
-    journeyStep: 'metrics-collection',
-    journeyStepIndex: 2,
-    totalJourneySteps: 5,
-    startedAt: new Date('2023-06-15T07:55:00.000Z')
+    journey: 'health',
+    userId: 'user-123',
+    action: 'record-health-metric',
+    metricType: 'blood-pressure',
+    deviceId: 'device-456',
+    correlationId: 'corr-789'
   },
   care: {
-    ...baseContext,
-    journeyType: 'Care',
-    journeyId: 'appointment-booking-456',
-    journeyName: 'Appointment Booking',
-    journeyStep: 'doctor-selection',
-    journeyStepIndex: 3,
-    totalJourneySteps: 6,
-    startedAt: new Date('2023-06-15T08:10:00.000Z'),
-    specialtySelected: 'Cardiology',
-    appointmentType: 'Video Consultation'
+    journey: 'care',
+    userId: 'user-123',
+    action: 'schedule-appointment',
+    providerId: 'provider-456',
+    appointmentType: 'consultation',
+    correlationId: 'corr-789'
   },
   plan: {
-    ...baseContext,
-    journeyType: 'Plan',
-    journeyId: 'claim-submission-789',
-    journeyName: 'Claim Submission',
-    journeyStep: 'document-upload',
-    journeyStepIndex: 4,
-    totalJourneySteps: 7,
-    startedAt: new Date('2023-06-15T08:30:00.000Z'),
-    claimType: 'Medical',
-    claimAmount: 250.75,
-    documentCount: 3
+    journey: 'plan',
+    userId: 'user-123',
+    action: 'submit-claim',
+    claimId: 'claim-456',
+    benefitType: 'dental',
+    correlationId: 'corr-789'
   }
 };
 
 /**
- * Sample user contexts for different user types
+ * User context objects
  */
-export const userContexts: Record<string, UserContext> = {
-  standard: {
-    ...baseContext,
+export const userContexts = {
+  authenticated: {
     userId: 'user-123',
-    username: 'john.doe@example.com',
-    isAuthenticated: true,
+    username: 'johndoe',
+    email: 'john.doe@example.com',
     roles: ['user'],
-    lastLoginAt: new Date('2023-06-14T18:30:00.000Z'),
-    deviceId: 'device-abc-123',
-    preferredLanguage: 'en-US'
-  },
-  premium: {
-    ...baseContext,
-    userId: 'user-456',
-    username: 'jane.smith@example.com',
-    isAuthenticated: true,
-    roles: ['user', 'premium'],
-    lastLoginAt: new Date('2023-06-15T07:45:00.000Z'),
-    deviceId: 'device-def-456',
-    preferredLanguage: 'pt-BR',
-    subscriptionTier: 'premium',
-    subscriptionExpiresAt: new Date('2024-06-15T00:00:00.000Z')
+    sessionId: 'session-456'
   },
   admin: {
-    ...baseContext,
-    userId: 'admin-789',
-    username: 'admin@austa.com',
-    isAuthenticated: true,
-    roles: ['user', 'admin'],
-    lastLoginAt: new Date('2023-06-15T08:00:00.000Z'),
-    deviceId: 'device-ghi-789',
-    preferredLanguage: 'en-US',
-    adminPermissions: ['user_management', 'content_management', 'analytics']
+    userId: 'admin-123',
+    username: 'adminuser',
+    email: 'admin@example.com',
+    roles: ['admin', 'user'],
+    sessionId: 'session-789'
   },
-  unauthenticated: {
-    ...baseContext,
-    userId: undefined,
-    username: undefined,
-    isAuthenticated: false,
-    roles: [],
-    deviceId: 'device-jkl-012',
-    preferredLanguage: 'en-US'
+  anonymous: {
+    sessionId: 'session-anonymous-123'
   }
 };
 
 /**
- * Sample request contexts for different HTTP requests
+ * Request context objects
  */
-export const requestContexts: Record<string, RequestContext> = {
-  getHealth: {
-    ...baseContext,
+export const requestContexts = {
+  httpGet: {
     requestId: 'req-123',
-    ipAddress: '192.168.1.1',
     method: 'GET',
-    url: 'https://api.austa.com/health/metrics',
-    path: '/health/metrics',
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
-    startTime: new Date('2023-06-15T08:05:00.000Z'),
-    queryParams: { period: '7d', metrics: 'steps,heart_rate,sleep' },
-    headers: {
-      'accept-language': 'en-US,en;q=0.9',
-      'x-request-id': 'req-123',
-      'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1'
-    }
+    path: '/api/v1/users/profile',
+    ip: '192.168.1.1',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    duration: 45 // ms
   },
-  postAppointment: {
-    ...baseContext,
+  httpPost: {
     requestId: 'req-456',
-    ipAddress: '192.168.1.2',
     method: 'POST',
-    url: 'https://api.austa.com/care/appointments',
-    path: '/care/appointments',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    startTime: new Date('2023-06-15T08:15:00.000Z'),
-    body: {
-      doctorId: 'doc-123',
-      appointmentType: 'video',
-      date: '2023-06-20',
-      time: '14:30',
-      reason: 'Follow-up consultation'
-    },
-    headers: {
-      'content-type': 'application/json',
-      'x-request-id': 'req-456',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+    path: '/api/v1/appointments',
+    ip: '192.168.1.2',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X)',
+    duration: 120 // ms
   },
-  putClaim: {
-    ...baseContext,
+  graphql: {
     requestId: 'req-789',
-    ipAddress: '192.168.1.3',
-    method: 'PUT',
-    url: 'https://api.austa.com/plan/claims/claim-123',
-    path: '/plan/claims/claim-123',
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-    startTime: new Date('2023-06-15T08:25:00.000Z'),
-    body: {
-      status: 'submitted',
-      documents: ['doc-1', 'doc-2', 'doc-3'],
-      additionalInfo: 'Updated claim with all required documents'
-    },
-    headers: {
-      'content-type': 'application/json',
-      'x-request-id': 'req-789',
-      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
-    }
-  },
-  deleteAppointment: {
-    ...baseContext,
-    requestId: 'req-012',
-    ipAddress: '192.168.1.4',
-    method: 'DELETE',
-    url: 'https://api.austa.com/care/appointments/apt-456',
-    path: '/care/appointments/apt-456',
-    userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-    startTime: new Date('2023-06-15T08:35:00.000Z'),
-    queryParams: { reason: 'reschedule' },
-    headers: {
-      'x-request-id': 'req-012',
-      'user-agent': 'Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36'
-    }
+    operation: 'getUserProfile',
+    variables: { userId: 'user-123' },
+    ip: '192.168.1.3',
+    userAgent: 'Apollo Client',
+    duration: 78 // ms
   }
 };
 
-// ==============================
-// Configuration Objects
-// ==============================
+/**
+ * Combined context objects for realistic scenarios
+ */
+export const combinedContexts: Record<string, LogContext> = {
+  healthMetricRecording: {
+    ...journeyContexts.health,
+    ...userContexts.authenticated,
+    requestId: requestContexts.httpPost.requestId,
+    traceId: 'trace-123',
+    spanId: 'span-456',
+    environment: 'production'
+  },
+  careAppointmentScheduling: {
+    ...journeyContexts.care,
+    ...userContexts.authenticated,
+    requestId: requestContexts.graphql.requestId,
+    traceId: 'trace-456',
+    spanId: 'span-789',
+    environment: 'production'
+  },
+  planClaimSubmission: {
+    ...journeyContexts.plan,
+    ...userContexts.authenticated,
+    requestId: requestContexts.httpPost.requestId,
+    traceId: 'trace-789',
+    spanId: 'span-123',
+    environment: 'production'
+  },
+  adminUserManagement: {
+    journey: 'admin',
+    action: 'update-user-roles',
+    targetUserId: 'user-123',
+    ...userContexts.admin,
+    requestId: requestContexts.httpPost.requestId,
+    traceId: 'trace-321',
+    spanId: 'span-654',
+    environment: 'production'
+  }
+};
 
 /**
- * Sample logger configurations for different environments
+ * Sample configuration objects for different environments
  */
 export const loggerConfigs: Record<string, LoggerConfig> = {
   development: {
     level: LogLevel.DEBUG,
-    formatter: 'text',
+    service: 'austa-superapp',
     transports: [
       {
         type: 'console',
-        options: {
-          colorize: true
-        }
-      },
-      {
-        type: 'file',
-        options: {
-          filename: './logs/austa-dev.log',
-          maxSize: '10m',
-          maxFiles: 5
-        }
+        format: 'pretty',
+        level: LogLevel.DEBUG
       }
     ],
     context: {
-      service: 'api-gateway',
-      applicationName: 'austa-superapp',
       environment: 'development'
     }
   },
   testing: {
-    level: LogLevel.DEBUG,
-    formatter: 'json',
+    level: LogLevel.VERBOSE,
+    service: 'austa-superapp',
     transports: [
       {
         type: 'console',
-        options: {
-          colorize: false
-        }
-      }
-    ],
-    context: {
-      service: 'api-gateway',
-      applicationName: 'austa-superapp',
-      environment: 'testing'
-    }
-  },
-  staging: {
-    level: LogLevel.INFO,
-    formatter: 'json',
-    transports: [
-      {
-        type: 'console',
-        options: {
-          colorize: false
-        }
+        format: 'json',
+        level: LogLevel.VERBOSE
       },
       {
-        type: 'cloudwatch',
-        options: {
-          logGroupName: '/austa/staging',
-          logStreamName: 'api-gateway',
-          region: 'us-east-1',
-          retentionInDays: 14
-        }
+        type: 'file',
+        format: 'json',
+        level: LogLevel.DEBUG,
+        filename: './logs/test.log'
       }
     ],
     context: {
-      service: 'api-gateway',
-      applicationName: 'austa-superapp',
-      environment: 'staging'
+      environment: 'testing'
     }
   },
   production: {
     level: LogLevel.INFO,
-    formatter: 'cloudwatch',
+    service: 'austa-superapp',
     transports: [
       {
+        type: 'console',
+        format: 'json',
+        level: LogLevel.INFO
+      },
+      {
+        type: 'file',
+        format: 'json',
+        level: LogLevel.INFO,
+        filename: './logs/app.log'
+      },
+      {
         type: 'cloudwatch',
+        format: 'json',
+        level: LogLevel.ERROR,
         options: {
-          logGroupName: '/austa/production',
-          logStreamName: 'api-gateway',
-          region: 'us-east-1',
-          retentionInDays: 30,
-          batchSize: 100,
-          maxRetries: 3,
-          retryDelay: 100
+          logGroupName: '/austa/superapp',
+          logStreamName: 'application',
+          region: 'us-east-1'
         }
       }
     ],
     context: {
-      service: 'api-gateway',
-      applicationName: 'austa-superapp',
       environment: 'production'
     }
   },
-  healthJourney: {
+  journeySpecific: {
     level: LogLevel.INFO,
-    formatter: 'json',
+    service: 'health-journey',
     transports: [
       {
         type: 'console',
-        options: {
-          colorize: false
-        }
+        format: 'json',
+        level: LogLevel.INFO
       },
       {
-        type: 'cloudwatch',
+        type: 'elasticsearch',
+        format: 'json',
+        level: LogLevel.INFO,
         options: {
-          logGroupName: '/austa/production/health-journey',
-          logStreamName: 'health-service',
-          region: 'us-east-1',
-          retentionInDays: 30
+          node: 'http://elasticsearch:9200',
+          index: 'health-journey-logs'
         }
       }
     ],
     context: {
-      service: 'health-service',
-      applicationName: 'austa-superapp',
-      environment: 'production',
-      journeyType: 'Health'
-    }
-  },
-  careJourney: {
-    level: LogLevel.INFO,
-    formatter: 'json',
-    transports: [
-      {
-        type: 'console',
-        options: {
-          colorize: false
-        }
-      },
-      {
-        type: 'cloudwatch',
-        options: {
-          logGroupName: '/austa/production/care-journey',
-          logStreamName: 'care-service',
-          region: 'us-east-1',
-          retentionInDays: 30
-        }
-      }
-    ],
-    context: {
-      service: 'care-service',
-      applicationName: 'austa-superapp',
-      environment: 'production',
-      journeyType: 'Care'
-    }
-  },
-  planJourney: {
-    level: LogLevel.INFO,
-    formatter: 'json',
-    transports: [
-      {
-        type: 'console',
-        options: {
-          colorize: false
-        }
-      },
-      {
-        type: 'cloudwatch',
-        options: {
-          logGroupName: '/austa/production/plan-journey',
-          logStreamName: 'plan-service',
-          region: 'us-east-1',
-          retentionInDays: 30
-        }
-      }
-    ],
-    context: {
-      service: 'plan-service',
-      applicationName: 'austa-superapp',
-      environment: 'production',
-      journeyType: 'Plan'
+      journey: 'health',
+      environment: 'production'
     }
   }
 };
 
-// ==============================
-// Expected Output Fixtures
-// ==============================
-
 /**
- * Expected formatted outputs for different formatters
+ * Transport configuration samples
  */
-export const expectedOutputs: Record<string, Record<string, string>> = {
-  /**
-   * Expected outputs for the JSON formatter
-   */
-  json: {
-    basic: JSON.stringify({
-      level: 'INFO',
-      message: 'Application started successfully',
-      timestamp: '2023-06-15T08:00:00.000Z',
-      context: {
-        service: 'api-gateway',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        applicationName: 'austa-superapp'
-      }
-    }),
-    error: JSON.stringify({
-      level: 'ERROR',
-      message: 'Failed to process payment',
-      timestamp: '2023-06-15T08:15:22.456Z',
-      error: {
-        name: 'Error',
-        message: 'Payment gateway timeout',
-        stack: expect.any(String)
-      },
-      context: {
-        service: 'payment-service',
-        correlationId: '550e8400-e29b-41d4-a716-446655440004',
-        applicationName: 'austa-superapp',
-        requestId: 'req-789',
-        userId: 'user-456',
-        paymentId: 'pmt-123',
-        paymentAmount: 99.99,
-        paymentMethod: 'credit_card',
-        attemptNumber: 2,
-        errorCode: 'GATEWAY_TIMEOUT'
-      }
-    }),
-    journeyInfo: JSON.stringify({
-      level: 'INFO',
-      message: 'User completed health assessment',
-      timestamp: '2023-06-15T08:05:30.123Z',
-      context: {
-        service: 'health-service',
-        correlationId: '550e8400-e29b-41d4-a716-446655440002',
-        applicationName: 'austa-superapp',
-        journeyType: 'Health',
-        journeyId: 'health-assessment-123',
-        userId: 'user-789',
-        completionTime: 180,
-        assessmentScore: 85
-      }
-    })
+export const transportConfigs: Record<string, TransportConfig> = {
+  console: {
+    type: 'console',
+    format: 'pretty',
+    level: LogLevel.DEBUG
   },
-
-  /**
-   * Expected outputs for the CloudWatch formatter
-   */
+  file: {
+    type: 'file',
+    format: 'json',
+    level: LogLevel.INFO,
+    filename: './logs/app.log'
+  },
   cloudwatch: {
-    basic: JSON.stringify({
-      level: 'INFO',
-      message: 'Application started successfully',
-      timestamp: '2023-06-15T08:00:00.000Z',
-      context: {
-        service: 'api-gateway',
-        correlationId: '550e8400-e29b-41d4-a716-446655440000',
-        applicationName: 'austa-superapp'
-      },
-      aws: {
-        logGroup: '/austa/production',
-        logStream: 'api-gateway',
-        region: 'us-east-1'
-      }
-    }),
-    error: JSON.stringify({
-      level: 'ERROR',
-      message: 'Failed to process payment',
-      timestamp: '2023-06-15T08:15:22.456Z',
-      error: {
-        name: 'Error',
-        message: 'Payment gateway timeout',
-        stack: expect.any(String)
-      },
-      context: {
-        service: 'payment-service',
-        correlationId: '550e8400-e29b-41d4-a716-446655440004',
-        applicationName: 'austa-superapp',
-        requestId: 'req-789',
-        userId: 'user-456',
-        paymentId: 'pmt-123',
-        paymentAmount: 99.99,
-        paymentMethod: 'credit_card',
-        attemptNumber: 2,
-        errorCode: 'GATEWAY_TIMEOUT'
-      },
-      aws: {
-        logGroup: '/austa/production',
-        logStream: 'payment-service',
-        region: 'us-east-1'
-      }
-    }),
-    journeyInfo: JSON.stringify({
-      level: 'INFO',
-      message: 'User completed health assessment',
-      timestamp: '2023-06-15T08:05:30.123Z',
-      context: {
-        service: 'health-service',
-        correlationId: '550e8400-e29b-41d4-a716-446655440002',
-        applicationName: 'austa-superapp',
-        journeyType: 'Health',
-        journeyId: 'health-assessment-123',
-        userId: 'user-789',
-        completionTime: 180,
-        assessmentScore: 85
-      },
-      aws: {
-        logGroup: '/austa/production/health-journey',
-        logStream: 'health-service',
-        region: 'us-east-1'
-      }
-    })
+    type: 'cloudwatch',
+    format: 'json',
+    level: LogLevel.ERROR,
+    options: {
+      logGroupName: '/austa/superapp',
+      logStreamName: 'application',
+      region: 'us-east-1'
+    }
+  },
+  elasticsearch: {
+    type: 'elasticsearch',
+    format: 'json',
+    level: LogLevel.INFO,
+    options: {
+      node: 'http://elasticsearch:9200',
+      index: 'austa-logs'
+    }
   }
 };
 
-// ==============================
-// Error Objects and Stack Traces
-// ==============================
+/**
+ * Expected output formats for different formatters
+ */
+export const expectedOutputFormats = {
+  prettyConsole: {
+    info: '[2023-05-15T14:30:00Z] [INFO] User profile updated successfully {"userId":"12345","service":"user-service"}',
+    error: '[2023-05-15T14:35:00Z] [ERROR] Failed to process payment {"userId":"12345","service":"payment-service"} Error: Payment gateway timeout\n    at Object.<anonymous> (/path/to/file.js:10:20)\n    at Module._compile (internal/modules/cjs/loader.js:1138:30)',
+    warn: '[2023-05-15T14:32:00Z] [WARN] Rate limit approaching threshold {"service":"api-gateway","endpoint":"/api/v1/users"}',
+    debug: '[2023-05-15T14:31:00Z] [DEBUG] Processing request payload {"requestId":"req-123","method":"POST"}',
+    verbose: '[2023-05-15T14:29:00Z] [VERBOSE] Cache hit for user preferences {"userId":"12345","cacheKey":"user:12345:prefs"}'
+  },
+  jsonFormat: {
+    info: '{"level":"info","message":"User profile updated successfully","timestamp":"2023-05-15T14:30:00.000Z","context":{"userId":"12345","service":"user-service"}}',
+    error: '{"level":"error","message":"Failed to process payment","timestamp":"2023-05-15T14:35:00.000Z","context":{"userId":"12345","service":"payment-service"},"error":{"message":"Payment gateway timeout","stack":"Error: Payment gateway timeout\n    at Object.<anonymous> (/path/to/file.js:10:20)\n    at Module._compile (internal/modules/cjs/loader.js:1138:30)"}}',
+    warn: '{"level":"warn","message":"Rate limit approaching threshold","timestamp":"2023-05-15T14:32:00.000Z","context":{"service":"api-gateway","endpoint":"/api/v1/users"}}',
+    debug: '{"level":"debug","message":"Processing request payload","timestamp":"2023-05-15T14:31:00.000Z","context":{"requestId":"req-123","method":"POST"}}',
+    verbose: '{"level":"verbose","message":"Cache hit for user preferences","timestamp":"2023-05-15T14:29:00.000Z","context":{"userId":"12345","cacheKey":"user:12345:prefs"}}'
+  },
+  cloudwatchFormat: {
+    info: '{"level":"info","message":"User profile updated successfully","timestamp":"2023-05-15T14:30:00.000Z","context":{"userId":"12345","service":"user-service","awsRequestId":"aws-req-123"}}',
+    error: '{"level":"error","message":"Failed to process payment","timestamp":"2023-05-15T14:35:00.000Z","context":{"userId":"12345","service":"payment-service","awsRequestId":"aws-req-123"},"error":{"message":"Payment gateway timeout","stack":"Error: Payment gateway timeout\n    at Object.<anonymous> (/path/to/file.js:10:20)\n    at Module._compile (internal/modules/cjs/loader.js:1138:30)"},"@timestamp":"2023-05-15T14:35:00.000Z"}'
+  }
+};
 
 /**
- * Sample error objects with realistic stack traces
+ * Error objects with stack traces for error logging tests
  */
-export const errorFixtures: Record<string, Error> = {
-  /**
-   * Basic error with simple message
-   */
-  basic: new Error('Something went wrong'),
-
-  /**
-   * Database connection error
-   */
-  database: (() => {
-    const error = new Error('Database connection failed: ECONNREFUSED');
-    error.name = 'ConnectionError';
-    Object.defineProperty(error, 'code', { value: 'ECONNREFUSED' });
+export const errorFixtures = {
+  simpleError: (() => {
+    const error = new Error('Simple error message');
+    error.stack = 'Error: Simple error message\n    at Object.<anonymous> (/path/to/file.js:10:20)\n    at Module._compile (internal/modules/cjs/loader.js:1138:30)';
     return error;
   })(),
-
-  /**
-   * API timeout error
-   */
-  timeout: (() => {
-    const error = new Error('Request timed out after 30000ms');
-    error.name = 'TimeoutError';
-    Object.defineProperty(error, 'code', { value: 'ETIMEDOUT' });
-    return error;
-  })(),
-
-  /**
-   * Validation error
-   */
-  validation: (() => {
-    const error = new Error('Validation failed');
+  validationError: (() => {
+    const error = new Error('Validation failed: Email is invalid');
     error.name = 'ValidationError';
-    Object.defineProperty(error, 'details', {
-      value: [
-        { field: 'email', message: 'Email is required' },
-        { field: 'password', message: 'Password must be at least 8 characters' }
-      ]
-    });
+    error.stack = 'ValidationError: Validation failed: Email is invalid\n    at validate (/path/to/validator.js:25:11)\n    at processInput (/path/to/processor.js:42:15)';
     return error;
   })(),
-
-  /**
-   * Authentication error
-   */
-  authentication: (() => {
-    const error = new Error('Invalid credentials');
-    error.name = 'AuthenticationError';
-    Object.defineProperty(error, 'code', { value: 'INVALID_CREDENTIALS' });
+  databaseError: (() => {
+    const error = new Error('Database connection failed');
+    error.name = 'DatabaseError';
+    error.stack = 'DatabaseError: Database connection failed\n    at connectToDatabase (/path/to/db.js:30:18)\n    at initializeApp (/path/to/app.js:15:12)';
     return error;
   })(),
+  nestedError: (() => {
+    const originalError = new Error('Original error');
+    originalError.stack = 'Error: Original error\n    at someFunction (/path/to/original.js:5:10)\n    at anotherFunction (/path/to/another.js:15:20)';
+    
+    const wrappedError = new Error('Wrapped error');
+    wrappedError.stack = 'Error: Wrapped error\n    at wrapError (/path/to/wrapper.js:10:15)\n    at handleRequest (/path/to/handler.js:25:30)';
+    wrappedError.cause = originalError;
+    
+    return wrappedError;
+  })()
+};
 
-  /**
-   * Authorization error
-   */
-  authorization: (() => {
-    const error = new Error('Insufficient permissions');
-    error.name = 'AuthorizationError';
-    Object.defineProperty(error, 'code', { value: 'INSUFFICIENT_PERMISSIONS' });
-    Object.defineProperty(error, 'requiredPermissions', {
-      value: ['admin', 'content_management']
-    });
+/**
+ * Journey-specific error objects
+ */
+export const journeyErrors = {
+  health: (() => {
+    const error = new Error('Failed to sync health data from device');
+    error.name = 'HealthSyncError';
+    error.stack = 'HealthSyncError: Failed to sync health data from device\n    at syncHealthData (/path/to/health-service.js:45:12)\n    at processDeviceData (/path/to/device-handler.js:30:18)';
     return error;
   })(),
-
-  /**
-   * External API error
-   */
-  externalApi: (() => {
-    const error = new Error('External API returned status 500');
-    error.name = 'ExternalApiError';
-    Object.defineProperty(error, 'response', {
-      value: {
-        status: 500,
-        statusText: 'Internal Server Error',
-        data: {
-          error: 'Internal server error',
-          message: 'An unexpected error occurred',
-          requestId: 'ext-req-123'
-        }
-      }
-    });
+  care: (() => {
+    const error = new Error('Provider not available for selected time slot');
+    error.name = 'AppointmentError';
+    error.stack = 'AppointmentError: Provider not available for selected time slot\n    at checkAvailability (/path/to/appointment-service.js:78:15)\n    at scheduleAppointment (/path/to/scheduler.js:42:20)';
     return error;
   })(),
-
-  /**
-   * Journey-specific error
-   */
-  journeyError: (() => {
-    const error = new Error('Failed to complete health journey step');
-    error.name = 'JourneyError';
-    Object.defineProperty(error, 'journeyType', { value: 'Health' });
-    Object.defineProperty(error, 'journeyId', { value: 'health-assessment-123' });
-    Object.defineProperty(error, 'stepId', { value: 'metrics-collection' });
-    Object.defineProperty(error, 'reason', { value: 'Missing required health metrics' });
+  plan: (() => {
+    const error = new Error('Claim submission failed: Missing documentation');
+    error.name = 'ClaimError';
+    error.stack = 'ClaimError: Claim submission failed: Missing documentation\n    at validateClaim (/path/to/claim-service.js:112:22)\n    at submitClaim (/path/to/claim-processor.js:55:18)';
     return error;
   })()
 };
 
 /**
- * Sample stack traces for different error scenarios
+ * Mock trace context for distributed tracing integration
  */
-export const stackTraceFixtures: Record<string, string> = {
-  basic: `Error: Something went wrong
-    at Object.<anonymous> (/app/src/backend/packages/logging/test/integration/logger.spec.ts:42:19)
-    at Module._compile (internal/modules/cjs/loader.js:1085:14)
-    at Object.Module._extensions..js (internal/modules/cjs/loader.js:1114:10)
-    at Module.load (internal/modules/cjs/loader.js:950:32)
-    at Function.Module._load (internal/modules/cjs/loader.js:790:12)
-    at Module.require (internal/modules/cjs/loader.js:974:19)
-    at require (internal/modules/cjs/helpers.js:101:18)
-    at /app/node_modules/jest/bin/jest.js:27:1`,
-
-  database: `ConnectionError: Database connection failed: ECONNREFUSED
-    at Connection.connectToDatabase (/app/src/backend/packages/database/src/connection.ts:78:11)
-    at PrismaClient.connect (/app/src/backend/packages/database/src/prisma-client.ts:45:23)
-    at HealthService.getMetrics (/app/src/backend/health-service/src/health/health.service.ts:112:28)
-    at HealthController.getMetrics (/app/src/backend/health-service/src/health/health.controller.ts:54:35)
-    at processTicksAndRejections (internal/process/task_queues.js:95:5)
-    at async NestFactory.create (/app/node_modules/@nestjs/core/nest-factory.js:51:31)`,
-
-  apiGateway: `Error: Failed to route request
-    at ApiGatewayService.routeRequest (/app/src/backend/api-gateway/src/gateway/gateway.service.ts:156:13)
-    at ApiGatewayController.handleRequest (/app/src/backend/api-gateway/src/gateway/gateway.controller.ts:87:42)
-    at RouteHandler.handle (/app/node_modules/@nestjs/core/router/route-handler.js:98:23)
-    at /app/node_modules/@nestjs/core/router/router-execution-context.js:134:25
-    at /app/node_modules/@nestjs/core/router/router-proxy.js:9:23`,
-
-  journeyContext: `JourneyError: Failed to complete health journey step
-    at HealthJourneyService.completeStep (/app/src/backend/health-service/src/journey/health-journey.service.ts:203:15)
-    at HealthJourneyController.completeStep (/app/src/backend/health-service/src/journey/health-journey.controller.ts:78:42)
-    at processTicksAndRejections (internal/process/task_queues.js:95:5)
-    at async JourneyContextInterceptor.intercept (/app/src/backend/packages/logging/src/context/journey-context.interceptor.ts:34:7)`
-};
-
-// ==============================
-// Transport Test Fixtures
-// ==============================
-
-/**
- * Mock transport configurations for testing
- */
-export const transportConfigs = {
-  console: {
-    type: 'console',
-    options: {
-      colorize: true
-    }
+export const traceContexts = {
+  simple: {
+    traceId: 'trace-123456789',
+    spanId: 'span-987654321',
+    parentSpanId: null,
+    sampled: true
   },
-  file: {
-    type: 'file',
-    options: {
-      filename: './logs/test.log',
-      maxSize: '10m',
-      maxFiles: 5
-    }
+  withParent: {
+    traceId: 'trace-abcdef123',
+    spanId: 'span-456789abc',
+    parentSpanId: 'span-parent123',
+    sampled: true
   },
-  cloudwatch: {
-    type: 'cloudwatch',
-    options: {
-      logGroupName: '/austa/test',
-      logStreamName: 'test-service',
-      region: 'us-east-1',
-      retentionInDays: 7
-    }
+  notSampled: {
+    traceId: 'trace-notsampled',
+    spanId: 'span-notsampled',
+    parentSpanId: null,
+    sampled: false
   }
 };
 
 /**
- * Mock transport write results for testing
+ * Sample structured log data for testing formatters
  */
-export const transportResults = {
-  console: { success: true, destination: 'console' },
-  file: { success: true, destination: './logs/test.log' },
-  cloudwatch: { success: true, destination: '/austa/test/test-service' }
+export const structuredLogData = {
+  userActivity: {
+    user: {
+      id: 'user-123',
+      email: 'user@example.com'
+    },
+    activity: {
+      type: 'login',
+      timestamp: new Date('2023-05-15T10:30:00Z'),
+      device: {
+        type: 'mobile',
+        os: 'iOS',
+        version: '15.4'
+      }
+    },
+    metadata: {
+      ip: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_4 like Mac OS X)'
+    }
+  },
+  healthMetric: {
+    user: {
+      id: 'user-456',
+      email: 'health@example.com'
+    },
+    metric: {
+      type: 'blood_pressure',
+      systolic: 120,
+      diastolic: 80,
+      timestamp: new Date('2023-05-15T08:45:00Z')
+    },
+    device: {
+      id: 'device-789',
+      type: 'blood_pressure_monitor',
+      manufacturer: 'Omron'
+    }
+  },
+  apiRequest: {
+    request: {
+      id: 'req-abc123',
+      method: 'POST',
+      path: '/api/v1/appointments',
+      body: {
+        providerId: 'provider-123',
+        date: '2023-06-01',
+        time: '14:30',
+        type: 'consultation'
+      }
+    },
+    response: {
+      statusCode: 201,
+      body: {
+        appointmentId: 'appt-456',
+        status: 'scheduled'
+      }
+    },
+    performance: {
+      duration: 120,
+      dbQueries: 3,
+      cacheHits: 1
+    }
+  }
 };

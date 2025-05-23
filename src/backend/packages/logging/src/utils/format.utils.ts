@@ -1,9 +1,7 @@
 /**
- * Utilities for formatting various data types for structured logging.
+ * Utility functions for formatting various data types for structured logging.
  * These utilities ensure consistent and readable log output across all services.
  */
-
-import { LogLevel } from '../interfaces/log-level.enum';
 
 /**
  * Maximum depth for object serialization to prevent excessive nesting
@@ -11,397 +9,290 @@ import { LogLevel } from '../interfaces/log-level.enum';
 const MAX_DEPTH = 10;
 
 /**
- * Maximum length for string values to prevent excessively large logs
- */
-const MAX_STRING_LENGTH = 10000;
-
-/**
  * Symbol used to mark objects that have been visited during circular reference detection
  */
 const VISITED = Symbol('visited');
 
 /**
- * Formats an Error object for logging, including stack trace if available
+ * Formats an error object for logging, including stack trace if available
  * @param error The error object to format
- * @returns A formatted object representation of the error
+ * @returns A structured object representation of the error
  */
-export function formatError(error: Error): Record<string, any> {
-  if (!error) {
-    return { message: 'Unknown error' };
+export function formatError(error: Error | unknown): Record<string, any> {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
   }
 
-  const formatted: Record<string, any> = {
-    message: error.message || 'Unknown error',
-    name: error.name || 'Error',
+  const formattedError: Record<string, any> = {
+    name: error.name,
+    message: error.message,
   };
 
-  // Add stack trace if available
   if (error.stack) {
-    formatted.stack = error.stack
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
+    formattedError.stack = parseStackTrace(error.stack);
   }
 
   // Add additional properties from the error object
   Object.getOwnPropertyNames(error).forEach((key) => {
-    if (key !== 'message' && key !== 'name' && key !== 'stack') {
-      formatted[key] = formatValue((error as any)[key], 1);
+    if (key !== 'name' && key !== 'message' && key !== 'stack') {
+      const value = (error as any)[key];
+      formattedError[key] = value;
     }
   });
 
-  // Handle specific error types with additional properties
-  if ('code' in error) {
-    formatted.code = (error as any).code;
-  }
-
-  if ('statusCode' in error) {
-    formatted.statusCode = (error as any).statusCode;
-  }
-
-  if ('response' in error) {
-    formatted.response = formatValue((error as any).response, 1);
-  }
-
-  if ('request' in error) {
-    // Only include essential request information to avoid large logs
-    const request = (error as any).request;
-    if (request) {
-      formatted.request = {
-        method: request.method,
-        url: request.url,
-        headers: formatValue(request.headers, 1),
-      };
-    }
-  }
-
-  return formatted;
+  return formattedError;
 }
 
 /**
- * Formats a timestamp to ISO string format for consistent logging
- * @param timestamp The timestamp to format (Date object or number)
- * @returns Formatted ISO string timestamp
+ * Parses a stack trace string into an array of stack frames
+ * @param stack The stack trace string
+ * @returns An array of parsed stack frames
  */
-export function formatTimestamp(timestamp?: Date | number): string {
-  if (!timestamp) {
-    return new Date().toISOString();
-  }
-
-  if (typeof timestamp === 'number') {
-    return new Date(timestamp).toISOString();
-  }
-
-  return timestamp.toISOString();
-}
-
-/**
- * Detects circular references in objects
- * @param obj The object to check for circular references
- * @param seen Set of already seen objects
- * @returns True if the object contains circular references
- */
-export function detectCircular(obj: any, seen = new Set()): boolean {
-  // Handle non-objects
-  if (obj === null || typeof obj !== 'object') {
-    return false;
-  }
-
-  // Check if we've seen this object before
-  if (seen.has(obj)) {
-    return true;
-  }
-
-  // Add this object to the seen set
-  seen.add(obj);
-
-  // Check all properties recursively
-  for (const key of Object.keys(obj)) {
-    if (detectCircular(obj[key], seen)) {
-      return true;
-    }
-  }
-
-  // Remove this object from the seen set before returning
-  seen.delete(obj);
-  return false;
-}
-
-/**
- * Safely stringifies an object, handling circular references
- * @param obj The object to stringify
- * @returns A JSON string representation of the object
- */
-export function safeStringify(obj: any): string {
-  // Check for circular references
-  const hasCircular = detectCircular(obj);
-
-  if (hasCircular) {
-    // Use a replacer function to handle circular references
-    const seen = new Set();
-    return JSON.stringify(obj, (key, value) => {
-      if (typeof value === 'object' && value !== null) {
-        if (seen.has(value)) {
-          return '[Circular Reference]';
-        }
-        seen.add(value);
-      }
-      return value;
-    });
-  }
-
-  // No circular references, use standard stringify
-  return JSON.stringify(obj);
-}
-
-/**
- * Formats an object for logging, handling circular references and limiting depth
- * @param obj The object to format
- * @param depth Current depth in the object tree
- * @returns A formatted object safe for logging
- */
-export function formatObject(obj: Record<string, any>, depth = 0): Record<string, any> {
-  // Prevent excessive recursion
-  if (depth >= MAX_DEPTH) {
-    return { value: '[Max Depth Exceeded]' };
-  }
-
-  // Handle null
-  if (obj === null) {
-    return null;
-  }
-
-  // Check if this object has already been visited (circular reference)
-  if ((obj as any)[VISITED]) {
-    return { value: '[Circular Reference]' };
-  }
-
-  // Mark this object as visited
-  try {
-    Object.defineProperty(obj, VISITED, { value: true, enumerable: false });
-  } catch (e) {
-    // Object might be frozen or non-extensible, in which case we can't add the VISITED symbol
-    // Just continue without marking
-  }
-
-  const result: Record<string, any> = {};
-
-  // Process each property
-  for (const key of Object.keys(obj)) {
-    result[key] = formatValue(obj[key], depth + 1);
-  }
-
-  // Remove the visited mark
-  try {
-    delete (obj as any)[VISITED];
-  } catch (e) {
-    // Ignore errors when removing the property
-  }
-
-  return result;
-}
-
-/**
- * Formats any value for logging, handling different types appropriately
- * @param value The value to format
- * @param depth Current depth in the object tree
- * @returns A formatted value safe for logging
- */
-export function formatValue(value: any, depth = 0): any {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    return value;
-  }
-
-  // Handle different types
-  switch (typeof value) {
-    case 'string':
-      // Truncate long strings
-      if (value.length > MAX_STRING_LENGTH) {
-        return `${value.substring(0, MAX_STRING_LENGTH)}... [truncated, ${value.length} chars total]`;
-      }
-      return value;
-
-    case 'number':
-    case 'boolean':
-      return value;
-
-    case 'function':
-      return `[Function: ${value.name || 'anonymous'}]`;
-
-    case 'symbol':
-      return value.toString();
-
-    case 'bigint':
-      return value.toString();
-
-    case 'object':
-      // Handle special object types
-      if (value instanceof Date) {
-        return formatTimestamp(value);
-      }
-
-      if (value instanceof Error) {
-        return formatError(value);
-      }
-
-      if (Array.isArray(value)) {
-        // Prevent excessive recursion
-        if (depth >= MAX_DEPTH) {
-          return `[Array(${value.length})]`;
-        }
-
-        // Format each array element
-        return value.map((item) => formatValue(item, depth + 1));
-      }
-
-      // Regular object
-      return formatObject(value, depth);
-
-    default:
-      return `[Unhandled type: ${typeof value}]`;
-  }
-}
-
-/**
- * Formats journey-specific context data for logging
- * @param journeyContext The journey context object
- * @param journeyType The type of journey (health, care, plan)
- * @returns Formatted journey context data
- */
-export function formatJourneyContext(
-  journeyContext: Record<string, any>,
-  journeyType?: 'health' | 'care' | 'plan'
-): Record<string, any> {
-  if (!journeyContext) {
-    return {};
-  }
-
-  const formatted: Record<string, any> = {
-    journeyType: journeyType || journeyContext.journeyType || 'unknown',
-  };
-
-  // Add common journey properties
-  if (journeyContext.journeyId) {
-    formatted.journeyId = journeyContext.journeyId;
-  }
-
-  if (journeyContext.step) {
-    formatted.journeyStep = journeyContext.step;
-  }
-
-  // Add journey-specific properties based on journey type
-  switch (formatted.journeyType) {
-    case 'health':
-      if (journeyContext.metricType) {
-        formatted.healthMetricType = journeyContext.metricType;
-      }
-      if (journeyContext.deviceId) {
-        formatted.healthDeviceId = journeyContext.deviceId;
-      }
-      break;
-
-    case 'care':
-      if (journeyContext.appointmentId) {
-        formatted.careAppointmentId = journeyContext.appointmentId;
-      }
-      if (journeyContext.providerId) {
-        formatted.careProviderId = journeyContext.providerId;
-      }
-      break;
-
-    case 'plan':
-      if (journeyContext.planId) {
-        formatted.planId = journeyContext.planId;
-      }
-      if (journeyContext.claimId) {
-        formatted.planClaimId = journeyContext.claimId;
-      }
-      break;
-  }
-
-  return formatted;
-}
-
-/**
- * Formats a log level for display
- * @param level The log level to format
- * @returns Formatted log level string
- */
-export function formatLogLevel(level: LogLevel | string): string {
-  if (typeof level === 'string') {
-    return level.toUpperCase();
-  }
+function parseStackTrace(stack: string): Array<Record<string, string>> {
+  const lines = stack.split('\n').slice(1); // Skip the first line which is the error message
   
-  switch (level) {
-    case LogLevel.DEBUG:
-      return 'DEBUG';
-    case LogLevel.INFO:
-      return 'INFO';
-    case LogLevel.WARN:
-      return 'WARN';
-    case LogLevel.ERROR:
-      return 'ERROR';
-    case LogLevel.FATAL:
-      return 'FATAL';
-    default:
-      return 'UNKNOWN';
-  }
+  return lines.map((line) => {
+    const trimmed = line.trim();
+    // Match common stack trace patterns
+    const match = trimmed.match(/at\s+(?:(.+?)\s+\()?(?:(.+?):(\d+)(?::(\d+))?|([^)]+))\)?/);
+    
+    if (!match) {
+      return { raw: trimmed };
+    }
+    
+    const [, fnName, fileName, lineNumber, colNumber, alternative] = match;
+    
+    return {
+      function: fnName || 'anonymous',
+      file: fileName || alternative || 'unknown',
+      line: lineNumber || 'unknown',
+      column: colNumber || 'unknown',
+    };
+  });
 }
 
 /**
- * Redacts sensitive information from objects before logging
- * @param obj The object to redact
- * @param sensitiveKeys Array of keys to redact
- * @returns Redacted object
+ * Formats a timestamp to ISO string with millisecond precision
+ * @param date The date to format (defaults to current time)
+ * @returns ISO formatted timestamp string
  */
-export function redactSensitiveInfo(
-  obj: Record<string, any>,
-  sensitiveKeys: string[] = ['password', 'token', 'secret', 'key', 'authorization', 'apiKey']
-): Record<string, any> {
-  if (!obj || typeof obj !== 'object') {
+export function formatTimestamp(date: Date = new Date()): string {
+  return date.toISOString();
+}
+
+/**
+ * Safely serializes an object for logging, handling circular references
+ * @param obj The object to serialize
+ * @param depth Current recursion depth (used internally)
+ * @returns A safe-to-log object with circular references resolved
+ */
+export function safeSerialize(obj: any, depth: number = 0): any {
+  // Handle primitive types directly
+  if (obj === null || obj === undefined) {
     return obj;
   }
 
-  const result: Record<string, any> = {};
-
-  for (const [key, value] of Object.entries(obj)) {
-    // Check if this key should be redacted
-    const shouldRedact = sensitiveKeys.some(sensitiveKey => 
-      key.toLowerCase().includes(sensitiveKey.toLowerCase())
-    );
-
-    if (shouldRedact) {
-      // Redact the value but preserve type information
-      if (typeof value === 'string') {
-        result[key] = '[REDACTED]';
-      } else if (typeof value === 'number') {
-        result[key] = 0;
-      } else if (Array.isArray(value)) {
-        result[key] = ['[REDACTED]'];
-      } else if (value === null) {
-        result[key] = null;
-      } else if (typeof value === 'object') {
-        result[key] = { redacted: true };
-      } else {
-        result[key] = '[REDACTED]';
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      // Recursively process nested objects
-      if (Array.isArray(value)) {
-        result[key] = value.map(item => 
-          typeof item === 'object' && item !== null 
-            ? redactSensitiveInfo(item, sensitiveKeys) 
-            : item
-        );
-      } else {
-        result[key] = redactSensitiveInfo(value, sensitiveKeys);
-      }
-    } else {
-      // Pass through non-sensitive values
-      result[key] = value;
-    }
+  // Handle primitive types and functions
+  const type = typeof obj;
+  if (type !== 'object' && type !== 'function') {
+    return obj;
   }
 
-  return result;
+  // Handle functions
+  if (type === 'function') {
+    return '[Function]';
+  }
+
+  // Prevent circular references and excessive depth
+  if (depth > MAX_DEPTH) {
+    return '[Object: Nested too deep]';
+  }
+
+  // Handle Date objects
+  if (obj instanceof Date) {
+    return formatTimestamp(obj);
+  }
+
+  // Handle Error objects
+  if (obj instanceof Error) {
+    return formatError(obj);
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => safeSerialize(item, depth + 1));
+  }
+
+  // Check for circular references
+  if ((obj as any)[VISITED]) {
+    return '[Circular Reference]';
+  }
+
+  try {
+    // Mark object as visited for circular reference detection
+    Object.defineProperty(obj, VISITED, { value: true, enumerable: false });
+
+    // Process regular objects
+    const result: Record<string, any> = {};
+    
+    // Get all enumerable properties
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        try {
+          const value = obj[key];
+          result[key] = safeSerialize(value, depth + 1);
+        } catch (err) {
+          result[key] = '[Serialization Error]';
+        }
+      }
+    }
+    
+    return result;
+  } finally {
+    // Clean up the visited marker
+    if (obj && typeof obj === 'object') {
+      delete (obj as any)[VISITED];
+    }
+  }
+}
+
+/**
+ * Formats an object for structured logging
+ * @param obj The object to format
+ * @returns A formatted object safe for logging
+ */
+export function formatObject(obj: any): Record<string, any> {
+  return safeSerialize(obj);
+}
+
+/**
+ * Formats context information for logging
+ * @param context The context object containing metadata
+ * @returns A formatted context object
+ */
+export function formatContext(context: Record<string, any>): Record<string, any> {
+  const formattedContext: Record<string, any> = {};
+  
+  // Process standard context fields
+  if (context.requestId) {
+    formattedContext.requestId = context.requestId;
+  }
+  
+  if (context.userId) {
+    formattedContext.userId = context.userId;
+  }
+  
+  if (context.journey) {
+    formattedContext.journey = context.journey;
+  }
+  
+  if (context.traceId) {
+    formattedContext.traceId = context.traceId;
+  }
+  
+  if (context.spanId) {
+    formattedContext.spanId = context.spanId;
+  }
+  
+  // Add any additional context fields
+  Object.keys(context).forEach(key => {
+    if (!['requestId', 'userId', 'journey', 'traceId', 'spanId'].includes(key)) {
+      formattedContext[key] = safeSerialize(context[key]);
+    }
+  });
+  
+  return formattedContext;
+}
+
+/**
+ * Formats journey-specific data for logging
+ * @param journeyType The type of journey (health, care, plan)
+ * @param data The journey-specific data to format
+ * @returns Formatted journey data
+ */
+export function formatJourneyData(
+  journeyType: 'health' | 'care' | 'plan', 
+  data: Record<string, any>
+): Record<string, any> {
+  const formattedData = safeSerialize(data);
+  
+  // Add journey-specific formatting logic
+  switch (journeyType) {
+    case 'health':
+      // Format health journey specific data
+      if (formattedData.metrics) {
+        // Summarize metrics for logging if there are too many
+        if (Array.isArray(formattedData.metrics) && formattedData.metrics.length > 10) {
+          formattedData.metrics = {
+            count: formattedData.metrics.length,
+            sample: formattedData.metrics.slice(0, 3),
+            message: 'Array truncated for logging',
+          };
+        }
+      }
+      break;
+      
+    case 'care':
+      // Format care journey specific data
+      if (formattedData.appointments) {
+        // Summarize appointments for logging
+        if (Array.isArray(formattedData.appointments) && formattedData.appointments.length > 5) {
+          formattedData.appointments = {
+            count: formattedData.appointments.length,
+            sample: formattedData.appointments.slice(0, 2),
+            message: 'Array truncated for logging',
+          };
+        }
+      }
+      break;
+      
+    case 'plan':
+      // Format plan journey specific data
+      if (formattedData.claims) {
+        // Summarize claims for logging
+        if (Array.isArray(formattedData.claims) && formattedData.claims.length > 5) {
+          formattedData.claims = {
+            count: formattedData.claims.length,
+            sample: formattedData.claims.slice(0, 2),
+            message: 'Array truncated for logging',
+          };
+        }
+      }
+      break;
+  }
+  
+  return formattedData;
+}
+
+/**
+ * Creates a structured log entry with standardized format
+ * @param level The log level
+ * @param message The log message
+ * @param context Additional context information
+ * @param error Optional error object
+ * @returns A structured log entry object
+ */
+export function createLogEntry(
+  level: 'debug' | 'info' | 'warn' | 'error' | 'fatal',
+  message: string,
+  context?: Record<string, any>,
+  error?: Error | unknown
+): Record<string, any> {
+  const logEntry: Record<string, any> = {
+    timestamp: formatTimestamp(),
+    level,
+    message,
+  };
+  
+  // Add formatted context if provided
+  if (context) {
+    logEntry.context = formatContext(context);
+  }
+  
+  // Add formatted error if provided
+  if (error) {
+    logEntry.error = formatError(error);
+  }
+  
+  return logEntry;
 }

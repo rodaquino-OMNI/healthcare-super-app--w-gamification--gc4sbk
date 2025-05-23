@@ -1,587 +1,551 @@
 /**
- * @file event-factory.ts
- * @description Provides utility functions that generate customizable mock event data for testing purposes.
- * This factory module enables test writers to quickly create standard-compliant events with controlled
+ * @file Event Factory for Testing
+ * 
+ * Provides utility functions that generate customizable mock event data for testing purposes.
+ * This factory enables test writers to quickly create standard-compliant events with controlled
  * variations, supporting both valid and invalid scenarios while maintaining structural consistency.
- *
- * @module events/test/unit/dto/mocks
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { EventType, JourneyEvents } from '../../../../src/dto/event-types.enum';
-import { EventMetadataDto, EventOriginDto, EventVersionDto, createEventMetadata } from '../../../../src/dto/event-metadata.dto';
-import { 
-  HealthMetricType, 
-  HealthGoalType, 
-  DeviceType, 
-  HealthInsightType,
-  HealthMetricData,
-  HealthGoalData,
-  DeviceSyncData,
-  HealthInsightData
-} from '../../../../src/dto/health-event.dto';
+import {
+  GamificationEvent,
+  EventType,
+  EventJourney,
+  EventVersion,
+  EventPayload,
+  HealthMetricRecordedPayload,
+  HealthGoalPayload,
+  HealthGoalAchievedPayload,
+  HealthGoalStreakPayload,
+  DeviceEventPayload,
+  AppointmentEventPayload,
+  MedicationEventPayload,
+  TelemedicineEventPayload,
+  TreatmentPlanEventPayload,
+  ClaimEventPayload,
+  BenefitUtilizedPayload,
+  PlanEventPayload,
+  AchievementUnlockedPayload,
+  QuestCompletedPayload,
+  XpEarnedPayload,
+  LevelUpPayload
+} from '@austa/interfaces/gamification/events';
 
 /**
- * Base interface for all event data in the system.
+ * Options for creating a mock event
  */
-export interface BaseEventData {
-  [key: string]: any;
-}
-
-/**
- * Interface for a generic event structure used in testing.
- */
-export interface MockEvent<T extends BaseEventData = BaseEventData> {
-  type: string;
-  userId: string;
-  journey: string;
-  data: T;
-  metadata?: EventMetadataDto;
-}
-
-/**
- * Options for customizing generated mock events.
- */
-export interface EventFactoryOptions<T extends BaseEventData = BaseEventData> {
-  type?: string;
+export interface EventFactoryOptions {
+  /** Override the event ID */
+  eventId?: string;
+  /** Override the event type */
+  type?: EventType;
+  /** Override the user ID */
   userId?: string;
-  journey?: string;
-  data?: Partial<T>;
-  metadata?: Partial<EventMetadataDto>;
-  isValid?: boolean;
+  /** Override the journey */
+  journey?: EventJourney;
+  /** Override the payload */
+  payload?: Partial<EventPayload>;
+  /** Override the version */
+  version?: Partial<EventVersion>;
+  /** Override the created timestamp */
+  createdAt?: string;
+  /** Override the source */
+  source?: string;
+  /** Override the correlation ID */
+  correlationId?: string;
 }
 
 /**
- * Creates a basic mock event with default values.
- * 
- * @param options Options to customize the generated event
- * @returns A mock event with the specified options
+ * Default version for events
  */
-export function createMockEvent<T extends BaseEventData = BaseEventData>(
-  options: EventFactoryOptions<T> = {}
-): MockEvent<T> {
-  const {
-    type = EventType.USER_LOGIN,
-    userId = uuidv4(),
-    journey = 'user',
-    data = {} as T,
-    metadata,
-    isValid = true
-  } = options;
+const DEFAULT_VERSION: EventVersion = {
+  major: 1,
+  minor: 0,
+  patch: 0
+};
 
-  // Create default metadata if not provided
-  const defaultMetadata = createEventMetadata('test-service', {
-    correlationId: uuidv4(),
-    timestamp: new Date(),
-    ...(metadata || {})
-  });
+/**
+ * Creates a random ISO timestamp within the last 30 days
+ */
+const createRandomTimestamp = (): string => {
+  const now = new Date();
+  const daysAgo = Math.floor(Math.random() * 30);
+  const hoursAgo = Math.floor(Math.random() * 24);
+  const minutesAgo = Math.floor(Math.random() * 60);
+  
+  now.setDate(now.getDate() - daysAgo);
+  now.setHours(now.getHours() - hoursAgo);
+  now.setMinutes(now.getMinutes() - minutesAgo);
+  
+  return now.toISOString();
+};
 
-  // For invalid events, we might want to create incomplete metadata
-  const eventMetadata = isValid ? defaultMetadata : {
-    ...defaultMetadata,
-    ...(metadata || {})
-  };
-
+/**
+ * Creates a base event with default values
+ * 
+ * @param options - Optional overrides for event properties
+ * @returns A complete event object with default values for unspecified properties
+ */
+export const createMockEvent = (options: EventFactoryOptions = {}): GamificationEvent => {
+  const timestamp = createRandomTimestamp();
+  
   return {
+    eventId: options.eventId || uuidv4(),
+    type: options.type || EventType.HEALTH_METRIC_RECORDED,
+    userId: options.userId || uuidv4(),
+    journey: options.journey || EventJourney.HEALTH,
+    payload: options.payload || createDefaultPayload(options.type || EventType.HEALTH_METRIC_RECORDED, timestamp),
+    version: {
+      ...DEFAULT_VERSION,
+      ...options.version
+    },
+    createdAt: options.createdAt || timestamp,
+    source: options.source || 'test',
+    correlationId: options.correlationId || uuidv4()
+  };
+};
+
+/**
+ * Creates a default payload based on the event type
+ * 
+ * @param type - The event type
+ * @param timestamp - The timestamp to use in the payload
+ * @returns A default payload for the specified event type
+ */
+const createDefaultPayload = (type: EventType, timestamp: string): EventPayload => {
+  const basePayload = {
+    timestamp,
+    metadata: { source: 'test' }
+  };
+  
+  // Health Journey Events
+  if (type === EventType.HEALTH_METRIC_RECORDED) {
+    return {
+      ...basePayload,
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      source: 'manual',
+      isWithinHealthyRange: true
+    } as HealthMetricRecordedPayload;
+  }
+  
+  if (type === EventType.HEALTH_GOAL_CREATED || type === EventType.HEALTH_GOAL_UPDATED) {
+    return {
+      ...basePayload,
+      goalId: uuidv4(),
+      goalType: 'STEPS',
+      targetValue: 10000,
+      unit: 'steps',
+      period: 'daily'
+    } as HealthGoalPayload;
+  }
+  
+  if (type === EventType.HEALTH_GOAL_ACHIEVED) {
+    return {
+      ...basePayload,
+      goalId: uuidv4(),
+      goalType: 'STEPS',
+      targetValue: 10000,
+      unit: 'steps',
+      period: 'daily',
+      completionPercentage: 100,
+      isFirstTimeAchievement: Math.random() > 0.5
+    } as HealthGoalAchievedPayload;
+  }
+  
+  if (type === EventType.HEALTH_GOAL_STREAK_MAINTAINED) {
+    return {
+      ...basePayload,
+      goalId: uuidv4(),
+      goalType: 'STEPS',
+      streakCount: Math.floor(Math.random() * 30) + 1
+    } as HealthGoalStreakPayload;
+  }
+  
+  if (type === EventType.DEVICE_CONNECTED || type === EventType.DEVICE_SYNCED) {
+    return {
+      ...basePayload,
+      deviceId: uuidv4(),
+      deviceType: 'Smartwatch',
+      manufacturer: 'Apple',
+      metricCount: type === EventType.DEVICE_SYNCED ? Math.floor(Math.random() * 100) + 1 : undefined
+    } as DeviceEventPayload;
+  }
+  
+  // Care Journey Events
+  if (type === EventType.APPOINTMENT_BOOKED || type === EventType.APPOINTMENT_ATTENDED || type === EventType.APPOINTMENT_CANCELLED) {
+    return {
+      ...basePayload,
+      appointmentId: uuidv4(),
+      appointmentType: 'Consultation',
+      providerId: uuidv4(),
+      isFirstAppointment: Math.random() > 0.8,
+      cancellationReason: type === EventType.APPOINTMENT_CANCELLED ? 'Schedule conflict' : undefined
+    } as AppointmentEventPayload;
+  }
+  
+  if (type === EventType.MEDICATION_ADDED || type === EventType.MEDICATION_TAKEN || type === EventType.MEDICATION_ADHERENCE_STREAK) {
+    return {
+      ...basePayload,
+      medicationId: uuidv4(),
+      medicationName: 'Medication Test',
+      streakCount: type === EventType.MEDICATION_ADHERENCE_STREAK ? Math.floor(Math.random() * 30) + 1 : undefined,
+      takenOnTime: type === EventType.MEDICATION_TAKEN ? Math.random() > 0.2 : undefined
+    } as MedicationEventPayload;
+  }
+  
+  if (type === EventType.TELEMEDICINE_SESSION_STARTED || type === EventType.TELEMEDICINE_SESSION_COMPLETED) {
+    return {
+      ...basePayload,
+      sessionId: uuidv4(),
+      providerId: uuidv4(),
+      durationMinutes: type === EventType.TELEMEDICINE_SESSION_COMPLETED ? Math.floor(Math.random() * 30) + 10 : undefined,
+      isFirstSession: Math.random() > 0.8
+    } as TelemedicineEventPayload;
+  }
+  
+  if (type === EventType.TREATMENT_PLAN_CREATED || type === EventType.TREATMENT_PLAN_PROGRESS || type === EventType.TREATMENT_PLAN_COMPLETED) {
+    return {
+      ...basePayload,
+      planId: uuidv4(),
+      planType: 'Rehabilitation',
+      progressPercentage: type === EventType.TREATMENT_PLAN_PROGRESS ? Math.floor(Math.random() * 100) + 1 : undefined,
+      completedOnSchedule: type === EventType.TREATMENT_PLAN_COMPLETED ? Math.random() > 0.3 : undefined
+    } as TreatmentPlanEventPayload;
+  }
+  
+  // Plan Journey Events
+  if (type === EventType.CLAIM_SUBMITTED || type === EventType.CLAIM_APPROVED || type === EventType.CLAIM_DOCUMENT_UPLOADED) {
+    return {
+      ...basePayload,
+      claimId: uuidv4(),
+      claimType: 'Medical',
+      amount: type !== EventType.CLAIM_DOCUMENT_UPLOADED ? Math.floor(Math.random() * 1000) + 100 : undefined,
+      documentCount: type === EventType.CLAIM_DOCUMENT_UPLOADED ? Math.floor(Math.random() * 5) + 1 : undefined
+    } as ClaimEventPayload;
+  }
+  
+  if (type === EventType.BENEFIT_UTILIZED) {
+    return {
+      ...basePayload,
+      benefitId: uuidv4(),
+      benefitType: 'Wellness',
+      value: Math.floor(Math.random() * 500) + 50
+    } as BenefitUtilizedPayload;
+  }
+  
+  if (type === EventType.PLAN_SELECTED || type === EventType.PLAN_COMPARED || type === EventType.PLAN_RENEWED) {
+    return {
+      ...basePayload,
+      planId: uuidv4(),
+      planType: 'Premium',
+      comparedPlanIds: type === EventType.PLAN_COMPARED ? [uuidv4(), uuidv4()] : undefined,
+      isUpgrade: type === EventType.PLAN_SELECTED || type === EventType.PLAN_RENEWED ? Math.random() > 0.5 : undefined
+    } as PlanEventPayload;
+  }
+  
+  // Cross-Journey Events
+  if (type === EventType.ACHIEVEMENT_UNLOCKED) {
+    return {
+      ...basePayload,
+      achievementId: uuidv4(),
+      achievementTitle: 'Test Achievement',
+      achievementDescription: 'This is a test achievement',
+      xpEarned: Math.floor(Math.random() * 100) + 10,
+      relatedJourney: Math.random() > 0.25 ? 
+        (Math.random() > 0.5 ? EventJourney.HEALTH : 
+          (Math.random() > 0.5 ? EventJourney.CARE : EventJourney.PLAN)) : 
+        undefined
+    } as AchievementUnlockedPayload;
+  }
+  
+  if (type === EventType.QUEST_COMPLETED) {
+    return {
+      ...basePayload,
+      questId: uuidv4(),
+      questTitle: 'Test Quest',
+      xpEarned: Math.floor(Math.random() * 200) + 50,
+      rewards: Math.random() > 0.3 ? [
+        {
+          rewardId: uuidv4(),
+          rewardType: 'Badge',
+          rewardValue: Math.floor(Math.random() * 100) + 1
+        }
+      ] : undefined
+    } as QuestCompletedPayload;
+  }
+  
+  if (type === EventType.XP_EARNED) {
+    return {
+      ...basePayload,
+      amount: Math.floor(Math.random() * 50) + 5,
+      source: 'daily_activity',
+      description: 'Earned XP for daily activity',
+      relatedJourney: Math.random() > 0.25 ? 
+        (Math.random() > 0.5 ? EventJourney.HEALTH : 
+          (Math.random() > 0.5 ? EventJourney.CARE : EventJourney.PLAN)) : 
+        undefined
+    } as XpEarnedPayload;
+  }
+  
+  if (type === EventType.LEVEL_UP) {
+    const newLevel = Math.floor(Math.random() * 10) + 2;
+    return {
+      ...basePayload,
+      newLevel,
+      previousLevel: newLevel - 1,
+      totalXp: newLevel * 100,
+      unlockedRewards: Math.random() > 0.3 ? [
+        {
+          rewardId: uuidv4(),
+          rewardType: 'Badge',
+          rewardDescription: 'New badge unlocked'
+        }
+      ] : undefined
+    } as LevelUpPayload;
+  }
+  
+  // Default fallback
+  return basePayload as EventPayload;
+};
+
+/**
+ * Creates an invalid event for testing error handling
+ * 
+ * @param invalidField - The field to make invalid
+ * @param options - Optional overrides for event properties
+ * @returns An event with an invalid field
+ */
+export const createInvalidEvent = (invalidField: keyof GamificationEvent, options: EventFactoryOptions = {}): Partial<GamificationEvent> => {
+  const validEvent = createMockEvent(options);
+  
+  switch (invalidField) {
+    case 'eventId':
+      return { ...validEvent, eventId: 'invalid-uuid' };
+    case 'type':
+      return { ...validEvent, type: 'INVALID_EVENT_TYPE' as EventType };
+    case 'userId':
+      return { ...validEvent, userId: 'invalid-user-id' };
+    case 'journey':
+      return { ...validEvent, journey: 'invalid-journey' as EventJourney };
+    case 'payload':
+      return { ...validEvent, payload: null as unknown as EventPayload };
+    case 'version':
+      return { ...validEvent, version: null as unknown as EventVersion };
+    case 'createdAt':
+      return { ...validEvent, createdAt: 'invalid-date' };
+    case 'source':
+      return { ...validEvent, source: '' };
+    default:
+      return validEvent;
+  }
+};
+
+/**
+ * Creates a health journey event
+ * 
+ * @param type - The specific health event type
+ * @param options - Optional overrides for event properties
+ * @returns A health journey event
+ */
+export const createHealthEvent = (type: EventType, options: EventFactoryOptions = {}): GamificationEvent => {
+  return createMockEvent({
+    ...options,
     type,
-    userId: isValid ? userId : (userId || ''),
-    journey,
-    data: data as T,
-    metadata: eventMetadata
-  };
-}
+    journey: EventJourney.HEALTH
+  });
+};
 
 /**
- * Creates an invalid mock event by omitting required fields or using invalid values.
+ * Creates a care journey event
  * 
- * @param options Options to customize the generated invalid event
- * @returns An invalid mock event for testing validation logic
+ * @param type - The specific care event type
+ * @param options - Optional overrides for event properties
+ * @returns A care journey event
  */
-export function createInvalidMockEvent<T extends BaseEventData = BaseEventData>(
-  options: EventFactoryOptions<T> = {}
-): MockEvent<T> {
+export const createCareEvent = (type: EventType, options: EventFactoryOptions = {}): GamificationEvent => {
   return createMockEvent({
     ...options,
-    isValid: false
+    type,
+    journey: EventJourney.CARE
   });
-}
+};
 
 /**
- * Creates a mock event with a specific event type.
+ * Creates a plan journey event
  * 
- * @param eventType The event type to use
- * @param options Additional options to customize the event
- * @returns A mock event with the specified event type
+ * @param type - The specific plan event type
+ * @param options - Optional overrides for event properties
+ * @returns A plan journey event
  */
-export function createMockEventWithType<T extends BaseEventData = BaseEventData>(
-  eventType: EventType,
-  options: EventFactoryOptions<T> = {}
-): MockEvent<T> {
+export const createPlanEvent = (type: EventType, options: EventFactoryOptions = {}): GamificationEvent => {
   return createMockEvent({
     ...options,
-    type: eventType
+    type,
+    journey: EventJourney.PLAN
   });
-}
+};
 
 /**
- * Creates a mock event for a specific journey.
+ * Creates a cross-journey event
  * 
- * @param journey The journey to create the event for ('health', 'care', 'plan', etc.)
- * @param options Additional options to customize the event
- * @returns A mock event for the specified journey
+ * @param type - The specific cross-journey event type
+ * @param options - Optional overrides for event properties
+ * @returns A cross-journey event
  */
-export function createMockEventForJourney<T extends BaseEventData = BaseEventData>(
-  journey: string,
-  options: EventFactoryOptions<T> = {}
-): MockEvent<T> {
+export const createCrossJourneyEvent = (type: EventType, options: EventFactoryOptions = {}): GamificationEvent => {
   return createMockEvent({
     ...options,
-    journey
+    type,
+    journey: EventJourney.CROSS_JOURNEY
   });
-}
-
-// Health Journey Event Factories
+};
 
 /**
- * Creates a mock health metric recorded event.
+ * Creates a batch of random events for testing
  * 
- * @param options Options to customize the health metric event
- * @returns A mock health metric recorded event
+ * @param count - The number of events to create
+ * @returns An array of random events
  */
-export function createHealthMetricEvent(
-  options: EventFactoryOptions<HealthMetricData> = {}
-): MockEvent<HealthMetricData> {
-  const defaultData: HealthMetricData = {
-    metricType: HealthMetricType.HEART_RATE,
-    value: 75,
-    unit: 'bpm',
-    recordedAt: new Date().toISOString(),
-    notes: 'Recorded after light exercise',
-    deviceId: uuidv4()
-  };
-
-  return createMockEvent({
-    type: EventType.HEALTH_METRIC_RECORDED,
-    journey: 'health',
-    data: { ...defaultData, ...(options.data || {}) } as HealthMetricData,
-    ...options
-  });
-}
-
-/**
- * Creates a mock health goal achieved event.
- * 
- * @param options Options to customize the health goal event
- * @returns A mock health goal achieved event
- */
-export function createHealthGoalEvent(
-  options: EventFactoryOptions<HealthGoalData> = {}
-): MockEvent<HealthGoalData> {
-  const defaultData: HealthGoalData = {
-    goalId: uuidv4(),
-    goalType: HealthGoalType.STEPS_TARGET,
-    description: 'Daily step goal',
-    targetValue: 10000,
-    unit: 'steps',
-    achievedAt: new Date().toISOString(),
-    progressPercentage: 100,
-    isAchieved: () => true,
-    markAsAchieved: () => {}
-  };
-
-  return createMockEvent({
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    journey: 'health',
-    data: { ...defaultData, ...(options.data || {}) } as HealthGoalData,
-    ...options
-  });
-}
-
-/**
- * Creates a mock device synchronized event.
- * 
- * @param options Options to customize the device sync event
- * @returns A mock device synchronized event
- */
-export function createDeviceSyncEvent(
-  options: EventFactoryOptions<DeviceSyncData> = {}
-): MockEvent<DeviceSyncData> {
-  const defaultData: DeviceSyncData = {
-    deviceId: uuidv4(),
-    deviceType: DeviceType.FITNESS_TRACKER,
-    deviceName: 'Fitbit Charge 5',
-    syncedAt: new Date().toISOString(),
-    syncSuccessful: true,
-    dataPointsCount: 24,
-    metricTypes: [HealthMetricType.HEART_RATE, HealthMetricType.STEPS],
-    markAsFailed: (errorMessage: string) => {},
-    markAsSuccessful: (dataPointsCount: number, metricTypes: HealthMetricType[]) => {}
-  };
-
-  return createMockEvent({
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    journey: 'health',
-    data: { ...defaultData, ...(options.data || {}) } as DeviceSyncData,
-    ...options
-  });
-}
-
-/**
- * Creates a mock health insight generated event.
- * 
- * @param options Options to customize the health insight event
- * @returns A mock health insight generated event
- */
-export function createHealthInsightEvent(
-  options: EventFactoryOptions<HealthInsightData> = {}
-): MockEvent<HealthInsightData> {
-  const defaultData: HealthInsightData = {
-    insightId: uuidv4(),
-    insightType: HealthInsightType.TREND_ANALYSIS,
-    title: 'Improving Sleep Pattern',
-    description: 'Your sleep duration has improved by 15% over the last week.',
-    relatedMetricTypes: [HealthMetricType.SLEEP],
-    confidenceScore: 85,
-    generatedAt: new Date().toISOString(),
-    userAcknowledged: false,
-    acknowledgeByUser: () => {},
-    isHighPriority: () => false
-  };
-
-  return createMockEvent({
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    journey: 'health',
-    data: { ...defaultData, ...(options.data || {}) } as HealthInsightData,
-    ...options
-  });
-}
-
-// Care Journey Event Factories
-
-/**
- * Interface for appointment event data.
- */
-export interface AppointmentEventData extends BaseEventData {
-  appointmentId: string;
-  providerId: string;
-  specialtyType: string;
-  appointmentType: string;
-  scheduledAt: string;
-  bookedAt?: string;
-  completedAt?: string;
-  duration?: number;
-}
-
-/**
- * Creates a mock appointment booked event.
- * 
- * @param options Options to customize the appointment event
- * @returns A mock appointment booked event
- */
-export function createAppointmentBookedEvent(
-  options: EventFactoryOptions<AppointmentEventData> = {}
-): MockEvent<AppointmentEventData> {
-  const defaultData: AppointmentEventData = {
-    appointmentId: uuidv4(),
-    providerId: uuidv4(),
-    specialtyType: 'Cardiologia',
-    appointmentType: 'in_person',
-    scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    bookedAt: new Date().toISOString()
-  };
-
-  return createMockEvent({
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    journey: 'care',
-    data: { ...defaultData, ...(options.data || {}) } as AppointmentEventData,
-    ...options
-  });
-}
-
-/**
- * Creates a mock appointment completed event.
- * 
- * @param options Options to customize the appointment event
- * @returns A mock appointment completed event
- */
-export function createAppointmentCompletedEvent(
-  options: EventFactoryOptions<AppointmentEventData> = {}
-): MockEvent<AppointmentEventData> {
-  const defaultData: AppointmentEventData = {
-    appointmentId: uuidv4(),
-    providerId: uuidv4(),
-    specialtyType: 'Cardiologia',
-    appointmentType: 'in_person',
-    scheduledAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-    completedAt: new Date().toISOString(),
-    duration: 30 // 30 minutes
-  };
-
-  return createMockEvent({
-    type: EventType.CARE_APPOINTMENT_COMPLETED,
-    journey: 'care',
-    data: { ...defaultData, ...(options.data || {}) } as AppointmentEventData,
-    ...options
-  });
-}
-
-/**
- * Interface for medication event data.
- */
-export interface MedicationEventData extends BaseEventData {
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  takenAt: string;
-  adherence: string;
-}
-
-/**
- * Creates a mock medication taken event.
- * 
- * @param options Options to customize the medication event
- * @returns A mock medication taken event
- */
-export function createMedicationTakenEvent(
-  options: EventFactoryOptions<MedicationEventData> = {}
-): MockEvent<MedicationEventData> {
-  const defaultData: MedicationEventData = {
-    medicationId: uuidv4(),
-    medicationName: 'Atorvastatina',
-    dosage: '20mg',
-    takenAt: new Date().toISOString(),
-    adherence: 'on_time'
-  };
-
-  return createMockEvent({
-    type: EventType.CARE_MEDICATION_TAKEN,
-    journey: 'care',
-    data: { ...defaultData, ...(options.data || {}) } as MedicationEventData,
-    ...options
-  });
-}
-
-// Plan Journey Event Factories
-
-/**
- * Interface for claim event data.
- */
-export interface ClaimEventData extends BaseEventData {
-  claimId: string;
-  claimType: string;
-  providerId: string;
-  serviceDate: string;
-  amount: number;
-  submittedAt?: string;
-  status?: string;
-  coveredAmount?: number;
-  processedAt?: string;
-}
-
-/**
- * Creates a mock claim submitted event.
- * 
- * @param options Options to customize the claim event
- * @returns A mock claim submitted event
- */
-export function createClaimSubmittedEvent(
-  options: EventFactoryOptions<ClaimEventData> = {}
-): MockEvent<ClaimEventData> {
-  const defaultData: ClaimEventData = {
-    claimId: uuidv4(),
-    claimType: 'Consulta Médica',
-    providerId: uuidv4(),
-    serviceDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-    amount: 250.00,
-    submittedAt: new Date().toISOString()
-  };
-
-  return createMockEvent({
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    journey: 'plan',
-    data: { ...defaultData, ...(options.data || {}) } as ClaimEventData,
-    ...options
-  });
-}
-
-/**
- * Creates a mock claim processed event.
- * 
- * @param options Options to customize the claim event
- * @returns A mock claim processed event
- */
-export function createClaimProcessedEvent(
-  options: EventFactoryOptions<ClaimEventData> = {}
-): MockEvent<ClaimEventData> {
-  const defaultData: ClaimEventData = {
-    claimId: uuidv4(),
-    claimType: 'Consulta Médica',
-    providerId: uuidv4(),
-    serviceDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-    amount: 250.00,
-    status: 'approved',
-    coveredAmount: 200.00,
-    processedAt: new Date().toISOString()
-  };
-
-  return createMockEvent({
-    type: EventType.PLAN_CLAIM_PROCESSED,
-    journey: 'plan',
-    data: { ...defaultData, ...(options.data || {}) } as ClaimEventData,
-    ...options
-  });
-}
-
-/**
- * Interface for benefit event data.
- */
-export interface BenefitEventData extends BaseEventData {
-  benefitId: string;
-  benefitType: string;
-  providerId?: string;
-  utilizationDate: string;
-  savingsAmount?: number;
-}
-
-/**
- * Creates a mock benefit utilized event.
- * 
- * @param options Options to customize the benefit event
- * @returns A mock benefit utilized event
- */
-export function createBenefitUtilizedEvent(
-  options: EventFactoryOptions<BenefitEventData> = {}
-): MockEvent<BenefitEventData> {
-  const defaultData: BenefitEventData = {
-    benefitId: uuidv4(),
-    benefitType: 'wellness',
-    providerId: uuidv4(),
-    utilizationDate: new Date().toISOString(),
-    savingsAmount: 75.00
-  };
-
-  return createMockEvent({
-    type: EventType.PLAN_BENEFIT_UTILIZED,
-    journey: 'plan',
-    data: { ...defaultData, ...(options.data || {}) } as BenefitEventData,
-    ...options
-  });
-}
-
-// Gamification Event Factories
-
-/**
- * Interface for points earned event data.
- */
-export interface PointsEarnedEventData extends BaseEventData {
-  achievementId?: string;
-  sourceType: string;
-  sourceId: string;
-  points: number;
-  reason: string;
-  earnedAt: string;
-}
-
-/**
- * Creates a mock points earned event.
- * 
- * @param options Options to customize the points event
- * @returns A mock points earned event
- */
-export function createPointsEarnedEvent(
-  options: EventFactoryOptions<PointsEarnedEventData> = {}
-): MockEvent<PointsEarnedEventData> {
-  const defaultData: PointsEarnedEventData = {
-    sourceType: 'health',
-    sourceId: uuidv4(),
-    points: 50,
-    reason: 'Daily step goal achieved',
-    earnedAt: new Date().toISOString()
-  };
-
-  return createMockEvent({
-    type: EventType.GAMIFICATION_POINTS_EARNED,
-    journey: 'gamification',
-    data: { ...defaultData, ...(options.data || {}) } as PointsEarnedEventData,
-    ...options
-  });
-}
-
-/**
- * Interface for achievement unlocked event data.
- */
-export interface AchievementUnlockedEventData extends BaseEventData {
-  achievementId: string;
-  achievementType: string;
-  tier: string;
-  points: number;
-  unlockedAt: string;
-}
-
-/**
- * Creates a mock achievement unlocked event.
- * 
- * @param options Options to customize the achievement event
- * @returns A mock achievement unlocked event
- */
-export function createAchievementUnlockedEvent(
-  options: EventFactoryOptions<AchievementUnlockedEventData> = {}
-): MockEvent<AchievementUnlockedEventData> {
-  const defaultData: AchievementUnlockedEventData = {
-    achievementId: uuidv4(),
-    achievementType: 'health-check-streak',
-    tier: 'silver',
-    points: 100,
-    unlockedAt: new Date().toISOString()
-  };
-
-  return createMockEvent({
-    type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-    journey: 'gamification',
-    data: { ...defaultData, ...(options.data || {}) } as AchievementUnlockedEventData,
-    ...options
-  });
-}
-
-/**
- * Utility function to generate a random event for testing.
- * 
- * @returns A random mock event from any journey
- */
-export function createRandomEvent(): MockEvent {
+export const createRandomEvents = (count: number): GamificationEvent[] => {
+  const events: GamificationEvent[] = [];
   const eventTypes = Object.values(EventType);
-  const randomType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
   
-  // Determine journey based on event type prefix
-  let journey = 'user';
-  if (randomType.startsWith('HEALTH_')) journey = 'health';
-  if (randomType.startsWith('CARE_')) journey = 'care';
-  if (randomType.startsWith('PLAN_')) journey = 'plan';
-  if (randomType.startsWith('GAMIFICATION_')) journey = 'gamification';
+  for (let i = 0; i < count; i++) {
+    const randomType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+    let journey: EventJourney;
+    
+    // Determine journey based on event type prefix
+    if (randomType.startsWith('HEALTH_')) {
+      journey = EventJourney.HEALTH;
+    } else if (randomType.startsWith('CARE_') || 
+               randomType === EventType.APPOINTMENT_BOOKED || 
+               randomType === EventType.APPOINTMENT_ATTENDED || 
+               randomType === EventType.APPOINTMENT_CANCELLED || 
+               randomType === EventType.MEDICATION_ADDED || 
+               randomType === EventType.MEDICATION_TAKEN || 
+               randomType === EventType.MEDICATION_ADHERENCE_STREAK || 
+               randomType === EventType.TELEMEDICINE_SESSION_STARTED || 
+               randomType === EventType.TELEMEDICINE_SESSION_COMPLETED || 
+               randomType === EventType.TREATMENT_PLAN_CREATED || 
+               randomType === EventType.TREATMENT_PLAN_PROGRESS || 
+               randomType === EventType.TREATMENT_PLAN_COMPLETED) {
+      journey = EventJourney.CARE;
+    } else if (randomType.startsWith('PLAN_') || 
+               randomType === EventType.CLAIM_SUBMITTED || 
+               randomType === EventType.CLAIM_APPROVED || 
+               randomType === EventType.CLAIM_DOCUMENT_UPLOADED || 
+               randomType === EventType.BENEFIT_UTILIZED) {
+      journey = EventJourney.PLAN;
+    } else {
+      journey = EventJourney.CROSS_JOURNEY;
+    }
+    
+    events.push(createMockEvent({
+      type: randomType,
+      journey
+    }));
+  }
   
-  return createMockEventWithType(randomType as EventType, { journey });
-}
+  return events;
+};
 
 /**
- * Creates a batch of mock events for testing.
+ * Creates a health metric recorded event
  * 
- * @param count Number of events to create
- * @param options Options to customize the events
- * @returns An array of mock events
+ * @param options - Optional overrides for event properties
+ * @returns A health metric recorded event
  */
-export function createMockEventBatch(
-  count: number,
-  options: EventFactoryOptions = {}
-): MockEvent[] {
-  return Array.from({ length: count }, () => createMockEvent(options));
-}
+export const createHealthMetricEvent = (options: EventFactoryOptions & Partial<HealthMetricRecordedPayload> = {}): GamificationEvent => {
+  const { metricType, value, unit, source, isWithinHealthyRange, ...eventOptions } = options;
+  
+  return createHealthEvent(EventType.HEALTH_METRIC_RECORDED, {
+    ...eventOptions,
+    payload: {
+      timestamp: options.createdAt || createRandomTimestamp(),
+      metricType: metricType || 'HEART_RATE',
+      value: value !== undefined ? value : 75,
+      unit: unit || 'bpm',
+      source: source || 'manual',
+      isWithinHealthyRange: isWithinHealthyRange !== undefined ? isWithinHealthyRange : true,
+      metadata: { source: 'test' }
+    } as HealthMetricRecordedPayload
+  });
+};
 
 /**
- * Creates a batch of random events for testing.
+ * Creates an appointment event
  * 
- * @param count Number of random events to create
- * @returns An array of random mock events
+ * @param type - The specific appointment event type
+ * @param options - Optional overrides for event properties
+ * @returns An appointment event
  */
-export function createRandomEventBatch(count: number): MockEvent[] {
-  return Array.from({ length: count }, () => createRandomEvent());
-}
+export const createAppointmentEvent = (
+  type: EventType.APPOINTMENT_BOOKED | EventType.APPOINTMENT_ATTENDED | EventType.APPOINTMENT_CANCELLED,
+  options: EventFactoryOptions & Partial<AppointmentEventPayload> = {}
+): GamificationEvent => {
+  const { appointmentId, appointmentType, providerId, isFirstAppointment, cancellationReason, ...eventOptions } = options;
+  
+  return createCareEvent(type, {
+    ...eventOptions,
+    payload: {
+      timestamp: options.createdAt || createRandomTimestamp(),
+      appointmentId: appointmentId || uuidv4(),
+      appointmentType: appointmentType || 'Consultation',
+      providerId: providerId || uuidv4(),
+      isFirstAppointment: isFirstAppointment !== undefined ? isFirstAppointment : Math.random() > 0.8,
+      cancellationReason: type === EventType.APPOINTMENT_CANCELLED ? (cancellationReason || 'Schedule conflict') : undefined,
+      metadata: { source: 'test' }
+    } as AppointmentEventPayload
+  });
+};
+
+/**
+ * Creates a claim event
+ * 
+ * @param type - The specific claim event type
+ * @param options - Optional overrides for event properties
+ * @returns A claim event
+ */
+export const createClaimEvent = (
+  type: EventType.CLAIM_SUBMITTED | EventType.CLAIM_APPROVED | EventType.CLAIM_DOCUMENT_UPLOADED,
+  options: EventFactoryOptions & Partial<ClaimEventPayload> = {}
+): GamificationEvent => {
+  const { claimId, claimType, amount, documentCount, ...eventOptions } = options;
+  
+  return createPlanEvent(type, {
+    ...eventOptions,
+    payload: {
+      timestamp: options.createdAt || createRandomTimestamp(),
+      claimId: claimId || uuidv4(),
+      claimType: claimType || 'Medical',
+      amount: type !== EventType.CLAIM_DOCUMENT_UPLOADED ? (amount !== undefined ? amount : Math.floor(Math.random() * 1000) + 100) : undefined,
+      documentCount: type === EventType.CLAIM_DOCUMENT_UPLOADED ? (documentCount !== undefined ? documentCount : Math.floor(Math.random() * 5) + 1) : undefined,
+      metadata: { source: 'test' }
+    } as ClaimEventPayload
+  });
+};
+
+/**
+ * Creates an achievement unlocked event
+ * 
+ * @param options - Optional overrides for event properties
+ * @returns An achievement unlocked event
+ */
+export const createAchievementUnlockedEvent = (options: EventFactoryOptions & Partial<AchievementUnlockedPayload> = {}): GamificationEvent => {
+  const { achievementId, achievementTitle, achievementDescription, xpEarned, relatedJourney, ...eventOptions } = options;
+  
+  return createCrossJourneyEvent(EventType.ACHIEVEMENT_UNLOCKED, {
+    ...eventOptions,
+    payload: {
+      timestamp: options.createdAt || createRandomTimestamp(),
+      achievementId: achievementId || uuidv4(),
+      achievementTitle: achievementTitle || 'Test Achievement',
+      achievementDescription: achievementDescription || 'This is a test achievement',
+      xpEarned: xpEarned !== undefined ? xpEarned : Math.floor(Math.random() * 100) + 10,
+      relatedJourney,
+      metadata: { source: 'test' }
+    } as AchievementUnlockedPayload
+  });
+};

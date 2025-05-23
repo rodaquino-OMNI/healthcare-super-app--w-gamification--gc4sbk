@@ -1,23 +1,24 @@
 /**
  * @file Main barrel file for the logging package
- * @description Exports all logging components, interfaces, and utilities for use throughout the AUSTA SuperApp
+ * @description Exports all logging components, interfaces, and utilities for use throughout the AUSTA SuperApp.
+ * This file provides a clean, well-defined API structure for the logging package.
  */
 
-// Export core logger components
-export * from './logger.module';
-export * from './logger.service';
+// Core components
+export { LoggerModule } from './logger.module';
+export { LoggerService } from './logger.service';
 
-// Export context-related components
-export * from './context';
-
-// Export formatter-related components
-export * from './formatters';
-
-// Export interface definitions
+// Interfaces
 export * from './interfaces';
 
-// Export transport-related components
+// Context components
+export * from './context';
+
+// Formatters
+export * from './formatters';
+
+// Transports
 export * from './transports';
 
-// Export utility functions
+// Utilities
 export * from './utils';

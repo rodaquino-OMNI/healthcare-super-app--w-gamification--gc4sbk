@@ -4,14 +4,14 @@
  * in other files and ensuring consistent usage throughout the application.
  */
 
-// Re-export all constants from error-codes.ts
+// Export all error codes related to tracing operations
 export * from './error-codes';
 
-// Re-export all constants from config-keys.ts
+// Export all standard attribute names for OpenTelemetry spans
+export * from './span-attributes';
+
+// Export all configuration key constants for tracing
 export * from './config-keys';
 
-// Re-export all constants from defaults.ts
+// Export all default values used throughout the tracing package
 export * from './defaults';
-
-// Re-export all constants from span-attributes.ts
-export * from './span-attributes';

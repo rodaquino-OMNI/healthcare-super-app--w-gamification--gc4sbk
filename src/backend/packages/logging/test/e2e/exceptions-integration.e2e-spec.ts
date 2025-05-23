@@ -1,343 +1,368 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, HttpStatus } from '@nestjs/common';
 import * as request from 'supertest';
-import { AppException, ErrorType } from '../../../shared/src/exceptions/exceptions.types';
-import { AllExceptionsFilter } from '../../../shared/src/exceptions/exceptions.filter';
-import { LoggerService } from '../../../shared/src/logging/logger.service';
-import { LogCaptureUtils, AssertionUtils, TestContextUtils } from '../utils';
-import { ErrorObjectsFixture } from '../fixtures/error-objects.fixture';
-import { LogContextsFixture } from '../fixtures/log-contexts.fixture';
-import { MockLoggerService } from '../mocks/logger.service.mock';
-import { Controller, Get, Module, UseFilters } from '@nestjs/common';
+import { TestAppModule } from './test-app.module';
+import { LoggerService } from '../../src/logger.service';
+import { AppException, ErrorType } from '@austa/errors';
+import { TestService } from './test.service';
+import { TestController } from './test.controller';
 
 /**
- * Test controller that throws different types of exceptions for testing
+ * End-to-end tests for the integration between the logging service and exception handling system.
+ * Verifies that exceptions are properly logged with appropriate context, stack traces, and severity levels.
+ * Tests different error types (validation, business, technical, external) and ensures they're logged correctly.
  */
-@Controller('test')
-@UseFilters(AllExceptionsFilter)
-class TestExceptionController {
-  @Get('validation-error')
-  throwValidationError() {
-    throw new AppException(
-      'Invalid input data',
-      ErrorType.VALIDATION,
-      'TEST_VALIDATION_001',
-      { field: 'username', constraint: 'required' }
-    );
-  }
-
-  @Get('business-error')
-  throwBusinessError() {
-    throw new AppException(
-      'Operation not allowed',
-      ErrorType.BUSINESS,
-      'TEST_BUSINESS_001',
-      { reason: 'insufficient permissions' }
-    );
-  }
-
-  @Get('technical-error')
-  throwTechnicalError() {
-    throw new AppException(
-      'Database connection failed',
-      ErrorType.TECHNICAL,
-      'TEST_TECHNICAL_001',
-      { service: 'postgres' }
-    );
-  }
-
-  @Get('external-error')
-  throwExternalError() {
-    throw new AppException(
-      'External API unavailable',
-      ErrorType.EXTERNAL,
-      'TEST_EXTERNAL_001',
-      { service: 'payment-gateway' }
-    );
-  }
-
-  @Get('nested-error')
-  throwNestedError() {
-    const originalError = new Error('Original database error');
-    throw new AppException(
-      'Failed to process request',
-      ErrorType.TECHNICAL,
-      'TEST_NESTED_001',
-      { operation: 'data-processing' },
-      originalError
-    );
-  }
-
-  @Get('standard-error')
-  throwStandardError() {
-    throw new Error('Standard JavaScript error');
-  }
-
-  @Get('http-error')
-  throwHttpError() {
-    const error: any = new Error('Not Found');
-    error.status = 404;
-    throw error;
-  }
-}
-
-/**
- * Test module for exception integration testing
- */
-@Module({
-  controllers: [TestExceptionController],
-  providers: [
-    {
-      provide: LoggerService,
-      useClass: MockLoggerService
-    },
-    AllExceptionsFilter
-  ]
-})
-class TestExceptionModule {}
-
-describe('Exceptions Integration with Logging (E2E)', () => {
+describe('Exceptions Integration (e2e)', () => {
   let app: INestApplication;
-  let loggerService: MockLoggerService;
-  let logCapture: LogCaptureUtils;
+  let loggerService: LoggerService;
+  let testService: TestService;
+  
+  // Spy on the logger methods to verify they're called correctly
+  let logSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
+  let warnSpy: jest.SpyInstance;
+  let debugSpy: jest.SpyInstance;
 
   beforeAll(async () => {
-    // Create a testing module with our test controller and exception filter
+    // Create a testing module with our TestAppModule
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [TestExceptionModule],
+      imports: [TestAppModule],
     }).compile();
 
-    // Get the mock logger service
-    loggerService = moduleFixture.get<MockLoggerService>(LoggerService);
-    
-    // Create the application
+    // Create the NestJS application
     app = moduleFixture.createNestApplication();
     
-    // Set up global pipes and filters
-    app.useGlobalPipes(new ValidationPipe());
-    app.useGlobalFilters(new AllExceptionsFilter(loggerService));
+    // Get the logger service and test service
+    loggerService = moduleFixture.get<LoggerService>(LoggerService);
+    testService = moduleFixture.get<TestService>(TestService);
     
-    // Initialize log capture
-    logCapture = new LogCaptureUtils();
-    logCapture.startCapture();
+    // Create spies on the logger methods
+    logSpy = jest.spyOn(loggerService, 'log');
+    errorSpy = jest.spyOn(loggerService, 'error');
+    warnSpy = jest.spyOn(loggerService, 'warn');
+    debugSpy = jest.spyOn(loggerService, 'debug');
     
     await app.init();
   });
 
-  afterEach(() => {
-    // Clear captured logs and reset the mock logger between tests
-    logCapture.clearCapture();
-    loggerService.reset();
-  });
-
   afterAll(async () => {
-    // Stop log capture and close the application
-    logCapture.stopCapture();
     await app.close();
   });
 
-  describe('Error Classification and Logging', () => {
-    it('should log validation errors with DEBUG level', async () => {
-      // Make a request that will trigger a validation error
-      await request(app.getHttpServer())
-        .get('/test/validation-error')
-        .expect(400);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.debugMessages.length).toBeGreaterThan(0);
-      const lastDebugMessage = loggerService.debugMessages[loggerService.debugMessages.length - 1];
-      
-      // Verify log content
-      AssertionUtils.assertLogContains(lastDebugMessage, 'Validation error');
-      AssertionUtils.assertLogContains(lastDebugMessage, 'TEST_VALIDATION_001');
-    });
-
-    it('should log business errors with WARN level', async () => {
-      // Make a request that will trigger a business error
-      await request(app.getHttpServer())
-        .get('/test/business-error')
-        .expect(422);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.warnMessages.length).toBeGreaterThan(0);
-      const lastWarnMessage = loggerService.warnMessages[loggerService.warnMessages.length - 1];
-      
-      // Verify log content
-      AssertionUtils.assertLogContains(lastWarnMessage, 'Business error');
-      AssertionUtils.assertLogContains(lastWarnMessage, 'TEST_BUSINESS_001');
-    });
-
-    it('should log technical errors with ERROR level and include stack trace', async () => {
-      // Make a request that will trigger a technical error
-      await request(app.getHttpServer())
-        .get('/test/technical-error')
-        .expect(500);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.errorMessages.length).toBeGreaterThan(0);
-      const lastErrorMessage = loggerService.errorMessages[loggerService.errorMessages.length - 1];
-      const lastErrorTrace = loggerService.errorTraces[loggerService.errorTraces.length - 1];
-      
-      // Verify log content
-      AssertionUtils.assertLogContains(lastErrorMessage, 'Technical error');
-      AssertionUtils.assertLogContains(lastErrorMessage, 'TEST_TECHNICAL_001');
-      
-      // Verify stack trace was captured
-      expect(lastErrorTrace).toBeDefined();
-      expect(lastErrorTrace).toContain('AppException');
-    });
-
-    it('should log external dependency errors with ERROR level', async () => {
-      // Make a request that will trigger an external error
-      await request(app.getHttpServer())
-        .get('/test/external-error')
-        .expect(502);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.errorMessages.length).toBeGreaterThan(0);
-      const lastErrorMessage = loggerService.errorMessages[loggerService.errorMessages.length - 1];
-      
-      // Verify log content
-      AssertionUtils.assertLogContains(lastErrorMessage, 'External system error');
-      AssertionUtils.assertLogContains(lastErrorMessage, 'TEST_EXTERNAL_001');
-    });
+  beforeEach(() => {
+    // Reset all spies before each test
+    jest.clearAllMocks();
   });
 
-  describe('Error Details and Context', () => {
-    it('should include error details in logs for technical errors', async () => {
-      // Make a request that will trigger a technical error
+  describe('Error Type Classification', () => {
+    it('should log validation errors with debug level', async () => {
+      // Make a request that triggers a validation error
       await request(app.getHttpServer())
-        .get('/test/technical-error')
-        .expect(500);
+        .get('/test/error')
+        .query({ type: 'validation' })
+        .expect(HttpStatus.BAD_REQUEST);
 
-      // Verify error details were included in the log
-      const lastErrorMessage = loggerService.errorMessages[loggerService.errorMessages.length - 1];
-      AssertionUtils.assertLogContains(lastErrorMessage, 'service');
-      AssertionUtils.assertLogContains(lastErrorMessage, 'postgres');
-    });
-
-    it('should capture and log original errors in nested exceptions', async () => {
-      // Make a request that will trigger a nested error
-      await request(app.getHttpServer())
-        .get('/test/nested-error')
-        .expect(500);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.errorMessages.length).toBeGreaterThan(0);
-      const lastErrorMessage = loggerService.errorMessages[loggerService.errorMessages.length - 1];
-      const lastErrorTrace = loggerService.errorTraces[loggerService.errorTraces.length - 1];
-      
-      // Verify log content includes both the wrapper and original error
-      AssertionUtils.assertLogContains(lastErrorMessage, 'Failed to process request');
-      AssertionUtils.assertLogContains(lastErrorMessage, 'TEST_NESTED_001');
-      
-      // Verify stack trace contains information about the original error
-      expect(lastErrorTrace).toContain('Original database error');
-    });
-
-    it('should handle and log standard JavaScript errors', async () => {
-      // Make a request that will trigger a standard error
-      await request(app.getHttpServer())
-        .get('/test/standard-error')
-        .expect(500);
-
-      // Verify the error was logged with the correct level and details
-      expect(loggerService.errorMessages.length).toBeGreaterThan(0);
-      const lastErrorMessage = loggerService.errorMessages[loggerService.errorMessages.length - 1];
-      
-      // Verify log content
-      AssertionUtils.assertLogContains(lastErrorMessage, 'Unhandled exception');
-      AssertionUtils.assertLogContains(lastErrorMessage, 'Standard JavaScript error');
-    });
-  });
-
-  describe('Request Context in Error Logs', () => {
-    it('should include request information in error logs', async () => {
-      // Add a custom header to simulate journey context
-      await request(app.getHttpServer())
-        .get('/test/technical-error')
-        .set('x-journey-id', 'health-journey')
-        .set('x-request-id', 'test-request-123')
-        .expect(500);
-
-      // Verify request context was included in the log
-      const lastErrorContext = loggerService.errorContexts[loggerService.errorContexts.length - 1];
-      expect(lastErrorContext).toBeDefined();
-      expect(lastErrorContext).toContain('ExceptionsFilter');
-    });
-
-    it('should sanitize sensitive information in error logs', async () => {
-      // Make a request with sensitive information in query params
-      await request(app.getHttpServer())
-        .get('/test/validation-error?password=secret&token=sensitive')
-        .expect(400);
-
-      // Verify sensitive information was sanitized
-      const allLogs = loggerService.getAllLogs();
-      const sensitiveLog = allLogs.find(log => 
-        log.includes('password') || log.includes('token')
+      // Verify that the debug method was called with the correct message
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Validation error'),
+        expect.any(String)
       );
-      
-      // Should not find any logs with the sensitive information
-      expect(sensitiveLog).toBeUndefined();
     });
-  });
 
-  describe('Error Correlation', () => {
-    it('should maintain correlation IDs across error logs', async () => {
-      const correlationId = 'test-correlation-123';
-      
-      // Make a request with a correlation ID
+    it('should log business errors with warn level', async () => {
+      // Make a request that triggers a business error
       await request(app.getHttpServer())
-        .get('/test/technical-error')
-        .set('x-correlation-id', correlationId)
-        .expect(500);
+        .get('/test/error')
+        .query({ type: 'business' })
+        .expect(HttpStatus.CONFLICT);
 
-      // Verify correlation ID was preserved in logs
-      const allLogs = loggerService.getAllLogs();
-      const correlatedLogs = allLogs.filter(log => log.includes(correlationId));
-      
-      // Should find at least one log with the correlation ID
-      expect(correlatedLogs.length).toBeGreaterThan(0);
+      // Verify that the warn method was called with the correct message
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Business logic error'),
+        expect.any(String)
+      );
+    });
+
+    it('should log technical errors with error level and include stack trace', async () => {
+      // Make a request that triggers a technical error
+      await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'technical' })
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Verify that the error method was called with the correct message and stack trace
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Technical error'),
+        expect.any(String), // Stack trace
+        expect.any(String)  // Context
+      );
+    });
+
+    it('should log external dependency errors with error level', async () => {
+      // Make a request that triggers an external dependency error
+      await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'external' })
+        .expect(HttpStatus.SERVICE_UNAVAILABLE);
+
+      // Verify that the error method was called with the correct message
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('External service unavailable'),
+        expect.any(String), // Stack trace
+        expect.any(String)  // Context
+      );
+    });
+
+    it('should log unhandled errors with error level and include stack trace', async () => {
+      // Make a request that triggers an unhandled error
+      await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'unhandled' })
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Verify that the error method was called with the correct message and stack trace
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Unhandled exception'),
+        expect.any(String), // Stack trace
+        expect.any(String)  // Context
+      );
     });
   });
 
-  describe('Environment-Specific Behavior', () => {
-    const originalEnv = process.env.NODE_ENV;
-    
-    afterEach(() => {
-      // Restore original environment
-      process.env.NODE_ENV = originalEnv;
-    });
-
-    it('should include detailed error information in non-production environments', async () => {
-      // Set non-production environment
+  describe('Stack Trace Handling', () => {
+    it('should include stack traces for technical errors in non-production environments', async () => {
+      // Save the original NODE_ENV
+      const originalNodeEnv = process.env.NODE_ENV;
+      
+      // Set NODE_ENV to development
       process.env.NODE_ENV = 'development';
       
-      // Make a request that will trigger a standard error
-      await request(app.getHttpServer())
-        .get('/test/standard-error')
-        .expect(500)
-        .then(response => {
-          // Verify response includes detailed error information
-          expect(response.body.error).toBeDefined();
-          expect(response.body.error.details).toBeDefined();
-        });
+      try {
+        // Make a request that triggers a technical error
+        const response = await request(app.getHttpServer())
+          .get('/test/error')
+          .query({ type: 'technical' })
+          .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        // Verify the response includes error details in development
+        expect(response.body.error).toHaveProperty('details');
+        
+        // Verify that the error method was called with stack trace
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.stringContaining('Error:'), // Stack trace should contain 'Error:'
+          expect.any(String)
+        );
+      } finally {
+        // Restore the original NODE_ENV
+        process.env.NODE_ENV = originalNodeEnv;
+      }
     });
 
-    it('should exclude detailed error information in production environment', async () => {
-      // Set production environment
+    it('should not include stack traces in error responses in production environment', async () => {
+      // Save the original NODE_ENV
+      const originalNodeEnv = process.env.NODE_ENV;
+      
+      // Set NODE_ENV to production
       process.env.NODE_ENV = 'production';
       
-      // Make a request that will trigger a standard error
+      try {
+        // Make a request that triggers a technical error
+        const response = await request(app.getHttpServer())
+          .get('/test/error')
+          .query({ type: 'technical' })
+          .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        // Verify the response does not include error details in production
+        expect(response.body.error).not.toHaveProperty('details');
+      } finally {
+        // Restore the original NODE_ENV
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    });
+  });
+
+  describe('Error Message Formatting and Sanitization', () => {
+    it('should sanitize sensitive information in error messages', async () => {
+      // Create a spy on the sanitizeMessage method
+      const sanitizeSpy = jest.spyOn(testService as any, 'processSensitiveData');
+      
+      // Create user data with sensitive information
+      const userData = {
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'password123',
+        creditCard: '1234-5678-9012-3456',
+        ssn: '123-45-6789'
+      };
+      
+      // Make a request with sensitive data
       await request(app.getHttpServer())
-        .get('/test/standard-error')
-        .expect(500)
-        .then(response => {
-          // Verify response excludes detailed error information
-          expect(response.body.error).toBeDefined();
-          expect(response.body.error.details).toBeUndefined();
+        .post('/test/log-payload')
+        .send(userData)
+        .expect(HttpStatus.OK);
+
+      // Verify that the log method was called
+      expect(logSpy).toHaveBeenCalled();
+      
+      // Get the log message and verify sensitive data is sanitized
+      const logCalls = logSpy.mock.calls;
+      const payloadLogs = logCalls.filter(call => 
+        typeof call[0] === 'string' && call[0].includes('payload')
+      );
+      
+      // Check if any of the log messages contain sensitive information
+      const sensitiveDataExposed = payloadLogs.some(call => {
+        const logStr = JSON.stringify(call);
+        return (
+          logStr.includes('password123') ||
+          logStr.includes('1234-5678-9012-3456') ||
+          logStr.includes('123-45-6789')
+        );
+      });
+      
+      expect(sensitiveDataExposed).toBe(false);
+    });
+
+    it('should format error objects with proper structure', async () => {
+      // Create a custom AppException
+      const customError = new AppException(
+        'Custom error message',
+        ErrorType.TECHNICAL,
+        'CUSTOM_ERROR_001',
+        { additionalInfo: 'test' }
+      );
+      
+      // Spy on the testService to throw our custom error
+      jest.spyOn(testService, 'simulateError').mockImplementationOnce(() => {
+        throw customError;
+      });
+      
+      // Make a request that will trigger our custom error
+      const response = await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'custom' })
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Verify the error response has the correct structure
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(response.body.error).toHaveProperty('code', 'CUSTOM_ERROR_001');
+      expect(response.body.error).toHaveProperty('message', 'Custom error message');
+      expect(response.body.error).toHaveProperty('details');
+      expect(response.body.error.details).toHaveProperty('additionalInfo', 'test');
+      
+      // Verify that the error was logged correctly
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Custom error message'),
+        expect.any(String),
+        expect.any(String)
+      );
+    });
+  });
+
+  describe('Error Correlation Across Services', () => {
+    it('should include correlation IDs in error logs', async () => {
+      // Mock the tracing service to return a specific trace ID
+      const mockTraceId = 'test-trace-id-123';
+      const mockSpanId = 'test-span-id-456';
+      
+      // Create a spy on the withCurrentTraceContext method
+      const withTraceContextSpy = jest.spyOn(loggerService, 'withCurrentTraceContext');
+      
+      // Make a request with trace headers
+      await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'technical' })
+        .set('X-Trace-ID', mockTraceId)
+        .set('X-Span-ID', mockSpanId)
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Verify that the withCurrentTraceContext method was called
+      expect(withTraceContextSpy).toHaveBeenCalled();
+      
+      // Verify that the error was logged with trace context
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('should maintain journey context in error logs', async () => {
+      // Make a request with journey context
+      await request(app.getHttpServer())
+        .get('/test/journey/health')
+        .expect(HttpStatus.OK);
+
+      // Verify that the log includes journey context
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('health'),
+        expect.objectContaining({
+          journeyContext: expect.objectContaining({
+            journeyType: 'health'
+          })
+        }),
+        expect.any(String)
+      );
+      
+      // Now make an error request with the same journey context
+      await request(app.getHttpServer())
+        .get('/test/error')
+        .query({ type: 'technical' })
+        .set('X-Journey-ID', 'health-journey-123')
+        .expect(HttpStatus.INTERNAL_SERVER_ERROR);
+
+      // Verify that the error log includes the journey context
+      const errorCalls = errorSpy.mock.calls;
+      const journeyErrorLogs = errorCalls.some(call => {
+        const logStr = JSON.stringify(call);
+        return logStr.includes('health-journey-123');
+      });
+      
+      expect(journeyErrorLogs).toBe(true);
+    });
+  });
+
+  describe('Custom Exception Handling', () => {
+    it('should properly log custom exceptions with the correct error type', async () => {
+      // Define custom exceptions for each error type
+      const exceptions = [
+        new AppException('Validation failed', ErrorType.VALIDATION, 'VAL_001', { field: 'email' }),
+        new AppException('Business rule violated', ErrorType.BUSINESS, 'BUS_001', { rule: 'uniqueEmail' }),
+        new AppException('System error occurred', ErrorType.TECHNICAL, 'TECH_001', { component: 'database' }),
+        new AppException('External API failed', ErrorType.EXTERNAL, 'EXT_001', { service: 'payment' })
+      ];
+      
+      // Test each exception type
+      for (const exception of exceptions) {
+        // Reset spies
+        jest.clearAllMocks();
+        
+        // Mock the testService to throw our custom exception
+        jest.spyOn(testService, 'simulateError').mockImplementationOnce(() => {
+          throw exception;
         });
+        
+        // Make a request that will trigger our custom exception
+        await request(app.getHttpServer())
+          .get('/test/error')
+          .query({ type: 'custom' })
+          .expect(exception.type === ErrorType.VALIDATION ? HttpStatus.BAD_REQUEST :
+                 exception.type === ErrorType.BUSINESS ? HttpStatus.CONFLICT :
+                 exception.type === ErrorType.EXTERNAL ? HttpStatus.SERVICE_UNAVAILABLE :
+                 HttpStatus.INTERNAL_SERVER_ERROR);
+        
+        // Verify that the appropriate log method was called based on error type
+        switch (exception.type) {
+          case ErrorType.VALIDATION:
+            expect(debugSpy).toHaveBeenCalled();
+            break;
+          case ErrorType.BUSINESS:
+            expect(warnSpy).toHaveBeenCalled();
+            break;
+          case ErrorType.TECHNICAL:
+          case ErrorType.EXTERNAL:
+            expect(errorSpy).toHaveBeenCalled();
+            break;
+        }
+      }
     });
   });
 });

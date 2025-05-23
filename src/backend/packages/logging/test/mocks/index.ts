@@ -1,8 +1,18 @@
 /**
  * @file Barrel file that exports all mock implementations for the logging package tests.
+ * 
  * This file provides a centralized point to access all mock classes, interfaces, and utilities,
- * ensuring consistent usage patterns across test files.
+ * ensuring consistent usage patterns across test files. It simplifies imports in test files
+ * and establishes a clear public API for the test mocks.
+ *
+ * @module logging/test/mocks
  */
+
+/**
+ * Test utilities for setting up and cleaning up test environments for logging components.
+ * Includes helpers for creating mock contexts, configuring test logging environments, and resetting state between tests.
+ */
+export * from './test-utils';
 
 /**
  * Mock implementation of the LoggerService for testing components that depend on logging functionality.
@@ -29,7 +39,13 @@ export * from './transport.mock';
 export * from './formatter.mock';
 
 /**
- * Mock implementation of AWS SDK CloudWatch Logs client for testing the CloudWatch transport.
+ * Mock implementation of NestJS Logger and LoggerService for testing components that depend on the NestJS logging system.
+ * Provides a simplified Logger with tracking of logged messages and configurable behavior.
+ */
+export * from './nest-logger.mock';
+
+/**
+ * Mock implementation of AWS SDK CloudWatch Logs client for testing the CloudWatch transport without making real AWS API calls.
  * Provides a simulated CloudWatch Logs client that records operations and can be configured to return success or failure responses.
  */
 export * from './aws-sdk.mock';
@@ -41,7 +57,7 @@ export * from './aws-sdk.mock';
 export * from './config.service.mock';
 
 /**
- * Utility functions for setting up and cleaning up test environments for logging components.
- * Includes helpers for creating mock contexts, configuring test logging environments, and resetting state between tests.
+ * Mock implementation of the TracingService for testing logging components that depend on distributed tracing.
+ * Provides simplified span creation with controllable behavior, allowing tests to verify trace correlation and error handling.
  */
-export * from './test-utils';
+export * from './tracing.service.mock';

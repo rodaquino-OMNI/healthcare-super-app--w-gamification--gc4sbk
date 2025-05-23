@@ -1,146 +1,161 @@
 /**
  * @file Unit tests for the transports barrel file
- * @module @austa/logging/test/unit/transports
+ * @description Verifies that all transport implementations and the transport factory are correctly exported
  */
 
-import { expect } from 'chai';
+import * as transportsModule from '../../../src/transports';
+import { ConsoleTransport } from '../../../src/transports/console.transport';
+import { FileTransport } from '../../../src/transports/file.transport';
+import { CloudWatchTransport } from '../../../src/transports/cloudwatch.transport';
+import { 
+  TransportFactory, 
+  TransportType,
+  TransportConfig,
+  ConsoleTransportConfig,
+  FileTransportConfig,
+  CloudWatchTransportConfig,
+  AnyTransportConfig
+} from '../../../src/transports/transport-factory';
 
-/**
- * Test suite for the transports barrel file
- * Verifies that all expected transport implementations and the transport factory
- * are correctly exported from the barrel file.
- */
 describe('Transports Barrel File', () => {
-  /**
-   * Test that all expected exports are available when importing everything
-   * from the barrel file
-   */
-  describe('All Exports', () => {
-    it('should export all transport implementations and the factory', () => {
-      // Import all exports from the barrel file
-      const transports = require('../../../src/transports');
-      
-      // Verify all expected exports are available
-      expect(transports).to.have.property('ConsoleTransport');
-      expect(transports).to.have.property('FileTransport');
-      expect(transports).to.have.property('CloudWatchTransport');
-      expect(transports).to.have.property('TransportFactory');
-      expect(transports).to.have.property('Transport');
+  describe('Transport Implementations', () => {
+    it('should export ConsoleTransport', () => {
+      expect(transportsModule.ConsoleTransport).toBeDefined();
+      expect(transportsModule.ConsoleTransport).toBe(ConsoleTransport);
+    });
+
+    it('should export FileTransport', () => {
+      expect(transportsModule.FileTransport).toBeDefined();
+      expect(transportsModule.FileTransport).toBe(FileTransport);
+    });
+
+    it('should export CloudWatchTransport', () => {
+      expect(transportsModule.CloudWatchTransport).toBeDefined();
+      expect(transportsModule.CloudWatchTransport).toBe(CloudWatchTransport);
     });
   });
 
-  /**
-   * Test that named imports work correctly for each export
-   */
-  describe('Named Imports', () => {
-    it('should allow importing ConsoleTransport', () => {
-      const { ConsoleTransport } = require('../../../src/transports');
-      expect(ConsoleTransport).to.be.a('function');
-      expect(ConsoleTransport.name).to.equal('ConsoleTransport');
+  describe('Transport Factory', () => {
+    it('should export TransportFactory', () => {
+      expect(transportsModule.TransportFactory).toBeDefined();
+      expect(transportsModule.TransportFactory).toBe(TransportFactory);
     });
 
-    it('should allow importing FileTransport', () => {
-      const { FileTransport } = require('../../../src/transports');
-      expect(FileTransport).to.be.a('function');
-      expect(FileTransport.name).to.equal('FileTransport');
-    });
-
-    it('should allow importing CloudWatchTransport', () => {
-      const { CloudWatchTransport } = require('../../../src/transports');
-      expect(CloudWatchTransport).to.be.a('function');
-      expect(CloudWatchTransport.name).to.equal('CloudWatchTransport');
-    });
-
-    it('should allow importing TransportFactory', () => {
-      const { TransportFactory } = require('../../../src/transports');
-      expect(TransportFactory).to.be.a('function');
-      expect(TransportFactory.name).to.equal('TransportFactory');
-    });
-
-    it('should allow importing Transport interface', () => {
-      const { Transport } = require('../../../src/transports');
-      // Since interfaces don't exist at runtime, we can only verify it's exported
-      expect(Transport).to.not.be.undefined;
+    it('should export TransportType enum', () => {
+      expect(transportsModule.TransportType).toBeDefined();
+      expect(transportsModule.TransportType).toBe(TransportType);
+      expect(transportsModule.TransportType.CONSOLE).toBe('console');
+      expect(transportsModule.TransportType.FILE).toBe('file');
+      expect(transportsModule.TransportType.CLOUDWATCH).toBe('cloudwatch');
     });
   });
 
-  /**
-   * Test that multiple named imports work correctly
-   */
-  describe('Multiple Named Imports', () => {
-    it('should allow importing multiple transports at once', () => {
-      const { ConsoleTransport, FileTransport, CloudWatchTransport } = require('../../../src/transports');
-      
-      expect(ConsoleTransport).to.be.a('function');
-      expect(FileTransport).to.be.a('function');
-      expect(CloudWatchTransport).to.be.a('function');
+  describe('Transport Configuration Types', () => {
+    it('should export TransportConfig interface', () => {
+      // TypeScript interfaces are not available at runtime, so we can only check
+      // that the type is exported by checking if it's in the barrel's exports
+      const exportedNames = Object.keys(transportsModule);
+      expect(exportedNames).toContain('TransportConfig');
     });
 
-    it('should allow importing transports and factory together', () => {
-      const { ConsoleTransport, TransportFactory } = require('../../../src/transports');
-      
-      expect(ConsoleTransport).to.be.a('function');
-      expect(TransportFactory).to.be.a('function');
-    });
-  });
-
-  /**
-   * Test that the exports are of the correct type and implement the Transport interface
-   */
-  describe('Export Types', () => {
-    it('should export transport implementations that are constructors', () => {
-      const { ConsoleTransport, FileTransport, CloudWatchTransport } = require('../../../src/transports');
-      
-      expect(ConsoleTransport.prototype).to.not.be.undefined;
-      expect(FileTransport.prototype).to.not.be.undefined;
-      expect(CloudWatchTransport.prototype).to.not.be.undefined;
+    it('should export ConsoleTransportConfig interface', () => {
+      const exportedNames = Object.keys(transportsModule);
+      expect(exportedNames).toContain('ConsoleTransportConfig');
     });
 
-    it('should export transport implementations with expected methods', () => {
-      const { ConsoleTransport, FileTransport, CloudWatchTransport } = require('../../../src/transports');
-      
-      // Check for required methods from the Transport interface
-      // Note: This is a basic check since we can't directly check interface implementation at runtime
-      expect(ConsoleTransport.prototype).to.have.property('write');
-      expect(FileTransport.prototype).to.have.property('write');
-      expect(CloudWatchTransport.prototype).to.have.property('write');
+    it('should export FileTransportConfig interface', () => {
+      const exportedNames = Object.keys(transportsModule);
+      expect(exportedNames).toContain('FileTransportConfig');
+    });
+
+    it('should export CloudWatchTransportConfig interface', () => {
+      const exportedNames = Object.keys(transportsModule);
+      expect(exportedNames).toContain('CloudWatchTransportConfig');
+    });
+
+    it('should export AnyTransportConfig type', () => {
+      const exportedNames = Object.keys(transportsModule);
+      expect(exportedNames).toContain('AnyTransportConfig');
     });
   });
 
-  /**
-   * Test that the factory works correctly with the exported transports
-   */
-  describe('Factory Integration', () => {
-    it('should export a factory that can create transport instances', () => {
-      const { TransportFactory, ConsoleTransport } = require('../../../src/transports');
-      
-      // We're not testing the factory implementation here, just that it's exported
-      // and is a constructor function that can be used with the exported transports
-      expect(TransportFactory).to.be.a('function');
-      expect(TransportFactory.name).to.equal('TransportFactory');
-    });
-  });
-
-  /**
-   * Test that import statements with different paths work correctly
-   */
   describe('Import Variations', () => {
-    it('should support importing from the index file directly', () => {
-      const transports = require('../../../src/transports/index');
-      
-      expect(transports).to.have.property('ConsoleTransport');
-      expect(transports).to.have.property('FileTransport');
-      expect(transports).to.have.property('CloudWatchTransport');
-      expect(transports).to.have.property('TransportFactory');
+    it('should support named imports for transport implementations', () => {
+      // This test verifies that named imports work correctly
+      // The imports at the top of the file would fail if this wasn't working
+      const { ConsoleTransport: NamedConsoleTransport } = transportsModule;
+      expect(NamedConsoleTransport).toBeDefined();
+      expect(NamedConsoleTransport).toBe(ConsoleTransport);
     });
 
-    it('should support importing from the directory', () => {
-      const transports = require('../../../src/transports');
-      
-      expect(transports).to.have.property('ConsoleTransport');
-      expect(transports).to.have.property('FileTransport');
-      expect(transports).to.have.property('CloudWatchTransport');
-      expect(transports).to.have.property('TransportFactory');
+    it('should support named imports for transport factory', () => {
+      const { TransportFactory: NamedTransportFactory } = transportsModule;
+      expect(NamedTransportFactory).toBeDefined();
+      expect(NamedTransportFactory).toBe(TransportFactory);
+    });
+
+    it('should support named imports for transport types', () => {
+      const { TransportType: NamedTransportType } = transportsModule;
+      expect(NamedTransportType).toBeDefined();
+      expect(NamedTransportType).toBe(TransportType);
+    });
+
+    it('should support namespace imports', () => {
+      // This test verifies that namespace imports work correctly
+      expect(transportsModule).toBeDefined();
+      expect(typeof transportsModule).toBe('object');
+      expect(transportsModule.ConsoleTransport).toBeDefined();
+      expect(transportsModule.FileTransport).toBeDefined();
+      expect(transportsModule.CloudWatchTransport).toBeDefined();
+      expect(transportsModule.TransportFactory).toBeDefined();
+      expect(transportsModule.TransportType).toBeDefined();
+    });
+  });
+
+  describe('Export Naming Consistency', () => {
+    it('should use consistent naming for transport implementations', () => {
+      // Verify that transport implementations follow the naming convention
+      expect(transportsModule.ConsoleTransport.name).toBe('ConsoleTransport');
+      expect(transportsModule.FileTransport.name).toBe('FileTransport');
+      expect(transportsModule.CloudWatchTransport.name).toBe('CloudWatchTransport');
+    });
+
+    it('should use consistent naming for factory', () => {
+      expect(transportsModule.TransportFactory.name).toBe('TransportFactory');
+    });
+  });
+
+  describe('Transport Implementation Verification', () => {
+    it('should verify ConsoleTransport implements required methods', () => {
+      const transport = transportsModule.ConsoleTransport.prototype;
+      expect(typeof transport.initialize).toBe('function');
+      expect(typeof transport.write).toBe('function');
+      expect(typeof transport.close).toBe('function');
+    });
+
+    it('should verify FileTransport implements required methods', () => {
+      const transport = transportsModule.FileTransport.prototype;
+      expect(typeof transport.initialize).toBe('function');
+      expect(typeof transport.write).toBe('function');
+      expect(typeof transport.close).toBe('function');
+    });
+
+    it('should verify CloudWatchTransport implements required methods', () => {
+      const transport = transportsModule.CloudWatchTransport.prototype;
+      expect(typeof transport.initialize).toBe('function');
+      expect(typeof transport.write).toBe('function');
+      expect(typeof transport.close).toBe('function');
+    });
+  });
+
+  describe('Transport Factory Verification', () => {
+    it('should verify TransportFactory implements required methods', () => {
+      const factory = transportsModule.TransportFactory.prototype;
+      expect(typeof factory.createTransports).toBe('function');
+    });
+
+    it('should verify TransportFactory has static methods', () => {
+      expect(typeof transportsModule.TransportFactory.createDefaultTransportConfigs).toBe('function');
     });
   });
 });

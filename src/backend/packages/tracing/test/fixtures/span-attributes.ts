@@ -1,23 +1,50 @@
 /**
- * Standard span attributes for testing tracing functionality across different journeys.
- * These fixtures provide consistent attribute sets for various operation types and journeys.
+ * Test fixtures for span attributes used in tracing tests.
+ * 
+ * These fixtures provide standardized attribute sets for different journeys and operation types,
+ * ensuring consistent testing of attribute management in traces.
  */
-
-import { SpanAttributes } from '@opentelemetry/api';
 
 /**
  * Common attributes that should be present in all spans
  */
-export const commonAttributes: SpanAttributes = {
+export const commonAttributes = {
   'service.name': 'austa-service',
   'service.version': '1.0.0',
   'deployment.environment': 'test',
 };
 
 /**
- * Base attributes for HTTP operations
+ * Journey-specific attributes for the Health journey
  */
-export const httpAttributes: SpanAttributes = {
+export const healthJourneyAttributes = {
+  'journey.name': 'health',
+  'journey.display_name': 'Minha Saúde',
+  'journey.context': 'health-monitoring',
+};
+
+/**
+ * Journey-specific attributes for the Care journey
+ */
+export const careJourneyAttributes = {
+  'journey.name': 'care',
+  'journey.display_name': 'Cuidar-me Agora',
+  'journey.context': 'care-services',
+};
+
+/**
+ * Journey-specific attributes for the Plan journey
+ */
+export const planJourneyAttributes = {
+  'journey.name': 'plan',
+  'journey.display_name': 'Meu Plano & Benefícios',
+  'journey.context': 'insurance-management',
+};
+
+/**
+ * HTTP request attributes for tracing HTTP operations
+ */
+export const httpAttributes = {
   'http.method': 'GET',
   'http.url': 'https://api.austa.health/v1/resource',
   'http.status_code': 200,
@@ -28,9 +55,9 @@ export const httpAttributes: SpanAttributes = {
 };
 
 /**
- * Base attributes for database operations
+ * Database operation attributes for tracing database interactions
  */
-export const dbAttributes: SpanAttributes = {
+export const dbAttributes = {
   'db.system': 'postgresql',
   'db.name': 'austa_db',
   'db.user': 'austa_service',
@@ -40,238 +67,269 @@ export const dbAttributes: SpanAttributes = {
 };
 
 /**
- * Base attributes for messaging operations
+ * Message processing attributes for tracing messaging operations
  */
-export const messagingAttributes: SpanAttributes = {
+export const messagingAttributes = {
   'messaging.system': 'kafka',
-  'messaging.destination': 'austa-events',
+  'messaging.destination': 'austa.events',
   'messaging.destination_kind': 'topic',
-  'messaging.operation': 'publish',
+  'messaging.operation': 'process',
   'messaging.message_id': '1234567890',
   'messaging.conversation_id': 'conv-123456',
 };
 
 /**
- * Health journey specific attributes
+ * Health journey specific business attributes for health monitoring operations
  */
-export const healthJourneyAttributes: SpanAttributes = {
-  'austa.journey': 'health',
-  'austa.journey.context': 'metrics',
-  'austa.user.id': 'user-123456',
-  'austa.tenant.id': 'tenant-123456',
+export const healthBusinessAttributes = {
+  'business.operation': 'health_metric_recording',
+  'business.entity_type': 'health_metric',
+  'business.entity_id': 'metric-123',
+  'business.user_id': 'user-123',
+  'business.device_id': 'device-456',
+  'business.metric_type': 'blood_pressure',
 };
 
 /**
- * Health journey specific attributes for different contexts
+ * Care journey specific business attributes for care operations
  */
-export const healthMetricsAttributes: SpanAttributes = {
-  ...healthJourneyAttributes,
-  'austa.journey.context': 'metrics',
-  'austa.health.metric.type': 'blood_pressure',
-  'austa.health.device.id': 'device-123456',
-};
-
-export const healthHistoryAttributes: SpanAttributes = {
-  ...healthJourneyAttributes,
-  'austa.journey.context': 'history',
-  'austa.health.record.type': 'medication',
-  'austa.health.record.id': 'record-123456',
-};
-
-export const healthDeviceAttributes: SpanAttributes = {
-  ...healthJourneyAttributes,
-  'austa.journey.context': 'device',
-  'austa.health.device.type': 'smartwatch',
-  'austa.health.device.manufacturer': 'FitBit',
-  'austa.health.device.model': 'Sense',
+export const careBusinessAttributes = {
+  'business.operation': 'appointment_booking',
+  'business.entity_type': 'appointment',
+  'business.entity_id': 'appt-123',
+  'business.user_id': 'user-123',
+  'business.provider_id': 'provider-456',
+  'business.specialty': 'cardiology',
 };
 
 /**
- * Care journey specific attributes
+ * Plan journey specific business attributes for insurance operations
  */
-export const careJourneyAttributes: SpanAttributes = {
-  'austa.journey': 'care',
-  'austa.journey.context': 'appointments',
-  'austa.user.id': 'user-123456',
-  'austa.tenant.id': 'tenant-123456',
+export const planBusinessAttributes = {
+  'business.operation': 'claim_submission',
+  'business.entity_type': 'claim',
+  'business.entity_id': 'claim-123',
+  'business.user_id': 'user-123',
+  'business.plan_id': 'plan-456',
+  'business.claim_type': 'medical',
 };
 
 /**
- * Care journey specific attributes for different contexts
+ * Gamification attributes for tracking gamification events
  */
-export const careAppointmentAttributes: SpanAttributes = {
-  ...careJourneyAttributes,
-  'austa.journey.context': 'appointments',
-  'austa.care.appointment.id': 'appointment-123456',
-  'austa.care.provider.id': 'provider-123456',
-};
-
-export const careTelemedicineAttributes: SpanAttributes = {
-  ...careJourneyAttributes,
-  'austa.journey.context': 'telemedicine',
-  'austa.care.session.id': 'session-123456',
-  'austa.care.provider.id': 'provider-123456',
-};
-
-export const careTreatmentAttributes: SpanAttributes = {
-  ...careJourneyAttributes,
-  'austa.journey.context': 'treatment',
-  'austa.care.treatment.id': 'treatment-123456',
-  'austa.care.treatment.type': 'medication',
-};
-
-/**
- * Plan journey specific attributes
- */
-export const planJourneyAttributes: SpanAttributes = {
-  'austa.journey': 'plan',
-  'austa.journey.context': 'coverage',
-  'austa.user.id': 'user-123456',
-  'austa.tenant.id': 'tenant-123456',
-};
-
-/**
- * Plan journey specific attributes for different contexts
- */
-export const planCoverageAttributes: SpanAttributes = {
-  ...planJourneyAttributes,
-  'austa.journey.context': 'coverage',
-  'austa.plan.coverage.id': 'coverage-123456',
-  'austa.plan.provider.id': 'provider-123456',
-};
-
-export const planClaimAttributes: SpanAttributes = {
-  ...planJourneyAttributes,
-  'austa.journey.context': 'claim',
-  'austa.plan.claim.id': 'claim-123456',
-  'austa.plan.claim.type': 'medical',
-  'austa.plan.claim.status': 'submitted',
-};
-
-export const planBenefitAttributes: SpanAttributes = {
-  ...planJourneyAttributes,
-  'austa.journey.context': 'benefit',
-  'austa.plan.benefit.id': 'benefit-123456',
-  'austa.plan.benefit.type': 'wellness',
-};
-
-/**
- * Gamification specific attributes
- */
-export const gamificationAttributes: SpanAttributes = {
-  'austa.system': 'gamification',
-  'austa.gamification.event.type': 'achievement',
-  'austa.gamification.user.id': 'user-123456',
-  'austa.gamification.achievement.id': 'achievement-123456',
-};
-
-/**
- * Business transaction attributes for tracking operations across services
- */
-export const businessTransactionAttributes: SpanAttributes = {
-  'austa.transaction.id': 'tx-123456789',
-  'austa.transaction.name': 'CompleteHealthCheckup',
-  'austa.transaction.origin': 'mobile-app',
-  'austa.correlation.id': 'corr-123456789',
+export const gamificationAttributes = {
+  'gamification.event_type': 'achievement_unlocked',
+  'gamification.achievement_id': 'achievement-123',
+  'gamification.points_awarded': 100,
+  'gamification.level': 3,
+  'gamification.journey_source': 'health', // The journey that triggered the gamification event
 };
 
 /**
  * Helper function to combine multiple attribute sets
+ * 
+ * @param attributeSets - Array of attribute objects to combine
+ * @returns Combined attributes object
  */
-export function combineAttributes(...attributeSets: SpanAttributes[]): SpanAttributes {
-  return attributeSets.reduce((combined, current) => {
-    return { ...combined, ...current };
-  }, {});
+export function combineAttributes(...attributeSets: Record<string, any>[]): Record<string, any> {
+  return Object.assign({}, ...attributeSets);
 }
 
 /**
- * Helper function to create HTTP attributes with custom values
+ * Creates a complete set of attributes for a health journey HTTP operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for health journey HTTP operation
  */
-export function createHttpAttributes(method: string, url: string, statusCode: number): SpanAttributes {
-  return {
-    ...httpAttributes,
-    'http.method': method,
-    'http.url': url,
-    'http.status_code': statusCode,
-  };
+export function createHealthHttpAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    healthJourneyAttributes,
+    httpAttributes,
+    additionalAttributes
+  );
 }
 
 /**
- * Helper function to create database attributes with custom values
+ * Creates a complete set of attributes for a care journey HTTP operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for care journey HTTP operation
  */
-export function createDbAttributes(operation: string, statement: string): SpanAttributes {
-  return {
-    ...dbAttributes,
-    'db.operation': operation,
-    'db.statement': statement,
-  };
+export function createCareHttpAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    careJourneyAttributes,
+    httpAttributes,
+    additionalAttributes
+  );
 }
 
 /**
- * Helper function to create messaging attributes with custom values
+ * Creates a complete set of attributes for a plan journey HTTP operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for plan journey HTTP operation
  */
-export function createMessagingAttributes(destination: string, operation: string, messageId: string): SpanAttributes {
-  return {
-    ...messagingAttributes,
-    'messaging.destination': destination,
-    'messaging.operation': operation,
-    'messaging.message_id': messageId,
-  };
+export function createPlanHttpAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    planJourneyAttributes,
+    httpAttributes,
+    additionalAttributes
+  );
 }
 
 /**
- * Helper function to create journey-specific attributes with custom user and tenant
+ * Creates a complete set of attributes for a health journey database operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for health journey database operation
  */
-export function createJourneyAttributes(journey: 'health' | 'care' | 'plan', context: string, userId: string, tenantId: string): SpanAttributes {
-  const baseAttributes = {
-    'austa.journey': journey,
-    'austa.journey.context': context,
-    'austa.user.id': userId,
-    'austa.tenant.id': tenantId,
-  };
-  
-  return baseAttributes;
+export function createHealthDbAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    healthJourneyAttributes,
+    dbAttributes,
+    additionalAttributes
+  );
 }
 
 /**
- * Helper function to create business transaction attributes
+ * Creates a complete set of attributes for a care journey database operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for care journey database operation
  */
-export function createBusinessTransactionAttributes(transactionId: string, transactionName: string, origin: string): SpanAttributes {
-  return {
-    'austa.transaction.id': transactionId,
-    'austa.transaction.name': transactionName,
-    'austa.transaction.origin': origin,
-    'austa.correlation.id': `corr-${transactionId}`,
-  };
+export function createCareDbAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    careJourneyAttributes,
+    dbAttributes,
+    additionalAttributes
+  );
 }
 
 /**
- * Predefined attribute combinations for common testing scenarios
+ * Creates a complete set of attributes for a plan journey database operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for plan journey database operation
  */
-export const healthMetricsHttpAttributes = combineAttributes(
-  commonAttributes,
-  httpAttributes,
-  healthMetricsAttributes,
-  businessTransactionAttributes
-);
+export function createPlanDbAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    planJourneyAttributes,
+    dbAttributes,
+    additionalAttributes
+  );
+}
 
-export const careAppointmentDbAttributes = combineAttributes(
-  commonAttributes,
-  dbAttributes,
-  careAppointmentAttributes,
-  businessTransactionAttributes
-);
+/**
+ * Creates a complete set of attributes for a health journey messaging operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for health journey messaging operation
+ */
+export function createHealthMessagingAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    healthJourneyAttributes,
+    messagingAttributes,
+    additionalAttributes
+  );
+}
 
-export const planClaimMessagingAttributes = combineAttributes(
-  commonAttributes,
-  messagingAttributes,
-  planClaimAttributes,
-  businessTransactionAttributes
-);
+/**
+ * Creates a complete set of attributes for a care journey messaging operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for care journey messaging operation
+ */
+export function createCareMessagingAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    careJourneyAttributes,
+    messagingAttributes,
+    additionalAttributes
+  );
+}
 
-export const gamificationEventAttributes = combineAttributes(
-  commonAttributes,
-  messagingAttributes,
-  gamificationAttributes,
-  businessTransactionAttributes
-);
+/**
+ * Creates a complete set of attributes for a plan journey messaging operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for plan journey messaging operation
+ */
+export function createPlanMessagingAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    planJourneyAttributes,
+    messagingAttributes,
+    additionalAttributes
+  );
+}
+
+/**
+ * Creates a complete set of attributes for a health journey business operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for health journey business operation
+ */
+export function createHealthBusinessAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    healthJourneyAttributes,
+    healthBusinessAttributes,
+    additionalAttributes
+  );
+}
+
+/**
+ * Creates a complete set of attributes for a care journey business operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for care journey business operation
+ */
+export function createCareBusinessAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    careJourneyAttributes,
+    careBusinessAttributes,
+    additionalAttributes
+  );
+}
+
+/**
+ * Creates a complete set of attributes for a plan journey business operation
+ * 
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for plan journey business operation
+ */
+export function createPlanBusinessAttributes(additionalAttributes: Record<string, any> = {}): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    planJourneyAttributes,
+    planBusinessAttributes,
+    additionalAttributes
+  );
+}
+
+/**
+ * Creates a complete set of attributes for a gamification operation
+ * 
+ * @param journeyAttributes - Journey attributes to associate with the gamification event
+ * @param additionalAttributes - Optional additional attributes to include
+ * @returns Combined attributes for gamification operation
+ */
+export function createGamificationAttributes(
+  journeyAttributes: Record<string, any>,
+  additionalAttributes: Record<string, any> = {}
+): Record<string, any> {
+  return combineAttributes(
+    commonAttributes,
+    journeyAttributes,
+    gamificationAttributes,
+    additionalAttributes
+  );
+}

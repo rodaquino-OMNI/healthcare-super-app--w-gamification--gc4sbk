@@ -1,277 +1,237 @@
 /**
- * @file tracing-headers.ts
- * @description Mock HTTP header collections with trace context information for testing.
- * Follows the W3C Trace Context standard for distributed tracing.
+ * Test fixtures for W3C Trace Context HTTP headers
+ * 
+ * This file contains mock HTTP header collections that contain trace context information,
+ * following the W3C Trace Context standard. These fixtures are used for testing the extraction
+ * and injection of trace context from/to HTTP headers to ensure proper context propagation
+ * in distributed tracing across service boundaries.
+ * 
+ * @see https://www.w3.org/TR/trace-context/
  */
 
 /**
- * Interface representing HTTP headers with potential trace context information
+ * Interface representing HTTP headers with potential tracing information
  */
 export interface HttpHeaders {
   [key: string]: string;
 }
 
 /**
- * Valid trace context header components
+ * Interface for W3C Trace Context components
  */
 export interface TraceContext {
-  version: string;      // 2-character version (e.g., "00")
-  traceId: string;      // 32-character hex trace ID
-  parentId: string;     // 16-character hex parent ID
-  traceFlags: string;   // 2-character hex flags
+  version: string;      // Version of the trace context format (e.g., "00")
+  traceId: string;      // Unique identifier for the whole trace (32 hex chars)
+  parentId: string;     // Identifier for the parent span (16 hex chars)
+  traceFlags: string;   // Trace flags as hex string (e.g., "01" for sampled)
 }
 
 /**
- * Enum for trace sampling flags
+ * Valid HTTP headers with W3C Trace Context information
  */
-export enum TraceSamplingFlag {
-  NOT_SAMPLED = '00',
-  SAMPLED = '01',
-}
-
-/**
- * Enum for journey types to create journey-specific trace context
- */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-}
-
-/**
- * Valid HTTP headers with complete trace context information
- */
-export const validTraceHeaders: HttpHeaders = {
+export const validTracingHeaders: HttpHeaders = {
   traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-  tracestate: 'austa=t61rcWkgMzE,rojo=00f067aa0ba902b7',
+  tracestate: 'austa=journey-health,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Valid HTTP headers with trace context but not sampled
+ * Valid HTTP headers with W3C Trace Context information and sampling disabled
  */
-export const validNotSampledTraceHeaders: HttpHeaders = {
+export const validNonSampledTracingHeaders: HttpHeaders = {
   traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00',
-  tracestate: 'austa=00f067aa0ba902b7',
+  tracestate: 'austa=journey-care,rojo=00f067aa0ba902b7'
 };
 
 /**
  * Valid HTTP headers with only traceparent (no tracestate)
  */
-export const validTraceParentOnlyHeaders: HttpHeaders = {
-  traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+export const validTraceparentOnlyHeaders: HttpHeaders = {
+  traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
 };
 
 /**
- * Invalid HTTP headers with malformed trace-id (contains uppercase letters)
+ * Invalid HTTP headers with malformed traceparent
  */
-export const invalidTraceIdCaseHeaders: HttpHeaders = {
-  traceparent: '00-0AF7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-  tracestate: 'austa=t61rcWkgMzE',
+export const invalidTraceparentHeaders: HttpHeaders = {
+  traceparent: 'XYZ-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+  tracestate: 'austa=journey-plan,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Invalid HTTP headers with malformed trace-id (all zeros)
+ * Invalid HTTP headers with missing parts in traceparent
  */
-export const invalidTraceIdZeroHeaders: HttpHeaders = {
+export const incompleteTraceparentHeaders: HttpHeaders = {
+  traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7', // missing trace flags
+  tracestate: 'austa=journey-health,rojo=00f067aa0ba902b7'
+};
+
+/**
+ * Invalid HTTP headers with invalid trace ID (all zeros)
+ */
+export const invalidTraceIdHeaders: HttpHeaders = {
   traceparent: '00-00000000000000000000000000000000-b7ad6b7169203331-01',
-  tracestate: 'austa=t61rcWkgMzE',
+  tracestate: 'austa=journey-care,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Invalid HTTP headers with malformed parent-id (contains uppercase letters)
+ * Invalid HTTP headers with invalid parent ID (all zeros)
  */
-export const invalidParentIdCaseHeaders: HttpHeaders = {
-  traceparent: '00-0af7651916cd43dd8448eb211c80319c-B7AD6B7169203331-01',
-  tracestate: 'austa=t61rcWkgMzE',
+export const invalidParentIdHeaders: HttpHeaders = {
+  traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01',
+  tracestate: 'austa=journey-plan,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Invalid HTTP headers with malformed parent-id (all zeros)
- */
-export const invalidParentIdZeroHeaders: HttpHeaders = {
-  traceparent: '00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01',
-  tracestate: 'austa=t61rcWkgMzE',
-};
-
-/**
- * Invalid HTTP headers with malformed version
+ * Invalid HTTP headers with invalid version (FF is reserved)
  */
 export const invalidVersionHeaders: HttpHeaders = {
-  traceparent: 'ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-  tracestate: 'austa=t61rcWkgMzE',
+  traceparent: 'ff-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01',
+  tracestate: 'austa=journey-health,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Invalid HTTP headers with incorrect format (missing dashes)
+ * HTTP headers with future version (hypothetical)
  */
-export const invalidFormatHeaders: HttpHeaders = {
-  traceparent: '000af7651916cd43dd8448eb211c80319cb7ad6b716920333101',
-  tracestate: 'austa=t61rcWkgMzE',
+export const futureVersionHeaders: HttpHeaders = {
+  traceparent: '01-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01-extended-data',
+  tracestate: 'austa=journey-care,rojo=00f067aa0ba902b7'
 };
 
 /**
- * Incomplete HTTP headers with missing traceparent
+ * Journey-specific tracing headers - Health Journey
  */
-export const incompleteNoTraceParentHeaders: HttpHeaders = {
-  tracestate: 'austa=t61rcWkgMzE,rojo=00f067aa0ba902b7',
+export const healthJourneyHeaders: HttpHeaders = {
+  traceparent: '00-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6-1234567890abcdef-01',
+  tracestate: 'austa=journey-health,health-service=metrics-update'
 };
 
 /**
- * Incomplete HTTP headers with missing tracestate
+ * Journey-specific tracing headers - Care Journey
  */
-export const incompleteNoTraceStateHeaders: HttpHeaders = {
-  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+export const careJourneyHeaders: HttpHeaders = {
+  traceparent: '00-b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a1-2345678901abcdef-01',
+  tracestate: 'austa=journey-care,care-service=appointment-booking'
 };
 
 /**
- * HTTP headers with no trace context information
+ * Journey-specific tracing headers - Plan Journey
  */
-export const noTraceContextHeaders: HttpHeaders = {
-  'content-type': 'application/json',
-  'user-agent': 'Mozilla/5.0',
+export const planJourneyHeaders: HttpHeaders = {
+  traceparent: '00-c3d4e5f6a7b8c9d0e1f2a3b4c5d6a1b2-3456789012abcdef-01',
+  tracestate: 'austa=journey-plan,plan-service=benefits-query'
 };
 
 /**
- * Journey-specific trace headers for Health journey
+ * Journey-specific tracing headers - Gamification
  */
-export const healthJourneyTraceHeaders: HttpHeaders = {
-  traceparent: '00-1af7651916cd43dd8448eb211c80319c-a7ad6b7169203331-01',
-  tracestate: 'austa=health.metrics.update,rojo=00f067aa0ba902b7',
-  'x-journey-context': 'health',
+export const gamificationHeaders: HttpHeaders = {
+  traceparent: '00-d4e5f6a7b8c9d0e1f2a3b4c5d6a1b2c3-456789012abcdef3-01',
+  tracestate: 'austa=journey-gamification,gamification-engine=achievement-unlock'
 };
 
 /**
- * Journey-specific trace headers for Care journey
+ * Parses a traceparent header value into its components
+ * 
+ * @param traceparent The traceparent header value
+ * @returns The parsed trace context or null if invalid
  */
-export const careJourneyTraceHeaders: HttpHeaders = {
-  traceparent: '00-2af7651916cd43dd8448eb211c80319c-c7ad6b7169203331-01',
-  tracestate: 'austa=care.appointment.create,rojo=00f067aa0ba902b7',
-  'x-journey-context': 'care',
-};
-
-/**
- * Journey-specific trace headers for Plan journey
- */
-export const planJourneyTraceHeaders: HttpHeaders = {
-  traceparent: '00-3af7651916cd43dd8448eb211c80319c-d7ad6b7169203331-01',
-  tracestate: 'austa=plan.benefits.view,rojo=00f067aa0ba902b7',
-  'x-journey-context': 'plan',
-};
-
-/**
- * Generates a valid traceparent header string
- * @param traceId - The trace ID (32 hex chars)
- * @param parentId - The parent ID (16 hex chars)
- * @param sampled - Whether the trace is sampled
- * @returns A valid traceparent header string
- */
-export function generateTraceParentHeader(
-  traceId: string = generateTraceId(),
-  parentId: string = generateParentId(),
-  sampled: boolean = true
-): string {
-  const version = '00';
-  const flags = sampled ? TraceSamplingFlag.SAMPLED : TraceSamplingFlag.NOT_SAMPLED;
-  return `${version}-${traceId}-${parentId}-${flags}`;
-}
-
-/**
- * Generates a valid tracestate header string
- * @param vendorValues - Map of vendor names to their values
- * @returns A valid tracestate header string
- */
-export function generateTraceStateHeader(vendorValues: Record<string, string>): string {
-  return Object.entries(vendorValues)
-    .map(([vendor, value]) => `${vendor}=${value}`)
-    .join(',');
-}
-
-/**
- * Generates a random trace ID (32 lowercase hex characters)
- * @returns A valid trace ID string
- */
-export function generateTraceId(): string {
-  return Array.from({ length: 32 }, () => 
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('');
-}
-
-/**
- * Generates a random parent ID (16 lowercase hex characters)
- * @returns A valid parent ID string
- */
-export function generateParentId(): string {
-  return Array.from({ length: 16 }, () => 
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('');
-}
-
-/**
- * Validates if a traceparent header string is valid according to W3C spec
- * @param traceparent - The traceparent header string to validate
- * @returns True if valid, false otherwise
- */
-export function isValidTraceParentHeader(traceparent: string): boolean {
-  // Basic format check: version-traceId-parentId-flags
-  const parts = traceparent.split('-');
-  if (parts.length !== 4) return false;
+export function parseTraceparent(traceparent: string): TraceContext | null {
+  // Regular expression for version 00 traceparent format
+  const v00Regex = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+  const match = traceparent.match(v00Regex);
   
-  const [version, traceId, parentId, flags] = parts;
+  if (!match) {
+    return null;
+  }
   
-  // Version check
-  if (version !== '00' || version === 'ff') return false;
+  const [, traceId, parentId, traceFlags] = match;
   
-  // TraceId check: 32 lowercase hex chars, not all zeros
-  if (!/^[0-9a-f]{32}$/.test(traceId) || traceId === '00000000000000000000000000000000') return false;
-  
-  // ParentId check: 16 lowercase hex chars, not all zeros
-  if (!/^[0-9a-f]{16}$/.test(parentId) || parentId === '0000000000000000') return false;
-  
-  // Flags check: 2 lowercase hex chars
-  if (!/^[0-9a-f]{2}$/.test(flags)) return false;
-  
-  return true;
-}
-
-/**
- * Creates journey-specific trace context headers
- * @param journeyType - The type of journey (health, care, plan)
- * @param operation - Optional operation name within the journey
- * @returns HTTP headers with journey-specific trace context
- */
-export function createJourneyTraceHeaders(journeyType: JourneyType, operation?: string): HttpHeaders {
-  const traceId = generateTraceId();
-  const parentId = generateParentId();
-  
-  const traceparent = generateTraceParentHeader(traceId, parentId, true);
-  
-  const tracestate = generateTraceStateHeader({
-    austa: operation ? `${journeyType}.${operation}` : journeyType,
-    rojo: parentId,
-  });
+  // Validate trace ID and parent ID are not all zeros
+  if (traceId === '00000000000000000000000000000000' || parentId === '0000000000000000') {
+    return null;
+  }
   
   return {
-    traceparent,
-    tracestate,
-    'x-journey-context': journeyType,
-  };
-}
-
-/**
- * Extracts trace context components from a traceparent header
- * @param traceparent - The traceparent header string
- * @returns Parsed trace context or null if invalid
- */
-export function extractTraceContext(traceparent: string): TraceContext | null {
-  if (!isValidTraceParentHeader(traceparent)) return null;
-  
-  const parts = traceparent.split('-');
-  const [version, traceId, parentId, traceFlags] = parts;
-  
-  return {
-    version,
+    version: '00',
     traceId,
     parentId,
-    traceFlags,
+    traceFlags
   };
+}
+
+/**
+ * Validates if the provided headers contain valid W3C Trace Context
+ * 
+ * @param headers HTTP headers to validate
+ * @returns true if headers contain valid trace context, false otherwise
+ */
+export function hasValidTraceContext(headers: HttpHeaders): boolean {
+  const traceparent = headers.traceparent || headers.TRACEPARENT;
+  
+  if (!traceparent) {
+    return false;
+  }
+  
+  return parseTraceparent(traceparent) !== null;
+}
+
+/**
+ * Generates a valid traceparent header value with random IDs
+ * 
+ * @param sampled Whether the trace is sampled (default: true)
+ * @returns A valid traceparent header value
+ */
+export function generateTraceparent(sampled: boolean = true): string {
+  // Generate random trace ID (32 hex chars)
+  const traceId = Array.from({ length: 32 }, () => 
+    Math.floor(Math.random() * 16).toString(16)).join('');
+  
+  // Generate random parent ID (16 hex chars)
+  const parentId = Array.from({ length: 16 }, () => 
+    Math.floor(Math.random() * 16).toString(16)).join('');
+  
+  // Set trace flags (01 for sampled, 00 for not sampled)
+  const traceFlags = sampled ? '01' : '00';
+  
+  return `00-${traceId}-${parentId}-${traceFlags}`;
+}
+
+/**
+ * Creates a complete set of tracing headers with optional journey context
+ * 
+ * @param journey Optional journey identifier (health, care, plan, gamification)
+ * @param sampled Whether the trace is sampled (default: true)
+ * @returns HTTP headers with trace context
+ */
+export function createTracingHeaders(journey?: 'health' | 'care' | 'plan' | 'gamification', sampled: boolean = true): HttpHeaders {
+  const traceparent = generateTraceparent(sampled);
+  let tracestate = '';
+  
+  if (journey) {
+    tracestate = `austa=journey-${journey}`;
+    
+    // Add journey-specific context
+    switch (journey) {
+      case 'health':
+        tracestate += ',health-service=user-metrics';
+        break;
+      case 'care':
+        tracestate += ',care-service=provider-search';
+        break;
+      case 'plan':
+        tracestate += ',plan-service=coverage-check';
+        break;
+      case 'gamification':
+        tracestate += ',gamification-engine=points-award';
+        break;
+    }
+  }
+  
+  const headers: HttpHeaders = { traceparent };
+  
+  if (tracestate) {
+    headers.tracestate = tracestate;
+  }
+  
+  return headers;
 }

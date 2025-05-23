@@ -1,186 +1,146 @@
-import { Module, Global, DynamicModule, Provider } from '@nestjs/common';
+import { DynamicModule, Global, Module, Provider, Type } from '@nestjs/common';
 import { LoggerService } from './logger.service';
 import { LoggerConfig } from './interfaces/log-config.interface';
 import { TransportFactory } from './transports/transport-factory';
+import { LogLevel } from './interfaces/log-level.enum';
+import { ContextManager } from './context/context-manager';
 
 /**
- * Global module that provides the LoggerService across the application.
- * This enables centralized logging with structured format and journey-specific context
- * throughout the AUSTA SuperApp backend services.
- *
- * The module can be imported with custom configuration options to control log formats,
- * transports, and integration with the tracing system.
+ * Configuration token for the LoggerModule
+ * @internal
+ */
+export const LOGGER_CONFIG = Symbol('LOGGER_CONFIG');
+
+/**
+ * Options for configuring the LoggerModule asynchronously
+ */
+export interface LoggerModuleAsyncOptions {
+  /**
+   * List of modules to import
+   */
+  imports?: any[];
+  /**
+   * Factory function to create the logger configuration
+   */
+  useFactory: (...args: any[]) => Promise<LoggerConfig> | LoggerConfig;
+  /**
+   * Dependencies to inject into the factory function
+   */
+  inject?: any[];
+  /**
+   * Optional class to use for configuration
+   */
+  useClass?: Type<LoggerConfigFactory>;
+  /**
+   * Optional existing provider to use for configuration
+   */
+  useExisting?: Type<LoggerConfigFactory>;
+}
+
+/**
+ * Interface for classes that can create logger configuration
+ */
+export interface LoggerConfigFactory {
+  createLoggerConfig(): Promise<LoggerConfig> | LoggerConfig;
+}
+
+/**
+ * Global module that configures and exposes the enhanced LoggerService across all AUSTA SuperApp backend services.
+ * This module handles dynamic configuration of log formats, transports, and integration with the tracing system.
  */
 @Global()
-@Module({
-  providers: [LoggerService],
-  exports: [LoggerService],
-})
+@Module({})
 export class LoggerModule {
   /**
-   * Register the LoggerModule with custom configuration options.
-   * This allows services to customize their logging behavior while maintaining
-   * a consistent structure across the application.
-   *
-   * @param config - Configuration options for the logger
-   * @returns A dynamically configured LoggerModule
-   *
-   * @example
-   * ```typescript
-   * // In your AppModule
-   * @Module({
-   *   imports: [
-   *     LoggerModule.register({
-   *       level: LogLevel.INFO,
-   *       transports: ['console', 'cloudwatch'],
-   *       cloudwatch: {
-   *         logGroupName: 'austa-superapp',
-   *         logStreamName: 'api-gateway',
-   *         region: 'us-east-1',
-   *       },
-   *       defaultContext: {
-   *         service: 'api-gateway',
-   *         journey: 'all',
-   *       },
-   *     }),
-   *   ],
-   * })
-   * export class AppModule {}
-   * ```
+   * Configure the LoggerModule with static options
+   * @param config Configuration options for the logger
+   * @returns Configured LoggerModule
    */
-  static register(config?: LoggerConfig): DynamicModule {
-    const transportFactory = new TransportFactory(config);
-    
-    const loggerServiceProvider: Provider = {
-      provide: LoggerService,
-      useFactory: () => {
-        const service = new LoggerService(config);
-        service.setTransports(transportFactory.createTransports());
-        return service;
-      },
+  static forRoot(config: LoggerConfig): DynamicModule {
+    const loggerConfigProvider = {
+      provide: LOGGER_CONFIG,
+      useValue: config,
     };
 
     return {
       module: LoggerModule,
-      providers: [transportFactory, loggerServiceProvider],
+      providers: [loggerConfigProvider, LoggerService, TransportFactory, ContextManager],
       exports: [LoggerService],
     };
   }
 
   /**
-   * Register the LoggerModule with async configuration options.
-   * This is useful when configuration needs to be loaded from external sources
-   * like environment variables or configuration services.
-   *
-   * @param options - Async configuration options for the logger
-   * @returns A dynamically configured LoggerModule
-   *
-   * @example
-   * ```typescript
-   * // In your AppModule
-   * @Module({
-   *   imports: [
-   *     LoggerModule.registerAsync({
-   *       imports: [ConfigModule],
-   *       inject: [ConfigService],
-   *       useFactory: (configService: ConfigService) => ({
-   *         level: configService.get('LOG_LEVEL'),
-   *         transports: configService.get('LOG_TRANSPORTS').split(','),
-   *         cloudwatch: {
-   *           logGroupName: configService.get('CLOUDWATCH_LOG_GROUP'),
-   *           logStreamName: configService.get('CLOUDWATCH_LOG_STREAM'),
-   *           region: configService.get('AWS_REGION'),
-   *         },
-   *         defaultContext: {
-   *           service: configService.get('SERVICE_NAME'),
-   *           journey: configService.get('JOURNEY_NAME'),
-   *         },
-   *       }),
-   *     }),
-   *   ],
-   * })
-   * export class AppModule {}
-   * ```
+   * Configure the LoggerModule with default options
+   * @returns Configured LoggerModule with default settings
    */
-  static registerAsync(options: {
-    imports?: any[];
-    useFactory: (...args: any[]) => LoggerConfig | Promise<LoggerConfig>;
-    inject?: any[];
-  }): DynamicModule {
+  static forRootDefault(): DynamicModule {
+    const defaultConfig: LoggerConfig = {
+      level: LogLevel.INFO,
+      format: 'json',
+      transports: [{ type: 'console' }],
+      includeTimestamp: true,
+      traceEnabled: true,
+    };
+
+    return this.forRoot(defaultConfig);
+  }
+
+  /**
+   * Configure the LoggerModule asynchronously
+   * @param options Async options for configuring the logger
+   * @returns Dynamically configured LoggerModule
+   */
+  static forRootAsync(options: LoggerModuleAsyncOptions): DynamicModule {
+    const providers = this.createAsyncProviders(options);
+
     return {
       module: LoggerModule,
       imports: options.imports || [],
-      providers: [
-        {
-          provide: 'LOGGER_CONFIG',
-          useFactory: options.useFactory,
-          inject: options.inject || [],
-        },
-        {
-          provide: TransportFactory,
-          useFactory: (config: LoggerConfig) => new TransportFactory(config),
-          inject: ['LOGGER_CONFIG'],
-        },
-        {
-          provide: LoggerService,
-          useFactory: (config: LoggerConfig, transportFactory: TransportFactory) => {
-            const service = new LoggerService(config);
-            service.setTransports(transportFactory.createTransports());
-            return service;
-          },
-          inject: ['LOGGER_CONFIG', TransportFactory],
-        },
-      ],
+      providers: [...providers, LoggerService, TransportFactory, ContextManager],
       exports: [LoggerService],
     };
   }
 
   /**
-   * Register the LoggerModule with integration to the TracingModule.
-   * This enables correlation between logs and traces for enhanced observability.
-   *
-   * @param config - Configuration options for the logger
-   * @returns A dynamically configured LoggerModule with tracing integration
-   *
-   * @example
-   * ```typescript
-   * // In your AppModule
-   * @Module({
-   *   imports: [
-   *     TracingModule.register(),
-   *     LoggerModule.registerWithTracing({
-   *       level: LogLevel.INFO,
-   *       transports: ['console', 'cloudwatch'],
-   *       includeTraceId: true,
-   *     }),
-   *   ],
-   * })
-   * export class AppModule {}
-   * ```
+   * Create providers for async configuration
+   * @param options Async options for the logger module
+   * @returns Array of providers for the module
+   * @private
    */
-  static registerWithTracing(config?: LoggerConfig): DynamicModule {
-    const transportFactory = new TransportFactory(config);
-    
-    const loggerServiceProvider: Provider = {
-      provide: LoggerService,
-      useFactory: (tracingService: any) => {
-        const service = new LoggerService({
-          ...config,
-          tracing: {
-            enabled: true,
-            service: tracingService,
-          },
-        });
-        service.setTransports(transportFactory.createTransports());
-        return service;
+  private static createAsyncProviders(options: LoggerModuleAsyncOptions): Provider[] {
+    if (options.useExisting || options.useFactory) {
+      return [this.createAsyncOptionsProvider(options)];
+    }
+
+    return [
+      this.createAsyncOptionsProvider(options),
+      {
+        provide: options.useClass,
+        useClass: options.useClass,
       },
-      inject: ['TracingService'],
-    };
+    ];
+  }
+
+  /**
+   * Create the async options provider
+   * @param options Async options for the logger module
+   * @returns Provider for the logger configuration
+   * @private
+   */
+  private static createAsyncOptionsProvider(options: LoggerModuleAsyncOptions): Provider {
+    if (options.useFactory) {
+      return {
+        provide: LOGGER_CONFIG,
+        useFactory: options.useFactory,
+        inject: options.inject || [],
+      };
+    }
 
     return {
-      module: LoggerModule,
-      providers: [transportFactory, loggerServiceProvider],
-      exports: [LoggerService],
+      provide: LOGGER_CONFIG,
+      useFactory: async (optionsFactory: LoggerConfigFactory) =>
+        await optionsFactory.createLoggerConfig(),
+      inject: [options.useExisting || options.useClass],
     };
   }
 }

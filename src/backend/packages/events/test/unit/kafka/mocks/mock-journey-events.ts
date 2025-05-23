@@ -3,713 +3,904 @@
  * @description Mock generators for journey-specific events used in testing Kafka event processing.
  * This file provides factory functions to create standardized event objects for Health, Care, and Plan
  * journeys that match the expected schema for the gamification engine and notification service.
- *
- * These mock events are used in unit tests to verify event processing, validation, and transformation
- * logic without requiring actual event production from journey services.
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { EventType, JourneyEvents } from '../../../../src/dto/event-types.enum';
 import { 
-  EventMetadataDto, 
-  EventOriginDto, 
-  EventVersionDto,
-  createEventMetadata 
-} from '../../../../src/dto/event-metadata.dto';
+  BaseEvent, 
+  EventMetadata, 
+  createEvent,
+  validateEvent 
+} from '../../../../../src/interfaces/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
 import {
-  HealthMetricType,
-  HealthGoalType,
-  DeviceType,
-  HealthInsightType
-} from '../../../../src/dto/health-event.dto';
+  HealthEventType,
+  CareEventType,
+  PlanEventType,
+  MetricType,
+  GoalType,
+  GoalStatus,
+  AppointmentStatus,
+  AppointmentType,
+  ClaimStatus
+} from '@austa/interfaces/journey';
 
-// Base interfaces for event structure
-interface BaseEvent {
-  type: string;
-  payload: any;
-  metadata: EventMetadataDto;
-}
+// ===== HELPER FUNCTIONS =====
 
-interface UserContext {
-  userId: string;
-  sessionId?: string;
-  deviceId?: string;
-  platform?: 'web' | 'mobile' | 'api';
+/**
+ * Generate a random ISO timestamp within the last 30 days
+ */
+export function mockTimestamp(daysAgo = 30): string {
+  const date = new Date();
+  date.setDate(date.getDate() - Math.floor(Math.random() * daysAgo));
+  return date.toISOString();
 }
 
 /**
- * Creates a base event with standard metadata.
- * 
- * @param type The event type
- * @param payload The event payload
- * @param service The originating service name
- * @param userContext Optional user context for correlation
- * @returns A complete event object with metadata
+ * Generate a random version string following semantic versioning
  */
-export function createBaseEvent(
-  type: string,
-  payload: any,
-  service: string,
-  userContext?: UserContext
-): BaseEvent {
-  const metadata = createEventMetadata(service, {
-    eventId: uuidv4(),
-    timestamp: new Date(),
-    correlationId: userContext?.sessionId || uuidv4(),
-    sessionId: userContext?.sessionId,
-    context: userContext ? {
-      userId: userContext.userId,
-      deviceId: userContext.deviceId,
-      platform: userContext.platform
-    } : undefined
-  });
+export function mockVersion(options?: { major?: number; minor?: number; patch?: number }): string {
+  const major = options?.major ?? 1;
+  const minor = options?.minor ?? Math.floor(Math.random() * 5);
+  const patch = options?.patch ?? Math.floor(Math.random() * 10);
+  return `${major}.${minor}.${patch}`;
+}
 
+/**
+ * Generate random event metadata
+ */
+export function mockMetadata(options?: Partial<EventMetadata>): EventMetadata {
   return {
-    type,
-    payload,
-    metadata
+    correlationId: options?.correlationId ?? `corr-${uuidv4()}`,
+    traceId: options?.traceId ?? `trace-${uuidv4()}`,
+    spanId: options?.spanId ?? `span-${uuidv4()}`,
+    priority: options?.priority ?? 'medium',
+    isRetry: options?.isRetry ?? false,
+    retryCount: options?.retryCount ?? 0,
+    ...options
   };
 }
 
-/**
- * Creates a versioned event with specific schema version.
- * Used for testing backward compatibility.
- * 
- * @param type The event type
- * @param payload The event payload
- * @param service The originating service name
- * @param version The schema version in format 'major.minor.patch'
- * @param userContext Optional user context for correlation
- * @returns A complete event object with versioned metadata
- */
-export function createVersionedEvent(
-  type: string,
-  payload: any,
-  service: string,
-  version: string,
-  userContext?: UserContext
-): BaseEvent {
-  const event = createBaseEvent(type, payload, service, userContext);
-  event.metadata.version = EventVersionDto.fromString(version);
-  return event;
-}
+// ===== MOCK USER DATA =====
 
 /**
- * Creates an invalid event for testing validation logic.
- * 
- * @param type The event type
- * @param invalidations Object containing fields to invalidate and how
- * @param service The originating service name
- * @returns An invalid event object for testing validation
+ * Mock user data for testing
  */
-export function createInvalidEvent(
-  type: string,
-  invalidations: Record<string, any>,
-  service: string
-): BaseEvent {
-  // Create a minimal valid event first
-  const basePayload = {};
-  const event = createBaseEvent(type, basePayload, service);
+export const mockUsers = {
+  standard: {
+    userId: 'user_12345',
+    name: 'Test User',
+    email: 'user@austa.com.br'
+  },
+  premium: {
+    userId: 'user_67890',
+    name: 'Premium User',
+    email: 'premium@austa.com.br'
+  },
+  new: {
+    userId: 'user_new123',
+    name: 'New User',
+    email: 'new@austa.com.br'
+  }
+};
+
+// ===== HEALTH JOURNEY EVENTS =====
+
+/**
+ * Create a mock health metric recorded event
+ */
+export function mockHealthMetricRecordedEvent(options?: {
+  userId?: string;
+  metricType?: MetricType;
+  value?: number;
+  unit?: string;
+  source?: string;
+  previousValue?: number;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const metricType = options?.metricType ?? MetricType.HEART_RATE;
+  const value = options?.value ?? (metricType === MetricType.HEART_RATE ? 75 : 8000);
+  const unit = options?.unit ?? (metricType === MetricType.HEART_RATE ? 'bpm' : 'steps');
   
-  // Apply invalidations
-  Object.entries(invalidations).forEach(([path, value]) => {
-    const pathParts = path.split('.');
-    let current: any = event;
-    
-    // Navigate to the parent object of the field to invalidate
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      const part = pathParts[i];
-      if (!current[part]) {
-        current[part] = {};
-      }
-      current = current[part];
+  return createEvent(
+    HealthEventType.METRIC_RECORDED,
+    'health-service',
+    {
+      metric: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        type: metricType,
+        value,
+        unit,
+        timestamp: mockTimestamp(1) // Recent metric
+      },
+      metricType,
+      value,
+      unit,
+      timestamp: mockTimestamp(1),
+      source: options?.source ?? 'manual',
+      previousValue: options?.previousValue ?? (value - Math.floor(Math.random() * 10)),
+      change: options?.previousValue ? value - options.previousValue : Math.floor(Math.random() * 10),
+      isImprovement: true
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.HEALTH,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
     }
-    
-    // Set the invalid value
-    current[pathParts[pathParts.length - 1]] = value;
-  });
-  
-  return event;
+  );
 }
 
-// ===== HEALTH JOURNEY EVENT GENERATORS =====
-
 /**
- * Creates a mock health metric recorded event.
- * 
- * @param metricType The type of health metric
- * @param value The metric value
- * @param unit The unit of measurement
- * @param userContext Optional user context for correlation
- * @returns A complete health metric recorded event
+ * Create a mock health goal created event
  */
-export function createHealthMetricRecordedEvent(
-  metricType: HealthMetricType,
-  value: number,
-  unit: string,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    metricType,
-    value,
-    unit,
-    timestamp: new Date().toISOString(),
-    source: 'manual'
-  };
+export function mockHealthGoalCreatedEvent(options?: {
+  userId?: string;
+  goalType?: GoalType;
+  targetValue?: number;
+  unit?: string;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const goalType = options?.goalType ?? GoalType.STEPS;
+  const targetValue = options?.targetValue ?? (goalType === GoalType.STEPS ? 10000 : 60);
+  const unit = options?.unit ?? (goalType === GoalType.STEPS ? 'steps' : 'bpm');
   
-  return createBaseEvent(
-    EventType.HEALTH_METRIC_RECORDED,
-    payload,
+  return createEvent(
+    HealthEventType.GOAL_CREATED,
     'health-service',
-    userContext
+    {
+      goal: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        type: goalType,
+        targetValue,
+        currentValue: 0,
+        unit,
+        status: GoalStatus.IN_PROGRESS,
+        startDate: mockTimestamp(1),
+        endDate: null
+      },
+      goalType,
+      targetValue,
+      unit,
+      startDate: mockTimestamp(1)
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.HEALTH,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock health goal achieved event.
- * 
- * @param goalType The type of health goal
- * @param targetValue The goal target value
- * @param achievedValue The actual achieved value
- * @param userContext Optional user context for correlation
- * @returns A complete health goal achieved event
+ * Create a mock health goal achieved event
  */
-export function createHealthGoalAchievedEvent(
-  goalType: HealthGoalType,
-  targetValue: number,
-  achievedValue: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    goalId: uuidv4(),
-    goalType,
-    targetValue,
-    achievedValue,
-    completedAt: new Date().toISOString()
-  };
+export function mockHealthGoalAchievedEvent(options?: {
+  userId?: string;
+  goalType?: GoalType;
+  targetValue?: number;
+  achievedValue?: number;
+  unit?: string;
+  daysToAchieve?: number;
+  isEarlyCompletion?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const goalType = options?.goalType ?? GoalType.STEPS;
+  const targetValue = options?.targetValue ?? (goalType === GoalType.STEPS ? 10000 : 60);
+  const achievedValue = options?.achievedValue ?? targetValue;
+  const unit = options?.unit ?? (goalType === GoalType.STEPS ? 'steps' : 'bpm');
+  const daysToAchieve = options?.daysToAchieve ?? 7;
   
-  return createBaseEvent(
-    EventType.HEALTH_GOAL_ACHIEVED,
-    payload,
+  return createEvent(
+    HealthEventType.GOAL_ACHIEVED,
     'health-service',
-    userContext
+    {
+      goal: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        type: goalType,
+        targetValue,
+        currentValue: achievedValue,
+        unit,
+        status: GoalStatus.ACHIEVED,
+        startDate: mockTimestamp(daysToAchieve + 1),
+        endDate: mockTimestamp(1)
+      },
+      goalType,
+      achievedValue,
+      targetValue,
+      daysToAchieve,
+      isEarlyCompletion: options?.isEarlyCompletion ?? true
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.HEALTH,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock health device connected event.
- * 
- * @param deviceType The type of health device
- * @param connectionMethod The method used to connect the device
- * @param userContext Optional user context for correlation
- * @returns A complete health device connected event
+ * Create a mock health device connected event
  */
-export function createHealthDeviceConnectedEvent(
-  deviceType: DeviceType,
-  connectionMethod: 'oauth' | 'bluetooth' | 'manual',
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    deviceId: uuidv4(),
-    deviceType,
-    connectionMethod,
-    connectedAt: new Date().toISOString()
-  };
+export function mockHealthDeviceConnectedEvent(options?: {
+  userId?: string;
+  deviceType?: string;
+  isFirstConnection?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const deviceType = options?.deviceType ?? 'Smartwatch';
   
-  return createBaseEvent(
-    EventType.HEALTH_DEVICE_CONNECTED,
-    payload,
+  return createEvent(
+    HealthEventType.DEVICE_CONNECTED,
     'health-service',
-    userContext
+    {
+      deviceConnection: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        deviceId: `device_${uuidv4().substring(0, 8)}`,
+        deviceType,
+        connectionDate: mockTimestamp(1),
+        lastSyncDate: mockTimestamp(1),
+        status: 'connected'
+      },
+      deviceId: `device_${uuidv4().substring(0, 8)}`,
+      deviceType,
+      connectionDate: mockTimestamp(1),
+      isFirstConnection: options?.isFirstConnection ?? true
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.HEALTH,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock health insight generated event.
- * 
- * @param insightType The type of health insight
- * @param metricType The related metric type
- * @param severity The severity level of the insight
- * @param userContext Optional user context for correlation
- * @returns A complete health insight generated event
+ * Create a mock health device synced event
  */
-export function createHealthInsightGeneratedEvent(
-  insightType: HealthInsightType,
-  metricType: HealthMetricType,
-  severity: 'info' | 'warning' | 'critical',
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    insightId: uuidv4(),
-    insightType,
-    metricType,
-    description: `Mock insight for ${metricType} with ${severity} severity`,
-    severity,
-    generatedAt: new Date().toISOString()
-  };
+export function mockHealthDeviceSyncedEvent(options?: {
+  userId?: string;
+  deviceType?: string;
+  metricsCount?: number;
+  metricTypes?: MetricType[];
+  syncSuccessful?: boolean;
+  errorMessage?: string;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const deviceType = options?.deviceType ?? 'Smartwatch';
+  const metricsCount = options?.metricsCount ?? 5;
+  const metricTypes = options?.metricTypes ?? [MetricType.HEART_RATE, MetricType.STEPS];
+  const syncSuccessful = options?.syncSuccessful ?? true;
   
-  return createBaseEvent(
-    EventType.HEALTH_INSIGHT_GENERATED,
-    payload,
+  return createEvent(
+    HealthEventType.DEVICE_SYNCED,
     'health-service',
-    userContext
+    {
+      deviceConnection: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        deviceId: `device_${uuidv4().substring(0, 8)}`,
+        deviceType,
+        connectionDate: mockTimestamp(7),
+        lastSyncDate: mockTimestamp(1),
+        status: 'connected'
+      },
+      deviceId: `device_${uuidv4().substring(0, 8)}`,
+      deviceType,
+      syncDate: mockTimestamp(1),
+      metricsCount,
+      metricTypes,
+      syncSuccessful,
+      errorMessage: syncSuccessful ? undefined : (options?.errorMessage ?? 'Connection timeout')
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.HEALTH,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
-// ===== CARE JOURNEY EVENT GENERATORS =====
+// ===== CARE JOURNEY EVENTS =====
 
 /**
- * Creates a mock care appointment booked event.
- * 
- * @param specialtyType The medical specialty type
- * @param appointmentType The type of appointment
- * @param userContext Optional user context for correlation
- * @returns A complete care appointment booked event
+ * Create a mock care appointment booked event
  */
-export function createCareAppointmentBookedEvent(
-  specialtyType: string,
-  appointmentType: 'in_person' | 'telemedicine',
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    appointmentId: uuidv4(),
-    providerId: uuidv4(),
-    specialtyType,
-    appointmentType,
-    scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    bookedAt: new Date().toISOString()
-  };
+export function mockCareAppointmentBookedEvent(options?: {
+  userId?: string;
+  appointmentType?: AppointmentType;
+  providerId?: string;
+  isFirstAppointment?: boolean;
+  isUrgent?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const appointmentType = options?.appointmentType ?? AppointmentType.IN_PERSON;
+  const providerId = options?.providerId ?? `provider_${uuidv4().substring(0, 8)}`;
+  const scheduledDate = mockTimestamp(-7); // Future date
   
-  return createBaseEvent(
-    EventType.CARE_APPOINTMENT_BOOKED,
-    payload,
+  return createEvent(
+    CareEventType.APPOINTMENT_BOOKED,
     'care-service',
-    userContext
+    {
+      appointment: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        providerId,
+        type: appointmentType,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledDate,
+        createdAt: mockTimestamp(1),
+        notes: 'Regular checkup'
+      },
+      appointmentType,
+      providerId,
+      scheduledDate,
+      isFirstAppointment: options?.isFirstAppointment ?? false,
+      isUrgent: options?.isUrgent ?? false
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.CARE,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock care appointment completed event.
- * 
- * @param appointmentId The ID of the appointment (optional, generates new if not provided)
- * @param appointmentType The type of appointment
- * @param duration The duration of the appointment in minutes
- * @param userContext Optional user context for correlation
- * @returns A complete care appointment completed event
+ * Create a mock care appointment completed event
  */
-export function createCareAppointmentCompletedEvent(
-  appointmentId: string = uuidv4(),
-  appointmentType: 'in_person' | 'telemedicine',
-  duration: number,
-  userContext?: UserContext
-): BaseEvent {
-  const scheduledAt = new Date(Date.now() - duration * 60000);
+export function mockCareAppointmentCompletedEvent(options?: {
+  userId?: string;
+  appointmentType?: AppointmentType;
+  providerId?: string;
+  duration?: number;
+  followUpScheduled?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const appointmentType = options?.appointmentType ?? AppointmentType.IN_PERSON;
+  const providerId = options?.providerId ?? `provider_${uuidv4().substring(0, 8)}`;
+  const duration = options?.duration ?? 30;
   
-  const payload = {
-    appointmentId,
-    providerId: uuidv4(),
-    appointmentType,
-    scheduledAt: scheduledAt.toISOString(),
-    completedAt: new Date().toISOString(),
-    duration
-  };
-  
-  return createBaseEvent(
-    EventType.CARE_APPOINTMENT_COMPLETED,
-    payload,
+  return createEvent(
+    CareEventType.APPOINTMENT_COMPLETED,
     'care-service',
-    userContext
+    {
+      appointment: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        providerId,
+        type: appointmentType,
+        status: AppointmentStatus.COMPLETED,
+        scheduledDate: mockTimestamp(1),
+        completedDate: mockTimestamp(1),
+        createdAt: mockTimestamp(7),
+        notes: 'Regular checkup completed'
+      },
+      appointmentType,
+      providerId,
+      completionDate: mockTimestamp(1),
+      duration,
+      followUpScheduled: options?.followUpScheduled ?? false
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.CARE,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock care medication taken event.
- * 
- * @param medicationName The name of the medication
- * @param dosage The dosage information
- * @param adherence The adherence status
- * @param userContext Optional user context for correlation
- * @returns A complete care medication taken event
+ * Create a mock care medication added event
  */
-export function createCareMedicationTakenEvent(
-  medicationName: string,
-  dosage: string,
-  adherence: 'on_time' | 'late' | 'missed',
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    medicationId: uuidv4(),
-    medicationName,
-    dosage,
-    takenAt: new Date().toISOString(),
-    adherence
-  };
+export function mockCareMedicationAddedEvent(options?: {
+  userId?: string;
+  medicationName?: string;
+  dosage?: string;
+  frequency?: string;
+  isChronicMedication?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const medicationName = options?.medicationName ?? 'Medication Name';
+  const dosage = options?.dosage ?? '10mg';
+  const frequency = options?.frequency ?? 'Once daily';
   
-  return createBaseEvent(
-    EventType.CARE_MEDICATION_TAKEN,
-    payload,
+  return createEvent(
+    CareEventType.MEDICATION_ADDED,
     'care-service',
-    userContext
+    {
+      medication: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        name: medicationName,
+        dosage,
+        frequency,
+        startDate: mockTimestamp(1),
+        endDate: options?.isChronicMedication ? null : mockTimestamp(-30),
+        instructions: 'Take with food',
+        createdAt: mockTimestamp(1)
+      },
+      startDate: mockTimestamp(1),
+      endDate: options?.isChronicMedication ? undefined : mockTimestamp(-30),
+      dosage,
+      frequency,
+      isChronicMedication: options?.isChronicMedication ?? false
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.CARE,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock care plan task completed event.
- * 
- * @param taskType The type of care plan task
- * @param status The completion status
- * @param userContext Optional user context for correlation
- * @returns A complete care plan task completed event
+ * Create a mock care medication adherence streak event
  */
-export function createCarePlanTaskCompletedEvent(
-  taskType: 'medication' | 'exercise' | 'appointment',
-  status: 'completed' | 'partially_completed',
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    taskId: uuidv4(),
-    planId: uuidv4(),
-    taskType,
-    completedAt: new Date().toISOString(),
-    status
-  };
+export function mockCareMedicationAdherenceStreakEvent(options?: {
+  userId?: string;
+  medicationId?: string;
+  medicationName?: string;
+  streakDays?: number;
+  adherencePercentage?: number;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const medicationId = options?.medicationId ?? uuidv4();
+  const medicationName = options?.medicationName ?? 'Medication Name';
+  const streakDays = options?.streakDays ?? 7;
+  const adherencePercentage = options?.adherencePercentage ?? 100;
   
-  return createBaseEvent(
-    EventType.CARE_PLAN_TASK_COMPLETED,
-    payload,
+  return createEvent(
+    CareEventType.MEDICATION_ADHERENCE_STREAK,
     'care-service',
-    userContext
+    {
+      medicationId,
+      medicationName,
+      streakDays,
+      adherencePercentage,
+      startDate: mockTimestamp(streakDays),
+      endDate: mockTimestamp(1)
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.CARE,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
-// ===== PLAN JOURNEY EVENT GENERATORS =====
+/**
+ * Create a mock care telemedicine session completed event
+ */
+export function mockCareTelemedicineSessionCompletedEvent(options?: {
+  userId?: string;
+  providerId?: string;
+  duration?: number;
+  technicalIssues?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const providerId = options?.providerId ?? `provider_${uuidv4().substring(0, 8)}`;
+  const duration = options?.duration ?? 20;
+  const sessionId = uuidv4();
+  const startTime = mockTimestamp(1);
+  const endTime = new Date(new Date(startTime).getTime() + duration * 60000).toISOString();
+  
+  return createEvent(
+    CareEventType.TELEMEDICINE_SESSION_COMPLETED,
+    'care-service',
+    {
+      session: {
+        id: sessionId,
+        userId: options?.userId ?? mockUsers.standard.userId,
+        providerId,
+        startTime,
+        endTime,
+        status: 'completed',
+        notes: 'Telemedicine session completed successfully'
+      },
+      sessionId,
+      providerId,
+      startTime,
+      endTime,
+      duration,
+      appointmentId: uuidv4(),
+      technicalIssues: options?.technicalIssues ?? false
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.CARE,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
+  );
+}
+
+// ===== PLAN JOURNEY EVENTS =====
 
 /**
- * Creates a mock plan claim submitted event.
- * 
- * @param claimType The type of insurance claim
- * @param amount The claim amount
- * @param userContext Optional user context for correlation
- * @returns A complete plan claim submitted event
+ * Create a mock plan claim submitted event
  */
-export function createPlanClaimSubmittedEvent(
-  claimType: string,
-  amount: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    claimId: uuidv4(),
-    claimType,
-    providerId: uuidv4(),
-    serviceDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-    amount,
-    submittedAt: new Date().toISOString()
-  };
+export function mockPlanClaimSubmittedEvent(options?: {
+  userId?: string;
+  amount?: number;
+  claimType?: string;
+  hasDocuments?: boolean;
+  isComplete?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const amount = options?.amount ?? 150.0;
+  const claimType = options?.claimType ?? 'Consulta Médica';
+  const hasDocuments = options?.hasDocuments ?? true;
+  const isComplete = options?.isComplete ?? true;
   
-  return createBaseEvent(
-    EventType.PLAN_CLAIM_SUBMITTED,
-    payload,
+  return createEvent(
+    PlanEventType.CLAIM_SUBMITTED,
     'plan-service',
-    userContext
+    {
+      claim: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        amount,
+        claimType,
+        status: ClaimStatus.SUBMITTED,
+        submissionDate: mockTimestamp(1),
+        description: 'Regular checkup claim',
+        hasDocuments
+      },
+      submissionDate: mockTimestamp(1),
+      amount,
+      claimType,
+      hasDocuments,
+      isComplete
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.PLAN,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock plan claim processed event.
- * 
- * @param claimId The ID of the claim (optional, generates new if not provided)
- * @param status The processing status
- * @param amount The total claim amount
- * @param coveredAmount The amount covered by insurance
- * @param userContext Optional user context for correlation
- * @returns A complete plan claim processed event
+ * Create a mock plan claim approved event
  */
-export function createPlanClaimProcessedEvent(
-  claimId: string = uuidv4(),
-  status: 'approved' | 'denied' | 'partial',
-  amount: number,
-  coveredAmount: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    claimId,
-    status,
-    amount,
-    coveredAmount,
-    processedAt: new Date().toISOString()
-  };
+export function mockPlanClaimApprovedEvent(options?: {
+  userId?: string;
+  claimId?: string;
+  amount?: number;
+  approvedAmount?: number;
+  processingDays?: number;
+  paymentMethod?: string;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const claimId = options?.claimId ?? uuidv4();
+  const amount = options?.amount ?? 150.0;
+  const approvedAmount = options?.approvedAmount ?? amount;
+  const processingDays = options?.processingDays ?? 3;
+  const paymentMethod = options?.paymentMethod ?? 'Bank Transfer';
   
-  return createBaseEvent(
-    EventType.PLAN_CLAIM_PROCESSED,
-    payload,
+  return createEvent(
+    PlanEventType.CLAIM_APPROVED,
     'plan-service',
-    userContext
+    {
+      claimId,
+      approvalDate: mockTimestamp(1),
+      amount,
+      approvedAmount,
+      processingDays,
+      paymentMethod,
+      paymentDate: mockTimestamp(-7) // Future date
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.PLAN,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock plan benefit utilized event.
- * 
- * @param benefitType The type of insurance benefit
- * @param savingsAmount The amount saved by using the benefit
- * @param userContext Optional user context for correlation
- * @returns A complete plan benefit utilized event
+ * Create a mock plan benefit utilized event
  */
-export function createPlanBenefitUtilizedEvent(
-  benefitType: string,
-  savingsAmount: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    benefitId: uuidv4(),
-    benefitType,
-    providerId: uuidv4(),
-    utilizationDate: new Date().toISOString(),
-    savingsAmount
-  };
+export function mockPlanBenefitUtilizedEvent(options?: {
+  userId?: string;
+  benefitName?: string;
+  serviceProvider?: string;
+  amount?: number;
+  remainingCoverage?: number;
+  isFirstUtilization?: boolean;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const benefitName = options?.benefitName ?? 'Annual Checkup';
+  const serviceProvider = options?.serviceProvider ?? 'Provider Name';
+  const amount = options?.amount ?? 100.0;
+  const remainingCoverage = options?.remainingCoverage ?? 900.0;
   
-  return createBaseEvent(
-    EventType.PLAN_BENEFIT_UTILIZED,
-    payload,
+  return createEvent(
+    PlanEventType.BENEFIT_UTILIZED,
     'plan-service',
-    userContext
+    {
+      benefit: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        name: benefitName,
+        description: 'Annual health checkup benefit',
+        coverageLimit: 1000.0,
+        usedAmount: amount,
+        remainingAmount: remainingCoverage
+      },
+      utilizationDate: mockTimestamp(1),
+      serviceProvider,
+      amount,
+      remainingCoverage,
+      isFirstUtilization: options?.isFirstUtilization ?? false
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.PLAN,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
 /**
- * Creates a mock plan reward redeemed event.
- * 
- * @param rewardType The type of reward
- * @param pointsRedeemed The number of points redeemed
- * @param value The monetary value of the reward
- * @param userContext Optional user context for correlation
- * @returns A complete plan reward redeemed event
+ * Create a mock plan document uploaded event
  */
-export function createPlanRewardRedeemedEvent(
-  rewardType: 'gift_card' | 'premium_discount' | 'merchandise',
-  pointsRedeemed: number,
-  value: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    rewardId: uuidv4(),
-    rewardType,
-    pointsRedeemed,
-    value,
-    redeemedAt: new Date().toISOString()
-  };
+export function mockPlanDocumentUploadedEvent(options?: {
+  userId?: string;
+  documentType?: string;
+  fileSize?: number;
+  fileName?: string;
+  claimId?: string;
+  version?: string;
+  metadata?: Partial<EventMetadata>;
+}): BaseEvent {
+  const documentType = options?.documentType ?? 'Medical Receipt';
+  const fileSize = options?.fileSize ?? 1024 * 1024; // 1MB
+  const fileName = options?.fileName ?? 'receipt.pdf';
+  const claimId = options?.claimId ?? uuidv4();
   
-  return createBaseEvent(
-    EventType.PLAN_REWARD_REDEEMED,
-    payload,
+  return createEvent(
+    PlanEventType.DOCUMENT_UPLOADED,
     'plan-service',
-    userContext
+    {
+      document: {
+        id: uuidv4(),
+        userId: options?.userId ?? mockUsers.standard.userId,
+        type: documentType,
+        fileName,
+        fileSize,
+        uploadDate: mockTimestamp(1),
+        status: 'active'
+      },
+      documentId: uuidv4(),
+      documentType,
+      uploadDate: mockTimestamp(1),
+      fileSize,
+      fileName,
+      claimId
+    },
+    {
+      userId: options?.userId ?? mockUsers.standard.userId,
+      journey: JourneyType.PLAN,
+      version: options?.version ?? '1.0.0',
+      metadata: mockMetadata(options?.metadata)
+    }
   );
 }
 
-// ===== CROSS-JOURNEY EVENT GENERATORS =====
+// ===== INVALID EVENTS FOR TESTING =====
 
 /**
- * Creates a mock gamification points earned event.
- * 
- * @param sourceType The journey source of the points
- * @param points The number of points earned
- * @param reason The reason for earning points
- * @param userContext Optional user context for correlation
- * @returns A complete gamification points earned event
+ * Create an invalid event missing required fields
  */
-export function createGamificationPointsEarnedEvent(
-  sourceType: 'health' | 'care' | 'plan',
-  points: number,
-  reason: string,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    sourceType,
-    sourceId: uuidv4(),
-    points,
-    reason,
-    earnedAt: new Date().toISOString()
-  };
+export function mockInvalidEvent(missingField: 'eventId' | 'type' | 'timestamp' | 'version' | 'source' | 'payload'): any {
+  const validEvent = mockHealthMetricRecordedEvent();
+  const invalidEvent = { ...validEvent };
   
-  return createBaseEvent(
-    EventType.GAMIFICATION_POINTS_EARNED,
-    payload,
-    'gamification-engine',
-    userContext
-  );
+  // @ts-ignore - Deliberately removing a required field for testing
+  delete invalidEvent[missingField];
+  
+  return invalidEvent;
 }
 
 /**
- * Creates a mock gamification achievement unlocked event.
- * 
- * @param achievementType The type of achievement
- * @param tier The achievement tier
- * @param points The points awarded for the achievement
- * @param userContext Optional user context for correlation
- * @returns A complete gamification achievement unlocked event
+ * Create an event with an invalid version format
  */
-export function createGamificationAchievementUnlockedEvent(
-  achievementType: string,
-  tier: 'bronze' | 'silver' | 'gold',
-  points: number,
-  userContext?: UserContext
-): BaseEvent {
-  const payload = {
-    achievementId: uuidv4(),
-    achievementType,
-    tier,
-    points,
-    unlockedAt: new Date().toISOString()
+export function mockInvalidVersionEvent(): BaseEvent {
+  return {
+    ...mockHealthMetricRecordedEvent(),
+    version: 'invalid-version'
   };
-  
-  return createBaseEvent(
-    EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-    payload,
-    'gamification-engine',
-    userContext
-  );
 }
 
 /**
- * Creates a sequence of related events for testing cross-journey scenarios.
- * 
- * @param userContext The user context to use for all events
- * @returns An array of related events in chronological order
+ * Create an event with an unknown event type
  */
-export function createCrossJourneyEventSequence(userContext: UserContext): BaseEvent[] {
-  // Create a consistent user context with correlation ID
-  const context = {
-    ...userContext,
-    sessionId: userContext.sessionId || uuidv4()
+export function mockUnknownEventTypeEvent(): BaseEvent {
+  return {
+    ...mockHealthMetricRecordedEvent(),
+    type: 'UNKNOWN_EVENT_TYPE'
   };
-  
-  // Create a sequence of events that would occur in a realistic user journey
-  return [
-    // User records health metrics
-    createHealthMetricRecordedEvent(
-      HealthMetricType.HEART_RATE,
-      75,
-      'bpm',
-      context
-    ),
-    
-    // User achieves a health goal
-    createHealthGoalAchievedEvent(
-      HealthGoalType.STEPS_TARGET,
-      10000,
-      10500,
-      context
-    ),
-    
-    // User earns points for achieving the goal
-    createGamificationPointsEarnedEvent(
-      'health',
-      50,
-      'Completed daily steps goal',
-      context
-    ),
-    
-    // User books a medical appointment
-    createCareAppointmentBookedEvent(
-      'Cardiologia',
-      'in_person',
-      context
-    ),
-    
-    // User earns points for booking the appointment
-    createGamificationPointsEarnedEvent(
-      'care',
-      25,
-      'Booked preventive care appointment',
-      context
-    ),
-    
-    // User submits an insurance claim
-    createPlanClaimSubmittedEvent(
-      'Consulta Médica',
-      150.00,
-      context
-    ),
-    
-    // User unlocks an achievement for cross-journey activity
-    createGamificationAchievementUnlockedEvent(
-      'health-check-streak',
-      'silver',
-      100,
-      context
-    )
-  ];
 }
 
+// ===== CROSS-JOURNEY EVENT CORRELATION =====
+
 /**
- * Creates a batch of random events for load testing.
- * 
- * @param count The number of events to generate
- * @returns An array of random events
+ * Create a set of correlated events across different journeys
  */
-export function createRandomEventBatch(count: number): BaseEvent[] {
+export function mockCorrelatedEvents(options?: {
+  userId?: string;
+  correlationId?: string;
+  count?: number;
+}): BaseEvent[] {
+  const userId = options?.userId ?? mockUsers.standard.userId;
+  const correlationId = options?.correlationId ?? `corr-${uuidv4()}`;
+  const count = options?.count ?? 3;
+  const metadata = mockMetadata({ correlationId });
+  
   const events: BaseEvent[] = [];
   
-  for (let i = 0; i < count; i++) {
-    // Generate a random user context
-    const userContext: UserContext = {
-      userId: uuidv4(),
-      sessionId: uuidv4(),
-      platform: Math.random() > 0.5 ? 'mobile' : 'web'
-    };
-    
-    // Randomly select an event type to generate
-    const eventType = Math.floor(Math.random() * 5);
-    
-    switch (eventType) {
-      case 0:
-        // Health metric recorded
-        events.push(createHealthMetricRecordedEvent(
-          HealthMetricType.STEPS,
-          Math.floor(Math.random() * 20000),
-          'steps',
-          userContext
-        ));
-        break;
-      
-      case 1:
-        // Care appointment booked
-        events.push(createCareAppointmentBookedEvent(
-          'Dermatologia',
-          Math.random() > 0.5 ? 'in_person' : 'telemedicine',
-          userContext
-        ));
-        break;
-      
-      case 2:
-        // Plan claim submitted
-        events.push(createPlanClaimSubmittedEvent(
-          'Exame',
-          Math.floor(Math.random() * 500) + 50,
-          userContext
-        ));
-        break;
-      
-      case 3:
-        // Medication taken
-        events.push(createCareMedicationTakenEvent(
-          'Medication ' + Math.floor(Math.random() * 10),
-          Math.floor(Math.random() * 100) + 'mg',
-          Math.random() > 0.7 ? 'late' : 'on_time',
-          userContext
-        ));
-        break;
-      
-      case 4:
-        // Health device connected
-        events.push(createHealthDeviceConnectedEvent(
-          DeviceType.SMARTWATCH,
-          'bluetooth',
-          userContext
-        ));
-        break;
+  // Add a health event
+  events.push(mockHealthMetricRecordedEvent({
+    userId,
+    metadata
+  }));
+  
+  // Add a care event
+  events.push(mockCareAppointmentBookedEvent({
+    userId,
+    metadata
+  }));
+  
+  // Add a plan event
+  events.push(mockPlanClaimSubmittedEvent({
+    userId,
+    metadata
+  }));
+  
+  // Add additional events if requested
+  if (count > 3) {
+    for (let i = 3; i < count; i++) {
+      const journeyType = i % 3;
+      switch (journeyType) {
+        case 0:
+          events.push(mockHealthGoalAchievedEvent({
+            userId,
+            metadata
+          }));
+          break;
+        case 1:
+          events.push(mockCareMedicationAdherenceStreakEvent({
+            userId,
+            metadata
+          }));
+          break;
+        case 2:
+          events.push(mockPlanBenefitUtilizedEvent({
+            userId,
+            metadata
+          }));
+          break;
+      }
     }
+  }
+  
+  return events;
+}
+
+/**
+ * Create a sequence of events that represent a user journey flow
+ */
+export function mockUserJourneyFlow(options?: {
+  userId?: string;
+  journeyType?: JourneyType;
+  includeInvalidEvent?: boolean;
+}): BaseEvent[] {
+  const userId = options?.userId ?? mockUsers.standard.userId;
+  const journeyType = options?.journeyType ?? JourneyType.HEALTH;
+  const correlationId = `journey-${uuidv4()}`;
+  const metadata = mockMetadata({ correlationId });
+  
+  const events: BaseEvent[] = [];
+  
+  switch (journeyType) {
+    case JourneyType.HEALTH:
+      // Health journey flow: connect device -> record metrics -> create goal -> achieve goal
+      events.push(mockHealthDeviceConnectedEvent({ userId, metadata }));
+      events.push(mockHealthDeviceSyncedEvent({ userId, metadata }));
+      events.push(mockHealthMetricRecordedEvent({ userId, metadata }));
+      events.push(mockHealthGoalCreatedEvent({ userId, metadata }));
+      events.push(mockHealthGoalAchievedEvent({ userId, metadata }));
+      break;
+      
+    case JourneyType.CARE:
+      // Care journey flow: book appointment -> complete appointment -> add medication -> medication adherence
+      events.push(mockCareAppointmentBookedEvent({ userId, metadata }));
+      events.push(mockCareAppointmentCompletedEvent({ userId, metadata }));
+      events.push(mockCareMedicationAddedEvent({ userId, metadata }));
+      events.push(mockCareMedicationAdherenceStreakEvent({ userId, metadata }));
+      events.push(mockCareTelemedicineSessionCompletedEvent({ userId, metadata }));
+      break;
+      
+    case JourneyType.PLAN:
+      // Plan journey flow: submit claim -> upload document -> approve claim -> utilize benefit
+      events.push(mockPlanClaimSubmittedEvent({ userId, metadata }));
+      events.push(mockPlanDocumentUploadedEvent({ userId, metadata }));
+      events.push(mockPlanClaimApprovedEvent({ userId, metadata }));
+      events.push(mockPlanBenefitUtilizedEvent({ userId, metadata }));
+      break;
+  }
+  
+  // Add an invalid event if requested (for testing error handling)
+  if (options?.includeInvalidEvent) {
+    events.push(mockInvalidEvent('type'));
+  }
+  
+  return events;
+}
+
+/**
+ * Create events for testing backward compatibility
+ */
+export function mockVersionedEvents(options?: {
+  userId?: string;
+  eventType?: string;
+  versions?: string[];
+}): BaseEvent[] {
+  const userId = options?.userId ?? mockUsers.standard.userId;
+  const eventType = options?.eventType ?? HealthEventType.METRIC_RECORDED;
+  const versions = options?.versions ?? ['1.0.0', '1.1.0', '2.0.0'];
+  
+  const events: BaseEvent[] = [];
+  
+  for (const version of versions) {
+    let event: BaseEvent;
+    
+    // Create appropriate event based on type
+    if (eventType.startsWith('HEALTH_')) {
+      event = mockHealthMetricRecordedEvent({ userId, version });
+    } else if (eventType.startsWith('CARE_')) {
+      event = mockCareAppointmentBookedEvent({ userId, version });
+    } else if (eventType.startsWith('PLAN_')) {
+      event = mockPlanClaimSubmittedEvent({ userId, version });
+    } else {
+      event = mockHealthMetricRecordedEvent({ userId, version });
+    }
+    
+    // Override the type and version
+    event.type = eventType;
+    event.version = version;
+    
+    events.push(event);
   }
   
   return events;

@@ -1,100 +1,117 @@
 /**
- * Base interface for all logging contexts in the AUSTA SuperApp.
- * Provides common properties that are included in all log entries for proper
- * correlation, aggregation, and analysis.
- *
- * This interface serves as the foundation for more specific context types
- * like RequestContext, UserContext, and JourneyContext.
+ * Base interface for logging context in the AUSTA SuperApp.
+ * Defines the common properties that all logging contexts should have,
+ * establishing the foundation for structured, context-enriched logging
+ * throughout the application.
+ */
+
+/**
+ * Interface representing the base logging context that all other context types extend.
+ * This interface specifies common context properties like correlation IDs, timestamps,
+ * and service information that are essential for proper log aggregation and analysis.
  */
 export interface LoggingContext {
   /**
-   * Unique identifier that correlates logs, traces, and metrics across service boundaries.
-   * This ID is propagated through the entire request lifecycle and enables end-to-end
-   * request tracking and visualization.
+   * Unique identifier for correlating logs, traces, and metrics across services.
+   * This ID is propagated across service boundaries to enable end-to-end tracing
+   * and is essential for distributed systems observability.
    */
-  correlationId: string;
+  correlationId?: string;
 
   /**
-   * ISO 8601 timestamp when the log entry was created.
-   * Format: YYYY-MM-DDTHH:mm:ss.sssZ
-   */
-  timestamp: string;
-
-  /**
-   * Name of the service generating the log entry.
-   * Examples: 'api-gateway', 'auth-service', 'health-service'
-   */
-  serviceName: string;
-
-  /**
-   * Identifier for the specific service instance.
-   * Useful in distributed environments with multiple instances of the same service.
-   */
-  serviceInstanceId?: string;
-
-  /**
-   * Name of the application or system component.
-   * Examples: 'backend', 'mobile-app', 'web-app'
-   */
-  applicationName: string;
-
-  /**
-   * Current environment where the application is running.
-   * Examples: 'development', 'staging', 'production'
-   */
-  environment: string;
-
-  /**
-   * Application version, typically following semantic versioning.
-   * Format: MAJOR.MINOR.PATCH (e.g., '1.2.3')
-   */
-  version: string;
-
-  /**
-   * Optional trace ID from the distributed tracing system.
-   * When present, allows direct correlation between logs and traces.
-   */
-  traceId?: string;
-
-  /**
-   * Optional span ID from the distributed tracing system.
-   * When present, identifies the specific operation within a trace.
-   */
-  spanId?: string;
-
-  /**
-   * Optional parent span ID for nested operations.
-   * Enables hierarchical visualization of operations.
-   */
-  parentSpanId?: string;
-
-  /**
-   * Optional journey identifier.
-   * Indicates which journey (Health, Care, Plan) the log is associated with.
-   */
-  journeyType?: 'health' | 'care' | 'plan' | 'cross-journey';
-
-  /**
-   * Optional user identifier.
-   * When present, allows filtering logs by specific user.
-   */
-  userId?: string;
-
-  /**
-   * Optional request identifier for HTTP requests.
-   * Enables correlation of all logs related to a single HTTP request.
+   * Unique identifier for the request that generated this log.
+   * Used to group logs from the same request together.
    */
   requestId?: string;
 
   /**
-   * Optional session identifier.
-   * Enables tracking of user sessions across multiple requests.
+   * Unique identifier for the user associated with this log.
+   * Used to track user activity and troubleshoot user-specific issues.
+   */
+  userId?: string;
+
+  /**
+   * Unique identifier for tracking business transactions across services.
+   * A transaction may span multiple requests and services but represents
+   * a single logical operation from a business perspective.
+   */
+  transactionId?: string;
+
+  /**
+   * Unique identifier for the user's session.
+   * Used to group logs from the same user session together.
    */
   sessionId?: string;
 
   /**
-   * Additional context properties that don't fit into the standard fields.
-   * Allows for extensibility without modifying the interface.
+   * Name of the service generating the log.
+   * Examples: 'auth-service', 'health-service', 'care-service', 'plan-service'
+   */
+  serviceName?: string;
+
+  /**
+   * Name of the specific component within the service generating the log.
+   * Examples: 'AuthController', 'HealthMetricsRepository', 'AppointmentService'
+   */
+  component?: string;
+
+  /**
+   * Deployment environment where the log was generated.
+   * Examples: 'development', 'staging', 'production'
+   */
+  environment?: string;
+
+  /**
+   * Version of the service generating the log.
+   * Useful for tracking which version of the code produced a particular log.
+   */
+  serviceVersion?: string;
+
+  /**
+   * Hostname of the server generating the log.
+   * Useful for identifying specific instances in a distributed system.
+   */
+  hostname?: string;
+
+  /**
+   * Timestamp when the log was created.
+   * Stored as ISO 8601 string or Date object depending on the formatter.
+   */
+  timestamp?: Date | string;
+
+  /**
+   * Trace ID for distributed tracing systems (like OpenTelemetry).
+   * Used to correlate logs with distributed traces for detailed request flow analysis.
+   */
+  traceId?: string;
+
+  /**
+   * Span ID for the current operation in distributed tracing systems.
+   * Represents a single operation within a trace.
+   */
+  spanId?: string;
+
+  /**
+   * Indicates if this is a sampled trace in distributed tracing systems.
+   * Affects whether detailed trace information is collected.
+   */
+  traceSampled?: boolean;
+
+  /**
+   * Additional tags or labels for the log.
+   * Used for filtering and categorizing logs beyond the standard fields.
+   */
+  tags?: string[];
+
+  /**
+   * Additional metadata as key-value pairs.
+   * Can contain any context-specific information that doesn't fit in other properties.
+   */
+  metadata?: Record<string, any>;
+
+  /**
+   * Extensibility point for additional context properties.
+   * Allows adding custom properties without modifying the interface.
    */
   [key: string]: any;
 }

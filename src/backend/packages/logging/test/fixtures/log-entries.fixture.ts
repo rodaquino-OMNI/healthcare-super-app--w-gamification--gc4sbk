@@ -1,649 +1,500 @@
-/**
- * @file Log Entries Fixture
- * @description Provides a comprehensive set of sample log entry objects for testing LoggerService and formatter implementations.
- * Contains standardized log entries at different levels (DEBUG, INFO, WARN, ERROR, FATAL) with various context objects,
- * metadata, and payload structures.
- */
-
+import { LogEntry, JourneyType, ErrorInfo } from '../../src/interfaces/log-entry.interface';
 import { LogLevel } from '../../src/interfaces/log-level.enum';
-import { JourneyType } from '../../src/context/journey-context.interface';
-import { requestContexts, userContexts, transactionContexts, journeyContexts, combinedContexts } from './log-contexts.fixture';
-import { standardErrors, applicationExceptions, journeyErrors, validationErrors, nestedErrors, contextualErrors } from './error-objects.fixture';
 
 /**
- * Interface representing a log entry for testing purposes.
- * This structure mirrors the expected format of log entries in the system.
+ * Provides a comprehensive set of sample log entry objects for testing LoggerService
+ * and formatter implementations. Contains standardized log entries at different levels
+ * with various context objects, metadata, and payload structures.
  */
-export interface LogEntry {
-  /** Log level indicating severity */
-  level: LogLevel;
-  /** String representation of the log level */
-  levelName: string;
-  /** Timestamp when the log entry was created */
-  timestamp: string;
-  /** Log message */
-  message: string;
-  /** Service or component that generated the log */
-  service?: string;
-  /** Correlation ID for distributed tracing */
-  correlationId?: string;
-  /** Trace ID for distributed tracing */
-  traceId?: string;
-  /** Span ID for distributed tracing */
-  spanId?: string;
-  /** Request ID for HTTP request tracking */
-  requestId?: string;
-  /** User ID for user-specific logging */
-  userId?: string;
-  /** Journey type (health, care, plan) */
-  journeyType?: JourneyType;
-  /** Context object with additional information */
-  context?: Record<string, any>;
-  /** Error object for ERROR and FATAL levels */
-  error?: Error | Record<string, any>;
-  /** Stack trace for error logs */
-  stack?: string;
-  /** Additional metadata */
-  metadata?: Record<string, any>;
-  /** Environment (development, staging, production) */
-  environment?: string;
-  /** Application version */
-  version?: string;
-}
 
-/**
- * Helper function to create a basic log entry with default values
- */
-const createBaseLogEntry = (level: LogLevel, message: string): LogEntry => ({
-  level,
-  levelName: LogLevel[level],
-  timestamp: new Date().toISOString(),
-  message,
-  service: 'test-service',
-  correlationId: '550e8400-e29b-41d4-a716-446655440000',
-  traceId: 'trace-550e8400-e29b-41d4-a716-446655440000',
-  spanId: 'span-550e8400-e29b-41d4-a716-446655440000',
-  environment: 'test',
-  version: '1.0.0',
-});
-
-/**
- * Debug level log entries for testing debug logging functionality
- */
-export const debugLogEntries = {
-  /**
-   * Basic debug log with minimal information
-   */
-  basicDebug: createBaseLogEntry(
-    LogLevel.DEBUG,
-    'Debug message for testing basic debug logging'
-  ),
-
-  /**
-   * Debug log with detailed context information
-   */
-  detailedDebug: {
-    ...createBaseLogEntry(LogLevel.DEBUG, 'Detailed debug log with context'),
-    context: {
-      function: 'processHealthMetric',
-      params: {
-        metricType: 'heart-rate',
-        value: 72,
-        timestamp: '2023-04-15T14:30:40.000Z',
-      },
-      duration: 45, // milliseconds
-    },
-    metadata: {
-      debugMode: true,
-      verbosityLevel: 3,
-      source: 'health-service',
-    },
+// Basic log entries for each log level
+export const basicLogEntries: Record<string, LogEntry> = {
+  debug: {
+    message: 'Debug message for testing',
+    level: LogLevel.DEBUG,
+    timestamp: new Date('2023-06-15T10:00:00Z'),
+    serviceName: 'test-service',
+    context: 'TestContext'
   },
-
-  /**
-   * Debug log with journey context for health journey
-   */
-  healthJourneyDebug: {
-    ...createBaseLogEntry(LogLevel.DEBUG, 'Health journey metric processing'),
-    journeyType: JourneyType.HEALTH,
-    context: journeyContexts.healthJourney,
-    metadata: {
-      metricType: 'heart-rate',
-      metricValue: 72,
-      metricUnit: 'bpm',
-      deviceId: 'fitbit-123456',
-    },
+  info: {
+    message: 'Info message for testing',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T10:01:00Z'),
+    serviceName: 'test-service',
+    context: 'TestContext'
   },
-
-  /**
-   * Debug log with request context
-   */
-  requestDebug: {
-    ...createBaseLogEntry(LogLevel.DEBUG, 'Processing API request'),
-    requestId: requestContexts.detailedPostRequest.requestId,
-    context: requestContexts.detailedPostRequest,
+  warn: {
+    message: 'Warning message for testing',
+    level: LogLevel.WARN,
+    timestamp: new Date('2023-06-15T10:02:00Z'),
+    serviceName: 'test-service',
+    context: 'TestContext'
   },
-
-  /**
-   * Debug log with performance metrics
-   */
-  performanceDebug: {
-    ...createBaseLogEntry(LogLevel.DEBUG, 'Performance metrics'),
-    context: {
-      operation: 'fetchHealthMetrics',
-      metrics: {
-        dbQueryTime: 25, // milliseconds
-        processingTime: 15, // milliseconds
-        totalTime: 40, // milliseconds
-        cacheHit: false,
-        recordCount: 10,
-      },
-    },
+  error: {
+    message: 'Error message for testing',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T10:03:00Z'),
+    serviceName: 'test-service',
+    context: 'TestContext'
   },
+  fatal: {
+    message: 'Fatal message for testing',
+    level: LogLevel.FATAL,
+    timestamp: new Date('2023-06-15T10:04:00Z'),
+    serviceName: 'test-service',
+    context: 'TestContext'
+  }
 };
 
-/**
- * Info level log entries for testing info logging functionality
- */
-export const infoLogEntries = {
-  /**
-   * Basic info log with minimal information
-   */
-  basicInfo: createBaseLogEntry(
-    LogLevel.INFO,
-    'Info message for testing basic info logging'
-  ),
-
-  /**
-   * Info log with user context
-   */
-  userInfo: {
-    ...createBaseLogEntry(LogLevel.INFO, 'User logged in successfully'),
-    userId: userContexts.detailedUserContext.userId,
-    context: userContexts.detailedUserContext,
-    metadata: {
-      loginMethod: 'password',
-      deviceType: 'mobile',
-      ipAddress: '192.168.1.101',
-    },
+// Log entries with request context
+export const requestContextLogEntries: Record<string, LogEntry> = {
+  withRequestId: {
+    message: 'Log with request ID',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T11:00:00Z'),
+    serviceName: 'api-gateway',
+    context: 'RequestHandler',
+    requestId: '123e4567-e89b-12d3-a456-426614174000'
   },
+  withUserContext: {
+    message: 'Log with user context',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T11:01:00Z'),
+    serviceName: 'auth-service',
+    context: 'AuthController',
+    requestId: '123e4567-e89b-12d3-a456-426614174001',
+    userId: 'user-123',
+    sessionId: 'session-456',
+    clientIp: '192.168.1.1',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+  },
+  withFullContext: {
+    message: 'Log with full request context',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T11:02:00Z'),
+    serviceName: 'api-gateway',
+    context: 'GraphQLResolver',
+    requestId: '123e4567-e89b-12d3-a456-426614174002',
+    userId: 'user-456',
+    sessionId: 'session-789',
+    clientIp: '10.0.0.1',
+    userAgent: 'AUSTA-Mobile-App/1.0.0',
+    contextData: {
+      endpoint: '/graphql',
+      method: 'POST',
+      duration: 120,
+      statusCode: 200
+    }
+  }
+};
 
-  /**
-   * Info log with care journey context
-   */
-  careJourneyInfo: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Appointment booked successfully'),
-    journeyType: JourneyType.CARE,
-    userId: userContexts.detailedUserContext.userId,
-    context: {
-      ...journeyContexts.careJourney,
-      appointment: {
-        appointmentId: 'appt-123456',
+// Log entries with journey context
+export const journeyContextLogEntries: Record<string, LogEntry> = {
+  healthJourney: {
+    message: 'Health metric recorded',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T12:00:00Z'),
+    serviceName: 'health-service',
+    context: 'HealthMetricsController',
+    requestId: '123e4567-e89b-12d3-a456-426614174003',
+    userId: 'user-789',
+    journey: {
+      type: JourneyType.HEALTH,
+      resourceId: 'health-record-123',
+      action: 'record-metric',
+      data: {
+        metricType: 'blood-pressure',
+        systolic: 120,
+        diastolic: 80,
+        deviceId: 'device-456'
+      }
+    }
+  },
+  careJourney: {
+    message: 'Appointment scheduled',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T12:01:00Z'),
+    serviceName: 'care-service',
+    context: 'AppointmentController',
+    requestId: '123e4567-e89b-12d3-a456-426614174004',
+    userId: 'user-101',
+    journey: {
+      type: JourneyType.CARE,
+      resourceId: 'appointment-456',
+      action: 'schedule',
+      data: {
         providerId: 'provider-789',
-        appointmentType: 'video',
-        appointmentTime: '2023-04-20T10:00:00.000Z',
-        specialtyId: 'cardiology',
-      },
-    },
+        specialtyId: 'specialty-101',
+        dateTime: '2023-07-01T14:30:00Z',
+        location: 'virtual'
+      }
+    }
   },
-
-  /**
-   * Info log with transaction context
-   */
-  transactionInfo: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Transaction completed successfully'),
-    context: transactionContexts.detailedTransaction,
-  },
-
-  /**
-   * Info log with cross-journey context
-   */
-  crossJourneyInfo: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Cross-journey flow initiated'),
-    journeyType: JourneyType.HEALTH,
-    context: journeyContexts.crossJourney,
-  },
+  planJourney: {
+    message: 'Claim submitted',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T12:02:00Z'),
+    serviceName: 'plan-service',
+    context: 'ClaimController',
+    requestId: '123e4567-e89b-12d3-a456-426614174005',
+    userId: 'user-202',
+    journey: {
+      type: JourneyType.PLAN,
+      resourceId: 'claim-303',
+      action: 'submit',
+      data: {
+        planId: 'plan-404',
+        providerId: 'provider-505',
+        serviceDate: '2023-06-10',
+        amount: 150.75,
+        serviceType: 'consultation'
+      }
+    }
+  }
 };
 
-/**
- * Warning level log entries for testing warning logging functionality
- */
-export const warnLogEntries = {
-  /**
-   * Basic warning log with minimal information
-   */
-  basicWarn: createBaseLogEntry(
-    LogLevel.WARN,
-    'Warning message for testing basic warning logging'
-  ),
-
-  /**
-   * Warning log with detailed context
-   */
-  detailedWarn: {
-    ...createBaseLogEntry(LogLevel.WARN, 'Resource usage approaching limit'),
-    context: {
-      resourceType: 'database-connections',
-      currentUsage: 85,
-      limit: 100,
-      service: 'health-service',
-    },
-    metadata: {
-      alertThreshold: 80,
-      criticalThreshold: 90,
-      monitoringSince: '2023-04-15T12:00:00.000Z',
-    },
-  },
-
-  /**
-   * Warning log with plan journey context
-   */
-  planJourneyWarn: {
-    ...createBaseLogEntry(LogLevel.WARN, 'Claim submission missing recommended documentation'),
-    journeyType: JourneyType.PLAN,
-    userId: userContexts.detailedUserContext.userId,
-    context: {
-      ...journeyContexts.planJourney,
-      claim: {
-        claimId: 'claim-123456',
-        claimType: 'medical',
-        claimAmount: 250.75,
-        missingDocuments: ['receipt', 'medical-report'],
-        requiredDocuments: ['receipt', 'medical-report', 'prescription'],
-        submittedDocuments: ['prescription'],
-      },
-    },
-  },
-
-  /**
-   * Warning log with retry information
-   */
-  retryWarn: {
-    ...createBaseLogEntry(LogLevel.WARN, 'Operation retry required'),
-    context: {
-      operation: 'syncHealthData',
-      attempt: 2,
-      maxAttempts: 3,
-      reason: 'Temporary network issue',
-      nextRetryAt: new Date(Date.now() + 5000).toISOString(),
-    },
-  },
-
-  /**
-   * Warning log with deprecated feature usage
-   */
-  deprecationWarn: {
-    ...createBaseLogEntry(LogLevel.WARN, 'Deprecated API endpoint used'),
-    requestId: requestContexts.apiGatewayRequest.requestId,
-    context: {
-      ...requestContexts.apiGatewayRequest,
-      deprecation: {
-        feature: 'legacy-health-metrics-api',
-        deprecatedSince: '2023-01-15',
-        sunsetDate: '2023-07-15',
-        alternativeEndpoint: '/api/v2/health/metrics',
-      },
-    },
-  },
-};
-
-/**
- * Error level log entries for testing error logging functionality
- */
-export const errorLogEntries = {
-  /**
-   * Basic error log with minimal information
-   */
+// Error log entries with different error types
+export const errorLogEntries: Record<string, LogEntry> = {
   basicError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Error occurred during operation'),
-    error: standardErrors.basicError,
-    stack: standardErrors.basicError.stack,
+    message: 'Basic error occurred',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T13:00:00Z'),
+    serviceName: 'auth-service',
+    context: 'AuthService',
+    requestId: '123e4567-e89b-12d3-a456-426614174006',
+    userId: 'user-606',
+    error: {
+      message: 'Authentication failed',
+      name: 'AuthenticationError',
+      code: 'AUTH_001'
+    }
   },
-
-  /**
-   * Error log with application exception
-   */
-  applicationError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Application error occurred'),
-    error: applicationExceptions.technicalError,
-    stack: applicationExceptions.technicalError.stack,
-    context: {
-      component: 'PaymentProcessor',
-      operation: 'processTransaction',
-      timestamp: new Date().toISOString(),
-    },
+  withStackTrace: {
+    message: 'Error with stack trace',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T13:01:00Z'),
+    serviceName: 'health-service',
+    context: 'HealthMetricsService',
+    requestId: '123e4567-e89b-12d3-a456-426614174007',
+    userId: 'user-707',
+    error: {
+      message: 'Failed to save health metric',
+      name: 'DatabaseError',
+      code: 'DB_001',
+      stack: `Error: Failed to save health metric\n    at HealthMetricsService.saveMetric (/app/src/health-metrics/health-metrics.service.ts:45:23)\n    at HealthMetricsController.recordMetric (/app/src/health-metrics/health-metrics.controller.ts:32:35)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)`
+    }
   },
-
-  /**
-   * Error log with validation exception
-   */
-  validationError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Validation error occurred'),
-    error: validationErrors.complexValidation,
-    stack: validationErrors.complexValidation.stack,
-    requestId: requestContexts.detailedPostRequest.requestId,
-    context: {
-      ...requestContexts.detailedPostRequest,
-      validation: {
-        formId: 'user-registration',
-        fields: validationErrors.complexValidation.metadata.fields,
-        attemptCount: 3,
-      },
-    },
+  transientError: {
+    message: 'Transient error occurred',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T13:02:00Z'),
+    serviceName: 'care-service',
+    context: 'AppointmentService',
+    requestId: '123e4567-e89b-12d3-a456-426614174008',
+    userId: 'user-808',
+    error: {
+      message: 'Failed to connect to provider calendar service',
+      name: 'ConnectionError',
+      code: 'CONN_001',
+      isTransient: true,
+      stack: `Error: Failed to connect to provider calendar service\n    at AppointmentService.scheduleAppointment (/app/src/appointments/appointment.service.ts:78:12)\n    at AppointmentController.createAppointment (/app/src/appointments/appointment.controller.ts:54:22)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)`
+    }
   },
-
-  /**
-   * Error log with health journey context
-   */
-  healthJourneyError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Health journey error occurred'),
-    journeyType: JourneyType.HEALTH,
-    error: journeyErrors.healthJourneyError,
-    stack: journeyErrors.healthJourneyError.stack,
-    context: {
-      ...journeyContexts.healthJourney,
-      device: {
-        deviceType: 'FitbitWatch',
-        lastSyncTime: new Date(Date.now() - 86400000).toISOString(),
-        metrics: ['steps', 'heartRate', 'sleep'],
-      },
-    },
+  clientError: {
+    message: 'Client error occurred',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T13:03:00Z'),
+    serviceName: 'plan-service',
+    context: 'ClaimValidator',
+    requestId: '123e4567-e89b-12d3-a456-426614174009',
+    userId: 'user-909',
+    error: {
+      message: 'Invalid claim data provided',
+      name: 'ValidationError',
+      code: 'VAL_001',
+      isClientError: true,
+      stack: `Error: Invalid claim data provided\n    at ClaimValidator.validate (/app/src/claims/claim.validator.ts:32:11)\n    at ClaimService.submitClaim (/app/src/claims/claim.service.ts:45:23)\n    at ClaimController.createClaim (/app/src/claims/claim.controller.ts:38:19)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)`
+    }
   },
-
-  /**
-   * Error log with nested error chain
-   */
-  nestedError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Nested error occurred'),
-    error: nestedErrors.threeLevelError,
-    stack: nestedErrors.threeLevelError.stack,
-    context: {
-      errorChain: [
-        {
-          message: nestedErrors.threeLevelError.message,
-          type: nestedErrors.threeLevelError.type,
-          code: nestedErrors.threeLevelError.code,
-        },
-        {
-          message: nestedErrors.threeLevelError.cause.message,
-          type: nestedErrors.threeLevelError.cause.type,
-          code: nestedErrors.threeLevelError.cause.code,
-        },
-        {
-          message: nestedErrors.threeLevelError.cause.cause.message,
-          type: 'TypeError',
-        },
-      ],
-    },
-  },
-
-  /**
-   * Error log with external system error
-   */
   externalError: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'External system error occurred'),
-    error: applicationExceptions.externalError,
-    stack: applicationExceptions.externalError.stack,
-    context: {
-      externalSystem: {
-        name: 'PaymentGateway',
-        endpoint: '/api/v1/payments',
-        statusCode: 503,
-        responseBody: {
-          error: 'Service Unavailable',
-          message: 'The service is temporarily unavailable',
-          retryAfter: 30,
-        },
-        requestId: 'ext-req-12345',
-      },
-    },
+    message: 'External system error',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T13:04:00Z'),
+    serviceName: 'health-service',
+    context: 'FHIRIntegrationService',
+    requestId: '123e4567-e89b-12d3-a456-426614174010',
+    userId: 'user-1010',
+    error: {
+      message: 'FHIR server returned error response',
+      name: 'ExternalAPIError',
+      code: 'EXT_001',
+      isExternalError: true,
+      originalError: {
+        status: 500,
+        statusText: 'Internal Server Error',
+        data: {
+          resourceType: 'OperationOutcome',
+          issue: [{
+            severity: 'error',
+            code: 'processing',
+            diagnostics: 'Internal server error occurred while processing request'
+          }]
+        }
+      }
+    }
   },
+  fatalError: {
+    message: 'Critical system failure',
+    level: LogLevel.FATAL,
+    timestamp: new Date('2023-06-15T13:05:00Z'),
+    serviceName: 'api-gateway',
+    context: 'SystemMonitor',
+    error: {
+      message: 'Database connection pool exhausted',
+      name: 'SystemError',
+      code: 'SYS_001',
+      stack: `Error: Database connection pool exhausted\n    at DatabaseService.getConnection (/app/src/database/database.service.ts:112:11)\n    at ConnectionPoolMonitor.checkHealth (/app/src/monitoring/connection-pool.monitor.ts:45:23)\n    at SystemMonitor.runHealthChecks (/app/src/monitoring/system.monitor.ts:67:35)\n    at Timeout._onTimeout (/app/src/monitoring/system.monitor.ts:32:19)\n    at listOnTimeout (node:internal/timers:559:17)\n    at processTimers (node:internal/timers:502:7)`
+    }
+  }
 };
 
-/**
- * Fatal level log entries for testing fatal logging functionality
- */
-export const fatalLogEntries = {
-  /**
-   * Basic fatal log with minimal information
-   */
-  basicFatal: {
-    ...createBaseLogEntry(LogLevel.FATAL, 'Fatal error occurred'),
-    error: new Error('Unrecoverable system error'),
-    stack: new Error('Unrecoverable system error').stack,
+// Log entries with distributed tracing context
+export const tracingLogEntries: Record<string, LogEntry> = {
+  withTraceId: {
+    message: 'Request received with trace ID',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T14:00:00Z'),
+    serviceName: 'api-gateway',
+    context: 'TracingMiddleware',
+    requestId: '123e4567-e89b-12d3-a456-426614174011',
+    traceId: 'trace-abc-123-xyz-789'
   },
-
-  /**
-   * Fatal log with detailed system information
-   */
-  detailedFatal: {
-    ...createBaseLogEntry(LogLevel.FATAL, 'Critical system failure'),
-    error: new Error('Database connection pool exhausted'),
-    stack: new Error('Database connection pool exhausted').stack,
-    context: {
-      system: {
-        component: 'DatabaseConnectionPool',
-        maxConnections: 100,
-        activeConnections: 100,
-        waitingConnections: 50,
-        uptime: 86400, // seconds
-        lastRestartAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-      resource: {
-        cpuUsage: 95, // percent
-        memoryUsage: 90, // percent
-        diskUsage: 85, // percent
-      },
-    },
+  withSpanId: {
+    message: 'Processing request with span ID',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T14:00:01Z'),
+    serviceName: 'api-gateway',
+    context: 'AuthMiddleware',
+    requestId: '123e4567-e89b-12d3-a456-426614174011',
+    traceId: 'trace-abc-123-xyz-789',
+    spanId: 'span-def-456',
+    parentSpanId: 'span-abc-123'
   },
-
-  /**
-   * Fatal log with care journey context
-   */
-  careJourneyFatal: {
-    ...createBaseLogEntry(LogLevel.FATAL, 'Care journey critical failure'),
-    journeyType: JourneyType.CARE,
-    error: journeyErrors.careJourneyError,
-    stack: journeyErrors.careJourneyError.stack,
-    context: {
-      ...journeyContexts.careJourney,
-      criticalOperation: {
-        name: 'EmergencyAppointmentBooking',
-        priority: 'critical',
-        affectedUsers: 150,
-        startedAt: new Date(Date.now() - 300000).toISOString(), // 5 minutes ago
-        failedAt: new Date().toISOString(),
-      },
-    },
+  serviceA: {
+    message: 'Service A processing request',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T14:00:02Z'),
+    serviceName: 'auth-service',
+    context: 'AuthController',
+    requestId: '123e4567-e89b-12d3-a456-426614174011',
+    userId: 'user-1111',
+    traceId: 'trace-abc-123-xyz-789',
+    spanId: 'span-ghi-789',
+    parentSpanId: 'span-def-456'
   },
+  serviceB: {
+    message: 'Service B processing request',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T14:00:03Z'),
+    serviceName: 'health-service',
+    context: 'HealthController',
+    requestId: '123e4567-e89b-12d3-a456-426614174011',
+    userId: 'user-1111',
+    traceId: 'trace-abc-123-xyz-789',
+    spanId: 'span-jkl-012',
+    parentSpanId: 'span-def-456'
+  },
+  errorWithTrace: {
+    message: 'Error occurred in traced request',
+    level: LogLevel.ERROR,
+    timestamp: new Date('2023-06-15T14:00:04Z'),
+    serviceName: 'health-service',
+    context: 'HealthService',
+    requestId: '123e4567-e89b-12d3-a456-426614174011',
+    userId: 'user-1111',
+    traceId: 'trace-abc-123-xyz-789',
+    spanId: 'span-mno-345',
+    parentSpanId: 'span-jkl-012',
+    error: {
+      message: 'Failed to retrieve health data',
+      name: 'DataAccessError',
+      code: 'DATA_001',
+      stack: `Error: Failed to retrieve health data\n    at HealthService.getUserData (/app/src/health/health.service.ts:67:19)\n    at HealthController.getUserHealth (/app/src/health/health.controller.ts:42:23)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)`
+    }
+  }
+};
 
-  /**
-   * Fatal log with security breach information
-   */
-  securityFatal: {
-    ...createBaseLogEntry(LogLevel.FATAL, 'Security breach detected'),
-    error: new Error('Unauthorized access to protected resources'),
-    stack: new Error('Unauthorized access to protected resources').stack,
-    context: {
-      security: {
-        breachType: 'unauthorized-access',
-        targetResource: 'patient-records',
-        sourceIp: '203.0.113.100',
-        detectedAt: new Date().toISOString(),
-        suspiciousActivity: [
-          'multiple-failed-logins',
-          'unusual-access-pattern',
-          'data-exfiltration-attempt',
-        ],
+// Log entries with various metadata combinations
+export const metadataLogEntries: Record<string, LogEntry> = {
+  withPerformanceMetrics: {
+    message: 'Request completed',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T15:00:00Z'),
+    serviceName: 'api-gateway',
+    context: 'PerformanceInterceptor',
+    requestId: '123e4567-e89b-12d3-a456-426614174012',
+    metadata: {
+      duration: 145.32,
+      endpoint: '/api/v1/health/metrics',
+      method: 'GET',
+      statusCode: 200,
+      responseSize: 1024,
+      cacheHit: false
+    }
+  },
+  withDatabaseMetrics: {
+    message: 'Database query executed',
+    level: LogLevel.DEBUG,
+    timestamp: new Date('2023-06-15T15:01:00Z'),
+    serviceName: 'health-service',
+    context: 'DatabaseInterceptor',
+    requestId: '123e4567-e89b-12d3-a456-426614174013',
+    metadata: {
+      queryType: 'SELECT',
+      table: 'health_metrics',
+      duration: 12.45,
+      rowCount: 5,
+      cached: false,
+      indexUsed: 'idx_user_id_metric_type'
+    }
+  },
+  withAuthMetadata: {
+    message: 'User authenticated',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T15:02:00Z'),
+    serviceName: 'auth-service',
+    context: 'AuthService',
+    requestId: '123e4567-e89b-12d3-a456-426614174014',
+    userId: 'user-1212',
+    metadata: {
+      authMethod: 'password',
+      mfaUsed: true,
+      mfaType: 'totp',
+      deviceTrusted: true,
+      ipLocationChanged: false,
+      lastLogin: '2023-06-14T10:23:45Z'
+    }
+  },
+  withFeatureFlags: {
+    message: 'Feature flags evaluated',
+    level: LogLevel.DEBUG,
+    timestamp: new Date('2023-06-15T15:03:00Z'),
+    serviceName: 'api-gateway',
+    context: 'FeatureFlagMiddleware',
+    requestId: '123e4567-e89b-12d3-a456-426614174015',
+    userId: 'user-1313',
+    metadata: {
+      flags: {
+        'new-health-dashboard': true,
+        'enhanced-appointment-booking': false,
+        'ai-symptom-checker': true,
+        'claim-auto-processing': false
       },
+      source: 'redis',
+      evaluationTime: 3.21
+    }
+  },
+  withBusinessMetrics: {
+    message: 'Business event recorded',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T15:04:00Z'),
+    serviceName: 'gamification-engine',
+    context: 'AchievementService',
+    requestId: '123e4567-e89b-12d3-a456-426614174016',
+    userId: 'user-1414',
+    journey: {
+      type: JourneyType.HEALTH,
+      resourceId: 'achievement-123',
+      action: 'unlock'
     },
     metadata: {
-      alertId: 'SEC-12345',
-      alertSeverity: 'critical',
-      mitigationApplied: 'ip-blocking',
-      reportedToAuthorities: true,
-    },
-  },
-
-  /**
-   * Fatal log with infrastructure failure
-   */
-  infrastructureFatal: {
-    ...createBaseLogEntry(LogLevel.FATAL, 'Infrastructure failure'),
-    error: new Error('Kubernetes node failure'),
-    stack: new Error('Kubernetes node failure').stack,
-    context: {
-      infrastructure: {
-        component: 'kubernetes-node',
-        nodeId: 'node-123456',
-        region: 'us-east-1',
-        zone: 'us-east-1a',
-        affectedPods: 25,
-        affectedServices: [
-          'health-service',
-          'care-service',
-          'notification-service',
-        ],
-      },
-    },
-  },
+      achievementType: 'streak',
+      achievementName: '7-day Activity Streak',
+      pointsAwarded: 50,
+      userLevel: 3,
+      totalPoints: 750,
+      nextLevelAt: 1000,
+      isFirstTimeUnlock: true
+    }
+  }
 };
 
-/**
- * Special test cases for log formatting edge cases
- */
-export const specialLogEntries = {
-  /**
-   * Log entry with circular references
-   */
-  circularReferenceLog: (() => {
-    const entry = createBaseLogEntry(
-      LogLevel.INFO,
-      'Log with circular reference'
-    );
-    const circular: any = {
-      name: 'circular-object',
-      value: 42,
-    };
-    circular.self = circular;
-    entry.context = { circular };
-    return entry;
-  })(),
-
-  /**
-   * Log entry with deeply nested objects
-   */
-  deeplyNestedLog: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Log with deeply nested objects'),
-    context: {
-      level1: {
-        level2: {
-          level3: {
-            level4: {
-              level5: {
-                value: 'deeply-nested-value',
-                array: [1, 2, [3, 4, [5, 6, [7, 8]]]],
-              },
-            },
-          },
-        },
-      },
-    },
+// Environment-specific log entries for testing formatters
+export const environmentSpecificLogEntries: Record<string, LogEntry> = {
+  development: {
+    message: 'Development environment log',
+    level: LogLevel.DEBUG,
+    timestamp: new Date('2023-06-15T16:00:00Z'),
+    serviceName: 'api-gateway',
+    context: 'DevController',
+    requestId: '123e4567-e89b-12d3-a456-426614174017',
+    userId: 'dev-user',
+    metadata: {
+      environment: 'development',
+      debugMode: true,
+      mockServices: ['payment-service', 'notification-service'],
+      localOverrides: {
+        'feature.new-dashboard': true,
+        'api.timeout': 30000
+      }
+    }
   },
-
-  /**
-   * Log entry with very large payload
-   */
-  largePayloadLog: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Log with large payload'),
-    context: {
-      largeString: 'A'.repeat(10000),
-      largeArray: Array.from({ length: 1000 }, (_, i) => i),
-      largeObject: Object.fromEntries(
-        Array.from({ length: 100 }, (_, i) => [`key${i}`, `value${i}`])
-      ),
-    },
+  staging: {
+    message: 'Staging environment log',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T16:01:00Z'),
+    serviceName: 'health-service',
+    context: 'StagingController',
+    requestId: '123e4567-e89b-12d3-a456-426614174018',
+    userId: 'test-user',
+    metadata: {
+      environment: 'staging',
+      testSuite: 'integration',
+      testCase: 'health-metrics-sync',
+      testData: {
+        userId: 'test-user',
+        deviceId: 'test-device-123'
+      }
+    }
   },
-
-  /**
-   * Log entry with special characters and non-ASCII text
-   */
-  specialCharactersLog: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Log with special characters'),
-    context: {
-      specialChars: '!@#$%^&*()_+{}|:<>?~`-=[]\\;\\\',./',
-      emoji: '😀🚀🔥💯',
-      nonAscii: 'áéíóúñÁÉÍÓÚÑ',
-      html: '<script>alert("test");</script>',
-      json: '{"key": "value"}',
-    },
-  },
-
-  /**
-   * Log entry with binary data
-   */
-  binaryDataLog: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Log with binary data'),
-    context: {
-      base64Data: 'SGVsbG8gV29ybGQ=', // "Hello World" in base64
-      hexData: '48656C6C6F20576F726C64', // "Hello World" in hex
-      binaryString: '\x48\x65\x6C\x6C\x6F\x20\x57\x6F\x72\x6C\x64', // "Hello World" in escaped hex
-    },
-  },
+  production: {
+    message: 'Production environment log',
+    level: LogLevel.INFO,
+    timestamp: new Date('2023-06-15T16:02:00Z'),
+    serviceName: 'care-service',
+    context: 'AppointmentController',
+    requestId: '123e4567-e89b-12d3-a456-426614174019',
+    userId: 'user-1515',
+    metadata: {
+      environment: 'production',
+      region: 'us-east-1',
+      instanceId: 'i-1234567890abcdef0',
+      deploymentId: 'deploy-20230614-001'
+    }
+  }
 };
 
-/**
- * Combined log entries for comprehensive testing
- */
-export const combinedLogEntries = {
-  /**
-   * Complete log entry with all context types
-   */
-  completeLog: {
-    ...createBaseLogEntry(LogLevel.INFO, 'Complete log entry with all contexts'),
-    userId: userContexts.detailedUserContext.userId,
-    requestId: requestContexts.detailedPostRequest.requestId,
-    journeyType: JourneyType.HEALTH,
-    context: {
-      ...combinedContexts.completeContext,
-      additionalInfo: {
-        feature: 'health-dashboard',
-        action: 'view-metrics',
-        result: 'success',
-      },
-    },
-  },
-
-  /**
-   * Error log with complete context
-   */
-  completeErrorLog: {
-    ...createBaseLogEntry(LogLevel.ERROR, 'Complete error log with all contexts'),
-    userId: userContexts.detailedUserContext.userId,
-    requestId: requestContexts.detailedPostRequest.requestId,
-    journeyType: JourneyType.HEALTH,
-    error: journeyErrors.healthJourneyError,
-    stack: journeyErrors.healthJourneyError.stack,
-    context: {
-      ...combinedContexts.completeContext,
-      error: {
-        code: journeyErrors.healthJourneyError.code,
-        type: journeyErrors.healthJourneyError.type,
-        metadata: journeyErrors.healthJourneyError.metadata,
-      },
-    },
-  },
-};
-
-/**
- * Export all log entries as a single collection
- */
+// Combined collection of all log entries for easy access
 export const allLogEntries = {
-  ...debugLogEntries,
-  ...infoLogEntries,
-  ...warnLogEntries,
+  ...basicLogEntries,
+  ...requestContextLogEntries,
+  ...journeyContextLogEntries,
   ...errorLogEntries,
-  ...fatalLogEntries,
-  ...specialLogEntries,
-  ...combinedLogEntries,
+  ...tracingLogEntries,
+  ...metadataLogEntries,
+  ...environmentSpecificLogEntries
 };
+
+// Helper function to create a custom log entry by extending an existing one
+export function createCustomLogEntry(baseName: string, overrides: Partial<LogEntry>): LogEntry {
+  const base = allLogEntries[baseName] || basicLogEntries.info;
+  return {
+    ...base,
+    ...overrides,
+    timestamp: overrides.timestamp || new Date(),
+    // Deep merge for nested objects if needed
+    metadata: overrides.metadata ? { ...base.metadata, ...overrides.metadata } : base.metadata,
+    error: overrides.error ? { ...base.error, ...overrides.error } : base.error,
+    journey: overrides.journey ? { ...base.journey, ...overrides.journey } : base.journey
+  };
+}

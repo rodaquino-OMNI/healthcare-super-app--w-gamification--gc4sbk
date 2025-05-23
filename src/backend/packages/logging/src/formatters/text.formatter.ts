@@ -1,394 +1,333 @@
-import { Formatter, LogEntry } from './formatter.interface';
-import { LogLevel } from '../interfaces/log-level.enum';
-import { formatError, formatTimestamp, formatValue } from '../utils/format.utils';
+import { LogEntry, JourneyType } from '../interfaces/log-entry.interface';
+import { LogLevel, LogLevelUtils } from '../interfaces/log-level.enum';
+import { Formatter } from './formatter.interface';
 
 /**
- * ANSI color codes for terminal output
- */
-enum Colors {
-  RESET = '\x1b[0m',
-  BRIGHT = '\x1b[1m',
-  DIM = '\x1b[2m',
-  UNDERSCORE = '\x1b[4m',
-  BLINK = '\x1b[5m',
-  REVERSE = '\x1b[7m',
-  HIDDEN = '\x1b[8m',
-  
-  // Foreground colors
-  FG_BLACK = '\x1b[30m',
-  FG_RED = '\x1b[31m',
-  FG_GREEN = '\x1b[32m',
-  FG_YELLOW = '\x1b[33m',
-  FG_BLUE = '\x1b[34m',
-  FG_MAGENTA = '\x1b[35m',
-  FG_CYAN = '\x1b[36m',
-  FG_WHITE = '\x1b[37m',
-  FG_GRAY = '\x1b[90m',
-  
-  // Background colors
-  BG_BLACK = '\x1b[40m',
-  BG_RED = '\x1b[41m',
-  BG_GREEN = '\x1b[42m',
-  BG_YELLOW = '\x1b[43m',
-  BG_BLUE = '\x1b[44m',
-  BG_MAGENTA = '\x1b[45m',
-  BG_CYAN = '\x1b[46m',
-  BG_WHITE = '\x1b[47m',
-}
-
-/**
- * Configuration options for the TextFormatter
- */
-export interface TextFormatterOptions {
-  /**
-   * Whether to use colors in the output
-   * @default true
-   */
-  colors?: boolean;
-  
-  /**
-   * Whether to include timestamps in the output
-   * @default true
-   */
-  timestamps?: boolean;
-  
-  /**
-   * Whether to pretty-print objects and errors
-   * @default true
-   */
-  prettyPrint?: boolean;
-  
-  /**
-   * Maximum depth for object serialization
-   * @default 3
-   */
-  maxDepth?: number;
-  
-  /**
-   * Whether to include context information in the output
-   * @default true
-   */
-  includeContext?: boolean;
-}
-
-/**
- * A human-readable text formatter for logs that's optimized for local development and debugging.
- * This formatter presents log entries with colors (when supported), proper indentation,
- * and clear visual separation of different components.
+ * Text formatter that transforms log entries into human-readable text format.
+ * This formatter is optimized for local development and debugging, with color coding
+ * and pretty-printing of complex objects.
  */
 export class TextFormatter implements Formatter {
-  private readonly options: Required<TextFormatterOptions>;
-  
   /**
-   * Creates a new TextFormatter with the specified options
+   * ANSI color codes for different log levels
+   */
+  private readonly colors = {
+    reset: '\x1b[0m',
+    dim: '\x1b[2m',
+    bright: '\x1b[1m',
+    debug: '\x1b[36m', // Cyan
+    info: '\x1b[32m',  // Green
+    warn: '\x1b[33m',  // Yellow
+    error: '\x1b[31m', // Red
+    fatal: '\x1b[35m', // Magenta
+    timestamp: '\x1b[90m', // Gray
+    context: '\x1b[1;34m', // Bright Blue
+    journey: {
+      [JourneyType.HEALTH]: '\x1b[1;32m', // Bright Green
+      [JourneyType.CARE]: '\x1b[1;36m',  // Bright Cyan
+      [JourneyType.PLAN]: '\x1b[1;33m',  // Bright Yellow
+    },
+  };
+
+  /**
+   * Whether to use colors in the output
+   */
+  private readonly useColors: boolean;
+
+  /**
+   * Creates a new TextFormatter instance.
    * @param options Configuration options for the formatter
    */
-  constructor(options: TextFormatterOptions = {}) {
-    this.options = {
-      colors: options.colors ?? true,
-      timestamps: options.timestamps ?? true,
-      prettyPrint: options.prettyPrint ?? true,
-      maxDepth: options.maxDepth ?? 3,
-      includeContext: options.includeContext ?? true,
-    };
+  constructor(options: { useColors?: boolean } = {}) {
+    this.useColors = options.useColors ?? process.stdout.isTTY;
   }
-  
+
   /**
-   * Formats a log entry into a human-readable string representation
+   * Formats a log entry into a human-readable text string.
    * @param entry The log entry to format
-   * @returns A formatted string representation of the log entry
+   * @returns The formatted log entry as a string
    */
   format(entry: LogEntry): string {
-    const { level, message, timestamp, error, context, ...rest } = entry;
+    const { message, level, timestamp, context, journey } = entry;
+    const levelString = LogLevelUtils.toString(level).toUpperCase();
     
     // Format the timestamp
-    const formattedTimestamp = this.options.timestamps
-      ? this.formatTimestamp(timestamp)
-      : '';
+    const formattedTimestamp = this.formatTimestamp(timestamp);
     
-    // Format the log level
-    const formattedLevel = this.formatLevel(level);
+    // Format the level with appropriate color
+    const formattedLevel = this.colorize(
+      this.padRight(levelString, 5),
+      this.getLevelColor(level)
+    );
     
     // Format the context
-    const formattedContext = this.options.includeContext && context
-      ? this.formatContext(context)
+    const formattedContext = context 
+      ? this.colorize(`[${context}]`, this.colors.context) 
       : '';
     
-    // Format the message
-    const formattedMessage = this.colorize(message, this.getLevelColor(level));
-    
-    // Format any error
-    const formattedError = error
-      ? '\n' + this.formatError(error)
+    // Format the journey if available
+    const formattedJourney = journey 
+      ? this.colorize(`[${journey.type.toUpperCase()}]`, this.getJourneyColor(journey.type)) 
       : '';
     
-    // Format additional properties
-    const formattedProps = Object.keys(rest).length > 0
-      ? '\n' + this.formatAdditionalProps(rest)
-      : '';
-    
-    // Combine all parts
-    return [
-      formattedTimestamp,
+    // Build the log header
+    const header = [
+      this.colorize(formattedTimestamp, this.colors.timestamp),
       formattedLevel,
       formattedContext,
-      formattedMessage,
-      formattedError,
-      formattedProps
+      formattedJourney,
     ].filter(Boolean).join(' ');
-  }
-  
-  /**
-   * Formats a timestamp for display
-   * @param timestamp The timestamp to format
-   * @returns Formatted timestamp string
-   */
-  private formatTimestamp(timestamp: string | number | Date): string {
-    const date = new Date(timestamp);
-    const isoString = formatTimestamp(date);
     
-    // Format: [YYYY-MM-DD HH:MM:SS.mmm]
-    const formatted = `[${isoString.replace('T', ' ').replace('Z', '')}]`;
+    // Format the message
+    let formattedMessage = message;
     
-    return this.colorize(formatted, Colors.FG_GRAY);
-  }
-  
-  /**
-   * Formats a log level for display
-   * @param level The log level to format
-   * @returns Formatted log level string
-   */
-  private formatLevel(level: LogLevel): string {
-    const levelName = LogLevel[level];
-    const paddedLevel = levelName.padEnd(5, ' ');
-    const formatted = `[${paddedLevel}]`;
-    
-    return this.colorize(formatted, this.getLevelColor(level), true);
-  }
-  
-  /**
-   * Gets the color for a specific log level
-   * @param level The log level
-   * @returns The color code for the level
-   */
-  private getLevelColor(level: LogLevel): Colors {
-    switch (level) {
-      case LogLevel.DEBUG:
-        return Colors.FG_CYAN;
-      case LogLevel.INFO:
-        return Colors.FG_GREEN;
-      case LogLevel.WARN:
-        return Colors.FG_YELLOW;
-      case LogLevel.ERROR:
-        return Colors.FG_RED;
-      case LogLevel.FATAL:
-        return Colors.BG_RED + Colors.FG_WHITE;
-      default:
-        return Colors.RESET;
-    }
-  }
-  
-  /**
-   * Formats context information for display
-   * @param context The context object
-   * @returns Formatted context string
-   */
-  private formatContext(context: Record<string, any>): string {
-    const parts: string[] = [];
-    
-    // Add service name if available
-    if (context.service) {
-      parts.push(this.colorize(`[${context.service}]`, Colors.FG_MAGENTA));
-    }
-    
-    // Add journey if available
-    if (context.journey) {
-      parts.push(this.colorize(`[${context.journey}]`, Colors.FG_BLUE));
-    }
+    // Format additional context data if available
+    const details: string[] = [];
     
     // Add request information if available
-    if (context.request) {
-      const req = context.request;
+    if (entry.requestId || entry.userId || entry.sessionId) {
+      const requestInfo: string[] = [];
+      if (entry.requestId) requestInfo.push(`Request ID: ${entry.requestId}`);
+      if (entry.userId) requestInfo.push(`User ID: ${entry.userId}`);
+      if (entry.sessionId) requestInfo.push(`Session ID: ${entry.sessionId}`);
       
-      if (req.id) {
-        parts.push(this.colorize(`[req:${req.id}]`, Colors.FG_GRAY));
-      }
-      
-      if (req.method && req.path) {
-        parts.push(this.colorize(`[${req.method} ${req.path}]`, Colors.FG_GRAY));
-      }
-      
-      if (req.userId) {
-        parts.push(this.colorize(`[user:${req.userId}]`, Colors.FG_BLUE));
-      }
-      
-      if (req.duration !== undefined) {
-        parts.push(this.colorize(`[${req.duration}ms]`, Colors.FG_GRAY));
-      }
+      details.push(requestInfo.join(' | '));
     }
     
     // Add trace information if available
-    if (context.trace?.id) {
-      parts.push(this.colorize(`[trace:${context.trace.id}]`, Colors.FG_GRAY));
+    if (entry.traceId) {
+      details.push(`Trace ID: ${entry.traceId}`);
     }
     
-    return parts.join(' ');
-  }
-  
-  /**
-   * Formats an error for display
-   * @param error The error to format
-   * @returns Formatted error string
-   */
-  private formatError(error: any): string {
-    if (!error) {
-      return '';
+    // Add journey details if available
+    if (journey?.resourceId || journey?.action) {
+      const journeyDetails: string[] = [];
+      if (journey.resourceId) journeyDetails.push(`Resource: ${journey.resourceId}`);
+      if (journey.action) journeyDetails.push(`Action: ${journey.action}`);
+      
+      details.push(journeyDetails.join(' | '));
     }
     
-    // If it's already a string, just return it
-    if (typeof error === 'string') {
-      return this.colorize(`Error: ${error}`, Colors.FG_RED);
+    // Format context data if available
+    if (entry.contextData && Object.keys(entry.contextData).length > 0) {
+      details.push(this.formatObject('Context Data', entry.contextData));
     }
     
-    // Format the error object
-    const formattedError = formatError(error);
-    
-    // Create a readable representation
-    let result = this.colorize(`Error: ${formattedError.name}: ${formattedError.message}`, Colors.FG_RED + Colors.BRIGHT);
-    
-    // Add stack trace if available
-    if (formattedError.stack && Array.isArray(formattedError.stack)) {
-      result += '\n' + this.colorize(formattedError.stack.map((line: string) => `  ${line}`).join('\n'), Colors.FG_GRAY);
+    // Format journey data if available
+    if (journey?.data && Object.keys(journey.data).length > 0) {
+      details.push(this.formatObject('Journey Data', journey.data));
     }
     
-    // Add additional error properties
-    const additionalProps = { ...formattedError };
-    delete additionalProps.name;
-    delete additionalProps.message;
-    delete additionalProps.stack;
+    // Format error if available
+    if (entry.error) {
+      details.push(this.formatError(entry.error));
+    }
     
-    if (Object.keys(additionalProps).length > 0) {
-      result += '\n' + this.colorize('Additional error details:', Colors.FG_YELLOW);
-      result += '\n' + this.formatObject(additionalProps, 1);
+    // Format metadata if available
+    if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+      details.push(this.formatObject('Metadata', entry.metadata));
+    }
+    
+    // Combine all parts
+    let result = `${header} ${formattedMessage}`;
+    
+    // Add details with proper indentation
+    if (details.length > 0) {
+      const indent = ' '.repeat(formattedTimestamp.length + 7); // Timestamp + level + space
+      result += '\n' + details.map(detail => `${indent}${detail}`).join('\n');
     }
     
     return result;
   }
   
   /**
-   * Formats additional properties for display
-   * @param props Additional properties to format
-   * @returns Formatted properties string
+   * Formats a timestamp into a human-readable string.
+   * @param timestamp The timestamp to format
+   * @returns The formatted timestamp
    */
-  private formatAdditionalProps(props: Record<string, any>): string {
-    if (!props || Object.keys(props).length === 0) {
-      return '';
-    }
+  private formatTimestamp(timestamp: Date): string {
+    const year = timestamp.getFullYear();
+    const month = this.padLeft(timestamp.getMonth() + 1, 2, '0');
+    const day = this.padLeft(timestamp.getDate(), 2, '0');
+    const hours = this.padLeft(timestamp.getHours(), 2, '0');
+    const minutes = this.padLeft(timestamp.getMinutes(), 2, '0');
+    const seconds = this.padLeft(timestamp.getSeconds(), 2, '0');
+    const milliseconds = this.padLeft(timestamp.getMilliseconds(), 3, '0');
     
-    return this.colorize('Additional properties:', Colors.FG_GRAY) + '\n' + this.formatObject(props, 1);
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
   }
   
   /**
-   * Formats an object for display
+   * Formats an object for display in the log.
+   * @param label The label for the object
    * @param obj The object to format
-   * @param depth Current depth in the object tree
-   * @returns Formatted object string
+   * @returns The formatted object as a string
    */
-  private formatObject(obj: Record<string, any>, depth = 0): string {
-    if (!obj || typeof obj !== 'object') {
-      return String(obj);
+  private formatObject(label: string, obj: Record<string, any>): string {
+    try {
+      // Create a WeakSet to track circular references
+      const seen = new WeakSet();
+      const formatted = JSON.stringify(obj, (key, value) => this.jsonReplacer(key, value, seen), 2);
+      return `${label}:\n${this.indentLines(formatted, 2)}`;
+    } catch (error) {
+      return `${label}: [Error formatting object: ${(error as Error).message}]`;
     }
-    
-    // Prevent excessive recursion
-    if (depth > this.options.maxDepth) {
-      return this.colorize('[Max Depth Exceeded]', Colors.FG_GRAY);
-    }
-    
-    // Handle arrays
-    if (Array.isArray(obj)) {
-      if (obj.length === 0) {
-        return this.colorize('[]', Colors.FG_GRAY);
-      }
-      
-      const indent = '  '.repeat(depth);
-      const items = obj.map(item => {
-        const formatted = typeof item === 'object' && item !== null
-          ? this.formatObject(item, depth + 1)
-          : this.formatValue(item);
-        return `${indent}  ${formatted}`;
-      }).join('\n');
-      
-      return `[\n${items}\n${indent}]`;
-    }
-    
-    // Handle regular objects
-    const indent = '  '.repeat(depth);
-    const entries = Object.entries(obj).map(([key, value]) => {
-      const formattedKey = this.colorize(key, Colors.FG_CYAN);
-      const formattedValue = typeof value === 'object' && value !== null
-        ? this.formatObject(value, depth + 1)
-        : this.formatValue(value);
-      return `${indent}  ${formattedKey}: ${formattedValue}`;
-    }).join('\n');
-    
-    if (entries.length === 0) {
-      return this.colorize('{}', Colors.FG_GRAY);
-    }
-    
-    return `{\n${entries}\n${indent}}`;
   }
   
   /**
-   * Formats a primitive value for display
-   * @param value The value to format
-   * @returns Formatted value string
+   * Formats an error object for display in the log.
+   * @param error The error to format
+   * @returns The formatted error as a string
    */
-  private formatValue(value: any): string {
-    if (value === undefined) {
-      return this.colorize('undefined', Colors.FG_GRAY);
+  private formatError(error: LogEntry['error']): string {
+    if (!error) return '';
+    
+    const parts: string[] = [];
+    
+    // Add error name and message
+    const errorName = error.name || 'Error';
+    parts.push(this.colorize(`${errorName}: ${error.message}`, this.colors.error));
+    
+    // Add error code if available
+    if (error.code) {
+      parts.push(`Code: ${error.code}`);
     }
     
-    if (value === null) {
-      return this.colorize('null', Colors.FG_GRAY);
+    // Add error flags if available
+    const flags: string[] = [];
+    if (error.isTransient) flags.push('Transient');
+    if (error.isClientError) flags.push('Client Error');
+    if (error.isExternalError) flags.push('External Error');
+    
+    if (flags.length > 0) {
+      parts.push(`Flags: ${flags.join(', ')}`);
     }
     
-    if (typeof value === 'string') {
-      return this.colorize(`"${value}"`, Colors.FG_GREEN);
+    // Add stack trace if available
+    if (error.stack) {
+      parts.push(`Stack Trace:\n${this.indentLines(error.stack, 2)}`);
     }
     
-    if (typeof value === 'number') {
-      return this.colorize(String(value), Colors.FG_YELLOW);
-    }
-    
-    if (typeof value === 'boolean') {
-      return this.colorize(String(value), Colors.FG_YELLOW);
-    }
-    
-    if (typeof value === 'function') {
-      return this.colorize(`[Function: ${value.name || 'anonymous'}]`, Colors.FG_GRAY);
-    }
-    
-    if (value instanceof Date) {
-      return this.colorize(value.toISOString(), Colors.FG_BLUE);
-    }
-    
-    // Use formatValue from utils for other types
-    return String(formatValue(value));
+    return parts.join('\n');
   }
   
   /**
-   * Applies color to a string if colors are enabled
+   * Indents each line of a multi-line string.
+   * @param text The text to indent
+   * @param spaces The number of spaces to indent by
+   * @returns The indented text
+   */
+  private indentLines(text: string, spaces: number): string {
+    const indent = ' '.repeat(spaces);
+    return text
+      .split('\n')
+      .map(line => `${indent}${line}`)
+      .join('\n');
+  }
+  
+  /**
+   * Pads a string on the left with a specified character.
+   * @param value The value to pad
+   * @param length The desired length
+   * @param char The character to pad with
+   * @returns The padded string
+   */
+  private padLeft(value: number | string, length: number, char: string = ' '): string {
+    return String(value).padStart(length, char);
+  }
+  
+  /**
+   * Pads a string on the right with a specified character.
+   * @param value The value to pad
+   * @param length The desired length
+   * @param char The character to pad with
+   * @returns The padded string
+   */
+  private padRight(value: string, length: number, char: string = ' '): string {
+    return value.padEnd(length, char);
+  }
+  
+  /**
+   * Applies ANSI color codes to a string if colors are enabled.
    * @param text The text to colorize
-   * @param color The color to apply
-   * @param bright Whether to make the text bright
-   * @returns Colorized string
+   * @param color The ANSI color code to apply
+   * @returns The colorized string
    */
-  private colorize(text: string, color: Colors, bright = false): string {
-    if (!this.options.colors) {
-      return text;
+  private colorize(text: string, color: string): string {
+    if (!this.useColors) return text;
+    return `${color}${text}${this.colors.reset}`;
+  }
+  
+  /**
+   * Gets the color for a log level.
+   * @param level The log level
+   * @returns The ANSI color code for the level
+   */
+  private getLevelColor(level: LogLevel): string {
+    switch (level) {
+      case LogLevel.DEBUG: return this.colors.debug;
+      case LogLevel.INFO: return this.colors.info;
+      case LogLevel.WARN: return this.colors.warn;
+      case LogLevel.ERROR: return this.colors.error;
+      case LogLevel.FATAL: return this.colors.fatal;
+      default: return this.colors.reset;
+    }
+  }
+  
+  /**
+   * Gets the color for a journey type.
+   * @param journeyType The journey type
+   * @returns The ANSI color code for the journey type
+   */
+  private getJourneyColor(journeyType: JourneyType): string {
+    return this.colors.journey[journeyType] || this.colors.reset;
+  }
+  
+  /**
+   * Custom replacer function for JSON.stringify to handle special cases.
+   * @param key The current key being processed
+   * @param value The current value being processed
+   * @param seen WeakSet to track circular references
+   * @returns The processed value
+   */
+  private jsonReplacer(key: string, value: any, seen: WeakSet<any>): any {
+    // Handle circular references
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular Reference]';
+      }
+      seen.add(value);
     }
     
-    const brightCode = bright ? Colors.BRIGHT : '';
-    return `${color}${brightCode}${text}${Colors.RESET}`;
+    // Handle Error objects
+    if (value instanceof Error) {
+      return {
+        message: value.message,
+        name: value.name,
+        stack: value.stack,
+      };
+    }
+    
+    // Handle Date objects
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    
+    // Handle functions
+    if (typeof value === 'function') {
+      return '[Function]';
+    }
+    
+    // Handle symbols
+    if (typeof value === 'symbol') {
+      return value.toString();
+    }
+    
+    // Handle BigInt
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+    
+    return value;
   }
 }

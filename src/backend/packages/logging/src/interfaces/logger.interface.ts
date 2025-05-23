@@ -1,71 +1,155 @@
-import { LoggerService as NestLoggerService } from '@nestjs/common';
+/**
+ * @file Logger Interface
+ * @description Defines the extended Logger interface that builds upon NestJS's LoggerService
+ * interface with additional methods for context-aware logging in the journey-based architecture.
+ *
+ * @module @austa/logging/interfaces
+ */
+
+import { LoggerService } from '@nestjs/common';
+import { LogLevel } from './log-level.enum';
+import { JourneyContext, ErrorInfo } from './log-entry.interface';
 
 /**
- * Represents the context of a log entry in the AUSTA SuperApp.
- * Provides structured metadata for enhanced observability and tracing.
+ * Context object for log entries
  */
 export interface LogContext {
   /**
-   * The journey context (health, care, plan)
+   * The context where the log was generated (e.g., class name, function name)
    */
-  journey?: 'health' | 'care' | 'plan' | 'shared';
+  context?: string;
 
   /**
-   * The user ID associated with the log entry
-   */
-  userId?: string;
-
-  /**
-   * The request ID for tracking a request across services
+   * Unique identifier for the request
    */
   requestId?: string;
 
   /**
-   * The correlation ID for connecting logs, traces, and metrics
+   * Unique identifier for the user
    */
-  correlationId?: string;
+  userId?: string;
 
   /**
-   * The trace ID for distributed tracing
+   * Unique identifier for the user session
+   */
+  sessionId?: string;
+
+  /**
+   * IP address of the client
+   */
+  clientIp?: string;
+
+  /**
+   * User agent of the client
+   */
+  userAgent?: string;
+
+  /**
+   * Unique identifier for the trace (for distributed tracing)
    */
   traceId?: string;
 
   /**
-   * The span ID for distributed tracing
+   * Unique identifier for the span within a trace
    */
   spanId?: string;
 
   /**
-   * Additional metadata to include in the log entry
+   * Identifier of the parent span
    */
-  metadata?: Record<string, any>;
+  parentSpanId?: string;
 
   /**
-   * The service or component name
+   * The journey context (health, care, plan)
    */
-  service?: string;
+  journey?: JourneyContext;
 
   /**
-   * The operation being performed
+   * Additional contextual information as key-value pairs
    */
-  operation?: string;
+  [key: string]: any;
 }
 
 /**
- * Extended Logger interface for the AUSTA SuperApp.
- * Builds upon NestJS's LoggerService interface with additional methods for context-aware logging
- * in the journey-based architecture.
+ * Extended Logger interface that builds upon NestJS's LoggerService interface
+ * with additional methods for context-aware logging in the journey-based architecture.
  */
-export interface Logger extends NestLoggerService {
+export interface Logger extends LoggerService {
   /**
-   * Logs a message with the INFO level.
+   * Gets the current log level of the logger
+   */
+  getLogLevel(): LogLevel;
+
+  /**
+   * Sets the log level of the logger
+   * @param level The log level to set
+   */
+  setLogLevel(level: LogLevel): void;
+
+  /**
+   * Checks if a specific log level is enabled
+   * @param level The log level to check
+   */
+  isLevelEnabled(level: LogLevel): boolean;
+
+  /**
+   * Creates a child logger with inherited configuration and additional context
+   * @param context Additional context for the child logger
+   */
+  createChildLogger(context: LogContext): Logger;
+
+  /**
+   * Sets the context for subsequent log entries
+   * @param context The context to set
+   */
+  setContext(context: LogContext): void;
+
+  /**
+   * Adds context to the current logger context
+   * @param context Additional context to add
+   */
+  addContext(context: LogContext): void;
+
+  /**
+   * Clears the current context
+   */
+  clearContext(): void;
+
+  /**
+   * Gets the current context
+   */
+  getContext(): LogContext;
+
+  /**
+   * Logs a message with the DEBUG level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  debug(message: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the INFO level
    * @param message The message to log
    * @param context Optional context for the log
    */
   log(message: string, context?: string | LogContext): void;
 
   /**
-   * Logs a message with the ERROR level.
+   * Logs a message with the INFO level (alias for log)
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  info(message: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the WARN level
+   * @param message The message to log
+   * @param context Optional context for the log
+   */
+  warn(message: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the ERROR level
    * @param message The message to log
    * @param trace Optional stack trace or error object
    * @param context Optional context for the log
@@ -73,160 +157,198 @@ export interface Logger extends NestLoggerService {
   error(message: string, trace?: string | Error, context?: string | LogContext): void;
 
   /**
-   * Logs a message with the WARN level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  warn(message: string, context?: string | LogContext): void;
-
-  /**
-   * Logs a message with the DEBUG level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  debug(message: string, context?: string | LogContext): void;
-
-  /**
-   * Logs a message with the VERBOSE level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  verbose(message: string, context?: string | LogContext): void;
-
-  /**
-   * Logs a message with the FATAL level.
-   * @param message The message to log
-   * @param context Optional context for the log
-   */
-  fatal(message: string, context?: string | LogContext): void;
-
-  /**
-   * Creates a new logger instance with the provided context.
-   * This context will be included in all log entries created by the returned logger.
-   * @param context The context to attach to all log entries
-   */
-  withContext(context: LogContext): Logger;
-
-  /**
-   * Creates a new logger instance with the provided journey context.
-   * This is a convenience method for setting the journey context.
-   * @param journey The journey context (health, care, plan)
-   */
-  forJourney(journey: 'health' | 'care' | 'plan'): Logger;
-
-  /**
-   * Creates a new logger instance with the provided user context.
-   * This is a convenience method for setting the user ID.
-   * @param userId The user ID to attach to all log entries
-   */
-  forUser(userId: string): Logger;
-
-  /**
-   * Creates a new logger instance with the provided request context.
-   * This is a convenience method for setting the request ID and correlation ID.
-   * @param requestId The request ID to attach to all log entries
-   * @param correlationId Optional correlation ID to attach to all log entries
-   */
-  forRequest(requestId: string, correlationId?: string): Logger;
-
-  /**
-   * Creates a new logger instance with the provided trace context.
-   * This is a convenience method for setting the trace ID and span ID.
-   * @param traceId The trace ID to attach to all log entries
-   * @param spanId Optional span ID to attach to all log entries
-   */
-  withTracing(traceId: string, spanId?: string): Logger;
-
-  /**
-   * Logs a health journey-specific message with the INFO level.
-   * @param message The message to log
-   * @param context Optional additional context for the log
-   */
-  logHealth(message: string, context?: Omit<LogContext, 'journey'>): void;
-
-  /**
-   * Logs a care journey-specific message with the INFO level.
-   * @param message The message to log
-   * @param context Optional additional context for the log
-   */
-  logCare(message: string, context?: Omit<LogContext, 'journey'>): void;
-
-  /**
-   * Logs a plan journey-specific message with the INFO level.
-   * @param message The message to log
-   * @param context Optional additional context for the log
-   */
-  logPlan(message: string, context?: Omit<LogContext, 'journey'>): void;
-
-  /**
-   * Logs a health journey-specific message with the ERROR level.
+   * Logs a message with the FATAL level
    * @param message The message to log
    * @param trace Optional stack trace or error object
-   * @param context Optional additional context for the log
+   * @param context Optional context for the log
    */
-  errorHealth(message: string, trace?: string | Error, context?: Omit<LogContext, 'journey'>): void;
+  fatal(message: string, trace?: string | Error, context?: string | LogContext): void;
 
   /**
-   * Logs a care journey-specific message with the ERROR level.
+   * Logs a structured error with the ERROR level
+   * @param error The error object or message
+   * @param context Optional context for the log
+   */
+  logError(error: Error | string, context?: string | LogContext): void;
+
+  /**
+   * Logs a structured error with the FATAL level
+   * @param error The error object or message
+   * @param context Optional context for the log
+   */
+  logFatal(error: Error | string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the DEBUG level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  debugHealth(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the INFO level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  logHealth(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the WARN level in the Health journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  warnHealth(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the ERROR level in the Health journey context
    * @param message The message to log
    * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Health journey
    * @param context Optional additional context for the log
    */
-  errorCare(message: string, trace?: string | Error, context?: Omit<LogContext, 'journey'>): void;
+  errorHealth(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a plan journey-specific message with the ERROR level.
+   * Logs a structured error with the ERROR level in the Health journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Health journey
+   * @param context Optional additional context for the log
+   */
+  logErrorHealth(error: Error | string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the DEBUG level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  debugCare(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the INFO level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  logCare(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the WARN level in the Care journey context
+   * @param message The message to log
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  warnCare(message: string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the ERROR level in the Care journey context
    * @param message The message to log
    * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Care journey
    * @param context Optional additional context for the log
    */
-  errorPlan(message: string, trace?: string | Error, context?: Omit<LogContext, 'journey'>): void;
+  errorCare(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a health journey-specific message with the WARN level.
+   * Logs a structured error with the ERROR level in the Care journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Care journey
+   * @param context Optional additional context for the log
+   */
+  logErrorCare(error: Error | string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the DEBUG level in the Plan journey context
    * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
    * @param context Optional additional context for the log
    */
-  warnHealth(message: string, context?: Omit<LogContext, 'journey'>): void;
+  debugPlan(message: string, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a care journey-specific message with the WARN level.
+   * Logs a message with the INFO level in the Plan journey context
    * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
    * @param context Optional additional context for the log
    */
-  warnCare(message: string, context?: Omit<LogContext, 'journey'>): void;
+  logPlan(message: string, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a plan journey-specific message with the WARN level.
+   * Logs a message with the WARN level in the Plan journey context
    * @param message The message to log
+   * @param resourceId Optional resource ID within the Plan journey
    * @param context Optional additional context for the log
    */
-  warnPlan(message: string, context?: Omit<LogContext, 'journey'>): void;
+  warnPlan(message: string, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a health journey-specific message with the DEBUG level.
+   * Logs a message with the ERROR level in the Plan journey context
    * @param message The message to log
+   * @param trace Optional stack trace or error object
+   * @param resourceId Optional resource ID within the Plan journey
    * @param context Optional additional context for the log
    */
-  debugHealth(message: string, context?: Omit<LogContext, 'journey'>): void;
+  errorPlan(message: string, trace?: string | Error, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Logs a care journey-specific message with the DEBUG level.
+   * Logs a structured error with the ERROR level in the Plan journey context
+   * @param error The error object or message
+   * @param resourceId Optional resource ID within the Plan journey
+   * @param context Optional additional context for the log
+   */
+  logErrorPlan(error: Error | string, resourceId?: string, context?: string | LogContext): void;
+
+  /**
+   * Logs a message with the specified level
+   * @param level The log level
    * @param message The message to log
-   * @param context Optional additional context for the log
+   * @param context Optional context for the log
    */
-  debugCare(message: string, context?: Omit<LogContext, 'journey'>): void;
+  logWithLevel(level: LogLevel, message: string, context?: string | LogContext): void;
 
   /**
-   * Logs a plan journey-specific message with the DEBUG level.
+   * Logs a message with the specified level and journey context
+   * @param level The log level
+   * @param journeyType The journey type
    * @param message The message to log
+   * @param resourceId Optional resource ID within the journey
    * @param context Optional additional context for the log
    */
-  debugPlan(message: string, context?: Omit<LogContext, 'journey'>): void;
+  logWithJourney(level: LogLevel, journeyType: 'health' | 'care' | 'plan', message: string, resourceId?: string, context?: string | LogContext): void;
 
   /**
-   * Attaches the current trace context from OpenTelemetry to the log entry.
-   * This method automatically extracts the trace ID and span ID from the current context.
+   * Starts a timer and returns a function that, when called, logs the elapsed time
+   * @param label Label for the timer
+   * @param level Log level to use when logging the elapsed time
+   * @param context Optional context for the log
+   * @returns A function that, when called, logs the elapsed time
    */
-  withCurrentTraceContext(): Logger;
+  startTimer(label: string, level?: LogLevel, context?: string | LogContext): () => void;
+
+  /**
+   * Logs the start of an operation and returns a function that, when called, logs the end of the operation
+   * @param operation Name of the operation
+   * @param context Optional context for the log
+   * @returns A function that, when called, logs the end of the operation
+   */
+  logOperation(operation: string, context?: string | LogContext): (result?: string) => void;
+
+  /**
+   * Logs the start of an operation in the specified journey context and returns a function that, when called, logs the end of the operation
+   * @param journeyType The journey type
+   * @param operation Name of the operation
+   * @param resourceId Optional resource ID within the journey
+   * @param context Optional additional context for the log
+   * @returns A function that, when called, logs the end of the operation
+   */
+  logJourneyOperation(journeyType: 'health' | 'care' | 'plan', operation: string, resourceId?: string, context?: string | LogContext): (result?: string) => void;
+
+  /**
+   * Flushes any buffered log entries
+   * @returns A promise that resolves when all buffered entries have been written
+   */
+  flush(): Promise<void>;
 }

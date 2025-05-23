@@ -1,30 +1,55 @@
 import { Injectable, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Tracer, Context, trace, SpanStatusCode, SpanKind, Span, SpanOptions } from '@opentelemetry/api';
-import { TraceContext } from './interfaces/trace-context.interface';
-import { TracerProvider } from './interfaces/tracer-provider.interface';
-import { CONFIG_KEYS } from './constants/config-keys';
-import { DEFAULT_SERVICE_NAME, DEFAULT_LOGGER_CONTEXT } from './constants/defaults';
-import { ERROR_CODES } from './constants/error-codes';
-import { enrichLogContextWithTraceInfo } from './utils/correlation';
-import { addCommonAttributes, addJourneyAttributes, addErrorAttributes } from './utils/span-attributes';
-import { extractContextFromHeaders, injectContextIntoHeaders } from './utils/context-propagation';
+import { 
+  Tracer, 
+  Context, 
+  trace, 
+  SpanStatusCode, 
+  Span,
+  SpanKind,
+  SpanOptions as OtelSpanOptions,
+  propagation,
+  context,
+  ROOT_CONTEXT,
+  SpanContext,
+  TraceFlags
+} from '@opentelemetry/api';
+import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { v4 as uuidv4 } from 'uuid';
+
+import { 
+  TRACING_SERVICE_NAME_KEY,
+  DEFAULT_SERVICE_NAME,
+  DEFAULT_LOGGER_CONTEXT
+} from './constants/defaults';
+import { 
+  TRACER_INIT_ERROR,
+  SPAN_CREATION_ERROR,
+  CONTEXT_PROPAGATION_ERROR
+} from './constants/error-codes';
+import { 
+  SpanOptions,
+  JourneyContext,
+  TraceContextCarrier
+} from './interfaces';
+import { 
+  addCommonAttributes,
+  addJourneyAttributes,
+  addErrorAttributes,
+  extractTraceContext,
+  injectTraceContext,
+  getCorrelationInfo
+} from './utils';
 
 /**
- * Service that provides distributed tracing capabilities across the AUSTA SuperApp.
- * 
- * This service integrates OpenTelemetry to enable end-to-end request tracing through all journey services,
- * supporting observability requirements for the application. The tracing functionality allows:
- * - Tracking requests as they flow through different microservices
- * - Measuring performance at different stages of request processing
- * - Identifying bottlenecks and errors in the request pipeline
- * - Correlating logs and traces for better debugging
- * - Adding journey-specific context to spans for business operation tracking
+ * Service for distributed tracing using OpenTelemetry.
+ * Provides methods for creating and managing spans, propagating context,
+ * and correlating traces with logs and metrics.
  */
 @Injectable()
-export class TracingService implements TracerProvider {
+export class TracingService {
   private tracer: Tracer;
-  private readonly loggerContext: string = DEFAULT_LOGGER_CONTEXT;
+  private readonly serviceName: string;
 
   /**
    * Initializes the TracingService and obtains a tracer instance.
@@ -35,35 +60,25 @@ export class TracingService implements TracerProvider {
     private configService: ConfigService,
     private logger: LoggerService
   ) {
-    // Obtain a tracer from OpenTelemetry using the service name from configuration
-    const serviceName = this.configService.get<string>(
-      CONFIG_KEYS.SERVICE_NAME, 
-      DEFAULT_SERVICE_NAME
-    );
-    
     try {
-      this.tracer = trace.getTracer(serviceName);
+      // Obtain a tracer from OpenTelemetry using the service name from configuration
+      this.serviceName = this.configService.get<string>(
+        TRACING_SERVICE_NAME_KEY, 
+        DEFAULT_SERVICE_NAME
+      );
+      this.tracer = trace.getTracer(this.serviceName);
       this.logger.log(
-        `Initialized tracer for ${serviceName}`,
-        this.loggerContext
+        `Initialized tracer for ${this.serviceName}`, 
+        DEFAULT_LOGGER_CONTEXT
       );
     } catch (error) {
       this.logger.error(
-        `Failed to initialize tracer for ${serviceName}: ${error.message}`,
+        `Failed to initialize tracer: ${error.message}`,
         error.stack,
-        this.loggerContext
+        DEFAULT_LOGGER_CONTEXT
       );
-      // Fallback to a no-op tracer to prevent application crashes
-      this.tracer = trace.getTracer('');
+      throw new Error(`${TRACER_INIT_ERROR}: ${error.message}`);
     }
-  }
-
-  /**
-   * Gets the underlying OpenTelemetry tracer instance.
-   * @returns The OpenTelemetry tracer instance
-   */
-  getTracer(): Tracer {
-    return this.tracer;
   }
 
   /**
@@ -76,48 +91,31 @@ export class TracingService implements TracerProvider {
   async createSpan<T>(
     name: string, 
     fn: () => Promise<T>, 
-    options?: {
-      kind?: SpanKind;
-      attributes?: Record<string, any>;
-      journeyType?: 'health' | 'care' | 'plan';
-      userId?: string;
-      requestId?: string;
-    }
+    options?: SpanOptions
   ): Promise<T> {
-    // Configure span options
-    const spanOptions: SpanOptions = {
-      kind: options?.kind || SpanKind.INTERNAL
+    const spanOptions: OtelSpanOptions = {
+      kind: options?.kind || SpanKind.INTERNAL,
+      attributes: options?.attributes || {}
     };
-    
+
     // Start a new span with the given name and options
     const span = this.tracer.startSpan(name, spanOptions);
     
     try {
       // Add common attributes to the span
-      if (options) {
-        // Add common attributes like user ID and request ID
-        if (options.userId || options.requestId) {
-          addCommonAttributes(span, {
-            userId: options.userId,
-            requestId: options.requestId
-          });
-        }
-        
-        // Add custom attributes if provided
-        if (options.attributes) {
-          Object.entries(options.attributes).forEach(([key, value]) => {
-            span.setAttribute(key, value);
-          });
-        }
-        
-        // Add journey-specific attributes if a journey type is provided
-        if (options.journeyType) {
-          addJourneyAttributes(span, options.journeyType);
-        }
+      addCommonAttributes(span, {
+        serviceName: this.serviceName,
+        spanName: name,
+        ...options?.commonAttributes
+      });
+
+      // Add journey-specific attributes if provided
+      if (options?.journeyContext) {
+        addJourneyAttributes(span, options.journeyContext);
       }
-      
+
       // Execute the provided function within the context of the span
-      const result = await trace.with(trace.setSpan(trace.context(), span), fn);
+      const result = await this.withSpan(span, fn);
       
       // If the function completes successfully, set the span status to OK
       if (span.isRecording()) {
@@ -128,23 +126,21 @@ export class TracingService implements TracerProvider {
     } catch (error) {
       // If the function throws an error, set the span status to ERROR and record the exception
       if (span.isRecording()) {
-        // Add detailed error attributes to the span
         addErrorAttributes(span, error);
         span.recordException(error);
         span.setStatus({ 
           code: SpanStatusCode.ERROR,
-          message: error.message
+          message: error.message 
         });
       }
       
-      // Log the error with trace context information
-      const enrichedContext = enrichLogContextWithTraceInfo(span);
+      const correlationInfo = getCorrelationInfo();
       this.logger.error(
         `Error in span ${name}: ${error.message}`,
         error.stack,
-        enrichedContext
+        DEFAULT_LOGGER_CONTEXT,
+        correlationInfo
       );
-      
       throw error;
     } finally {
       // Always end the span regardless of success or failure
@@ -153,120 +149,165 @@ export class TracingService implements TracerProvider {
   }
 
   /**
-   * Creates a span for a specific journey operation with journey-specific context.
-   * @param journeyType The type of journey (health, care, plan)
-   * @param operationName The name of the operation within the journey
-   * @param fn The function to execute within the span context
-   * @param options Additional options for the span
+   * Executes a function within the context of a given span.
+   * @param span The span to use as context
+   * @param fn The function to execute
    * @returns The result of the function execution
    */
-  async createJourneySpan<T>(
-    journeyType: 'health' | 'care' | 'plan',
-    operationName: string,
-    fn: () => Promise<T>,
-    options?: {
-      attributes?: Record<string, any>;
-      userId?: string;
-      requestId?: string;
-    }
-  ): Promise<T> {
-    const spanName = `${journeyType}.${operationName}`;
-    return this.createSpan(spanName, fn, {
-      ...options,
-      journeyType
-    });
+  private async withSpan<T>(span: Span, fn: () => Promise<T>): Promise<T> {
+    return trace.with(trace.setSpan(context.active(), span), fn);
   }
 
   /**
-   * Extracts trace context from HTTP headers for cross-service tracing.
-   * @param headers HTTP headers containing trace context
-   * @returns The extracted trace context
-   */
-  extractContextFromHeaders(headers: Record<string, string | string[]>): TraceContext {
-    try {
-      return extractContextFromHeaders(headers);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to extract trace context from headers: ${error.message}`,
-        this.loggerContext
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Injects the current trace context into HTTP headers for cross-service tracing.
-   * @param headers HTTP headers object to inject context into
-   * @returns The headers with injected trace context
-   */
-  injectContextIntoHeaders(headers: Record<string, string | string[]>): Record<string, string | string[]> {
-    try {
-      return injectContextIntoHeaders(headers);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to inject trace context into headers: ${error.message}`,
-        this.loggerContext
-      );
-      return headers;
-    }
-  }
-
-  /**
-   * Gets the current active span from the trace context.
-   * @returns The current active span or undefined if no span is active
+   * Gets the current active span from the context.
+   * @returns The current span or undefined if no span is active
    */
   getCurrentSpan(): Span | undefined {
-    return trace.getSpan(trace.context());
+    return trace.getSpan(context.active());
   }
 
   /**
-   * Adds an attribute to the current active span.
-   * @param key The attribute key
-   * @param value The attribute value
-   * @returns True if the attribute was added, false otherwise
+   * Creates a new span as a child of the current span.
+   * @param name The name of the span to create
+   * @param options Optional configuration for the span
+   * @returns The newly created span
    */
-  addAttributeToCurrentSpan(key: string, value: any): boolean {
-    const currentSpan = this.getCurrentSpan();
-    if (currentSpan && currentSpan.isRecording()) {
-      currentSpan.setAttribute(key, value);
-      return true;
-    }
-    return false;
-  }
+  startSpan(name: string, options?: SpanOptions): Span {
+    try {
+      const spanOptions: OtelSpanOptions = {
+        kind: options?.kind || SpanKind.INTERNAL,
+        attributes: options?.attributes || {}
+      };
 
-  /**
-   * Adds multiple attributes to the current active span.
-   * @param attributes The attributes to add
-   * @returns True if the attributes were added, false otherwise
-   */
-  addAttributesToCurrentSpan(attributes: Record<string, any>): boolean {
-    const currentSpan = this.getCurrentSpan();
-    if (currentSpan && currentSpan.isRecording()) {
-      Object.entries(attributes).forEach(([key, value]) => {
-        currentSpan.setAttribute(key, value);
+      const span = this.tracer.startSpan(name, spanOptions, context.active());
+
+      // Add common attributes to the span
+      addCommonAttributes(span, {
+        serviceName: this.serviceName,
+        spanName: name,
+        ...options?.commonAttributes
       });
-      return true;
+
+      // Add journey-specific attributes if provided
+      if (options?.journeyContext) {
+        addJourneyAttributes(span, options.journeyContext);
+      }
+
+      return span;
+    } catch (error) {
+      this.logger.error(
+        `Failed to create span ${name}: ${error.message}`,
+        error.stack,
+        DEFAULT_LOGGER_CONTEXT
+      );
+      throw new Error(`${SPAN_CREATION_ERROR}: ${error.message}`);
     }
-    return false;
   }
 
   /**
-   * Records an exception in the current active span.
-   * @param error The error to record
-   * @param message Optional message to include with the error
-   * @returns True if the exception was recorded, false otherwise
+   * Extracts trace context from carrier object (e.g., HTTP headers).
+   * @param carrier The carrier object containing the trace context
+   * @returns The extracted context or ROOT_CONTEXT if extraction fails
    */
-  recordExceptionInCurrentSpan(error: Error, message?: string): boolean {
-    const currentSpan = this.getCurrentSpan();
-    if (currentSpan && currentSpan.isRecording()) {
-      addErrorAttributes(currentSpan, error, message);
-      currentSpan.recordException(error);
-      currentSpan.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: message || error.message
-      });
-      return true;
+  extractContext(carrier: TraceContextCarrier): Context {
+    try {
+      return propagation.extract(ROOT_CONTEXT, carrier);
+    } catch (error) {
+      this.logger.error(
+        `Failed to extract trace context: ${error.message}`,
+        error.stack,
+        DEFAULT_LOGGER_CONTEXT
+      );
+      return ROOT_CONTEXT;
     }
-    return false;
+  }
+
+  /**
+   * Injects the current trace context into a carrier object (e.g., HTTP headers).
+   * @param carrier The carrier object to inject the trace context into
+   */
+  injectContext(carrier: TraceContextCarrier): void {
+    try {
+      propagation.inject(context.active(), carrier);
+    } catch (error) {
+      this.logger.error(
+        `Failed to inject trace context: ${error.message}`,
+        error.stack,
+        DEFAULT_LOGGER_CONTEXT
+      );
+      throw new Error(`${CONTEXT_PROPAGATION_ERROR}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Creates a correlation ID for linking traces, logs, and metrics.
+   * If a trace is active, uses the trace ID, otherwise generates a new UUID.
+   * @returns A correlation ID string
+   */
+  getCorrelationId(): string {
+    const span = this.getCurrentSpan();
+    if (span) {
+      const spanContext = span.spanContext();
+      return spanContext.traceId;
+    }
+    return uuidv4();
+  }
+
+  /**
+   * Gets correlation information from the current trace context.
+   * @returns An object containing trace ID, span ID, and trace flags
+   */
+  getCorrelationInfo(): Record<string, string> {
+    return getCorrelationInfo();
+  }
+
+  /**
+   * Annotates the current span with journey-specific context.
+   * @param journeyContext The journey context to add to the span
+   */
+  setJourneyContext(journeyContext: JourneyContext): void {
+    const span = this.getCurrentSpan();
+    if (span && span.isRecording()) {
+      addJourneyAttributes(span, journeyContext);
+    }
+  }
+
+  /**
+   * Annotates the current span with an event.
+   * @param name The name of the event
+   * @param attributes Optional attributes for the event
+   */
+  addEvent(name: string, attributes?: Record<string, unknown>): void {
+    const span = this.getCurrentSpan();
+    if (span && span.isRecording()) {
+      span.addEvent(name, attributes);
+    }
+  }
+
+  /**
+   * Annotates the current span with custom attributes.
+   * @param attributes The attributes to add to the span
+   */
+  setAttributes(attributes: Record<string, unknown>): void {
+    const span = this.getCurrentSpan();
+    if (span && span.isRecording()) {
+      span.setAttributes(attributes);
+    }
+  }
+
+  /**
+   * Creates a new trace context with the given trace ID and span ID.
+   * Useful for testing and manual context creation.
+   * @param traceId The trace ID to use
+   * @param spanId The span ID to use
+   * @returns A new span context
+   */
+  createSpanContext(traceId: string, spanId: string): SpanContext {
+    return {
+      traceId,
+      spanId,
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: false,
+    };
   }
 }

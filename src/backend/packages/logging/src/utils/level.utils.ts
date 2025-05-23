@@ -8,131 +8,189 @@
 import { LogLevel } from '../interfaces/log-level.enum';
 
 /**
- * Default log level to use if none is specified
+ * Maps LogLevel enum values to their numeric values for comparison.
+ * Higher values indicate more severe log levels.
+ */
+const LOG_LEVEL_VALUES: Record<LogLevel, number> = {
+  [LogLevel.DEBUG]: 0,
+  [LogLevel.INFO]: 1,
+  [LogLevel.WARN]: 2,
+  [LogLevel.ERROR]: 3,
+  [LogLevel.FATAL]: 4,
+};
+
+/**
+ * Maps string representations of log levels to their enum values.
+ */
+const LOG_LEVEL_MAP: Record<string, LogLevel> = {
+  debug: LogLevel.DEBUG,
+  info: LogLevel.INFO,
+  warn: LogLevel.WARN,
+  error: LogLevel.ERROR,
+  fatal: LogLevel.FATAL,
+};
+
+/**
+ * Default log level to use if none is specified.
  */
 export const DEFAULT_LOG_LEVEL = LogLevel.INFO;
 
 /**
- * Journey-specific log level environment variable prefix
+ * Journey-specific environment variable prefixes for log level configuration.
  */
-export const JOURNEY_LOG_LEVEL_PREFIX = 'AUSTA_JOURNEY_';
+export const JOURNEY_ENV_PREFIXES = {
+  HEALTH: 'HEALTH_JOURNEY',
+  CARE: 'CARE_JOURNEY',
+  PLAN: 'PLAN_JOURNEY',
+};
 
 /**
- * Global log level environment variable name
+ * Converts a string representation of a log level to its enum value.
+ * Case-insensitive and returns the default log level if the string is invalid.
+ *
+ * @param levelStr - String representation of the log level
+ * @param defaultLevel - Default log level to return if the string is invalid
+ * @returns The corresponding LogLevel enum value
  */
-export const LOG_LEVEL_ENV_VAR = 'AUSTA_LOG_LEVEL';
+export function parseLogLevel(levelStr: string | undefined, defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  if (!levelStr) {
+    return defaultLevel;
+  }
 
-/**
- * Maps string log level names to their corresponding enum values
- * @param levelName The string name of the log level
- * @returns The corresponding LogLevel enum value, or DEFAULT_LOG_LEVEL if not found
- */
-export function parseLogLevel(levelName: string): LogLevel {
-  if (!levelName) {
-    return DEFAULT_LOG_LEVEL;
-  }
-  
-  const normalizedLevel = levelName.toUpperCase();
-  
-  // Check if the level name is a valid enum key
-  if (Object.keys(LogLevel).includes(normalizedLevel)) {
-    return LogLevel[normalizedLevel as keyof typeof LogLevel];
-  }
-  
-  // Handle numeric string values
-  const numericLevel = parseInt(levelName, 10);
-  if (!isNaN(numericLevel) && numericLevel >= 0 && numericLevel <= 4) {
-    return numericLevel as LogLevel;
-  }
-  
-  return DEFAULT_LOG_LEVEL;
+  const normalizedLevel = levelStr.toLowerCase();
+  return LOG_LEVEL_MAP[normalizedLevel] ?? defaultLevel;
 }
 
 /**
- * Converts a LogLevel enum value to its string representation
- * @param level The LogLevel enum value
+ * Converts a LogLevel enum value to its string representation.
+ *
+ * @param level - The LogLevel enum value
  * @returns The string representation of the log level
  */
 export function logLevelToString(level: LogLevel): string {
-  return LogLevel[level];
+  return LogLevel[level].toLowerCase();
 }
 
 /**
- * Gets the numeric value of a log level for comparison
- * @param level The LogLevel enum value
+ * Gets the numeric value of a log level for comparison.
+ * Higher values indicate more severe log levels.
+ *
+ * @param level - The LogLevel enum value
  * @returns The numeric value of the log level
  */
 export function getLogLevelValue(level: LogLevel): number {
-  return level as number;
+  return LOG_LEVEL_VALUES[level];
 }
 
 /**
- * Determines if a message with the given level should be logged based on the configured minimum level
- * @param messageLevel The level of the message being logged
- * @param configuredLevel The minimum level configured for logging
+ * Determines if a message with the given level should be logged based on the configured minimum level.
+ * A message is logged if its level is equal to or more severe than the minimum level.
+ *
+ * @param messageLevel - The level of the message to be logged
+ * @param configuredLevel - The minimum level configured for logging
  * @returns True if the message should be logged, false otherwise
  */
-export function shouldLog(messageLevel: LogLevel, configuredLevel: LogLevel): boolean {
+export function isLevelEnabled(messageLevel: LogLevel, configuredLevel: LogLevel): boolean {
   return getLogLevelValue(messageLevel) >= getLogLevelValue(configuredLevel);
 }
 
 /**
- * Parses the log level from environment variables
- * @param defaultLevel The default level to use if no environment variable is set
- * @returns The parsed LogLevel
+ * Parses a log level from an environment variable.
+ * If the environment variable is not set or invalid, returns the default level.
+ *
+ * @param envVarName - The name of the environment variable
+ * @param defaultLevel - The default level to return if the environment variable is not set or invalid
+ * @returns The parsed LogLevel enum value
  */
-export function getLogLevelFromEnv(defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
-  const envLevel = process.env[LOG_LEVEL_ENV_VAR];
-  return envLevel ? parseLogLevel(envLevel) : defaultLevel;
+export function parseLogLevelFromEnv(envVarName: string, defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  return parseLogLevel(process.env[envVarName], defaultLevel);
 }
 
 /**
- * Gets a journey-specific log level from environment variables
- * @param journeyName The name of the journey (e.g., 'HEALTH', 'CARE', 'PLAN')
- * @param defaultLevel The default level to use if no journey-specific level is set
- * @returns The journey-specific log level, or the default if not found
+ * Gets the log level for a specific journey from environment variables.
+ * Checks for journey-specific environment variables before falling back to the global log level.
+ *
+ * @param journeyPrefix - The journey-specific environment variable prefix
+ * @param defaultLevel - The default level to return if no journey-specific level is configured
+ * @returns The journey-specific LogLevel enum value
  */
-export function getJourneyLogLevel(journeyName: string, defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
-  if (!journeyName) {
-    return defaultLevel;
+export function getJourneyLogLevel(journeyPrefix: string, defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  // First check for journey-specific log level
+  const journeyEnvVar = `${journeyPrefix}_LOG_LEVEL`;
+  const journeyLevel = parseLogLevelFromEnv(journeyEnvVar);
+  
+  if (journeyLevel !== defaultLevel) {
+    return journeyLevel;
   }
   
-  const normalizedJourneyName = journeyName.toUpperCase();
-  const journeyEnvVar = `${JOURNEY_LOG_LEVEL_PREFIX}${normalizedJourneyName}_LOG_LEVEL`;
-  const journeyLevel = process.env[journeyEnvVar];
-  
-  if (journeyLevel) {
-    return parseLogLevel(journeyLevel);
+  // Fall back to global log level
+  return parseLogLevelFromEnv('LOG_LEVEL', defaultLevel);
+}
+
+/**
+ * Gets the log level for the Health journey.
+ *
+ * @param defaultLevel - The default level to return if no Health journey-specific level is configured
+ * @returns The Health journey-specific LogLevel enum value
+ */
+export function getHealthJourneyLogLevel(defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  return getJourneyLogLevel(JOURNEY_ENV_PREFIXES.HEALTH, defaultLevel);
+}
+
+/**
+ * Gets the log level for the Care journey.
+ *
+ * @param defaultLevel - The default level to return if no Care journey-specific level is configured
+ * @returns The Care journey-specific LogLevel enum value
+ */
+export function getCareJourneyLogLevel(defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  return getJourneyLogLevel(JOURNEY_ENV_PREFIXES.CARE, defaultLevel);
+}
+
+/**
+ * Gets the log level for the Plan journey.
+ *
+ * @param defaultLevel - The default level to return if no Plan journey-specific level is configured
+ * @returns The Plan journey-specific LogLevel enum value
+ */
+export function getPlanJourneyLogLevel(defaultLevel: LogLevel = DEFAULT_LOG_LEVEL): LogLevel {
+  return getJourneyLogLevel(JOURNEY_ENV_PREFIXES.PLAN, defaultLevel);
+}
+
+/**
+ * Compares two log levels and returns true if the first level is more severe than the second.
+ *
+ * @param levelA - The first LogLevel enum value
+ * @param levelB - The second LogLevel enum value
+ * @returns True if levelA is more severe than levelB, false otherwise
+ */
+export function isMoreSevere(levelA: LogLevel, levelB: LogLevel): boolean {
+  return getLogLevelValue(levelA) > getLogLevelValue(levelB);
+}
+
+/**
+ * Compares two log levels and returns true if the first level is less severe than the second.
+ *
+ * @param levelA - The first LogLevel enum value
+ * @param levelB - The second LogLevel enum value
+ * @returns True if levelA is less severe than levelB, false otherwise
+ */
+export function isLessSevere(levelA: LogLevel, levelB: LogLevel): boolean {
+  return getLogLevelValue(levelA) < getLogLevelValue(levelB);
+}
+
+/**
+ * Gets the most severe log level from an array of levels.
+ *
+ * @param levels - An array of LogLevel enum values
+ * @returns The most severe LogLevel enum value from the array
+ */
+export function getMostSevereLevel(levels: LogLevel[]): LogLevel {
+  if (levels.length === 0) {
+    return DEFAULT_LOG_LEVEL;
   }
   
-  // Fall back to global log level if journey-specific not found
-  return getLogLevelFromEnv(defaultLevel);
-}
-
-/**
- * Creates a log level filter function that can be used to filter log entries
- * @param configuredLevel The minimum level to log
- * @returns A function that takes a LogLevel and returns true if it should be logged
- */
-export function createLogLevelFilter(configuredLevel: LogLevel): (level: LogLevel) => boolean {
-  return (level: LogLevel) => shouldLog(level, configuredLevel);
-}
-
-/**
- * Parses log levels for all journeys from environment variables
- * @param journeys Array of journey names
- * @param defaultLevel Default log level to use if not specified
- * @returns An object mapping journey names to their log levels
- */
-export function parseJourneyLogLevels(
-  journeys: string[] = ['HEALTH', 'CARE', 'PLAN'],
-  defaultLevel: LogLevel = DEFAULT_LOG_LEVEL
-): Record<string, LogLevel> {
-  const globalLevel = getLogLevelFromEnv(defaultLevel);
-  
-  return journeys.reduce((levels, journey) => {
-    const normalizedJourney = journey.toUpperCase();
-    levels[normalizedJourney] = getJourneyLogLevel(normalizedJourney, globalLevel);
-    return levels;
-  }, {} as Record<string, LogLevel>);
+  return levels.reduce((mostSevere, current) => {
+    return isMoreSevere(current, mostSevere) ? current : mostSevere;
+  }, levels[0]);
 }

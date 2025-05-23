@@ -1,502 +1,432 @@
 /**
- * @file Test Context Utilities
- * @description Provides utilities for creating and manipulating test contexts with journey-specific information.
- * These utilities are essential for testing that logging properly incorporates journey context into log entries.
+ * Test utilities for creating and manipulating logging contexts with journey-specific information.
+ * These utilities are essential for testing that logging properly incorporates journey context
+ * into log entries across the AUSTA SuperApp's three distinct user journeys.
  */
 
 import { v4 as uuidv4 } from 'uuid';
 import {
-  LoggingContext,
   JourneyContext,
   JourneyType,
-  JourneyState,
-  CrossJourneyContext,
-  UserContext,
-  AuthenticationStatus,
-  UserRole,
-  UserPermission,
+  LoggingContext,
   RequestContext,
-  HttpMethod,
+  UserContext,
 } from '../../src/context';
 
 /**
- * Generates a random UUID for test contexts
- * @returns A random UUID string
+ * Creates a base logging context with common fields.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A LoggingContext object with default and overridden values
  */
-export const generateTestId = (): string => uuidv4();
-
-/**
- * Generates an ISO 8601 timestamp for test contexts
- * @param offsetMinutes Optional minutes to offset from current time
- * @returns ISO 8601 timestamp string
- */
-export const generateTestTimestamp = (offsetMinutes = 0): string => {
-  const date = new Date();
-  if (offsetMinutes) {
-    date.setMinutes(date.getMinutes() + offsetMinutes);
-  }
-  return date.toISOString();
-};
-
-/**
- * Creates a base logging context with common properties
- * @returns A base LoggingContext object
- */
-export const createBaseTestContext = (): LoggingContext => {
+export function createBaseContext(overrides: Partial<LoggingContext> = {}): LoggingContext {
   return {
-    correlationId: generateTestId(),
-    timestamp: generateTestTimestamp(),
+    correlationId: uuidv4(),
+    requestId: uuidv4(),
     serviceName: 'test-service',
-    serviceInstanceId: `instance-${generateTestId().substring(0, 8)}`,
-    applicationName: 'austa-superapp',
+    component: 'test-component',
     environment: 'test',
-    version: '1.0.0',
-    traceId: generateTestId(),
-    spanId: generateTestId().substring(0, 16),
+    timestamp: new Date(),
+    ...overrides,
   };
-};
+}
 
 /**
- * Creates a test user context for testing user-specific logging
- * @param userId Optional user ID (generates random ID if not provided)
- * @param authStatus Optional authentication status
- * @param baseContext Optional base context to extend
- * @returns A UserContext object for testing
+ * Creates a Health journey context for testing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A JourneyContext object for the Health journey
  */
-export const createTestUserContext = (
-  userId?: string,
-  authStatus: AuthenticationStatus = AuthenticationStatus.AUTHENTICATED,
-  baseContext?: Partial<LoggingContext>
-): UserContext => {
-  const base = { ...createBaseTestContext(), ...baseContext };
-  const testUserId = userId || `user-${generateTestId().substring(0, 8)}`;
-  
-  const userRole: UserRole = {
-    id: 'role-patient',
-    name: 'Patient',
-    description: 'Regular patient user with standard permissions',
-    assignedAt: generateTestTimestamp(-60), // Assigned 1 hour ago
+export function createHealthJourneyContext(overrides: Partial<JourneyContext> = {}): JourneyContext {
+  return {
+    ...createBaseContext(),
+    journeyType: JourneyType.HEALTH,
+    resourceId: `health-record-${uuidv4()}`,
+    action: 'view-health-metrics',
+    step: 'metrics-dashboard',
+    flowId: `health-flow-${uuidv4()}`,
+    journeyData: {
+      metricType: 'blood-pressure',
+      deviceConnected: true,
+      goalProgress: 75,
+    },
+    journeyMetadata: {
+      version: '1.0',
+      isNewUser: false,
+      journeyStartTime: new Date(),
+      featureFlags: {
+        enableHealthInsights: true,
+        enableDeviceSync: true,
+      },
+    },
+    ...overrides,
   };
-  
-  const userPermission: UserPermission = {
-    id: 'perm-health-read',
-    resource: 'health-data',
-    action: 'read',
-    conditions: { ownData: true },
+}
+
+/**
+ * Creates a Care journey context for testing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A JourneyContext object for the Care journey
+ */
+export function createCareJourneyContext(overrides: Partial<JourneyContext> = {}): JourneyContext {
+  return {
+    ...createBaseContext(),
+    journeyType: JourneyType.CARE,
+    resourceId: `appointment-${uuidv4()}`,
+    action: 'schedule-appointment',
+    step: 'provider-selection',
+    flowId: `appointment-flow-${uuidv4()}`,
+    journeyData: {
+      specialtyId: 'cardiology',
+      providerPreference: 'nearest',
+      urgency: 'routine',
+    },
+    journeyMetadata: {
+      version: '1.0',
+      isNewUser: false,
+      journeyStartTime: new Date(),
+      featureFlags: {
+        enableTelemedicine: true,
+        enableProviderRatings: true,
+      },
+    },
+    ...overrides,
   };
+}
+
+/**
+ * Creates a Plan journey context for testing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A JourneyContext object for the Plan journey
+ */
+export function createPlanJourneyContext(overrides: Partial<JourneyContext> = {}): JourneyContext {
+  return {
+    ...createBaseContext(),
+    journeyType: JourneyType.PLAN,
+    resourceId: `claim-${uuidv4()}`,
+    action: 'submit-claim',
+    step: 'document-upload',
+    flowId: `claim-flow-${uuidv4()}`,
+    journeyData: {
+      claimType: 'medical',
+      providerName: 'Hospital São Paulo',
+      claimAmount: 750.0,
+    },
+    journeyMetadata: {
+      version: '1.0',
+      isNewUser: false,
+      journeyStartTime: new Date(),
+      featureFlags: {
+        enableDigitalCards: true,
+        enableClaimTracking: true,
+      },
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a cross-journey context that spans multiple journeys.
+ * 
+ * @param primaryJourney The primary journey type
+ * @param relatedJourneys Array of related journey types
+ * @param overrides Optional properties to override default values
+ * @returns A JourneyContext object that spans multiple journeys
+ */
+export function createCrossJourneyContext(
+  primaryJourney: JourneyType,
+  relatedJourneys: JourneyType[],
+  overrides: Partial<JourneyContext> = {}
+): JourneyContext {
+  // Get the base context for the primary journey
+  let baseContext: JourneyContext;
+  
+  switch (primaryJourney) {
+    case JourneyType.HEALTH:
+      baseContext = createHealthJourneyContext();
+      break;
+    case JourneyType.CARE:
+      baseContext = createCareJourneyContext();
+      break;
+    case JourneyType.PLAN:
+      baseContext = createPlanJourneyContext();
+      break;
+    default:
+      baseContext = createHealthJourneyContext();
+  }
   
   return {
-    ...base,
-    userId: testUserId,
-    authStatus,
-    lastAuthenticatedAt: generateTestTimestamp(-5), // 5 minutes ago
-    authMethod: 'password',
-    roles: [userRole],
-    permissions: [userPermission],
+    ...baseContext,
+    isCrossJourney: true,
+    relatedJourneys,
+    transactionId: `cross-journey-${uuidv4()}`,
+    journeyData: {
+      ...baseContext.journeyData,
+      crossJourneyReason: 'integrated-experience',
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a user context for testing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A UserContext object
+ */
+export function createUserContext(overrides: Partial<UserContext> = {}): UserContext {
+  return {
+    ...createBaseContext(),
+    userId: `user-${uuidv4()}`,
+    isAuthenticated: true,
+    authMethod: 'jwt',
+    authTimestamp: new Date(),
+    roles: ['user'],
+    permissions: ['read:health', 'write:health', 'read:care', 'read:plan'],
+    preferredLanguage: 'pt-BR',
+    preferredJourney: JourneyType.HEALTH,
     preferences: {
-      language: 'pt-BR',
-      theme: 'light',
       notifications: {
         emailEnabled: true,
         pushEnabled: true,
         smsEnabled: false,
-        subscribedTypes: ['appointment', 'medication', 'achievement'],
+        inAppEnabled: true,
+      },
+      display: {
+        theme: 'light',
+        accessibility: {
+          fontScale: 1.0,
+          highContrast: false,
+          screenReaderOptimized: false,
+        },
       },
       privacy: {
-        dataSharingEnabled: true,
-        analyticsEnabled: true,
-        personalizationEnabled: true,
+        allowAnalytics: true,
+        allowPersonalization: true,
+        allowDataSharing: false,
       },
     },
-    session: {
-      sessionId: `session-${generateTestId().substring(0, 8)}`,
-      startedAt: generateTestTimestamp(-30), // 30 minutes ago
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-      device: {
-        type: 'mobile',
-        os: 'iOS 14.7.1',
-        browser: 'Safari',
-      },
+    profile: {
+      displayName: 'Test User',
+      email: 'test.user@example.com',
+      accountType: 'standard',
+      createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
+      onboardingCompleted: true,
     },
-    account: {
-      type: 'premium',
-      status: 'active',
-      createdAt: generateTestTimestamp(-90 * 24 * 60), // 90 days ago
-      isVerified: true,
+    device: {
+      type: 'mobile',
+      os: 'iOS 15.0',
+      appVersion: '1.0.0',
+      deviceId: `device-${uuidv4()}`,
     },
-    gamification: {
-      level: 5,
-      xp: 1250,
-      achievements: ['first-login', 'complete-profile', 'first-appointment'],
-      activeChallenges: ['daily-steps', 'medication-adherence'],
-    },
+    ...overrides,
   };
-};
+}
 
 /**
- * Creates a test request context for testing request-specific logging
- * @param requestId Optional request ID (generates random ID if not provided)
- * @param method Optional HTTP method
- * @param path Optional request path
- * @param baseContext Optional base context to extend
- * @returns A RequestContext object for testing
+ * Creates a request context for testing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A RequestContext object
  */
-export const createTestRequestContext = (
-  requestId?: string,
-  method: HttpMethod = HttpMethod.GET,
-  path = '/api/v1/health/metrics',
-  baseContext?: Partial<LoggingContext>
-): RequestContext => {
-  const base = { ...createBaseTestContext(), ...baseContext };
-  const testRequestId = requestId || `req-${generateTestId().substring(0, 8)}`;
-  
+export function createRequestContext(overrides: Partial<RequestContext> = {}): RequestContext {
+  const requestId = uuidv4();
   return {
-    ...base,
-    requestId: testRequestId,
-    ipAddress: '192.168.1.100',
-    method,
-    url: `https://api.austa.health${path}`,
-    path,
-    query: { limit: '10', offset: '0' },
-    params: { userId: 'current' },
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    ...createBaseContext({ requestId }),
+    requestId,
+    ipAddress: '192.168.1.1',
+    method: 'GET',
+    url: 'https://api.austa.health/health/metrics',
+    path: '/health/metrics',
+    query: { limit: 10, sort: 'desc' },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    statusCode: 200,
+    duration: 120,
+    requestSize: 1024,
+    responseSize: 8192,
     headers: {
       'content-type': 'application/json',
-      accept: 'application/json',
-      'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-      authorization: '[REDACTED]',
+      'accept-language': 'pt-BR',
+      'user-agent': 'AUSTA SuperApp/1.0.0',
     },
-    apiVersion: 'v1',
-    endpoint: 'HealthMetricsController',
-    operation: 'getMetrics',
-    timing: {
-      receivedAt: generateTestTimestamp(-0.1), // 100ms ago
-      middlewareDuration: 5,
-      handlerDuration: 45,
-      totalDuration: 50,
+    routePattern: '/health/metrics',
+    controller: 'HealthMetricsController',
+    action: 'getMetrics',
+    isApi: true,
+    isMobile: true,
+    referrer: 'https://app.austa.health/dashboard',
+    performance: {
+      dbTime: 45,
+      externalApiTime: 30,
+      processingTime: 25,
+      renderTime: 20,
     },
-    client: {
-      type: 'mobile-app',
-      appId: 'com.austa.superapp',
-      version: '1.5.0',
-      device: {
-        type: 'mobile',
-        os: 'iOS 14.7.1',
-        browser: 'Safari',
-      },
-    },
+    ...overrides,
   };
-};
+}
 
 /**
- * Creates a test journey state for the Health journey
- * @returns A JourneyState object for the Health journey
+ * Creates a combined context with journey, user, and request information.
+ * 
+ * @param journeyType The journey type to create context for
+ * @param userOverrides Optional properties to override default user context values
+ * @param requestOverrides Optional properties to override default request context values
+ * @param journeyOverrides Optional properties to override default journey context values
+ * @returns A combined context object with journey, user, and request information
  */
-export const createTestHealthJourneyState = (): JourneyState => {
-  return {
-    journeySessionId: `health-session-${generateTestId().substring(0, 8)}`,
-    currentStep: 'health-dashboard',
-    previousStep: 'app-home',
-    stepDuration: 45000, // 45 seconds
-    activeMetrics: ['steps', 'heart-rate', 'sleep'],
-    lastSyncedDevice: 'apple-watch',
-    lastSyncTime: generateTestTimestamp(-5), // 5 minutes ago
-    goalProgress: {
-      steps: 0.75, // 75% complete
-      sleep: 0.6, // 60% complete
-      water: 0.4, // 40% complete
-    },
-  };
-};
-
-/**
- * Creates a test journey state for the Care journey
- * @returns A JourneyState object for the Care journey
- */
-export const createTestCareJourneyState = (): JourneyState => {
-  return {
-    journeySessionId: `care-session-${generateTestId().substring(0, 8)}`,
-    currentStep: 'appointment-booking',
-    previousStep: 'doctor-search',
-    stepDuration: 120000, // 2 minutes
-    selectedSpecialty: 'cardiology',
-    selectedDoctor: 'dr-silva',
-    appointmentType: 'video-consultation',
-    availableDates: ['2023-06-15', '2023-06-16', '2023-06-17'],
-    selectedTimeSlot: '2023-06-15T14:30:00Z',
-  };
-};
-
-/**
- * Creates a test journey state for the Plan journey
- * @returns A JourneyState object for the Plan journey
- */
-export const createTestPlanJourneyState = (): JourneyState => {
-  return {
-    journeySessionId: `plan-session-${generateTestId().substring(0, 8)}`,
-    currentStep: 'coverage-details',
-    previousStep: 'plan-summary',
-    stepDuration: 60000, // 1 minute
-    currentPlan: 'premium-family',
-    coverageLevel: 'comprehensive',
-    monthlyPremium: 450.00,
-    dependents: 2,
-    nextPaymentDate: '2023-07-01',
-    recentClaims: 3,
-    pendingApprovals: 1,
-  };
-};
-
-/**
- * Creates a test cross-journey context for testing flows that span multiple journeys
- * @param sourceJourney Source journey type
- * @param targetJourney Target journey type
- * @returns A CrossJourneyContext object
- */
-export const createTestCrossJourneyContext = (
-  sourceJourney: JourneyType,
-  targetJourney: JourneyType
-): CrossJourneyContext => {
-  return {
-    sourceJourney,
-    targetJourney,
-    flowId: `flow-${generateTestId().substring(0, 8)}`,
-    startedAt: generateTestTimestamp(-1), // 1 minute ago
-    metadata: {
-      reason: 'user-initiated',
-      entryPoint: `${sourceJourney}-dashboard`,
-      targetAction: `view-${targetJourney}-details`,
-    },
-  };
-};
-
-/**
- * Creates a test journey context for the Health journey
- * @param userId Optional user ID
- * @param baseContext Optional base context to extend
- * @returns A JourneyContext object for the Health journey
- */
-export const createTestHealthJourneyContext = (
-  userId?: string,
-  baseContext?: Partial<LoggingContext>
-): JourneyContext => {
-  const base = { ...createBaseTestContext(), ...baseContext };
-  const userContext = createTestUserContext(userId, AuthenticationStatus.AUTHENTICATED, base);
-  
-  return {
-    ...userContext,
-    journeyType: JourneyType.HEALTH,
-    journeyState: createTestHealthJourneyState(),
-    journeyFeatureFlags: {
-      enableHealthInsights: true,
-      enableDeviceIntegration: true,
-      enableSocialSharing: false,
-    },
-    journeyPerformance: {
-      timeToInteractive: 850, // 850ms
-      actionDuration: 350, // 350ms
-      apiCallCount: 3,
-      renderTime: 250, // 250ms
-    },
-    businessTransaction: {
-      transactionId: `health-tx-${generateTestId().substring(0, 8)}`,
-      transactionType: 'health-data-sync',
-      status: 'in-progress',
-      startedAt: generateTestTimestamp(-0.5), // 30 seconds ago
-      updatedAt: generateTestTimestamp(),
-      metadata: {
-        dataSource: 'apple-health',
-        metrics: ['steps', 'heart-rate', 'sleep'],
-        dataPoints: 24,
-      },
-    },
-    userInteraction: {
-      interactionType: 'swipe',
-      interactionTarget: 'health-metrics-carousel',
-      interactionResult: 'navigate-to-heart-rate',
-      interactionDuration: 250, // 250ms
-    },
-  };
-};
-
-/**
- * Creates a test journey context for the Care journey
- * @param userId Optional user ID
- * @param baseContext Optional base context to extend
- * @returns A JourneyContext object for the Care journey
- */
-export const createTestCareJourneyContext = (
-  userId?: string,
-  baseContext?: Partial<LoggingContext>
-): JourneyContext => {
-  const base = { ...createBaseTestContext(), ...baseContext };
-  const userContext = createTestUserContext(userId, AuthenticationStatus.AUTHENTICATED, base);
-  
-  return {
-    ...userContext,
-    journeyType: JourneyType.CARE,
-    journeyState: createTestCareJourneyState(),
-    journeyFeatureFlags: {
-      enableVideoConsultation: true,
-      enablePrescriptionRenewal: true,
-      enableInsuranceCoverage: true,
-    },
-    journeyPerformance: {
-      timeToInteractive: 950, // 950ms
-      actionDuration: 450, // 450ms
-      apiCallCount: 5,
-      renderTime: 300, // 300ms
-    },
-    businessTransaction: {
-      transactionId: `care-tx-${generateTestId().substring(0, 8)}`,
-      transactionType: 'appointment-booking',
-      status: 'in-progress',
-      startedAt: generateTestTimestamp(-2), // 2 minutes ago
-      updatedAt: generateTestTimestamp(),
-      metadata: {
-        doctorId: 'dr-silva',
-        specialty: 'cardiology',
-        appointmentType: 'video-consultation',
-        proposedDateTime: '2023-06-15T14:30:00Z',
-      },
-    },
-    userInteraction: {
-      interactionType: 'click',
-      interactionTarget: 'book-appointment-button',
-      interactionResult: 'navigate-to-confirmation',
-      interactionDuration: 150, // 150ms
-    },
-  };
-};
-
-/**
- * Creates a test journey context for the Plan journey
- * @param userId Optional user ID
- * @param baseContext Optional base context to extend
- * @returns A JourneyContext object for the Plan journey
- */
-export const createTestPlanJourneyContext = (
-  userId?: string,
-  baseContext?: Partial<LoggingContext>
-): JourneyContext => {
-  const base = { ...createBaseTestContext(), ...baseContext };
-  const userContext = createTestUserContext(userId, AuthenticationStatus.AUTHENTICATED, base);
-  
-  return {
-    ...userContext,
-    journeyType: JourneyType.PLAN,
-    journeyState: createTestPlanJourneyState(),
-    journeyFeatureFlags: {
-      enableClaimSubmission: true,
-      enableCoverageCalculator: true,
-      enableDependentManagement: true,
-    },
-    journeyPerformance: {
-      timeToInteractive: 750, // 750ms
-      actionDuration: 400, // 400ms
-      apiCallCount: 4,
-      renderTime: 200, // 200ms
-    },
-    businessTransaction: {
-      transactionId: `plan-tx-${generateTestId().substring(0, 8)}`,
-      transactionType: 'coverage-check',
-      status: 'completed',
-      startedAt: generateTestTimestamp(-1), // 1 minute ago
-      updatedAt: generateTestTimestamp(),
-      metadata: {
-        procedureCode: 'PROC123',
-        providerNetwork: 'in-network',
-        estimatedCoverage: 0.8, // 80% coverage
-        estimatedOutOfPocket: 120.00,
-      },
-    },
-    userInteraction: {
-      interactionType: 'form-submit',
-      interactionTarget: 'coverage-calculator-form',
-      interactionResult: 'display-coverage-estimate',
-      interactionDuration: 350, // 350ms
-    },
-  };
-};
-
-/**
- * Creates a test context with cross-journey information
- * @param sourceJourney Source journey type
- * @param targetJourney Target journey type
- * @param userId Optional user ID
- * @returns A JourneyContext object with cross-journey information
- */
-export const createTestCrossJourneyContext = (
-  sourceJourney: JourneyType,
-  targetJourney: JourneyType,
-  userId?: string
-): JourneyContext => {
-  // Select the appropriate source journey context based on the journey type
-  let journeyContext: JourneyContext;
-  switch (sourceJourney) {
-    case JourneyType.HEALTH:
-      journeyContext = createTestHealthJourneyContext(userId);
-      break;
-    case JourneyType.CARE:
-      journeyContext = createTestCareJourneyContext(userId);
-      break;
-    case JourneyType.PLAN:
-      journeyContext = createTestPlanJourneyContext(userId);
-      break;
-    default:
-      journeyContext = createTestHealthJourneyContext(userId);
-  }
-  
-  // Add cross-journey context
-  return {
-    ...journeyContext,
-    journeyType: sourceJourney,
-    crossJourneyContext: createTestCrossJourneyContext(sourceJourney, targetJourney),
-  };
-};
-
-/**
- * Merges multiple test contexts into a single context
- * @param contexts Array of contexts to merge
- * @returns A merged context object
- */
-export const mergeTestContexts = (...contexts: Record<string, any>[]): Record<string, any> => {
-  return contexts.reduce((merged, context) => {
-    return { ...merged, ...context };
-  }, {});
-};
-
-/**
- * Creates a complete test context with user, request, and journey information
- * @param journeyType Journey type
- * @param userId Optional user ID
- * @param requestId Optional request ID
- * @returns A complete context object for testing
- */
-export const createCompleteTestContext = (
+export function createCombinedContext(
   journeyType: JourneyType,
-  userId?: string,
-  requestId?: string
-): Record<string, any> => {
-  const baseContext = createBaseTestContext();
-  const userContext = createTestUserContext(userId, AuthenticationStatus.AUTHENTICATED, baseContext);
-  const requestContext = createTestRequestContext(requestId, HttpMethod.GET, `/api/v1/${journeyType}/dashboard`, baseContext);
+  userOverrides: Partial<UserContext> = {},
+  requestOverrides: Partial<RequestContext> = {},
+  journeyOverrides: Partial<JourneyContext> = {}
+): LoggingContext {
+  // Generate consistent IDs across all contexts
+  const correlationId = uuidv4();
+  const requestId = uuidv4();
+  const userId = `user-${uuidv4()}`;
+  const transactionId = `transaction-${uuidv4()}`;
   
+  // Create the individual contexts with shared IDs
   let journeyContext: JourneyContext;
   switch (journeyType) {
     case JourneyType.HEALTH:
-      journeyContext = createTestHealthJourneyContext(userId, baseContext);
+      journeyContext = createHealthJourneyContext({
+        correlationId,
+        requestId,
+        userId,
+        transactionId,
+        ...journeyOverrides,
+      });
       break;
     case JourneyType.CARE:
-      journeyContext = createTestCareJourneyContext(userId, baseContext);
+      journeyContext = createCareJourneyContext({
+        correlationId,
+        requestId,
+        userId,
+        transactionId,
+        ...journeyOverrides,
+      });
       break;
     case JourneyType.PLAN:
-      journeyContext = createTestPlanJourneyContext(userId, baseContext);
+      journeyContext = createPlanJourneyContext({
+        correlationId,
+        requestId,
+        userId,
+        transactionId,
+        ...journeyOverrides,
+      });
       break;
     default:
-      journeyContext = createTestHealthJourneyContext(userId, baseContext);
+      journeyContext = createHealthJourneyContext({
+        correlationId,
+        requestId,
+        userId,
+        transactionId,
+        ...journeyOverrides,
+      });
   }
   
-  return mergeTestContexts(baseContext, userContext, requestContext, journeyContext);
-};
+  const userContext = createUserContext({
+    correlationId,
+    requestId,
+    userId,
+    transactionId,
+    ...userOverrides,
+  });
+  
+  const requestContext = createRequestContext({
+    correlationId,
+    requestId,
+    userId,
+    transactionId,
+    ...requestOverrides,
+  });
+  
+  // Merge all contexts, with journey context taking precedence
+  return {
+    ...requestContext,
+    ...userContext,
+    ...journeyContext,
+  };
+}
+
+/**
+ * Creates a trace context for testing distributed tracing.
+ * 
+ * @param overrides Optional properties to override default values
+ * @returns A LoggingContext object with trace information
+ */
+export function createTraceContext(overrides: Partial<LoggingContext> = {}): LoggingContext {
+  return {
+    ...createBaseContext(),
+    traceId: uuidv4(),
+    spanId: uuidv4(),
+    traceSampled: true,
+    ...overrides,
+  };
+}
+
+/**
+ * Simulates context propagation across service boundaries.
+ * 
+ * @param sourceContext The original context from the source service
+ * @param targetServiceName The name of the target service
+ * @param targetComponent The component in the target service
+ * @returns A new context for the target service with propagated correlation information
+ */
+export function propagateContext(
+  sourceContext: LoggingContext,
+  targetServiceName: string,
+  targetComponent: string
+): LoggingContext {
+  return {
+    ...createBaseContext(),
+    correlationId: sourceContext.correlationId,
+    requestId: sourceContext.requestId,
+    userId: sourceContext.userId,
+    transactionId: sourceContext.transactionId,
+    traceId: sourceContext.traceId,
+    spanId: uuidv4(), // New span ID for the target service
+    parentSpanId: sourceContext.spanId, // Link to the source service's span
+    serviceName: targetServiceName,
+    component: targetComponent,
+    // Preserve journey information if available
+    ...(sourceContext as JourneyContext).journeyType ? {
+      journeyType: (sourceContext as JourneyContext).journeyType,
+      resourceId: (sourceContext as JourneyContext).resourceId,
+      action: (sourceContext as JourneyContext).action,
+    } : {},
+  };
+}
+
+/**
+ * Creates a context with error information for testing error logging.
+ * 
+ * @param error The error object or message
+ * @param baseContext Optional base context to extend
+ * @returns A LoggingContext object with error information
+ */
+export function createErrorContext(
+  error: Error | string,
+  baseContext: LoggingContext = createBaseContext()
+): LoggingContext {
+  const errorObj = typeof error === 'string' ? new Error(error) : error;
+  
+  return {
+    ...baseContext,
+    metadata: {
+      ...baseContext.metadata,
+      error: {
+        message: errorObj.message,
+        name: errorObj.name,
+        stack: errorObj.stack,
+        code: (errorObj as any).code,
+        isTransient: false,
+        isClientError: false,
+        isExternalError: false,
+      },
+    },
+  };
+}

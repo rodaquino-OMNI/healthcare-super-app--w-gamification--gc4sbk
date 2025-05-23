@@ -8,7 +8,7 @@
  * Base interface for all span attributes
  */
 export interface SpanAttributes {
-  [key: string]: string | number | boolean | string[] | number[] | boolean[];
+  [key: string]: string | number | boolean | Array<string | number | boolean>;
 }
 
 /**
@@ -60,136 +60,298 @@ export interface MessagingSpanAttributes extends SpanAttributes {
 }
 
 /**
+ * User session tracking attributes for holistic experience monitoring
+ */
+export interface UserSessionSpanAttributes extends SpanAttributes {
+  'user.id'?: string;
+  'user.session.id'?: string;
+  'user.device.id'?: string;
+  'user.device.type'?: string;
+  'user.device.model'?: string;
+  'user.device.platform'?: string;
+  'user.device.platform_version'?: string;
+  'user.app.version'?: string;
+  'user.network.type'?: string;
+  'user.network.carrier'?: string;
+}
+
+/**
  * Journey-specific span attributes for the AUSTA SuperApp
  */
 export interface JourneySpanAttributes extends SpanAttributes {
-  'austa.journey.name'?: string;
-  'austa.journey.operation'?: string;
-  'austa.journey.user_id'?: string;
-  'austa.journey.session_id'?: string;
-  'austa.journey.feature'?: string;
-  'austa.journey.step'?: string;
-  'austa.journey.error_code'?: string;
-  'austa.journey.error_message'?: string;
+  'journey.type'?: string;
+  'journey.id'?: string;
+  'journey.step'?: string;
+  'journey.step.status'?: string;
+  'journey.completion_percentage'?: number;
 }
 
 /**
  * Health journey specific span attributes
  */
 export interface HealthJourneySpanAttributes extends JourneySpanAttributes {
-  'austa.health.metric_type'?: string;
-  'austa.health.metric_value'?: number;
-  'austa.health.goal_id'?: string;
-  'austa.health.device_id'?: string;
-  'austa.health.integration_type'?: string;
+  'health.metric.type'?: string;
+  'health.metric.value'?: number;
+  'health.metric.unit'?: string;
+  'health.goal.id'?: string;
+  'health.goal.progress'?: number;
+  'health.device.id'?: string;
+  'health.device.type'?: string;
 }
 
 /**
  * Care journey specific span attributes
  */
 export interface CareJourneySpanAttributes extends JourneySpanAttributes {
-  'austa.care.appointment_id'?: string;
-  'austa.care.provider_id'?: string;
-  'austa.care.telemedicine_session_id'?: string;
-  'austa.care.medication_id'?: string;
-  'austa.care.treatment_id'?: string;
+  'care.appointment.id'?: string;
+  'care.appointment.type'?: string;
+  'care.appointment.status'?: string;
+  'care.provider.id'?: string;
+  'care.provider.specialty'?: string;
+  'care.telemedicine.session.id'?: string;
+  'care.medication.id'?: string;
+  'care.treatment.id'?: string;
 }
 
 /**
  * Plan journey specific span attributes
  */
 export interface PlanJourneySpanAttributes extends JourneySpanAttributes {
-  'austa.plan.plan_id'?: string;
-  'austa.plan.benefit_id'?: string;
-  'austa.plan.claim_id'?: string;
-  'austa.plan.coverage_id'?: string;
-  'austa.plan.document_id'?: string;
+  'plan.id'?: string;
+  'plan.type'?: string;
+  'plan.benefit.id'?: string;
+  'plan.benefit.type'?: string;
+  'plan.claim.id'?: string;
+  'plan.claim.status'?: string;
+  'plan.claim.amount'?: number;
+  'plan.coverage.id'?: string;
+  'plan.coverage.type'?: string;
 }
 
 /**
  * Gamification-related span attributes
  */
 export interface GamificationSpanAttributes extends SpanAttributes {
-  'austa.gamification.event_type'?: string;
-  'austa.gamification.profile_id'?: string;
-  'austa.gamification.achievement_id'?: string;
-  'austa.gamification.quest_id'?: string;
-  'austa.gamification.reward_id'?: string;
-  'austa.gamification.points'?: number;
-  'austa.gamification.level'?: number;
+  'gamification.event.type'?: string;
+  'gamification.event.id'?: string;
+  'gamification.profile.id'?: string;
+  'gamification.achievement.id'?: string;
+  'gamification.achievement.name'?: string;
+  'gamification.quest.id'?: string;
+  'gamification.quest.name'?: string;
+  'gamification.reward.id'?: string;
+  'gamification.reward.type'?: string;
+  'gamification.points.earned'?: number;
+  'gamification.level.current'?: number;
+  'gamification.level.progress'?: number;
 }
 
 /**
- * Error-related span attributes
+ * Error-related span attributes for consistent error handling patterns
  */
 export interface ErrorSpanAttributes extends SpanAttributes {
   'error.type'?: string;
   'error.message'?: string;
   'error.stack'?: string;
-  'error.code'?: string;
+  'error.code'?: string | number;
   'error.retry_count'?: number;
-  'error.is_retryable'?: boolean;
+  'error.category'?: string;
+  'error.handled'?: boolean;
 }
 
 /**
- * Constants for common attribute values
+ * External service integration span attributes
  */
-export const JOURNEY_NAMES = {
+export interface ExternalServiceSpanAttributes extends SpanAttributes {
+  'service.name'?: string;
+  'service.version'?: string;
+  'service.instance.id'?: string;
+  'service.namespace'?: string;
+  'service.endpoint'?: string;
+  'service.operation'?: string;
+}
+
+/**
+ * Constants for journey types
+ */
+export const JOURNEY_TYPES = {
   HEALTH: 'health',
   CARE: 'care',
   PLAN: 'plan',
-} as const;
+};
 
-export const DATABASE_SYSTEMS = {
-  POSTGRES: 'postgresql',
-  REDIS: 'redis',
+/**
+ * Constants for common journey step statuses
+ */
+export const JOURNEY_STEP_STATUS = {
+  STARTED: 'started',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  ABANDONED: 'abandoned',
+};
+
+/**
+ * Constants for gamification event types
+ */
+export const GAMIFICATION_EVENT_TYPES = {
+  ACHIEVEMENT_UNLOCKED: 'achievement_unlocked',
+  QUEST_COMPLETED: 'quest_completed',
+  QUEST_STARTED: 'quest_started',
+  POINTS_EARNED: 'points_earned',
+  LEVEL_UP: 'level_up',
+  REWARD_CLAIMED: 'reward_claimed',
+};
+
+/**
+ * Constants for error categories
+ */
+export const ERROR_CATEGORIES = {
+  CLIENT: 'client_error',
+  SERVER: 'server_error',
+  NETWORK: 'network_error',
+  DATABASE: 'database_error',
+  VALIDATION: 'validation_error',
+  AUTHORIZATION: 'authorization_error',
+  EXTERNAL_SERVICE: 'external_service_error',
+  TIMEOUT: 'timeout_error',
+  UNKNOWN: 'unknown_error',
+};
+
+/**
+ * Constants for database systems
+ */
+export const DB_SYSTEMS = {
+  POSTGRESQL: 'postgresql',
+  MYSQL: 'mysql',
   MONGODB: 'mongodb',
-} as const;
+  REDIS: 'redis',
+  ELASTICSEARCH: 'elasticsearch',
+};
 
+/**
+ * Constants for messaging systems
+ */
 export const MESSAGING_SYSTEMS = {
   KAFKA: 'kafka',
   RABBITMQ: 'rabbitmq',
   SQS: 'aws_sqs',
-} as const;
-
-export const ERROR_TYPES = {
-  VALIDATION: 'validation_error',
-  AUTHENTICATION: 'authentication_error',
-  AUTHORIZATION: 'authorization_error',
-  NOT_FOUND: 'not_found_error',
-  TIMEOUT: 'timeout_error',
-  DEPENDENCY: 'dependency_error',
-  INTERNAL: 'internal_error',
-} as const;
-
-export const GAMIFICATION_EVENT_TYPES = {
-  ACHIEVEMENT_UNLOCKED: 'achievement_unlocked',
-  QUEST_COMPLETED: 'quest_completed',
-  REWARD_CLAIMED: 'reward_claimed',
-  POINTS_EARNED: 'points_earned',
-  LEVEL_UP: 'level_up',
-} as const;
+  SNS: 'aws_sns',
+};
 
 /**
- * Helper function to create journey-specific span attributes
+ * Constants for HTTP methods
  */
-export function createJourneyAttributes(journeyName: string, userId: string, sessionId: string): JourneySpanAttributes {
-  return {
-    'austa.journey.name': journeyName,
-    'austa.journey.user_id': userId,
-    'austa.journey.session_id': sessionId,
-  };
-}
+export const HTTP_METHODS = {
+  GET: 'GET',
+  POST: 'POST',
+  PUT: 'PUT',
+  DELETE: 'DELETE',
+  PATCH: 'PATCH',
+  HEAD: 'HEAD',
+  OPTIONS: 'OPTIONS',
+};
 
 /**
- * Helper function to create error span attributes
+ * Constants for network types
  */
-export function createErrorAttributes(error: Error, code?: string, isRetryable?: boolean): ErrorSpanAttributes {
-  return {
-    'error.type': error.name,
-    'error.message': error.message,
-    'error.stack': error.stack,
-    ...(code && { 'error.code': code }),
-    ...(isRetryable !== undefined && { 'error.is_retryable': isRetryable }),
-  };
-}
+export const NETWORK_TYPES = {
+  WIFI: 'wifi',
+  CELLULAR: 'cellular',
+  ETHERNET: 'ethernet',
+  OFFLINE: 'offline',
+  UNKNOWN: 'unknown',
+};
+
+/**
+ * Constants for device types
+ */
+export const DEVICE_TYPES = {
+  MOBILE: 'mobile',
+  TABLET: 'tablet',
+  DESKTOP: 'desktop',
+  WEARABLE: 'wearable',
+  TV: 'tv',
+  UNKNOWN: 'unknown',
+};
+
+/**
+ * Constants for health metric types
+ */
+export const HEALTH_METRIC_TYPES = {
+  HEART_RATE: 'heart_rate',
+  BLOOD_PRESSURE: 'blood_pressure',
+  BLOOD_GLUCOSE: 'blood_glucose',
+  WEIGHT: 'weight',
+  STEPS: 'steps',
+  SLEEP: 'sleep',
+  CALORIES: 'calories',
+  OXYGEN_SATURATION: 'oxygen_saturation',
+  TEMPERATURE: 'temperature',
+};
+
+/**
+ * Constants for health metric units
+ */
+export const HEALTH_METRIC_UNITS = {
+  BPM: 'bpm',
+  MMHG: 'mmHg',
+  MG_DL: 'mg/dL',
+  KG: 'kg',
+  COUNT: 'count',
+  HOURS: 'hours',
+  KCAL: 'kcal',
+  PERCENT: 'percent',
+  CELSIUS: 'celsius',
+};
+
+/**
+ * Constants for care appointment types
+ */
+export const CARE_APPOINTMENT_TYPES = {
+  IN_PERSON: 'in_person',
+  TELEMEDICINE: 'telemedicine',
+  HOME_VISIT: 'home_visit',
+  FOLLOW_UP: 'follow_up',
+  EMERGENCY: 'emergency',
+};
+
+/**
+ * Constants for care appointment statuses
+ */
+export const CARE_APPOINTMENT_STATUSES = {
+  SCHEDULED: 'scheduled',
+  CONFIRMED: 'confirmed',
+  CHECKED_IN: 'checked_in',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled',
+  NO_SHOW: 'no_show',
+  RESCHEDULED: 'rescheduled',
+};
+
+/**
+ * Constants for plan types
+ */
+export const PLAN_TYPES = {
+  HEALTH: 'health',
+  DENTAL: 'dental',
+  VISION: 'vision',
+  PHARMACY: 'pharmacy',
+  MENTAL_HEALTH: 'mental_health',
+  WELLNESS: 'wellness',
+};
+
+/**
+ * Constants for claim statuses
+ */
+export const CLAIM_STATUSES = {
+  SUBMITTED: 'submitted',
+  UNDER_REVIEW: 'under_review',
+  ADDITIONAL_INFO_REQUIRED: 'additional_info_required',
+  APPROVED: 'approved',
+  PARTIALLY_APPROVED: 'partially_approved',
+  DENIED: 'denied',
+  APPEALED: 'appealed',
+  PAID: 'paid',
+};

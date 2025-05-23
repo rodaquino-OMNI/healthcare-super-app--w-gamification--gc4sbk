@@ -1,517 +1,412 @@
 import { EventEmitter } from 'events';
-import { ErrorType } from '@austa/interfaces';
+import { ErrorType, AppException } from '../../../shared/src/exceptions/exceptions.types';
 
 /**
- * Represents the possible states of a circuit breaker.
+ * Enum representing the possible states of a circuit breaker.
  */
-export enum CircuitBreakerState {
-  /**
-   * Normal operation - requests are allowed to pass through
-   */
+export enum CircuitState {
+  /** Normal operation, requests pass through to the service */
   CLOSED = 'CLOSED',
-  
-  /**
-   * Failing fast - requests are immediately rejected
-   */
+  /** Circuit is tripped, requests fail fast without calling the service */
   OPEN = 'OPEN',
-  
-  /**
-   * Testing recovery - limited requests are allowed through to test if the dependency has recovered
-   */
+  /** Testing if the service has recovered by allowing limited requests */
   HALF_OPEN = 'HALF_OPEN'
 }
 
 /**
- * Configuration options for the CircuitBreaker.
+ * Interface for circuit breaker options.
  */
 export interface CircuitBreakerOptions {
-  /**
-   * Name of the circuit breaker, used for identification in logs and metrics
-   */
+  /** Name of the circuit breaker for identification in logs and metrics */
   name: string;
-  
-  /**
-   * Number of failures required to trip the circuit
-   * @default 5
-   */
-  failureThreshold?: number;
-  
-  /**
-   * Time in milliseconds to wait before attempting to test if the dependency has recovered
-   * @default 30000 (30 seconds)
-   */
-  resetTimeout?: number;
-  
-  /**
-   * Number of successful test requests required to close the circuit
-   * @default 3
-   */
-  successThreshold?: number;
-  
-  /**
-   * Time window in milliseconds to track failures
-   * @default 60000 (60 seconds)
-   */
-  failureWindowMs?: number;
-  
-  /**
-   * Optional function to determine if an error should count as a failure
-   * @param error - The error to evaluate
-   * @returns true if the error should count as a failure, false otherwise
-   */
+  /** Number of consecutive failures required to trip the circuit */
+  failureThreshold: number;
+  /** Time in milliseconds that the circuit stays open before moving to half-open */
+  resetTimeout: number;
+  /** Maximum number of requests allowed in half-open state */
+  halfOpenRequestLimit?: number;
+  /** Timeout in milliseconds for the protected function call */
+  requestTimeout?: number;
+  /** Custom function to determine if an error should count as a failure */
   isFailure?: (error: Error) => boolean;
-  
-  /**
-   * Optional function to check if the dependency is healthy
-   * @returns Promise that resolves to true if healthy, false otherwise
-   */
+  /** Custom health check function to test if service is available */
   healthCheck?: () => Promise<boolean>;
-  
-  /**
-   * Time in milliseconds between health checks when in OPEN state
-   * @default 60000 (60 seconds)
-   */
-  healthCheckInterval?: number;
 }
 
 /**
- * Error thrown when a circuit is open and a request is attempted.
+ * Interface for circuit breaker metrics.
  */
-export class CircuitBreakerError extends Error {
-  /**
-   * Creates a new CircuitBreakerError.
-   * 
-   * @param message - Error message
-   * @param circuitName - Name of the circuit that is open
-   */
-  constructor(
-    message: string,
-    public readonly circuitName: string
-  ) {
-    super(message);
-    this.name = 'CircuitBreakerError';
-    
-    // Ensures proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, CircuitBreakerError.prototype);
+export interface CircuitBreakerMetrics {
+  /** Current state of the circuit breaker */
+  state: CircuitState;
+  /** Total number of successful requests */
+  successCount: number;
+  /** Total number of failed requests */
+  failureCount: number;
+  /** Number of consecutive failures */
+  consecutiveFailures: number;
+  /** Total number of rejected requests (when circuit is open) */
+  rejectCount: number;
+  /** Timestamp of the last state change */
+  lastStateChange: Date;
+  /** Timestamp of the last failure */
+  lastFailureTime: Date | null;
+  /** Timestamp of the last success */
+  lastSuccessTime: Date | null;
+}
+
+/**
+ * Error thrown when the circuit breaker is open and rejects a request.
+ */
+export class CircuitBreakerOpenError extends AppException {
+  constructor(circuitName: string) {
+    super(
+      `Circuit breaker '${circuitName}' is open - service unavailable`,
+      ErrorType.EXTERNAL,
+      'CIRCUIT_BREAKER_OPEN',
+      { circuitName }
+    );
   }
 }
 
 /**
- * Metrics collected by the circuit breaker for monitoring.
+ * Error thrown when a request times out.
  */
-export interface CircuitBreakerMetrics {
-  /**
-   * Current state of the circuit
-   */
-  state: CircuitBreakerState;
-  
-  /**
-   * Total number of successful requests
-   */
-  successCount: number;
-  
-  /**
-   * Total number of failed requests
-   */
-  failureCount: number;
-  
-  /**
-   * Total number of rejected requests due to open circuit
-   */
-  rejectCount: number;
-  
-  /**
-   * Number of consecutive successful requests in HALF_OPEN state
-   */
-  halfOpenSuccessCount: number;
-  
-  /**
-   * Timestamp when the circuit last changed state
-   */
-  lastStateChange: Date;
-  
-  /**
-   * Timestamp when the circuit will attempt to transition from OPEN to HALF_OPEN
-   */
-  nextAttempt: Date | null;
-  
-  /**
-   * Recent failures within the failure window
-   */
-  recentFailures: Date[];
+export class CircuitBreakerTimeoutError extends AppException {
+  constructor(circuitName: string, timeoutMs: number) {
+    super(
+      `Request timed out after ${timeoutMs}ms in circuit '${circuitName}'`,
+      ErrorType.EXTERNAL,
+      'CIRCUIT_BREAKER_TIMEOUT',
+      { circuitName, timeoutMs }
+    );
+  }
 }
 
 /**
- * Events emitted by the CircuitBreaker.
- */
-export enum CircuitBreakerEvents {
-  /**
-   * Emitted when the circuit transitions from CLOSED to OPEN
-   */
-  OPEN = 'open',
-  
-  /**
-   * Emitted when the circuit transitions from OPEN to HALF_OPEN
-   */
-  HALF_OPEN = 'half-open',
-  
-  /**
-   * Emitted when the circuit transitions from HALF_OPEN to CLOSED
-   */
-  CLOSE = 'close',
-  
-  /**
-   * Emitted when a request fails
-   */
-  FAILURE = 'failure',
-  
-  /**
-   * Emitted when a request succeeds
-   */
-  SUCCESS = 'success',
-  
-  /**
-   * Emitted when a request is rejected due to an open circuit
-   */
-  REJECTED = 'rejected',
-  
-  /**
-   * Emitted when a health check is performed
-   */
-  HEALTH_CHECK_STATUS = 'health-check-status'
-}
-
-/**
- * Implements the circuit breaker pattern to prevent cascading failures when interacting with
- * failing services or dependencies.
+ * Implementation of the Circuit Breaker pattern to prevent cascading failures
+ * when interacting with failing services or dependencies.
  * 
  * The circuit breaker has three states:
- * - CLOSED: Normal operation, requests pass through
- * - OPEN: Failing fast, requests are immediately rejected
- * - HALF_OPEN: Testing recovery, limited requests are allowed through
- * 
- * Usage example:
- * ```typescript
- * const circuitBreaker = new CircuitBreaker({
- *   name: 'payment-service',
+ * - CLOSED: Normal operation, requests pass through to the service
+ * - OPEN: Circuit is tripped, requests fail fast without calling the service
+ * - HALF_OPEN: Testing if the service has recovered by allowing limited requests
+ *
+ * This implementation includes:
+ * - Configurable failure thresholds and reset timeouts
+ * - Support for custom health check functions
+ * - Metrics tracking for monitoring circuit status
+ * - Event emitters for circuit state changes
+ * - Timeout handling for protected function calls
+ *
+ * @example
+ * // Basic usage
+ * const breaker = new CircuitBreaker({
+ *   name: 'paymentService',
  *   failureThreshold: 3,
- *   resetTimeout: 10000
+ *   resetTimeout: 10000 // 10 seconds
  * });
  * 
- * // Wrap an async function with circuit breaker protection
  * try {
- *   const result = await circuitBreaker.execute(() => paymentService.processPayment(payment));
+ *   const result = await breaker.execute(() => paymentService.processPayment(payment));
  *   // Handle successful result
  * } catch (error) {
- *   // Handle error or circuit open
- *   if (error instanceof CircuitBreakerError) {
- *     // Circuit is open, use fallback strategy
- *   } else {
- *     // Actual error from the service
+ *   if (error instanceof CircuitBreakerOpenError) {
+ *     // Handle service unavailable
+ *     return fallbackPaymentProcess(payment);
  *   }
+ *   // Handle other errors
  * }
- * ```
+ *
+ * @example
+ * // Using the factory function
+ * const processPayment = CircuitBreaker.createBreaker(
+ *   {
+ *     name: 'paymentService',
+ *     failureThreshold: 3,
+ *     resetTimeout: 10000,
+ *     requestTimeout: 5000 // 5 seconds timeout for requests
+ *   },
+ *   (payment) => paymentService.processPayment(payment)
+ * );
+ * 
+ * try {
+ *   const result = await processPayment(payment);
+ *   // Handle successful result
+ * } catch (error) {
+ *   // Handle errors
+ * }
+ *
+ * @example
+ * // Listening to events
+ * breaker.on('open', (data) => {
+ *   console.log(`Circuit ${data.circuitName} is now open after ${data.failureCount} failures`);
+ *   metrics.recordCircuitOpen(data.circuitName);
+ * });
+ * 
+ * breaker.on('close', (data) => {
+ *   console.log(`Circuit ${data.circuitName} is now closed`);
+ *   metrics.recordCircuitClose(data.circuitName);
+ * });
  */
 export class CircuitBreaker extends EventEmitter {
-  private state: CircuitBreakerState = CircuitBreakerState.CLOSED;
-  private failureThreshold: number;
-  private resetTimeout: number;
-  private successThreshold: number;
-  private failureWindowMs: number;
-  private isFailure: (error: Error) => boolean;
-  private healthCheck?: () => Promise<boolean>;
-  private healthCheckInterval: number;
-  private healthCheckTimer?: NodeJS.Timeout;
-  
+  private readonly options: Required<CircuitBreakerOptions>;
+  private state: CircuitState = CircuitState.CLOSED;
+  private consecutiveFailures: number = 0;
   private successCount: number = 0;
   private failureCount: number = 0;
   private rejectCount: number = 0;
-  private halfOpenSuccessCount: number = 0;
+  private lastFailureTime: Date | null = null;
+  private lastSuccessTime: Date | null = null;
   private lastStateChange: Date = new Date();
-  private nextAttempt: Date | null = null;
-  private resetTimer?: NodeJS.Timeout;
-  private recentFailures: Date[] = [];
-  
+  private halfOpenAllowedRequests: number = 0;
+  private resetTimer: NodeJS.Timeout | null = null;
+
   /**
    * Creates a new CircuitBreaker instance.
    * 
-   * @param options - Configuration options for the circuit breaker
+   * @param options Configuration options for the circuit breaker
    */
-  constructor(private readonly options: CircuitBreakerOptions) {
+  constructor(options: CircuitBreakerOptions) {
     super();
-    
-    this.failureThreshold = options.failureThreshold ?? 5;
-    this.resetTimeout = options.resetTimeout ?? 30000; // 30 seconds
-    this.successThreshold = options.successThreshold ?? 3;
-    this.failureWindowMs = options.failureWindowMs ?? 60000; // 60 seconds
-    this.healthCheckInterval = options.healthCheckInterval ?? 60000; // 60 seconds
-    
-    // Default failure check considers all errors as failures
-    this.isFailure = options.isFailure ?? (() => true);
-    
-    // If a health check function is provided, start the health check timer
-    if (options.healthCheck) {
-      this.healthCheck = options.healthCheck;
-      this.startHealthCheck();
-    }
+    this.options = {
+      name: options.name,
+      failureThreshold: options.failureThreshold,
+      resetTimeout: options.resetTimeout,
+      halfOpenRequestLimit: options.halfOpenRequestLimit || 1,
+      requestTimeout: options.requestTimeout || 30000, // Default 30 seconds
+      isFailure: options.isFailure || ((error: Error) => true),
+      healthCheck: options.healthCheck || (() => Promise.resolve(true))
+    };
   }
-  
+
   /**
-   * Executes a function with circuit breaker protection.
+   * Executes the provided function with circuit breaker protection.
    * 
-   * @param fn - The function to execute
+   * @param fn The function to execute with circuit breaker protection
    * @returns A promise that resolves with the result of the function or rejects with an error
-   * @throws CircuitBreakerError if the circuit is open
+   * @throws {CircuitBreakerOpenError} When the circuit is open
+   * @throws {CircuitBreakerTimeoutError} When the request times out
    */
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
-    // If the circuit is open, reject immediately
-    if (this.state === CircuitBreakerState.OPEN) {
+  public async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.state === CircuitState.OPEN) {
       this.rejectCount++;
-      this.emit(CircuitBreakerEvents.REJECTED, { name: this.options.name });
-      throw new CircuitBreakerError(
-        `Circuit breaker '${this.options.name}' is open - service unavailable`,
-        this.options.name
-      );
+      this.emit('rejected', { circuitName: this.options.name });
+      throw new CircuitBreakerOpenError(this.options.name);
     }
-    
+
+    if (this.state === CircuitState.HALF_OPEN && this.halfOpenAllowedRequests <= 0) {
+      this.rejectCount++;
+      this.emit('rejected', { circuitName: this.options.name });
+      throw new CircuitBreakerOpenError(this.options.name);
+    }
+
+    if (this.state === CircuitState.HALF_OPEN) {
+      this.halfOpenAllowedRequests--;
+    }
+
     try {
-      // Execute the function
-      const result = await fn();
-      
-      // Handle success
+      const result = await this.executeWithTimeout(fn);
       this.onSuccess();
       return result;
     } catch (error) {
-      // Handle failure
       this.onFailure(error as Error);
       throw error;
     }
   }
-  
+
   /**
-   * Handles a successful request.
+   * Executes a function with a timeout.
+   * 
+   * @param fn The function to execute
+   * @returns A promise that resolves with the result of the function or rejects with a timeout error
+   */
+  private async executeWithTimeout<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new CircuitBreakerTimeoutError(this.options.name, this.options.requestTimeout));
+      }, this.options.requestTimeout);
+
+      fn()
+        .then((result) => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
+    });
+  }
+
+  /**
+   * Handles successful execution of the protected function.
    */
   private onSuccess(): void {
     this.successCount++;
-    this.emit(CircuitBreakerEvents.SUCCESS, { name: this.options.name });
-    
-    // If the circuit is half-open and we've reached the success threshold, close it
-    if (this.state === CircuitBreakerState.HALF_OPEN) {
-      this.halfOpenSuccessCount++;
-      
-      if (this.halfOpenSuccessCount >= this.successThreshold) {
-        this.close();
-      }
+    this.lastSuccessTime = new Date();
+    this.consecutiveFailures = 0;
+
+    if (this.state === CircuitState.HALF_OPEN) {
+      this.reset();
     }
+
+    this.emit('success', { circuitName: this.options.name });
   }
-  
+
   /**
-   * Handles a failed request.
+   * Handles failure of the protected function.
    * 
-   * @param error - The error that occurred
+   * @param error The error that occurred
    */
   private onFailure(error: Error): void {
-    // Check if this error should count as a failure
-    if (!this.isFailure(error)) {
+    if (!this.options.isFailure(error)) {
       return;
     }
-    
+
     this.failureCount++;
-    this.emit(CircuitBreakerEvents.FAILURE, { 
-      name: this.options.name, 
-      error 
+    this.lastFailureTime = new Date();
+    this.consecutiveFailures++;
+
+    this.emit('failure', { 
+      circuitName: this.options.name, 
+      error, 
+      consecutiveFailures: this.consecutiveFailures 
     });
-    
-    // Add to recent failures and remove old ones outside the window
-    const now = new Date();
-    this.recentFailures.push(now);
-    this.recentFailures = this.recentFailures.filter(
-      time => now.getTime() - time.getTime() < this.failureWindowMs
-    );
-    
-    // If we're in half-open state, any failure should open the circuit again
-    if (this.state === CircuitBreakerState.HALF_OPEN) {
-      this.open();
-      return;
-    }
-    
-    // If we've reached the failure threshold, open the circuit
-    if (this.state === CircuitBreakerState.CLOSED && 
-        this.recentFailures.length >= this.failureThreshold) {
-      this.open();
+
+    if (
+      (this.state === CircuitState.CLOSED && this.consecutiveFailures >= this.options.failureThreshold) ||
+      this.state === CircuitState.HALF_OPEN
+    ) {
+      this.trip();
     }
   }
-  
+
   /**
-   * Opens the circuit, preventing further requests.
+   * Trips the circuit breaker, moving it to the OPEN state.
    */
-  private open(): void {
-    if (this.state === CircuitBreakerState.OPEN) {
-      return;
+  private trip(): void {
+    if (this.state !== CircuitState.OPEN) {
+      this.changeState(CircuitState.OPEN);
+      this.emit('open', { 
+        circuitName: this.options.name, 
+        failureCount: this.consecutiveFailures 
+      });
+
+      this.scheduleReset();
     }
-    
-    this.state = CircuitBreakerState.OPEN;
-    this.lastStateChange = new Date();
-    this.halfOpenSuccessCount = 0;
-    
-    // Set the next attempt time
-    this.nextAttempt = new Date(this.lastStateChange.getTime() + this.resetTimeout);
-    
-    // Schedule the circuit to half-open after the reset timeout
-    this.resetTimer = setTimeout(() => this.halfOpen(), this.resetTimeout);
-    
-    this.emit(CircuitBreakerEvents.OPEN, { 
-      name: this.options.name,
-      lastStateChange: this.lastStateChange,
-      nextAttempt: this.nextAttempt
-    });
   }
-  
+
   /**
-   * Transitions the circuit to half-open state to test if the dependency has recovered.
+   * Schedules a reset of the circuit breaker after the reset timeout.
    */
-  private halfOpen(): void {
-    if (this.state === CircuitBreakerState.HALF_OPEN) {
-      return;
-    }
-    
-    this.state = CircuitBreakerState.HALF_OPEN;
-    this.lastStateChange = new Date();
-    this.halfOpenSuccessCount = 0;
-    this.nextAttempt = null;
-    
-    this.emit(CircuitBreakerEvents.HALF_OPEN, { 
-      name: this.options.name,
-      lastStateChange: this.lastStateChange
-    });
-  }
-  
-  /**
-   * Closes the circuit, allowing requests to pass through normally.
-   */
-  private close(): void {
-    if (this.state === CircuitBreakerState.CLOSED) {
-      return;
-    }
-    
-    this.state = CircuitBreakerState.CLOSED;
-    this.lastStateChange = new Date();
-    this.halfOpenSuccessCount = 0;
-    this.recentFailures = [];
-    this.nextAttempt = null;
-    
-    // Clear any pending reset timer
+  private scheduleReset(): void {
     if (this.resetTimer) {
       clearTimeout(this.resetTimer);
-      this.resetTimer = undefined;
     }
-    
-    this.emit(CircuitBreakerEvents.CLOSE, { 
-      name: this.options.name,
-      lastStateChange: this.lastStateChange
+
+    this.resetTimer = setTimeout(() => {
+      this.halfOpen();
+    }, this.options.resetTimeout);
+  }
+
+  /**
+   * Moves the circuit breaker to the HALF_OPEN state to test if the service has recovered.
+   */
+  private async halfOpen(): Promise<void> {
+    try {
+      const isHealthy = await this.options.healthCheck();
+      if (isHealthy) {
+        this.changeState(CircuitState.HALF_OPEN);
+        this.halfOpenAllowedRequests = this.options.halfOpenRequestLimit;
+        this.emit('half-open', { circuitName: this.options.name });
+      } else {
+        this.scheduleReset();
+      }
+    } catch (error) {
+      this.scheduleReset();
+    }
+  }
+
+  /**
+   * Resets the circuit breaker to the CLOSED state.
+   */
+  private reset(): void {
+    this.changeState(CircuitState.CLOSED);
+    this.consecutiveFailures = 0;
+    this.emit('close', { circuitName: this.options.name });
+  }
+
+  /**
+   * Changes the state of the circuit breaker.
+   * 
+   * @param newState The new state to change to
+   */
+  private changeState(newState: CircuitState): void {
+    this.state = newState;
+    this.lastStateChange = new Date();
+    this.emit('state-change', { 
+      circuitName: this.options.name, 
+      oldState: this.state, 
+      newState 
     });
   }
-  
+
   /**
-   * Manually resets the circuit breaker to closed state.
-   * This can be used to force the circuit closed after fixing a known issue.
+   * Manually forces the circuit breaker to the OPEN state.
    */
-  reset(): void {
-    this.close();
+  public forceOpen(): void {
+    this.trip();
   }
-  
+
   /**
-   * Starts the health check timer if a health check function is provided.
+   * Manually forces the circuit breaker to the CLOSED state.
    */
-  private startHealthCheck(): void {
-    if (!this.healthCheck) {
-      return;
-    }
-    
-    // Clear any existing timer
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-    }
-    
-    // Start a new timer
-    this.healthCheckTimer = setInterval(async () => {
-      try {
-        // Only perform health checks when the circuit is open
-        if (this.state === CircuitBreakerState.OPEN) {
-          const isHealthy = await this.healthCheck!();
-          
-          this.emit(CircuitBreakerEvents.HEALTH_CHECK_STATUS, { 
-            name: this.options.name,
-            isHealthy
-          });
-          
-          // If the dependency is healthy, transition to half-open
-          if (isHealthy) {
-            this.halfOpen();
-          }
-        }
-      } catch (error) {
-        // Health check itself failed, consider the dependency still unhealthy
-        this.emit(CircuitBreakerEvents.HEALTH_CHECK_STATUS, { 
-          name: this.options.name,
-          isHealthy: false,
-          error
-        });
-      }
-    }, this.healthCheckInterval);
+  public forceClose(): void {
+    this.reset();
   }
-  
+
   /**
-   * Stops the health check timer.
-   */
-  private stopHealthCheck(): void {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-      this.healthCheckTimer = undefined;
-    }
-  }
-  
-  /**
-   * Gets the current metrics for the circuit breaker.
+   * Gets the current state of the circuit breaker.
    * 
-   * @returns Current metrics
+   * @returns The current state
    */
-  getMetrics(): CircuitBreakerMetrics {
+  public getState(): CircuitState {
+    return this.state;
+  }
+
+  /**
+   * Gets the current metrics of the circuit breaker.
+   * 
+   * @returns The current metrics
+   */
+  public getMetrics(): CircuitBreakerMetrics {
     return {
       state: this.state,
       successCount: this.successCount,
       failureCount: this.failureCount,
+      consecutiveFailures: this.consecutiveFailures,
       rejectCount: this.rejectCount,
-      halfOpenSuccessCount: this.halfOpenSuccessCount,
       lastStateChange: this.lastStateChange,
-      nextAttempt: this.nextAttempt,
-      recentFailures: [...this.recentFailures]
+      lastFailureTime: this.lastFailureTime,
+      lastSuccessTime: this.lastSuccessTime
     };
   }
-  
+
   /**
-   * Gets the current state of the circuit breaker.
+   * Creates a factory function that wraps a service call with the circuit breaker.
    * 
-   * @returns Current state
+   * @param fn The function to wrap with circuit breaker protection
+   * @returns A wrapped function that executes with circuit breaker protection
    */
-  getState(): CircuitBreakerState {
-    return this.state;
-  }
-  
-  /**
-   * Cleans up resources when the circuit breaker is no longer needed.
-   * This should be called when the circuit breaker is being disposed of.
-   */
-  dispose(): void {
-    // Clear any pending timers
-    if (this.resetTimer) {
-      clearTimeout(this.resetTimer);
-      this.resetTimer = undefined;
-    }
+  public static createBreaker<T, Args extends any[]>(
+    options: CircuitBreakerOptions,
+    fn: (...args: Args) => Promise<T>
+  ): (...args: Args) => Promise<T> {
+    const breaker = new CircuitBreaker(options);
     
-    this.stopHealthCheck();
-    
-    // Remove all listeners
-    this.removeAllListeners();
+    return async (...args: Args): Promise<T> => {
+      return breaker.execute(() => fn(...args));
+    };
   }
 }

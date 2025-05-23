@@ -1,75 +1,69 @@
 /**
- * @file Error code constants for tracing operations.
- * 
- * This file defines standardized error codes used throughout the tracing package
- * for consistent error reporting and logging. Each error code follows the format
- * 'TRACING_XXX' where XXX is a specific error identifier.
+ * Error code constants for tracing operations.
+ * These constants are used for consistent error reporting and logging
+ * throughout the tracing implementation.
  */
 
 /**
- * Error codes related to tracer initialization.
+ * Tracer initialization error codes
  */
-export const TRACER_INIT_FAILED = 'TRACING_001';
-export const TRACER_CONFIG_INVALID = 'TRACING_002';
-export const TRACER_PROVIDER_NOT_FOUND = 'TRACING_003';
+export const TRACER_INITIALIZATION_FAILED = 'TRACING-1000';
+export const TRACER_PROVIDER_NOT_FOUND = 'TRACING-1001';
+export const TRACER_CONFIGURATION_INVALID = 'TRACING-1002';
+export const TRACER_SERVICE_NAME_MISSING = 'TRACING-1003';
+export const TRACER_ALREADY_INITIALIZED = 'TRACING-1004';
 
 /**
- * Error codes related to span operations.
+ * Span creation and management error codes
  */
-export const SPAN_CREATION_FAILED = 'TRACING_101';
-export const SPAN_RECORDING_FAILED = 'TRACING_102';
-export const SPAN_ATTRIBUTE_INVALID = 'TRACING_103';
-export const SPAN_CONTEXT_LOST = 'TRACING_104';
+export const SPAN_CREATION_FAILED = 'TRACING-2000';
+export const SPAN_ALREADY_ENDED = 'TRACING-2001';
+export const SPAN_CONTEXT_INVALID = 'TRACING-2002';
+export const SPAN_ATTRIBUTE_INVALID = 'TRACING-2003';
+export const SPAN_EVENT_CREATION_FAILED = 'TRACING-2004';
+export const SPAN_LINK_INVALID = 'TRACING-2005';
 
 /**
- * Error codes related to context propagation.
+ * Context propagation error codes
  */
-export const CONTEXT_PROPAGATION_FAILED = 'TRACING_201';
-export const CONTEXT_EXTRACTION_FAILED = 'TRACING_202';
-export const CONTEXT_INJECTION_FAILED = 'TRACING_203';
+export const CONTEXT_EXTRACTION_FAILED = 'TRACING-3000';
+export const CONTEXT_INJECTION_FAILED = 'TRACING-3001';
+export const CONTEXT_INVALID = 'TRACING-3002';
+export const CONTEXT_PROPAGATION_FAILED = 'TRACING-3003';
 
 /**
- * Error codes related to exporter configuration.
+ * Exporter error codes
  */
-export const EXPORTER_INIT_FAILED = 'TRACING_301';
-export const EXPORTER_CONNECTION_FAILED = 'TRACING_302';
-export const EXPORTER_CONFIGURATION_INVALID = 'TRACING_303';
+export const EXPORTER_INITIALIZATION_FAILED = 'TRACING-4000';
+export const EXPORTER_CONFIGURATION_INVALID = 'TRACING-4001';
+export const EXPORTER_EXPORT_FAILED = 'TRACING-4002';
+export const EXPORTER_SHUTDOWN_FAILED = 'TRACING-4003';
 
 /**
- * Error codes related to resource detection and configuration.
+ * Resource error codes
  */
-export const RESOURCE_DETECTION_FAILED = 'TRACING_401';
-export const RESOURCE_ATTRIBUTE_INVALID = 'TRACING_402';
+export const RESOURCE_CREATION_FAILED = 'TRACING-5000';
+export const RESOURCE_ATTRIBUTE_INVALID = 'TRACING-5001';
+export const RESOURCE_DETECTION_FAILED = 'TRACING-5002';
 
 /**
- * Error codes related to sampling configuration.
+ * Journey-specific error codes
  */
-export const SAMPLER_CONFIGURATION_INVALID = 'TRACING_501';
-export const SAMPLING_DECISION_FAILED = 'TRACING_502';
+export const JOURNEY_CONTEXT_INVALID = 'TRACING-6000';
+export const JOURNEY_ATTRIBUTE_INVALID = 'TRACING-6001';
+export const JOURNEY_CORRELATION_FAILED = 'TRACING-6002';
 
 /**
- * Error codes related to instrumentation.
+ * Sampling error codes
  */
-export const INSTRUMENTATION_INIT_FAILED = 'TRACING_601';
-export const INSTRUMENTATION_CONFLICT = 'TRACING_602';
-export const INSTRUMENTATION_DISABLED = 'TRACING_603';
+export const SAMPLER_INITIALIZATION_FAILED = 'TRACING-7000';
+export const SAMPLER_CONFIGURATION_INVALID = 'TRACING-7001';
+export const SAMPLING_DECISION_FAILED = 'TRACING-7002';
 
 /**
- * Error codes related to batch processing.
+ * General error codes
  */
-export const BATCH_PROCESSOR_INIT_FAILED = 'TRACING_701';
-export const BATCH_PROCESSING_FAILED = 'TRACING_702';
-export const BATCH_EXPORT_TIMEOUT = 'TRACING_703';
-
-/**
- * Error codes related to shutdown operations.
- */
-export const SHUTDOWN_TIMEOUT = 'TRACING_801';
-export const FLUSH_FAILED = 'TRACING_802';
-
-/**
- * Error codes related to general tracing operations.
- */
-export const TRACING_DISABLED = 'TRACING_901';
-export const TRACING_CONFIGURATION_INVALID = 'TRACING_902';
-export const TRACING_OPERATION_FAILED = 'TRACING_999';
+export const UNKNOWN_ERROR = 'TRACING-9000';
+export const CONFIGURATION_ERROR = 'TRACING-9001';
+export const DEPENDENCY_ERROR = 'TRACING-9002';
+export const VALIDATION_ERROR = 'TRACING-9003';

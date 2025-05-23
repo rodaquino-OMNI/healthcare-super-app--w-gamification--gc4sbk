@@ -1,203 +1,273 @@
 /**
- * Utilities for creating and manipulating trace contexts in tests.
- * These utilities help simulate distributed tracing environments and
- * verify proper correlation between logs and traces.
+ * Trace Context Utilities for E2E Testing
+ * 
+ * This file provides utilities for creating and manipulating trace contexts in tests.
+ * It enables testing of the integration between logging and distributed tracing
+ * to ensure proper correlation between logs and traces.
  */
 
-import { randomBytes } from 'crypto';
+import { Context, SpanContext, SpanKind, TraceFlags } from '@opentelemetry/api';
+import { ROOT_CONTEXT, createContextKey } from '@opentelemetry/api';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+
+// Constants for trace context generation
+const TRACE_PARENT_HEADER = 'traceparent';
+const TRACE_STATE_HEADER = 'tracestate';
+const SPAN_CONTEXT_KEY = createContextKey('span-context');
 
 /**
- * Standard length for trace and span IDs according to W3C TraceContext specification
- */
-export const TRACE_ID_LENGTH_BYTES = 16; // 128-bit
-export const SPAN_ID_LENGTH_BYTES = 8;  // 64-bit
-
-/**
- * Represents a trace context according to the W3C TraceContext specification
- */
-export interface TraceContext {
-  traceId: string;  // 32-character lowercase hex string
-  spanId: string;   // 16-character lowercase hex string
-  traceFlags?: number; // Default: 0x01 (sampled)
-  traceState?: string; // W3C TraceState format
-  isRemote?: boolean; // Whether this context was received from a remote source
-}
-
-/**
- * Generates a random trace ID as a 32-character lowercase hex string
- * @returns A valid trace ID string
+ * Generates a random trace ID for testing purposes.
+ * @returns A 32-character hex string representing a 16-byte trace ID
  */
 export function generateTraceId(): string {
-  return randomBytes(TRACE_ID_LENGTH_BYTES).toString('hex');
+  return Array.from({ length: 32 }, () => 
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('');
 }
 
 /**
- * Generates a random span ID as a 16-character lowercase hex string
- * @returns A valid span ID string
+ * Generates a random span ID for testing purposes.
+ * @returns A 16-character hex string representing an 8-byte span ID
  */
 export function generateSpanId(): string {
-  return randomBytes(SPAN_ID_LENGTH_BYTES).toString('hex');
+  return Array.from({ length: 16 }, () => 
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('');
 }
 
 /**
- * Creates a new trace context with random trace and span IDs
- * @param options Optional parameters to customize the trace context
- * @returns A complete trace context object
+ * Creates a span context for testing purposes.
+ * @param options Optional configuration for the span context
+ * @returns A SpanContext object
  */
-export function createTraceContext(options?: Partial<TraceContext>): TraceContext {
+export function createTestSpanContext(options?: {
+  traceId?: string;
+  spanId?: string;
+  traceFlags?: TraceFlags;
+  traceState?: string;
+  isRemote?: boolean;
+}): SpanContext {
   return {
     traceId: options?.traceId || generateTraceId(),
     spanId: options?.spanId || generateSpanId(),
-    traceFlags: options?.traceFlags !== undefined ? options.traceFlags : 0x01, // Default to sampled
-    traceState: options?.traceState,
-    isRemote: options?.isRemote || false
+    traceFlags: options?.traceFlags || TraceFlags.SAMPLED,
+    traceState: options?.traceState || '',
+    isRemote: options?.isRemote || false,
   };
 }
 
 /**
- * Creates a child span context from a parent context
- * @param parentContext The parent trace context
- * @returns A new trace context with the same trace ID but a new span ID
+ * Creates a child span context from a parent span context.
+ * @param parentContext The parent span context
+ * @returns A child SpanContext object with the same trace ID but a new span ID
  */
-export function createChildSpanContext(parentContext: TraceContext): TraceContext {
+export function createChildSpanContext(parentContext: SpanContext): SpanContext {
   return {
     traceId: parentContext.traceId,
     spanId: generateSpanId(),
     traceFlags: parentContext.traceFlags,
     traceState: parentContext.traceState,
-    isRemote: false
+    isRemote: false,
   };
 }
 
 /**
- * Simulates context propagation across service boundaries
- * @param context The trace context to propagate
- * @returns A new trace context marked as remote
+ * Creates an OpenTelemetry context with the provided span context.
+ * @param spanContext The span context to set in the OpenTelemetry context
+ * @returns An OpenTelemetry Context object
  */
-export function propagateTraceContext(context: TraceContext): TraceContext {
-  return {
-    ...context,
-    isRemote: true
-  };
+export function createContextWithSpan(spanContext: SpanContext): Context {
+  return ROOT_CONTEXT.setValue(SPAN_CONTEXT_KEY, spanContext);
 }
 
 /**
- * Formats a trace context as HTTP headers according to W3C TraceContext specification
- * @param context The trace context to format
- * @returns An object containing traceparent and tracestate headers
+ * Extracts a span context from an OpenTelemetry context.
+ * @param context The OpenTelemetry context
+ * @returns The span context or undefined if not present
  */
-export function formatAsTraceParentHeader(context: TraceContext): Record<string, string> {
-  const headers: Record<string, string> = {
-    traceparent: `00-${context.traceId}-${context.spanId}-${(context.traceFlags || 0x01).toString(16).padStart(2, '0')}`
-  };
-  
-  if (context.traceState) {
-    headers.tracestate = context.traceState;
-  }
-  
+export function extractSpanContext(context: Context): SpanContext | undefined {
+  return context.getValue(SPAN_CONTEXT_KEY);
+}
+
+/**
+ * Interface for carrier objects used in context propagation.
+ * @interface
+ */
+export interface TraceContextCarrier {
+  [key: string]: string;
+}
+
+/**
+ * Injects span context into a carrier object for context propagation.
+ * @param context The OpenTelemetry context containing the span context
+ * @param carrier The carrier object to inject the context into
+ * @returns The carrier object with injected context
+ */
+export function injectTraceContext(context: Context, carrier: TraceContextCarrier = {}): TraceContextCarrier {
+  const propagator = new W3CTraceContextPropagator();
+  propagator.inject(context, carrier);
+  return carrier;
+}
+
+/**
+ * Extracts span context from a carrier object.
+ * @param carrier The carrier object containing the propagated context
+ * @returns An OpenTelemetry context with the extracted span context
+ */
+export function extractTraceContext(carrier: TraceContextCarrier): Context {
+  const propagator = new W3CTraceContextPropagator();
+  return propagator.extract(ROOT_CONTEXT, carrier);
+}
+
+/**
+ * Creates a simulated HTTP headers object with trace context.
+ * @param context The OpenTelemetry context containing the span context
+ * @returns An object representing HTTP headers with trace context
+ */
+export function createTraceContextHeaders(context: Context): Record<string, string> {
+  const headers: Record<string, string> = {};
+  injectTraceContext(context, headers);
   return headers;
 }
 
 /**
- * Parses a traceparent header value into a trace context
- * @param traceparent The traceparent header value
- * @param tracestate Optional tracestate header value
- * @returns A trace context object
+ * Creates a complete trace context simulation for testing distributed tracing.
+ * @param options Configuration options for the trace context
+ * @returns An object containing all necessary trace context components
  */
-export function parseTraceParentHeader(traceparent: string, tracestate?: string): TraceContext | null {
-  const regex = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
-  const match = traceparent.match(regex);
+export function createTraceContextSimulation(options?: {
+  parentSpanContext?: SpanContext;
+  spanKind?: SpanKind;
+  serviceName?: string;
+  operationName?: string;
+}) {
+  const spanContext = options?.parentSpanContext ? 
+    createChildSpanContext(options.parentSpanContext) : 
+    createTestSpanContext();
   
-  if (!match) {
-    return null;
-  }
+  const context = createContextWithSpan(spanContext);
+  const headers = createTraceContextHeaders(context);
   
   return {
-    traceId: match[1],
-    spanId: match[2],
-    traceFlags: parseInt(match[3], 16),
-    traceState: tracestate,
-    isRemote: true
+    spanContext,
+    context,
+    headers,
+    spanKind: options?.spanKind || SpanKind.INTERNAL,
+    serviceName: options?.serviceName || 'test-service',
+    operationName: options?.operationName || 'test-operation',
   };
 }
 
 /**
- * Creates a log context object with trace correlation information
- * @param context The trace context to include in logs
- * @returns An object that can be used as log metadata
+ * Verifies if two span contexts are part of the same trace.
+ * @param context1 The first span context
+ * @param context2 The second span context
+ * @returns True if both contexts are part of the same trace
  */
-export function createLogContext(context: TraceContext): Record<string, unknown> {
+export function isSameTrace(context1: SpanContext, context2: SpanContext): boolean {
+  return context1.traceId === context2.traceId;
+}
+
+/**
+ * Verifies if one span context is a direct parent of another.
+ * @param parentContext The potential parent span context
+ * @param childContext The potential child span context
+ * @returns True if parentContext is a direct parent of childContext
+ */
+export function isParentChild(parentContext: SpanContext, childContext: SpanContext): boolean {
+  return isSameTrace(parentContext, childContext) && 
+         parentContext.spanId !== childContext.spanId;
+}
+
+/**
+ * Creates a trace context for a specific journey in the AUSTA SuperApp.
+ * @param journeyType The type of journey (health, care, plan)
+ * @param userId The user ID associated with the journey
+ * @param additionalAttributes Additional journey-specific attributes
+ * @returns A complete trace context simulation for the journey
+ */
+export function createJourneyTraceContext(
+  journeyType: 'health' | 'care' | 'plan',
+  userId: string,
+  additionalAttributes: Record<string, string> = {}
+) {
+  const simulation = createTraceContextSimulation({
+    serviceName: `austa-${journeyType}-service`,
+    operationName: `${journeyType}-journey-operation`,
+  });
+  
+  // Add journey-specific attributes
+  const journeyAttributes = {
+    'journey.type': journeyType,
+    'journey.user_id': userId,
+    ...additionalAttributes,
+  };
+  
   return {
-    trace_id: context.traceId,
-    span_id: context.spanId,
-    trace_flags: (context.traceFlags || 0x01).toString(16).padStart(2, '0')
+    ...simulation,
+    journeyAttributes,
   };
 }
 
 /**
- * Verifies that a log entry contains the correct trace correlation information
- * @param logEntry The log entry to verify
- * @param expectedContext The expected trace context
- * @returns True if the log entry contains the correct trace context
+ * Creates a trace context for testing gamification events.
+ * @param achievementType The type of achievement being tested
+ * @param userId The user ID associated with the achievement
+ * @returns A trace context simulation for gamification testing
  */
-export function verifyLogTraceContext(
-  logEntry: Record<string, unknown>,
-  expectedContext: TraceContext
-): boolean {
-  return (
-    logEntry.trace_id === expectedContext.traceId &&
-    logEntry.span_id === expectedContext.spanId &&
-    (!expectedContext.traceFlags || 
-      logEntry.trace_flags === (expectedContext.traceFlags).toString(16).padStart(2, '0'))
-  );
+export function createGamificationTraceContext(
+  achievementType: string,
+  userId: string
+) {
+  return createTraceContextSimulation({
+    serviceName: 'austa-gamification-engine',
+    operationName: 'process-achievement',
+  });
 }
 
 /**
- * Simulates an OpenTelemetry context object for testing
- * This is a simplified version for testing purposes
+ * Simulates trace context propagation across multiple services.
+ * @param services Array of service names to simulate
+ * @returns An array of connected trace contexts across services
  */
-export class MockOpenTelemetryContext {
-  private readonly values: Map<symbol, unknown> = new Map();
-  private static readonly SPAN_KEY = Symbol('span_key');
-  
-  /**
-   * Sets a value in the context
-   * @param key The key to set
-   * @param value The value to set
-   * @returns A new context with the value set
-   */
-  setValue(key: symbol, value: unknown): MockOpenTelemetryContext {
-    const newContext = new MockOpenTelemetryContext();
-    // Copy existing values
-    this.values.forEach((v, k) => newContext.values.set(k, v));
-    // Set new value
-    newContext.values.set(key, value);
-    return newContext;
+export function simulateDistributedTrace(services: string[]): Array<{
+  serviceName: string;
+  context: Context;
+  spanContext: SpanContext;
+  headers: Record<string, string>;
+}> {
+  if (!services.length) {
+    return [];
   }
   
-  /**
-   * Gets a value from the context
-   * @param key The key to get
-   * @returns The value or undefined
-   */
-  getValue(key: symbol): unknown {
-    return this.values.get(key);
+  const result = [];
+  let currentSimulation = createTraceContextSimulation({
+    serviceName: services[0],
+    operationName: `${services[0]}-operation`,
+  });
+  
+  result.push({
+    serviceName: services[0],
+    context: currentSimulation.context,
+    spanContext: currentSimulation.spanContext,
+    headers: currentSimulation.headers,
+  });
+  
+  // Create a chain of connected traces across services
+  for (let i = 1; i < services.length; i++) {
+    currentSimulation = createTraceContextSimulation({
+      parentSpanContext: currentSimulation.spanContext,
+      serviceName: services[i],
+      operationName: `${services[i]}-operation`,
+    });
+    
+    result.push({
+      serviceName: services[i],
+      context: currentSimulation.context,
+      spanContext: currentSimulation.spanContext,
+      headers: currentSimulation.headers,
+    });
   }
   
-  /**
-   * Sets the current span in the context
-   * @param spanContext The span context to set
-   * @returns A new context with the span set
-   */
-  setSpan(spanContext: TraceContext): MockOpenTelemetryContext {
-    return this.setValue(MockOpenTelemetryContext.SPAN_KEY, spanContext);
-  }
-  
-  /**
-   * Gets the current span from the context
-   * @returns The current span context or undefined
-   */
-  getSpan(): TraceContext | undefined {
-    return this.getValue(MockOpenTelemetryContext.SPAN_KEY) as TraceContext | undefined;
-  }
+  return result;
 }
