@@ -6,528 +6,405 @@
  * between schema-based validation (Zod) and decorator-based validation (class-validator).
  */
 
-import { ClassConstructor, plainToInstance } from 'class-transformer';
-import { validate, validateSync, ValidationError as ClassValidationError } from 'class-validator';
-import { z, ZodError, ZodIssue, ZodSchema, ZodType } from 'zod';
+import { z, ZodError, ZodType, ZodTypeDef } from 'zod';
+import { validateSync, ValidationError } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 
 /**
- * Error format standardized across validation libraries
+ * Error message templates for common validation scenarios
  */
-export interface ValidationErrorItem {
-  path: string[];
-  message: string;
-  code: string;
-  metadata?: Record<string, any>;
-}
+export const errorMessages = {
+  required: 'Campo obrigatório',
+  string: {
+    min: (min: number) => `Deve ter pelo menos ${min} caracteres`,
+    max: (max: number) => `Deve ter no máximo ${max} caracteres`,
+    email: 'Email inválido',
+    url: 'URL inválida',
+    regex: 'Formato inválido',
+  },
+  number: {
+    min: (min: number) => `Deve ser maior ou igual a ${min}`,
+    max: (max: number) => `Deve ser menor ou igual a ${max}`,
+    integer: 'Deve ser um número inteiro',
+    positive: 'Deve ser um número positivo',
+    negative: 'Deve ser um número negativo',
+  },
+  date: {
+    min: (min: Date) => `Deve ser após ${min.toLocaleDateString('pt-BR')}`,
+    max: (max: Date) => `Deve ser antes de ${max.toLocaleDateString('pt-BR')}`,
+  },
+  array: {
+    min: (min: number) => `Deve ter pelo menos ${min} itens`,
+    max: (max: number) => `Deve ter no máximo ${max} itens`,
+  },
+  object: {
+    shape: 'Formato inválido',
+  },
+};
 
 /**
- * Standardized validation result
+ * Options for creating a schema
  */
-export interface ValidationResult<T> {
-  success: boolean;
-  data?: T;
-  errors?: ValidationErrorItem[];
-}
-
-/**
- * Options for schema validation
- */
-export interface SchemaValidationOptions {
-  abortEarly?: boolean;
-  stripUnknown?: boolean;
-  context?: Record<string, any>;
+export interface SchemaOptions {
+  errorMap?: z.ZodErrorMap;
   journeyId?: 'health' | 'care' | 'plan';
 }
 
 /**
- * Default error messages for common validation scenarios
- */
-const DEFAULT_ERROR_MESSAGES = {
-  required: 'This field is required',
-  string: 'Must be a string',
-  number: 'Must be a number',
-  boolean: 'Must be a boolean',
-  email: 'Invalid email address',
-  url: 'Invalid URL',
-  uuid: 'Invalid UUID',
-  date: 'Invalid date',
-  min: 'Value is too small',
-  max: 'Value is too large',
-  minLength: 'Text is too short',
-  maxLength: 'Text is too long',
-  pattern: 'Invalid format',
-  custom: 'Validation failed',
-};
-
-/**
- * Journey-specific error messages
- */
-const JOURNEY_ERROR_MESSAGES = {
-  health: {
-    required: 'This health metric is required',
-    number: 'Health metric must be a number',
-    min: 'Health metric is below minimum value',
-    max: 'Health metric exceeds maximum value',
-    date: 'Invalid health record date',
-  },
-  care: {
-    required: 'This care information is required',
-    date: 'Invalid appointment date',
-    email: 'Invalid healthcare provider email',
-  },
-  plan: {
-    required: 'This plan information is required',
-    number: 'Benefit amount must be a number',
-    date: 'Invalid coverage date',
-  },
-};
-
-/**
  * Creates a Zod schema with pre-configured error messages
- * @param schema The base Zod schema
- * @param journeyId Optional journey ID for journey-specific error messages
- * @returns Enhanced Zod schema with custom error messages
+ * 
+ * @param schema The Zod schema to configure
+ * @param options Options for schema creation
+ * @returns The configured Zod schema
  */
-export function createZodSchema<T extends ZodType<any, any, any>>(
+export function createSchema<T extends ZodType<any, ZodTypeDef, any>>(
   schema: T,
-  journeyId?: 'health' | 'care' | 'plan'
+  options?: SchemaOptions
 ): T {
-  // Apply journey-specific error messages if a journeyId is provided
-  if (journeyId && JOURNEY_ERROR_MESSAGES[journeyId]) {
-    const journeyMessages = JOURNEY_ERROR_MESSAGES[journeyId];
+  const errorMap: z.ZodErrorMap = (issue, ctx) => {
+    let message: string;
     
-    // Create a new schema with custom error messages
-    return schema.superRefine((data, ctx) => {
-      try {
-        schema.parse(data);
-      } catch (error) {
-        if (error instanceof ZodError) {
-          // Replace error messages with journey-specific ones where applicable
-          error.issues.forEach((issue) => {
-            const messageType = issue.code.toLowerCase();
-            if (journeyMessages[messageType]) {
-              ctx.addIssue({
-                ...issue,
-                message: journeyMessages[messageType],
-              });
-            } else {
-              ctx.addIssue(issue);
-            }
-          });
+    switch (issue.code) {
+      case z.ZodIssueCode.invalid_type:
+        if (issue.expected === 'string') {
+          message = 'Deve ser um texto';
+        } else if (issue.expected === 'number') {
+          message = 'Deve ser um número';
+        } else if (issue.expected === 'date') {
+          message = 'Deve ser uma data válida';
+        } else if (issue.expected === 'boolean') {
+          message = 'Deve ser verdadeiro ou falso';
+        } else {
+          message = `Tipo inválido: esperado ${issue.expected}, recebido ${issue.received}`;
         }
-      }
-    }) as T;
-  }
-  
-  return schema;
-}
-
-/**
- * Validates data against a Zod schema
- * @param schema Zod schema to validate against
- * @param data Data to validate
- * @param options Validation options
- * @returns Validation result with standardized format
- */
-export async function validateWithZod<T>(
-  schema: ZodSchema<T>,
-  data: unknown,
-  options: SchemaValidationOptions = {}
-): Promise<ValidationResult<T>> {
-  try {
-    // Apply journey-specific schema if needed
-    const schemaToUse = options.journeyId 
-      ? createZodSchema(schema, options.journeyId)
-      : schema;
-    
-    // Parse data with the schema
-    const result = schemaToUse.safeParse(data);
-    
-    if (result.success) {
-      return {
-        success: true,
-        data: result.data,
-      };
-    } else {
-      // Format errors to standardized format
-      const errors = formatZodErrors(result.error);
-      return {
-        success: false,
-        errors,
-      };
-    }
-  } catch (error) {
-    // Handle unexpected errors
-    return {
-      success: false,
-      errors: [
-        {
-          path: [],
-          message: error instanceof Error ? error.message : 'Unknown validation error',
-          code: 'validation_error',
-        },
-      ],
-    };
-  }
-}
-
-/**
- * Synchronous version of validateWithZod
- * @param schema Zod schema to validate against
- * @param data Data to validate
- * @param options Validation options
- * @returns Validation result with standardized format
- */
-export function validateWithZodSync<T>(
-  schema: ZodSchema<T>,
-  data: unknown,
-  options: SchemaValidationOptions = {}
-): ValidationResult<T> {
-  try {
-    // Apply journey-specific schema if needed
-    const schemaToUse = options.journeyId 
-      ? createZodSchema(schema, options.journeyId)
-      : schema;
-    
-    // Parse data with the schema
-    const result = schemaToUse.safeParse(data);
-    
-    if (result.success) {
-      return {
-        success: true,
-        data: result.data,
-      };
-    } else {
-      // Format errors to standardized format
-      const errors = formatZodErrors(result.error);
-      return {
-        success: false,
-        errors,
-      };
-    }
-  } catch (error) {
-    // Handle unexpected errors
-    return {
-      success: false,
-      errors: [
-        {
-          path: [],
-          message: error instanceof Error ? error.message : 'Unknown validation error',
-          code: 'validation_error',
-        },
-      ],
-    };
-  }
-}
-
-/**
- * Validates data against a class-validator decorated class
- * @param cls Class constructor with class-validator decorators
- * @param data Data to validate
- * @param options Validation options
- * @returns Validation result with standardized format
- */
-export async function validateWithClassValidator<T extends object>(
-  cls: ClassConstructor<T>,
-  data: object,
-  options: SchemaValidationOptions = {}
-): Promise<ValidationResult<T>> {
-  try {
-    // Transform plain object to class instance
-    const instance = plainToInstance(cls, data);
-    
-    // Validate the instance
-    const validationErrors = await validate(instance, {
-      skipMissingProperties: options.stripUnknown,
-      whitelist: options.stripUnknown,
-      forbidNonWhitelisted: options.stripUnknown,
-    });
-    
-    if (validationErrors.length === 0) {
-      return {
-        success: true,
-        data: instance,
-      };
-    } else {
-      // Format errors to standardized format
-      const errors = formatClassValidatorErrors(validationErrors, options.journeyId);
-      return {
-        success: false,
-        errors,
-      };
-    }
-  } catch (error) {
-    // Handle unexpected errors
-    return {
-      success: false,
-      errors: [
-        {
-          path: [],
-          message: error instanceof Error ? error.message : 'Unknown validation error',
-          code: 'validation_error',
-        },
-      ],
-    };
-  }
-}
-
-/**
- * Synchronous version of validateWithClassValidator
- * @param cls Class constructor with class-validator decorators
- * @param data Data to validate
- * @param options Validation options
- * @returns Validation result with standardized format
- */
-export function validateWithClassValidatorSync<T extends object>(
-  cls: ClassConstructor<T>,
-  data: object,
-  options: SchemaValidationOptions = {}
-): ValidationResult<T> {
-  try {
-    // Transform plain object to class instance
-    const instance = plainToInstance(cls, data);
-    
-    // Validate the instance
-    const validationErrors = validateSync(instance, {
-      skipMissingProperties: options.stripUnknown,
-      whitelist: options.stripUnknown,
-      forbidNonWhitelisted: options.stripUnknown,
-    });
-    
-    if (validationErrors.length === 0) {
-      return {
-        success: true,
-        data: instance,
-      };
-    } else {
-      // Format errors to standardized format
-      const errors = formatClassValidatorErrors(validationErrors, options.journeyId);
-      return {
-        success: false,
-        errors,
-      };
-    }
-  } catch (error) {
-    // Handle unexpected errors
-    return {
-      success: false,
-      errors: [
-        {
-          path: [],
-          message: error instanceof Error ? error.message : 'Unknown validation error',
-          code: 'validation_error',
-        },
-      ],
-    };
-  }
-}
-
-/**
- * Formats Zod errors to standardized format
- * @param error Zod error object
- * @returns Array of standardized validation error items
- */
-export function formatZodErrors(error: ZodError): ValidationErrorItem[] {
-  return error.issues.map((issue: ZodIssue) => {
-    return {
-      path: issue.path,
-      message: issue.message,
-      code: issue.code.toLowerCase(),
-      metadata: issue.params,
-    };
-  });
-}
-
-/**
- * Formats class-validator errors to standardized format
- * @param errors Array of class-validator errors
- * @param journeyId Optional journey ID for journey-specific error messages
- * @returns Array of standardized validation error items
- */
-export function formatClassValidatorErrors(
-  errors: ClassValidationError[],
-  journeyId?: 'health' | 'care' | 'plan'
-): ValidationErrorItem[] {
-  const result: ValidationErrorItem[] = [];
-  
-  // Helper function to process nested errors
-  const processErrors = (error: ClassValidationError, parentPath: string[] = []) => {
-    const path = [...parentPath, error.property];
-    
-    // Process constraints
-    if (error.constraints) {
-      Object.entries(error.constraints).forEach(([code, message]) => {
-        // Apply journey-specific messages if available
-        let finalMessage = message;
-        if (journeyId && JOURNEY_ERROR_MESSAGES[journeyId]) {
-          const journeyMessages = JOURNEY_ERROR_MESSAGES[journeyId];
-          if (journeyMessages[code]) {
-            finalMessage = journeyMessages[code];
-          }
+        break;
+      case z.ZodIssueCode.too_small:
+        if (issue.type === 'string') {
+          message = errorMessages.string.min(issue.minimum as number);
+        } else if (issue.type === 'number') {
+          message = errorMessages.number.min(issue.minimum as number);
+        } else if (issue.type === 'array') {
+          message = errorMessages.array.min(issue.minimum as number);
+        } else if (issue.type === 'date') {
+          message = errorMessages.date.min(new Date(issue.minimum as number));
+        } else {
+          message = `Valor muito pequeno, mínimo: ${issue.minimum}`;
         }
-        
-        result.push({
-          path,
-          message: finalMessage,
-          code,
-          metadata: error.contexts?.[code],
-        });
-      });
+        break;
+      case z.ZodIssueCode.too_big:
+        if (issue.type === 'string') {
+          message = errorMessages.string.max(issue.maximum as number);
+        } else if (issue.type === 'number') {
+          message = errorMessages.number.max(issue.maximum as number);
+        } else if (issue.type === 'array') {
+          message = errorMessages.array.max(issue.maximum as number);
+        } else if (issue.type === 'date') {
+          message = errorMessages.date.max(new Date(issue.maximum as number));
+        } else {
+          message = `Valor muito grande, máximo: ${issue.maximum}`;
+        }
+        break;
+      case z.ZodIssueCode.invalid_string:
+        if (issue.validation === 'email') {
+          message = errorMessages.string.email;
+        } else if (issue.validation === 'url') {
+          message = errorMessages.string.url;
+        } else if (issue.validation === 'regex') {
+          message = errorMessages.string.regex;
+        } else {
+          message = 'Texto inválido';
+        }
+        break;
+      case z.ZodIssueCode.custom:
+        message = issue.message || 'Valor inválido';
+        break;
+      default:
+        message = ctx.defaultError;
     }
     
-    // Process nested errors recursively
-    if (error.children && error.children.length > 0) {
-      error.children.forEach((child) => processErrors(child, path));
+    // Apply journey-specific error formatting if needed
+    if (options?.journeyId) {
+      message = formatJourneyError(message, options.journeyId);
     }
+    
+    return { message };
   };
   
-  // Process all errors
-  errors.forEach((error) => processErrors(error));
-  
-  return result;
+  return schema.superRefine((data, ctx) => {
+    // This is a no-op refinement that allows us to attach the error map
+    return true;
+  }).withErrorMap(options?.errorMap || errorMap);
 }
 
 /**
- * Creates a Zod schema from a class-validator decorated class
- * @param cls Class constructor with class-validator decorators
- * @returns Zod schema that performs equivalent validation
+ * Formats an error message based on the journey context
+ * 
+ * @param message The original error message
+ * @param journeyId The journey identifier
+ * @returns The formatted error message
+ */
+function formatJourneyError(message: string, journeyId: 'health' | 'care' | 'plan'): string {
+  switch (journeyId) {
+    case 'health':
+      return `[Saúde] ${message}`;
+    case 'care':
+      return `[Cuidados] ${message}`;
+    case 'plan':
+      return `[Plano] ${message}`;
+    default:
+      return message;
+  }
+}
+
+/**
+ * Converts a Zod validation error to a standardized format
+ * 
+ * @param error The Zod validation error
+ * @returns A standardized error object
+ */
+export function formatZodError(error: ZodError): Record<string, string[]> {
+  const formattedErrors: Record<string, string[]> = {};
+  
+  for (const issue of error.errors) {
+    const path = issue.path.join('.');
+    if (!formattedErrors[path]) {
+      formattedErrors[path] = [];
+    }
+    formattedErrors[path].push(issue.message);
+  }
+  
+  return formattedErrors;
+}
+
+/**
+ * Converts class-validator validation errors to a standardized format
+ * 
+ * @param errors The class-validator validation errors
+ * @returns A standardized error object
+ */
+export function formatValidationErrors(errors: ValidationError[]): Record<string, string[]> {
+  const formattedErrors: Record<string, string[]> = {};
+  
+  for (const error of errors) {
+    const constraints = error.constraints || {};
+    const messages = Object.values(constraints);
+    
+    if (messages.length > 0) {
+      formattedErrors[error.property] = messages;
+    }
+    
+    // Handle nested errors
+    if (error.children && error.children.length > 0) {
+      const nestedErrors = formatValidationErrors(error.children);
+      
+      for (const [key, value] of Object.entries(nestedErrors)) {
+        const nestedKey = `${error.property}.${key}`;
+        formattedErrors[nestedKey] = value;
+      }
+    }
+  }
+  
+  return formattedErrors;
+}
+
+/**
+ * Validates data using a Zod schema
+ * 
+ * @param schema The Zod schema to validate against
+ * @param data The data to validate
+ * @returns The validation result with data and errors
+ */
+export function validateWithZod<T>(schema: ZodType<T>, data: unknown): {
+  success: boolean;
+  data?: T;
+  errors?: Record<string, string[]>;
+} {
+  const result = schema.safeParse(data);
+  
+  if (result.success) {
+    return {
+      success: true,
+      data: result.data,
+    };
+  } else {
+    return {
+      success: false,
+      errors: formatZodError(result.error),
+    };
+  }
+}
+
+/**
+ * Validates data using class-validator decorators
+ * 
+ * @param cls The class with validation decorators
+ * @param data The data to validate
+ * @param options Options for validation
+ * @returns The validation result with data and errors
+ */
+export function validateWithClassValidator<T extends object>(
+  cls: new () => T,
+  data: object,
+  options: { transformToClass?: boolean } = {}
+): {
+  success: boolean;
+  data?: T;
+  errors?: Record<string, string[]>;
+} {
+  const instance = options.transformToClass 
+    ? plainToInstance(cls, data)
+    : Object.assign(new cls(), data);
+  
+  const errors = validateSync(instance, {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    forbidUnknownValues: true,
+  });
+  
+  if (errors.length === 0) {
+    return {
+      success: true,
+      data: instance,
+    };
+  } else {
+    return {
+      success: false,
+      errors: formatValidationErrors(errors),
+    };
+  }
+}
+
+/**
+ * Creates a Zod schema from a class with class-validator decorators
+ * 
+ * @param cls The class with validation decorators
+ * @param options Options for schema creation
+ * @returns A Zod schema that performs the same validations
  */
 export function createZodSchemaFromClass<T extends object>(
-  cls: ClassConstructor<T>
-): ZodSchema<T> {
-  // Create a schema that uses class-validator internally
-  return z.custom<T>((data) => {
+  cls: new () => T,
+  options?: SchemaOptions
+): ZodType<T> {
+  // Create a base schema that validates using class-validator
+  const baseSchema = z.custom<T>((data) => {
     const instance = plainToInstance(cls, data);
     const errors = validateSync(instance, {
-      skipMissingProperties: false,
       whitelist: true,
       forbidNonWhitelisted: true,
     });
     
     return errors.length === 0;
   }, {
-    message: 'Invalid data according to class validation rules',
-  }) as ZodSchema<T>;
+    message: 'Validation failed',
+  });
+  
+  // Apply our error formatting
+  return createSchema(baseSchema, options);
 }
 
 /**
- * Creates a validation function for a class-validator decorated class
- * @param cls Class constructor with class-validator decorators
- * @returns Function that validates data against the class
+ * Creates a class-validator compatible validation function from a Zod schema
+ * 
+ * @param schema The Zod schema to use for validation
+ * @returns A validation function compatible with class-validator's custom decorator
  */
-export function createClassValidator<T extends object>(
-  cls: ClassConstructor<T>
-): (data: unknown) => Promise<ValidationResult<T>> {
-  return (data: unknown) => validateWithClassValidator(cls, data as object);
+export function createValidatorFromZodSchema<T>(schema: ZodType<T>) {
+  return (value: unknown): boolean => {
+    const result = schema.safeParse(value);
+    return result.success;
+  };
 }
 
 /**
- * Creates a validation function for a Zod schema
- * @param schema Zod schema
- * @returns Function that validates data against the schema
- */
-export function createZodValidator<T>(
-  schema: ZodSchema<T>
-): (data: unknown) => Promise<ValidationResult<T>> {
-  return (data: unknown) => validateWithZod(schema, data);
-}
-
-/**
- * Creates a journey-specific schema builder for common data models
- * @param journeyId Journey identifier
- * @returns Object with methods to create common schemas for the journey
+ * Creates a journey-specific schema builder with pre-configured settings
+ * 
+ * @param journeyId The journey identifier
+ * @returns A schema builder with journey-specific configurations
  */
 export function createJourneySchemaBuilder(journeyId: 'health' | 'care' | 'plan') {
   return {
     /**
-     * Creates a string schema with journey-specific validation
+     * Creates a string schema with journey-specific validations
      */
-    string: (options?: { required?: boolean; min?: number; max?: number; pattern?: RegExp }) => {
-      let schema = z.string();
+    string: (options?: { required?: boolean }) => {
+      let schema = z.string({
+        required_error: errorMessages.required,
+        invalid_type_error: 'Deve ser um texto',
+      });
       
-      if (options?.min !== undefined) {
-        schema = schema.min(options.min);
-      }
-      
-      if (options?.max !== undefined) {
-        schema = schema.max(options.max);
-      }
-      
-      if (options?.pattern) {
-        schema = schema.regex(options.pattern);
-      }
-      
-      if (options?.required === false) {
+      if (!options?.required) {
         schema = schema.optional();
       }
       
-      return createZodSchema(schema, journeyId);
+      return createSchema(schema, { journeyId });
     },
     
     /**
-     * Creates a number schema with journey-specific validation
+     * Creates a number schema with journey-specific validations
      */
-    number: (options?: { required?: boolean; min?: number; max?: number; integer?: boolean }) => {
-      let schema = z.number();
-      
-      if (options?.min !== undefined) {
-        schema = schema.min(options.min);
-      }
-      
-      if (options?.max !== undefined) {
-        schema = schema.max(options.max);
-      }
+    number: (options?: { required?: boolean; integer?: boolean }) => {
+      let schema = z.number({
+        required_error: errorMessages.required,
+        invalid_type_error: 'Deve ser um número',
+      });
       
       if (options?.integer) {
-        schema = schema.int();
+        schema = schema.int(errorMessages.number.integer);
       }
       
-      if (options?.required === false) {
+      if (!options?.required) {
         schema = schema.optional();
       }
       
-      return createZodSchema(schema, journeyId);
+      return createSchema(schema, { journeyId });
     },
     
     /**
-     * Creates a date schema with journey-specific validation
+     * Creates a date schema with journey-specific validations
      */
-    date: (options?: { required?: boolean; min?: Date; max?: Date }) => {
-      let schema = z.date();
+    date: (options?: { required?: boolean }) => {
+      let schema = z.date({
+        required_error: errorMessages.required,
+        invalid_type_error: 'Deve ser uma data válida',
+      });
       
-      if (options?.min) {
-        schema = schema.min(options.min);
-      }
-      
-      if (options?.max) {
-        schema = schema.max(options.max);
-      }
-      
-      if (options?.required === false) {
+      if (!options?.required) {
         schema = schema.optional();
       }
       
-      return createZodSchema(schema, journeyId);
+      return createSchema(schema, { journeyId });
     },
     
     /**
-     * Creates an email schema with journey-specific validation
+     * Creates an object schema with journey-specific validations
      */
-    email: (options?: { required?: boolean }) => {
-      let schema = z.string().email();
+    object: <T extends z.ZodRawShape>(shape: T, options?: { required?: boolean }) => {
+      let schema = z.object(shape, {
+        required_error: errorMessages.required,
+        invalid_type_error: errorMessages.object.shape,
+      });
       
-      if (options?.required === false) {
+      if (!options?.required) {
+        schema = schema.partial();
+      }
+      
+      return createSchema(schema, { journeyId });
+    },
+    
+    /**
+     * Creates an array schema with journey-specific validations
+     */
+    array: <T extends ZodType>(itemSchema: T, options?: { required?: boolean }) => {
+      let schema = z.array(itemSchema, {
+        required_error: errorMessages.required,
+        invalid_type_error: 'Deve ser uma lista',
+      });
+      
+      if (!options?.required) {
         schema = schema.optional();
       }
       
-      return createZodSchema(schema, journeyId);
-    },
-    
-    /**
-     * Creates a schema for common journey-specific data models
-     */
-    model: <T>(modelType: string, schema: ZodSchema<T>) => {
-      return createZodSchema(schema, journeyId);
+      return createSchema(schema, { journeyId });
     },
   };
 }
@@ -535,74 +412,91 @@ export function createJourneySchemaBuilder(journeyId: 'health' | 'care' | 'plan'
 /**
  * Pre-configured schema builders for each journey
  */
-export const healthSchemas = createJourneySchemaBuilder('health');
-export const careSchemas = createJourneySchemaBuilder('care');
-export const planSchemas = createJourneySchemaBuilder('plan');
+export const healthSchema = createJourneySchemaBuilder('health');
+export const careSchema = createJourneySchemaBuilder('care');
+export const planSchema = createJourneySchemaBuilder('plan');
 
 /**
- * Utility to perform runtime type checking for critical operations
- * @param data Data to validate
- * @param schema Zod schema to validate against
- * @param errorMessage Custom error message if validation fails
- * @returns Validated and typed data
- * @throws Error if validation fails
+ * Common schema patterns for health journey
  */
-export function assertValid<T>(
-  data: unknown,
-  schema: ZodSchema<T>,
-  errorMessage = 'Invalid data format'
-): T {
-  try {
-    return schema.parse(data);
-  } catch (error) {
-    if (error instanceof ZodError) {
-      const formattedErrors = formatZodErrors(error);
-      const errorDetails = formattedErrors.map(err => 
-        `${err.path.join('.')}: ${err.message}`
-      ).join('; ');
-      
-      throw new Error(`${errorMessage}: ${errorDetails}`);
-    }
-    throw error;
-  }
-}
+export const healthSchemas = {
+  /**
+   * Schema for health metrics
+   */
+  metric: healthSchema.object({
+    value: healthSchema.number({ required: true }),
+    unit: healthSchema.string({ required: true }),
+    timestamp: healthSchema.date({ required: true }),
+    source: healthSchema.string({ required: true }),
+  }),
+  
+  /**
+   * Schema for health goals
+   */
+  goal: healthSchema.object({
+    metricType: healthSchema.string({ required: true }),
+    targetValue: healthSchema.number({ required: true }),
+    currentValue: healthSchema.number({ required: true }),
+    startDate: healthSchema.date({ required: true }),
+    endDate: healthSchema.date({ required: true }),
+    status: z.enum(['active', 'completed', 'failed']),
+  }),
+};
 
 /**
- * Creates a schema for validating common date formats and converting to Date objects
- * @param options Validation options
- * @returns Zod schema for date validation
+ * Common schema patterns for care journey
  */
-export function createDateSchema(options?: { required?: boolean; min?: Date; max?: Date }) {
-  // Schema that accepts string, number, or Date and converts to Date
-  let schema = z.union([
-    z.string().refine(
-      (val) => !isNaN(new Date(val).getTime()),
-      { message: 'Invalid date string' }
-    ),
-    z.number().refine(
-      (val) => !isNaN(new Date(val).getTime()),
-      { message: 'Invalid date timestamp' }
-    ),
-    z.date(),
-  ]).transform(val => new Date(val));
+export const careSchemas = {
+  /**
+   * Schema for appointments
+   */
+  appointment: careSchema.object({
+    providerId: careSchema.string({ required: true }),
+    specialtyId: careSchema.string({ required: true }),
+    date: careSchema.date({ required: true }),
+    duration: careSchema.number({ required: true, integer: true }),
+    type: z.enum(['in-person', 'telemedicine']),
+    status: z.enum(['scheduled', 'confirmed', 'completed', 'cancelled']),
+  }),
   
-  if (options?.min) {
-    schema = schema.refine(
-      (date) => date >= options.min!,
-      { message: `Date must be after ${options.min.toISOString()}` }
-    );
-  }
+  /**
+   * Schema for medications
+   */
+  medication: careSchema.object({
+    name: careSchema.string({ required: true }),
+    dosage: careSchema.string({ required: true }),
+    frequency: careSchema.string({ required: true }),
+    startDate: careSchema.date({ required: true }),
+    endDate: careSchema.date(),
+    instructions: careSchema.string(),
+  }),
+};
+
+/**
+ * Common schema patterns for plan journey
+ */
+export const planSchemas = {
+  /**
+   * Schema for insurance claims
+   */
+  claim: planSchema.object({
+    serviceDate: planSchema.date({ required: true }),
+    providerId: planSchema.string({ required: true }),
+    procedureCode: planSchema.string({ required: true }),
+    amount: planSchema.number({ required: true }),
+    status: z.enum(['submitted', 'in-review', 'approved', 'denied']),
+    documents: planSchema.array(z.string()),
+  }),
   
-  if (options?.max) {
-    schema = schema.refine(
-      (date) => date <= options.max!,
-      { message: `Date must be before ${options.max.toISOString()}` }
-    );
-  }
-  
-  if (options?.required === false) {
-    schema = schema.optional();
-  }
-  
-  return schema;
-}
+  /**
+   * Schema for benefits
+   */
+  benefit: planSchema.object({
+    code: planSchema.string({ required: true }),
+    name: planSchema.string({ required: true }),
+    description: planSchema.string(),
+    coveragePercentage: planSchema.number({ required: true }),
+    annualLimit: planSchema.number({ integer: true }),
+    usedAmount: planSchema.number({ required: true }),
+  }),
+};
