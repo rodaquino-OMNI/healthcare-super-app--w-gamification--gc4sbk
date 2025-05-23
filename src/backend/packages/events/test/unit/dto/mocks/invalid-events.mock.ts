@@ -1,895 +1,796 @@
 /**
- * @file invalid-events.mock.ts
- * @description Provides a collection of invalid event mock data that intentionally violates
- * validation rules to test error handling and validation logic. These mocks include various
- * types of invalid events (missing required fields, incorrect data types, empty values) to
- * ensure the system properly identifies and rejects malformed events from all journeys.
- *
- * These mocks are used in unit tests to verify that:
- * 1. Validation correctly identifies and rejects invalid events
- * 2. Proper error messages are generated for each validation failure
- * 3. Dead letter queues correctly capture invalid events
- * 4. Retry mechanisms handle validation failures appropriately
- * 5. Monitoring systems detect and log validation errors
- *
- * @module events/test/unit/dto/mocks
+ * @file Invalid event mock data for testing validation and error handling.
+ * 
+ * This file provides a collection of intentionally malformed event objects that
+ * violate validation rules. These mocks are used to test error handling, validation
+ * logic, dead letter queues, and retry mechanisms throughout the event processing
+ * pipeline.
+ * 
+ * Each mock is designed to test a specific validation failure scenario, such as
+ * missing required fields, incorrect data types, or invalid values. The mocks
+ * cover all three journeys (health, care, plan) to ensure comprehensive test
+ * coverage across the entire system.
  */
 
-import { EventType, JourneyEvents } from '../../../../src/dto/event-types.enum';
-import { EventMetadataDto } from '../../../../src/dto/event-metadata.dto';
-import { HealthMetricType, HealthGoalType, DeviceType, HealthInsightType } from '../../../../src/dto/health-event.dto';
+import { v4 as uuidv4 } from 'uuid';
+import { EventType, EventJourney } from '../../../../../../../backend/packages/interfaces/gamification/events';
 
 /**
- * Collection of invalid events with missing required fields
+ * Base event with all required fields for reference.
+ * This is a valid event structure that can be modified to create invalid events.
  */
-export const missingRequiredFieldsEvents = {
-  /**
-   * Event missing the required 'type' field
-   */
-  missingType: {
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
+const validBaseEvent = {
+  eventId: uuidv4(),
+  type: EventType.HEALTH_METRIC_RECORDED,
+  userId: uuidv4(),
+  journey: EventJourney.HEALTH,
+  payload: {
+    timestamp: new Date().toISOString(),
+    metadata: {
+      source: 'test'
+    }
   },
-
-  /**
-   * Event missing the required 'userId' field
-   */
-  missingUserId: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
+  version: {
+    major: 1,
+    minor: 0,
+    patch: 0
   },
-
-  /**
-   * Event missing the required 'data' field
-   */
-  missingData: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    journey: 'health'
-  },
-
-  /**
-   * Event with empty data object
-   */
-  emptyData: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {},
-    journey: 'health'
-  },
-
-  /**
-   * Health event missing required metric type
-   */
-  missingMetricType: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Care appointment event missing required appointment ID
-   */
-  missingAppointmentId: {
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      specialtyType: 'Cardiologia',
-      appointmentType: 'in_person',
-      scheduledAt: new Date().toISOString(),
-      bookedAt: new Date().toISOString()
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Plan claim event missing required claim type
-   */
-  missingClaimType: {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      claimId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      serviceDate: new Date().toISOString(),
-      amount: 150.75,
-      submittedAt: new Date().toISOString()
-    },
-    journey: 'plan'
-  }
+  createdAt: new Date().toISOString(),
+  source: 'test-service',
+  correlationId: uuidv4()
 };
 
+// ===== MISSING REQUIRED FIELDS =====
+
 /**
- * Collection of events with invalid data types
+ * Collection of events with missing required fields.
+ * These events should fail validation because they're missing fields that are
+ * required by the event schema.
  */
-export const invalidDataTypeEvents = {
+export const missingRequiredFieldEvents = {
   /**
-   * Event with non-string type
+   * Event missing the eventId field.
+   * Should fail validation with a "required" constraint violation.
    */
-  nonStringType: {
-    type: 123, // Should be a string
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
+  missingEventId: (() => {
+    const event = { ...validBaseEvent };
+    delete event.eventId;
+    return event;
+  })(),
+
+  /**
+   * Event missing the type field.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingType: (() => {
+    const event = { ...validBaseEvent };
+    delete event.type;
+    return event;
+  })(),
+
+  /**
+   * Event missing the userId field.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingUserId: (() => {
+    const event = { ...validBaseEvent };
+    delete event.userId;
+    return event;
+  })(),
+
+  /**
+   * Event missing the journey field.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingJourney: (() => {
+    const event = { ...validBaseEvent };
+    delete event.journey;
+    return event;
+  })(),
+
+  /**
+   * Event missing the payload field.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingPayload: (() => {
+    const event = { ...validBaseEvent };
+    delete event.payload;
+    return event;
+  })(),
+
+  /**
+   * Event missing the version field.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingVersion: (() => {
+    const event = { ...validBaseEvent };
+    delete event.version;
+    return event;
+  })(),
+
+  /**
+   * Event missing the timestamp field in the payload.
+   * Should fail validation with a "required" constraint violation.
+   */
+  missingTimestamp: (() => {
+    const event = { ...validBaseEvent };
+    delete event.payload.timestamp;
+    return event;
+  })(),
+
+  /**
+   * Event with empty payload object.
+   * Should fail validation because payload requires at least a timestamp.
+   */
+  emptyPayload: (() => {
+    const event = { ...validBaseEvent };
+    event.payload = {};
+    return event;
+  })(),
+
+  /**
+   * Health metric event missing required metric type.
+   * Should fail validation with a journey-specific constraint violation.
+   */
+  missingMetricType: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.payload = {
+      timestamp: new Date().toISOString(),
       value: 75,
       unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
+      source: 'manual'
+      // Missing metricType
+    };
+    return event;
+  })(),
 
   /**
-   * Event with non-UUID userId
+   * Appointment event missing required appointmentId.
+   * Should fail validation with a journey-specific constraint violation.
    */
-  nonUuidUserId: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: 'not-a-valid-uuid', // Should be a valid UUID
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
+  missingAppointmentId: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.CARE;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      providerId: uuidv4(),
+      // Missing appointmentId
+    };
+    return event;
+  })(),
 
   /**
-   * Event with non-object data
+   * Claim event missing required amount.
+   * Should fail validation with a journey-specific constraint violation.
    */
-  nonObjectData: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: 'not an object', // Should be an object
-    journey: 'health'
-  },
-
-  /**
-   * Event with non-string journey
-   */
-  nonStringJourney: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 123 // Should be a string
-  },
-
-  /**
-   * Health event with non-numeric value
-   */
-  nonNumericValue: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 'seventy-five', // Should be a number
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Care event with non-ISO date
-   */
-  nonIsoDate: {
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      appointmentId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      specialtyType: 'Cardiologia',
-      appointmentType: 'in_person',
-      scheduledAt: '01/01/2023', // Should be ISO format
-      bookedAt: new Date().toISOString()
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Plan event with non-numeric amount
-   */
-  nonNumericAmount: {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      claimId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      claimType: 'medical',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      serviceDate: new Date().toISOString(),
-      amount: '$150.75', // Should be a number
-      submittedAt: new Date().toISOString()
-    },
-    journey: 'plan'
-  }
+  missingClaimAmount: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.CLAIM_SUBMITTED;
+    event.journey = EventJourney.PLAN;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      // Missing amount
+    };
+    return event;
+  })()
 };
 
+// ===== INCORRECT DATA TYPES =====
+
 /**
- * Collection of events with invalid journey values
+ * Collection of events with incorrect data types.
+ * These events should fail validation because they contain fields with
+ * incorrect data types (e.g., string instead of number).
+ */
+export const incorrectDataTypeEvents = {
+  /**
+   * Event with non-string eventId.
+   * Should fail validation with a "string" constraint violation.
+   */
+  nonStringEventId: (() => {
+    const event = { ...validBaseEvent };
+    event.eventId = 12345 as any;
+    return event;
+  })(),
+
+  /**
+   * Event with non-string userId.
+   * Should fail validation with a "string" constraint violation.
+   */
+  nonStringUserId: (() => {
+    const event = { ...validBaseEvent };
+    event.userId = 12345 as any;
+    return event;
+  })(),
+
+  /**
+   * Event with non-object payload.
+   * Should fail validation with an "object" constraint violation.
+   */
+  nonObjectPayload: (() => {
+    const event = { ...validBaseEvent };
+    event.payload = 'invalid payload' as any;
+    return event;
+  })(),
+
+  /**
+   * Event with non-object version.
+   * Should fail validation with an "object" constraint violation.
+   */
+  nonObjectVersion: (() => {
+    const event = { ...validBaseEvent };
+    event.version = '1.0.0' as any;
+    return event;
+  })(),
+
+  /**
+   * Event with non-string timestamp.
+   * Should fail validation with a "string" constraint violation.
+   */
+  nonStringTimestamp: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.timestamp = 12345 as any;
+    return event;
+  })(),
+
+  /**
+   * Health metric event with non-numeric value.
+   * Should fail validation with a "number" constraint violation.
+   */
+  nonNumericMetricValue: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'HEART_RATE',
+      value: 'seventy-five' as any, // Should be a number
+      unit: 'bpm',
+      source: 'manual'
+    };
+    return event;
+  })(),
+
+  /**
+   * Appointment event with non-string providerId.
+   * Should fail validation with a "string" constraint violation.
+   */
+  nonStringProviderId: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.CARE;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      appointmentId: uuidv4(),
+      providerId: 12345 as any, // Should be a string (UUID)
+    };
+    return event;
+  })(),
+
+  /**
+   * Claim event with non-numeric amount.
+   * Should fail validation with a "number" constraint violation.
+   */
+  nonNumericClaimAmount: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.CLAIM_SUBMITTED;
+    event.journey = EventJourney.PLAN;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      amount: 'one-hundred-fifty' as any, // Should be a number
+    };
+    return event;
+  })(),
+
+  /**
+   * Event with non-numeric version fields.
+   * Should fail validation with a "number" constraint violation.
+   */
+  nonNumericVersionFields: (() => {
+    const event = { ...validBaseEvent };
+    event.version = {
+      major: '1' as any, // Should be a number
+      minor: '0' as any, // Should be a number
+      patch: '0' as any, // Should be a number
+    };
+    return event;
+  })()
+};
+
+// ===== INVALID VALUES =====
+
+/**
+ * Collection of events with invalid values.
+ * These events should fail validation because they contain values that
+ * don't meet specific validation criteria (e.g., out of range, malformed UUID).
+ */
+export const invalidValueEvents = {
+  /**
+   * Event with invalid UUID format for eventId.
+   * Should fail validation with a "uuid" constraint violation.
+   */
+  invalidEventIdFormat: (() => {
+    const event = { ...validBaseEvent };
+    event.eventId = 'not-a-valid-uuid';
+    return event;
+  })(),
+
+  /**
+   * Event with invalid UUID format for userId.
+   * Should fail validation with a "uuid" constraint violation.
+   */
+  invalidUserIdFormat: (() => {
+    const event = { ...validBaseEvent };
+    event.userId = 'not-a-valid-uuid';
+    return event;
+  })(),
+
+  /**
+   * Event with invalid timestamp format.
+   * Should fail validation with a "isDateString" or similar constraint violation.
+   */
+  invalidTimestampFormat: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.timestamp = 'not-a-valid-timestamp';
+    return event;
+  })(),
+
+  /**
+   * Event with invalid createdAt format.
+   * Should fail validation with a "isDateString" or similar constraint violation.
+   */
+  invalidCreatedAtFormat: (() => {
+    const event = { ...validBaseEvent };
+    event.createdAt = 'not-a-valid-timestamp';
+    return event;
+  })(),
+
+  /**
+   * Event with negative version numbers.
+   * Should fail validation with a "min" constraint violation.
+   */
+  negativeVersionNumbers: (() => {
+    const event = { ...validBaseEvent };
+    event.version = {
+      major: -1, // Should be >= 0
+      minor: -1, // Should be >= 0
+      patch: -1, // Should be >= 0
+    };
+    return event;
+  })(),
+
+  /**
+   * Health metric event with physiologically impossible value.
+   * Should fail validation with a "max" constraint violation.
+   */
+  impossibleHeartRateValue: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'HEART_RATE',
+      value: 500, // Impossible heart rate
+      unit: 'bpm',
+      source: 'manual'
+    };
+    return event;
+  })(),
+
+  /**
+   * Health metric event with negative value.
+   * Should fail validation with a "min" constraint violation.
+   */
+  negativeMetricValue: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'STEPS',
+      value: -1000, // Negative steps
+      unit: 'steps',
+      source: 'manual'
+    };
+    return event;
+  })(),
+
+  /**
+   * Claim event with negative amount.
+   * Should fail validation with a "min" constraint violation.
+   */
+  negativeClaimAmount: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.CLAIM_SUBMITTED;
+    event.journey = EventJourney.PLAN;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      amount: -150.00, // Negative amount
+    };
+    return event;
+  })(),
+
+  /**
+   * Appointment event with past appointment date.
+   * Should fail validation with a "isAfter" constraint violation.
+   */
+  pastAppointmentDate: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.CARE;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      appointmentId: uuidv4(),
+      providerId: uuidv4(),
+      scheduledAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+    };
+    return event;
+  })()
+};
+
+// ===== INVALID JOURNEY VALUES =====
+
+/**
+ * Collection of events with invalid journey values.
+ * These events should fail validation because they contain journey values
+ * that don't match the event type or are invalid.
  */
 export const invalidJourneyEvents = {
   /**
-   * Event with non-existent journey
+   * Event with invalid journey value.
+   * Should fail validation with an "enum" constraint violation.
    */
-  nonExistentJourney: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'non-existent-journey' // Should be one of: health, care, plan, user, gamification
-  },
+  invalidJourneyValue: (() => {
+    const event = { ...validBaseEvent };
+    event.journey = 'invalid-journey' as any;
+    return event;
+  })(),
 
   /**
-   * Event with mismatched journey and type
+   * Health event with mismatched journey.
+   * Should fail validation with a journey-type mismatch constraint violation.
    */
-  mismatchedJourneyAndType: {
-    type: EventType.HEALTH_METRIC_RECORDED, // Health event type
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
+  healthEventWithCareJourney: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.journey = EventJourney.CARE; // Mismatch
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'HEART_RATE',
       value: 75,
       unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'care' // Mismatched with health event type
-  },
+      source: 'manual'
+    };
+    return event;
+  })(),
 
   /**
-   * Event with empty journey string
+   * Care event with mismatched journey.
+   * Should fail validation with a journey-type mismatch constraint violation.
    */
-  emptyJourney: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: '' // Empty string
-  }
+  careEventWithPlanJourney: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.PLAN; // Mismatch
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      appointmentId: uuidv4(),
+      providerId: uuidv4(),
+    };
+    return event;
+  })(),
+
+  /**
+   * Plan event with mismatched journey.
+   * Should fail validation with a journey-type mismatch constraint violation.
+   */
+  planEventWithHealthJourney: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.CLAIM_SUBMITTED;
+    event.journey = EventJourney.HEALTH; // Mismatch
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      amount: 150.00,
+    };
+    return event;
+  })()
 };
 
+// ===== INVALID EVENT TYPES =====
+
 /**
- * Collection of events with invalid event types
+ * Collection of events with invalid event types.
+ * These events should fail validation because they contain event types
+ * that don't exist or don't match the payload structure.
  */
 export const invalidEventTypeEvents = {
   /**
-   * Event with non-existent event type
+   * Event with non-existent event type.
+   * Should fail validation with an "enum" constraint violation.
    */
-  nonExistentEventType: {
-    type: 'NON_EXISTENT_EVENT_TYPE',
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
+  nonExistentEventType: (() => {
+    const event = { ...validBaseEvent };
+    event.type = 'NON_EXISTENT_EVENT_TYPE' as any;
+    return event;
+  })(),
 
   /**
-   * Event with mismatched event type for journey
+   * Event with mismatched event type and payload.
+   * Should fail validation with a type-payload mismatch constraint violation.
    */
-  mismatchedEventTypeForJourney: {
-    type: EventType.CARE_APPOINTMENT_BOOKED, // Care event type
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
+  mismatchedTypeAndPayload: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.CARE;
+    // Payload is for a health metric, not an appointment
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'HEART_RATE',
       value: 75,
       unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health' // Health journey with care event type
-  },
-
-  /**
-   * Event with empty event type string
-   */
-  emptyEventType: {
-    type: '',
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  }
+      source: 'manual'
+    };
+    return event;
+  })()
 };
 
+// ===== MALFORMED PAYLOADS =====
+
 /**
- * Collection of events with invalid UUID values
+ * Collection of events with malformed payloads.
+ * These events should fail validation because their payloads don't match
+ * the expected structure for the event type.
  */
-export const invalidUuidEvents = {
+export const malformedPayloadEvents = {
   /**
-   * Event with malformed UUID
+   * Health metric event with malformed blood pressure value.
+   * Should fail validation because blood pressure requires systolic and diastolic values.
    */
-  malformedUuid: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: 'g50e8400-e29b-41d4-a716-446655440000', // 'g' is not a valid hex character
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
+  malformedBloodPressure: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.HEALTH_METRIC_RECORDED;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      metricType: 'BLOOD_PRESSURE',
+      value: 120, // Should be an object with systolic and diastolic
+      unit: 'mmHg',
+      source: 'manual'
+    };
+    return event;
+  })(),
 
   /**
-   * Event with UUID of incorrect length
+   * Appointment event with malformed location.
+   * Should fail validation because location requires specific fields.
    */
-  incorrectLengthUuid: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-4466554400', // Too short
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
+  malformedAppointmentLocation: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.APPOINTMENT_BOOKED;
+    event.journey = EventJourney.CARE;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      appointmentId: uuidv4(),
+      providerId: uuidv4(),
+      location: 'São Paulo', // Should be an object with address fields
+    };
+    return event;
+  })(),
 
   /**
-   * Event with UUID missing hyphens
+   * Claim event with malformed documents array.
+   * Should fail validation because documents should be an array of objects with specific fields.
    */
-  uuidMissingHyphens: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400e29b41d4a716446655440000', // Missing hyphens
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health goal event with invalid goal ID
-   */
-  invalidGoalId: {
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      goalId: 'not-a-valid-uuid',
-      goalType: HealthGoalType.STEPS_TARGET,
-      description: 'Daily steps goal',
-      targetValue: 10000,
-      unit: 'steps',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100
-    },
-    journey: 'health'
-  }
+  malformedClaimDocuments: (() => {
+    const event = { ...validBaseEvent };
+    event.type = EventType.CLAIM_SUBMITTED;
+    event.journey = EventJourney.PLAN;
+    event.payload = {
+      timestamp: new Date().toISOString(),
+      claimId: uuidv4(),
+      claimType: 'Consulta Médica',
+      amount: 150.00,
+      documents: ['receipt.pdf', 'invoice.pdf'], // Should be array of objects with id, type, url
+    };
+    return event;
+  })()
 };
 
-/**
- * Collection of events with invalid date values
- */
-export const invalidDateEvents = {
-  /**
-   * Event with malformed ISO date
-   */
-  malformedIsoDate: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: '2023-13-45T25:70:80Z' // Invalid date/time values
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Event with non-ISO date format
-   */
-  nonIsoDateFormat: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: '01/01/2023 14:30:00' // Not ISO format
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Event with future date (for fields that should be in the past)
-   */
-  futureDateForPastEvent: {
-    type: EventType.CARE_APPOINTMENT_COMPLETED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      appointmentId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      appointmentType: 'in_person',
-      scheduledAt: new Date().toISOString(),
-      completedAt: new Date(Date.now() + 86400000).toISOString(), // Future date
-      duration: 30
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Event with invalid date range (end before start)
-   */
-  invalidDateRange: {
-    type: EventType.CARE_TELEMEDICINE_COMPLETED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      sessionId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      appointmentId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      providerId: '9a8b7c6d-5e4f-3g2h-1i0j-9k8l7m6n5o4p',
-      startedAt: new Date().toISOString(),
-      endedAt: new Date(Date.now() - 86400000).toISOString(), // Earlier than startedAt
-      duration: 30,
-      quality: 'good'
-    },
-    journey: 'care'
-  }
-};
+// ===== COMBINED INVALID EVENTS =====
 
 /**
- * Collection of events with invalid enum values
+ * Combined collection of all invalid events for easy import.
  */
-export const invalidEnumEvents = {
-  /**
-   * Health event with invalid metric type
-   */
-  invalidMetricType: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: 'INVALID_METRIC_TYPE', // Not in HealthMetricType enum
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with invalid goal type
-   */
-  invalidGoalType: {
-    type: EventType.HEALTH_GOAL_ACHIEVED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      goalId: '550e8400-e29b-41d4-a716-446655440000',
-      goalType: 'INVALID_GOAL_TYPE', // Not in HealthGoalType enum
-      description: 'Invalid goal type',
-      targetValue: 100,
-      unit: 'units',
-      achievedAt: new Date().toISOString(),
-      progressPercentage: 100
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with invalid device type
-   */
-  invalidDeviceType: {
-    type: EventType.HEALTH_DEVICE_CONNECTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      deviceId: '550e8400-e29b-41d4-a716-446655440000',
-      deviceType: 'INVALID_DEVICE_TYPE', // Not in DeviceType enum
-      connectionMethod: 'bluetooth',
-      connectedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Care event with invalid appointment type
-   */
-  invalidAppointmentType: {
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      appointmentId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      specialtyType: 'Cardiologia',
-      appointmentType: 'invalid_type', // Should be 'in_person' or 'telemedicine'
-      scheduledAt: new Date().toISOString(),
-      bookedAt: new Date().toISOString()
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Plan event with invalid claim type
-   */
-  invalidClaimType: {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      claimId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      claimType: 'invalid_claim_type', // Not a valid claim type
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      serviceDate: new Date().toISOString(),
-      amount: 150.75,
-      submittedAt: new Date().toISOString()
-    },
-    journey: 'plan'
-  }
-};
-
-/**
- * Collection of events with invalid numeric ranges
- */
-export const invalidRangeEvents = {
-  /**
-   * Health event with heart rate out of valid range
-   */
-  heartRateOutOfRange: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 300, // Too high (valid range: 30-220 bpm)
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with blood glucose out of valid range
-   */
-  bloodGlucoseOutOfRange: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.BLOOD_GLUCOSE,
-      value: 10, // Too low (valid range: 20-600 mg/dL)
-      unit: 'mg/dL',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with negative steps count
-   */
-  negativeStepsCount: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.STEPS,
-      value: -100, // Negative (valid range: 0-100000 steps)
-      unit: 'steps',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with sleep duration out of valid range
-   */
-  sleepDurationOutOfRange: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.SLEEP,
-      value: 30, // Too high (valid range: 0-24 hours)
-      unit: 'hours',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Care event with negative appointment duration
-   */
-  negativeAppointmentDuration: {
-    type: EventType.CARE_APPOINTMENT_COMPLETED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      appointmentId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      appointmentType: 'in_person',
-      scheduledAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      duration: -30 // Negative duration
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Plan event with negative claim amount
-   */
-  negativeClaimAmount: {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      claimId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      claimType: 'medical',
-      providerId: '7f4c9f83-a83d-44c0-95cb-7ab76d8f14e1',
-      serviceDate: new Date().toISOString(),
-      amount: -150.75, // Negative amount
-      submittedAt: new Date().toISOString()
-    },
-    journey: 'plan'
-  }
-};
-
-/**
- * Collection of events with invalid metadata
- */
-export const invalidMetadataEvents = {
-  /**
-   * Event with invalid version format in metadata
-   */
-  invalidVersionFormat: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health',
-    metadata: {
-      version: {
-        major: 'one', // Should be numeric string
-        minor: '0',
-        patch: '0'
-      },
-      timestamp: new Date()
-    }
-  },
-
-  /**
-   * Event with invalid correlation ID format
-   */
-  invalidCorrelationId: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health',
-    metadata: {
-      correlationId: 'not-a-valid-uuid', // Should be UUID
-      timestamp: new Date()
-    }
-  },
-
-  /**
-   * Event with missing required service in origin
-   */
-  missingServiceInOrigin: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health',
-    metadata: {
-      origin: {
-        // Missing required 'service' field
-        instance: 'health-service-pod-1234',
-        component: 'metric-processor'
-      },
-      timestamp: new Date()
-    }
-  },
-
-  /**
-   * Event with invalid timestamp type
-   */
-  invalidTimestampType: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'bpm',
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health',
-    metadata: {
-      timestamp: '2023-01-01T12:00:00Z' // Should be Date object
-    }
-  }
-};
-
-/**
- * Collection of events with invalid unit values
- */
-export const invalidUnitEvents = {
-  /**
-   * Health event with invalid unit for heart rate
-   */
-  invalidHeartRateUnit: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      unit: 'beats', // Should be 'bpm'
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with invalid unit for blood glucose
-   */
-  invalidBloodGlucoseUnit: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.BLOOD_GLUCOSE,
-      value: 100,
-      unit: 'units', // Should be 'mg/dL' or 'mmol/L'
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with invalid unit for steps
-   */
-  invalidStepsUnit: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.STEPS,
-      value: 10000,
-      unit: 'count', // Should be 'steps'
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health event with invalid unit for weight
-   */
-  invalidWeightUnit: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.WEIGHT,
-      value: 70,
-      unit: 'g', // Should be 'kg' or 'lb'
-      recordedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  }
-};
-
-/**
- * Collection of events with malformed nested objects
- */
-export const malformedNestedObjectEvents = {
-  /**
-   * Health event with malformed nested metric data
-   */
-  malformedMetricData: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      metricType: HealthMetricType.HEART_RATE,
-      value: 75,
-      // Missing required 'unit' field
-      recordedAt: new Date().toISOString(),
-      // Additional invalid field
-      invalidField: 'some value'
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Health insight event with malformed insight data
-   */
-  malformedInsightData: {
-    type: EventType.HEALTH_INSIGHT_GENERATED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      insightId: '550e8400-e29b-41d4-a716-446655440000',
-      insightType: HealthInsightType.ANOMALY_DETECTION,
-      // Missing required 'title' and 'description' fields
-      relatedMetricTypes: [HealthMetricType.HEART_RATE],
-      confidenceScore: 150, // Out of range (0-100)
-      generatedAt: new Date().toISOString()
-    },
-    journey: 'health'
-  },
-
-  /**
-   * Care appointment event with malformed appointment data
-   */
-  malformedAppointmentData: {
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      appointmentId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      // Missing required 'providerId' field
-      specialtyType: 'Cardiologia',
-      appointmentType: 'in_person',
-      // Malformed date fields
-      scheduledAt: 'tomorrow',
-      bookedAt: 'today'
-    },
-    journey: 'care'
-  },
-
-  /**
-   * Plan claim event with malformed claim data
-   */
-  malformedClaimData: {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    userId: '550e8400-e29b-41d4-a716-446655440000',
-    data: {
-      claimId: 'c5d8a8f0-3d1a-4e1d-8f8a-7b9c1d2e3f4a',
-      claimType: 'medical',
-      // Missing required 'providerId' field
-      // Missing required 'serviceDate' field
-      amount: 'one hundred fifty', // Should be number
-      submittedAt: new Date().toISOString()
-    },
-    journey: 'plan'
-  }
-};
-
-/**
- * Collection of all invalid events for easy access in tests
- */
-export const allInvalidEvents = {
-  ...missingRequiredFieldsEvents,
-  ...invalidDataTypeEvents,
+export const invalidEvents = {
+  ...missingRequiredFieldEvents,
+  ...incorrectDataTypeEvents,
+  ...invalidValueEvents,
   ...invalidJourneyEvents,
   ...invalidEventTypeEvents,
-  ...invalidUuidEvents,
-  ...invalidDateEvents,
-  ...invalidEnumEvents,
-  ...invalidRangeEvents,
-  ...invalidMetadataEvents,
-  ...invalidUnitEvents,
-  ...malformedNestedObjectEvents
+  ...malformedPayloadEvents
+};
+
+/**
+ * Collection of events with multiple validation errors.
+ * These events should fail validation with multiple constraint violations.
+ */
+export const multipleErrorEvents = {
+  /**
+   * Event with multiple missing fields.
+   * Should fail validation with multiple "required" constraint violations.
+   */
+  multipleMissingFields: (() => {
+    const event = { ...validBaseEvent };
+    delete event.eventId;
+    delete event.userId;
+    delete event.payload.timestamp;
+    return event;
+  })(),
+
+  /**
+   * Event with multiple invalid values.
+   * Should fail validation with multiple constraint violations.
+   */
+  multipleInvalidValues: (() => {
+    const event = { ...validBaseEvent };
+    event.userId = 'not-a-valid-uuid';
+    event.journey = 'invalid-journey' as any;
+    event.payload.timestamp = 'not-a-valid-timestamp';
+    return event;
+  })(),
+
+  /**
+   * Event with completely invalid structure.
+   * Should fail validation with numerous constraint violations.
+   */
+  completelyInvalidEvent: (() => {
+    return {
+      type: 123, // Wrong type
+      user: 'not-a-valid-uuid', // Wrong field name
+      data: 'not-an-object', // Wrong field name and type
+      timestamp: new Date() // Wrong field location and type
+    };
+  })()
+};
+
+/**
+ * Collection of events for testing dead letter queue functionality.
+ * These events represent different failure scenarios that should trigger
+ * the dead letter queue mechanism.
+ */
+export const deadLetterQueueEvents = {
+  /**
+   * Event with validation errors that should be sent to DLQ.
+   */
+  validationFailure: invalidEvents.missingEventId,
+
+  /**
+   * Event with processing errors that should be sent to DLQ after retries.
+   */
+  processingFailure: (() => {
+    const event = { ...validBaseEvent };
+    // This is a valid event structure, but we'll simulate a processing failure
+    // by adding a special flag that test processors can check for
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      simulateProcessingFailure: true
+    };
+    return event;
+  })(),
+
+  /**
+   * Event with serialization errors that should be sent to DLQ.
+   */
+  serializationFailure: (() => {
+    const event = { ...validBaseEvent };
+    // Create a circular reference that can't be serialized to JSON
+    const circular: any = {};
+    circular.self = circular;
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      circular
+    };
+    return event;
+  })()
+};
+
+/**
+ * Collection of events for testing retry mechanisms.
+ * These events represent different scenarios that should trigger
+ * retry attempts before being sent to the dead letter queue.
+ */
+export const retryEvents = {
+  /**
+   * Event that should be retried due to temporary validation failure.
+   */
+  temporaryValidationFailure: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      simulateTemporaryValidationFailure: true,
+      retryCount: 0,
+      maxRetries: 3
+    };
+    return event;
+  })(),
+
+  /**
+   * Event that should be retried due to temporary processing failure.
+   */
+  temporaryProcessingFailure: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      simulateTemporaryProcessingFailure: true,
+      retryCount: 0,
+      maxRetries: 3
+    };
+    return event;
+  })(),
+
+  /**
+   * Event that should be retried with exponential backoff.
+   */
+  exponentialBackoffRetry: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      simulateExponentialBackoff: true,
+      retryCount: 0,
+      maxRetries: 5
+    };
+    return event;
+  })()
+};
+
+/**
+ * Collection of events for testing monitoring and alerting.
+ * These events represent different scenarios that should trigger
+ * monitoring alerts or be logged for audit purposes.
+ */
+export const monitoringEvents = {
+  /**
+   * Event that should trigger a high-priority alert.
+   */
+  highPriorityAlert: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      priority: 'high',
+      alertThreshold: true
+    };
+    return event;
+  })(),
+
+  /**
+   * Event that should be logged for audit purposes.
+   */
+  auditLogEvent: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      auditRequired: true,
+      securityRelevant: true
+    };
+    return event;
+  })(),
+
+  /**
+   * Event that should trigger rate limiting.
+   */
+  rateLimitEvent: (() => {
+    const event = { ...validBaseEvent };
+    event.payload.metadata = {
+      ...event.payload.metadata,
+      highFrequency: true,
+      burstProtection: true
+    };
+    return event;
+  })()
 };
