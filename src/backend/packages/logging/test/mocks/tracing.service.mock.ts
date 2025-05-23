@@ -1,42 +1,61 @@
+import { SpanStatusCode } from '@opentelemetry/api';
+
 /**
- * Mock implementation of the TracingService for testing logging components
- * that depend on distributed tracing. Provides simplified span creation with
- * controllable behavior, allowing tests to verify trace correlation and error
- * handling without depending on OpenTelemetry.
+ * Mock implementation of the TracingService for testing logging components.
+ * 
+ * This mock allows testing of components that depend on distributed tracing
+ * without requiring the actual OpenTelemetry implementation. It records calls
+ * to createSpan and provides methods to simulate success and error scenarios.
  */
 export class MockTracingService {
   /**
-   * Records of all calls to createSpan for verification in tests
+   * Records of calls to createSpan for verification in tests
    */
-  public spanCalls: { name: string; fn: () => Promise<any> }[] = [];
+  public spanCalls: Array<{
+    name: string;
+    fn: () => Promise<any>;
+  }> = [];
 
   /**
-   * Flag to simulate errors in span creation
+   * Mock trace ID to return from getCurrentTraceId
    */
-  public shouldThrowError = false;
+  private mockTraceId: string = '0123456789abcdef0123456789abcdef';
 
   /**
-   * Custom error to throw when shouldThrowError is true
+   * Mock span ID to return from getCurrentSpanId
    */
-  public errorToThrow: Error = new Error('Mock tracing error');
+  private mockSpanId: string = '0123456789abcdef';
 
   /**
-   * Creates and records a mock span for testing
+   * Flag to simulate errors in createSpan
+   */
+  private simulateError: boolean = false;
+
+  /**
+   * Error to throw when simulateError is true
+   */
+  private errorToSimulate: Error = new Error('Simulated tracing error');
+
+  /**
+   * Creates and starts a new span for tracing a specific operation.
+   * Records the call for later verification and returns the result of the function.
+   * 
    * @param name The name of the span to create
    * @param fn The function to execute within the span context
    * @returns The result of the function execution
+   * @throws The error passed to setErrorSimulation if simulateError is true
    */
   async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    // Record this call for later verification
+    // Record the call for verification in tests
     this.spanCalls.push({ name, fn });
 
-    // Simulate error if configured to do so
-    if (this.shouldThrowError) {
-      throw this.errorToThrow;
+    // Simulate error if configured
+    if (this.simulateError) {
+      throw this.errorToSimulate;
     }
 
+    // Execute the function and return its result
     try {
-      // Execute the provided function
       return await fn();
     } catch (error) {
       // Re-throw any errors from the function
@@ -45,44 +64,98 @@ export class MockTracingService {
   }
 
   /**
-   * Resets all recorded calls and error simulation settings
-   * Used to clean state between tests
+   * Gets the current trace ID.
+   * Returns a mock trace ID for testing purposes.
+   * 
+   * @returns The mock trace ID
+   */
+  getCurrentTraceId(): string {
+    return this.mockTraceId;
+  }
+
+  /**
+   * Gets the current span ID.
+   * Returns a mock span ID for testing purposes.
+   * 
+   * @returns The mock span ID
+   */
+  getCurrentSpanId(): string {
+    return this.mockSpanId;
+  }
+
+  /**
+   * Sets the mock trace ID to return from getCurrentTraceId.
+   * 
+   * @param traceId The mock trace ID to return
+   */
+  setMockTraceId(traceId: string): void {
+    this.mockTraceId = traceId;
+  }
+
+  /**
+   * Sets the mock span ID to return from getCurrentSpanId.
+   * 
+   * @param spanId The mock span ID to return
+   */
+  setMockSpanId(spanId: string): void {
+    this.mockSpanId = spanId;
+  }
+
+  /**
+   * Configures the mock to simulate an error when createSpan is called.
+   * 
+   * @param simulate Whether to simulate an error
+   * @param error The error to throw (defaults to a generic error)
+   */
+  setErrorSimulation(simulate: boolean, error?: Error): void {
+    this.simulateError = simulate;
+    if (error) {
+      this.errorToSimulate = error;
+    }
+  }
+
+  /**
+   * Resets all recorded calls and configurations.
+   * Should be called between tests to ensure a clean state.
    */
   reset(): void {
     this.spanCalls = [];
-    this.shouldThrowError = false;
-    this.errorToThrow = new Error('Mock tracing error');
+    this.mockTraceId = '0123456789abcdef0123456789abcdef';
+    this.mockSpanId = '0123456789abcdef';
+    this.simulateError = false;
+    this.errorToSimulate = new Error('Simulated tracing error');
   }
 
   /**
-   * Configures the mock to throw an error on the next createSpan call
-   * @param error Optional custom error to throw
+   * Checks if a span with the given name was created.
+   * 
+   * @param name The name of the span to check for
+   * @returns True if a span with the given name was created, false otherwise
    */
-  simulateError(error?: Error): void {
-    this.shouldThrowError = true;
-    if (error) {
-      this.errorToThrow = error;
-    }
+  wasSpanCreated(name: string): boolean {
+    return this.spanCalls.some(call => call.name === name);
   }
 
   /**
-   * Gets the number of times createSpan was called with a specific name
-   * @param name The span name to check
-   * @returns The count of matching spans
+   * Gets the number of spans created with the given name.
+   * 
+   * @param name The name of the spans to count
+   * @returns The number of spans created with the given name
    */
-  getSpanCallCount(name?: string): number {
-    if (!name) {
-      return this.spanCalls.length;
-    }
+  getSpanCount(name: string): number {
     return this.spanCalls.filter(call => call.name === name).length;
   }
 
   /**
-   * Checks if createSpan was called with a specific name
-   * @param name The span name to check
-   * @returns True if a matching span was created
+   * Gets all spans created with the given name.
+   * 
+   * @param name The name of the spans to get
+   * @returns An array of spans created with the given name
    */
-  wasSpanCreated(name: string): boolean {
-    return this.spanCalls.some(call => call.name === name);
+  getSpansByName(name: string): Array<{
+    name: string;
+    fn: () => Promise<any>;
+  }> {
+    return this.spanCalls.filter(call => call.name === name);
   }
 }
