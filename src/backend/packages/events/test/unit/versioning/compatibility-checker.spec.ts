@@ -4,511 +4,520 @@
  * principles are correctly applied when determining compatibility between different event versions.
  */
 
-import { EventVersionDto } from '../../../src/dto/event-metadata.dto';
 import {
-  VersionedEventDto,
+  parseVersion,
   compareVersions,
-  isVersionCompatible,
-  registerVersionMigration,
-  createVersionFromString,
-  canMigrate,
-  versionMigrations
-} from '../../../src/dto/version.dto';
+  isVersionSupported,
+  meetsMinimumVersion,
+  checkVersionCompatibility,
+  isEventCompatibleWithVersion,
+  validateEventVersionForHandler,
+  compareSchemas,
+  requiresMajorVersionBump,
+  requiresMinorVersionBump,
+  suggestNextVersion,
+  isBackwardCompatibleChange,
+  checkEventCompatibilityWithHandlers,
+  findHighestCompatibleVersion,
+} from '../../../src/versioning/compatibility-checker';
+
+import { IVersionedEvent } from '../../../src/interfaces';
+import { CompatibilityCheckerConfig } from '../../../src/versioning/types';
+import { IncompatibleVersionError, VersionDetectionError } from '../../../src/versioning/errors';
+import { SUPPORTED_VERSIONS, MINIMUM_SUPPORTED_VERSION } from '../../../src/versioning/constants';
 
 describe('Version Compatibility Checker', () => {
-  // Clear the version migrations registry before each test
-  beforeEach(() => {
-    // Clear all registered migrations
-    Object.keys(versionMigrations).forEach(key => {
-      delete versionMigrations[key];
+  // Mock events for testing
+  const createMockEvent = (version: string, eventId = 'test-event-id', type = 'TEST_EVENT'): IVersionedEvent => ({
+    eventId,
+    type,
+    version,
+    timestamp: new Date().toISOString(),
+    source: 'test-service',
+    payload: { data: 'test-data' },
+  });
+
+  // Sample schemas for testing schema comparison
+  const baseSchema = {
+    id: 'string',
+    name: 'string',
+    age: 'number',
+    active: 'boolean',
+    metadata: {
+      createdAt: 'string',
+      tags: 'array',
+    },
+  };
+
+  const schemaWithAddedField = {
+    ...baseSchema,
+    email: 'string', // Added field (non-breaking change)
+  };
+
+  const schemaWithRemovedField = {
+    ...baseSchema,
+  };
+  delete schemaWithRemovedField.age; // Removed field (breaking change)
+
+  const schemaWithTypeChange = {
+    ...baseSchema,
+    active: 'string', // Type changed from boolean to string (breaking change)
+  };
+
+  const schemaWithNestedChanges = {
+    ...baseSchema,
+    metadata: {
+      ...baseSchema.metadata,
+      updatedAt: 'string', // Added nested field (non-breaking change)
+    },
+  };
+
+  const schemaWithNestedRemovedField = {
+    ...baseSchema,
+    metadata: {
+      createdAt: 'string',
+      // tags removed (breaking change)
+    },
+  };
+
+  describe('parseVersion', () => {
+    it('should correctly parse a valid semantic version', () => {
+      const result = parseVersion('1.2.3');
+      expect(result).toEqual({ major: 1, minor: 2, patch: 3 });
+    });
+
+    it('should correctly parse versions with single digits', () => {
+      const result = parseVersion('1.0.0');
+      expect(result).toEqual({ major: 1, minor: 0, patch: 0 });
+    });
+
+    it('should correctly parse versions with multiple digits', () => {
+      const result = parseVersion('10.20.30');
+      expect(result).toEqual({ major: 10, minor: 20, patch: 30 });
+    });
+
+    it('should throw an error for invalid version formats', () => {
+      expect(() => parseVersion('1.2')).toThrow(VersionDetectionError);
+      expect(() => parseVersion('1.2.3.4')).toThrow(VersionDetectionError);
+      expect(() => parseVersion('1.2.x')).toThrow(VersionDetectionError);
+      expect(() => parseVersion('invalid')).toThrow(VersionDetectionError);
+      expect(() => parseVersion('')).toThrow(VersionDetectionError);
     });
   });
 
   describe('compareVersions', () => {
     it('should return 0 for identical versions', () => {
-      expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
-      expect(compareVersions('2.3.1', '2.3.1')).toBe(0);
+      expect(compareVersions('1.2.3', '1.2.3')).toBe(0);
     });
 
-    it('should return -1 when first version is lower', () => {
-      expect(compareVersions('1.0.0', '2.0.0')).toBe(-1); // Major version lower
-      expect(compareVersions('1.0.0', '1.1.0')).toBe(-1); // Minor version lower
-      expect(compareVersions('1.0.0', '1.0.1')).toBe(-1); // Patch version lower
-      expect(compareVersions('1.2.3', '1.3.0')).toBe(-1); // Minor version lower, different patch
+    it('should return -1 when first version is lower than second', () => {
+      // Major version difference
+      expect(compareVersions('1.2.3', '2.0.0')).toBe(-1);
+      // Minor version difference
+      expect(compareVersions('1.2.3', '1.3.0')).toBe(-1);
+      // Patch version difference
+      expect(compareVersions('1.2.3', '1.2.4')).toBe(-1);
     });
 
-    it('should return 1 when first version is higher', () => {
-      expect(compareVersions('2.0.0', '1.0.0')).toBe(1); // Major version higher
-      expect(compareVersions('1.1.0', '1.0.0')).toBe(1); // Minor version higher
-      expect(compareVersions('1.0.1', '1.0.0')).toBe(1); // Patch version higher
-      expect(compareVersions('2.0.0', '1.9.9')).toBe(1); // Major version higher, despite higher minor/patch
+    it('should return 1 when first version is higher than second', () => {
+      // Major version difference
+      expect(compareVersions('2.0.0', '1.2.3')).toBe(1);
+      // Minor version difference
+      expect(compareVersions('1.3.0', '1.2.3')).toBe(1);
+      // Patch version difference
+      expect(compareVersions('1.2.4', '1.2.3')).toBe(1);
     });
 
-    it('should compare versions with different number of digits correctly', () => {
-      expect(compareVersions('1.0.0', '1.0')).toBe(0); // Treat missing patch as 0
-      expect(compareVersions('1.1', '1.0.0')).toBe(1); // Higher minor version
-      expect(compareVersions('1', '1.0.0')).toBe(0); // Treat missing minor/patch as 0
+    it('should prioritize major over minor and patch versions', () => {
+      expect(compareVersions('2.0.0', '1.9.9')).toBe(1);
+      expect(compareVersions('1.9.9', '2.0.0')).toBe(-1);
+    });
+
+    it('should prioritize minor over patch versions', () => {
+      expect(compareVersions('1.2.0', '1.1.9')).toBe(1);
+      expect(compareVersions('1.1.9', '1.2.0')).toBe(-1);
+    });
+
+    it('should throw an error for invalid version formats', () => {
+      expect(() => compareVersions('1.2', '1.2.3')).toThrow(VersionDetectionError);
+      expect(() => compareVersions('1.2.3', 'invalid')).toThrow(VersionDetectionError);
     });
   });
 
-  describe('isVersionCompatible', () => {
+  describe('isVersionSupported', () => {
+    it('should return true for supported versions', () => {
+      // Using the actual SUPPORTED_VERSIONS from constants
+      SUPPORTED_VERSIONS.forEach(version => {
+        expect(isVersionSupported(version)).toBe(true);
+      });
+    });
+
+    it('should return false for unsupported versions', () => {
+      expect(isVersionSupported('99.99.99')).toBe(false);
+      expect(isVersionSupported('0.0.1')).toBe(false);
+    });
+  });
+
+  describe('meetsMinimumVersion', () => {
+    it('should return true for versions equal to or greater than minimum', () => {
+      // Equal to minimum
+      expect(meetsMinimumVersion(MINIMUM_SUPPORTED_VERSION)).toBe(true);
+      
+      // Greater than minimum
+      const higherVersion = SUPPORTED_VERSIONS.find(
+        v => compareVersions(v, MINIMUM_SUPPORTED_VERSION) > 0
+      );
+      if (higherVersion) {
+        expect(meetsMinimumVersion(higherVersion)).toBe(true);
+      }
+    });
+
+    it('should return false for versions less than minimum', () => {
+      // Create a version lower than the minimum
+      const minParsed = parseVersion(MINIMUM_SUPPORTED_VERSION);
+      const lowerVersion = `${Math.max(0, minParsed.major - 1)}.0.0`;
+      
+      expect(meetsMinimumVersion(lowerVersion)).toBe(false);
+    });
+
+    it('should throw an error for invalid version formats', () => {
+      expect(() => meetsMinimumVersion('invalid')).toThrow(VersionDetectionError);
+    });
+  });
+
+  describe('checkVersionCompatibility', () => {
+    it('should return compatible for identical versions', () => {
+      const result = checkVersionCompatibility('1.2.3', '1.2.3');
+      expect(result.compatible).toBe(true);
+    });
+
+    it('should handle older source version with same major version', () => {
+      // Minor version difference (backward compatible)
+      const result = checkVersionCompatibility('1.1.0', '1.2.0');
+      expect(result.compatible).toBe(true);
+      
+      // Patch version difference (backward compatible)
+      const patchResult = checkVersionCompatibility('1.2.1', '1.2.3');
+      expect(patchResult.compatible).toBe(true);
+    });
+
+    it('should handle older source version with different major version', () => {
+      // Major version difference (breaking change)
+      const result = checkVersionCompatibility('1.0.0', '2.0.0');
+      expect(result.compatible).toBe(false);
+      expect(result.breakingChanges).toBeDefined();
+      expect(result.breakingChanges?.length).toBeGreaterThan(0);
+    });
+
+    it('should handle newer source version based on configuration', () => {
+      // Default config (allowDowngrade: false)
+      const defaultResult = checkVersionCompatibility('2.0.0', '1.0.0');
+      expect(defaultResult.compatible).toBe(false);
+      
+      // Custom config (allowDowngrade: true)
+      const customConfig: CompatibilityCheckerConfig = { allowDowngrade: true };
+      const customResult = checkVersionCompatibility('2.0.0', '1.0.0', customConfig);
+      expect(customResult.compatible).toBe(false); // Still false because major version change
+      
+      // Minor version difference with allowDowngrade
+      const minorResult = checkVersionCompatibility('1.2.0', '1.1.0', customConfig);
+      expect(minorResult.compatible).toBe(true);
+    });
+
+    it('should respect strict mode configuration', () => {
+      // Non-strict mode (default)
+      const nonStrictResult = checkVersionCompatibility('1.2.0', '1.1.0', { allowDowngrade: true });
+      expect(nonStrictResult.compatible).toBe(true);
+      
+      // Strict mode
+      const strictResult = checkVersionCompatibility('1.2.0', '1.1.0', { allowDowngrade: true, strict: true });
+      expect(strictResult.compatible).toBe(false);
+    });
+  });
+
+  describe('isEventCompatibleWithVersion', () => {
+    it('should return compatible for events with matching versions', () => {
+      const event = createMockEvent('1.2.3');
+      const result = isEventCompatibleWithVersion(event, '1.2.3');
+      expect(result.compatible).toBe(true);
+    });
+
+    it('should handle events with older versions correctly', () => {
+      const event = createMockEvent('1.1.0');
+      
+      // Compatible with newer minor version
+      const minorResult = isEventCompatibleWithVersion(event, '1.2.0');
+      expect(minorResult.compatible).toBe(true);
+      
+      // Not compatible with newer major version
+      const majorResult = isEventCompatibleWithVersion(event, '2.0.0');
+      expect(majorResult.compatible).toBe(false);
+    });
+
+    it('should handle events with newer versions based on configuration', () => {
+      const event = createMockEvent('1.2.0');
+      
+      // Default config (allowDowngrade: false)
+      const defaultResult = isEventCompatibleWithVersion(event, '1.1.0');
+      expect(defaultResult.compatible).toBe(false);
+      
+      // Custom config (allowDowngrade: true)
+      const customConfig: CompatibilityCheckerConfig = { allowDowngrade: true };
+      const customResult = isEventCompatibleWithVersion(event, '1.1.0', customConfig);
+      expect(customResult.compatible).toBe(true);
+    });
+
+    it('should throw an error for events without a version', () => {
+      const invalidEvent = { ...createMockEvent('1.0.0'), version: undefined } as any;
+      expect(() => isEventCompatibleWithVersion(invalidEvent, '1.0.0')).toThrow(VersionDetectionError);
+    });
+  });
+
+  describe('validateEventVersionForHandler', () => {
+    it('should not throw for compatible event versions', () => {
+      const event = createMockEvent('1.1.0');
+      expect(() => validateEventVersionForHandler(event, '1.2.0')).not.toThrow();
+    });
+
+    it('should throw IncompatibleVersionError for incompatible versions', () => {
+      const event = createMockEvent('2.0.0');
+      expect(() => validateEventVersionForHandler(event, '1.0.0')).toThrow(IncompatibleVersionError);
+    });
+
+    it('should respect configuration options', () => {
+      const event = createMockEvent('1.2.0');
+      
+      // Default config (allowDowngrade: false)
+      expect(() => validateEventVersionForHandler(event, '1.1.0')).toThrow(IncompatibleVersionError);
+      
+      // Custom config (allowDowngrade: true)
+      const customConfig: CompatibilityCheckerConfig = { allowDowngrade: true };
+      expect(() => validateEventVersionForHandler(event, '1.1.0', customConfig)).not.toThrow();
+    });
+  });
+
+  describe('compareSchemas', () => {
+    it('should identify identical schemas as compatible', () => {
+      const result = compareSchemas(baseSchema, baseSchema);
+      expect(result.compatible).toBe(true);
+      expect(result.differences.length).toBe(0);
+      expect(result.breakingChanges.length).toBe(0);
+    });
+
+    it('should identify added fields as non-breaking changes', () => {
+      const result = compareSchemas(baseSchema, schemaWithAddedField);
+      expect(result.compatible).toBe(true);
+      expect(result.differences.length).toBeGreaterThan(0);
+      expect(result.breakingChanges.length).toBe(0);
+      
+      // Verify the difference is correctly identified
+      const addedField = result.differences.find(d => d.path === 'email');
+      expect(addedField).toBeDefined();
+      expect(addedField?.type).toBe('added');
+      expect(addedField?.breaking).toBe(false);
+    });
+
+    it('should identify removed fields as breaking changes', () => {
+      const result = compareSchemas(baseSchema, schemaWithRemovedField);
+      expect(result.compatible).toBe(false);
+      expect(result.breakingChanges.length).toBeGreaterThan(0);
+      
+      // Verify the breaking change is correctly identified
+      const removedField = result.breakingChanges.find(d => d.path === 'age');
+      expect(removedField).toBeDefined();
+      expect(removedField?.type).toBe('removed');
+      expect(removedField?.breaking).toBe(true);
+    });
+
+    it('should identify type changes as breaking changes', () => {
+      const result = compareSchemas(baseSchema, schemaWithTypeChange);
+      expect(result.compatible).toBe(false);
+      expect(result.breakingChanges.length).toBeGreaterThan(0);
+      
+      // Verify the breaking change is correctly identified
+      const typeChange = result.breakingChanges.find(d => d.path === 'active');
+      expect(typeChange).toBeDefined();
+      expect(typeChange?.type).toBe('type_changed');
+      expect(typeChange?.sourceType).toBe('boolean');
+      expect(typeChange?.targetType).toBe('string');
+      expect(typeChange?.breaking).toBe(true);
+    });
+
+    it('should correctly analyze nested schema changes', () => {
+      // Added nested field (non-breaking)
+      const addedResult = compareSchemas(baseSchema, schemaWithNestedChanges);
+      expect(addedResult.compatible).toBe(true);
+      
+      // Verify the nested addition is correctly identified
+      const addedNestedField = addedResult.differences.find(d => d.path === 'metadata.updatedAt');
+      expect(addedNestedField).toBeDefined();
+      expect(addedNestedField?.type).toBe('added');
+      expect(addedNestedField?.breaking).toBe(false);
+      
+      // Removed nested field (breaking)
+      const removedResult = compareSchemas(baseSchema, schemaWithNestedRemovedField);
+      expect(removedResult.compatible).toBe(false);
+      
+      // Verify the nested removal is correctly identified
+      const removedNestedField = removedResult.breakingChanges.find(d => d.path === 'metadata.tags');
+      expect(removedNestedField).toBeDefined();
+      expect(removedNestedField?.type).toBe('removed');
+      expect(removedNestedField?.breaking).toBe(true);
+    });
+  });
+
+  describe('requiresMajorVersionBump', () => {
+    it('should return false for identical schemas', () => {
+      expect(requiresMajorVersionBump(baseSchema, baseSchema)).toBe(false);
+    });
+
+    it('should return false for non-breaking changes', () => {
+      expect(requiresMajorVersionBump(baseSchema, schemaWithAddedField)).toBe(false);
+      expect(requiresMajorVersionBump(baseSchema, schemaWithNestedChanges)).toBe(false);
+    });
+
+    it('should return true for breaking changes', () => {
+      expect(requiresMajorVersionBump(baseSchema, schemaWithRemovedField)).toBe(true);
+      expect(requiresMajorVersionBump(baseSchema, schemaWithTypeChange)).toBe(true);
+      expect(requiresMajorVersionBump(baseSchema, schemaWithNestedRemovedField)).toBe(true);
+    });
+  });
+
+  describe('requiresMinorVersionBump', () => {
+    it('should return false for identical schemas', () => {
+      expect(requiresMinorVersionBump(baseSchema, baseSchema)).toBe(false);
+    });
+
+    it('should return true for non-breaking changes', () => {
+      expect(requiresMinorVersionBump(baseSchema, schemaWithAddedField)).toBe(true);
+      expect(requiresMinorVersionBump(baseSchema, schemaWithNestedChanges)).toBe(true);
+    });
+
+    it('should return false for breaking changes (requires major bump instead)', () => {
+      expect(requiresMinorVersionBump(baseSchema, schemaWithRemovedField)).toBe(false);
+      expect(requiresMinorVersionBump(baseSchema, schemaWithTypeChange)).toBe(false);
+      expect(requiresMinorVersionBump(baseSchema, schemaWithNestedRemovedField)).toBe(false);
+    });
+  });
+
+  describe('suggestNextVersion', () => {
+    it('should suggest patch bump for identical schemas', () => {
+      expect(suggestNextVersion('1.2.3', baseSchema, baseSchema)).toBe('1.2.4');
+    });
+
+    it('should suggest minor bump for non-breaking changes', () => {
+      expect(suggestNextVersion('1.2.3', baseSchema, schemaWithAddedField)).toBe('1.3.0');
+      expect(suggestNextVersion('1.2.3', baseSchema, schemaWithNestedChanges)).toBe('1.3.0');
+    });
+
+    it('should suggest major bump for breaking changes', () => {
+      expect(suggestNextVersion('1.2.3', baseSchema, schemaWithRemovedField)).toBe('2.0.0');
+      expect(suggestNextVersion('1.2.3', baseSchema, schemaWithTypeChange)).toBe('2.0.0');
+      expect(suggestNextVersion('1.2.3', baseSchema, schemaWithNestedRemovedField)).toBe('2.0.0');
+    });
+
+    it('should handle different starting versions correctly', () => {
+      expect(suggestNextVersion('0.9.5', baseSchema, schemaWithAddedField)).toBe('0.10.0');
+      expect(suggestNextVersion('2.0.0', baseSchema, schemaWithRemovedField)).toBe('3.0.0');
+    });
+  });
+
+  describe('isBackwardCompatibleChange', () => {
     it('should return true for identical versions', () => {
-      expect(isVersionCompatible('1.0.0', '1.0.0')).toBe(true);
-      expect(isVersionCompatible('2.3.1', '2.3.1')).toBe(true);
+      expect(isBackwardCompatibleChange('1.2.3', '1.2.3')).toBe(true);
     });
 
-    it('should return false when major versions differ', () => {
-      expect(isVersionCompatible('1.0.0', '2.0.0')).toBe(false);
-      expect(isVersionCompatible('2.0.0', '1.0.0')).toBe(false);
-      expect(isVersionCompatible('1.9.9', '2.0.0')).toBe(false);
+    it('should return true for minor and patch version increases', () => {
+      // Minor version increase
+      expect(isBackwardCompatibleChange('1.2.3', '1.3.0')).toBe(true);
+      
+      // Patch version increase
+      expect(isBackwardCompatibleChange('1.2.3', '1.2.4')).toBe(true);
     });
 
-    it('should return true when current minor version is higher than required', () => {
-      expect(isVersionCompatible('1.2.0', '1.1.0')).toBe(true);
-      expect(isVersionCompatible('1.5.0', '1.0.0')).toBe(true);
+    it('should return false for major version increases', () => {
+      expect(isBackwardCompatibleChange('1.2.3', '2.0.0')).toBe(false);
     });
 
-    it('should return false when current minor version is lower than required', () => {
-      expect(isVersionCompatible('1.1.0', '1.2.0')).toBe(false);
-      expect(isVersionCompatible('1.0.0', '1.5.0')).toBe(false);
+    it('should return true for version decreases with same major version', () => {
+      // Minor version decrease
+      expect(isBackwardCompatibleChange('1.3.0', '1.2.0')).toBe(true);
+      
+      // Patch version decrease
+      expect(isBackwardCompatibleChange('1.2.3', '1.2.2')).toBe(true);
     });
 
-    it('should return true when minor versions match and current patch is higher or equal', () => {
-      expect(isVersionCompatible('1.1.2', '1.1.1')).toBe(true);
-      expect(isVersionCompatible('1.1.1', '1.1.1')).toBe(true);
-    });
-
-    it('should return false when minor versions match but current patch is lower', () => {
-      expect(isVersionCompatible('1.1.0', '1.1.1')).toBe(false);
-      expect(isVersionCompatible('1.1.2', '1.1.3')).toBe(false);
+    it('should return false for major version decreases', () => {
+      expect(isBackwardCompatibleChange('2.0.0', '1.0.0')).toBe(false);
     });
   });
 
-  describe('VersionedEventDto', () => {
-    it('should create a versioned event with default version 1.0.0', () => {
-      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' });
-      expect(event.eventType).toBe('TEST_EVENT');
-      expect(event.payload).toEqual({ data: 'test' });
-      expect(event.getVersionString()).toBe('1.0.0');
+  describe('checkEventCompatibilityWithHandlers', () => {
+    it('should return compatibility results for all handler versions', () => {
+      const event = createMockEvent('1.2.0');
+      const handlerVersions = ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '2.0.0'];
+      
+      const results = checkEventCompatibilityWithHandlers(event, handlerVersions);
+      
+      expect(results.size).toBe(handlerVersions.length);
+      
+      // Event should be compatible with same or older minor versions
+      expect(results.get('1.2.0')?.compatible).toBe(true);
+      expect(results.get('1.3.0')?.compatible).toBe(true);
+      
+      // Event should not be compatible with newer major versions
+      expect(results.get('2.0.0')?.compatible).toBe(false);
+      
+      // Event should not be compatible with older versions by default
+      expect(results.get('1.0.0')?.compatible).toBe(false);
+      expect(results.get('1.1.0')?.compatible).toBe(false);
     });
 
-    it('should create a versioned event with specified version', () => {
-      const version = new EventVersionDto();
-      version.major = '2';
-      version.minor = '1';
-      version.patch = '3';
-
-      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
-      expect(event.getVersionString()).toBe('2.1.3');
-    });
-
-    it('should correctly check compatibility with required version', () => {
-      const version = new EventVersionDto();
-      version.major = '2';
-      version.minor = '3';
-      version.patch = '1';
-
-      const event = new VersionedEventDto('TEST_EVENT', { data: 'test' }, version);
-
-      // Same major version, lower or equal minor/patch versions are compatible
-      expect(event.isCompatibleWith('2.3.1')).toBe(true);
-      expect(event.isCompatibleWith('2.3.0')).toBe(true);
-      expect(event.isCompatibleWith('2.2.5')).toBe(true);
-      expect(event.isCompatibleWith('2.0.0')).toBe(true);
-
-      // Same major version, higher minor version is not compatible
-      expect(event.isCompatibleWith('2.4.0')).toBe(false);
-
-      // Same major/minor version, higher patch version is not compatible
-      expect(event.isCompatibleWith('2.3.2')).toBe(false);
-
-      // Different major version is not compatible
-      expect(event.isCompatibleWith('1.0.0')).toBe(false);
-      expect(event.isCompatibleWith('3.0.0')).toBe(false);
+    it('should respect configuration options', () => {
+      const event = createMockEvent('1.2.0');
+      const handlerVersions = ['1.0.0', '1.1.0', '1.2.0'];
+      const config: CompatibilityCheckerConfig = { allowDowngrade: true };
+      
+      const results = checkEventCompatibilityWithHandlers(event, handlerVersions, config);
+      
+      // With allowDowngrade, event should be compatible with older minor versions
+      expect(results.get('1.0.0')?.compatible).toBe(true);
+      expect(results.get('1.1.0')?.compatible).toBe(true);
+      expect(results.get('1.2.0')?.compatible).toBe(true);
     });
   });
 
-  describe('Migration and Compatibility', () => {
-    const TEST_EVENT_TYPE = 'USER_PROFILE_UPDATED';
-
-    // Define test schemas for different versions
-    interface UserProfileV1 {
-      userId: string;
-      name: string;
-      email: string;
-    }
-
-    interface UserProfileV1_1 extends UserProfileV1 {
-      phoneNumber?: string; // Optional new field (backward compatible)
-    }
-
-    interface UserProfileV2 {
-      userId: string;
-      fullName: string; // Breaking change: renamed from 'name'
-      email: string;
-      phoneNumber?: string;
-      preferences?: { // New nested object
-        language: string;
-        theme: string;
-      };
-    }
-
-    beforeEach(() => {
-      // Register migrations between versions
-      registerVersionMigration<UserProfileV1_1>(
-        TEST_EVENT_TYPE,
-        '1.0.0',
-        '1.1.0',
-        (oldData: UserProfileV1) => {
-          return {
-            ...oldData,
-            phoneNumber: undefined // Add new optional field with undefined value
-          };
-        }
-      );
-
-      registerVersionMigration<UserProfileV2>(
-        TEST_EVENT_TYPE,
-        '1.1.0',
-        '2.0.0',
-        (oldData: UserProfileV1_1) => {
-          return {
-            userId: oldData.userId,
-            fullName: oldData.name, // Rename field (breaking change)
-            email: oldData.email,
-            phoneNumber: oldData.phoneNumber,
-            preferences: {
-              language: 'pt-BR', // Default value
-              theme: 'light' // Default value
-            }
-          };
-        }
-      );
+  describe('findHighestCompatibleVersion', () => {
+    it('should find the highest compatible version', () => {
+      const event = createMockEvent('1.2.0');
+      const availableVersions = ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '2.0.0'];
+      
+      // Default config (no downgrade allowed)
+      const result = findHighestCompatibleVersion(event, availableVersions);
+      expect(result).toBe('1.4.0'); // Highest compatible version with same major
     });
 
-    it('should detect compatibility between minor version updates', () => {
-      const v1Event = new VersionedEventDto<UserProfileV1>(
-        TEST_EVENT_TYPE,
-        { userId: '123', name: 'John Doe', email: 'john@example.com' }
-      );
-
-      // v1.1.0 should be compatible with v1.0.0 consumers (backward compatible)
-      const v1_1Version = createVersionFromString('1.1.0');
-      const v1_1Event = new VersionedEventDto<UserProfileV1_1>(
-        TEST_EVENT_TYPE,
-        { userId: '123', name: 'John Doe', email: 'john@example.com', phoneNumber: '123-456-7890' },
-        v1_1Version
-      );
-
-      // v1.0.0 consumer can process v1.1.0 event (backward compatible)
-      expect(v1_1Event.isCompatibleWith('1.0.0')).toBe(false); // This is false because minor version is higher
+    it('should return null if no compatible versions are found', () => {
+      const event = createMockEvent('2.0.0');
+      const availableVersions = ['1.0.0', '1.1.0', '1.2.0'];
       
-      // But v1.1.0 consumer cannot process v1.0.0 event (missing new fields)
-      expect(v1Event.isCompatibleWith('1.1.0')).toBe(false);
+      // No compatible versions (all lower major version)
+      const result = findHighestCompatibleVersion(event, availableVersions);
+      expect(result).toBeNull();
     });
 
-    it('should detect incompatibility between major version updates', () => {
-      const v1Event = new VersionedEventDto<UserProfileV1>(
-        TEST_EVENT_TYPE,
-        { userId: '123', name: 'John Doe', email: 'john@example.com' }
-      );
-
-      const v2Version = createVersionFromString('2.0.0');
-      const v2Event = new VersionedEventDto<UserProfileV2>(
-        TEST_EVENT_TYPE,
-        {
-          userId: '123',
-          fullName: 'John Doe', // Breaking change: renamed field
-          email: 'john@example.com',
-          phoneNumber: '123-456-7890',
-          preferences: {
-            language: 'pt-BR',
-            theme: 'dark'
-          }
-        },
-        v2Version
-      );
-
-      // v1.0.0 consumer cannot process v2.0.0 event (breaking changes)
-      expect(v2Event.isCompatibleWith('1.0.0')).toBe(false);
+    it('should respect configuration options', () => {
+      const event = createMockEvent('1.2.0');
+      const availableVersions = ['1.0.0', '1.1.0', '1.3.0', '2.0.0'];
       
-      // v2.0.0 consumer cannot process v1.0.0 event (missing required fields)
-      expect(v1Event.isCompatibleWith('2.0.0')).toBe(false);
-    });
-
-    it('should successfully migrate events between versions', () => {
-      // Create a v1.0.0 event
-      const v1Event = new VersionedEventDto<UserProfileV1>(
-        TEST_EVENT_TYPE,
-        { userId: '123', name: 'John Doe', email: 'john@example.com' }
-      );
-
-      // Migrate to v1.1.0
-      const v1_1Event = v1Event.migrateToVersion('1.1.0');
-      expect(v1_1Event.getVersionString()).toBe('1.1.0');
-      expect(v1_1Event.payload).toEqual({
-        userId: '123',
-        name: 'John Doe',
-        email: 'john@example.com',
-        phoneNumber: undefined
-      });
-
-      // Migrate to v2.0.0
-      const v2Event = v1_1Event.migrateToVersion('2.0.0');
-      expect(v2Event.getVersionString()).toBe('2.0.0');
-      expect(v2Event.payload).toEqual({
-        userId: '123',
-        fullName: 'John Doe', // Field renamed
-        email: 'john@example.com',
-        phoneNumber: undefined,
-        preferences: {
-          language: 'pt-BR',
-          theme: 'light'
-        }
-      });
-    });
-
-    it('should migrate directly from v1.0.0 to v2.0.0 using multiple steps', () => {
-      // Create a v1.0.0 event
-      const v1Event = new VersionedEventDto<UserProfileV1>(
-        TEST_EVENT_TYPE,
-        { userId: '123', name: 'John Doe', email: 'john@example.com' }
-      );
-
-      // Migrate directly to v2.0.0 (should apply both migrations in sequence)
-      const v2Event = v1Event.migrateToVersion('2.0.0');
-      expect(v2Event.getVersionString()).toBe('2.0.0');
-      expect(v2Event.payload).toEqual({
-        userId: '123',
-        fullName: 'John Doe',
-        email: 'john@example.com',
-        phoneNumber: undefined,
-        preferences: {
-          language: 'pt-BR',
-          theme: 'light'
-        }
-      });
-    });
-
-    it('should check if migration path exists between versions', () => {
-      expect(canMigrate(TEST_EVENT_TYPE, '1.0.0', '1.1.0')).toBe(true);
-      expect(canMigrate(TEST_EVENT_TYPE, '1.1.0', '2.0.0')).toBe(true);
-      expect(canMigrate(TEST_EVENT_TYPE, '1.0.0', '2.0.0')).toBe(true); // Multi-step migration
-      expect(canMigrate(TEST_EVENT_TYPE, '2.0.0', '1.0.0')).toBe(false); // Cannot downgrade
-      expect(canMigrate('UNKNOWN_EVENT', '1.0.0', '2.0.0')).toBe(false); // Unknown event type
-    });
-  });
-
-  describe('Schema-based Compatibility Analysis', () => {
-    // Define test schemas for different versions
-    interface BaseEvent {
-      eventId: string;
-      timestamp: string;
-    }
-
-    interface SchemaV1 extends BaseEvent {
-      data: {
-        id: number;
-        name: string;
-        active: boolean;
-      };
-    }
-
-    interface SchemaV1_1 extends BaseEvent {
-      data: {
-        id: number;
-        name: string;
-        active: boolean;
-        tags?: string[]; // New optional field (backward compatible)
-      };
-    }
-
-    interface SchemaV2 extends BaseEvent {
-      data: {
-        identifier: number; // Renamed from 'id' (breaking change)
-        name: string;
-        status: boolean; // Renamed from 'active' (breaking change)
-        tags?: string[];
-        metadata?: Record<string, unknown>; // New optional field
-      };
-    }
-
-    it('should identify non-breaking changes between schema versions', () => {
-      // Create sample events
-      const v1Event: SchemaV1 = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          id: 1,
-          name: 'Test',
-          active: true
-        }
-      };
-
-      const v1_1Event: SchemaV1_1 = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          id: 1,
-          name: 'Test',
-          active: true,
-          tags: ['test', 'sample']
-        }
-      };
-
-      // Verify v1 consumer can process v1 event
-      const v1CanProcessV1 = Object.keys(v1Event.data).every(key => 
-        Object.prototype.hasOwnProperty.call(v1Event.data, key)
-      );
-      expect(v1CanProcessV1).toBe(true);
-
-      // Verify v1 consumer can process v1.1 event (ignoring extra fields)
-      const v1CanProcessV1_1 = Object.keys(v1Event.data).every(key => 
-        Object.prototype.hasOwnProperty.call(v1_1Event.data, key)
-      );
-      expect(v1CanProcessV1_1).toBe(true);
-
-      // Verify v1.1 consumer cannot process v1 event (missing optional fields is ok)
-      const v1_1CanProcessV1 = Object.keys(v1_1Event.data)
-        .filter(key => key !== 'tags') // Filter out optional fields
-        .every(key => Object.prototype.hasOwnProperty.call(v1Event.data, key));
-      expect(v1_1CanProcessV1).toBe(true);
-    });
-
-    it('should identify breaking changes between schema versions', () => {
-      // Create sample events
-      const v1Event: SchemaV1 = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          id: 1,
-          name: 'Test',
-          active: true
-        }
-      };
-
-      const v2Event: SchemaV2 = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          identifier: 1, // Renamed from 'id'
-          name: 'Test',
-          status: true, // Renamed from 'active'
-          tags: ['test', 'sample'],
-          metadata: { version: '2.0.0' }
-        }
-      };
-
-      // Verify v1 consumer cannot process v2 event (missing required fields)
-      const v1CanProcessV2 = Object.keys(v1Event.data).every(key => 
-        Object.prototype.hasOwnProperty.call(v2Event.data, key)
-      );
-      expect(v1CanProcessV2).toBe(false); // Should fail because 'id' and 'active' are missing
-
-      // Verify v2 consumer cannot process v1 event (missing required fields)
-      const v2CanProcessV1 = Object.keys(v2Event.data)
-        .filter(key => !['tags', 'metadata'].includes(key)) // Filter out optional fields
-        .every(key => Object.prototype.hasOwnProperty.call(v1Event.data, key));
-      expect(v2CanProcessV1).toBe(false); // Should fail because 'identifier' and 'status' are missing
-    });
-
-    it('should detect type compatibility issues', () => {
-      // Create events with type mismatches
-      const v1Event: SchemaV1 = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          id: 1,
-          name: 'Test',
-          active: true
-        }
-      };
-
-      // Event with type mismatch (string instead of number for id)
-      const v1EventTypeMismatch = {
-        eventId: '123',
-        timestamp: '2023-01-01T00:00:00Z',
-        data: {
-          id: '1', // Type mismatch: string instead of number
-          name: 'Test',
-          active: true
-        }
-      };
-
-      // Simple type check function
-      const checkTypeCompatibility = (expected: any, actual: any): boolean => {
-        return typeof expected === typeof actual;
-      };
-
-      // Check type compatibility for each field
-      const isTypeCompatible = Object.keys(v1Event.data).every(key => 
-        checkTypeCompatibility(v1Event.data[key], v1EventTypeMismatch.data[key])
-      );
-
-      expect(isTypeCompatible).toBe(false); // Should fail due to type mismatch
-    });
-  });
-
-  describe('Strict vs. Relaxed Compatibility Modes', () => {
-    // Define a function to check compatibility in strict mode
-    const isStrictCompatible = (requiredVersion: string, actualVersion: string): boolean => {
-      // In strict mode, versions must match exactly
-      return requiredVersion === actualVersion;
-    };
-
-    // Define a function to check compatibility in relaxed mode (semantic versioning)
-    const isRelaxedCompatible = (requiredVersion: string, actualVersion: string): boolean => {
-      return isVersionCompatible(actualVersion, requiredVersion);
-    };
-
-    it('should enforce exact version match in strict mode', () => {
-      expect(isStrictCompatible('1.0.0', '1.0.0')).toBe(true);
-      expect(isStrictCompatible('1.0.0', '1.0.1')).toBe(false);
-      expect(isStrictCompatible('1.0.0', '1.1.0')).toBe(false);
-      expect(isStrictCompatible('1.0.0', '2.0.0')).toBe(false);
-    });
-
-    it('should allow compatible versions in relaxed mode', () => {
-      // Same version is compatible
-      expect(isRelaxedCompatible('1.0.0', '1.0.0')).toBe(true);
+      // Strict mode should require exact version match
+      const strictConfig: CompatibilityCheckerConfig = { strict: true };
+      const strictResult = findHighestCompatibleVersion(event, availableVersions, strictConfig);
+      expect(strictResult).toBeNull(); // No exact match
       
-      // Higher patch version is compatible
-      expect(isRelaxedCompatible('1.0.0', '1.0.1')).toBe(true);
-      
-      // Higher minor version is compatible
-      expect(isRelaxedCompatible('1.0.0', '1.1.0')).toBe(true);
-      expect(isRelaxedCompatible('1.0.0', '1.2.0')).toBe(true);
-      
-      // Different major version is not compatible
-      expect(isRelaxedCompatible('1.0.0', '2.0.0')).toBe(false);
-      expect(isRelaxedCompatible('2.0.0', '1.0.0')).toBe(false);
-      
-      // Lower minor version is not compatible
-      expect(isRelaxedCompatible('1.2.0', '1.1.0')).toBe(false);
-      
-      // Lower patch version with same minor is not compatible
-      expect(isRelaxedCompatible('1.1.2', '1.1.1')).toBe(false);
-    });
-
-    it('should demonstrate real-world compatibility scenarios', () => {
-      // Producer sends event with version 1.2.3
-      const producerVersion = '1.2.3';
-      
-      // Scenario 1: Consumer requires exact version match (strict mode)
-      const strictConsumerVersion = '1.2.3';
-      expect(isStrictCompatible(strictConsumerVersion, producerVersion)).toBe(true);
-      
-      // Scenario 2: Consumer requires minimum version 1.1.0 (relaxed mode)
-      const relaxedConsumerVersion = '1.1.0';
-      expect(isRelaxedCompatible(relaxedConsumerVersion, producerVersion)).toBe(true);
-      
-      // Scenario 3: Consumer requires version 1.3.0 (not compatible)
-      const incompatibleConsumerVersion = '1.3.0';
-      expect(isRelaxedCompatible(incompatibleConsumerVersion, producerVersion)).toBe(false);
-      
-      // Scenario 4: Consumer requires version 2.0.0 (not compatible - major version change)
-      const majorChangeConsumerVersion = '2.0.0';
-      expect(isRelaxedCompatible(majorChangeConsumerVersion, producerVersion)).toBe(false);
+      // Non-strict mode should find compatible version
+      const nonStrictResult = findHighestCompatibleVersion(event, availableVersions);
+      expect(nonStrictResult).toBe('1.3.0');
     });
   });
 });
