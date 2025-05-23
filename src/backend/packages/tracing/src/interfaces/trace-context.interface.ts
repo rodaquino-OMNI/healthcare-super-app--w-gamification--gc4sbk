@@ -1,197 +1,223 @@
-import { Context, SpanContext } from '@opentelemetry/api';
-import { IncomingHttpHeaders, OutgoingHttpHeaders } from 'http';
-import { KafkaMessage } from 'kafkajs';
-
 /**
- * Interface representing journey-specific context information
+ * @file trace-context.interface.ts
+ * @description Defines the TraceContext interface for managing and propagating trace context
+ * across service boundaries. This interface enables correlation of traces through different
+ * components of the application, supporting end-to-end observability.
+ *
+ * @module @austa/tracing/interfaces
  */
-export interface JourneyContextInfo {
-  /** Type of journey (health, care, plan) */
-  journeyType: 'health' | 'care' | 'plan';
-  
-  /** Unique identifier for the journey instance */
-  journeyId: string;
-  
-  /** Optional user identifier associated with the journey */
-  userId?: string;
-  
-  /** Optional session identifier associated with the journey */
-  sessionId?: string;
-  
-  /** Optional request identifier for correlation */
-  requestId?: string;
-}
+
+import { Context } from '@opentelemetry/api';
+import { JourneyContext, JourneyType } from './journey-context.interface';
+import { SpanAttributes } from './span-attributes.interface';
 
 /**
- * Interface for managing and propagating trace context across service boundaries.
- * 
- * The TraceContext interface enables correlation of traces through different components
- * of the application, supporting end-to-end observability. It provides methods for
- * extracting and injecting context across service boundaries, as well as utilities
- * for context serialization and deserialization.
+ * Interface for managing trace context across service boundaries.
+ * Provides methods for extracting, injecting, and propagating trace context
+ * throughout the AUSTA SuperApp ecosystem.
  */
 export interface TraceContext {
   /**
-   * Gets the underlying OpenTelemetry Context object
-   * @returns The OpenTelemetry Context object
+   * Extracts trace context from carrier object (e.g., HTTP headers, Kafka message headers)
+   * @param carrier The carrier object containing the serialized context
+   * @param format The format of the carrier (default: HTTP headers)
+   * @returns OpenTelemetry Context object with the extracted context
    */
-  getContext(): Context;
-  
+  extract<T extends object>(carrier: T, format?: PropagationFormat): Context;
+
   /**
-   * Gets the current active span context
-   * @returns The current SpanContext or undefined if no span is active
+   * Injects the current trace context into a carrier object for propagation
+   * @param context The OpenTelemetry Context to inject
+   * @param carrier The carrier object to inject the context into
+   * @param format The format of the carrier (default: HTTP headers)
    */
-  getSpanContext(): SpanContext | undefined;
-  
+  inject<T extends object>(context: Context, carrier: T, format?: PropagationFormat): void;
+
   /**
-   * Gets the trace ID from the current context
-   * @returns The trace ID or undefined if no trace is active
+   * Gets the current active trace context
+   * @returns The current OpenTelemetry Context
    */
-  getTraceId(): string | undefined;
-  
+  getCurrentContext(): Context;
+
   /**
-   * Gets the span ID from the current context
-   * @returns The span ID or undefined if no span is active
+   * Sets the current active trace context
+   * @param context The OpenTelemetry Context to set as active
+   * @returns A function that restores the previous context when called
    */
-  getSpanId(): string | undefined;
-  
+  setCurrentContext(context: Context): () => void;
+
   /**
-   * Gets the trace flags from the current context
-   * @returns The trace flags or undefined if no trace is active
+   * Creates a new child context from the current context
+   * @param attributes Optional attributes to add to the new context
+   * @returns A new OpenTelemetry Context derived from the current one
    */
-  getTraceFlags(): number | undefined;
-  
+  createChildContext(attributes?: SpanAttributes): Context;
+
   /**
-   * Checks if the current context is sampled (will be recorded)
-   * @returns True if the context is sampled, false otherwise
+   * Extracts the trace ID from the given context
+   * @param context The OpenTelemetry Context to extract from (defaults to current context)
+   * @returns The trace ID as a string, or undefined if not available
    */
-  isSampled(): boolean;
-  
+  getTraceId(context?: Context): string | undefined;
+
   /**
-   * Extracts trace context from HTTP headers
-   * @param headers HTTP headers containing trace context
-   * @returns A new TraceContext instance with the extracted context
+   * Extracts the span ID from the given context
+   * @param context The OpenTelemetry Context to extract from (defaults to current context)
+   * @returns The span ID as a string, or undefined if not available
    */
-  extractFromHttpHeaders(headers: IncomingHttpHeaders): TraceContext;
-  
+  getSpanId(context?: Context): string | undefined;
+
   /**
-   * Injects the current trace context into HTTP headers
-   * @param headers HTTP headers object to inject context into
-   * @returns The headers with injected trace context
+   * Adds journey context to the trace context for business context correlation
+   * @param journeyContext The journey context to add
+   * @param context The OpenTelemetry Context to add to (defaults to current context)
+   * @returns A new OpenTelemetry Context with the journey context added
    */
-  injectIntoHttpHeaders(headers: OutgoingHttpHeaders): OutgoingHttpHeaders;
-  
-  /**
-   * Extracts trace context from Kafka message headers
-   * @param message Kafka message containing trace context in headers
-   * @returns A new TraceContext instance with the extracted context
-   */
-  extractFromKafkaMessage(message: KafkaMessage): TraceContext;
-  
-  /**
-   * Injects the current trace context into Kafka message headers
-   * @param message Kafka message to inject trace context into
-   * @returns The message with injected trace context
-   */
-  injectIntoKafkaMessage(message: KafkaMessage): KafkaMessage;
-  
-  /**
-   * Serializes the trace context to a string for storage or transmission
-   * @returns Serialized context as a string
-   */
-  serialize(): string;
-  
-  /**
-   * Creates a new TraceContext from a serialized string
-   * @param serialized Serialized context string
-   * @returns A new TraceContext instance with the deserialized context
-   */
-  deserialize(serialized: string): TraceContext;
-  
-  /**
-   * Adds journey-specific context to the trace context
-   * @param journeyContext Journey context information
-   * @returns A new TraceContext instance with the added journey context
-   */
-  withJourneyContext(journeyContext: JourneyContextInfo): TraceContext;
-  
+  withJourneyContext(journeyContext: JourneyContext, context?: Context): Context;
+
   /**
    * Extracts journey context from the trace context
-   * @returns Journey context information if available, undefined otherwise
+   * @param context The OpenTelemetry Context to extract from (defaults to current context)
+   * @returns The journey context if available, or undefined
    */
-  getJourneyContext(): JourneyContextInfo | undefined;
-  
+  getJourneyContext(context?: Context): JourneyContext | undefined;
+
   /**
-   * Creates a new trace context for a health journey
-   * @param journeyId Unique identifier for the health journey
-   * @param userId Optional user identifier
-   * @param sessionId Optional session identifier
-   * @param requestId Optional request identifier
-   * @returns A new TraceContext instance with health journey context
+   * Extracts journey type from the trace context
+   * @param context The OpenTelemetry Context to extract from (defaults to current context)
+   * @returns The journey type if available, or undefined
    */
-  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
-  
+  getJourneyType(context?: Context): JourneyType | undefined;
+
   /**
-   * Creates a new trace context for a care journey
-   * @param journeyId Unique identifier for the care journey
-   * @param userId Optional user identifier
-   * @param sessionId Optional session identifier
-   * @param requestId Optional request identifier
-   * @returns A new TraceContext instance with care journey context
+   * Adds correlation ID to the trace context for connecting logs, traces, and metrics
+   * @param correlationId The correlation ID to add
+   * @param context The OpenTelemetry Context to add to (defaults to current context)
+   * @returns A new OpenTelemetry Context with the correlation ID added
    */
-  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
-  
+  withCorrelationId(correlationId: string, context?: Context): Context;
+
   /**
-   * Creates a new trace context for a plan journey
-   * @param journeyId Unique identifier for the plan journey
-   * @param userId Optional user identifier
-   * @param sessionId Optional session identifier
-   * @param requestId Optional request identifier
-   * @returns A new TraceContext instance with plan journey context
+   * Extracts correlation ID from the trace context
+   * @param context The OpenTelemetry Context to extract from (defaults to current context)
+   * @returns The correlation ID if available, or undefined
    */
-  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext;
-  
+  getCorrelationId(context?: Context): string | undefined;
+
   /**
-   * Gets correlation information for connecting logs, traces, and metrics
-   * @returns Object containing correlation IDs (trace ID, span ID, etc.)
+   * Serializes the trace context to a string for storage or transmission
+   * @param context The OpenTelemetry Context to serialize (defaults to current context)
+   * @returns A string representation of the context
    */
-  getCorrelationInfo(): {
-    traceId: string | undefined;
-    spanId: string | undefined;
-    traceFlags: number | undefined;
-    isSampled: boolean;
-    journeyType?: 'health' | 'care' | 'plan';
-    journeyId?: string;
-    userId?: string;
-    sessionId?: string;
-    requestId?: string;
-  };
-  
+  serializeContext(context?: Context): string;
+
   /**
-   * Creates a log context object with trace information for structured logging
-   * @param additionalContext Additional context to include in the log
-   * @returns Object containing trace context for logging
+   * Deserializes a string back into a trace context
+   * @param serialized The serialized context string
+   * @returns An OpenTelemetry Context object
    */
-  createLogContext(additionalContext?: Record<string, any>): Record<string, any>;
-  
+  deserializeContext(serialized: string): Context;
+
   /**
-   * Creates a new trace context with additional attributes
-   * @param attributes Attributes to add to the trace context
-   * @returns A new TraceContext instance with the added attributes
+   * Creates a context for an external system integration
+   * @param externalSystemName Name of the external system
+   * @param attributes Additional attributes for the external system
+   * @param context The OpenTelemetry Context to base on (defaults to current context)
+   * @returns A new OpenTelemetry Context for the external system integration
    */
-  withAttributes(attributes: Record<string, any>): TraceContext;
-  
+  createExternalSystemContext(
+    externalSystemName: string,
+    attributes?: SpanAttributes,
+    context?: Context
+  ): Context;
+
   /**
-   * Checks if the trace context contains a specific attribute
-   * @param key Attribute key to check
-   * @returns True if the attribute exists, false otherwise
+   * Merges two contexts, preserving trace information from both
+   * @param primary The primary context that takes precedence
+   * @param secondary The secondary context to merge
+   * @returns A new merged OpenTelemetry Context
    */
-  hasAttribute(key: string): boolean;
-  
+  mergeContexts(primary: Context, secondary: Context): Context;
+
   /**
-   * Gets the value of a specific attribute from the trace context
-   * @param key Attribute key to get
-   * @returns The attribute value or undefined if not found
+   * Clears all trace context, useful for testing or isolating operations
+   * @returns A new empty OpenTelemetry Context
    */
-  getAttribute(key: string): any;
+  clearContext(): Context;
 }
+
+/**
+ * Enum defining the supported propagation formats for trace context
+ */
+export enum PropagationFormat {
+  HTTP_HEADERS = 'http_headers',
+  TEXT_MAP = 'text_map',
+  BINARY = 'binary',
+  KAFKA_HEADERS = 'kafka_headers',
+  GRPC_METADATA = 'grpc_metadata',
+  AWS_XRAY = 'aws_xray',
+  DATADOG = 'datadog',
+  JAEGER = 'jaeger',
+  ZIPKIN = 'zipkin',
+  B3 = 'b3',
+  B3_SINGLE = 'b3_single',
+  W3C_TRACE_CONTEXT = 'w3c_trace_context'
+}
+
+/**
+ * Interface for trace context carrier in HTTP headers format
+ */
+export interface HttpTraceContextCarrier {
+  [key: string]: string;
+  'traceparent'?: string;
+  'tracestate'?: string;
+  'x-correlation-id'?: string;
+  'x-journey-id'?: string;
+  'x-journey-type'?: string;
+  'x-user-id'?: string;
+  'x-session-id'?: string;
+}
+
+/**
+ * Interface for trace context carrier in Kafka headers format
+ */
+export interface KafkaTraceContextCarrier {
+  [key: string]: Buffer;
+  'traceparent'?: Buffer;
+  'tracestate'?: Buffer;
+  'x-correlation-id'?: Buffer;
+  'x-journey-id'?: Buffer;
+  'x-journey-type'?: Buffer;
+  'x-user-id'?: Buffer;
+  'x-session-id'?: Buffer;
+}
+
+/**
+ * Constants for trace context keys
+ */
+export const TRACE_CONTEXT_KEYS = {
+  TRACE_PARENT: 'traceparent',
+  TRACE_STATE: 'tracestate',
+  CORRELATION_ID: 'x-correlation-id',
+  JOURNEY_ID: 'x-journey-id',
+  JOURNEY_TYPE: 'x-journey-type',
+  USER_ID: 'x-user-id',
+  SESSION_ID: 'x-session-id',
+  SPAN_ID: 'x-span-id',
+  TRACE_ID: 'x-trace-id',
+  BAGGAGE: 'baggage'
+};
+
+/**
+ * Constants for trace context attribute keys
+ */
+export const TRACE_CONTEXT_ATTRIBUTES = {
+  CORRELATION_ID: 'correlation.id',
+  JOURNEY_ID: 'journey.id',
+  JOURNEY_TYPE: 'journey.type',
+  USER_ID: 'user.id',
+  SESSION_ID: 'user.session.id',
+  EXTERNAL_SYSTEM: 'external.system.name',
+  SERVICE_NAME: 'service.name',
+  COMPONENT_NAME: 'component.name'
+};
