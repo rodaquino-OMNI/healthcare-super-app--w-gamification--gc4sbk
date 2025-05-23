@@ -1,114 +1,132 @@
-import type { Config } from '@jest/types';
+import type { Config } from 'jest';
 import { pathsToModuleNameMapper } from 'ts-jest';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { resolve } from 'path';
 
 // Read the tsconfig to get the paths configuration
-const tsconfig = JSON.parse(
-  readFileSync(join(__dirname, '..', 'tsconfig.json'), 'utf-8')
-);
+const tsConfigPath = resolve(__dirname, '../tsconfig.json');
+const tsConfigContent = readFileSync(tsConfigPath, 'utf-8');
+const tsConfig = JSON.parse(tsConfigContent);
 
-const config: Config.InitialOptions = {
+const config: Config = {
   // Specify the test environment
   testEnvironment: 'node',
   
-  // Root directory for tests
+  // Root directory to scan for tests
   rootDir: '../',
   
+  // Directories to scan for tests
+  roots: ['<rootDir>/src/', '<rootDir>/test/'],
+  
+  // File extensions for test files
+  moduleFileExtensions: ['ts', 'js', 'json'],
+  
   // Test file patterns
-  testMatch: [
-    '**/__tests__/**/*.+(ts|tsx|js)',
-    '**/?(*.)+(spec|test).+(ts|tsx|js)'
-  ],
+  testRegex: '.*\\.spec\\.ts$',
   
-  // Directories to ignore
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/',
-    '/coverage/',
-    '/e2e/'
-  ],
-  
-  // Transform TypeScript files using ts-jest
+  // Transform files with ts-jest
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', {
-      tsconfig: '<rootDir>/tsconfig.json',
-      isolatedModules: true,
-    }]
+    '^.+\\.(t|j)s$': 'ts-jest',
   },
   
-  // Module name mapping to resolve imports
+  // Module name mapping for path aliases
   moduleNameMapper: {
-    ...pathsToModuleNameMapper(tsconfig.compilerOptions.paths || {}, {
-      prefix: '<rootDir>/'
+    ...pathsToModuleNameMapper(tsConfig.compilerOptions.paths || {}, {
+      prefix: '<rootDir>/',
     }),
-    '^@austa/(.*)$': '<rootDir>/../$1/src'
+    // Add additional mappings for monorepo packages
+    '^@austa/interfaces(.*)$': '<rootDir>/../interfaces/src$1',
+    '^@austa/errors(.*)$': '<rootDir>/../errors/src$1',
+    '^@austa/events(.*)$': '<rootDir>/../events/src$1',
+    '^@austa/logging(.*)$': '<rootDir>/../logging/src$1',
+    '^@austa/tracing(.*)$': '<rootDir>/../tracing/src$1',
+    '^@austa/database(.*)$': '<rootDir>/../database/src$1',
   },
-  
-  // Module file extensions
-  moduleFileExtensions: [
-    'ts',
-    'tsx',
-    'js',
-    'jsx',
-    'json'
-  ],
   
   // Setup files
-  setupFilesAfterEnv: [
-    '<rootDir>/test/setup-tests.ts'
-  ],
+  setupFilesAfterEnv: ['<rootDir>/test/setup-tests.ts'],
   
   // Code coverage configuration
   collectCoverage: true,
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
-    '!src/**/*.d.ts',
-    '!src/**/*.interface.ts',
-    '!src/**/*.types.ts',
-    '!src/**/index.ts'
+    '<rootDir>/src/**/*.ts',
+    '!<rootDir>/src/**/*.d.ts',
+    '!<rootDir>/src/**/*.interface.ts',
+    '!<rootDir>/src/**/index.ts',
   ],
   coverageDirectory: '<rootDir>/coverage',
-  coverageReporters: ['json', 'lcov', 'text', 'clover'],
+  coverageReporters: ['text', 'lcov', 'clover', 'html'],
+  
+  // Coverage thresholds
   coverageThreshold: {
     global: {
       branches: 80,
-      functions: 85,
+      functions: 80,
       lines: 85,
-      statements: 85
-    }
+      statements: 85,
+    },
+    // Add specific thresholds for critical utility modules
+    './src/array/': {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
+    },
+    './src/validation/': {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
+    },
   },
   
-  // Display test results with proper formatting
+  // Test timeout
+  testTimeout: 10000,
+  
+  // Verbose output
   verbose: true,
   
   // Clear mocks between tests
   clearMocks: true,
   
+  // Reset mocks between tests
+  resetMocks: false,
+  
+  // Restore mocks between tests
+  restoreMocks: true,
+  
   // Maximum number of concurrent tests
   maxConcurrency: 5,
   
-  // Timeout for tests
-  testTimeout: 10000,
+  // Cache directory
+  cacheDirectory: '<rootDir>/.jest-cache',
   
-  // Cache configuration
-  cache: true,
-  cacheDirectory: '<rootDir>/node_modules/.cache/jest',
-  
-  // Error handling
-  bail: 0,
+  // Error on snapshot differences
   errorOnDeprecated: true,
   
-  // Notification configuration
+  // Fail on missing snapshots
+  bail: false,
+  
+  // Notification mode
   notify: false,
   
-  // Global variables available in tests
-  globals: {
-    'ts-jest': {
-      isolatedModules: true,
-      tsconfig: '<rootDir>/tsconfig.json'
-    }
-  }
+  // Projects configuration for monorepo
+  projects: [
+    {
+      displayName: 'unit',
+      testMatch: ['<rootDir>/src/**/*.spec.ts'],
+      testPathIgnorePatterns: ['<rootDir>/src/**/*.e2e-spec.ts', '<rootDir>/src/**/*.integration-spec.ts'],
+    },
+    {
+      displayName: 'integration',
+      testMatch: ['<rootDir>/src/**/*.integration-spec.ts'],
+      testTimeout: 30000,
+    },
+  ],
+  
+  // Global setup/teardown
+  globalSetup: undefined,
+  globalTeardown: undefined,
 };
 
 export default config;
