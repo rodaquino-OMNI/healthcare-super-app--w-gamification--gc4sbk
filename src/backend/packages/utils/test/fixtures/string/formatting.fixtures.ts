@@ -1,217 +1,161 @@
 /**
- * Test fixtures for string formatting utility functions.
- * These fixtures provide standardized test cases for capitalizeFirstLetter and truncate functions
- * to ensure consistent text presentation across the application.
+ * Test fixtures for string formatting utilities.
+ * These fixtures are used to test formatting functions across all journey services.
  */
 
 /**
- * Interface for capitalizeFirstLetter test fixtures
+ * Test fixture for capitalizeFirstLetter function
  */
-export interface CapitalizeFirstLetterFixture {
-  /** Description of the test case */
-  description: string;
-  /** Input string to be capitalized */
+export interface CapitalizeFixture {
   input: string | null | undefined;
-  /** Expected output after capitalization */
   expected: string;
-  /** Whether this is an error case */
-  isErrorCase?: boolean;
+  description: string;
 }
 
 /**
- * Interface for truncate test fixtures
+ * Collection of test fixtures for capitalizeFirstLetter function
  */
-export interface TruncateFixture {
-  /** Description of the test case */
-  description: string;
-  /** Input string to be truncated */
-  input: string | null | undefined;
-  /** Maximum length for truncation */
-  length: number;
-  /** Expected output after truncation */
-  expected: string;
-  /** Whether this is an error case */
-  isErrorCase?: boolean;
-}
-
-/**
- * Test fixtures for capitalizeFirstLetter function
- */
-export const capitalizeFirstLetterFixtures: CapitalizeFirstLetterFixture[] = [
-  // Normal cases
+export const capitalizeFixtures: CapitalizeFixture[] = [
   {
-    description: 'Capitalizes first letter of a lowercase string',
-    input: 'hello world',
-    expected: 'Hello world',
+    input: 'hello',
+    expected: 'Hello',
+    description: 'Basic lowercase string'
   },
   {
-    description: 'Capitalizes single character string',
-    input: 'a',
-    expected: 'A',
-  },
-  {
-    description: 'Handles already capitalized string',
-    input: 'Hello world',
-    expected: 'Hello world',
-  },
-  {
-    description: 'Handles string with first letter already capitalized',
     input: 'Hello',
     expected: 'Hello',
+    description: 'Already capitalized string'
   },
   {
-    description: 'Handles mixed case string',
     input: 'hELLO',
     expected: 'HELLO',
-  },
-  
-  // Special character cases
-  {
-    description: 'Handles string with non-alphabetic first character (number)',
-    input: '123 test',
-    expected: '123 test',
+    description: 'Mixed case string'
   },
   {
-    description: 'Handles string with non-alphabetic first character (symbol)',
-    input: '!test',
-    expected: '!test',
+    input: 'h',
+    expected: 'H',
+    description: 'Single character'
   },
   {
-    description: 'Handles string with space as first character',
-    input: ' test',
-    expected: ' test',
-  },
-  
-  // Multilingual cases
-  {
-    description: 'Handles Portuguese characters',
-    input: 'olá mundo',
-    expected: 'Olá mundo',
+    input: '123abc',
+    expected: '123abc',
+    description: 'String starting with number'
   },
   {
-    description: 'Handles accented characters',
-    input: 'ética profissional',
-    expected: 'Ética profissional',
+    input: ' hello',
+    expected: ' hello',
+    description: 'String starting with space'
   },
   {
-    description: 'Handles special Portuguese characters',
-    input: 'ção iniciada',
-    expected: 'Ção iniciada',
-  },
-  
-  // Edge cases
-  {
-    description: 'Handles empty string',
     input: '',
     expected: '',
+    description: 'Empty string'
   },
-  
-  // Error cases
   {
-    description: 'Handles null input',
     input: null,
     expected: '',
-    isErrorCase: true,
+    description: 'Null input'
   },
   {
-    description: 'Handles undefined input',
     input: undefined,
     expected: '',
-    isErrorCase: true,
+    description: 'Undefined input'
   },
+  {
+    input: 'café',
+    expected: 'Café',
+    description: 'String with accent'
+  },
+  {
+    input: 'água',
+    expected: 'Água',
+    description: 'Portuguese word with accent'
+  },
+  {
+    input: 'ñandu',
+    expected: 'Ñandu',
+    description: 'Spanish word with tilde'
+  }
 ];
 
 /**
- * Test fixtures for truncate function
+ * Test fixture for truncate function
+ */
+export interface TruncateFixture {
+  input: string | null | undefined;
+  length: number;
+  expected: string;
+  description: string;
+}
+
+/**
+ * Collection of test fixtures for truncate function
  */
 export const truncateFixtures: TruncateFixture[] = [
-  // Normal cases
   {
-    description: 'Truncates string longer than specified length',
-    input: 'This is a long string that needs to be truncated',
-    length: 10,
-    expected: 'This is a ...',
+    input: 'Hello world',
+    length: 5,
+    expected: 'Hello...',
+    description: 'Basic truncation'
   },
   {
-    description: 'Does not truncate string shorter than specified length',
-    input: 'Short',
-    length: 10,
-    expected: 'Short',
+    input: 'Hello',
+    length: 5,
+    expected: 'Hello',
+    description: 'String equal to max length'
   },
   {
-    description: 'Does not truncate string equal to specified length',
-    input: 'Exactly 10',
-    length: 10,
-    expected: 'Exactly 10',
+    input: 'Hi',
+    length: 5,
+    expected: 'Hi',
+    description: 'String shorter than max length'
   },
   {
-    description: 'Truncates at exact boundary',
-    input: 'Exactly 10!',
-    length: 10,
-    expected: 'Exactly 10...',
-  },
-  
-  // Special character cases
-  {
-    description: 'Handles string with special characters',
-    input: 'Test with @#$%^&*() special chars',
-    length: 15,
-    expected: 'Test with @#$%...',
-  },
-  {
-    description: 'Handles string with emojis',
-    input: 'Test with 😀 emoji',
-    length: 10,
-    expected: 'Test with ...',
-  },
-  
-  // Multilingual cases
-  {
-    description: 'Handles Portuguese text',
-    input: 'Olá mundo, como vai você hoje?',
-    length: 12,
-    expected: 'Olá mundo, c...',
-  },
-  {
-    description: 'Handles text with accented characters',
-    input: 'Informações sobre saúde e bem-estar',
-    length: 15,
-    expected: 'Informações sob...',
-  },
-  
-  // Edge cases
-  {
-    description: 'Handles empty string',
-    input: '',
-    length: 10,
-    expected: '',
-  },
-  {
-    description: 'Handles zero length truncation',
-    input: 'Test string',
+    input: 'Hello world',
     length: 0,
     expected: '...',
+    description: 'Zero length truncation'
   },
   {
-    description: 'Handles negative length truncation',
-    input: 'Test string',
-    length: -5,
+    input: 'Hello world',
+    length: -1,
     expected: '...',
+    description: 'Negative length truncation'
   },
-  
-  // Error cases
   {
-    description: 'Handles null input',
+    input: '',
+    length: 5,
+    expected: '',
+    description: 'Empty string'
+  },
+  {
     input: null,
-    length: 10,
+    length: 5,
     expected: '',
-    isErrorCase: true,
+    description: 'Null input'
   },
   {
-    description: 'Handles undefined input',
     input: undefined,
-    length: 10,
+    length: 5,
     expected: '',
-    isErrorCase: true,
+    description: 'Undefined input'
   },
+  {
+    input: 'Olá mundo',
+    length: 3,
+    expected: 'Olá...',
+    description: 'String with accented characters'
+  },
+  {
+    input: '😀 Emoji test',
+    length: 7,
+    expected: '😀 Emoji...',
+    description: 'String with emoji'
+  },
+  {
+    input: 'A very long string that needs to be truncated for display purposes',
+    length: 20,
+    expected: 'A very long string t...',
+    description: 'Long string truncation'
+  }
 ];
