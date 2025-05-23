@@ -1,511 +1,568 @@
 /**
- * Integration Test Helpers
+ * Integration Test Helpers for @austa/utils
  * 
- * This file provides utilities specifically designed for integration testing of the utils package.
- * These helpers facilitate setting up test scenarios, creating test data, mocking external dependencies,
- * and validating results across different integration test suites.
+ * This file provides helper utilities and mocks specifically designed for integration testing
+ * of the utils package. It focuses on testing the interaction between different utility modules
+ * and provides shared functions for setting up test scenarios, creating test data, mocking
+ * external dependencies, and validating results across different integration test suites.
  */
 
-import axios, { AxiosResponse, AxiosRequestConfig, AxiosError } from 'axios';
-import { format, parse } from 'date-fns';
+import axios, { AxiosResponse } from 'axios';
+import { format, parse, addDays, subDays } from 'date-fns';
 import { ptBR, enUS } from 'date-fns/locale';
-import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
 
-// Import fixtures
-import { httpFixtures } from '../fixtures/http';
-import { validationFixtures } from '../fixtures/validation';
+// Import utility modules for integration testing
+import * as arrayUtils from '../../src/array';
+import * as dateUtils from '../../src/date';
+import * as httpUtils from '../../src/http';
+import * as validationUtils from '../../src/validation';
+import * as stringUtils from '../../src/string';
+import * as objectUtils from '../../src/object';
 
-// Types for test helpers
-export interface TestScenario<T = any> {
-  name: string;
-  description: string;
-  input: T;
-  expected: any;
-  context?: Record<string, any>;
-}
+// Import mocks for controlled testing
+import { mockAxios } from '../mocks/axios-mock';
+import { mockDateFns } from '../mocks/date-mock';
+import { mockEnv } from '../mocks/env-mock';
 
+// Journey types for journey-specific testing
 export enum JourneyType {
   HEALTH = 'health',
   CARE = 'care',
   PLAN = 'plan',
 }
 
-export interface JourneyContext {
-  journeyType: JourneyType;
-  userId: string;
-  locale: string;
-  timestamp: Date;
+/**
+ * Integration test context that maintains state between test steps
+ * and provides utilities for managing test lifecycle.
+ */
+export interface IntegrationTestContext {
+  journey: JourneyType;
+  testData: Record<string, any>;
+  httpResponses: Record<string, any>;
+  mockDate: Date;
+  cleanup: () => void;
+  reset: () => void;
 }
 
 /**
- * Creates a standard journey context for testing journey-specific utilities
+ * Creates a new integration test context with the specified journey type.
+ * 
+ * @param journey The journey type for this test context
+ * @returns A configured test context with initialized state
  */
-export function createJourneyContext(journeyType: JourneyType, overrides: Partial<JourneyContext> = {}): JourneyContext {
-  return {
-    journeyType,
-    userId: 'test-user-id',
-    locale: 'pt-BR',
-    timestamp: new Date(),
-    ...overrides,
+export function createTestContext(journey: JourneyType = JourneyType.HEALTH): IntegrationTestContext {
+  // Initialize with default test data
+  const context: IntegrationTestContext = {
+    journey,
+    testData: {},
+    httpResponses: {},
+    mockDate: new Date(),
+    cleanup: () => {
+      // Reset all mocks
+      mockAxios.reset();
+      mockDateFns.reset();
+      mockEnv.reset();
+      jest.clearAllMocks();
+    },
+    reset: () => {
+      context.testData = {};
+      context.httpResponses = {};
+      context.mockDate = new Date();
+    },
   };
+
+  return context;
 }
 
 /**
- * Creates a collection of test scenarios for a specific utility function
+ * HTTP Response Factory
+ * 
+ * Creates mock HTTP responses for testing HTTP utility integration with other modules.
  */
-export function createTestScenarios<T = any>(scenarios: TestScenario<T>[]): TestScenario<T>[] {
-  return scenarios.map((scenario) => ({
-    name: scenario.name,
-    description: scenario.description || scenario.name,
-    input: scenario.input,
-    expected: scenario.expected,
-    context: scenario.context || {},
-  }));
+export interface HttpResponseOptions {
+  status?: number;
+  data?: any;
+  headers?: Record<string, string>;
+  delay?: number;
+  errorMessage?: string;
 }
 
 /**
- * HTTP Response Mock Factory
- * Creates mock HTTP responses for testing HTTP utilities
+ * Creates a mock HTTP response for testing HTTP utilities.
+ * 
+ * @param options Configuration options for the mock response
+ * @returns A mock Axios response object
  */
-export const mockHttpResponse = {
-  success: <T = any>(data: T, status = 200, headers = {}): AxiosResponse<T> => ({
-    data,
+export function createMockHttpResponse(options: HttpResponseOptions = {}): AxiosResponse {
+  const {
+    status = 200,
+    data = {},
+    headers = { 'content-type': 'application/json' },
+    delay = 0,
+  } = options;
+
+  return {
     status,
-    statusText: 'OK',
+    statusText: status === 200 ? 'OK' : 'Error',
     headers,
-    config: {} as AxiosRequestConfig,
-  }),
-
-  error: <T = any>(status = 500, data: T = {} as T, headers = {}): AxiosResponse<T> => ({
     data,
-    status,
-    statusText: status === 404 ? 'Not Found' : 'Error',
-    headers,
-    config: {} as AxiosRequestConfig,
-  }),
-
-  networkError: (message = 'Network Error'): AxiosError => {
-    const error = new Error(message) as AxiosError;
-    error.isAxiosError = true;
-    error.config = {} as AxiosRequestConfig;
-    error.code = 'ECONNABORTED';
-    return error;
-  },
-
-  timeout: (timeout = 30000): AxiosError => {
-    const error = new Error(`timeout of ${timeout}ms exceeded`) as AxiosError;
-    error.isAxiosError = true;
-    error.config = { timeout } as AxiosRequestConfig;
-    error.code = 'ETIMEDOUT';
-    return error;
-  },
-};
-
-/**
- * HTTP Request Mock Factory
- * Creates mock HTTP requests for testing HTTP utilities
- */
-export const mockHttpRequest = {
-  get: (url: string, config: Partial<AxiosRequestConfig> = {}): AxiosRequestConfig => ({
-    method: 'GET',
-    url,
-    headers: { 'Content-Type': 'application/json', ...config.headers },
-    ...config,
-  }),
-
-  post: <T = any>(url: string, data: T, config: Partial<AxiosRequestConfig> = {}): AxiosRequestConfig => ({
-    method: 'POST',
-    url,
-    data,
-    headers: { 'Content-Type': 'application/json', ...config.headers },
-    ...config,
-  }),
-
-  put: <T = any>(url: string, data: T, config: Partial<AxiosRequestConfig> = {}): AxiosRequestConfig => ({
-    method: 'PUT',
-    url,
-    data,
-    headers: { 'Content-Type': 'application/json', ...config.headers },
-    ...config,
-  }),
-
-  delete: (url: string, config: Partial<AxiosRequestConfig> = {}): AxiosRequestConfig => ({
-    method: 'DELETE',
-    url,
-    headers: { 'Content-Type': 'application/json', ...config.headers },
-    ...config,
-  }),
-};
-
-/**
- * Creates a mock axios instance for testing HTTP utilities
- */
-export function createMockAxiosInstance() {
-  const mockInstance = axios.create();
-  
-  // Mock implementations
-  mockInstance.get = jest.fn().mockResolvedValue(mockHttpResponse.success({}));
-  mockInstance.post = jest.fn().mockResolvedValue(mockHttpResponse.success({}));
-  mockInstance.put = jest.fn().mockResolvedValue(mockHttpResponse.success({}));
-  mockInstance.delete = jest.fn().mockResolvedValue(mockHttpResponse.success({}));
-  mockInstance.request = jest.fn().mockResolvedValue(mockHttpResponse.success({}));
-  
-  return mockInstance;
+    config: {
+      url: 'https://api.example.com/test',
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    },
+  } as AxiosResponse;
 }
 
 /**
- * Test Data Generators
- * Creates realistic test data for integration testing
+ * Configures mock HTTP responses for specific endpoints.
+ * 
+ * @param endpoints Map of URL patterns to response configurations
  */
-export const testDataGenerators = {
-  // Date-related test data
-  dates: {
-    /**
-     * Generates a series of dates within a range
-     */
-    generateDateSeries: (startDate: Date, days: number, interval = 1): Date[] => {
-      const dates: Date[] = [];
-      const start = new Date(startDate);
-      
-      for (let i = 0; i < days; i += interval) {
-        const date = new Date(start);
-        date.setDate(date.getDate() + i);
-        dates.push(date);
-      }
-      
-      return dates;
-    },
-    
-    /**
-     * Generates a date string in the specified format
-     */
-    formatDateString: (date: Date, formatStr = 'dd/MM/yyyy', locale = 'pt-BR'): string => {
-      const localeObj = locale === 'pt-BR' ? ptBR : enUS;
-      return format(date, formatStr, { locale: localeObj });
-    },
-    
-    /**
-     * Parses a date string in the specified format
-     */
-    parseDateString: (dateStr: string, formatStr = 'dd/MM/yyyy', locale = 'pt-BR'): Date => {
-      const localeObj = locale === 'pt-BR' ? ptBR : enUS;
-      return parse(dateStr, formatStr, new Date(), { locale: localeObj });
-    },
-  },
-  
-  // Array-related test data
-  arrays: {
-    /**
-     * Generates an array of objects with specified properties
-     */
-    generateObjectArray: <T extends Record<string, any>>(
-      count: number,
-      generator: (index: number) => T
-    ): T[] => {
-      return Array.from({ length: count }, (_, index) => generator(index));
-    },
-    
-    /**
-     * Creates a nested array structure for testing array utilities
-     */
-    createNestedArray: <T>(items: T[], depth: number, childrenPerItem = 2): any[] => {
-      if (depth <= 0) return items;
-      
-      return items.map((item, index) => {
-        const children = Array.from(
-          { length: childrenPerItem },
-          (_, childIndex) => `${item}-${index}-${childIndex}`
-        );
-        
-        return [item, testDataGenerators.arrays.createNestedArray(children, depth - 1, childrenPerItem)];
-      });
-    },
-  },
-  
-  // Validation-related test data
-  validation: {
-    /**
-     * Creates a Zod schema for testing validation utilities
-     */
-    createTestSchema: <T extends z.ZodRawShape>(shape: T) => {
-      return z.object(shape);
-    },
-    
-    /**
-     * Generates test objects that either pass or fail validation
-     */
-    generateValidationTestCases: <T extends z.ZodRawShape>(
-      schema: z.ZodObject<T>,
-      validCases: number,
-      invalidCases: number,
-      validGenerator: (index: number) => z.infer<typeof schema>,
-      invalidGenerator: (index: number) => any
-    ) => {
-      const valid = Array.from({ length: validCases }, (_, index) => ({
-        case: `valid-${index}`,
-        data: validGenerator(index),
-        shouldPass: true,
-      }));
-      
-      const invalid = Array.from({ length: invalidCases }, (_, index) => ({
-        case: `invalid-${index}`,
-        data: invalidGenerator(index),
-        shouldPass: false,
-      }));
-      
-      return [...valid, ...invalid];
-    },
-  },
-  
-  // Journey-specific test data
-  journeys: {
-    health: {
-      /**
-       * Generates health metrics data for testing
-       */
-      generateHealthMetrics: (userId: string, days: number) => {
-        const today = new Date();
-        const dates = testDataGenerators.dates.generateDateSeries(today, days, 1);
-        
-        return {
-          userId,
-          metrics: dates.map((date, index) => ({
-            date,
-            steps: Math.floor(Math.random() * 15000) + 2000,
-            heartRate: Math.floor(Math.random() * 40) + 60,
-            sleepHours: Math.floor(Math.random() * 4) + 4,
-            weight: Math.floor(Math.random() * 10) + 70 + (Math.random() * 0.9),
-          })),
-        };
-      },
-    },
-    
-    care: {
-      /**
-       * Generates appointment data for testing
-       */
-      generateAppointments: (userId: string, count: number) => {
-        const today = new Date();
-        const dates = testDataGenerators.dates.generateDateSeries(today, count * 2, 2);
-        
-        const specialties = [
-          'Cardiologia',
-          'Dermatologia',
-          'Ortopedia',
-          'Pediatria',
-          'Neurologia',
-        ];
-        
-        return dates.slice(0, count).map((date, index) => ({
-          id: `appointment-${index}`,
-          userId,
-          providerId: `provider-${index % 5}`,
-          specialty: specialties[index % specialties.length],
-          date,
-          status: index % 3 === 0 ? 'SCHEDULED' : index % 3 === 1 ? 'COMPLETED' : 'CANCELLED',
-          notes: index % 2 === 0 ? 'Consulta de rotina' : 'Retorno',
-        }));
-      },
-    },
-    
-    plan: {
-      /**
-       * Generates insurance claim data for testing
-       */
-      generateClaims: (userId: string, count: number) => {
-        const today = new Date();
-        const dates = testDataGenerators.dates.generateDateSeries(today, count * 3, 3);
-        
-        const claimTypes = [
-          'MEDICAL_CONSULTATION',
-          'LABORATORY_EXAM',
-          'HOSPITALIZATION',
-          'PROCEDURE',
-          'MEDICATION',
-        ];
-        
-        return dates.slice(0, count).map((date, index) => ({
-          id: `claim-${index}`,
-          userId,
-          type: claimTypes[index % claimTypes.length],
-          date,
-          amount: Math.floor(Math.random() * 5000) + 100,
-          status: index % 4 === 0 ? 'PENDING' : index % 4 === 1 ? 'APPROVED' : 
-                 index % 4 === 2 ? 'REJECTED' : 'UNDER_REVIEW',
-          description: `Claim for ${claimTypes[index % claimTypes.length].toLowerCase().replace('_', ' ')}`,
-        }));
-      },
-    },
-  },
-};
+export function setupMockHttpEndpoints(endpoints: Record<string, HttpResponseOptions>): void {
+  Object.entries(endpoints).forEach(([urlPattern, options]) => {
+    mockAxios.onCall(urlPattern).respond(createMockHttpResponse(options));
+  });
+}
 
 /**
- * Integration Verification Utilities
- * Helps verify the integration between different utility modules
+ * Data Generation Utilities
+ * 
+ * These functions create test data that combines multiple utility types
+ * for integration testing scenarios.
  */
-export const integrationVerifiers = {
-  /**
-   * Verifies the integration between date and validation utilities
-   */
-  dateValidation: {
-    verifyDateFormatAndValidation: (dateStr: string, format: string, locale = 'pt-BR') => {
-      // First parse the date string
-      const parsedDate = testDataGenerators.dates.parseDateString(dateStr, format, locale);
-      
-      // Then format it back to a string
-      const formattedDate = testDataGenerators.dates.formatDateString(parsedDate, format, locale);
-      
-      // Verify the round-trip conversion
-      return {
-        isValid: !isNaN(parsedDate.getTime()),
-        originalString: dateStr,
-        parsedDate,
-        formattedDate,
-        isRoundTripSuccessful: dateStr === formattedDate,
-      };
-    },
-  },
-  
-  /**
-   * Verifies the integration between HTTP and validation utilities
-   */
-  httpValidation: {
-    verifyRequestValidation: <T>(request: AxiosRequestConfig, schema: z.ZodType<T>) => {
-      const validationResult = schema.safeParse(request.data);
-      
-      return {
-        request,
-        isValid: validationResult.success,
-        validationErrors: validationResult.success ? undefined : validationResult.error.format(),
-      };
-    },
+
+/**
+ * Test data generator for health journey metrics.
+ * 
+ * @param count Number of data points to generate
+ * @param startDate Base date for the time series
+ * @returns Array of health metric data points
+ */
+export function generateHealthMetrics(count: number, startDate: Date = new Date()): any[] {
+  return Array.from({ length: count }, (_, index) => {
+    const date = dateUtils.addDays(startDate, -index);
+    const formattedDate = dateUtils.formatDate(date, 'yyyy-MM-dd');
     
-    verifyResponseValidation: <T>(response: AxiosResponse, schema: z.ZodType<T>) => {
-      const validationResult = schema.safeParse(response.data);
-      
-      return {
-        response,
-        isValid: validationResult.success,
-        validationErrors: validationResult.success ? undefined : validationResult.error.format(),
-      };
-    },
-  },
-  
-  /**
-   * Verifies the integration between array utilities and other modules
-   */
-  arrayIntegration: {
-    verifyArrayTransformAndValidation: <T, R>(
-      array: T[],
-      transformFn: (arr: T[]) => R,
-      schema: z.ZodType<R>
-    ) => {
-      // Transform the array
-      const transformed = transformFn(array);
-      
-      // Validate the transformed result
-      const validationResult = schema.safeParse(transformed);
-      
-      return {
-        originalArray: array,
-        transformedResult: transformed,
-        isValid: validationResult.success,
-        validationErrors: validationResult.success ? undefined : validationResult.error.format(),
-      };
-    },
-  },
-};
+    return {
+      id: `metric-${index}`,
+      date: formattedDate,
+      timestamp: date.toISOString(),
+      value: Math.round(Math.random() * 100) / 10,
+      unit: 'mg/dL',
+      type: 'glucose',
+      source: index % 3 === 0 ? 'manual' : 'device',
+      deviceId: index % 3 === 0 ? null : `device-${index % 5}`,
+      userId: 'test-user-id',
+      isValid: validationUtils.isNumber(index) && index >= 0,
+    };
+  });
+}
 
 /**
- * Journey-specific test helpers
+ * Test data generator for care journey appointments.
+ * 
+ * @param count Number of appointments to generate
+ * @param startDate Base date for the appointments
+ * @returns Array of appointment data
  */
-export const journeyHelpers = {
-  health: {
-    /**
-     * Creates a test environment for health journey integration tests
-     */
-    createTestEnvironment: (userId: string = 'test-health-user') => {
-      const context = createJourneyContext(JourneyType.HEALTH, { userId });
-      const metrics = testDataGenerators.journeys.health.generateHealthMetrics(userId, 30);
-      
-      return {
-        context,
-        metrics,
-        // Add more health-specific test data and utilities as needed
-      };
-    },
-  },
+export function generateCareAppointments(count: number, startDate: Date = new Date()): any[] {
+  const specialties = ['Cardiologia', 'Neurologia', 'Ortopedia', 'Dermatologia', 'Oftalmologia'];
+  const statuses = ['scheduled', 'completed', 'cancelled', 'no-show'];
   
-  care: {
-    /**
-     * Creates a test environment for care journey integration tests
-     */
-    createTestEnvironment: (userId: string = 'test-care-user') => {
-      const context = createJourneyContext(JourneyType.CARE, { userId });
-      const appointments = testDataGenerators.journeys.care.generateAppointments(userId, 10);
-      
-      return {
-        context,
-        appointments,
-        // Add more care-specific test data and utilities as needed
-      };
-    },
-  },
-  
-  plan: {
-    /**
-     * Creates a test environment for plan journey integration tests
-     */
-    createTestEnvironment: (userId: string = 'test-plan-user') => {
-      const context = createJourneyContext(JourneyType.PLAN, { userId });
-      const claims = testDataGenerators.journeys.plan.generateClaims(userId, 15);
-      
-      return {
-        context,
-        claims,
-        // Add more plan-specific test data and utilities as needed
-      };
-    },
-  },
-};
+  return Array.from({ length: count }, (_, index) => {
+    const appointmentDate = dateUtils.addDays(startDate, index + 1);
+    // Ensure appointments are during business hours
+    appointmentDate.setHours(9 + (index % 8), 0, 0, 0);
+    
+    const endDate = new Date(appointmentDate);
+    endDate.setMinutes(endDate.getMinutes() + 30);
+    
+    return {
+      id: `appointment-${index}`,
+      patientId: 'test-patient-id',
+      providerId: `provider-${index % 5}`,
+      specialty: specialties[index % specialties.length],
+      status: statuses[index % statuses.length],
+      startTime: appointmentDate.toISOString(),
+      endTime: endDate.toISOString(),
+      formattedDate: dateUtils.formatDate(appointmentDate, 'PPP', 'pt-BR'),
+      formattedTime: dateUtils.formatTime(appointmentDate, 'p', 'pt-BR'),
+      notes: `Appointment notes ${index}`,
+      location: index % 2 === 0 ? 'in-person' : 'telemedicine',
+      isValid: validationUtils.isDateInRange(appointmentDate, {
+        min: new Date(),
+        max: dateUtils.addDays(new Date(), 90),
+      }),
+    };
+  });
+}
 
 /**
- * Constants for integration testing
+ * Test data generator for plan journey insurance claims.
+ * 
+ * @param count Number of claims to generate
+ * @param startDate Base date for the claims
+ * @returns Array of insurance claim data
  */
-export const integrationTestConstants = {
-  // Timeouts for different types of tests
-  timeouts: {
-    short: 1000,
-    medium: 5000,
-    long: 15000,
-  },
+export function generatePlanClaims(count: number, startDate: Date = new Date()): any[] {
+  const claimTypes = ['medical', 'dental', 'pharmacy', 'vision', 'therapy'];
+  const statuses = ['submitted', 'in-review', 'approved', 'denied', 'paid'];
   
-  // Common test user IDs
-  users: {
-    admin: 'test-admin-user',
-    regular: 'test-regular-user',
-    premium: 'test-premium-user',
-  },
-  
-  // Journey-specific constants
-  journeys: {
-    health: {
-      metricTypes: ['STEPS', 'HEART_RATE', 'SLEEP', 'WEIGHT', 'BLOOD_PRESSURE'],
-      goalTypes: ['DAILY', 'WEEKLY', 'MONTHLY'],
-    },
-    care: {
-      appointmentStatus: ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
-      specialties: ['CARDIOLOGY', 'DERMATOLOGY', 'ORTHOPEDICS', 'PEDIATRICS', 'NEUROLOGY'],
-    },
-    plan: {
-      claimStatus: ['PENDING', 'APPROVED', 'REJECTED', 'UNDER_REVIEW'],
-      planTypes: ['BASIC', 'STANDARD', 'PREMIUM', 'FAMILY'],
-    },
-  },
-};
+  return Array.from({ length: count }, (_, index) => {
+    const claimDate = dateUtils.subDays(startDate, index * 3);
+    const processedDate = index % 4 === 3 ? null : dateUtils.addDays(claimDate, 5 + (index % 10));
+    
+    return {
+      id: `claim-${index}`,
+      memberId: 'test-member-id',
+      policyNumber: `POL-${100000 + index}`,
+      type: claimTypes[index % claimTypes.length],
+      status: statuses[index % statuses.length],
+      submissionDate: claimDate.toISOString(),
+      processedDate: processedDate?.toISOString() || null,
+      amount: Math.round(Math.random() * 10000) / 100,
+      currency: 'BRL',
+      formattedAmount: `R$ ${(Math.round(Math.random() * 10000) / 100).toFixed(2)}`,
+      description: `Claim for ${claimTypes[index % claimTypes.length]} services`,
+      providerName: `Provider ${index % 10}`,
+      documents: Array.from({ length: index % 3 + 1 }, (_, i) => ({
+        id: `doc-${index}-${i}`,
+        filename: `document-${i}.pdf`,
+        uploadDate: dateUtils.subDays(claimDate, i).toISOString(),
+        type: i === 0 ? 'receipt' : i === 1 ? 'medical-report' : 'other',
+      })),
+      isValid: validationUtils.isNumber(index) && index >= 0,
+    };
+  });
+}
 
-// Export all helpers and utilities
-export {
-  httpFixtures,
-  validationFixtures,
+/**
+ * Creates a dataset that combines data from multiple journey types for
+ * testing cross-journey functionality.
+ * 
+ * @param context The test context to populate with data
+ * @returns The updated test context with cross-journey data
+ */
+export function generateCrossJourneyData(context: IntegrationTestContext): IntegrationTestContext {
+  const baseDate = new Date();
+  
+  // Generate data for each journey type
+  const healthMetrics = generateHealthMetrics(10, baseDate);
+  const careAppointments = generateCareAppointments(5, baseDate);
+  const planClaims = generatePlanClaims(8, baseDate);
+  
+  // Create a unified dataset with data from all journeys
+  const crossJourneyData = {
+    userId: 'test-user-id',
+    journeys: {
+      [JourneyType.HEALTH]: {
+        metrics: healthMetrics,
+        recentMetric: healthMetrics[0],
+        metricsByDate: arrayUtils.groupBy(healthMetrics, 'date'),
+      },
+      [JourneyType.CARE]: {
+        appointments: careAppointments,
+        upcomingAppointment: careAppointments.find(a => a.status === 'scheduled'),
+        appointmentsByStatus: arrayUtils.groupBy(careAppointments, 'status'),
+      },
+      [JourneyType.PLAN]: {
+        claims: planClaims,
+        recentClaim: planClaims[0],
+        claimsByStatus: arrayUtils.groupBy(planClaims, 'status'),
+      },
+    },
+    timeline: [
+      ...healthMetrics.map(m => ({
+        type: 'health-metric',
+        journey: JourneyType.HEALTH,
+        date: new Date(m.timestamp),
+        data: m,
+      })),
+      ...careAppointments.map(a => ({
+        type: 'appointment',
+        journey: JourneyType.CARE,
+        date: new Date(a.startTime),
+        data: a,
+      })),
+      ...planClaims.map(c => ({
+        type: 'claim',
+        journey: JourneyType.PLAN,
+        date: new Date(c.submissionDate),
+        data: c,
+      })),
+    ].sort((a, b) => b.date.getTime() - a.date.getTime()),
+  };
+  
+  // Update the test context with the generated data
+  context.testData = {
+    ...context.testData,
+    crossJourney: crossJourneyData,
+  };
+  
+  return context;
+}
+
+/**
+ * Module Integration Verification
+ * 
+ * These utilities help verify the correct integration between different utility modules.
+ */
+
+/**
+ * Verifies that date formatting and HTTP utilities work together correctly.
+ * 
+ * @param context The test context
+ * @returns A promise that resolves when the verification is complete
+ */
+export async function verifyDateAndHttpIntegration(context: IntegrationTestContext): Promise<void> {
+  // Setup mock HTTP endpoint that expects formatted dates
+  const today = new Date();
+  const formattedDate = dateUtils.formatDate(today, 'yyyy-MM-dd');
+  
+  setupMockHttpEndpoints({
+    [`https://api.example.com/data/${formattedDate}`]: {
+      status: 200,
+      data: { date: formattedDate, valid: true },
+    },
+  });
+  
+  // Create a secure HTTP client
+  const client = httpUtils.createHttpClient({
+    baseURL: 'https://api.example.com',
+  });
+  
+  // Make a request using the formatted date
+  const response = await client.get(`/data/${formattedDate}`);
+  
+  // Store the response in the context for assertions
+  context.httpResponses.dateFormatting = response.data;
+}
+
+/**
+ * Verifies that validation and array utilities work together correctly.
+ * 
+ * @param context The test context
+ * @returns The updated context with validation results
+ */
+export function verifyValidationAndArrayIntegration(context: IntegrationTestContext): IntegrationTestContext {
+  // Create test data with some invalid items
+  const testItems = [
+    { id: 1, value: 'valid', isValid: true },
+    { id: 2, value: '', isValid: false },
+    { id: 3, value: 'valid too', isValid: true },
+    { id: 4, value: null, isValid: false },
+    { id: 5, value: 'another valid', isValid: true },
+  ];
+  
+  // Use validation to filter the array
+  const validItems = testItems.filter(item => {
+    return validationUtils.isString(item.value) && item.value.length > 0;
+  });
+  
+  // Use array utilities to transform the results
+  const groupedByValidity = arrayUtils.groupBy(testItems, 'isValid');
+  const validItemsById = arrayUtils.keyBy(validItems, 'id');
+  
+  // Store results in the context
+  context.testData.validationAndArray = {
+    original: testItems,
+    validItems,
+    groupedByValidity,
+    validItemsById,
+  };
+  
+  return context;
+}
+
+/**
+ * Verifies that string, object, and validation utilities work together correctly.
+ * 
+ * @param context The test context
+ * @returns The updated context with validation results
+ */
+export function verifyStringObjectValidationIntegration(context: IntegrationTestContext): IntegrationTestContext {
+  // Create test data with various string properties
+  const testUser = {
+    name: 'João Silva',
+    email: 'joao.silva@example.com',
+    cpf: '12345678909', // Invalid CPF
+    phone: '(11) 98765-4321',
+    address: {
+      street: 'Av. Paulista',
+      number: '1000',
+      city: 'São Paulo',
+      state: 'SP',
+      zipCode: '01310-100',
+    },
+  };
+  
+  // Validate and transform the object
+  const validationResults = {
+    isValidEmail: validationUtils.isEmail(testUser.email),
+    isValidCpf: validationUtils.isValidCPF(testUser.cpf),
+    isValidPhone: validationUtils.isString(testUser.phone) && testUser.phone.length >= 10,
+    isValidZipCode: validationUtils.isString(testUser.address.zipCode) && 
+      /^\d{5}-\d{3}$/.test(testUser.address.zipCode),
+  };
+  
+  // Transform the object
+  const transformedUser = {
+    ...testUser,
+    name: stringUtils.capitalizeFirstLetter(testUser.name),
+    formattedPhone: testUser.phone.replace(/[^0-9]/g, ''),
+    address: {
+      ...testUser.address,
+      fullAddress: `${testUser.address.street}, ${testUser.address.number} - ${testUser.address.city}/${testUser.address.state}`,
+    },
+  };
+  
+  // Store results in the context
+  context.testData.stringObjectValidation = {
+    original: testUser,
+    validationResults,
+    transformed: transformedUser,
+    isValid: Object.values(validationResults).every(Boolean),
+  };
+  
+  return context;
+}
+
+/**
+ * Journey-Specific Test Helpers
+ * 
+ * These utilities provide journey-specific testing functionality.
+ */
+
+/**
+ * Sets up a test environment specific to the Health journey.
+ * 
+ * @param context The test context to configure
+ * @returns The configured test context
+ */
+export function setupHealthJourneyTest(context: IntegrationTestContext): IntegrationTestContext {
+  // Set the journey type
+  context.journey = JourneyType.HEALTH;
+  
+  // Generate health-specific test data
+  context.testData.metrics = generateHealthMetrics(20);
+  context.testData.metricsByDate = arrayUtils.groupBy(context.testData.metrics, 'date');
+  context.testData.metricsByType = arrayUtils.groupBy(context.testData.metrics, 'type');
+  
+  // Configure mock HTTP endpoints for health journey
+  setupMockHttpEndpoints({
+    'https://api.example.com/health/metrics': {
+      status: 200,
+      data: { metrics: context.testData.metrics.slice(0, 10) },
+    },
+    'https://api.example.com/health/devices': {
+      status: 200,
+      data: { devices: [
+        { id: 'device-1', name: 'Glucose Monitor', type: 'glucose', connected: true },
+        { id: 'device-2', name: 'Blood Pressure Monitor', type: 'blood-pressure', connected: false },
+      ]},
+    },
+  });
+  
+  return context;
+}
+
+/**
+ * Sets up a test environment specific to the Care journey.
+ * 
+ * @param context The test context to configure
+ * @returns The configured test context
+ */
+export function setupCareJourneyTest(context: IntegrationTestContext): IntegrationTestContext {
+  // Set the journey type
+  context.journey = JourneyType.CARE;
+  
+  // Generate care-specific test data
+  context.testData.appointments = generateCareAppointments(15);
+  context.testData.appointmentsByStatus = arrayUtils.groupBy(context.testData.appointments, 'status');
+  context.testData.appointmentsByLocation = arrayUtils.groupBy(context.testData.appointments, 'location');
+  
+  // Configure mock HTTP endpoints for care journey
+  setupMockHttpEndpoints({
+    'https://api.example.com/care/appointments': {
+      status: 200,
+      data: { appointments: context.testData.appointments.slice(0, 5) },
+    },
+    'https://api.example.com/care/providers': {
+      status: 200,
+      data: { providers: [
+        { id: 'provider-1', name: 'Dr. Ana Santos', specialty: 'Cardiologia', available: true },
+        { id: 'provider-2', name: 'Dr. Carlos Oliveira', specialty: 'Neurologia', available: true },
+        { id: 'provider-3', name: 'Dra. Mariana Costa', specialty: 'Dermatologia', available: false },
+      ]},
+    },
+  });
+  
+  return context;
+}
+
+/**
+ * Sets up a test environment specific to the Plan journey.
+ * 
+ * @param context The test context to configure
+ * @returns The configured test context
+ */
+export function setupPlanJourneyTest(context: IntegrationTestContext): IntegrationTestContext {
+  // Set the journey type
+  context.journey = JourneyType.PLAN;
+  
+  // Generate plan-specific test data
+  context.testData.claims = generatePlanClaims(12);
+  context.testData.claimsByStatus = arrayUtils.groupBy(context.testData.claims, 'status');
+  context.testData.claimsByType = arrayUtils.groupBy(context.testData.claims, 'type');
+  
+  // Configure mock HTTP endpoints for plan journey
+  setupMockHttpEndpoints({
+    'https://api.example.com/plan/claims': {
+      status: 200,
+      data: { claims: context.testData.claims.slice(0, 8) },
+    },
+    'https://api.example.com/plan/benefits': {
+      status: 200,
+      data: { benefits: [
+        { id: 'benefit-1', name: 'Consultas Médicas', coverage: '100%', limit: 'Ilimitado' },
+        { id: 'benefit-2', name: 'Exames Laboratoriais', coverage: '80%', limit: 'R$ 5.000,00/ano' },
+        { id: 'benefit-3', name: 'Internação Hospitalar', coverage: '90%', limit: 'Até 30 dias/ano' },
+      ]},
+    },
+  });
+  
+  return context;
+}
+
+/**
+ * Utility function to clean up all mocks and test data after tests.
+ * 
+ * @param context The test context to clean up
+ */
+export function cleanupTestContext(context: IntegrationTestContext): void {
+  context.cleanup();
+}
+
+/**
+ * Export all test helpers for use in integration tests
+ */
+export default {
+  createTestContext,
+  createMockHttpResponse,
+  setupMockHttpEndpoints,
+  generateHealthMetrics,
+  generateCareAppointments,
+  generatePlanClaims,
+  generateCrossJourneyData,
+  verifyDateAndHttpIntegration,
+  verifyValidationAndArrayIntegration,
+  verifyStringObjectValidationIntegration,
+  setupHealthJourneyTest,
+  setupCareJourneyTest,
+  setupPlanJourneyTest,
+  cleanupTestContext,
+  JourneyType,
 };
