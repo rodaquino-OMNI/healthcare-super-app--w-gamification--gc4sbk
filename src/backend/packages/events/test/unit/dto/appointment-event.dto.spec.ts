@@ -1,825 +1,775 @@
-/**
- * @file appointment-event.dto.spec.ts
- * @description Unit tests for the AppointmentEventDto class that validate appointment booking,
- * check-in, completion, and cancellation events. Tests verify provider information validation,
- * scheduling data integrity, status transition rules, and location data validation.
- *
- * These tests ensure that appointment-related gamification events are properly structured and
- * validated before processing.
- */
-
-import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import {
+  AppointmentEventBaseDto,
+  AppointmentBookedEventDto,
+  AppointmentCheckedInEventDto,
+  AppointmentCompletedEventDto,
+  AppointmentCancelledEventDto,
+  AppointmentRescheduledEventDto,
+  AppointmentNoShowEventDto,
+  AppointmentState,
+  AppointmentType,
+  ProviderInfoDto,
+  LocationInfoDto
+} from '../../../src/dto/appointment-event.dto';
+import { validateDto, extractErrorMessages } from './test-utils';
 import { v4 as uuidv4 } from 'uuid';
 
-// Import test utilities
-import {
-  createAppointmentData,
-  createAppointmentBookedEvent,
-  createAppointmentCompletedEvent,
-  AppointmentType,
-  AppointmentStatus,
-  AppointmentData,
-  createInvalidEvent,
-  createEventWithInvalidValues,
-  validateEventDto,
-  isValidEventDto,
-  TestFactoryOptions
-} from '../test-utils';
-
-// Import event types
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-
-// Mock AppointmentEventDto classes
-class AppointmentBookedEventDto {
-  type: string;
-  userId: string;
-  journey: string;
-  timestamp: string;
-  data: AppointmentData;
-  metadata?: any;
-}
-
-class AppointmentCheckedInEventDto {
-  type: string;
-  userId: string;
-  journey: string;
-  timestamp: string;
-  data: AppointmentData;
-  metadata?: any;
-}
-
-class AppointmentCompletedEventDto {
-  type: string;
-  userId: string;
-  journey: string;
-  timestamp: string;
-  data: AppointmentData;
-  metadata?: any;
-}
-
-class AppointmentCancelledEventDto {
-  type: string;
-  userId: string;
-  journey: string;
-  timestamp: string;
-  data: AppointmentData;
-  metadata?: any;
-}
-
 describe('AppointmentEventDto', () => {
-  // Common test variables
-  const userId = uuidv4();
-  const now = new Date();
-  const scheduledDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-  
+  // Helper function to create a valid provider info object
+  const createValidProviderInfo = (): ProviderInfoDto => ({
+    providerId: uuidv4(),
+    providerName: 'Dr. Test Provider',
+    specialization: 'Cardiologia',
+    rating: 4.5
+  });
+
+  // Helper function to create a valid location info object
+  const createValidLocationInfo = (): LocationInfoDto => ({
+    name: 'AUSTA Medical Center',
+    address: 'Av. Paulista, 1000, São Paulo, SP',
+    coordinates: [23.5505, 46.6333],
+    additionalInfo: { floor: 5, room: '505' }
+  });
+
+  // Helper function to create a valid base appointment event
+  const createValidBaseAppointment = (overrides = {}): Partial<AppointmentEventBaseDto> => ({
+    appointmentId: uuidv4(),
+    state: AppointmentState.BOOKED,
+    type: AppointmentType.IN_PERSON,
+    scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+    durationMinutes: 30,
+    provider: createValidProviderInfo(),
+    location: createValidLocationInfo(),
+    reason: 'Annual checkup',
+    isFirstVisit: false,
+    notes: 'Please bring previous test results',
+    ...overrides
+  });
+
+  describe('AppointmentEventBaseDto', () => {
+    it('should validate a valid appointment base event', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment();
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = {};
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('appointmentId')).toBe(true);
+      expect(result.hasErrorForProperty('state')).toBe(true);
+      expect(result.hasErrorForProperty('type')).toBe(true);
+      expect(result.hasErrorForProperty('scheduledAt')).toBe(true);
+      expect(result.hasErrorForProperty('durationMinutes')).toBe(true);
+      expect(result.hasErrorForProperty('provider')).toBe(true);
+      expect(result.hasErrorForProperty('location')).toBe(true);
+      expect(result.hasErrorForProperty('reason')).toBe(true);
+    });
+
+    it('should fail validation when appointmentId is not a UUID', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ appointmentId: 'not-a-uuid' });
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('appointmentId')).toBe(true);
+    });
+
+    it('should fail validation when state is not a valid enum value', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: 'invalid-state' });
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('state')).toBe(true);
+    });
+
+    it('should fail validation when type is not a valid enum value', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ type: 'invalid-type' });
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('type')).toBe(true);
+    });
+
+    it('should fail validation when scheduledAt is not a valid ISO 8601 date', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ scheduledAt: 'not-a-date' });
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('scheduledAt')).toBe(true);
+    });
+
+    it('should fail validation when durationMinutes is less than 5', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ durationMinutes: 3 });
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('durationMinutes')).toBe(true);
+    });
+  });
+
+  describe('ProviderInfoDto', () => {
+    it('should validate a valid provider info', async () => {
+      // Arrange
+      const providerData = createValidProviderInfo();
+      const dto = plainToInstance(ProviderInfoDto, providerData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const providerData = {};
+      const dto = plainToInstance(ProviderInfoDto, providerData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('providerId')).toBe(true);
+      expect(result.hasErrorForProperty('providerName')).toBe(true);
+      expect(result.hasErrorForProperty('specialization')).toBe(true);
+    });
+
+    it('should fail validation when providerId is not a UUID', async () => {
+      // Arrange
+      const providerData = { ...createValidProviderInfo(), providerId: 'not-a-uuid' };
+      const dto = plainToInstance(ProviderInfoDto, providerData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('providerId')).toBe(true);
+    });
+
+    it('should fail validation when rating is outside the valid range', async () => {
+      // Arrange - Test with rating below minimum
+      const providerDataLow = { ...createValidProviderInfo(), rating: 0 };
+      const dtoLow = plainToInstance(ProviderInfoDto, providerDataLow);
+
+      // Arrange - Test with rating above maximum
+      const providerDataHigh = { ...createValidProviderInfo(), rating: 6 };
+      const dtoHigh = plainToInstance(ProviderInfoDto, providerDataHigh);
+
+      // Act
+      const resultLow = await validateDto(dtoLow);
+      const resultHigh = await validateDto(dtoHigh);
+
+      // Assert
+      expect(resultLow.isValid).toBe(false);
+      expect(resultLow.hasErrorForProperty('rating')).toBe(true);
+      
+      expect(resultHigh.isValid).toBe(false);
+      expect(resultHigh.hasErrorForProperty('rating')).toBe(true);
+    });
+
+    it('should validate when optional rating is not provided', async () => {
+      // Arrange
+      const providerData = { 
+        providerId: uuidv4(),
+        providerName: 'Dr. Test Provider',
+        specialization: 'Cardiologia'
+      };
+      const dto = plainToInstance(ProviderInfoDto, providerData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('LocationInfoDto', () => {
+    it('should validate a valid location info', async () => {
+      // Arrange
+      const locationData = createValidLocationInfo();
+      const dto = plainToInstance(LocationInfoDto, locationData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const locationData = {};
+      const dto = plainToInstance(LocationInfoDto, locationData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('name')).toBe(true);
+      expect(result.hasErrorForProperty('address')).toBe(true);
+    });
+
+    it('should validate when optional fields are not provided', async () => {
+      // Arrange
+      const locationData = {
+        name: 'AUSTA Medical Center',
+        address: 'Av. Paulista, 1000, São Paulo, SP'
+      };
+      const dto = plainToInstance(LocationInfoDto, locationData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when coordinates array is too small', async () => {
+      // Arrange
+      const locationData = { ...createValidLocationInfo(), coordinates: [23.5505] };
+      const dto = plainToInstance(LocationInfoDto, locationData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('coordinates')).toBe(true);
+    });
+
+    it('should fail validation when coordinates contains non-numeric values', async () => {
+      // Arrange
+      const locationData = { ...createValidLocationInfo(), coordinates: ['23.5505', '46.6333'] };
+      const dto = plainToInstance(LocationInfoDto, locationData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('coordinates')).toBe(true);
+    });
+  });
+
   describe('AppointmentBookedEventDto', () => {
     it('should validate a valid appointment booked event', async () => {
-      // Create a valid appointment booked event
-      const event = createAppointmentBookedEvent();
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment(),
+        bookedByPatient: true,
+        requiresPreparation: true,
+        preparationInstructions: 'Fast for 8 hours before the appointment'
+      };
+      const dto = plainToInstance(AppointmentBookedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should validate provider information', async () => {
-      // Create an event with missing provider information
-      const validEvent = createAppointmentBookedEvent();
-      const invalidEvent = createInvalidEvent(validEvent, ['data.providerId']);
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for provider information
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'providerId')
-      )).toBeTruthy();
+
+    it('should fail validation when bookedByPatient is missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment();
+      const dto = plainToInstance(AppointmentBookedEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('bookedByPatient')).toBe(true);
     });
-    
-    it('should validate specialty type', async () => {
-      // Create an event with missing specialty type
-      const validEvent = createAppointmentBookedEvent();
-      const invalidEvent = createInvalidEvent(validEvent, ['data.specialtyType']);
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for specialty type
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'specialtyType')
-      )).toBeTruthy();
+
+    it('should validate when optional fields are not provided', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment(),
+        bookedByPatient: true
+      };
+      const dto = plainToInstance(AppointmentBookedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should validate appointment type', async () => {
-      // Create an event with invalid appointment type
-      const validEvent = createAppointmentBookedEvent();
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.appointmentType': 'INVALID_TYPE'
-      });
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for appointment type
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'appointmentType')
-      )).toBeTruthy();
-    });
-    
-    it('should validate scheduling data', async () => {
-      // Create an event with invalid scheduling data (past date)
-      const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
-      
-      const validEvent = createAppointmentBookedEvent();
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.scheduledAt': pastDate.toISOString()
-      });
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for scheduling data
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'scheduledAt')
-      )).toBeTruthy();
-    });
-    
-    it('should validate location data for in-person appointments', async () => {
-      // Create an in-person appointment without location
-      const validEvent = createAppointmentBookedEvent(AppointmentType.IN_PERSON);
-      const invalidEvent = createInvalidEvent(validEvent, ['data.location']);
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for location
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'location')
-      )).toBeTruthy();
-    });
-    
-    it('should not require location for telemedicine appointments', async () => {
-      // Create a telemedicine appointment without location
-      const appointmentData = createAppointmentData(AppointmentType.TELEMEDICINE);
-      delete appointmentData.location;
-      
-      const event = createAppointmentBookedEvent(AppointmentType.TELEMEDICINE, appointmentData);
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentBookedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+
+    it('should validate with preparation instructions when requiresPreparation is true', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment(),
+        bookedByPatient: true,
+        requiresPreparation: true,
+        preparationInstructions: 'Fast for 8 hours before the appointment'
+      };
+      const dto = plainToInstance(AppointmentBookedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
   });
-  
+
   describe('AppointmentCheckedInEventDto', () => {
-    it('should validate a valid appointment check-in event', async () => {
-      // Create appointment data with CHECKED_IN status
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CHECKED_IN);
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CHECKED_IN',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentData
+    it('should validate a valid appointment checked-in event', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.CHECKED_IN }),
+        checkedInAt: new Date().toISOString(),
+        onTime: true,
+        checkInNotes: 'Patient arrived 5 minutes early'
       };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCheckedInEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentCheckedInEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should validate appointment status transition from SCHEDULED to CHECKED_IN', async () => {
-      // Create appointment data with direct transition from SCHEDULED to CHECKED_IN
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CHECKED_IN);
-      appointmentData.status = AppointmentStatus.CHECKED_IN;
-      
-      // Add previous status information
-      const appointmentWithHistory = {
-        ...appointmentData,
-        previousStatus: AppointmentStatus.SCHEDULED,
-        statusChangedAt: now.toISOString()
-      };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CHECKED_IN',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithHistory
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCheckedInEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: AppointmentState.CHECKED_IN });
+      const dto = plainToInstance(AppointmentCheckedInEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('checkedInAt')).toBe(true);
+      expect(result.hasErrorForProperty('onTime')).toBe(true);
     });
-    
-    it('should validate appointment status transition from CONFIRMED to CHECKED_IN', async () => {
-      // Create appointment data with transition from CONFIRMED to CHECKED_IN
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CHECKED_IN);
-      
-      // Add previous status information
-      const appointmentWithHistory = {
-        ...appointmentData,
-        previousStatus: AppointmentStatus.CONFIRMED,
-        statusChangedAt: now.toISOString()
+
+    it('should fail validation when checkedInAt is not a valid ISO 8601 date', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.CHECKED_IN }),
+        checkedInAt: 'not-a-date',
+        onTime: true
       };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CHECKED_IN',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithHistory
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCheckedInEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentCheckedInEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('checkedInAt')).toBe(true);
     });
-    
-    it('should reject invalid appointment status transitions to CHECKED_IN', async () => {
-      // Create appointment data with invalid transition from COMPLETED to CHECKED_IN
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CHECKED_IN);
-      
-      // Add previous status information with invalid transition
-      const appointmentWithHistory = {
-        ...appointmentData,
-        previousStatus: AppointmentStatus.COMPLETED,
-        statusChangedAt: now.toISOString()
+
+    it('should validate when optional checkInNotes is not provided', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.CHECKED_IN }),
+        checkedInAt: new Date().toISOString(),
+        onTime: true
       };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CHECKED_IN',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithHistory
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCheckedInEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for invalid status transition
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => 
-          child.property === 'previousStatus' || 
-          child.property === 'status'
-        )
-      )).toBeTruthy();
-    });
-    
-    it('should validate check-in timestamp', async () => {
-      // Create appointment data with CHECKED_IN status but missing check-in timestamp
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CHECKED_IN);
-      
-      // Create event without statusChangedAt
-      const event = {
-        type: 'CARE_APPOINTMENT_CHECKED_IN',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentData
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCheckedInEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for missing check-in timestamp
-      expect(errors).not.toBeNull();
+      const dto = plainToInstance(AppointmentCheckedInEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
   });
-  
+
   describe('AppointmentCompletedEventDto', () => {
     it('should validate a valid appointment completed event', async () => {
-      // Create a valid appointment completed event
-      const event = createAppointmentCompletedEvent();
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
-    });
-    
-    it('should validate completion timestamp', async () => {
-      // Create an event with missing completion timestamp
-      const validEvent = createAppointmentCompletedEvent();
-      const invalidEvent = createInvalidEvent(validEvent, ['data.completedAt']);
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for completion timestamp
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'completedAt')
-      )).toBeTruthy();
-    });
-    
-    it('should validate appointment duration', async () => {
-      // Create an event with invalid duration (negative value)
-      const validEvent = createAppointmentCompletedEvent();
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.duration': -30
-      });
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for duration
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'duration')
-      )).toBeTruthy();
-    });
-    
-    it('should validate appointment status is COMPLETED', async () => {
-      // Create an event with incorrect status
-      const validEvent = createAppointmentCompletedEvent();
-      const invalidEvent = createEventWithInvalidValues(validEvent, {
-        'data.status': AppointmentStatus.IN_PROGRESS
-      });
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, invalidEvent);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for status
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'status')
-      )).toBeTruthy();
-    });
-    
-    it('should validate appointment status transition to COMPLETED', async () => {
-      // Create appointment data with valid transition from IN_PROGRESS to COMPLETED
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
-      
-      // Add previous status information
-      const appointmentWithHistory = {
-        ...appointmentData,
-        previousStatus: AppointmentStatus.IN_PROGRESS,
-        statusChangedAt: now.toISOString()
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.COMPLETED }),
+        completedAt: new Date().toISOString(),
+        followUpRecommended: true,
+        followUpTimeframeDays: 30,
+        summary: 'Patient is in good health. Recommended follow-up in 30 days.'
       };
-      
-      // Create event
-      const event = {
-        type: EventType.CARE_APPOINTMENT_COMPLETED,
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithHistory
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should reject invalid appointment status transitions to COMPLETED', async () => {
-      // Create appointment data with invalid transition from CANCELLED to COMPLETED
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
-      
-      // Add previous status information with invalid transition
-      const appointmentWithHistory = {
-        ...appointmentData,
-        previousStatus: AppointmentStatus.CANCELLED,
-        statusChangedAt: now.toISOString()
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: AppointmentState.COMPLETED });
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('completedAt')).toBe(true);
+      expect(result.hasErrorForProperty('followUpRecommended')).toBe(true);
+    });
+
+    it('should fail validation when completedAt is not a valid ISO 8601 date', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.COMPLETED }),
+        completedAt: 'not-a-date',
+        followUpRecommended: true
       };
-      
-      // Create event
-      const event = {
-        type: EventType.CARE_APPOINTMENT_COMPLETED,
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithHistory
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('completedAt')).toBe(true);
+    });
+
+    it('should fail validation when followUpTimeframeDays is less than 1', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.COMPLETED }),
+        completedAt: new Date().toISOString(),
+        followUpRecommended: true,
+        followUpTimeframeDays: 0
       };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for invalid status transition
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => 
-          child.property === 'previousStatus' || 
-          child.property === 'status'
-        )
-      )).toBeTruthy();
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('followUpTimeframeDays')).toBe(true);
+    });
+
+    it('should validate when followUpTimeframeDays is not provided and followUpRecommended is false', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.COMPLETED }),
+        completedAt: new Date().toISOString(),
+        followUpRecommended: false
+      };
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
   });
-  
+
   describe('AppointmentCancelledEventDto', () => {
     it('should validate a valid appointment cancelled event', async () => {
-      // Create appointment data with CANCELLED status
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CANCELLED);
-      
-      // Add cancellation reason
-      const appointmentWithCancellation = {
-        ...appointmentData,
-        cancellationReason: 'Patient request',
-        cancelledAt: now.toISOString(),
-        previousStatus: AppointmentStatus.SCHEDULED
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.CANCELLED }),
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: 'Patient requested cancellation',
+        cancelledByPatient: true,
+        cancellationFeeApplies: false
       };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CANCELLED',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithCancellation
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCancelledEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentCancelledEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should validate cancellation reason', async () => {
-      // Create appointment data with CANCELLED status but missing reason
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CANCELLED);
-      
-      // Add cancellation data without reason
-      const appointmentWithCancellation = {
-        ...appointmentData,
-        cancelledAt: now.toISOString(),
-        previousStatus: AppointmentStatus.SCHEDULED
-      };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CANCELLED',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithCancellation
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCancelledEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for missing cancellation reason
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'cancellationReason')
-      )).toBeTruthy();
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: AppointmentState.CANCELLED });
+      const dto = plainToInstance(AppointmentCancelledEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('cancelledAt')).toBe(true);
+      expect(result.hasErrorForProperty('cancellationReason')).toBe(true);
+      expect(result.hasErrorForProperty('cancelledByPatient')).toBe(true);
+      expect(result.hasErrorForProperty('cancellationFeeApplies')).toBe(true);
     });
-    
-    it('should validate cancellation timestamp', async () => {
-      // Create appointment data with CANCELLED status but missing cancellation timestamp
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CANCELLED);
-      
-      // Add cancellation data without timestamp
-      const appointmentWithCancellation = {
-        ...appointmentData,
-        cancellationReason: 'Patient request',
-        previousStatus: AppointmentStatus.SCHEDULED
+
+    it('should fail validation when cancelledAt is not a valid ISO 8601 date', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.CANCELLED }),
+        cancelledAt: 'not-a-date',
+        cancellationReason: 'Patient requested cancellation',
+        cancelledByPatient: true,
+        cancellationFeeApplies: false
       };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CANCELLED',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithCancellation
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCancelledEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for missing cancellation timestamp
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'cancelledAt')
-      )).toBeTruthy();
-    });
-    
-    it('should validate appointment status is CANCELLED', async () => {
-      // Create appointment data with incorrect status
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.SCHEDULED);
-      
-      // Add cancellation data but with incorrect status
-      const appointmentWithCancellation = {
-        ...appointmentData,
-        cancellationReason: 'Patient request',
-        cancelledAt: now.toISOString(),
-        previousStatus: AppointmentStatus.SCHEDULED
-      };
-      
-      // Create event
-      const event = {
-        type: 'CARE_APPOINTMENT_CANCELLED',
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithCancellation
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCancelledEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect validation errors for incorrect status
-      expect(errors).not.toBeNull();
-      expect(errors.some(error => 
-        error.property === 'data' && 
-        error.children.some(child => child.property === 'status')
-      )).toBeTruthy();
-    });
-    
-    it('should validate appointment can be cancelled from valid statuses', async () => {
-      // Test valid status transitions to CANCELLED
-      const validPreviousStatuses = [
-        AppointmentStatus.SCHEDULED,
-        AppointmentStatus.CONFIRMED,
-        AppointmentStatus.CHECKED_IN
-      ];
-      
-      for (const previousStatus of validPreviousStatuses) {
-        // Create appointment data with CANCELLED status
-        const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CANCELLED);
-        
-        // Add cancellation data with valid previous status
-        const appointmentWithCancellation = {
-          ...appointmentData,
-          cancellationReason: 'Patient request',
-          cancelledAt: now.toISOString(),
-          previousStatus
-        };
-        
-        // Create event
-        const event = {
-          type: 'CARE_APPOINTMENT_CANCELLED',
-          userId,
-          journey: 'care',
-          timestamp: now.toISOString(),
-          data: appointmentWithCancellation
-        };
-        
-        // Convert to DTO instance
-        const dto = plainToInstance(AppointmentCancelledEventDto, event);
-        
-        // Validate
-        const errors = await validateEventDto(dto);
-        
-        // Expect no validation errors for valid status transitions
-        expect(errors).toBeNull();
-      }
-    });
-    
-    it('should reject invalid appointment status transitions to CANCELLED', async () => {
-      // Test invalid status transitions to CANCELLED
-      const invalidPreviousStatuses = [
-        AppointmentStatus.COMPLETED,
-        AppointmentStatus.NO_SHOW
-      ];
-      
-      for (const previousStatus of invalidPreviousStatuses) {
-        // Create appointment data with CANCELLED status
-        const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.CANCELLED);
-        
-        // Add cancellation data with invalid previous status
-        const appointmentWithCancellation = {
-          ...appointmentData,
-          cancellationReason: 'Patient request',
-          cancelledAt: now.toISOString(),
-          previousStatus
-        };
-        
-        // Create event
-        const event = {
-          type: 'CARE_APPOINTMENT_CANCELLED',
-          userId,
-          journey: 'care',
-          timestamp: now.toISOString(),
-          data: appointmentWithCancellation
-        };
-        
-        // Convert to DTO instance
-        const dto = plainToInstance(AppointmentCancelledEventDto, event);
-        
-        // Validate
-        const errors = await validateEventDto(dto);
-        
-        // Expect validation errors for invalid status transitions
-        expect(errors).not.toBeNull();
-        expect(errors.some(error => 
-          error.property === 'data' && 
-          error.children.some(child => 
-            child.property === 'previousStatus' || 
-            child.property === 'status'
-          )
-        )).toBeTruthy();
-      }
+      const dto = plainToInstance(AppointmentCancelledEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('cancelledAt')).toBe(true);
     });
   });
-  
-  describe('Integration with gamification rules', () => {
-    it('should validate appointment adherence for gamification', async () => {
-      // Create a completed appointment with adherence data
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
+
+  describe('AppointmentRescheduledEventDto', () => {
+    it('should validate a valid appointment rescheduled event', async () => {
+      // Arrange
+      const originalDate = new Date(Date.now() - 86400000).toISOString(); // Yesterday
+      const newDate = new Date(Date.now() + 86400000).toISOString(); // Tomorrow
       
-      // Add adherence data
-      const appointmentWithAdherence = {
-        ...appointmentData,
-        adherence: {
-          onTime: true,
-          scheduledTime: scheduledDate.toISOString(),
-          actualTime: scheduledDate.toISOString(),
-          adherenceScore: 100
-        }
+      const appointmentData = {
+        ...createValidBaseAppointment({ 
+          state: AppointmentState.RESCHEDULED,
+          scheduledAt: newDate
+        }),
+        rescheduledAt: new Date().toISOString(),
+        previousScheduledAt: originalDate,
+        reschedulingReason: 'Provider unavailable',
+        rescheduledByPatient: false
       };
-      
-      // Create event
-      const event = {
-        type: EventType.CARE_APPOINTMENT_COMPLETED,
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithAdherence
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentRescheduledEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
     });
-    
-    it('should validate appointment streak data for gamification', async () => {
-      // Create a completed appointment with streak data
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
-      
-      // Add streak data
-      const appointmentWithStreak = {
-        ...appointmentData,
-        streak: {
-          current: 3,
-          longest: 5,
-          lastAppointmentDate: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days ago
-        }
-      };
-      
-      // Create event
-      const event = {
-        type: EventType.CARE_APPOINTMENT_COMPLETED,
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithStreak
-      };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: AppointmentState.RESCHEDULED });
+      const dto = plainToInstance(AppointmentRescheduledEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('rescheduledAt')).toBe(true);
+      expect(result.hasErrorForProperty('previousScheduledAt')).toBe(true);
+      expect(result.hasErrorForProperty('reschedulingReason')).toBe(true);
+      expect(result.hasErrorForProperty('rescheduledByPatient')).toBe(true);
     });
-    
-    it('should validate appointment achievement eligibility data', async () => {
-      // Create a completed appointment with achievement eligibility data
-      const appointmentData = createAppointmentData(AppointmentType.IN_PERSON, AppointmentStatus.COMPLETED);
-      
-      // Add achievement eligibility data
-      const appointmentWithAchievement = {
-        ...appointmentData,
-        achievementEligibility: {
-          eligible: true,
-          achievementType: 'appointment-keeper',
-          progress: 3,
-          threshold: 5,
-          progressPercentage: 60
-        }
+
+    it('should fail validation when date fields are not valid ISO 8601 dates', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.RESCHEDULED }),
+        rescheduledAt: 'not-a-date',
+        previousScheduledAt: 'also-not-a-date',
+        reschedulingReason: 'Provider unavailable',
+        rescheduledByPatient: false
       };
-      
-      // Create event
-      const event = {
-        type: EventType.CARE_APPOINTMENT_COMPLETED,
-        userId,
-        journey: 'care',
-        timestamp: now.toISOString(),
-        data: appointmentWithAchievement
+      const dto = plainToInstance(AppointmentRescheduledEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('rescheduledAt')).toBe(true);
+      expect(result.hasErrorForProperty('previousScheduledAt')).toBe(true);
+    });
+  });
+
+  describe('AppointmentNoShowEventDto', () => {
+    it('should validate a valid appointment no-show event', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.NO_SHOW }),
+        recordedAt: new Date().toISOString(),
+        noShowFeeApplies: true,
+        noShowNotes: 'Patient did not call to cancel'
       };
-      
-      // Convert to DTO instance
-      const dto = plainToInstance(AppointmentCompletedEventDto, event);
-      
-      // Validate
-      const errors = await validateEventDto(dto);
-      
-      // Expect no validation errors
-      expect(errors).toBeNull();
+      const dto = plainToInstance(AppointmentNoShowEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when required fields are missing', async () => {
+      // Arrange
+      const appointmentData = createValidBaseAppointment({ state: AppointmentState.NO_SHOW });
+      const dto = plainToInstance(AppointmentNoShowEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('recordedAt')).toBe(true);
+      expect(result.hasErrorForProperty('noShowFeeApplies')).toBe(true);
+    });
+
+    it('should fail validation when recordedAt is not a valid ISO 8601 date', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.NO_SHOW }),
+        recordedAt: 'not-a-date',
+        noShowFeeApplies: true
+      };
+      const dto = plainToInstance(AppointmentNoShowEventDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('recordedAt')).toBe(true);
+    });
+
+    it('should validate when optional noShowNotes is not provided', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.NO_SHOW }),
+        recordedAt: new Date().toISOString(),
+        noShowFeeApplies: true
+      };
+      const dto = plainToInstance(AppointmentNoShowEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('State Transitions', () => {
+    it('should validate when previousState is provided', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment(),
+        state: AppointmentState.CHECKED_IN,
+        previousState: AppointmentState.BOOKED
+      };
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail validation when previousState is not a valid enum value', async () => {
+      // Arrange
+      const appointmentData = {
+        ...createValidBaseAppointment(),
+        state: AppointmentState.CHECKED_IN,
+        previousState: 'invalid-state'
+      };
+      const dto = plainToInstance(AppointmentEventBaseDto, appointmentData);
+
+      // Act
+      const result = await validateDto(dto);
+
+      // Assert
+      expect(result.isValid).toBe(false);
+      expect(result.hasErrorForProperty('previousState')).toBe(true);
+    });
+  });
+
+  describe('Integration with Gamification Rules', () => {
+    it('should validate appointment completion for gamification processing', async () => {
+      // Arrange - Create a completed appointment that would trigger gamification rules
+      const appointmentData = {
+        ...createValidBaseAppointment({ state: AppointmentState.COMPLETED }),
+        completedAt: new Date().toISOString(),
+        followUpRecommended: true,
+        followUpTimeframeDays: 30,
+        summary: 'Patient is in good health. Recommended follow-up in 30 days.'
+      };
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+      // In a real implementation, we would verify that this event triggers the appropriate
+      // gamification rules, but for this unit test, we're just ensuring the DTO is valid
+    });
+
+    it('should validate appointment attendance streak for achievements', async () => {
+      // Arrange - Create a completed appointment with previous state for streak tracking
+      const appointmentData = {
+        ...createValidBaseAppointment({ 
+          state: AppointmentState.COMPLETED,
+          previousState: AppointmentState.CHECKED_IN
+        }),
+        completedAt: new Date().toISOString(),
+        followUpRecommended: false,
+        summary: 'Regular check-up completed successfully.'
+      };
+      const dto = plainToInstance(AppointmentCompletedEventDto, appointmentData);
+
+      // Act
+      const errors = await validate(dto);
+
+      // Assert
+      expect(errors.length).toBe(0);
+      // In a real implementation, we would verify that this event contributes to
+      // the appointment-keeper achievement, but for this unit test, we're just
+      // ensuring the DTO is valid for streak tracking
     });
   });
 });
