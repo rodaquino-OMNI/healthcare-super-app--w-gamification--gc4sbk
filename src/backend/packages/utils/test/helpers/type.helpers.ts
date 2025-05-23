@@ -1,552 +1,507 @@
 /**
- * Type Testing Helper Functions
+ * Type Test Helpers
  * 
- * This file provides helper functions for testing type utilities, including generators
- * for various data types, edge cases for type checking, and assertion utilities.
- * These helpers facilitate testing of type guards, predicates, conversion functions,
- * and type assertions across all journey services.
+ * Provides test helper functions for type utilities, including generators for various data types,
+ * edge cases for type checking, and assertion utilities. These helpers facilitate testing of
+ * type guards, predicates, conversion functions, and type assertions across all journey services.
  */
 
-import { AssertionError } from 'assert';
-
-// ===== Type Guard Testing Helpers =====
+// ===== Type Generators =====
 
 /**
- * Tests a type guard function with a set of values that should pass the guard
- * @param guard The type guard function to test
- * @param validValues Array of values that should pass the guard
+ * Generates a collection of primitive values for testing type utilities
+ * @returns An object containing various primitive values
  */
-export function testTypeGuardValid<T>(guard: (value: unknown) => value is T, validValues: unknown[]): void {
-  validValues.forEach(value => {
-    expect(guard(value)).toBe(true);
-  });
-}
-
-/**
- * Tests a type guard function with a set of values that should fail the guard
- * @param guard The type guard function to test
- * @param invalidValues Array of values that should fail the guard
- */
-export function testTypeGuardInvalid<T>(guard: (value: unknown) => value is T, invalidValues: unknown[]): void {
-  invalidValues.forEach(value => {
-    expect(guard(value)).toBe(false);
-  });
-}
-
-/**
- * Runs comprehensive tests on a type guard function with both valid and invalid values
- * @param guard The type guard function to test
- * @param validValues Array of values that should pass the guard
- * @param invalidValues Array of values that should fail the guard
- */
-export function testTypeGuard<T>(
-  guard: (value: unknown) => value is T,
-  validValues: unknown[],
-  invalidValues: unknown[]
-): void {
-  testTypeGuardValid(guard, validValues);
-  testTypeGuardInvalid(guard, invalidValues);
-}
-
-// ===== Type Predicate Testing Helpers =====
-
-/**
- * Tests a type predicate function with a value and verifies both the return value and type narrowing
- * @param predicate The type predicate function to test
- * @param value The value to test with the predicate
- * @param expected The expected result of the predicate
- */
-export function testTypePredicate<T>(
-  predicate: (value: unknown) => value is T,
-  value: unknown,
-  expected: boolean
-): void {
-  const result = predicate(value);
-  expect(result).toBe(expected);
+export const generatePrimitiveValues = () => ({
+  // String values
+  string: 'test string',
+  emptyString: '',
+  stringWithSpaces: '   ',
   
-  if (result) {
-    // If predicate returns true, the value should be of type T
-    // This is a runtime check that doesn't actually verify the TypeScript type narrowing,
-    // but it's still useful for testing the predicate's runtime behavior
-    const typedValue = value as T;
-    expect(typedValue).toBe(value);
+  // Number values
+  number: 42,
+  zero: 0,
+  negativeNumber: -1,
+  float: 3.14,
+  maxNumber: Number.MAX_SAFE_INTEGER,
+  minNumber: Number.MIN_SAFE_INTEGER,
+  infinity: Infinity,
+  negativeInfinity: -Infinity,
+  nan: NaN,
+  
+  // Boolean values
+  trueBoolean: true,
+  falseBoolean: false,
+  
+  // Special values
+  nullValue: null,
+  undefinedValue: undefined,
+});
+
+/**
+ * Generates a collection of compound values for testing type utilities
+ * @returns An object containing various compound values
+ */
+export const generateCompoundValues = () => ({
+  // Array values
+  emptyArray: [],
+  numberArray: [1, 2, 3],
+  stringArray: ['a', 'b', 'c'],
+  mixedArray: [1, 'a', true, null],
+  nestedArray: [1, [2, 3], [4, [5, 6]]],
+  
+  // Object values
+  emptyObject: {},
+  simpleObject: { a: 1, b: 2 },
+  nestedObject: { a: 1, b: { c: 2, d: { e: 3 } } },
+  objectWithArray: { a: 1, b: [1, 2, 3] },
+  objectWithNull: { a: 1, b: null },
+  objectWithUndefined: { a: 1, b: undefined },
+  
+  // Function values
+  arrowFunction: () => {},
+  functionExpression: function() {},
+  asyncFunction: async () => {},
+  generatorFunction: function* () {},
+  
+  // Date values
+  date: new Date(),
+  invalidDate: new Date('invalid date'),
+  
+  // Promise values
+  promise: Promise.resolve(1),
+  rejectedPromise: Promise.reject(new Error('test error')).catch(() => {}),
+});
+
+/**
+ * Generates a collection of edge case values for testing type utilities
+ * @returns An object containing various edge case values
+ */
+export const generateEdgeCaseValues = () => ({
+  // Empty values
+  emptyString: '',
+  emptyArray: [],
+  emptyObject: {},
+  
+  // Falsy values
+  zero: 0,
+  falseBoolean: false,
+  nullValue: null,
+  undefinedValue: undefined,
+  nan: NaN,
+  
+  // Special strings
+  whitespaceString: '   ',
+  zeroString: '0',
+  numericString: '123',
+  booleanString: 'true',
+  jsonString: '{"a":1}',
+  
+  // Special numbers
+  infinity: Infinity,
+  negativeInfinity: -Infinity,
+  minNumber: Number.MIN_SAFE_INTEGER,
+  maxNumber: Number.MAX_SAFE_INTEGER,
+  epsilon: Number.EPSILON,
+  
+  // Special objects
+  objectWithToString: { toString: () => 'custom string' },
+  objectWithValueOf: { valueOf: () => 42 },
+  objectWithBoth: { toString: () => 'custom string', valueOf: () => 42 },
+});
+
+/**
+ * Generates a random string of specified length
+ * @param length The length of the string to generate
+ * @returns A random string
+ */
+export const generateRandomString = (length = 10): string => {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
   }
-}
+  return result;
+};
+
+/**
+ * Generates a random number within the specified range
+ * @param min The minimum value (inclusive)
+ * @param max The maximum value (inclusive)
+ * @returns A random number
+ */
+export const generateRandomNumber = (min = 0, max = 100): number => {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+/**
+ * Generates a random boolean value
+ * @returns A random boolean
+ */
+export const generateRandomBoolean = (): boolean => {
+  return Math.random() >= 0.5;
+};
+
+/**
+ * Generates a random array of specified length with elements of the specified type
+ * @param generator A function that generates elements for the array
+ * @param length The length of the array to generate
+ * @returns A random array
+ */
+export const generateRandomArray = <T>(generator: () => T, length = 5): T[] => {
+  return Array.from({ length }, () => generator());
+};
+
+/**
+ * Generates a random object with specified keys and value generators
+ * @param schema An object mapping keys to generator functions
+ * @returns A random object
+ */
+export const generateRandomObject = <T extends Record<string, any>>(
+  schema: { [K in keyof T]: () => T[K] }
+): T => {
+  const result: Record<string, any> = {};
+  for (const key in schema) {
+    result[key] = schema[key]();
+  }
+  return result as T;
+};
+
+/**
+ * Generates a random date within the specified range
+ * @param start The start date
+ * @param end The end date
+ * @returns A random date
+ */
+export const generateRandomDate = (start = new Date(2000, 0, 1), end = new Date()): Date => {
+  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+};
+
+// ===== Type Guard Testing Utilities =====
+
+/**
+ * Tests a type guard function with various inputs and verifies the results
+ * @param guard The type guard function to test
+ * @param validValues Values that should pass the type guard
+ * @param invalidValues Values that should fail the type guard
+ * @returns An object with the test results
+ */
+export const testTypeGuard = <T>(
+  guard: (value: any) => value is T,
+  validValues: any[],
+  invalidValues: any[]
+): { passed: boolean; failures: { value: any; expected: boolean; actual: boolean }[] } => {
+  const failures: { value: any; expected: boolean; actual: boolean }[] = [];
+  
+  // Test valid values
+  for (const value of validValues) {
+    const result = guard(value);
+    if (!result) {
+      failures.push({ value, expected: true, actual: result });
+    }
+  }
+  
+  // Test invalid values
+  for (const value of invalidValues) {
+    const result = guard(value);
+    if (result) {
+      failures.push({ value, expected: false, actual: result });
+    }
+  }
+  
+  return {
+    passed: failures.length === 0,
+    failures,
+  };
+};
+
+/**
+ * Creates a test suite for a type guard function
+ * @param guard The type guard function to test
+ * @param validValues Values that should pass the type guard
+ * @param invalidValues Values that should fail the type guard
+ * @returns A function that runs the tests using Jest
+ */
+export const createTypeGuardTestSuite = <T>(
+  guard: (value: any) => value is T,
+  validValues: any[],
+  invalidValues: any[]
+) => {
+  return () => {
+    describe('valid values', () => {
+      validValues.forEach((value, index) => {
+        it(`should return true for valid value #${index}`, () => {
+          expect(guard(value)).toBe(true);
+        });
+      });
+    });
+    
+    describe('invalid values', () => {
+      invalidValues.forEach((value, index) => {
+        it(`should return false for invalid value #${index}`, () => {
+          expect(guard(value)).toBe(false);
+        });
+      });
+    });
+  };
+};
+
+// ===== Type Predicate Testing Utilities =====
+
+/**
+ * Tests a type predicate function and verifies that it correctly narrows types
+ * @param predicate The type predicate function to test
+ * @param value The value to test
+ * @param callback A callback function that uses the narrowed type
+ * @returns The result of the callback function
+ */
+export const testTypePredicate = <T, R>(
+  predicate: (value: any) => value is T,
+  value: any,
+  callback: (narrowedValue: T) => R
+): R | undefined => {
+  if (predicate(value)) {
+    // Type is narrowed to T here
+    return callback(value);
+  }
+  return undefined;
+};
 
 /**
  * Tests a discriminated union type predicate
- * @param predicate The type predicate function to test
- * @param value The value to test with the predicate
  * @param discriminator The property name used for discrimination
- * @param expectedValue The expected value of the discriminator property
+ * @param value The value to test
+ * @param discriminatorValue The expected value of the discriminator property
+ * @param callback A callback function that uses the narrowed type
+ * @returns The result of the callback function
  */
-export function testDiscriminatedUnionPredicate<T extends { [key: string]: unknown }>(
-  predicate: (value: unknown) => value is T,
-  value: unknown,
-  discriminator: string,
-  expectedValue: unknown
-): void {
-  const result = predicate(value);
-  expect(result).toBe(true);
-  
-  if (result) {
-    const typedValue = value as T;
-    expect(typedValue[discriminator]).toBe(expectedValue);
-  }
-}
-
-// ===== Type Conversion Testing Helpers =====
-
-/**
- * Tests a type conversion function with a set of input/output pairs
- * @param converter The conversion function to test
- * @param testCases Array of test cases with input and expected output
- */
-export function testTypeConversion<TInput, TOutput>(
-  converter: (value: TInput) => TOutput,
-  testCases: Array<{ input: TInput; expected: TOutput }>
-): void {
-  testCases.forEach(({ input, expected }) => {
-    const result = converter(input);
-    expect(result).toEqual(expected);
-  });
-}
-
-/**
- * Tests a type conversion function with default value handling
- * @param converter The conversion function to test
- * @param invalidInputs Array of invalid inputs
- * @param defaultValue The default value that should be returned for invalid inputs
- */
-export function testTypeConversionDefaults<TInput, TOutput>(
-  converter: (value: TInput, defaultValue?: TOutput) => TOutput,
-  invalidInputs: TInput[],
-  defaultValue: TOutput
-): void {
-  invalidInputs.forEach(input => {
-    const result = converter(input, defaultValue);
-    expect(result).toEqual(defaultValue);
-  });
-}
-
-/**
- * Tests that a conversion function throws an error for invalid inputs when no default is provided
- * @param converter The conversion function to test
- * @param invalidInputs Array of invalid inputs that should cause errors
- */
-export function testTypeConversionErrors<TInput, TOutput>(
-  converter: (value: TInput) => TOutput,
-  invalidInputs: TInput[]
-): void {
-  invalidInputs.forEach(input => {
-    expect(() => converter(input)).toThrow();
-  });
-}
-
-// ===== Type Assertion Testing Helpers =====
-
-/**
- * Tests that a type assertion function passes for valid values
- * @param assertion The assertion function to test
- * @param validValues Array of values that should pass the assertion
- */
-export function testTypeAssertionValid<T>(
-  assertion: (value: unknown) => asserts value is T,
-  validValues: unknown[]
-): void {
-  validValues.forEach(value => {
-    expect(() => assertion(value)).not.toThrow();
-  });
-}
-
-/**
- * Tests that a type assertion function throws for invalid values
- * @param assertion The assertion function to test
- * @param invalidValues Array of values that should fail the assertion
- * @param errorType Optional expected error type
- */
-export function testTypeAssertionInvalid<T>(
-  assertion: (value: unknown) => asserts value is T,
-  invalidValues: unknown[],
-  errorType: any = Error
-): void {
-  invalidValues.forEach(value => {
-    expect(() => assertion(value)).toThrow(errorType);
-  });
-}
-
-/**
- * Tests that a type assertion function throws with specific error messages
- * @param assertion The assertion function to test
- * @param invalidValues Array of values that should fail the assertion
- * @param expectedMessages Array of expected error messages corresponding to each invalid value
- */
-export function testTypeAssertionErrorMessages<T>(
-  assertion: (value: unknown) => asserts value is T,
-  invalidValues: unknown[],
-  expectedMessages: string[]
-): void {
-  invalidValues.forEach((value, index) => {
-    try {
-      assertion(value);
-      fail(`Expected assertion to throw for value: ${value}`);
-    } catch (error) {
-      expect(error.message).toContain(expectedMessages[index]);
-    }
-  });
-}
-
-/**
- * Tests the assertNever function used for exhaustive switch statements
- * @param assertNever The assertNever function to test
- * @param value A value that should trigger the assertNever function
- * @param expectedMessage The expected error message
- */
-export function testAssertNever(
-  assertNever: (value: never, message?: string) => never,
+export const testDiscriminatedUnion = <T extends { [K in D]: V }, D extends keyof T, V extends T[D], R>(
+  discriminator: D,
   value: any,
-  expectedMessage?: string
-): void {
-  try {
-    assertNever(value as never, expectedMessage);
-    fail('Expected assertNever to throw');
-  } catch (error) {
-    if (expectedMessage) {
-      expect(error.message).toContain(expectedMessage);
+  discriminatorValue: V,
+  callback: (narrowedValue: T & { [K in D]: V }) => R
+): R | undefined => {
+  if (value && typeof value === 'object' && value[discriminator] === discriminatorValue) {
+    // Type is narrowed to T & { [K in D]: V } here
+    return callback(value as T & { [K in D]: V });
+  }
+  return undefined;
+};
+
+// ===== Type Conversion Testing Utilities =====
+
+/**
+ * Tests a type conversion function with various inputs and verifies the results
+ * @param converter The conversion function to test
+ * @param testCases An array of test cases with input, expected output, and optional description
+ * @returns An object with the test results
+ */
+export const testTypeConversion = <T, U>(
+  converter: (value: T, ...args: any[]) => U,
+  testCases: Array<{ input: T; args?: any[]; expected: U; description?: string }>
+): { passed: boolean; failures: { input: T; args?: any[]; expected: U; actual: U; description?: string }[] } => {
+  const failures: { input: T; args?: any[]; expected: U; actual: U; description?: string }[] = [];
+  
+  for (const testCase of testCases) {
+    const { input, args = [], expected, description } = testCase;
+    const actual = converter(input, ...args);
+    
+    // Check if the result matches the expected value
+    // Note: This uses a simple equality check, which may not work for all types
+    // For complex objects or special values like NaN, custom comparison logic may be needed
+    const isEqual = expected === actual || 
+      (Number.isNaN(expected) && Number.isNaN(actual)) ||
+      (expected instanceof Date && actual instanceof Date && expected.getTime() === actual.getTime());
+    
+    if (!isEqual) {
+      failures.push({ input, args, expected, actual, description });
     }
   }
-}
-
-// ===== Data Type Generators =====
-
-/**
- * Generates an array of primitive values for testing
- * @returns Array of primitive values (string, number, boolean, null, undefined)
- */
-export function generatePrimitiveValues(): unknown[] {
-  return [
-    'string',
-    '',
-    0,
-    1,
-    -1,
-    Number.MAX_SAFE_INTEGER,
-    Number.MIN_SAFE_INTEGER,
-    true,
-    false,
-    null,
-    undefined
-  ];
-}
+  
+  return {
+    passed: failures.length === 0,
+    failures,
+  };
+};
 
 /**
- * Generates an array of non-primitive values for testing
- * @returns Array of non-primitive values (object, array, function, date, etc.)
+ * Creates a test suite for a type conversion function
+ * @param converter The conversion function to test
+ * @param testCases An array of test cases with input, expected output, and optional description
+ * @returns A function that runs the tests using Jest
  */
-export function generateNonPrimitiveValues(): unknown[] {
-  return [
-    {},
-    { key: 'value' },
-    [],
-    [1, 2, 3],
-    new Date(),
-    () => {},
-    function() {},
-    new Map(),
-    new Set(),
-    new RegExp('.*'),
-    Promise.resolve(),
-    Symbol('symbol')
-  ];
-}
+export const createTypeConversionTestSuite = <T, U>(
+  converter: (value: T, ...args: any[]) => U,
+  testCases: Array<{ input: T; args?: any[]; expected: U; description?: string }>
+) => {
+  return () => {
+    testCases.forEach((testCase, index) => {
+      const { input, args = [], expected, description } = testCase;
+      const testName = description || `should correctly convert test case #${index}`;
+      
+      it(testName, () => {
+        const actual = converter(input, ...args);
+        
+        // Handle special cases for comparison
+        if (Number.isNaN(expected)) {
+          expect(Number.isNaN(actual)).toBe(true);
+        } else if (expected instanceof Date && actual instanceof Date) {
+          expect(actual.getTime()).toBe(expected.getTime());
+        } else {
+          expect(actual).toEqual(expected);
+        }
+      });
+    });
+  };
+};
+
+// ===== Type Assertion Testing Utilities =====
 
 /**
- * Generates an array of edge case values for thorough testing
- * @returns Array of edge case values
+ * Tests an assertion function and verifies that it throws the expected error for invalid inputs
+ * @param assertion The assertion function to test
+ * @param validValues Values that should pass the assertion
+ * @param invalidValues Values that should fail the assertion
+ * @param errorType The expected error type (optional)
+ * @returns An object with the test results
  */
-export function generateEdgeCaseValues(): unknown[] {
-  return [
-    NaN,
-    Infinity,
-    -Infinity,
-    0n, // BigInt
-    new Date('invalid date'),
-    Object.create(null), // Object with no prototype
-    /regex/,
-    new Error('test error'),
-    new ArrayBuffer(10),
-    new Int32Array(2),
-    document, // For browser environments
-    global, // For Node.js environments
-    class TestClass {},
-    new (class {})() // Instance of anonymous class
-  ];
-}
-
-/**
- * Generates a set of string values for testing string utilities
- * @returns Array of string values including edge cases
- */
-export function generateStringValues(): string[] {
-  return [
-    '',
-    'string',
-    '0',
-    'true',
-    'false',
-    'null',
-    'undefined',
-    '{}',
-    '[]',
-    ' ',
-    '\n',
-    '\t',
-    String(Number.MAX_SAFE_INTEGER),
-    String(Number.MIN_SAFE_INTEGER),
-    'special chars: !@#$%^&*()'
-  ];
-}
-
-/**
- * Generates a set of number values for testing number utilities
- * @returns Array of number values including edge cases
- */
-export function generateNumberValues(): number[] {
-  return [
-    0,
-    1,
-    -1,
-    0.5,
-    -0.5,
-    Number.MAX_SAFE_INTEGER,
-    Number.MIN_SAFE_INTEGER,
-    Number.MAX_VALUE,
-    Number.MIN_VALUE,
-    Number.EPSILON,
-    Number.POSITIVE_INFINITY,
-    Number.NEGATIVE_INFINITY,
-    NaN
-  ];
-}
-
-/**
- * Generates a set of boolean values for testing boolean utilities
- * @returns Array of boolean values
- */
-export function generateBooleanValues(): boolean[] {
-  return [true, false];
-}
-
-/**
- * Generates a set of array values for testing array utilities
- * @returns Array of arrays including edge cases
- */
-export function generateArrayValues(): unknown[][] {
-  return [
-    [],
-    [1, 2, 3],
-    ['a', 'b', 'c'],
-    [true, false],
-    [null, undefined],
-    [{}],
-    [[]], // Nested array
-    Array(10), // Sparse array
-    new Array(5).fill(0), // Filled array
-    [...generatePrimitiveValues()],
-    [...generateNonPrimitiveValues()]
-  ];
-}
-
-/**
- * Generates a set of object values for testing object utilities
- * @returns Array of objects including edge cases
- */
-export function generateObjectValues(): object[] {
-  return [
-    {},
-    { key: 'value' },
-    { nested: { key: 'value' } },
-    { array: [1, 2, 3] },
-    { function: () => {} },
-    { date: new Date() },
-    Object.create(null), // Object with no prototype
-    Object.create(Object.prototype), // Object with explicit prototype
-    Object.freeze({}), // Frozen object
-    Object.seal({ key: 'value' }), // Sealed object
-    new (class TestClass {})(), // Class instance
-    new Error('test'), // Error object
-    new Map(), // Map object
-    new Set() // Set object
-  ];
-}
-
-/**
- * Generates a set of date values for testing date utilities
- * @returns Array of dates including edge cases
- */
-export function generateDateValues(): (Date | string)[] {
-  return [
-    new Date(),
-    new Date(0),
-    new Date('2023-01-01'),
-    new Date('2023-01-01T12:00:00Z'),
-    new Date(Date.now()),
-    new Date(8640000000000000), // Max date
-    new Date(-8640000000000000), // Min date
-    new Date('invalid'), // Invalid date
-    '2023-01-01',
-    '2023-01-01T12:00:00Z',
-    'January 1, 2023',
-    '01/01/2023',
-    'invalid date string'
-  ];
-}
-
-/**
- * Generates a set of function values for testing function utilities
- * @returns Array of functions including edge cases
- */
-export function generateFunctionValues(): Function[] {
-  return [
-    () => {},
-    function() {},
-    function named() {},
-    async () => {},
-    async function() {},
-    function* generator() {},
-    class TestClass {},
-    new Function('return true'),
-    setTimeout,
-    console.log
-  ];
-}
-
-/**
- * Generates a set of promise values for testing promise utilities
- * @returns Array of promises including edge cases
- */
-export function generatePromiseValues(): Promise<unknown>[] {
-  return [
-    Promise.resolve(),
-    Promise.resolve(true),
-    Promise.reject(new Error('test')).catch(() => {}),
-    new Promise(resolve => setTimeout(resolve, 0)),
-    new Promise((resolve, reject) => setTimeout(reject, 0)).catch(() => {}),
-    (async () => true)(),
-    (async () => { throw new Error('test') })().catch(() => {})
-  ];
-}
-
-/**
- * Creates a mock class for testing instance type checking
- * @returns A class constructor and an instance of that class
- */
-export function createMockClass(): { Class: new () => unknown; instance: unknown } {
-  class MockClass {
-    public property = 'value';
-    public method(): void {}
+export const testTypeAssertion = (
+  assertion: (value: any, ...args: any[]) => void,
+  validValues: Array<{ value: any; args?: any[] }>,
+  invalidValues: Array<{ value: any; args?: any[] }>,
+  errorType?: new (...args: any[]) => Error
+): { passed: boolean; failures: { value: any; args?: any[]; expected: string; actual: string }[] } => {
+  const failures: { value: any; args?: any[]; expected: string; actual: string }[] = [];
+  
+  // Test valid values (should not throw)
+  for (const { value, args = [] } of validValues) {
+    try {
+      assertion(value, ...args);
+    } catch (error) {
+      failures.push({ 
+        value, 
+        args, 
+        expected: 'no error', 
+        actual: error instanceof Error ? error.message : String(error) 
+      });
+    }
+  }
+  
+  // Test invalid values (should throw)
+  for (const { value, args = [] } of invalidValues) {
+    try {
+      assertion(value, ...args);
+      // If we get here, the assertion didn't throw
+      failures.push({ value, args, expected: 'error', actual: 'no error' });
+    } catch (error) {
+      // Check if the error is of the expected type
+      if (errorType && !(error instanceof errorType)) {
+        failures.push({ 
+          value, 
+          args, 
+          expected: errorType.name, 
+          actual: error instanceof Error ? error.constructor.name : typeof error 
+        });
+      }
+    }
   }
   
   return {
-    Class: MockClass,
-    instance: new MockClass()
+    passed: failures.length === 0,
+    failures,
   };
-}
+};
 
 /**
- * Creates a mock class hierarchy for testing inheritance-based type checking
- * @returns An object containing parent and child classes and instances
+ * Creates a test suite for an assertion function
+ * @param assertion The assertion function to test
+ * @param validValues Values that should pass the assertion
+ * @param invalidValues Values that should fail the assertion
+ * @param errorType The expected error type (optional)
+ * @returns A function that runs the tests using Jest
  */
-export function createMockClassHierarchy(): {
-  Parent: new () => unknown;
-  Child: new () => unknown;
-  parentInstance: unknown;
-  childInstance: unknown;
-} {
-  class Parent {
-    public parentProperty = 'parent';
-    public sharedMethod(): void {}
-  }
-  
-  class Child extends Parent {
-    public childProperty = 'child';
-    public childMethod(): void {}
-  }
-  
-  return {
-    Parent,
-    Child,
-    parentInstance: new Parent(),
-    childInstance: new Child()
+export const createTypeAssertionTestSuite = (
+  assertion: (value: any, ...args: any[]) => void,
+  validValues: Array<{ value: any; args?: any[]; description?: string }>,
+  invalidValues: Array<{ value: any; args?: any[]; description?: string }>,
+  errorType?: new (...args: any[]) => Error
+) => {
+  return () => {
+    describe('valid values', () => {
+      validValues.forEach((testCase, index) => {
+        const { value, args = [], description } = testCase;
+        const testName = description || `should not throw for valid value #${index}`;
+        
+        it(testName, () => {
+          expect(() => assertion(value, ...args)).not.toThrow();
+        });
+      });
+    });
+    
+    describe('invalid values', () => {
+      invalidValues.forEach((testCase, index) => {
+        const { value, args = [], description } = testCase;
+        const testName = description || `should throw for invalid value #${index}`;
+        
+        it(testName, () => {
+          if (errorType) {
+            expect(() => assertion(value, ...args)).toThrow(errorType);
+          } else {
+            expect(() => assertion(value, ...args)).toThrow();
+          }
+        });
+      });
+    });
   };
+};
+
+/**
+ * Tests the assertNever function for exhaustive switch statements
+ * @param assertion The assertNever function to test
+ * @param value The value to pass to assertNever
+ * @param errorMessage The expected error message (optional)
+ * @returns A function that runs the test
+ */
+export const testAssertNever = (
+  assertion: (value: never, message?: string) => never,
+  value: any,
+  errorMessage?: string
+) => {
+  return () => {
+    expect(() => assertion(value as never, errorMessage)).toThrow();
+  };
+};
+
+// ===== Mock Class for Testing =====
+
+/**
+ * A mock class for testing instance type checking
+ */
+export class MockClass {
+  constructor(public value: any) {}
 }
 
 /**
- * Creates a discriminated union type for testing type narrowing
- * @param discriminator The property name to use for discrimination
- * @param values Array of values for the discriminator property
- * @returns An array of objects with the discriminated property
+ * A mock subclass for testing inheritance type checking
  */
-export function createDiscriminatedUnion<T extends string>(
-  discriminator: string,
-  values: T[]
-): Array<{ [key: string]: T }> {
-  return values.map(value => ({ [discriminator]: value }));
-}
-
-/**
- * Creates a deep nested object for testing deep property access
- * @param depth The depth of nesting
- * @returns A deeply nested object
- */
-export function createNestedObject(depth: number): object {
-  let obj: any = { value: 'leaf' };
-  
-  for (let i = 0; i < depth; i++) {
-    obj = { nested: obj };
+export class MockSubclass extends MockClass {
+  constructor(value: any, public extra: any) {
+    super(value);
   }
-  
-  return obj;
 }
 
 /**
- * Creates a circular reference object for testing circular reference handling
- * @returns An object with a circular reference
+ * A mock interface for testing structural typing
  */
-export function createCircularObject(): object {
-  const obj: any = { name: 'circular' };
-  obj.self = obj;
-  return obj;
+export interface MockInterface {
+  value: any;
 }
 
 /**
- * Creates a mock Error with a specific name and message
- * @param name The name of the error
- * @param message The error message
- * @returns A custom Error instance
+ * Creates a mock object that implements the MockInterface
+ * @param value The value to assign to the object
+ * @returns A mock object
  */
-export function createCustomError(name: string, message: string): Error {
-  const error = new Error(message);
-  error.name = name;
-  return error;
-}
-
-/**
- * Creates a mock AssertionError for testing assertion failures
- * @param message The assertion error message
- * @param actual The actual value that failed the assertion
- * @param expected The expected value for the assertion
- * @returns An AssertionError instance
- */
-export function createAssertionError(
-  message: string,
-  actual?: unknown,
-  expected?: unknown
-): AssertionError {
-  return new AssertionError({
-    message,
-    actual,
-    expected,
-    operator: 'strictEqual'
-  });
-}
+export const createMockObject = (value: any): MockInterface => {
+  return { value };
+};
