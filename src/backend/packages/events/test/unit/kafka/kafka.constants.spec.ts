@@ -1,274 +1,506 @@
-import { Test } from '@nestjs/testing';
-import { TOPICS } from '../../../src/constants/topics.constants';
-import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY, HTTP_STATUS_CODES } from '../../../src/constants/errors.constants';
+/**
+ * Unit tests for Kafka constants
+ * 
+ * These tests verify the correctness, completeness, and consistency of all Kafka-related constants
+ * used across the application, including default topics, consumer groups, error codes, and retry settings.
+ */
+
+import {
+  TOPIC_PREFIXES,
+  JOURNEY_EVENT_TOPICS,
+  HEALTH_EVENT_TOPICS,
+  CARE_EVENT_TOPICS,
+  PLAN_EVENT_TOPICS,
+  GAMIFICATION_TOPICS,
+  ACHIEVEMENT_TOPICS,
+  QUEST_TOPICS,
+  REWARD_TOPICS,
+  PROFILE_TOPICS,
+  NOTIFICATION_TOPICS,
+  DLQ_TOPICS,
+  CONSUMER_GROUPS,
+  KAFKA_CONFIG,
+  RETRY_CONFIG,
+  CIRCUIT_BREAKER_CONFIG,
+  KAFKA_ERROR_CODES,
+  KAFKA_HEADERS,
+} from '../../../src/kafka/kafka.constants';
 
 describe('Kafka Constants', () => {
-  describe('Topic Constants', () => {
-    it('should define all required journey topics', () => {
-      // Verify all journey namespaces exist
-      expect(TOPICS.HEALTH).toBeDefined();
-      expect(TOPICS.CARE).toBeDefined();
-      expect(TOPICS.PLAN).toBeDefined();
-      expect(TOPICS.USER).toBeDefined();
-      expect(TOPICS.GAMIFICATION).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS).toBeDefined();
+  describe('TOPIC_PREFIXES', () => {
+    it('should define all required topic prefixes', () => {
+      expect(TOPIC_PREFIXES).toBeDefined();
+      expect(TOPIC_PREFIXES.BASE).toBe('austa');
+      expect(TOPIC_PREFIXES.HEALTH).toBe('austa.health');
+      expect(TOPIC_PREFIXES.CARE).toBe('austa.care');
+      expect(TOPIC_PREFIXES.PLAN).toBe('austa.plan');
+      expect(TOPIC_PREFIXES.GAMIFICATION).toBe('austa.gamification');
+      expect(TOPIC_PREFIXES.NOTIFICATION).toBe('austa.notification');
+      expect(TOPIC_PREFIXES.USER).toBe('austa.user');
+      expect(TOPIC_PREFIXES.DLQ).toBe('austa.dlq');
     });
 
-    it('should define main events topic for each journey', () => {
-      // Verify each journey has a main events topic
-      expect(TOPICS.HEALTH.EVENTS).toBeDefined();
-      expect(TOPICS.CARE.EVENTS).toBeDefined();
-      expect(TOPICS.PLAN.EVENTS).toBeDefined();
-      expect(TOPICS.USER.EVENTS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.EVENTS).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS.EVENTS).toBeDefined();
-    });
-
-    it('should follow consistent naming convention for topics', () => {
-      // All topics should follow the pattern: journey.resource
-      const topicPattern = /^[a-z]+\.[a-z]+$/;
-      
-      // Check health journey topics
-      Object.values(TOPICS.HEALTH).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('health.')).toBe(true);
+    it('should follow the correct naming convention', () => {
+      // All prefixes should start with the base prefix
+      Object.values(TOPIC_PREFIXES).forEach(prefix => {
+        if (prefix !== TOPIC_PREFIXES.BASE) {
+          expect(prefix).toContain(`${TOPIC_PREFIXES.BASE}.`);
+        }
       });
-
-      // Check care journey topics
-      Object.values(TOPICS.CARE).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('care.')).toBe(true);
-      });
-
-      // Check plan journey topics
-      Object.values(TOPICS.PLAN).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('plan.')).toBe(true);
-      });
-
-      // Check user topics
-      Object.values(TOPICS.USER).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('user.')).toBe(true);
-      });
-
-      // Check gamification topics
-      Object.values(TOPICS.GAMIFICATION).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('game.')).toBe(true);
-      });
-
-      // Check notification topics
-      Object.values(TOPICS.NOTIFICATIONS).forEach(topic => {
-        expect(typeof topic).toBe('string');
-        expect(topic).toMatch(topicPattern);
-        expect(topic.startsWith('notification.')).toBe(true);
-      });
-    });
-
-    it('should define specific topics for health journey', () => {
-      expect(TOPICS.HEALTH.METRICS).toBeDefined();
-      expect(TOPICS.HEALTH.GOALS).toBeDefined();
-      expect(TOPICS.HEALTH.DEVICES).toBeDefined();
-    });
-
-    it('should define specific topics for care journey', () => {
-      expect(TOPICS.CARE.APPOINTMENTS).toBeDefined();
-      expect(TOPICS.CARE.MEDICATIONS).toBeDefined();
-      expect(TOPICS.CARE.TELEMEDICINE).toBeDefined();
-    });
-
-    it('should define specific topics for plan journey', () => {
-      expect(TOPICS.PLAN.CLAIMS).toBeDefined();
-      expect(TOPICS.PLAN.BENEFITS).toBeDefined();
-      expect(TOPICS.PLAN.SELECTION).toBeDefined();
-    });
-
-    it('should define specific topics for gamification', () => {
-      expect(TOPICS.GAMIFICATION.ACHIEVEMENTS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.REWARDS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.LEADERBOARD).toBeDefined();
-    });
-
-    it('should define dead letter queue topic', () => {
-      expect(TOPICS.DEAD_LETTER).toBeDefined();
-      expect(typeof TOPICS.DEAD_LETTER).toBe('string');
-      expect(TOPICS.DEAD_LETTER).toBe('dead-letter');
     });
   });
 
-  describe('Error Constants', () => {
-    it('should define all required error code categories', () => {
-      // Check for initialization errors
-      expect(ERROR_CODES.INITIALIZATION_FAILED).toBeDefined();
-      
-      // Check for producer errors
-      expect(ERROR_CODES.PRODUCER_CONNECTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_SEND_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_BATCH_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_TRANSACTION_FAILED).toBeDefined();
-      
-      // Check for consumer errors
-      expect(ERROR_CODES.CONSUMER_CONNECTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_GROUP_ERROR).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_PROCESSING_FAILED).toBeDefined();
-      
-      // Check for message errors
-      expect(ERROR_CODES.MESSAGE_SERIALIZATION_FAILED).toBeDefined();
-      expect(ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED).toBeDefined();
-      
-      // Check for schema errors
-      expect(ERROR_CODES.SCHEMA_VALIDATION_FAILED).toBeDefined();
-      expect(ERROR_CODES.SCHEMA_VALIDATION_ERROR).toBeDefined();
-      expect(ERROR_CODES.SCHEMA_NOT_FOUND).toBeDefined();
-      
-      // Check for dead-letter queue errors
-      expect(ERROR_CODES.DLQ_SEND_FAILED).toBeDefined();
-      
-      // Check for retry errors
-      expect(ERROR_CODES.RETRY_EXHAUSTED).toBeDefined();
-      expect(ERROR_CODES.RETRY_FAILED).toBeDefined();
+  describe('JOURNEY_EVENT_TOPICS', () => {
+    it('should define all journey event topics', () => {
+      expect(JOURNEY_EVENT_TOPICS).toBeDefined();
+      expect(JOURNEY_EVENT_TOPICS.HEALTH).toBe(`${TOPIC_PREFIXES.HEALTH}.events`);
+      expect(JOURNEY_EVENT_TOPICS.CARE).toBe(`${TOPIC_PREFIXES.CARE}.events`);
+      expect(JOURNEY_EVENT_TOPICS.PLAN).toBe(`${TOPIC_PREFIXES.PLAN}.events`);
+      expect(JOURNEY_EVENT_TOPICS.USER).toBe(`${TOPIC_PREFIXES.USER}.events`);
     });
 
-    it('should follow consistent naming convention for error codes', () => {
-      // All error codes should follow the pattern: KAFKA_XXX
-      const errorCodePattern = /^KAFKA_\d{3}$/;
-      
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(typeof code).toBe('string');
-        expect(code).toMatch(errorCodePattern);
+    it('should follow the correct naming convention', () => {
+      // All journey event topics should end with .events
+      Object.values(JOURNEY_EVENT_TOPICS).forEach(topic => {
+        expect(topic).toMatch(/\.events$/);
       });
-    });
-
-    it('should have error messages for all error codes', () => {
-      // Each error code should have a corresponding error message
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(ERROR_MESSAGES[code]).toBeDefined();
-        expect(typeof ERROR_MESSAGES[code]).toBe('string');
-        expect(ERROR_MESSAGES[code].length).toBeGreaterThan(0);
-      });
-    });
-
-    it('should have severity levels for all error codes', () => {
-      // Each error code should have a corresponding severity level
-      const validSeverityLevels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO'];
-      
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(ERROR_SEVERITY[code]).toBeDefined();
-        expect(typeof ERROR_SEVERITY[code]).toBe('string');
-        expect(validSeverityLevels).toContain(ERROR_SEVERITY[code]);
-      });
-    });
-
-    it('should have HTTP status codes for all error codes', () => {
-      // Each error code should have a corresponding HTTP status code
-      const validStatusCodes = [400, 401, 403, 404, 409, 422, 500, 503];
-      
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(HTTP_STATUS_CODES[code]).toBeDefined();
-        expect(typeof HTTP_STATUS_CODES[code]).toBe('number');
-        expect(validStatusCodes).toContain(HTTP_STATUS_CODES[code]);
-      });
-    });
-
-    it('should use appropriate severity levels for different error types', () => {
-      // Initialization and connection errors should be CRITICAL
-      expect(ERROR_SEVERITY[ERROR_CODES.INITIALIZATION_FAILED]).toBe('CRITICAL');
-      expect(ERROR_SEVERITY[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe('CRITICAL');
-      expect(ERROR_SEVERITY[ERROR_CODES.CONSUMER_CONNECTION_FAILED]).toBe('CRITICAL');
-      
-      // Processing errors should be ERROR
-      expect(ERROR_SEVERITY[ERROR_CODES.PRODUCER_SEND_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.CONSUMER_PROCESSING_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.MESSAGE_SERIALIZATION_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe('ERROR');
-      
-      // Retry and DLQ errors should be WARNING or ERROR
-      expect(['WARNING', 'ERROR']).toContain(ERROR_SEVERITY[ERROR_CODES.RETRY_EXHAUSTED]);
-      expect(['WARNING', 'ERROR']).toContain(ERROR_SEVERITY[ERROR_CODES.DLQ_SEND_FAILED]);
-    });
-
-    it('should use appropriate HTTP status codes for different error types', () => {
-      // Connection errors should be 503 Service Unavailable
-      expect(HTTP_STATUS_CODES[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe(503);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.CONSUMER_CONNECTION_FAILED]).toBe(503);
-      
-      // Validation errors should be 400 Bad Request
-      expect(HTTP_STATUS_CODES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe(400);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.MESSAGE_SERIALIZATION_FAILED]).toBe(400);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED]).toBe(400);
-      
-      // Internal errors should be 500 Internal Server Error
-      expect(HTTP_STATUS_CODES[ERROR_CODES.INITIALIZATION_FAILED]).toBe(500);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.PRODUCER_SEND_FAILED]).toBe(500);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.CONSUMER_PROCESSING_FAILED]).toBe(500);
     });
   });
 
-  describe('Cross-Journey Integration', () => {
-    it('should have consistent topic naming across all journeys', () => {
-      // All journeys should have an EVENTS topic
-      expect(TOPICS.HEALTH.EVENTS).toBe('health.events');
-      expect(TOPICS.CARE.EVENTS).toBe('care.events');
-      expect(TOPICS.PLAN.EVENTS).toBe('plan.events');
-      expect(TOPICS.USER.EVENTS).toBe('user.events');
-      expect(TOPICS.GAMIFICATION.EVENTS).toBe('game.events');
-      expect(TOPICS.NOTIFICATIONS.EVENTS).toBe('notification.events');
+  describe('Journey-specific event topics', () => {
+    describe('HEALTH_EVENT_TOPICS', () => {
+      it('should define all health journey event topics', () => {
+        expect(HEALTH_EVENT_TOPICS).toBeDefined();
+        expect(HEALTH_EVENT_TOPICS.METRICS).toBe(`${TOPIC_PREFIXES.HEALTH}.metrics`);
+        expect(HEALTH_EVENT_TOPICS.GOALS).toBe(`${TOPIC_PREFIXES.HEALTH}.goals`);
+        expect(HEALTH_EVENT_TOPICS.INSIGHTS).toBe(`${TOPIC_PREFIXES.HEALTH}.insights`);
+        expect(HEALTH_EVENT_TOPICS.DEVICES).toBe(`${TOPIC_PREFIXES.HEALTH}.devices`);
+      });
+
+      it('should use the correct health journey prefix', () => {
+        Object.values(HEALTH_EVENT_TOPICS).forEach(topic => {
+          expect(topic).toContain(TOPIC_PREFIXES.HEALTH);
+        });
+      });
     });
 
-    it('should support gamification integration with all journeys', () => {
-      // Verify that gamification has specific topics for achievements and rewards
-      expect(TOPICS.GAMIFICATION.ACHIEVEMENTS).toBe('game.achievements');
-      expect(TOPICS.GAMIFICATION.REWARDS).toBe('game.rewards');
-      expect(TOPICS.GAMIFICATION.LEADERBOARD).toBe('game.leaderboard');
+    describe('CARE_EVENT_TOPICS', () => {
+      it('should define all care journey event topics', () => {
+        expect(CARE_EVENT_TOPICS).toBeDefined();
+        expect(CARE_EVENT_TOPICS.APPOINTMENTS).toBe(`${TOPIC_PREFIXES.CARE}.appointments`);
+        expect(CARE_EVENT_TOPICS.MEDICATIONS).toBe(`${TOPIC_PREFIXES.CARE}.medications`);
+        expect(CARE_EVENT_TOPICS.TELEMEDICINE).toBe(`${TOPIC_PREFIXES.CARE}.telemedicine`);
+        expect(CARE_EVENT_TOPICS.CARE_PLANS).toBe(`${TOPIC_PREFIXES.CARE}.care_plans`);
+      });
+
+      it('should use the correct care journey prefix', () => {
+        Object.values(CARE_EVENT_TOPICS).forEach(topic => {
+          expect(topic).toContain(TOPIC_PREFIXES.CARE);
+        });
+      });
     });
 
-    it('should support notification integration with all journeys', () => {
-      // Verify that notifications has specific topics for different channels
-      expect(TOPICS.NOTIFICATIONS.PUSH).toBe('notification.push');
-      expect(TOPICS.NOTIFICATIONS.EMAIL).toBe('notification.email');
-      expect(TOPICS.NOTIFICATIONS.SMS).toBe('notification.sms');
+    describe('PLAN_EVENT_TOPICS', () => {
+      it('should define all plan journey event topics', () => {
+        expect(PLAN_EVENT_TOPICS).toBeDefined();
+        expect(PLAN_EVENT_TOPICS.CLAIMS).toBe(`${TOPIC_PREFIXES.PLAN}.claims`);
+        expect(PLAN_EVENT_TOPICS.BENEFITS).toBe(`${TOPIC_PREFIXES.PLAN}.benefits`);
+        expect(PLAN_EVENT_TOPICS.PLANS).toBe(`${TOPIC_PREFIXES.PLAN}.plans`);
+        expect(PLAN_EVENT_TOPICS.REWARDS).toBe(`${TOPIC_PREFIXES.PLAN}.rewards`);
+      });
+
+      it('should use the correct plan journey prefix', () => {
+        Object.values(PLAN_EVENT_TOPICS).forEach(topic => {
+          expect(topic).toContain(TOPIC_PREFIXES.PLAN);
+        });
+      });
     });
   });
 
-  describe('Error Handling Integration', () => {
-    it('should have error codes for all critical operations', () => {
-      // Producer operations
-      expect(ERROR_CODES.PRODUCER_CONNECTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_SEND_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_BATCH_FAILED).toBeDefined();
-      expect(ERROR_CODES.PRODUCER_TRANSACTION_FAILED).toBeDefined();
-      
-      // Consumer operations
-      expect(ERROR_CODES.CONSUMER_CONNECTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_GROUP_ERROR).toBeDefined();
-      expect(ERROR_CODES.CONSUMER_PROCESSING_FAILED).toBeDefined();
-      
-      // Message operations
-      expect(ERROR_CODES.MESSAGE_SERIALIZATION_FAILED).toBeDefined();
-      expect(ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED).toBeDefined();
-      
-      // Schema operations
-      expect(ERROR_CODES.SCHEMA_VALIDATION_FAILED).toBeDefined();
-      expect(ERROR_CODES.SCHEMA_VALIDATION_ERROR).toBeDefined();
-      expect(ERROR_CODES.SCHEMA_NOT_FOUND).toBeDefined();
-      
-      // Retry operations
-      expect(ERROR_CODES.RETRY_EXHAUSTED).toBeDefined();
-      expect(ERROR_CODES.RETRY_FAILED).toBeDefined();
+  describe('Gamification event topics', () => {
+    describe('GAMIFICATION_TOPICS', () => {
+      it('should define all gamification engine event topics', () => {
+        expect(GAMIFICATION_TOPICS).toBeDefined();
+        expect(GAMIFICATION_TOPICS.ACHIEVEMENT).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.achievement.events`);
+        expect(GAMIFICATION_TOPICS.REWARD).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.reward.events`);
+        expect(GAMIFICATION_TOPICS.QUEST).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.quest.events`);
+        expect(GAMIFICATION_TOPICS.PROFILE).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.profile.events`);
+        expect(GAMIFICATION_TOPICS.LEADERBOARD).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.leaderboard.events`);
+        expect(GAMIFICATION_TOPICS.RULE).toBe(`${TOPIC_PREFIXES.GAMIFICATION}.rule.events`);
+      });
+
+      it('should use the correct gamification prefix', () => {
+        Object.values(GAMIFICATION_TOPICS).forEach(topic => {
+          expect(topic).toContain(TOPIC_PREFIXES.GAMIFICATION);
+          expect(topic).toMatch(/\.events$/);
+        });
+      });
     });
 
-    it('should support dead letter queue for failed messages', () => {
-      // Verify that dead letter queue topic is defined
-      expect(TOPICS.DEAD_LETTER).toBeDefined();
-      expect(ERROR_CODES.DLQ_SEND_FAILED).toBeDefined();
+    describe('ACHIEVEMENT_TOPICS', () => {
+      it('should define all achievement-specific event topics', () => {
+        expect(ACHIEVEMENT_TOPICS).toBeDefined();
+        expect(ACHIEVEMENT_TOPICS.UNLOCKED).toBe(`${GAMIFICATION_TOPICS.ACHIEVEMENT}.unlocked`);
+        expect(ACHIEVEMENT_TOPICS.PROGRESS).toBe(`${GAMIFICATION_TOPICS.ACHIEVEMENT}.progress`);
+      });
+
+      it('should use the correct achievement topic prefix', () => {
+        Object.values(ACHIEVEMENT_TOPICS).forEach(topic => {
+          expect(topic).toContain(GAMIFICATION_TOPICS.ACHIEVEMENT);
+        });
+      });
+    });
+
+    describe('QUEST_TOPICS', () => {
+      it('should define all quest-specific event topics', () => {
+        expect(QUEST_TOPICS).toBeDefined();
+        expect(QUEST_TOPICS.STARTED).toBe(`${GAMIFICATION_TOPICS.QUEST}.started`);
+        expect(QUEST_TOPICS.COMPLETED).toBe(`${GAMIFICATION_TOPICS.QUEST}.completed`);
+        expect(QUEST_TOPICS.PROGRESS).toBe(`${GAMIFICATION_TOPICS.QUEST}.progress`);
+      });
+
+      it('should use the correct quest topic prefix', () => {
+        Object.values(QUEST_TOPICS).forEach(topic => {
+          expect(topic).toContain(GAMIFICATION_TOPICS.QUEST);
+        });
+      });
+    });
+
+    describe('REWARD_TOPICS', () => {
+      it('should define all reward-specific event topics', () => {
+        expect(REWARD_TOPICS).toBeDefined();
+        expect(REWARD_TOPICS.GRANTED).toBe(`${GAMIFICATION_TOPICS.REWARD}.granted`);
+        expect(REWARD_TOPICS.REDEEMED).toBe(`${GAMIFICATION_TOPICS.REWARD}.redeemed`);
+      });
+
+      it('should use the correct reward topic prefix', () => {
+        Object.values(REWARD_TOPICS).forEach(topic => {
+          expect(topic).toContain(GAMIFICATION_TOPICS.REWARD);
+        });
+      });
+    });
+
+    describe('PROFILE_TOPICS', () => {
+      it('should define all profile-specific event topics', () => {
+        expect(PROFILE_TOPICS).toBeDefined();
+        expect(PROFILE_TOPICS.CREATED).toBe(`${GAMIFICATION_TOPICS.PROFILE}.created`);
+        expect(PROFILE_TOPICS.UPDATED).toBe(`${GAMIFICATION_TOPICS.PROFILE}.updated`);
+        expect(PROFILE_TOPICS.LEVEL_UP).toBe(`${GAMIFICATION_TOPICS.PROFILE}.level_up`);
+      });
+
+      it('should use the correct profile topic prefix', () => {
+        Object.values(PROFILE_TOPICS).forEach(topic => {
+          expect(topic).toContain(GAMIFICATION_TOPICS.PROFILE);
+        });
+      });
+    });
+  });
+
+  describe('NOTIFICATION_TOPICS', () => {
+    it('should define all notification service event topics', () => {
+      expect(NOTIFICATION_TOPICS).toBeDefined();
+      expect(NOTIFICATION_TOPICS.REQUEST).toBe(`${TOPIC_PREFIXES.NOTIFICATION}.request`);
+      expect(NOTIFICATION_TOPICS.STATUS).toBe(`${TOPIC_PREFIXES.NOTIFICATION}.status`);
+      expect(NOTIFICATION_TOPICS.PREFERENCES).toBe(`${TOPIC_PREFIXES.NOTIFICATION}.preferences`);
+    });
+
+    it('should use the correct notification prefix', () => {
+      Object.values(NOTIFICATION_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.NOTIFICATION);
+      });
+    });
+  });
+
+  describe('DLQ_TOPICS', () => {
+    it('should define all dead-letter queue topics', () => {
+      expect(DLQ_TOPICS).toBeDefined();
+      expect(DLQ_TOPICS.HEALTH_EVENTS).toBe(`${TOPIC_PREFIXES.DLQ}.${JOURNEY_EVENT_TOPICS.HEALTH}`);
+      expect(DLQ_TOPICS.CARE_EVENTS).toBe(`${TOPIC_PREFIXES.DLQ}.${JOURNEY_EVENT_TOPICS.CARE}`);
+      expect(DLQ_TOPICS.PLAN_EVENTS).toBe(`${TOPIC_PREFIXES.DLQ}.${JOURNEY_EVENT_TOPICS.PLAN}`);
+      expect(DLQ_TOPICS.USER_EVENTS).toBe(`${TOPIC_PREFIXES.DLQ}.${JOURNEY_EVENT_TOPICS.USER}`);
+      expect(DLQ_TOPICS.ACHIEVEMENT).toBe(`${TOPIC_PREFIXES.DLQ}.achievement.events`);
+      expect(DLQ_TOPICS.REWARD).toBe(`${TOPIC_PREFIXES.DLQ}.reward.events`);
+      expect(DLQ_TOPICS.QUEST).toBe(`${TOPIC_PREFIXES.DLQ}.quest.events`);
+      expect(DLQ_TOPICS.PROFILE).toBe(`${TOPIC_PREFIXES.DLQ}.profile.events`);
+      expect(DLQ_TOPICS.NOTIFICATION).toBe(`${TOPIC_PREFIXES.DLQ}.notification.events`);
+    });
+
+    it('should use the correct DLQ prefix', () => {
+      Object.values(DLQ_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.DLQ);
+      });
+    });
+
+    it('should have a corresponding DLQ topic for each journey event topic', () => {
+      // Check that each journey event topic has a corresponding DLQ topic
+      Object.keys(JOURNEY_EVENT_TOPICS).forEach(key => {
+        const dlqKey = `${key}_EVENTS`;
+        expect(DLQ_TOPICS[dlqKey]).toBeDefined();
+      });
+    });
+  });
+
+  describe('CONSUMER_GROUPS', () => {
+    it('should define all required consumer groups', () => {
+      expect(CONSUMER_GROUPS).toBeDefined();
+      expect(CONSUMER_GROUPS.HEALTH_SERVICE).toBe('health-service-group');
+      expect(CONSUMER_GROUPS.CARE_SERVICE).toBe('care-service-group');
+      expect(CONSUMER_GROUPS.PLAN_SERVICE).toBe('plan-service-group');
+      expect(CONSUMER_GROUPS.GAMIFICATION_ENGINE).toBe('gamification-engine-group');
+      expect(CONSUMER_GROUPS.ACHIEVEMENT_PROCESSOR).toBe('achievement-processor-group');
+      expect(CONSUMER_GROUPS.REWARD_PROCESSOR).toBe('reward-processor-group');
+      expect(CONSUMER_GROUPS.QUEST_PROCESSOR).toBe('quest-processor-group');
+      expect(CONSUMER_GROUPS.PROFILE_PROCESSOR).toBe('profile-processor-group');
+      expect(CONSUMER_GROUPS.LEADERBOARD_PROCESSOR).toBe('leaderboard-processor-group');
+      expect(CONSUMER_GROUPS.NOTIFICATION_SERVICE).toBe('notification-service-group');
+      expect(CONSUMER_GROUPS.NOTIFICATION_PROCESSOR).toBe('notification-processor-group');
+      expect(CONSUMER_GROUPS.DLQ_PROCESSOR).toBe('dlq-processor-group');
+    });
+
+    it('should follow the correct naming convention', () => {
+      // All consumer groups should end with -group
+      Object.values(CONSUMER_GROUPS).forEach(group => {
+        expect(group).toMatch(/-group$/);
+      });
+    });
+
+    it('should have unique consumer group names', () => {
+      const groupValues = Object.values(CONSUMER_GROUPS);
+      const uniqueValues = new Set(groupValues);
+      expect(uniqueValues.size).toBe(groupValues.length);
+    });
+  });
+
+  describe('KAFKA_CONFIG', () => {
+    it('should define all required configuration constants', () => {
+      expect(KAFKA_CONFIG).toBeDefined();
+      expect(KAFKA_CONFIG.DEFAULT_PARTITIONS).toBe(3);
+      expect(KAFKA_CONFIG.HIGH_THROUGHPUT_PARTITIONS).toBe(6);
+      expect(KAFKA_CONFIG.DEFAULT_REPLICATION_FACTOR).toBe(3);
+      expect(KAFKA_CONFIG.DEFAULT_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000); // 7 days
+      expect(KAFKA_CONFIG.HIGH_PRIORITY_RETENTION_MS).toBe(14 * 24 * 60 * 60 * 1000); // 14 days
+      expect(KAFKA_CONFIG.DLQ_RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1000); // 30 days
+      expect(KAFKA_CONFIG.DEFAULT_SESSION_TIMEOUT_MS).toBe(30000); // 30 seconds
+      expect(KAFKA_CONFIG.DEFAULT_REQUEST_TIMEOUT_MS).toBe(30000); // 30 seconds
+      expect(KAFKA_CONFIG.DEFAULT_CONNECTION_TIMEOUT_MS).toBe(10000); // 10 seconds
+    });
+
+    it('should have valid partition and replication values', () => {
+      expect(KAFKA_CONFIG.DEFAULT_PARTITIONS).toBeGreaterThan(0);
+      expect(KAFKA_CONFIG.HIGH_THROUGHPUT_PARTITIONS).toBeGreaterThan(KAFKA_CONFIG.DEFAULT_PARTITIONS);
+      expect(KAFKA_CONFIG.DEFAULT_REPLICATION_FACTOR).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should have valid timeout values', () => {
+      expect(KAFKA_CONFIG.DEFAULT_SESSION_TIMEOUT_MS).toBeGreaterThan(0);
+      expect(KAFKA_CONFIG.DEFAULT_REQUEST_TIMEOUT_MS).toBeGreaterThan(0);
+      expect(KAFKA_CONFIG.DEFAULT_CONNECTION_TIMEOUT_MS).toBeGreaterThan(0);
+    });
+
+    it('should have valid retention periods', () => {
+      expect(KAFKA_CONFIG.DEFAULT_RETENTION_MS).toBeGreaterThan(0);
+      expect(KAFKA_CONFIG.HIGH_PRIORITY_RETENTION_MS).toBeGreaterThan(KAFKA_CONFIG.DEFAULT_RETENTION_MS);
+      expect(KAFKA_CONFIG.DLQ_RETENTION_MS).toBeGreaterThan(KAFKA_CONFIG.HIGH_PRIORITY_RETENTION_MS);
+    });
+  });
+
+  describe('RETRY_CONFIG', () => {
+    it('should define all required retry configuration constants', () => {
+      expect(RETRY_CONFIG).toBeDefined();
+      expect(RETRY_CONFIG.MAX_RETRIES).toBe(3);
+      expect(RETRY_CONFIG.INITIAL_RETRY_DELAY_MS).toBe(1000); // 1 second
+      expect(RETRY_CONFIG.MAX_RETRY_DELAY_MS).toBe(30000); // 30 seconds
+      expect(RETRY_CONFIG.RETRY_FACTOR).toBe(2);
+      expect(RETRY_CONFIG.JITTER_FACTOR).toBe(0.1);
+    });
+
+    it('should have valid retry values', () => {
+      expect(RETRY_CONFIG.MAX_RETRIES).toBeGreaterThan(0);
+      expect(RETRY_CONFIG.INITIAL_RETRY_DELAY_MS).toBeGreaterThan(0);
+      expect(RETRY_CONFIG.MAX_RETRY_DELAY_MS).toBeGreaterThan(RETRY_CONFIG.INITIAL_RETRY_DELAY_MS);
+      expect(RETRY_CONFIG.RETRY_FACTOR).toBeGreaterThan(1);
+      expect(RETRY_CONFIG.JITTER_FACTOR).toBeGreaterThan(0);
+      expect(RETRY_CONFIG.JITTER_FACTOR).toBeLessThan(1);
+    });
+
+    it('should have a maximum retry delay that can be reached with the given parameters', () => {
+      // Calculate the maximum delay that can be reached with the given retry factor and initial delay
+      let maxDelay = RETRY_CONFIG.INITIAL_RETRY_DELAY_MS;
+      for (let i = 1; i < RETRY_CONFIG.MAX_RETRIES; i++) {
+        maxDelay *= RETRY_CONFIG.RETRY_FACTOR;
+      }
+
+      // The maximum delay should be less than or equal to the configured maximum
+      // This ensures that the exponential backoff can reach the maximum delay
+      expect(maxDelay).toBeLessThanOrEqual(RETRY_CONFIG.MAX_RETRY_DELAY_MS);
+    });
+  });
+
+  describe('CIRCUIT_BREAKER_CONFIG', () => {
+    it('should define all required circuit breaker configuration constants', () => {
+      expect(CIRCUIT_BREAKER_CONFIG).toBeDefined();
+      expect(CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD).toBe(5);
+      expect(CIRCUIT_BREAKER_CONFIG.SUCCESS_THRESHOLD).toBe(3);
+      expect(CIRCUIT_BREAKER_CONFIG.RESET_TIMEOUT_MS).toBe(30000); // 30 seconds
+    });
+
+    it('should have valid threshold values', () => {
+      expect(CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD).toBeGreaterThan(0);
+      expect(CIRCUIT_BREAKER_CONFIG.SUCCESS_THRESHOLD).toBeGreaterThan(0);
+      expect(CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD).toBeGreaterThan(CIRCUIT_BREAKER_CONFIG.SUCCESS_THRESHOLD);
+    });
+
+    it('should have a valid reset timeout', () => {
+      expect(CIRCUIT_BREAKER_CONFIG.RESET_TIMEOUT_MS).toBeGreaterThan(0);
+    });
+  });
+
+  describe('KAFKA_ERROR_CODES', () => {
+    it('should define all required error codes', () => {
+      expect(KAFKA_ERROR_CODES).toBeDefined();
+      expect(KAFKA_ERROR_CODES.CONNECTION_ERROR).toBe('KAFKA_CONNECTION_ERROR');
+      expect(KAFKA_ERROR_CODES.AUTHENTICATION_ERROR).toBe('KAFKA_AUTHENTICATION_ERROR');
+      expect(KAFKA_ERROR_CODES.AUTHORIZATION_ERROR).toBe('KAFKA_AUTHORIZATION_ERROR');
+      expect(KAFKA_ERROR_CODES.TOPIC_NOT_FOUND).toBe('KAFKA_TOPIC_NOT_FOUND');
+      expect(KAFKA_ERROR_CODES.BROKER_NOT_AVAILABLE).toBe('KAFKA_BROKER_NOT_AVAILABLE');
+      expect(KAFKA_ERROR_CODES.LEADER_NOT_AVAILABLE).toBe('KAFKA_LEADER_NOT_AVAILABLE');
+      expect(KAFKA_ERROR_CODES.MESSAGE_TOO_LARGE).toBe('KAFKA_MESSAGE_TOO_LARGE');
+      expect(KAFKA_ERROR_CODES.INVALID_MESSAGE).toBe('KAFKA_INVALID_MESSAGE');
+      expect(KAFKA_ERROR_CODES.OFFSET_OUT_OF_RANGE).toBe('KAFKA_OFFSET_OUT_OF_RANGE');
+      expect(KAFKA_ERROR_CODES.GROUP_REBALANCING).toBe('KAFKA_GROUP_REBALANCING');
+      expect(KAFKA_ERROR_CODES.SERIALIZATION_ERROR).toBe('KAFKA_SERIALIZATION_ERROR');
+      expect(KAFKA_ERROR_CODES.DESERIALIZATION_ERROR).toBe('KAFKA_DESERIALIZATION_ERROR');
+      expect(KAFKA_ERROR_CODES.PRODUCER_ERROR).toBe('KAFKA_PRODUCER_ERROR');
+      expect(KAFKA_ERROR_CODES.CONSUMER_ERROR).toBe('KAFKA_CONSUMER_ERROR');
+      expect(KAFKA_ERROR_CODES.ADMIN_ERROR).toBe('KAFKA_ADMIN_ERROR');
+      expect(KAFKA_ERROR_CODES.TIMEOUT_ERROR).toBe('KAFKA_TIMEOUT_ERROR');
+      expect(KAFKA_ERROR_CODES.UNKNOWN_ERROR).toBe('KAFKA_UNKNOWN_ERROR');
+    });
+
+    it('should follow the correct naming convention', () => {
+      // All error codes should start with KAFKA_
+      Object.values(KAFKA_ERROR_CODES).forEach(code => {
+        expect(code).toMatch(/^KAFKA_/);
+      });
+    });
+
+    it('should have unique error codes', () => {
+      const codeValues = Object.values(KAFKA_ERROR_CODES);
+      const uniqueValues = new Set(codeValues);
+      expect(uniqueValues.size).toBe(codeValues.length);
+    });
+  });
+
+  describe('KAFKA_HEADERS', () => {
+    it('should define all required header keys', () => {
+      expect(KAFKA_HEADERS).toBeDefined();
+      expect(KAFKA_HEADERS.CORRELATION_ID).toBe('X-Correlation-ID');
+      expect(KAFKA_HEADERS.SOURCE_SERVICE).toBe('X-Source-Service');
+      expect(KAFKA_HEADERS.EVENT_TYPE).toBe('X-Event-Type');
+      expect(KAFKA_HEADERS.EVENT_VERSION).toBe('X-Event-Version');
+      expect(KAFKA_HEADERS.USER_ID).toBe('X-User-ID');
+      expect(KAFKA_HEADERS.JOURNEY).toBe('X-Journey');
+      expect(KAFKA_HEADERS.TIMESTAMP).toBe('X-Timestamp');
+      expect(KAFKA_HEADERS.RETRY_COUNT).toBe('X-Retry-Count');
+      expect(KAFKA_HEADERS.ORIGINAL_TOPIC).toBe('X-Original-Topic');
+      expect(KAFKA_HEADERS.ERROR_MESSAGE).toBe('X-Error-Message');
+      expect(KAFKA_HEADERS.ERROR_CODE).toBe('X-Error-Code');
+    });
+
+    it('should follow the correct naming convention', () => {
+      // All header keys should start with X-
+      Object.values(KAFKA_HEADERS).forEach(header => {
+        expect(header).toMatch(/^X-/);
+      });
+    });
+
+    it('should have unique header keys', () => {
+      const headerValues = Object.values(KAFKA_HEADERS);
+      const uniqueValues = new Set(headerValues);
+      expect(uniqueValues.size).toBe(headerValues.length);
+    });
+  });
+
+  describe('Cross-service consistency', () => {
+    it('should have consistent journey prefixes across all topic constants', () => {
+      // Health journey
+      expect(TOPIC_PREFIXES.HEALTH).toBe('austa.health');
+      expect(JOURNEY_EVENT_TOPICS.HEALTH).toBe(`${TOPIC_PREFIXES.HEALTH}.events`);
+      Object.values(HEALTH_EVENT_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.HEALTH);
+      });
+
+      // Care journey
+      expect(TOPIC_PREFIXES.CARE).toBe('austa.care');
+      expect(JOURNEY_EVENT_TOPICS.CARE).toBe(`${TOPIC_PREFIXES.CARE}.events`);
+      Object.values(CARE_EVENT_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.CARE);
+      });
+
+      // Plan journey
+      expect(TOPIC_PREFIXES.PLAN).toBe('austa.plan');
+      expect(JOURNEY_EVENT_TOPICS.PLAN).toBe(`${TOPIC_PREFIXES.PLAN}.events`);
+      Object.values(PLAN_EVENT_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.PLAN);
+      });
+    });
+
+    it('should have consistent gamification prefixes across all topic constants', () => {
+      expect(TOPIC_PREFIXES.GAMIFICATION).toBe('austa.gamification');
+      Object.values(GAMIFICATION_TOPICS).forEach(topic => {
+        expect(topic).toContain(TOPIC_PREFIXES.GAMIFICATION);
+      });
+
+      // Check that sub-topics use the correct parent topic
+      Object.values(ACHIEVEMENT_TOPICS).forEach(topic => {
+        expect(topic).toContain(GAMIFICATION_TOPICS.ACHIEVEMENT);
+      });
+
+      Object.values(QUEST_TOPICS).forEach(topic => {
+        expect(topic).toContain(GAMIFICATION_TOPICS.QUEST);
+      });
+
+      Object.values(REWARD_TOPICS).forEach(topic => {
+        expect(topic).toContain(GAMIFICATION_TOPICS.REWARD);
+      });
+
+      Object.values(PROFILE_TOPICS).forEach(topic => {
+        expect(topic).toContain(GAMIFICATION_TOPICS.PROFILE);
+      });
+    });
+
+    it('should have consistent DLQ prefixes for all event topics', () => {
+      expect(DLQ_TOPICS.HEALTH_EVENTS).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.CARE_EVENTS).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.PLAN_EVENTS).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.USER_EVENTS).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.ACHIEVEMENT).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.REWARD).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.QUEST).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.PROFILE).toContain(TOPIC_PREFIXES.DLQ);
+      expect(DLQ_TOPICS.NOTIFICATION).toContain(TOPIC_PREFIXES.DLQ);
+    });
+
+    it('should have consumer groups for all services', () => {
+      // Check that there's a consumer group for each journey service
+      expect(CONSUMER_GROUPS.HEALTH_SERVICE).toBeDefined();
+      expect(CONSUMER_GROUPS.CARE_SERVICE).toBeDefined();
+      expect(CONSUMER_GROUPS.PLAN_SERVICE).toBeDefined();
+
+      // Check that there's a consumer group for each gamification processor
+      expect(CONSUMER_GROUPS.GAMIFICATION_ENGINE).toBeDefined();
+      expect(CONSUMER_GROUPS.ACHIEVEMENT_PROCESSOR).toBeDefined();
+      expect(CONSUMER_GROUPS.REWARD_PROCESSOR).toBeDefined();
+      expect(CONSUMER_GROUPS.QUEST_PROCESSOR).toBeDefined();
+      expect(CONSUMER_GROUPS.PROFILE_PROCESSOR).toBeDefined();
+      expect(CONSUMER_GROUPS.LEADERBOARD_PROCESSOR).toBeDefined();
+
+      // Check that there's a consumer group for notification service
+      expect(CONSUMER_GROUPS.NOTIFICATION_SERVICE).toBeDefined();
+      expect(CONSUMER_GROUPS.NOTIFICATION_PROCESSOR).toBeDefined();
+
+      // Check that there's a consumer group for DLQ processor
+      expect(CONSUMER_GROUPS.DLQ_PROCESSOR).toBeDefined();
     });
   });
 });
