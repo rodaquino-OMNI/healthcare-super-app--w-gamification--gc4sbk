@@ -6,78 +6,175 @@
  * - Setting up environment variables
  * - Establishing mock implementations of external dependencies
  * 
- * This ensures consistent test conditions and prevents tests from generating actual telemetry data.
+ * Note: This setup assumes Jest is being used as the testing framework.
+ * If you're using a different testing framework, you may need to adapt
+ * the mocking and assertion utilities.
  */
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { NoopTracerProvider } from '@opentelemetry/api';
-import { trace, context } from '@opentelemetry/api';
-import { MockLoggerService } from './mocks/mock-logger.service';
-import { MockTracer } from './mocks/mock-tracer';
-import * as dotenv from 'dotenv';
-import { join } from 'path';
+import { trace, context, SpanStatusCode, SpanKind, TraceFlags } from '@opentelemetry/api';
+import { NoopTracerProvider } from '@opentelemetry/api/build/src/trace/NoopTracerProvider';
+import { ConfigService } from '@nestjs/config';
+import { LoggerService } from '@nestjs/common';
+import { BatchSpanProcessor, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
+import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 
-// Load test environment variables
-dotenv.config({ path: join(__dirname, '.env.test') });
+/**
+ * Initialize OpenTelemetry with a no-op tracer provider for tests
+ * This prevents tests from generating actual telemetry data
+ */
+export function setupTestTracing() {
+  // Set up the global tracer provider as a no-op implementation
+  const noopTracerProvider = new NoopTracerProvider();
+  trace.setGlobalTracerProvider(noopTracerProvider);
+  
+  // Set up test environment variables
+  process.env.OTEL_SERVICE_NAME = 'test-service';
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4317';
+  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
+  process.env.OTEL_TRACES_SAMPLER = 'always_on';
+  process.env.OTEL_LOG_LEVEL = 'error';
+  
+  // Return the no-op tracer provider for test verification
+  return noopTracerProvider;
+}
 
-// Set default test environment variables if not already set
-process.env.NODE_ENV = process.env.NODE_ENV || 'test';
-process.env.OTEL_SDK_DISABLED = 'true';
-process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318';
-process.env.SERVICE_NAME = 'test-service';
+/**
+ * Create a test tracer provider that captures spans in memory
+ * This allows tests to verify span creation without sending data to backends
+ */
+export function createTestTracerProvider() {
+  const tracerProvider = new BasicTracerProvider();
+  const spanProcessor = new BatchSpanProcessor(new ConsoleSpanExporter());
+  tracerProvider.addSpanProcessor(spanProcessor);
+  
+  return tracerProvider;
+}
 
-// Create a global mock logger that can be used across tests
-global.__mockLogger = new MockLoggerService();
+/**
+ * Create a mock ConfigService for testing
+ * This provides test-specific configuration values
+ */
+export function createMockConfigService() {
+  const mockConfigService = {
+    get: jest.fn((key: string, defaultValue?: any) => {
+      const configMap: Record<string, any> = {
+        'service.name': 'test-service',
+        'tracing.enabled': true,
+        'tracing.exporter': 'console',
+        'tracing.sampler': 'always_on',
+      };
+      
+      return configMap[key] !== undefined ? configMap[key] : defaultValue;
+    }),
+  };
+  
+  return mockConfigService as unknown as ConfigService;
+}
 
-// Initialize OpenTelemetry with a no-op tracer to prevent actual telemetry data generation
-trace.setGlobalTracerProvider(new NoopTracerProvider());
+/**
+ * Create a mock LoggerService for testing
+ * This captures log messages for verification in tests
+ */
+export function createMockLoggerService() {
+  const logMessages: Array<{level: string, message: string, context?: string}> = [];
+  
+  const mockLoggerService = {
+    log: jest.fn((message: string, context?: string) => {
+      logMessages.push({ level: 'log', message, context });
+    }),
+    error: jest.fn((message: string, trace?: string, context?: string) => {
+      logMessages.push({ level: 'error', message, context });
+    }),
+    warn: jest.fn((message: string, context?: string) => {
+      logMessages.push({ level: 'warn', message, context });
+    }),
+    debug: jest.fn((message: string, context?: string) => {
+      logMessages.push({ level: 'debug', message, context });
+    }),
+    verbose: jest.fn((message: string, context?: string) => {
+      logMessages.push({ level: 'verbose', message, context });
+    }),
+    getLogMessages: () => logMessages,
+    clearLogMessages: () => {
+      logMessages.length = 0;
+    },
+  };
+  
+  return mockLoggerService as unknown as LoggerService & {
+    getLogMessages: () => Array<{level: string, message: string, context?: string}>,
+    clearLogMessages: () => void
+  };
+}
 
-// Create a mock tracer that can be used for verification in tests
-const mockTracer = new MockTracer();
-global.__mockTracer = mockTracer;
+/**
+ * Create a test span for verification in tests
+ * This provides a controlled span for testing span operations
+ */
+export function createTestSpan(name: string, attributes: Record<string, any> = {}) {
+  const tracer = trace.getTracer('test-tracer');
+  const span = tracer.startSpan(name, {
+    kind: SpanKind.INTERNAL,
+    attributes,
+  });
+  
+  return span;
+}
 
-// Mock the NestJS module system for testing
-const mockModuleRef = {
-  get: jest.fn().mockImplementation((token) => {
-    if (token === 'LoggerService') {
-      return global.__mockLogger;
-    }
-    return null;
-  }),
-};
+/**
+ * Create a test context with an active span
+ * This allows testing context propagation
+ */
+export function createTestContextWithSpan(name: string) {
+  const span = createTestSpan(name);
+  const ctx = trace.setSpan(context.active(), span);
+  
+  return { span, ctx };
+}
 
-global.__moduleRef = mockModuleRef;
+/**
+ * Initialize the test environment
+ * This should be called before running tests
+ */
+export function initTestEnvironment() {
+  setupTestTracing();
+  
+  // Set up global Jest matchers for OpenTelemetry
+  expect.extend({
+    toHaveSpanAttribute(span: any, key: string, value: any) {
+      const attributes = span.attributes || {};
+      const hasAttribute = attributes[key] !== undefined;
+      const attributeMatches = attributes[key] === value;
+      
+      if (hasAttribute && attributeMatches) {
+        return {
+          message: () => `Expected span not to have attribute ${key}=${value}`,
+          pass: true,
+        };
+      } else if (hasAttribute) {
+        return {
+          message: () => `Expected span attribute ${key} to be ${value} but got ${attributes[key]}`,
+          pass: false,
+        };
+      } else {
+        return {
+          message: () => `Expected span to have attribute ${key} but it was not found`,
+          pass: false,
+        };
+      }
+    },
+    toHaveSpanStatus(span: any, statusCode: SpanStatusCode) {
+      const status = span.status || { code: SpanStatusCode.UNSET };
+      const statusMatches = status.code === statusCode;
+      
+      return {
+        message: () => statusMatches
+          ? `Expected span not to have status ${statusCode}`
+          : `Expected span to have status ${statusCode} but got ${status.code}`,
+        pass: statusMatches,
+      };
+    },
+  });
+}
 
-// Create a test SDK that doesn't actually export spans
-const testSdk = new NodeSDK({
-  traceExporter: {
-    export: jest.fn().mockResolvedValue({ code: 0 }),
-    shutdown: jest.fn().mockResolvedValue(undefined),
-  },
-});
-
-// Initialize the SDK but don't actually start it
-global.__testSdk = testSdk;
-
-// Setup test utilities for tracing verification
-global.__traceUtils = {
-  // Helper to create a test span context
-  createTestSpanContext: () => {
-    return mockTracer.startSpan('test-span').spanContext();
-  },
-  // Helper to set active span for testing
-  setActiveSpan: (span) => {
-    return context.with(trace.setSpan(context.active(), span), () => {});
-  },
-  // Helper to verify span attributes
-  verifySpanAttributes: (span, expectedAttributes) => {
-    Object.entries(expectedAttributes).forEach(([key, value]) => {
-      expect(span.attributes[key]).toEqual(value);
-    });
-  },
-};
-
-// Clean up resources after all tests
-afterAll(async () => {
-  await testSdk.shutdown();
-});
+// Initialize the test environment when this module is imported
+initTestEnvironment();
