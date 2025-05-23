@@ -1,16 +1,17 @@
 /**
- * @file Barrel file that exports all interfaces from the tracing package.
- * This file creates a centralized point for importing type definitions,
- * ensuring proper module resolution and type safety when consuming the tracing package.
+ * @file index.ts
+ * @description Barrel file that exports all interfaces from the tracing package,
+ * creating a centralized point for importing type definitions.
+ *
+ * @module @austa/tracing/interfaces
  */
 
-// Export interfaces from trace-context.interface.ts
-export { 
-  TraceContext,
-  JourneyContextInfo 
-} from './trace-context.interface';
+// Export all journey context interfaces
+export * from './journey-context.interface';
 
-// Export interfaces from tracer-provider.interface.ts
-export { 
-  TracerProvider 
-} from './tracer-provider.interface';
+// Export other interfaces as they are created
+// export * from './span-attributes.interface';
+// export * from './trace-context.interface';
+// export * from './tracer-provider.interface';
+// export * from './span-options.interface';
+// export * from './tracing-options.interface';
