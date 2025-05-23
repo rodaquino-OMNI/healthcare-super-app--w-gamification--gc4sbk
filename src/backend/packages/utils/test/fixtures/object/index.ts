@@ -1,79 +1,40 @@
 /**
  * @file Object Test Fixtures Barrel File
  * 
- * This barrel file exports all object test fixtures from a single point, providing
- * a clean and consistent way to import object test data throughout the test suite.
- * 
- * Fixtures are organized by their primary use case (basic objects, nested objects,
- * transformation fixtures, etc.) and exported with namespaces to prevent naming collisions.
- * 
- * @example
- * // Import all object fixtures
- * import * as objectFixtures from '@austa/utils/test/fixtures/object';
- * 
- * // Use specific fixture categories
- * const { basicObjects, nestedObjects } = objectFixtures;
- * 
- * @example
- * // Import specific fixture categories directly
- * import { transformObjects } from '@austa/utils/test/fixtures/object';
+ * This barrel file exports all object test fixtures from a single point,
+ * enabling easy imports of test data for object utility tests. It uses
+ * namespaced exports to prevent naming collisions between fixture categories.
  */
 
 // Re-export all object fixture files
-// These will be implemented as separate files in the same directory
+// These exports anticipate the creation of these fixture files in the future
 
 /**
- * Basic object fixtures for general testing purposes
- * @example
- * import { basicObjects } from '@austa/utils/test/fixtures/object';
- * const { emptyObject, simpleObject } = basicObjects;
+ * Fixtures for testing object transformation utilities (pick, omit, mapValues, filterKeys)
  */
-export * as basicObjects from './basic-objects';
+export * as transformFixtures from './transform-objects';
 
 /**
- * Nested object fixtures with complex hierarchical structures
- * @example
- * import { nestedObjects } from '@austa/utils/test/fixtures/object';
- * const { deeplyNested, multiLevel } = nestedObjects;
+ * Fixtures for testing deep object comparison utilities (isEqual, getDifferences)
  */
-export * as nestedObjects from './nested-objects';
+export * as comparisonFixtures from './comparison-objects';
 
 /**
- * Edge case object fixtures for boundary testing
- * @example
- * import { edgeCaseObjects } from '@austa/utils/test/fixtures/object';
- * const { nullProperties, circularReference } = edgeCaseObjects;
+ * Fixtures for testing object merging utilities (deepMerge with various strategies)
  */
-export * as edgeCaseObjects from './edge-case-objects';
+export * as mergeFixtures from './merge-objects';
 
 /**
- * Object fixtures specifically designed for testing transform operations
- * @example
- * import { transformObjects } from '@austa/utils/test/fixtures/object';
- * const { pickSource, omitSource } = transformObjects;
+ * Fixtures for testing object cloning utilities (deepClone, structuredClone)
  */
-export * as transformObjects from './transform-objects';
+export * as cloneFixtures from './clone-objects';
 
 /**
- * Object fixtures for testing comparison operations
- * @example
- * import { comparisonObjects } from '@austa/utils/test/fixtures/object';
- * const { identicalPair, differentPair } = comparisonObjects;
+ * Fixtures for testing basic object operations and edge cases
  */
-export * as comparisonObjects from './comparison-objects';
+export * as basicFixtures from './basic-objects';
 
 /**
- * Object fixtures for testing merge operations
- * @example
- * import { mergeObjects } from '@austa/utils/test/fixtures/object';
- * const { mergeSource, mergeTarget } = mergeObjects;
+ * Fixtures containing objects with special edge cases (circular references, prototypes, etc.)
  */
-export * as mergeObjects from './merge-objects';
-
-/**
- * Object fixtures for testing clone operations
- * @example
- * import { cloneObjects } from '@austa/utils/test/fixtures/object';
- * const { complexObject, objectWithSpecialTypes } = cloneObjects;
- */
-export * as cloneObjects from './clone-objects';
+export * as edgeCaseFixtures from './edge-case-objects';
