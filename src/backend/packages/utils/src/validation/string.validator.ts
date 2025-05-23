@@ -8,11 +8,19 @@
  */
 
 import { ValidationOptions, ValidationResult, StringValidationOptions } from './index';
+import * as StringValidation from '../string/validation';
 
 /**
  * Common regular expression patterns used for string validation.
+ * Re-exported from the core validation module for convenience.
  */
-export const StringPatterns = {
+export const StringPatterns = StringValidation.ValidationPatterns;
+
+/**
+ * Legacy pattern definitions kept for backward compatibility.
+ * @deprecated Use StringPatterns directly instead.
+ */
+export const LegacyStringPatterns = {
   /** Brazilian CPF pattern with or without formatting */
   CPF: /^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/,
   
@@ -146,8 +154,8 @@ export function matchesPattern(value: string, options: PatternValidationOptions 
   const flags = pattern.flags + (ignoreCase && !pattern.flags.includes('i') ? 'i' : '');
   const regExp = new RegExp(pattern.source, flags);
   
-  const isMatch = regExp.test(stringToTest);
-  const isValid = invertMatch ? !isMatch : isMatch;
+  // Use the core validation function
+  const isValid = StringValidation.validatePattern(stringToTest, regExp, invertMatch);
   
   if (!isValid && throwOnError) {
     throw new Error(errorMessage);
@@ -244,27 +252,27 @@ export function isValidLength(value: string, options: StringLengthOptions = {}):
   let stringToCheck = String(value);
   if (trim) stringToCheck = stringToCheck.trim();
   
-  const length = stringToCheck.length;
-  let isValid = true;
-  let errorMsg = errorMessage;
-  
-  if (exact !== undefined && length !== exact) {
-    isValid = false;
-    errorMsg = errorMsg || `String must be exactly ${exact} characters long`;
-  } else {
-    if (min !== undefined && length < min) {
-      isValid = false;
-      errorMsg = errorMsg || `String must be at least ${min} characters long`;
-    }
-    
-    if (max !== undefined && length > max) {
-      isValid = false;
-      errorMsg = errorMsg || `String must be at most ${max} characters long`;
-    }
-  }
+  // Use the core validation function
+  const isValid = StringValidation.validateLength(stringToCheck, min, max, exact);
   
   if (!isValid && throwOnError) {
-    throw new Error(errorMsg || 'Invalid string length');
+    let errorMsg = errorMessage;
+    
+    if (!errorMsg) {
+      if (exact !== undefined) {
+        errorMsg = `String must be exactly ${exact} characters long`;
+      } else if (min !== undefined && max !== undefined) {
+        errorMsg = `String must be between ${min} and ${max} characters long`;
+      } else if (min !== undefined) {
+        errorMsg = `String must be at least ${min} characters long`;
+      } else if (max !== undefined) {
+        errorMsg = `String must be at most ${max} characters long`;
+      } else {
+        errorMsg = 'Invalid string length';
+      }
+    }
+    
+    throw new Error(errorMsg);
   }
   
   return isValid;
@@ -367,58 +375,8 @@ export function isValidCPF(cpf: string, options: CpfValidationOptions = {}): boo
     errorMessage = 'Invalid CPF number',
   } = options;
   
-  // Initial format validation
-  if (!allowFormatted && !/^\d{11}$/.test(cpf)) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  if (allowFormatted && !StringPatterns.CPF.test(cpf)) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // Remove non-digit characters
-  const cleanCPF = cpf.replace(/\D/g, '');
-  
-  // CPF must have 11 digits
-  if (cleanCPF.length !== 11) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // Check if all digits are the same (invalid CPF)
-  if (/^(\d)\1+$/.test(cleanCPF)) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // If we don't need to validate the verification digits, return true at this point
-  if (!validateDigits) {
-    return true;
-  }
-  
-  // Calculate first verification digit
-  let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
-  }
-  let remainder = 11 - (sum % 11);
-  const digit1 = remainder > 9 ? 0 : remainder;
-  
-  // Calculate second verification digit
-  sum = 0;
-  for (let i = 0; i < 10; i++) {
-    sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
-  }
-  remainder = 11 - (sum % 11);
-  const digit2 = remainder > 9 ? 0 : remainder;
-  
-  // Verify if calculated digits match the CPF's verification digits
-  const isValid = (
-    parseInt(cleanCPF.charAt(9)) === digit1 &&
-    parseInt(cleanCPF.charAt(10)) === digit2
-  );
+  // Use the core validation function
+  const isValid = StringValidation.validateCPF(cpf, allowFormatted);
   
   if (!isValid && throwOnError) {
     throw new Error(errorMessage);
@@ -576,41 +534,18 @@ export function isValidEmail(email: string, options: EmailValidationOptions = {}
     errorMessage = 'Invalid email address',
   } = options;
   
-  let emailToCheck = String(email);
-  if (trim) emailToCheck = emailToCheck.trim();
+  // Use the core validation function for basic email validation
+  const isValid = StringValidation.validateEmail(email, strict);
   
-  // Basic validation
-  if (!StringPatterns.EMAIL_BASIC.test(emailToCheck)) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // Strict validation if required
-  if (strict && !StringPatterns.EMAIL_STRICT.test(emailToCheck)) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // Check for maximum length (RFC 5321)
-  if (emailToCheck.length > 254) {
-    if (throwOnError) throw new Error(errorMessage);
-    return false;
-  }
-  
-  // Check local part length (RFC 5321)
-  const localPart = emailToCheck.split('@')[0];
-  if (localPart.length > 64) {
+  if (!isValid) {
     if (throwOnError) throw new Error(errorMessage);
     return false;
   }
   
   // Brazilian domain validation if required
-  if (validateBrazilianDomains) {
-    const isDomainBrazilian = StringPatterns.BRAZILIAN_EMAIL_DOMAINS.test(emailToCheck);
-    if (!isDomainBrazilian) {
-      if (throwOnError) throw new Error('Email domain is not Brazilian');
-      return false;
-    }
+  if (validateBrazilianDomains && !StringValidation.isBrazilianEmail(email)) {
+    if (throwOnError) throw new Error('Email domain is not Brazilian');
+    return false;
   }
   
   // Domain validation is not implemented here as it requires DNS lookups
@@ -764,20 +699,16 @@ export function isValidUrl(url: string, options: UrlValidationOptions = {}): boo
   let urlToCheck = String(url);
   if (trim) urlToCheck = urlToCheck.trim();
   
-  // Basic URL validation
-  if (!StringPatterns.URL.test(urlToCheck)) {
+  // Use the core validation function for basic URL validation and SSRF protection
+  const isValid = StringValidation.validateUrl(urlToCheck, requireHttps, checkSsrf);
+  
+  if (!isValid) {
     if (throwOnError) throw new Error(errorMessage);
     return false;
   }
   
   try {
     const parsedUrl = new URL(urlToCheck.startsWith('http') ? urlToCheck : `http://${urlToCheck}`);
-    
-    // Check if HTTPS is required
-    if (requireHttps && parsedUrl.protocol !== 'https:') {
-      if (throwOnError) throw new Error('URL must use HTTPS protocol');
-      return false;
-    }
     
     // Check allowed domains if specified
     if (allowedDomains.length > 0) {
@@ -803,26 +734,8 @@ export function isValidUrl(url: string, options: UrlValidationOptions = {}): boo
       }
     }
     
-    // SSRF protection
-    if (checkSsrf) {
-      const hostname = parsedUrl.hostname;
-      
-      // Block requests to private IP ranges
-      if (StringPatterns.PRIVATE_IP.test(hostname)) {
-        if (throwOnError) throw new Error('SSRF Protection: Blocked URL to private or local network');
-        return false;
-      }
-      
-      // Additional SSRF checks could be added here
-    }
-    
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('SSRF Protection')) {
-      if (throwOnError) throw error;
-      return false;
-    }
-    
     // If there's an error parsing the URL, it's invalid
     if (throwOnError) throw new Error(errorMessage);
     return false;
@@ -971,11 +884,18 @@ export function validateUrl(url: string, options: UrlValidationOptions = {}): Va
  * const isValid = isAlphanumeric('abc123');
  */
 export function isAlphanumeric(value: string, options: StringValidationOptions = {}): boolean {
-  return matchesPattern(value, {
-    ...options,
-    pattern: StringPatterns.ALPHANUMERIC,
-    errorMessage: options.errorMessage || 'String must contain only alphanumeric characters'
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isAlphanumeric(value);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'String must contain only alphanumeric characters');
+  }
+  
+  return isValid;
 }
 
 /**
@@ -989,11 +909,18 @@ export function isAlphanumeric(value: string, options: StringValidationOptions =
  * const isValid = isAlphabetic('abcDEF');
  */
 export function isAlphabetic(value: string, options: StringValidationOptions = {}): boolean {
-  return matchesPattern(value, {
-    ...options,
-    pattern: StringPatterns.ALPHABETIC,
-    errorMessage: options.errorMessage || 'String must contain only alphabetic characters'
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isAlphabetic(value);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'String must contain only alphabetic characters');
+  }
+  
+  return isValid;
 }
 
 /**
@@ -1007,11 +934,18 @@ export function isAlphabetic(value: string, options: StringValidationOptions = {
  * const isValid = isNumeric('12345');
  */
 export function isNumeric(value: string, options: StringValidationOptions = {}): boolean {
-  return matchesPattern(value, {
-    ...options,
-    pattern: StringPatterns.NUMERIC,
-    errorMessage: options.errorMessage || 'String must contain only numeric characters'
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isNumeric(value);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'String must contain only numeric characters');
+  }
+  
+  return isValid;
 }
 
 /**
@@ -1025,11 +959,18 @@ export function isNumeric(value: string, options: StringValidationOptions = {}):
  * const isValid = isUuid('123e4567-e89b-12d3-a456-426614174000');
  */
 export function isUuid(value: string, options: StringValidationOptions = {}): boolean {
-  return matchesPattern(value, {
-    ...options,
-    pattern: StringPatterns.UUID,
-    errorMessage: options.errorMessage || 'String must be a valid UUID'
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isUuid(value);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'String must be a valid UUID');
+  }
+  
+  return isValid;
 }
 
 /**
@@ -1043,11 +984,18 @@ export function isUuid(value: string, options: StringValidationOptions = {}): bo
  * const isValid = isStrongPassword('P@ssw0rd');
  */
 export function isStrongPassword(value: string, options: StringValidationOptions = {}): boolean {
-  return matchesPattern(value, {
-    ...options,
-    pattern: StringPatterns.STRONG_PASSWORD,
-    errorMessage: options.errorMessage || 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character'
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isStrongPassword(value);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character');
+  }
+  
+  return isValid;
 }
 
 /**
@@ -1071,7 +1019,8 @@ export function isEmptyString(value: string, options: StringValidationOptions = 
     errorMessage = 'String is empty',
   } = options;
   
-  const isEmpty = trim ? value.trim().length === 0 : value.length === 0;
+  // Use the core validation function
+  const isEmpty = StringValidation.isEmpty(value, trim);
   
   if (isEmpty && throwOnError) {
     throw new Error(errorMessage);
@@ -1091,10 +1040,24 @@ export function isEmptyString(value: string, options: StringValidationOptions = 
  * const isNotEmpty = isNotEmptyString('hello');
  */
 export function isNotEmptyString(value: string, options: StringValidationOptions = {}): boolean {
-  return !isEmptyString(value, {
-    ...options,
-    errorMessage: options.errorMessage || 'String must not be empty',
-  });
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  const {
+    trim = true,
+    throwOnError = false,
+    errorMessage = 'String must not be empty',
+  } = options;
+  
+  // Use the core validation function
+  const isNotEmpty = StringValidation.isNotEmpty(value, trim);
+  
+  if (!isNotEmpty && throwOnError) {
+    throw new Error(errorMessage);
+  }
+  
+  return isNotEmpty;
 }
 
 /**
@@ -1152,6 +1115,140 @@ export function createDetailedStringValidator<T extends StringValidationOptions>
   };
 }
 
+/**
+ * Formats a CPF with the standard Brazilian format (XXX.XXX.XXX-XX).
+ * 
+ * @param cpf - The CPF to format
+ * @param options - Validation options
+ * @returns The formatted CPF, or undefined if the input is invalid
+ * 
+ * @example
+ * const formatted = formatCPF('12345678909'); // returns '123.456.789-09'
+ */
+export function formatCPF(cpf: string, options: StringValidationOptions = {}): string | undefined {
+  if (cpf === null && options.allowNull) return undefined;
+  if (cpf === undefined && options.allowUndefined) return undefined;
+  if (cpf === null || cpf === undefined) return undefined;
+  
+  // Use the core validation function
+  return StringValidation.formatCPF(cpf);
+}
+
+/**
+ * Validates if a string contains a substring.
+ * 
+ * @param value - The string to check
+ * @param substring - The substring to look for
+ * @param options - Validation options
+ * @returns True if the string contains the substring, false otherwise
+ * 
+ * @example
+ * const contains = containsSubstring('Hello World', 'World');
+ */
+export function containsSubstring(
+  value: string,
+  substring: string,
+  options: StringValidationOptions = {}
+): boolean {
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.containsSubstring(value, substring, options.ignoreCase);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || `String does not contain substring: ${substring}`);
+  }
+  
+  return isValid;
+}
+
+/**
+ * Validates if a string starts with a prefix.
+ * 
+ * @param value - The string to check
+ * @param prefix - The prefix to look for
+ * @param options - Validation options
+ * @returns True if the string starts with the prefix, false otherwise
+ * 
+ * @example
+ * const starts = startsWith('Hello World', 'Hello');
+ */
+export function startsWith(
+  value: string,
+  prefix: string,
+  options: StringValidationOptions = {}
+): boolean {
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.startsWith(value, prefix, options.ignoreCase);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || `String does not start with: ${prefix}`);
+  }
+  
+  return isValid;
+}
+
+/**
+ * Validates if a string ends with a suffix.
+ * 
+ * @param value - The string to check
+ * @param suffix - The suffix to look for
+ * @param options - Validation options
+ * @returns True if the string ends with the suffix, false otherwise
+ * 
+ * @example
+ * const ends = endsWith('Hello World', 'World');
+ */
+export function endsWith(
+  value: string,
+  suffix: string,
+  options: StringValidationOptions = {}
+): boolean {
+  if (value === null && options.allowNull) return true;
+  if (value === undefined && options.allowUndefined) return true;
+  if (value === null || value === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.endsWith(value, suffix, options.ignoreCase);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || `String does not end with: ${suffix}`);
+  }
+  
+  return isValid;
+}
+
+/**
+ * Validates if an email has a Brazilian domain.
+ * 
+ * @param email - The email to validate
+ * @param options - Validation options
+ * @returns True if the email has a Brazilian domain, false otherwise
+ * 
+ * @example
+ * const isBrazilian = isBrazilianEmail('user@empresa.com.br');
+ */
+export function isBrazilianEmail(email: string, options: StringValidationOptions = {}): boolean {
+  if (email === null && options.allowNull) return true;
+  if (email === undefined && options.allowUndefined) return true;
+  if (email === null || email === undefined) return false;
+  
+  // Use the core validation function
+  const isValid = StringValidation.isBrazilianEmail(email);
+  
+  if (!isValid && options.throwOnError) {
+    throw new Error(options.errorMessage || 'Email domain is not Brazilian');
+  }
+  
+  return isValid;
+}
+
 // Export default for convenient importing
 export default {
   isValidCPF,
@@ -1171,6 +1268,11 @@ export default {
   isStrongPassword,
   isEmptyString,
   isNotEmptyString,
+  formatCPF,
+  containsSubstring,
+  startsWith,
+  endsWith,
+  isBrazilianEmail,
   createStringValidator,
   createDetailedStringValidator,
   StringPatterns,
