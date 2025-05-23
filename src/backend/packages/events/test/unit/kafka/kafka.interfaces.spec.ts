@@ -1,512 +1,542 @@
 /**
  * @file kafka.interfaces.spec.ts
- * @description Unit tests for Kafka interfaces, verifying interface completeness,
- * compatibility, and integration with dependency injection. These tests ensure that
- * all Kafka interfaces provide proper contracts for implementation.
+ * @description Unit tests for Kafka interfaces, verifying interface completeness, compatibility, 
+ * and integration with dependency injection. These tests ensure that all Kafka interfaces provide 
+ * proper contracts for implementation.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '@austa/logging';
-import { TracingService } from '@austa/tracing';
-import { KafkaMessage } from '../../../src/interfaces/kafka-message.interface';
-import { KafkaModuleOptions } from '../../../src/interfaces/kafka-options.interface';
-import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
-import { KAFKA_MODULE_OPTIONS } from '../../../src/constants/tokens.constants';
+import { Observable, of } from 'rxjs';
 
-// Mock implementations for testing
-@Injectable()
-class MockKafkaService {
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
-    private readonly tracingService: TracingService,
-  ) {}
+// Import interfaces to test
+import {
+  IKafkaConfig,
+  IKafkaConsumer,
+  IKafkaConsumerOptions,
+  IKafkaDeadLetterQueue,
+  IKafkaEventHandler,
+  IKafkaEventMessage,
+  IKafkaHeaders,
+  IKafkaHealthCheck,
+  IKafkaMessage,
+  IKafkaMessageHandler,
+  IKafkaModuleAsyncOptions,
+  IKafkaModuleOptions,
+  IKafkaProducer,
+  IKafkaProducerBatchRecord,
+  IKafkaProducerRecord,
+  IKafkaService,
+  IKafkaTopicPartition,
+  IKafkaTransaction,
+} from '../../../src/kafka/kafka.interfaces';
 
-  async produce<T>(topic: string, message: T, key?: string): Promise<void> {
-    return Promise.resolve();
-  }
-
-  async consume<T>(
-    topic: string,
-    callback: (message: T, metadata: KafkaMessage) => Promise<void>,
-    options?: { groupId?: string }
-  ): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-@Injectable()
-class MockConfigService extends ConfigService {}
-
-@Injectable()
-class MockLoggerService implements LoggerService {
-  log(message: string, context?: string): void {}
-  error(message: string, trace?: string, context?: string): void {}
-  warn(message: string, context?: string): void {}
-  debug(message: string, context?: string): void {}
-}
-
-@Injectable()
-class MockTracingService implements TracingService {
-  createSpan<T>(name: string, fn: (span: any) => Promise<T>, context?: Record<string, string>): Promise<T> {
-    return fn({});
-  }
-  getCurrentTraceId(): string | undefined {
-    return 'mock-trace-id';
-  }
-  getTraceHeaders(): Record<string, string> {
-    return { 'x-trace-id': 'mock-trace-id' };
-  }
-}
-
-// Test module for dependency injection testing
-@Module({
-  providers: [
-    MockKafkaService,
-    {
-      provide: ConfigService,
-      useClass: MockConfigService,
-    },
-    {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: TracingService,
-      useClass: MockTracingService,
-    },
-    {
-      provide: KAFKA_MODULE_OPTIONS,
-      useValue: {
-        serviceName: 'test-service',
-        configNamespace: 'test',
-        enableSchemaValidation: true,
-        enableDeadLetterQueue: true,
-      } as KafkaModuleOptions,
-    },
-  ],
-  exports: [MockKafkaService],
-})
-class TestKafkaModule {}
-
-// Journey-specific mock implementations
-@Injectable()
-class HealthJourneyKafkaService extends MockKafkaService {
-  async produceHealthMetric(metricType: string, value: number, userId: string): Promise<void> {
-    return this.produce('health-metrics', { metricType, value, userId });
-  }
-}
-
-@Injectable()
-class CareJourneyKafkaService extends MockKafkaService {
-  async produceAppointmentEvent(appointmentId: string, status: string, userId: string): Promise<void> {
-    return this.produce('care-appointments', { appointmentId, status, userId });
-  }
-}
-
-@Injectable()
-class PlanJourneyKafkaService extends MockKafkaService {
-  async produceClaimEvent(claimId: string, status: string, userId: string): Promise<void> {
-    return this.produce('plan-claims', { claimId, status, userId });
-  }
-}
-
-@Injectable()
-class GamificationKafkaService extends MockKafkaService {
-  async produceAchievementEvent(achievementId: string, userId: string): Promise<void> {
-    return this.produce('gamification-achievements', { achievementId, userId });
-  }
-}
+// Import base event interface
+import { BaseEvent, createEvent } from '../../../src/interfaces/base-event.interface';
 
 describe('Kafka Interfaces', () => {
-  let module: TestingModule;
-  let mockKafkaService: MockKafkaService;
-
-  beforeEach(async () => {
-    module = await Test.createTestingModule({
-      imports: [TestKafkaModule],
-    }).compile();
-
-    mockKafkaService = module.get<MockKafkaService>(MockKafkaService);
-  });
-
-  afterEach(async () => {
-    await module.close();
-  });
-
-  describe('KafkaMessage Interface', () => {
-    it('should have all required properties defined', () => {
-      // Create a mock KafkaMessage object
-      const kafkaMessage: KafkaMessage = {
-        key: 'test-key',
-        headers: { 'content-type': 'application/json' },
-        topic: 'test-topic',
-        partition: 0,
-        offset: '0',
-        timestamp: '2023-01-01T00:00:00.000Z',
-      };
-
-      // Verify all required properties are defined
-      expect(kafkaMessage.topic).toBeDefined();
-      expect(kafkaMessage.partition).toBeDefined();
-      expect(kafkaMessage.offset).toBeDefined();
-      expect(kafkaMessage.timestamp).toBeDefined();
-      expect(kafkaMessage.headers).toBeDefined();
-      
-      // Key is optional, but should be defined in our test case
-      expect(kafkaMessage.key).toBeDefined();
-    });
-
-    it('should allow optional key property', () => {
-      // Create a KafkaMessage without a key
-      const kafkaMessage: KafkaMessage = {
-        headers: { 'content-type': 'application/json' },
-        topic: 'test-topic',
-        partition: 0,
-        offset: '0',
-        timestamp: '2023-01-01T00:00:00.000Z',
-      };
-
-      // Verify the message is still valid without a key
-      expect(kafkaMessage).toBeDefined();
-      expect(kafkaMessage.key).toBeUndefined();
-    });
-  });
-
-  describe('KafkaModuleOptions Interface', () => {
-    it('should have all properties defined', () => {
-      // Create a complete KafkaModuleOptions object
-      const options: KafkaModuleOptions = {
-        serviceName: 'test-service',
-        configNamespace: 'test',
-        enableSchemaValidation: true,
-        enableDeadLetterQueue: true,
-        deadLetterTopic: 'dead-letter',
-        defaultConsumerGroup: 'test-consumer-group',
+  /**
+   * Test suite for interface completeness
+   * Verifies that all required properties are defined in the interfaces
+   */
+  describe('Interface Completeness', () => {
+    it('should define all required properties in IKafkaConfig', () => {
+      // Create a mock implementation of IKafkaConfig
+      const config: IKafkaConfig = {
+        brokers: ['localhost:9092'],
+        clientId: 'test-client',
+        groupId: 'test-group',
+        ssl: {
+          enabled: false,
+        },
+        sasl: {
+          mechanism: 'plain',
+          username: 'user',
+          password: 'pass',
+        },
+        connectionTimeout: 1000,
+        authenticationTimeout: 1000,
+        requestTimeout: 30000,
         retry: {
-          maxRetries: 3,
           initialRetryTime: 300,
-          factor: 2,
           maxRetryTime: 30000,
+          retryFactor: 2,
+          maxRetries: 5,
+          retryForever: false,
+        },
+        metadataMaxAge: 300000,
+        allowAutoTopicCreation: false,
+        maxInFlightRequests: 1048576,
+        transactions: {
+          id: 'test-tx',
+          timeout: 60000,
         },
       };
 
-      // Verify all properties are defined
-      expect(options.serviceName).toBeDefined();
-      expect(options.configNamespace).toBeDefined();
-      expect(options.enableSchemaValidation).toBeDefined();
-      expect(options.enableDeadLetterQueue).toBeDefined();
-      expect(options.deadLetterTopic).toBeDefined();
-      expect(options.defaultConsumerGroup).toBeDefined();
-      expect(options.retry).toBeDefined();
-      expect(options.retry?.maxRetries).toBeDefined();
-      expect(options.retry?.initialRetryTime).toBeDefined();
-      expect(options.retry?.factor).toBeDefined();
-      expect(options.retry?.maxRetryTime).toBeDefined();
+      // Verify required properties
+      expect(config.brokers).toBeDefined();
+      expect(config.clientId).toBeDefined();
+      
+      // Verify optional properties
+      expect(config.ssl).toBeDefined();
+      expect(config.sasl).toBeDefined();
+      expect(config.retry).toBeDefined();
+      expect(config.transactions).toBeDefined();
     });
 
-    it('should allow partial options with defaults', () => {
-      // Create a partial KafkaModuleOptions object
-      const options: KafkaModuleOptions = {
-        serviceName: 'test-service',
+    it('should define all required properties in IKafkaMessage', () => {
+      // Create a mock implementation of IKafkaMessage
+      const message: IKafkaMessage<string> = {
+        topic: 'test-topic',
+        partition: 0,
+        key: 'test-key',
+        value: 'test-value',
+        headers: {
+          'content-type': 'application/json',
+        },
+        timestamp: '1617184800000',
+        offset: '100',
       };
 
-      // Verify the options object is valid with just serviceName
-      expect(options).toBeDefined();
-      expect(options.serviceName).toBe('test-service');
-      expect(options.configNamespace).toBeUndefined();
-      expect(options.enableSchemaValidation).toBeUndefined();
+      // Verify required properties
+      expect(message.topic).toBeDefined();
+      expect(message.value).toBeDefined();
+      
+      // Verify optional properties
+      expect(message.partition).toBeDefined();
+      expect(message.key).toBeDefined();
+      expect(message.headers).toBeDefined();
+      expect(message.timestamp).toBeDefined();
+      expect(message.offset).toBeDefined();
+    });
+
+    it('should define all required properties in IKafkaEventMessage', () => {
+      // Create a mock event
+      const event = createEvent('TEST_EVENT', 'test-service', { data: 'test' });
+      
+      // Create a mock implementation of IKafkaEventMessage
+      const message: IKafkaEventMessage = {
+        topic: 'test-topic',
+        partition: 0,
+        key: 'test-key',
+        value: event,
+        headers: {
+          'content-type': 'application/json',
+        },
+        timestamp: '1617184800000',
+        offset: '100',
+      };
+
+      // Verify required properties
+      expect(message.topic).toBeDefined();
+      expect(message.value).toBeDefined();
+      
+      // Verify event properties
+      expect(message.value.eventId).toBeDefined();
+      expect(message.value.type).toBeDefined();
+      expect(message.value.timestamp).toBeDefined();
+      expect(message.value.version).toBeDefined();
+      expect(message.value.source).toBeDefined();
+      expect(message.value.payload).toBeDefined();
     });
   });
 
-  describe('NestJS Dependency Injection', () => {
-    it('should resolve KafkaService with dependencies', () => {
-      // Verify the service was properly instantiated
-      expect(mockKafkaService).toBeDefined();
-      expect(mockKafkaService).toBeInstanceOf(MockKafkaService);
-    });
+  /**
+   * Test suite for NestJS dependency injection compatibility
+   * Verifies that interfaces can be used with NestJS DI system
+   */
+  describe('NestJS Dependency Injection Compatibility', () => {
+    // Mock implementations for testing DI
+    @Injectable()
+    class MockKafkaProducer implements IKafkaProducer {
+      connect(): Promise<void> {
+        return Promise.resolve();
+      }
 
-    it('should inject KAFKA_MODULE_OPTIONS token', () => {
-      // Get the options from the module
-      const options = module.get(KAFKA_MODULE_OPTIONS);
+      disconnect(): Promise<void> {
+        return Promise.resolve();
+      }
 
-      // Verify the options were properly injected
-      expect(options).toBeDefined();
-      expect(options.serviceName).toBe('test-service');
-      expect(options.configNamespace).toBe('test');
-      expect(options.enableSchemaValidation).toBe(true);
-      expect(options.enableDeadLetterQueue).toBe(true);
-    });
-  });
+      send<T = any>(message: IKafkaMessage<T>): Promise<IKafkaProducerRecord> {
+        return Promise.resolve({
+          topic: message.topic,
+          partition: 0,
+          offset: '0',
+          timestamp: new Date().toISOString(),
+        });
+      }
 
-  describe('Mock Implementations', () => {
-    it('should implement produce method', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(mockKafkaService, 'produce');
+      sendBatch<T = any>(messages: IKafkaMessage<T>[]): Promise<IKafkaProducerBatchRecord> {
+        return Promise.resolve({
+          records: messages.map(msg => ({
+            topic: msg.topic,
+            partition: 0,
+            offset: '0',
+            timestamp: new Date().toISOString(),
+          })),
+        });
+      }
 
-      // Call the method
-      await mockKafkaService.produce('test-topic', { test: 'data' }, 'test-key');
+      sendEvent(topic: string, event: BaseEvent, key?: string, headers?: IKafkaHeaders): Promise<IKafkaProducerRecord> {
+        return Promise.resolve({
+          topic,
+          partition: 0,
+          offset: '0',
+          timestamp: new Date().toISOString(),
+        });
+      }
 
-      // Verify the method was called with the correct arguments
-      expect(produceSpy).toHaveBeenCalledWith('test-topic', { test: 'data' }, 'test-key');
-    });
+      transaction(): Promise<IKafkaTransaction> {
+        return Promise.resolve({
+          send: () => Promise.resolve({
+            topic: 'test',
+            partition: 0,
+            offset: '0',
+            timestamp: new Date().toISOString(),
+          }),
+          sendBatch: () => Promise.resolve({
+            records: [],
+          }),
+          commit: () => Promise.resolve(),
+          abort: () => Promise.resolve(),
+        });
+      }
 
-    it('should implement consume method', async () => {
-      // Spy on the consume method
-      const consumeSpy = jest.spyOn(mockKafkaService, 'consume');
+      isConnected(): boolean {
+        return true;
+      }
+    }
 
-      // Create a callback function
-      const callback = async (message: any, metadata: KafkaMessage) => {};
+    @Injectable()
+    class MockKafkaConsumer implements IKafkaConsumer {
+      connect(): Promise<void> {
+        return Promise.resolve();
+      }
 
-      // Call the method
-      await mockKafkaService.consume('test-topic', callback, { groupId: 'test-group' });
+      disconnect(): Promise<void> {
+        return Promise.resolve();
+      }
 
-      // Verify the method was called with the correct arguments
-      expect(consumeSpy).toHaveBeenCalledWith('test-topic', callback, { groupId: 'test-group' });
-    });
-  });
+      subscribe(topics: string[]): Promise<void> {
+        return Promise.resolve();
+      }
 
-  describe('Cross-Service Interface Compatibility', () => {
-    let healthService: HealthJourneyKafkaService;
-    let careService: CareJourneyKafkaService;
-    let planService: PlanJourneyKafkaService;
-    let gamificationService: GamificationKafkaService;
+      consume<T = any>(options?: IKafkaConsumerOptions): Observable<IKafkaMessage<T>> {
+        return of({
+          topic: 'test-topic',
+          value: {} as T,
+        });
+      }
+
+      commit(message: IKafkaMessage): Promise<void> {
+        return Promise.resolve();
+      }
+
+      seek(topic: string, partition: number, offset: string): Promise<void> {
+        return Promise.resolve();
+      }
+
+      pause(topicPartitions: IKafkaTopicPartition[]): Promise<void> {
+        return Promise.resolve();
+      }
+
+      resume(topicPartitions: IKafkaTopicPartition[]): Promise<void> {
+        return Promise.resolve();
+      }
+
+      isConnected(): boolean {
+        return true;
+      }
+    }
+
+    @Injectable()
+    class MockKafkaService implements IKafkaService {
+      private producer = new MockKafkaProducer();
+      private consumer = new MockKafkaConsumer();
+
+      connect(): Promise<void> {
+        return Promise.resolve();
+      }
+
+      disconnect(): Promise<void> {
+        return Promise.resolve();
+      }
+
+      getProducer(): IKafkaProducer {
+        return this.producer;
+      }
+
+      getConsumer(groupId?: string): IKafkaConsumer {
+        return this.consumer;
+      }
+
+      isConnected(): boolean {
+        return true;
+      }
+
+      getConfig(): IKafkaConfig {
+        return {
+          brokers: ['localhost:9092'],
+          clientId: 'test-client',
+        };
+      }
+    }
+
+    @Module({
+      providers: [
+        {
+          provide: 'KAFKA_SERVICE',
+          useClass: MockKafkaService,
+        },
+        {
+          provide: 'KAFKA_PRODUCER',
+          useClass: MockKafkaProducer,
+        },
+        {
+          provide: 'KAFKA_CONSUMER',
+          useClass: MockKafkaConsumer,
+        },
+      ],
+      exports: ['KAFKA_SERVICE', 'KAFKA_PRODUCER', 'KAFKA_CONSUMER'],
+    })
+    class TestModule {}
+
+    let module: TestingModule;
 
     beforeEach(async () => {
-      // Create a module with all journey services
-      const journeyModule = await Test.createTestingModule({
-        providers: [
-          HealthJourneyKafkaService,
-          CareJourneyKafkaService,
-          PlanJourneyKafkaService,
-          GamificationKafkaService,
-          {
-            provide: ConfigService,
-            useClass: MockConfigService,
-          },
-          {
-            provide: LoggerService,
-            useClass: MockLoggerService,
-          },
-          {
-            provide: TracingService,
-            useClass: MockTracingService,
-          },
-        ],
+      module = await Test.createTestingModule({
+        imports: [TestModule],
       }).compile();
-
-      // Get all services
-      healthService = journeyModule.get<HealthJourneyKafkaService>(HealthJourneyKafkaService);
-      careService = journeyModule.get<CareJourneyKafkaService>(CareJourneyKafkaService);
-      planService = journeyModule.get<PlanJourneyKafkaService>(PlanJourneyKafkaService);
-      gamificationService = journeyModule.get<GamificationKafkaService>(GamificationKafkaService);
     });
 
-    it('should allow Health journey to produce events', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(healthService, 'produce');
+    it('should inject Kafka service using interface', () => {
+      const service = module.get<IKafkaService>('KAFKA_SERVICE');
+      expect(service).toBeDefined();
+      expect(service.connect).toBeDefined();
+      expect(service.getProducer).toBeDefined();
+      expect(service.getConsumer).toBeDefined();
+    });
 
-      // Call the journey-specific method
-      await healthService.produceHealthMetric('HEART_RATE', 75, 'user-123');
+    it('should inject Kafka producer using interface', () => {
+      const producer = module.get<IKafkaProducer>('KAFKA_PRODUCER');
+      expect(producer).toBeDefined();
+      expect(producer.connect).toBeDefined();
+      expect(producer.send).toBeDefined();
+      expect(producer.sendEvent).toBeDefined();
+    });
 
-      // Verify the produce method was called with the correct arguments
-      expect(produceSpy).toHaveBeenCalledWith('health-metrics', {
-        metricType: 'HEART_RATE',
-        value: 75,
-        userId: 'user-123',
+    it('should inject Kafka consumer using interface', () => {
+      const consumer = module.get<IKafkaConsumer>('KAFKA_CONSUMER');
+      expect(consumer).toBeDefined();
+      expect(consumer.connect).toBeDefined();
+      expect(consumer.subscribe).toBeDefined();
+      expect(consumer.consume).toBeDefined();
+    });
+  });
+
+  /**
+   * Test suite for mock implementations
+   * Verifies that interfaces can be properly implemented with mock objects
+   */
+  describe('Mock Implementations', () => {
+    // Mock event handler implementation
+    class MockEventHandler implements IKafkaEventHandler {
+      async handle(message: IKafkaEventMessage): Promise<void> {
+        // Implementation details
+      }
+
+      async handleBatch(messages: IKafkaEventMessage[]): Promise<void> {
+        // Implementation details
+      }
+
+      async handleError(error: Error, message: IKafkaEventMessage): Promise<void> {
+        // Implementation details
+      }
+    }
+
+    // Mock dead letter queue implementation
+    class MockDeadLetterQueue implements IKafkaDeadLetterQueue {
+      async sendToDLQ<T = any>(message: IKafkaMessage<T>, error: Error, retryCount: number): Promise<void> {
+        // Implementation details
+      }
+
+      async retrieveFromDLQ<T = any>(topic: string, limit?: number): Promise<IKafkaMessage<T>[]> {
+        return [];
+      }
+
+      async retryMessage<T = any>(message: IKafkaMessage<T>): Promise<void> {
+        // Implementation details
+      }
+
+      async retryAllMessages(topic: string): Promise<void> {
+        // Implementation details
+      }
+    }
+
+    it('should create a valid event handler implementation', () => {
+      const handler = new MockEventHandler();
+      expect(handler).toBeDefined();
+      expect(handler.handle).toBeDefined();
+      expect(handler.handleBatch).toBeDefined();
+      expect(handler.handleError).toBeDefined();
+    });
+
+    it('should create a valid dead letter queue implementation', () => {
+      const dlq = new MockDeadLetterQueue();
+      expect(dlq).toBeDefined();
+      expect(dlq.sendToDLQ).toBeDefined();
+      expect(dlq.retrieveFromDLQ).toBeDefined();
+      expect(dlq.retryMessage).toBeDefined();
+      expect(dlq.retryAllMessages).toBeDefined();
+    });
+
+    it('should handle generic type parameters correctly', () => {
+      // Define a custom event type
+      interface CustomEvent {
+        name: string;
+        value: number;
+      }
+
+      // Create a message handler for the custom event type
+      class CustomEventHandler implements IKafkaMessageHandler<CustomEvent> {
+        async handle(message: IKafkaMessage<CustomEvent>): Promise<void> {
+          // Access typed properties
+          const name = message.value.name;
+          const value = message.value.value;
+          expect(typeof name).toBe('string');
+          expect(typeof value).toBe('number');
+        }
+      }
+
+      const handler = new CustomEventHandler();
+      expect(handler).toBeDefined();
+      expect(handler.handle).toBeDefined();
+    });
+  });
+
+  /**
+   * Test suite for cross-service interface compatibility
+   * Verifies that interfaces can be used across different services
+   */
+  describe('Cross-Service Interface Compatibility', () => {
+    // Simulate different service contexts
+    const services = ['health-service', 'care-service', 'plan-service', 'gamification-engine'];
+
+    it('should support events from different services', () => {
+      // Create events from different services
+      const events = services.map(service => {
+        return createEvent('TEST_EVENT', service, { data: 'test' });
+      });
+
+      // Create Kafka messages for each event
+      const messages = events.map(event => {
+        return {
+          topic: `${event.source}-events`,
+          value: event,
+        } as IKafkaEventMessage;
+      });
+
+      // Verify all messages conform to the interface
+      messages.forEach(message => {
+        expect(message.topic).toBeDefined();
+        expect(message.value).toBeDefined();
+        expect(message.value.eventId).toBeDefined();
+        expect(message.value.source).toBeDefined();
+        expect(message.value.type).toBeDefined();
+        expect(message.value.timestamp).toBeDefined();
+        expect(message.value.payload).toBeDefined();
       });
     });
 
-    it('should allow Care journey to produce events', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(careService, 'produce');
-
-      // Call the journey-specific method
-      await careService.produceAppointmentEvent('appt-123', 'CONFIRMED', 'user-123');
-
-      // Verify the produce method was called with the correct arguments
-      expect(produceSpy).toHaveBeenCalledWith('care-appointments', {
-        appointmentId: 'appt-123',
-        status: 'CONFIRMED',
-        userId: 'user-123',
+    it('should support different message handlers for different services', () => {
+      // Create message handlers for different services
+      const handlers = services.map(service => {
+        return {
+          handle: async (message: IKafkaEventMessage): Promise<void> => {
+            // Service-specific handling
+            expect(message.value.source).toBeDefined();
+          },
+        } as IKafkaEventHandler;
       });
-    });
 
-    it('should allow Plan journey to produce events', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(planService, 'produce');
-
-      // Call the journey-specific method
-      await planService.produceClaimEvent('claim-123', 'SUBMITTED', 'user-123');
-
-      // Verify the produce method was called with the correct arguments
-      expect(produceSpy).toHaveBeenCalledWith('plan-claims', {
-        claimId: 'claim-123',
-        status: 'SUBMITTED',
-        userId: 'user-123',
-      });
-    });
-
-    it('should allow Gamification service to produce events', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(gamificationService, 'produce');
-
-      // Call the journey-specific method
-      await gamificationService.produceAchievementEvent('achievement-123', 'user-123');
-
-      // Verify the produce method was called with the correct arguments
-      expect(produceSpy).toHaveBeenCalledWith('gamification-achievements', {
-        achievementId: 'achievement-123',
-        userId: 'user-123',
+      // Verify all handlers conform to the interface
+      handlers.forEach(handler => {
+        expect(handler).toBeDefined();
+        expect(handler.handle).toBeDefined();
       });
     });
   });
 
-  describe('EventMetadataDto Integration', () => {
-    it('should create valid event metadata', () => {
-      // Create event metadata
-      const metadata = new EventMetadataDto();
-      metadata.timestamp = new Date();
-      metadata.correlationId = 'test-correlation-id';
-      
-      // Verify the metadata is valid
-      expect(metadata).toBeDefined();
-      expect(metadata.timestamp).toBeDefined();
-      expect(metadata.correlationId).toBe('test-correlation-id');
+  /**
+   * Test suite for journey-specific interface verification
+   * Verifies that interfaces support journey-specific requirements
+   */
+  describe('Journey-Specific Interface Verification', () => {
+    // Define journey types
+    const journeys = ['HEALTH', 'CARE', 'PLAN'];
+
+    it('should support journey-specific event properties', () => {
+      // Create events for different journeys
+      const events = journeys.map(journey => {
+        return createEvent(
+          'JOURNEY_EVENT',
+          'test-service',
+          { journeyData: 'test' },
+          { journey: journey as any }
+        );
+      });
+
+      // Verify journey property is correctly set
+      events.forEach((event, index) => {
+        expect(event.journey).toBe(journeys[index]);
+      });
+
+      // Create Kafka messages for each event
+      const messages = events.map(event => {
+        return {
+          topic: `${event.journey?.toLowerCase()}-events`,
+          value: event,
+        } as IKafkaEventMessage;
+      });
+
+      // Verify all messages have the correct journey
+      messages.forEach((message, index) => {
+        expect(message.value.journey).toBe(journeys[index]);
+        expect(message.topic).toContain(journeys[index].toLowerCase());
+      });
     });
 
-    it('should create child metadata with inherited context', () => {
-      // Create parent metadata
-      const parentMetadata = new EventMetadataDto();
-      parentMetadata.eventId = 'parent-event-id';
-      parentMetadata.correlationId = 'test-correlation-id';
-      parentMetadata.sessionId = 'test-session-id';
-      
-      // Create child metadata
-      const childMetadata = parentMetadata.createChildMetadata();
-      
-      // Verify the child metadata inherits context
-      expect(childMetadata).toBeDefined();
-      expect(childMetadata.correlationId).toBe('test-correlation-id');
-      expect(childMetadata.sessionId).toBe('test-session-id');
-      expect(childMetadata.parentEventId).toBe('parent-event-id');
-      expect(childMetadata.eventId).not.toBe('parent-event-id');
-    });
-
-    it('should allow metadata to be included in Kafka messages', async () => {
-      // Spy on the produce method
-      const produceSpy = jest.spyOn(mockKafkaService, 'produce');
-
-      // Create metadata
-      const metadata = new EventMetadataDto();
-      metadata.correlationId = 'test-correlation-id';
-      
-      // Create a message with metadata
-      const message = {
-        data: 'test-data',
-        metadata,
+    it('should support journey-specific message routing', () => {
+      // Create a mock router that routes messages based on journey
+      const router = {
+        route: (message: IKafkaEventMessage): string => {
+          if (!message.value.journey) return 'default-handler';
+          return `${message.value.journey.toLowerCase()}-handler`;
+        },
       };
-      
-      // Produce the message
-      await mockKafkaService.produce('test-topic', message);
-      
-      // Verify the message was produced with metadata
-      expect(produceSpy).toHaveBeenCalledWith('test-topic', message, undefined);
-      expect(produceSpy.mock.calls[0][1].metadata).toBe(metadata);
-      expect(produceSpy.mock.calls[0][1].metadata.correlationId).toBe('test-correlation-id');
-    });
-  });
 
-  describe('Journey-Specific Interface Requirements', () => {
-    // Test data for journey-specific events
-    const healthMetricEvent = {
-      metricType: 'HEART_RATE',
-      value: 75,
-      userId: 'user-123',
-      timestamp: '2023-01-01T00:00:00.000Z',
-      deviceId: 'device-123',
-    };
+      // Create events for different journeys
+      const events = journeys.map(journey => {
+        return createEvent(
+          'JOURNEY_EVENT',
+          'test-service',
+          { journeyData: 'test' },
+          { journey: journey as any }
+        );
+      });
 
-    const careAppointmentEvent = {
-      appointmentId: 'appt-123',
-      status: 'CONFIRMED',
-      userId: 'user-123',
-      providerId: 'provider-123',
-      timestamp: '2023-01-01T00:00:00.000Z',
-      location: 'Virtual',
-    };
+      // Create Kafka messages for each event
+      const messages = events.map(event => {
+        return {
+          topic: 'events',
+          value: event,
+        } as IKafkaEventMessage;
+      });
 
-    const planClaimEvent = {
-      claimId: 'claim-123',
-      status: 'SUBMITTED',
-      userId: 'user-123',
-      amount: 100.0,
-      currency: 'BRL',
-      timestamp: '2023-01-01T00:00:00.000Z',
-      category: 'MEDICAL',
-    };
-
-    const gamificationAchievementEvent = {
-      achievementId: 'achievement-123',
-      userId: 'user-123',
-      timestamp: '2023-01-01T00:00:00.000Z',
-      journey: 'health',
-      points: 100,
-      level: 1,
-    };
-
-    it('should validate Health journey event structure', () => {
-      // Verify the health metric event has all required properties
-      expect(healthMetricEvent.metricType).toBeDefined();
-      expect(healthMetricEvent.value).toBeDefined();
-      expect(healthMetricEvent.userId).toBeDefined();
-      expect(healthMetricEvent.timestamp).toBeDefined();
-      expect(healthMetricEvent.deviceId).toBeDefined();
-    });
-
-    it('should validate Care journey event structure', () => {
-      // Verify the care appointment event has all required properties
-      expect(careAppointmentEvent.appointmentId).toBeDefined();
-      expect(careAppointmentEvent.status).toBeDefined();
-      expect(careAppointmentEvent.userId).toBeDefined();
-      expect(careAppointmentEvent.providerId).toBeDefined();
-      expect(careAppointmentEvent.timestamp).toBeDefined();
-      expect(careAppointmentEvent.location).toBeDefined();
-    });
-
-    it('should validate Plan journey event structure', () => {
-      // Verify the plan claim event has all required properties
-      expect(planClaimEvent.claimId).toBeDefined();
-      expect(planClaimEvent.status).toBeDefined();
-      expect(planClaimEvent.userId).toBeDefined();
-      expect(planClaimEvent.amount).toBeDefined();
-      expect(planClaimEvent.currency).toBeDefined();
-      expect(planClaimEvent.timestamp).toBeDefined();
-      expect(planClaimEvent.category).toBeDefined();
-    });
-
-    it('should validate Gamification event structure', () => {
-      // Verify the gamification achievement event has all required properties
-      expect(gamificationAchievementEvent.achievementId).toBeDefined();
-      expect(gamificationAchievementEvent.userId).toBeDefined();
-      expect(gamificationAchievementEvent.timestamp).toBeDefined();
-      expect(gamificationAchievementEvent.journey).toBeDefined();
-      expect(gamificationAchievementEvent.points).toBeDefined();
-      expect(gamificationAchievementEvent.level).toBeDefined();
-    });
-
-    it('should ensure all journey events have common fields', () => {
-      // Define the common fields that all events should have
-      const commonFields = ['userId', 'timestamp'];
-      
-      // Verify all events have the common fields
-      commonFields.forEach(field => {
-        expect(healthMetricEvent).toHaveProperty(field);
-        expect(careAppointmentEvent).toHaveProperty(field);
-        expect(planClaimEvent).toHaveProperty(field);
-        expect(gamificationAchievementEvent).toHaveProperty(field);
+      // Verify routing works correctly
+      messages.forEach((message, index) => {
+        const handlerName = router.route(message);
+        expect(handlerName).toBe(`${journeys[index].toLowerCase()}-handler`);
       });
     });
   });
