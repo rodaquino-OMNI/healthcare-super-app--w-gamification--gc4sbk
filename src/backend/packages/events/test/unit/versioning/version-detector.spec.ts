@@ -1,527 +1,598 @@
 /**
  * @file version-detector.spec.ts
- * @description Unit tests for the version detection functionality that verifies the ability to correctly
- * identify event versions from different sources. Tests various detection strategies including explicit
- * version fields, structural analysis, and header-based detection to ensure proper version identification
- * across different event formats and sources.
+ * @description Unit tests for the version detection functionality
+ * 
+ * These tests verify the ability to correctly identify event versions from different sources
+ * using various detection strategies including explicit version fields, structural analysis,
+ * and header-based detection. The tests ensure proper version identification across different
+ * event formats and sources, with and without explicit versioning.
  */
 
-import { VersionDetector, VersionDetectionStrategy } from '../../../src/versioning/version-detector';
-import { EventVersionDto, EventMetadataDto } from '../../../src/dto/event-metadata.dto';
+import { JourneyType } from '@austa/errors';
+import { VersionDetector, detectEventVersion, hasVersion, ensureEventVersion } from '../../../src/versioning/version-detector';
 import { VersionDetectionError } from '../../../src/versioning/errors';
+import { LATEST_VERSION, VERSION_FIELD_NAMES, VERSION_HEADER_NAMES } from '../../../src/versioning/constants';
 
 describe('VersionDetector', () => {
-  let versionDetector: VersionDetector;
-
-  beforeEach(() => {
-    // Create a new VersionDetector instance before each test
-    versionDetector = new VersionDetector();
-  });
-
-  describe('Explicit Version Detection Strategy', () => {
-    it('should detect version from explicit version field in event payload', () => {
+  describe('Explicit Field Detection', () => {
+    it('should detect version from standard version field', () => {
       // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        },
+      const event = { version: '1.0.0', data: 'test' };
+      const detector = new VersionDetector();
+      
+      // Act
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('1.0.0');
+      expect(result.strategy).toBe('explicit');
+      expect(result.confidence).toBe(1.0);
+    });
+    
+    it('should detect version from custom field specified in config', () => {
+      // Arrange
+      const event = { schemaVersion: '2.1.0', data: 'test' };
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'explicit',
+            field: 'schemaVersion',
+          },
+        ],
+      });
+      
+      // Act
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.1.0');
+      expect(result.strategy).toBe('explicit');
+    });
+    
+    it('should try all common version field names', () => {
+      // Test each of the common field names
+      VERSION_FIELD_NAMES.forEach(fieldName => {
+        // Arrange
+        const event = { [fieldName]: '1.2.3', data: 'test' };
+        const detector = new VersionDetector();
+        
+        // Act
+        const result = detector.detect(event);
+        
+        // Assert
+        expect(result.detected).toBe(true);
+        expect(result.version).toBe('1.2.3');
+      });
+    });
+    
+    it('should validate version format', () => {
+      // Arrange
+      const event = { version: 'invalid-format', data: 'test' };
+      const detector = new VersionDetector();
+      
+      // Act
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(false);
+      expect(result.version).toBe(LATEST_VERSION); // Should use default version
+    });
+  });
+  
+  describe('Header-Based Detection', () => {
+    it('should detect version from standard header field', () => {
+      // Arrange
+      const event = { 
+        headers: { 'x-event-version': '1.5.0' }, 
+        data: 'test' 
+      };
+      const detector = new VersionDetector();
+      
+      // Act
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('1.5.0');
+      expect(result.strategy).toBe('header');
+    });
+    
+    it('should detect version from custom header field specified in config', () => {
+      // Arrange
+      const event = { 
+        headers: { 'custom-version-header': '2.3.1' }, 
+        data: 'test' 
+      };
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'header',
+            headerField: 'custom-version-header',
+          },
+        ],
+      });
+      
+      // Act
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.3.1');
+      expect(result.strategy).toBe('header');
+    });
+    
+    it('should try all common header field names', () => {
+      // Test each of the common header field names
+      VERSION_HEADER_NAMES.forEach(headerName => {
+        // Arrange
+        const event = { 
+          headers: { [headerName]: '1.2.3' }, 
+          data: 'test' 
+        };
+        const detector = new VersionDetector();
+        
+        // Act
+        const result = detector.detect(event);
+        
+        // Assert
+        expect(result.detected).toBe(true);
+        expect(result.version).toBe('1.2.3');
+      });
+    });
+    
+    it('should detect version from metadata.headers', () => {
+      // Arrange
+      const event = { 
         metadata: {
-          version: {
-            major: '2',
-            minor: '1',
-            patch: '0'
-          }
-        }
+          headers: { 'x-event-version': '1.6.0' }
+        }, 
+        data: 'test' 
       };
-
+      const detector = new VersionDetector();
+      
       // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
+      const result = detector.detect(event);
+      
       // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('2');
-      expect(detectedVersion.minor).toBe('1');
-      expect(detectedVersion.patch).toBe('0');
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('1.6.0');
+      expect(result.strategy).toBe('header');
     });
-
-    it('should detect version from explicit __version field in event payload', () => {
+    
+    it('should detect version from meta.headers', () => {
       // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com',
-          __version: '3.2.1'
-        }
+      const event = { 
+        meta: {
+          headers: { 'x-event-version': '1.7.0' }
+        }, 
+        data: 'test' 
       };
-
+      const detector = new VersionDetector();
+      
       // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
+      const result = detector.detect(event);
+      
       // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('3');
-      expect(detectedVersion.minor).toBe('2');
-      expect(detectedVersion.patch).toBe('1');
-    });
-
-    it('should detect version from explicit _v field in event payload', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        _v: '1.5.3',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        }
-      };
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('1');
-      expect(detectedVersion.minor).toBe('5');
-      expect(detectedVersion.patch).toBe('3');
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('1.7.0');
+      expect(result.strategy).toBe('header');
     });
   });
-
-  describe('Structure-Based Version Detection Strategy', () => {
-    it('should detect version based on event structure for known event types', () => {
+  
+  describe('Structure-Based Detection', () => {
+    it('should detect version based on event structure', () => {
       // Arrange
-      const event = {
-        type: 'HEALTH_METRIC_RECORDED',
-        payload: {
-          userId: '123',
-          metricType: 'HEART_RATE',
-          value: 75,
-          unit: 'bpm',
-          timestamp: new Date().toISOString(),
-          deviceId: 'smartwatch-001'
-        }
+      // Define structure matchers for different versions
+      const versionMap = {
+        '1.0.0': (event: any) => event.data && !event.extendedData,
+        '2.0.0': (event: any) => event.data && event.extendedData,
       };
-
-      // Mock the structure-based detection to return a specific version
-      const mockStructureDetection = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(EventVersionDto.fromString('2.0.0'));
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(mockStructureDetection).toHaveBeenCalledWith(event);
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('2');
-      expect(detectedVersion.minor).toBe('0');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockStructureDetection.mockRestore();
-    });
-
-    it('should detect version based on presence of specific fields', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com',
-          // Field only present in version 2.0.0+
-          preferredLanguage: 'pt-BR'
-        }
-      };
-
-      // Mock the structure-based detection to check for specific fields
-      const mockStructureDetection = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromStructure'
-      ).mockImplementation((event) => {
-        if (event.payload && 'preferredLanguage' in event.payload) {
-          return EventVersionDto.fromString('2.0.0');
-        }
-        return EventVersionDto.fromString('1.0.0');
+      
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'structure',
+            versionMap,
+          },
+        ],
       });
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(mockStructureDetection).toHaveBeenCalledWith(event);
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('2');
-      expect(detectedVersion.minor).toBe('0');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockStructureDetection.mockRestore();
+      
+      // Act & Assert - v1.0.0 structure
+      const eventV1 = { data: 'test' };
+      const resultV1 = detector.detect(eventV1);
+      expect(resultV1.detected).toBe(true);
+      expect(resultV1.version).toBe('1.0.0');
+      expect(resultV1.strategy).toBe('structure');
+      
+      // Act & Assert - v2.0.0 structure
+      const eventV2 = { data: 'test', extendedData: { extra: 'info' } };
+      const resultV2 = detector.detect(eventV2);
+      expect(resultV2.detected).toBe(true);
+      expect(resultV2.version).toBe('2.0.0');
+      expect(resultV2.strategy).toBe('structure');
     });
-  });
-
-  describe('Header-Based Version Detection Strategy', () => {
-    it('should detect version from event headers', () => {
+    
+    it('should handle complex structure matching logic', () => {
       // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        },
-        headers: {
-          'x-event-version': '2.3.1'
-        }
+      // More complex structure matching based on field presence and values
+      const versionMap = {
+        '1.0.0': (event: any) => 
+          event.type === 'legacy' && Array.isArray(event.items),
+        '2.0.0': (event: any) => 
+          event.type === 'standard' && typeof event.config === 'object',
+        '3.0.0': (event: any) => 
+          event.type === 'enhanced' && typeof event.metadata === 'object' && event.metadata.version === 3,
       };
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('2');
-      expect(detectedVersion.minor).toBe('3');
-      expect(detectedVersion.patch).toBe('1');
-    });
-
-    it('should detect version from content-type header with version parameter', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        },
-        headers: {
-          'content-type': 'application/json; version=1.2.3'
-        }
-      };
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('1');
-      expect(detectedVersion.minor).toBe('2');
-      expect(detectedVersion.patch).toBe('3');
-    });
-  });
-
-  describe('Fallback Chain Functionality', () => {
-    it('should try multiple strategies in order until one succeeds', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        }
-      };
-
-      // Mock the strategies to simulate fallback behavior
-      const mockExplicitStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromExplicitField'
-      ).mockReturnValue(null);
-
-      const mockHeaderStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromHeaders'
-      ).mockReturnValue(null);
-
-      const mockStructureStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(EventVersionDto.fromString('1.0.0'));
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(mockExplicitStrategy).toHaveBeenCalledWith(event);
-      expect(mockHeaderStrategy).toHaveBeenCalledWith(event);
-      expect(mockStructureStrategy).toHaveBeenCalledWith(event);
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('1');
-      expect(detectedVersion.minor).toBe('0');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockExplicitStrategy.mockRestore();
-      mockHeaderStrategy.mockRestore();
-      mockStructureStrategy.mockRestore();
-    });
-
-    it('should use default version when all strategies fail', () => {
-      // Arrange
-      const event = {
-        type: 'UNKNOWN_EVENT',
-        payload: {}
-      };
-
-      // Mock all strategies to fail
-      const mockExplicitStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromExplicitField'
-      ).mockReturnValue(null);
-
-      const mockHeaderStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromHeaders'
-      ).mockReturnValue(null);
-
-      const mockStructureStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(null);
-
-      // Act
-      const detectedVersion = versionDetector.detectVersion(event);
-
-      // Assert
-      expect(mockExplicitStrategy).toHaveBeenCalledWith(event);
-      expect(mockHeaderStrategy).toHaveBeenCalledWith(event);
-      expect(mockStructureStrategy).toHaveBeenCalledWith(event);
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('1'); // Default version should be 1.0.0
-      expect(detectedVersion.minor).toBe('0');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockExplicitStrategy.mockRestore();
-      mockHeaderStrategy.mockRestore();
-      mockStructureStrategy.mockRestore();
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should throw VersionDetectionError for malformed version strings', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com',
-          __version: 'invalid-version'
-        }
-      };
-
-      // Mock the explicit strategy to throw an error for invalid version
-      const mockExplicitStrategy = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromExplicitField'
-      ).mockImplementation(() => {
-        throw new VersionDetectionError('Invalid version format: invalid-version');
+      
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'structure',
+            versionMap,
+          },
+        ],
       });
-
-      // Act & Assert
-      expect(() => versionDetector.detectVersion(event)).toThrow(VersionDetectionError);
-      expect(() => versionDetector.detectVersion(event)).toThrow('Invalid version format');
-
-      // Cleanup
-      mockExplicitStrategy.mockRestore();
-    });
-
-    it('should handle null or undefined events gracefully', () => {
-      // Act & Assert
-      expect(() => versionDetector.detectVersion(null as any)).toThrow(VersionDetectionError);
-      expect(() => versionDetector.detectVersion(undefined as any)).toThrow(VersionDetectionError);
-    });
-  });
-
-  describe('Custom Configuration Options', () => {
-    it('should respect custom strategy order when provided', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        }
-      };
-
-      // Create detector with custom strategy order
-      const customOrderDetector = new VersionDetector({
-        strategyOrder: [
-          VersionDetectionStrategy.STRUCTURE,
-          VersionDetectionStrategy.EXPLICIT,
-          VersionDetectionStrategy.HEADER
-        ]
-      });
-
-      // Mock the strategies to track call order
-      const mockStructureStrategy = jest.spyOn(
-        customOrderDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(EventVersionDto.fromString('2.0.0'));
-
-      const mockExplicitStrategy = jest.spyOn(
-        customOrderDetector as any, 
-        'detectVersionFromExplicitField'
-      );
-
-      const mockHeaderStrategy = jest.spyOn(
-        customOrderDetector as any, 
-        'detectVersionFromHeaders'
-      );
-
-      // Act
-      const detectedVersion = customOrderDetector.detectVersion(event);
-
-      // Assert
-      expect(mockStructureStrategy).toHaveBeenCalledWith(event);
-      expect(mockExplicitStrategy).not.toHaveBeenCalled();
-      expect(mockHeaderStrategy).not.toHaveBeenCalled();
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('2');
-      expect(detectedVersion.minor).toBe('0');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockStructureStrategy.mockRestore();
-      mockExplicitStrategy.mockRestore();
-      mockHeaderStrategy.mockRestore();
-    });
-
-    it('should use custom default version when provided', () => {
-      // Arrange
-      const event = {
-        type: 'UNKNOWN_EVENT',
-        payload: {}
-      };
-
-      // Create detector with custom default version
-      const customDefaultDetector = new VersionDetector({
-        defaultVersion: '3.2.1'
-      });
-
-      // Mock all strategies to fail
-      const mockExplicitStrategy = jest.spyOn(
-        customDefaultDetector as any, 
-        'detectVersionFromExplicitField'
-      ).mockReturnValue(null);
-
-      const mockHeaderStrategy = jest.spyOn(
-        customDefaultDetector as any, 
-        'detectVersionFromHeaders'
-      ).mockReturnValue(null);
-
-      const mockStructureStrategy = jest.spyOn(
-        customDefaultDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(null);
-
-      // Act
-      const detectedVersion = customDefaultDetector.detectVersion(event);
-
-      // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('3');
-      expect(detectedVersion.minor).toBe('2');
-      expect(detectedVersion.patch).toBe('1');
-
-      // Cleanup
-      mockExplicitStrategy.mockRestore();
-      mockHeaderStrategy.mockRestore();
-      mockStructureStrategy.mockRestore();
-    });
-
-    it('should disable specific strategies when configured', () => {
-      // Arrange
-      const event = {
-        type: 'USER_CREATED',
-        payload: {
-          userId: '123',
-          email: 'user@example.com'
-        },
-        metadata: {
-          version: {
-            major: '2',
-            minor: '1',
-            patch: '0'
-          }
-        }
-      };
-
-      // Create detector with disabled explicit strategy
-      const customDetector = new VersionDetector({
-        disabledStrategies: [VersionDetectionStrategy.EXPLICIT]
-      });
-
-      // Mock the structure strategy to return a version
-      const mockStructureStrategy = jest.spyOn(
-        customDetector as any, 
-        'detectVersionFromStructure'
-      ).mockReturnValue(EventVersionDto.fromString('1.5.0'));
-
-      // Act
-      const detectedVersion = customDetector.detectVersion(event);
-
-      // Assert
-      expect(detectedVersion).toBeDefined();
-      expect(detectedVersion.major).toBe('1');
-      expect(detectedVersion.minor).toBe('5');
-      expect(detectedVersion.patch).toBe('0');
-
-      // Cleanup
-      mockStructureStrategy.mockRestore();
+      
+      // Act & Assert - v1.0.0 structure
+      const eventV1 = { type: 'legacy', items: [] };
+      const resultV1 = detector.detect(eventV1);
+      expect(resultV1.detected).toBe(true);
+      expect(resultV1.version).toBe('1.0.0');
+      
+      // Act & Assert - v2.0.0 structure
+      const eventV2 = { type: 'standard', config: {} };
+      const resultV2 = detector.detect(eventV2);
+      expect(resultV2.detected).toBe(true);
+      expect(resultV2.version).toBe('2.0.0');
+      
+      // Act & Assert - v3.0.0 structure
+      const eventV3 = { type: 'enhanced', metadata: { version: 3 } };
+      const resultV3 = detector.detect(eventV3);
+      expect(resultV3.detected).toBe(true);
+      expect(resultV3.version).toBe('3.0.0');
     });
   });
-
-  describe('Integration with Event Types', () => {
-    it('should detect different versions for different event types', () => {
+  
+  describe('Custom Detection', () => {
+    it('should use custom detector function', () => {
       // Arrange
-      const healthEvent = {
-        type: 'HEALTH_METRIC_RECORDED',
-        payload: {
-          userId: '123',
-          metricType: 'HEART_RATE',
-          value: 75
-        }
-      };
-
-      const careEvent = {
-        type: 'APPOINTMENT_BOOKED',
-        payload: {
-          userId: '123',
-          providerId: '456',
-          appointmentTime: new Date().toISOString()
-        }
-      };
-
-      // Mock the structure detection to return different versions based on event type
-      const mockStructureDetection = jest.spyOn(
-        versionDetector as any, 
-        'detectVersionFromStructure'
-      ).mockImplementation((event) => {
-        if (event.type === 'HEALTH_METRIC_RECORDED') {
-          return EventVersionDto.fromString('2.1.0');
-        } else if (event.type === 'APPOINTMENT_BOOKED') {
-          return EventVersionDto.fromString('1.3.2');
+      const customDetector = (event: any): string | null => {
+        // Custom logic to extract version
+        if (event.customField && event.customField.includes('v')) {
+          return event.customField.replace('v', '');
         }
         return null;
+      };
+      
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'custom',
+            detector: customDetector,
+          },
+        ],
       });
-
+      
       // Act
-      const healthVersion = versionDetector.detectVersion(healthEvent);
-      const careVersion = versionDetector.detectVersion(careEvent);
-
+      const event = { customField: 'v2.3.4', data: 'test' };
+      const result = detector.detect(event);
+      
       // Assert
-      expect(healthVersion).toBeDefined();
-      expect(healthVersion.major).toBe('2');
-      expect(healthVersion.minor).toBe('1');
-      expect(healthVersion.patch).toBe('0');
-
-      expect(careVersion).toBeDefined();
-      expect(careVersion.major).toBe('1');
-      expect(careVersion.minor).toBe('3');
-      expect(careVersion.patch).toBe('2');
-
-      // Cleanup
-      mockStructureDetection.mockRestore();
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.3.4');
+      expect(result.strategy).toBe('custom');
+    });
+    
+    it('should handle errors in custom detector gracefully', () => {
+      // Arrange
+      const errorThrowingDetector = (event: any): string | null => {
+        throw new Error('Custom detector error');
+      };
+      
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'custom',
+            detector: errorThrowingDetector,
+          },
+        ],
+        defaultVersion: '1.0.0',
+        throwOnUndetected: false,
+      });
+      
+      // Act
+      const event = { data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(false);
+      expect(result.version).toBe('1.0.0'); // Should use default version
+    });
+    
+    it('should validate version format from custom detector', () => {
+      // Arrange
+      const invalidFormatDetector = (event: any): string | null => {
+        return 'invalid-format';
+      };
+      
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'custom',
+            detector: invalidFormatDetector,
+          },
+        ],
+        defaultVersion: '1.0.0',
+        throwOnUndetected: false,
+      });
+      
+      // Act
+      const event = { data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(false);
+      expect(result.version).toBe('1.0.0'); // Should use default version
+    });
+  });
+  
+  describe('Fallback Chain', () => {
+    it('should try strategies in order until one succeeds', () => {
+      // Arrange
+      const detector = new VersionDetector({
+        strategies: [
+          // This strategy will fail
+          {
+            type: 'explicit',
+            field: 'nonExistentField',
+          },
+          // This strategy will succeed
+          {
+            type: 'header',
+            headerField: 'x-event-version',
+          },
+          // This strategy won't be reached
+          {
+            type: 'structure',
+            versionMap: {
+              '3.0.0': (event: any) => true, // Always matches
+            },
+          },
+        ],
+      });
+      
+      // Act
+      const event = { 
+        headers: { 'x-event-version': '2.0.0' }, 
+        data: 'test' 
+      };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.0.0');
+      expect(result.strategy).toBe('header');
+    });
+    
+    it('should use default version when all strategies fail and throwOnUndetected is false', () => {
+      // Arrange
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'explicit',
+            field: 'nonExistentField',
+          },
+          {
+            type: 'header',
+            headerField: 'nonExistentHeader',
+          },
+        ],
+        defaultVersion: '1.5.0',
+        throwOnUndetected: false,
+      });
+      
+      // Act
+      const event = { data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(false);
+      expect(result.version).toBe('1.5.0');
+      expect(result.confidence).toBe(0.5); // Lower confidence for default version
+    });
+    
+    it('should throw error when all strategies fail and throwOnUndetected is true', () => {
+      // Arrange
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'explicit',
+            field: 'nonExistentField',
+          },
+        ],
+        throwOnUndetected: true,
+      });
+      
+      // Act & Assert
+      const event = { data: 'test', eventId: 'test-123' };
+      expect(() => detector.detect(event)).toThrow(VersionDetectionError);
+    });
+  });
+  
+  describe('Factory Methods', () => {
+    it('should create default detector', () => {
+      // Act
+      const detector = VersionDetector.createDefault();
+      const event = { version: '1.0.0', data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('1.0.0');
+    });
+    
+    it('should create explicit field detector', () => {
+      // Act
+      const detector = VersionDetector.createExplicitFieldDetector('customField');
+      const event = { customField: '2.0.0', data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.0.0');
+    });
+    
+    it('should create header detector', () => {
+      // Act
+      const detector = VersionDetector.createHeaderDetector('custom-header');
+      const event = { headers: { 'custom-header': '2.0.0' }, data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('2.0.0');
+    });
+    
+    it('should create custom detector', () => {
+      // Act
+      const detector = VersionDetector.createCustomDetector((event: any) => {
+        return event.data === 'test' ? '3.0.0' : null;
+      });
+      const event = { data: 'test' };
+      const result = detector.detect(event);
+      
+      // Assert
+      expect(result.detected).toBe(true);
+      expect(result.version).toBe('3.0.0');
+    });
+    
+    it('should create comprehensive detector', () => {
+      // Act
+      const detector = VersionDetector.createComprehensiveDetector({
+        '1.0.0': (event: any) => event.data === 'v1',
+        '2.0.0': (event: any) => event.data === 'v2',
+      });
+      
+      // Test explicit field detection
+      const event1 = { version: '3.0.0', data: 'test' };
+      const result1 = detector.detect(event1);
+      expect(result1.detected).toBe(true);
+      expect(result1.version).toBe('3.0.0');
+      
+      // Test structure-based detection
+      const event2 = { data: 'v2' };
+      const result2 = detector.detect(event2);
+      expect(result2.detected).toBe(true);
+      expect(result2.version).toBe('2.0.0');
+    });
+  });
+  
+  describe('Helper Functions', () => {
+    it('should detect event version with helper function', () => {
+      // Act & Assert
+      const event = { version: '1.0.0', data: 'test' };
+      expect(detectEventVersion(event)).toBe('1.0.0');
+    });
+    
+    it('should throw error when version cannot be detected with helper function', () => {
+      // Act & Assert
+      const event = { data: 'test' };
+      expect(() => detectEventVersion(event)).toThrow(VersionDetectionError);
+    });
+    
+    it('should check if event has specific version', () => {
+      // Act & Assert
+      const event = { version: '1.0.0', data: 'test' };
+      expect(hasVersion(event, '1.0.0')).toBe(true);
+      expect(hasVersion(event, '2.0.0')).toBe(false);
+    });
+    
+    it('should ensure event has version field', () => {
+      // Act & Assert - Event with version
+      const event1 = { version: '1.0.0', data: 'test' };
+      const result1 = ensureEventVersion(event1);
+      expect(result1.version).toBe('1.0.0');
+      
+      // Act & Assert - Event without version
+      const event2 = { data: 'test' };
+      const result2 = ensureEventVersion(event2);
+      expect(result2.version).toBe(LATEST_VERSION);
+      
+      // Act & Assert - Event without version, custom default
+      const event3 = { data: 'test' };
+      const result3 = ensureEventVersion(event3, '2.0.0');
+      expect(result3.version).toBe('2.0.0');
+    });
+    
+    it('should throw error when trying to ensure version on null/undefined', () => {
+      // Act & Assert
+      expect(() => ensureEventVersion(null as any)).toThrow();
+      expect(() => ensureEventVersion(undefined as any)).toThrow();
+    });
+  });
+  
+  describe('Error Handling', () => {
+    it('should include journey type in error context', () => {
+      // Arrange
+      const detector = new VersionDetector({
+        strategies: [
+          {
+            type: 'explicit',
+            field: 'nonExistentField',
+          },
+        ],
+        throwOnUndetected: true,
+      });
+      
+      // Act & Assert
+      const event = { data: 'test' };
+      try {
+        detector.detect(event, JourneyType.HEALTH);
+        fail('Expected error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(VersionDetectionError);
+        expect((error as VersionDetectionError).context.journey).toBe(JourneyType.HEALTH);
+      }
+    });
+    
+    it('should extract event ID for error reporting', () => {
+      // Arrange
+      const detector = new VersionDetector({
+        strategies: [],
+        throwOnUndetected: true,
+      });
+      
+      // Act & Assert - with eventId
+      const event1 = { eventId: 'test-123', data: 'test' };
+      try {
+        detector.detect(event1);
+        fail('Expected error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(VersionDetectionError);
+        expect(error.message).toContain('test-123');
+      }
+      
+      // Act & Assert - with id
+      const event2 = { id: 'test-456', data: 'test' };
+      try {
+        detector.detect(event2);
+        fail('Expected error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(VersionDetectionError);
+        expect(error.message).toContain('test-456');
+      }
+      
+      // Act & Assert - with uuid
+      const event3 = { uuid: 'test-789', data: 'test' };
+      try {
+        detector.detect(event3);
+        fail('Expected error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(VersionDetectionError);
+        expect(error.message).toContain('test-789');
+      }
     });
   });
 });
