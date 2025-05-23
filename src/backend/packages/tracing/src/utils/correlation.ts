@@ -1,164 +1,306 @@
 /**
- * Utility functions for correlating traces with logs and metrics.
- * Provides methods to extract trace and span IDs from the current context
- * and enrich log objects with tracing information.
+ * @file correlation.ts
+ * @description Utility functions for correlating traces with logs and metrics, enabling unified observability across the application.
  */
-import { context, trace, SpanContext, SpanStatusCode } from '@opentelemetry/api';
+
+import { Context, SpanContext, SpanKind, trace } from '@opentelemetry/api';
+import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 
 /**
- * Interface for correlation information extracted from the current trace context
+ * Interface for log context enrichment with trace information
  */
-export interface TraceCorrelation {
-  traceId: string;
-  spanId: string;
-  traceFlags?: number;
-  isRemote?: boolean;
-  traceState?: string;
-}
-
-/**
- * Interface for log object enrichment with trace information
- */
-export interface EnrichedLogContext {
+export interface TraceLogContext {
   'trace.id': string;
   'span.id': string;
+  'trace.sampled': boolean;
   'trace.flags'?: number;
-  'trace.remote'?: boolean;
-  'trace.state'?: string;
 }
 
 /**
- * Extracts trace correlation information from the current active context
- * @returns TraceCorrelation object containing trace and span IDs, or undefined if no active span
+ * Interface for metric correlation with trace information
  */
-export function getTraceCorrelation(): TraceCorrelation | undefined {
+export interface TraceMetricContext {
+  'trace.id': string;
+  'span.id': string;
+  'trace.sampled': boolean;
+}
+
+/**
+ * Interface for external system correlation
+ */
+export interface ExternalCorrelationContext {
+  traceId: string;
+  spanId: string;
+  traceFlags: number;
+  isRemote?: boolean;
+}
+
+/**
+ * Extracts the current trace and span IDs from the active context
+ * @returns Object containing trace ID and span ID, or undefined if no active span
+ */
+export function extractCurrentTraceInfo(): TraceLogContext | undefined {
   const activeSpan = trace.getActiveSpan();
   if (!activeSpan) {
     return undefined;
   }
 
   const spanContext = activeSpan.spanContext();
-  if (!spanContext.traceId || !spanContext.spanId) {
+  if (!spanContext) {
     return undefined;
   }
 
   return {
-    traceId: spanContext.traceId,
-    spanId: spanContext.spanId,
-    traceFlags: spanContext.traceFlags,
-    isRemote: spanContext.isRemote,
-    traceState: spanContext.traceState?.toString(),
+    'trace.id': spanContext.traceId,
+    'span.id': spanContext.spanId,
+    'trace.sampled': (spanContext.traceFlags & 0x1) === 0x1,
+    'trace.flags': spanContext.traceFlags,
   };
 }
 
 /**
- * Extracts trace correlation information from the current context
- * @returns TraceCorrelation object containing trace and span IDs, or undefined if no active span
+ * Extracts trace information from a specific context
+ * @param context The context to extract trace information from
+ * @returns Object containing trace ID and span ID, or undefined if no span in context
  */
-export function getTraceCorrelationFromContext(): TraceCorrelation | undefined {
-  const currentContext = context.active();
-  const currentSpan = trace.getSpan(currentContext);
-  
-  if (!currentSpan) {
-    return undefined;
-  }
-
-  const spanContext = currentSpan.spanContext();
-  if (!spanContext.traceId || !spanContext.spanId) {
+export function extractTraceInfoFromContext(context: Context): TraceLogContext | undefined {
+  const spanContext = trace.getSpanContext(context);
+  if (!spanContext) {
     return undefined;
   }
 
   return {
-    traceId: spanContext.traceId,
-    spanId: spanContext.spanId,
-    traceFlags: spanContext.traceFlags,
-    isRemote: spanContext.isRemote,
-    traceState: spanContext.traceState?.toString(),
+    'trace.id': spanContext.traceId,
+    'span.id': spanContext.spanId,
+    'trace.sampled': (spanContext.traceFlags & 0x1) === 0x1,
+    'trace.flags': spanContext.traceFlags,
   };
 }
 
 /**
- * Enriches a log object with trace correlation information
+ * Enriches a log object with trace information from the current active span
  * @param logObject The log object to enrich
- * @returns The enriched log object with trace information, or the original if no active span
+ * @returns The enriched log object with trace context
  */
-export function enrichLogWithTraceInfo<T extends Record<string, any>>(logObject: T): T & Partial<EnrichedLogContext> {
-  const correlation = getTraceCorrelation();
-  if (!correlation) {
-    return logObject;
+export function enrichLogWithTraceInfo<T extends Record<string, any>>(logObject: T): T & TraceLogContext {
+  const traceInfo = extractCurrentTraceInfo();
+  if (!traceInfo) {
+    return logObject as T & TraceLogContext;
   }
 
   return {
     ...logObject,
-    'trace.id': correlation.traceId,
-    'span.id': correlation.spanId,
-    ...(correlation.traceFlags !== undefined && { 'trace.flags': correlation.traceFlags }),
-    ...(correlation.isRemote !== undefined && { 'trace.remote': correlation.isRemote }),
-    ...(correlation.traceState && { 'trace.state': correlation.traceState }),
+    ...traceInfo,
   };
 }
 
 /**
- * Creates a correlation object for external systems using W3C trace context format
- * @returns Object with traceparent and tracestate headers, or undefined if no active span
+ * Enriches a log object with trace information from a specific context
+ * @param logObject The log object to enrich
+ * @param context The context containing the trace information
+ * @returns The enriched log object with trace context
  */
-export function createExternalCorrelationHeaders(): Record<string, string> | undefined {
-  const correlation = getTraceCorrelation();
-  if (!correlation) {
+export function enrichLogWithTraceInfoFromContext<T extends Record<string, any>>(
+  logObject: T,
+  context: Context
+): T & TraceLogContext {
+  const traceInfo = extractTraceInfoFromContext(context);
+  if (!traceInfo) {
+    return logObject as T & TraceLogContext;
+  }
+
+  return {
+    ...logObject,
+    ...traceInfo,
+  };
+}
+
+/**
+ * Creates a correlation object for external systems using the current active span
+ * @returns Correlation object for external systems, or undefined if no active span
+ */
+export function createExternalCorrelationContext(): ExternalCorrelationContext | undefined {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
     return undefined;
   }
 
-  // Format according to W3C Trace Context specification
-  // traceparent: 00-<trace-id>-<span-id>-<trace-flags>
-  const traceFlags = (correlation.traceFlags || 0).toString(16).padStart(2, '0');
-  const traceparent = `00-${correlation.traceId}-${correlation.spanId}-${traceFlags}`;
+  const spanContext = activeSpan.spanContext();
+  if (!spanContext) {
+    return undefined;
+  }
+
+  return {
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags,
+    isRemote: false,
+  };
+}
+
+/**
+ * Creates a correlation object for external systems from a specific context
+ * @param context The context to extract trace information from
+ * @returns Correlation object for external systems, or undefined if no span in context
+ */
+export function createExternalCorrelationContextFromContext(
+  context: Context
+): ExternalCorrelationContext | undefined {
+  const spanContext = trace.getSpanContext(context);
+  if (!spanContext) {
+    return undefined;
+  }
+
+  return {
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags,
+    isRemote: false,
+  };
+}
+
+/**
+ * Creates a correlation object for metrics using the current active span
+ * @returns Correlation object for metrics, or undefined if no active span
+ */
+export function createMetricCorrelationContext(): TraceMetricContext | undefined {
+  const traceInfo = extractCurrentTraceInfo();
+  if (!traceInfo) {
+    return undefined;
+  }
+
+  return {
+    'trace.id': traceInfo['trace.id'],
+    'span.id': traceInfo['span.id'],
+    'trace.sampled': traceInfo['trace.sampled'],
+  };
+}
+
+/**
+ * Creates a correlation object for metrics from a specific context
+ * @param context The context to extract trace information from
+ * @returns Correlation object for metrics, or undefined if no span in context
+ */
+export function createMetricCorrelationContextFromContext(
+  context: Context
+): TraceMetricContext | undefined {
+  const traceInfo = extractTraceInfoFromContext(context);
+  if (!traceInfo) {
+    return undefined;
+  }
+
+  return {
+    'trace.id': traceInfo['trace.id'],
+    'span.id': traceInfo['span.id'],
+    'trace.sampled': traceInfo['trace.sampled'],
+  };
+}
+
+/**
+ * Extracts W3C trace context headers from the current active span
+ * @returns Object containing W3C trace context headers, or undefined if no active span
+ */
+export function extractW3CTraceContextHeaders(): Record<string, string> | undefined {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
+    return undefined;
+  }
+
+  const spanContext = activeSpan.spanContext();
+  if (!spanContext) {
+    return undefined;
+  }
+
+  // Format: 00-<trace-id>-<span-id>-<trace-flags>
+  const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-0${(spanContext.traceFlags & 0x1).toString(16)}`;
   
   const headers: Record<string, string> = {
     traceparent,
   };
 
-  if (correlation.traceState) {
-    headers.tracestate = correlation.traceState;
+  // Add tracestate if available
+  if (spanContext.traceState) {
+    headers.tracestate = spanContext.traceState.serialize();
   }
 
   return headers;
 }
 
 /**
- * Creates a correlation object for metrics, allowing traces to be correlated with metrics
- * @returns Object with trace and span IDs for metrics correlation, or empty object if no active span
+ * Adds journey-specific attributes to the current active span
+ * @param journeyType The type of journey (health, care, plan)
+ * @param journeyId The ID of the journey
+ * @param attributes Additional attributes to add
  */
-export function createMetricsCorrelation(): Record<string, string> {
-  const correlation = getTraceCorrelation();
-  if (!correlation) {
-    return {};
+export function addJourneyAttributesToSpan(
+  journeyType: 'health' | 'care' | 'plan',
+  journeyId: string,
+  attributes: Record<string, string | number | boolean> = {}
+): void {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
+    return;
   }
 
-  return {
-    'trace_id': correlation.traceId,
-    'span_id': correlation.spanId,
-  };
+  activeSpan.setAttribute('journey.type', journeyType);
+  activeSpan.setAttribute('journey.id', journeyId);
+  
+  // Add all additional attributes
+  Object.entries(attributes).forEach(([key, value]) => {
+    activeSpan.setAttribute(`journey.${key}`, value);
+  });
 }
 
 /**
- * Extracts trace correlation information from a span context
- * @param spanContext The span context to extract information from
- * @returns TraceCorrelation object containing trace and span IDs
+ * Creates a correlation ID for use in logs and metrics
+ * @returns A unique correlation ID
  */
-export function getTraceCorrelationFromSpanContext(spanContext: SpanContext): TraceCorrelation {
-  return {
-    traceId: spanContext.traceId,
-    spanId: spanContext.spanId,
-    traceFlags: spanContext.traceFlags,
-    isRemote: spanContext.isRemote,
-    traceState: spanContext.traceState?.toString(),
-  };
+export function generateCorrelationId(): string {
+  return `corr-${Math.random().toString(36).substring(2, 15)}-${Date.now().toString(36)}`;
 }
 
 /**
- * Determines if the current context has an active trace
- * @returns true if there is an active trace, false otherwise
+ * Checks if a log object has trace context
+ * @param logObject The log object to check
+ * @returns True if the log object has trace context, false otherwise
  */
-export function hasActiveTrace(): boolean {
-  return getTraceCorrelation() !== undefined;
+export function hasTraceContext(logObject: Record<string, any>): boolean {
+  return (
+    typeof logObject['trace.id'] === 'string' &&
+    typeof logObject['span.id'] === 'string' &&
+    typeof logObject['trace.sampled'] === 'boolean'
+  );
+}
+
+/**
+ * Formats a trace ID for display (with dashes for readability)
+ * @param traceId The trace ID to format
+ * @returns The formatted trace ID
+ */
+export function formatTraceId(traceId: string): string {
+  if (traceId.length !== 32) {
+    return traceId;
+  }
+  
+  // Format as 8-4-4-4-12 for readability
+  return `${traceId.substring(0, 8)}-${traceId.substring(8, 12)}-${traceId.substring(12, 16)}-${traceId.substring(16, 20)}-${traceId.substring(20)}`;
+}
+
+/**
+ * Creates a URL to view a trace in a tracing backend
+ * @param traceId The trace ID to create a URL for
+ * @param backend The tracing backend to use (default: 'datadog')
+ * @returns The URL to view the trace
+ */
+export function createTraceViewUrl(traceId: string, backend: 'datadog' | 'jaeger' | 'zipkin' = 'datadog'): string {
+  switch (backend) {
+    case 'datadog':
+      return `https://app.datadoghq.com/apm/trace/${traceId}`;
+    case 'jaeger':
+      return `http://localhost:16686/trace/${traceId}`;
+    case 'zipkin':
+      return `http://localhost:9411/zipkin/traces/${traceId}`;
+    default:
+      return `trace:${traceId}`;
+  }
 }
